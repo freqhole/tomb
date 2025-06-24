@@ -184,15 +184,15 @@ Design the core job structure that will handle different types of thumbnail gene
 
 - **2.4** Implement image thumbnail generation using imagemagick
 
-Use the configurable `convert` command to resize images to 100x100px thumbnails and convert to WebP format for efficiency. Include configuration validation and graceful fallbacks when imagemagick is not available.
+Use the configurable `magick` command to resize images to 300x300px thumbnails at quality 70 and convert to WebP format for efficiency. Include configuration validation and graceful fallbacks when imagemagick is not available.
 
 - **2.5** Implement video frame extraction using ffmpeg
 
-Use configurable ffmpeg to extract frames from video files at specific timestamps (e.g., 1 second in) and resize them to 100x100px thumbnail dimensions. Include configuration validation and graceful fallbacks when ffmpeg is not available.
+Use configurable ffmpeg to extract frames from video files at specific timestamps (e.g., 1 second in) and resize them to 300x300px thumbnail dimensions. Include configuration validation and graceful fallbacks when ffmpeg is not available.
 
 - **2.6** Implement audio waveform generation using ffmpeg
 
-Use configurable ffmpeg's `showwavespic` filter to generate 100x100px visual waveform representations of audio files as thumbnail images. Include configuration validation and graceful fallbacks when ffmpeg is not available.
+Use configurable ffmpeg's `showwavespic` filter to generate 500x100px visual waveform representations of audio files as thumbnail images with white color for CSS styling flexibility. Include configuration validation and graceful fallbacks when ffmpeg is not available.
 
 - **2.7** Add job worker startup logic to main server process
 
@@ -569,7 +569,7 @@ Test various failure scenarios and ensure graceful recovery and error handling.
 
 - **F.1** Add support for multiple thumbnail sizes
 
-Allow configuration of additional thumbnail sizes beyond the initial 100x100px thumbnail (e.g., 300x300, 600x600 for different use cases).
+Allow configuration of additional thumbnail sizes beyond the initial 300x300px thumbnail (e.g., 600x600, 150x150 for different use cases).
 
 - **F.2** Implement thumbnail caching and CDN integration
 
@@ -741,21 +741,46 @@ CREATE INDEX idx_media_blobs_type ON media_blobs(blob_type);
 -- 5. Set up automatic partition creation via cron or triggers
 ```
 
--- Trigger to update timestamp and version on changes (explicit UTC)
-CREATE OR REPLACE FUNCTION update_media_files_metadata() RETURNS TRIGGER AS $$
+-- Trigger to update timestamp on changes (explicit UTC)
+CREATE OR REPLACE FUNCTION update_updated_at() RETURNS TRIGGER AS $$
 BEGIN
 NEW.updated_at = NOW() AT TIME ZONE 'UTC';
-NEW.version = txid_current();
 RETURN NEW;
 END;
 
 $$
 LANGUAGE plpgsql;
 
-CREATE TRIGGER media_files_metadata
-    BEFORE UPDATE ON media_files
+-- Apply triggers to all domain tables
+CREATE TRIGGER songs_updated_at
+    BEFORE UPDATE ON songs
     FOR EACH ROW
-    EXECUTE FUNCTION update_media_files_metadata();
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER photos_updated_at
+    BEFORE UPDATE ON photos
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER videos_updated_at
+    BEFORE UPDATE ON videos
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER books_updated_at
+    BEFORE UPDATE ON books
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER documents_updated_at
+    BEFORE UPDATE ON documents
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER playlists_updated_at
+    BEFORE UPDATE ON playlists
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
 ```
 
 ### Domain Tables Integration
@@ -766,64 +791,208 @@ Domain-specific tables will reference media_blobs directly:
 -- Music domain (Phase 1 focus)
 CREATE TABLE songs (
   id UUID PRIMARY KEY,
-  media_blob_id UUID REFERENCES media_blobs(id),
-  title TEXT,
+  media_blob_id UUID NOT NULL REFERENCES media_blobs(id),  -- The actual audio file
+  thumbnail_blob_id UUID REFERENCES media_blobs(id),       -- Album art/thumbnail
+  waveform_blob_id UUID REFERENCES media_blobs(id),        -- Audio waveform visualization
+  title TEXT NOT NULL,
   artist TEXT,
   album TEXT,
+  album_artist TEXT,        -- Different from track artist
   track_number INTEGER,
+  disc_number INTEGER,      -- For multi-disc albums
   duration INTERVAL,
   genre TEXT,
-  year INTEGER
+  year INTEGER,
+  bpm INTEGER,              -- Beats per minute
+  key_signature TEXT,       -- Musical key
+  rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+  is_favorite BOOLEAN DEFAULT false,
+  tags TEXT[],              -- User tags
+  metadata JSONB,           -- Extended metadata (lyrics, mood, etc.)
+  deleted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Photo domain
 CREATE TABLE photos (
   id UUID PRIMARY KEY,
-  media_blob_id UUID REFERENCES media_blobs(id),
+  media_blob_id UUID NOT NULL REFERENCES media_blobs(id),  -- The actual photo file
+  thumbnail_blob_id UUID REFERENCES media_blobs(id),       -- Photo thumbnail
+  title TEXT,
   caption TEXT,
-  location TEXT,
-  camera_metadata JSONB,
-  taken_at TIMESTAMPTZ
+  alt_text TEXT,            -- For accessibility
+  location TEXT,            -- Human-readable location
+  latitude DECIMAL(10,8),   -- GPS coordinates
+  longitude DECIMAL(11,8),
+  taken_at TIMESTAMPTZ,
+  camera_make TEXT,
+  camera_model TEXT,
+  lens_info TEXT,
+  focal_length INTEGER,     -- in mm
+  aperture DECIMAL(3,1),    -- f-stop
+  shutter_speed TEXT,       -- e.g., "1/60"
+  iso INTEGER,
+  flash_used BOOLEAN,
+  orientation INTEGER,      -- EXIF orientation
+  width_px INTEGER,
+  height_px INTEGER,
+  color_space TEXT,
+  rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+  is_favorite BOOLEAN DEFAULT false,
+  tags TEXT[],              -- User tags
+  metadata JSONB,           -- Extended EXIF, face detection, etc.
+  deleted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Video domain
 CREATE TABLE videos (
   id UUID PRIMARY KEY,
-  media_blob_id UUID REFERENCES media_blobs(id),
-  title TEXT,
+  media_blob_id UUID NOT NULL REFERENCES media_blobs(id),  -- The actual video file
+  thumbnail_blob_id UUID REFERENCES media_blobs(id),       -- Video thumbnail/poster
+  title TEXT NOT NULL,
   description TEXT,
   duration INTERVAL,
-  resolution TEXT,
-  codec TEXT
+  width_px INTEGER,
+  height_px INTEGER,
+  fps DECIMAL(5,2),         -- Frame rate
+  bitrate INTEGER,          -- kbps
+  video_codec TEXT,
+  audio_codec TEXT,
+  container_format TEXT,    -- mp4, mkv, webm, etc.
+  is_hdr BOOLEAN DEFAULT false,
+  color_profile TEXT,
+  audio_channels INTEGER,   -- Stereo = 2, 5.1 = 6, etc.
+  audio_sample_rate INTEGER, -- 44100, 48000, etc.
+  subtitles_available BOOLEAN DEFAULT false,
+  watch_progress INTERVAL,  -- How far user has watched
+  rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+  is_favorite BOOLEAN DEFAULT false,
+  tags TEXT[],
+  metadata JSONB,           -- Chapters, subtitles, streams info, etc.
+  deleted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Books domain (Future Phase)
 CREATE TABLE books (
   id UUID PRIMARY KEY,
-  media_blob_id UUID REFERENCES media_blobs(id),
-  title TEXT,
+  media_blob_id UUID NOT NULL REFERENCES media_blobs(id),  -- The actual book file (PDF, EPUB, etc.)
+  thumbnail_blob_id UUID REFERENCES media_blobs(id),       -- Book cover thumbnail
+  title TEXT NOT NULL,
   author TEXT,
-  isbn TEXT,
+  isbn TEXT UNIQUE,
+  isbn13 TEXT UNIQUE,
   publisher TEXT,
   published_date DATE,
+  language TEXT,
   page_count INTEGER,
-  format TEXT, -- 'pdf', 'epub', 'mobi', etc.
-  metadata JSONB -- Table of contents, chapters, bookmarks, etc.
+  word_count INTEGER,
+  format TEXT,              -- 'pdf', 'epub', 'mobi', etc.
+  series_name TEXT,
+  series_number INTEGER,
+  reading_progress DECIMAL(5,2), -- Percentage read
+  rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+  is_favorite BOOLEAN DEFAULT false,
+  tags TEXT[],
+  notes TEXT,               -- User reading notes
+  bookmarks JSONB,          -- Array of bookmark positions
+  highlights JSONB,         -- Text highlights with positions
+  metadata JSONB,           -- Table of contents, DRM info, etc.
+  deleted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Documents domain (Future Phase)
 CREATE TABLE documents (
   id UUID PRIMARY KEY,
-  media_blob_id UUID REFERENCES media_blobs(id),
-  title TEXT,
-  content_type TEXT, -- 'html', 'markdown', 'text'
-  tags TEXT[],
+  media_blob_id UUID NOT NULL REFERENCES media_blobs(id),  -- The actual document content (HTML, Markdown blob)
+  thumbnail_blob_id UUID REFERENCES media_blobs(id),       -- Document preview thumbnail
+  title TEXT NOT NULL,
+  content_type TEXT,        -- 'html', 'markdown', 'text'
+  word_count INTEGER,
+  character_count INTEGER,
+  language TEXT,
   folder_path TEXT,
+  tags TEXT[],
   is_published BOOLEAN DEFAULT false,
   published_at TIMESTAMPTZ,
   version INTEGER DEFAULT 1,
-  metadata JSONB -- Editor preferences, formatting, etc.
+  parent_document_id UUID REFERENCES documents(id), -- For versioning
+  author_notes TEXT,
+  collaborators UUID[],     -- Array of user IDs
+  last_edited_by UUID REFERENCES users(id),
+  edit_count INTEGER DEFAULT 0,
+  is_template BOOLEAN DEFAULT false,
+  template_category TEXT,
+  metadata JSONB,           -- Editor preferences, formatting, etc.
+  deleted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Playlists domain
+CREATE TABLE playlists (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  media_blob_id UUID REFERENCES media_blobs(id),          -- The actual playlist file (if exported/imported)
+  thumbnail_blob_id UUID REFERENCES media_blobs(id),      -- Playlist cover art/thumbnail
+  title TEXT NOT NULL,
+  description TEXT,
+  client_id TEXT,           -- Client that created this playlist
+  is_public BOOLEAN DEFAULT false,
+  is_collaborative BOOLEAN DEFAULT false,
+  metadata JSONB,           -- Playlist-specific metadata (mood, genre, etc.)
+  deleted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Playlist songs join table
+CREATE TABLE playlist_songs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  playlist_id UUID NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+  song_id UUID NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,  -- Order within playlist
+  added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  added_by_client_id TEXT,    -- Which client added this song
+
+  UNIQUE(playlist_id, song_id),
+  UNIQUE(playlist_id, position)
+);
+
+-- Analytics tracked separately (integrates with existing analytics system)
+CREATE TABLE media_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  media_blob_id UUID NOT NULL REFERENCES media_blobs(id),
+  user_id UUID REFERENCES users(id),
+  event_type VARCHAR(50) NOT NULL, -- 'play', 'pause', 'seek', 'complete', 'favorite', 'rate'
+  event_data JSONB,                -- {"position": "00:02:30", "rating": 5, "progress": 0.75}
+  session_id UUID,                 -- Group related events
+  user_agent TEXT,
+  ip_address INET,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Indexes for analytics
+CREATE INDEX idx_media_events_blob_id ON media_events(media_blob_id);
+CREATE INDEX idx_media_events_user_id ON media_events(user_id);
+CREATE INDEX idx_media_events_type ON media_events(event_type);
+CREATE INDEX idx_media_events_created_at ON media_events(created_at);
+
+-- View for common analytics queries
+CREATE VIEW media_analytics AS
+SELECT
+  media_blob_id,
+  COUNT(*) FILTER (WHERE event_type = 'play') as play_count,
+  MAX(created_at) FILTER (WHERE event_type = 'play') as last_played_at,
+  AVG((event_data->>'rating')::INTEGER) FILTER (WHERE event_type = 'rate') as avg_rating,
+  COUNT(DISTINCT user_id) as unique_users
+FROM media_events
+GROUP BY media_blob_id;
 ```
 
 ### Benefits of This Approach
@@ -910,7 +1079,8 @@ impl ThumbnailJob {
         let output = Command::new(&config.imagemagick.binary_path)
             .args([
                 &input_path,
-                "-resize", "100x100",
+                "-resize", "300x300",
+                "-quality", "70",
                 "-format", "webp",
                 &output_path
             ])
@@ -949,7 +1119,7 @@ impl ThumbnailJob {
                 "-i", &input_path,
                 "-ss", "00:00:01",          // Seek to 1 second
                 "-vframes", "1",            // Extract 1 frame
-                "-vf", "scale=100:100",
+                "-vf", "scale=300:300",
                 "-f", "webp",
                 &output_path
             ])
@@ -978,7 +1148,7 @@ impl ThumbnailJob {
         let output = Command::new(&config.ffmpeg.binary_path)
             .args([
                 "-i", &input_path,
-                "-filter_complex", "showwavespic=s=100x100:colors=blue",
+                "-filter_complex", "showwavespic=s=500x100:colors=white",
                 "-frames:v", "1",
                 "-f", "webp",
                 &output_path
@@ -1026,7 +1196,7 @@ impl Default for ExternalToolsConfig {
         Self {
             imagemagick: ToolConfig {
                 enabled: true,
-                binary_path: "convert".to_string(),
+                binary_path: "magick".to_string(),
                 timeout_seconds: 30,
             },
             ffmpeg: ToolConfig {
