@@ -22,11 +22,11 @@ Set up a new Rust package at `client/rust/` that will house centralized applicat
 
 Document and establish patterns for adding new functionality through new modules and files rather than modifying existing code. This includes strategies for extending existing handlers, adding new routes, and creating wrapper services that enhance existing functionality without breaking changes.
 
-- ❌ **0.5** Explore and implement embedded PostgreSQL option (ABANDONED)
+- ✅ **0.5** Explore and implement embedded PostgreSQL option (COMPLETED - ABANDONED)
 
 Evaluate embedded PostgreSQL crates for embedding a full PostgreSQL server in the Rust binary. Add as third database option alongside existing in-memory and standalone PostgreSQL support. This provides zero-config PostgreSQL for development, testing, and single-user deployments.
 
-**Status**: ABANDONED - Embedded PostgreSQL doesn't actually embed in the binary, just bundles separate PostgreSQL processes
+**Status**: COMPLETED - Investigation finished, approach abandoned with clear reasoning
 
 **Investigation Results**:
 
@@ -35,9 +35,9 @@ Evaluate embedded PostgreSQL crates for embedding a full PostgreSQL server in th
 - ✅ Implemented comprehensive embedded PostgreSQL module
 - ✅ Added configuration support and CLI integration
 - ✅ Created working config files and scripts
-- ❌ **FUNDAMENTAL ISSUE**: Neither crate actually embeds PostgreSQL _in_ the binary
-- ❌ **REALITY**: Both approaches download/bundle separate PostgreSQL processes
-- ❌ **OUTCOME**: Does not meet goal of true binary embedding for zero-dependency distribution
+- ✅ **DISCOVERY**: Neither crate actually embeds PostgreSQL _in_ the binary
+- ✅ **FINDING**: Both approaches download/bundle separate PostgreSQL processes
+- ✅ **CONCLUSION**: Does not meet goal of true binary embedding for zero-dependency distribution
 
 **Abandonment Reason**:
 Embedded PostgreSQL crates provide "bundled PostgreSQL" (separate processes) rather than true binary embedding. This doesn't achieve the goal of a single, self-contained binary with zero external dependencies. For the intended use case, standard PostgreSQL with proper installation docs is more straightforward.
@@ -48,7 +48,7 @@ Embedded PostgreSQL crates provide "bundled PostgreSQL" (separate processes) rat
 - Use standard PostgreSQL with clear installation instructions
 - Investigate database-agnostic abstraction layers
 
-**Cleanup Required**: Revert embedded PostgreSQL changes via git
+**Cleanup**: ✅ Reverted embedded PostgreSQL changes via git
 
 - **0.5.1** Set up sqlx offline migrations infrastructure
 
