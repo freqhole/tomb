@@ -49,79 +49,75 @@ client/rust/
 
 **Phase Overview:** Core database architecture for thumbnail system using hybrid file storage.
 
-**Scope:** Database schema, table relationships, API endpoints, client integration.
+**Scope:** Database schema, table relationships, API endpoints, client integration. Keep partitioning simple for now.
 
 **Goals:**
 
-- Scalable database structure for thumbnail relationships
-- Domain-specific tables referencing media storage layer
+- Enhance media_blobs table with thumbnail relationships
+- Domain-specific tables referencing media_blobs directly
 - Update existing upload workflows
-- API access to thumbnail relationships
+- API access to enhanced media_blobs with thumbnails
 - Centralize domain logic in client/rust package
 - Soft delete infrastructure
 - Filesystem import capabilities
 - Secure media blob serving with proper access control
 - Remove filesystem path exposure from client APIs
 
-- **1.1** Create migration for `media_files` table with explicit thumbnail columns and time partitioning
+- **1.1** Create migration to enhance `media_blobs` table with thumbnail relationships
 
-Create database migration file for the core table that will store references to original media blobs and their generated thumbnails. This uses the hybrid file storage approach with explicit columns for different thumbnail types (small, medium, large). Include time-based partitioning strategy for performance at scale. See the Database Schema section below for the complete SQL.
+Create database migration file to enhance the existing media_blobs table with thumbnail relationship fields (parent_blob_id, blob_type). This eliminates the need for a separate media_files table while maintaining clean thumbnail relationships. Keep partitioning simple for now - can be added later when scaling is needed. See the Database Schema section below for the complete SQL.
 
 - **1.1.1** Run migrations and prepare sqlx offline queries
 
 Execute the migrations to create tables and run `sqlx prepare` to generate .sqlx files for compile-time query checking. This step ensures all subsequent tasks using sqlx::query! macros will compile successfully.
 
-- **1.1.2** Set up dynamic table name infrastructure for partitioning
+- **1.1.2** Design schema for future partitioning (optional)
 
-Implement database abstraction layer that can handle dynamic table names for time-based partitions (e.g., `media_files_2024_01`, `media_files_2024_02`). This affects repository implementations, query builders, and migration systems. Design with federation in mind - partitions can be federated across servers using PostgreSQL FDW.
-
-- **1.1.3** Design federation-ready partition strategy
-
-Plan partition naming and structure to support future federation scenarios. Each server can own specific time partitions, and PostgreSQL FDW can query remote partitions transparently. This enables distributed storage while maintaining unified query interface.
+Plan how partitioning could be added later when needed (10M+ rows). Consider yearly partitions or capacity-based triggers. Keep current implementation simple with regular indexes. Document partitioning strategy for future reference but don't implement yet.
 
 - **1.2** Create migration for version column and update triggers with partition support
 
-Create database migration to add version tracking infrastructure. Implement PostgreSQL triggers to automatically maintain both `updated_at` timestamps and `version` numbers when media_files records are modified. The version column uses `txid_current()` for reliable cursor-based pagination that will be implemented in Phase 4. Ensure triggers work correctly across partitioned tables.
+Create database migration to add version tracking infrastructure. Implement PostgreSQL triggers to automatically maintain both `updated_at` timestamps and `version` numbers when media_blobs records are modified. The version column uses `txid_current()` for reliable cursor-based pagination that will be implemented in Phase 4. Ensure triggers work correctly across partitioned tables.
 
 - **1.2.1** Create migration for soft delete columns
 
-Create database migration to add `deleted_at TIMESTAMPTZ` and `deleted_by UUID` columns to media_files and media_blobs tables. Create database views that filter out deleted records by default, allowing existing queries to work unchanged while providing access to deleted records when needed.
+Create database migration to add `deleted_at TIMESTAMPTZ` and `deleted_by UUID` columns to media_blobs table. Create database views that filter out deleted records by default, allowing existing queries to work unchanged while providing access to deleted records when needed.
 
-- **1.3** Create migrations for domain tables (songs, photos, videos) that reference media_files
+- **1.3** Create migrations for domain tables (songs, photos, videos) that reference media_blobs
 
-Create database migrations for domain-specific tables that will house records for particular media types. Each domain table references the media_files layer, creating clean separation between file storage and domain logic.
+Create database migrations for domain-specific tables that will house records for particular media types. Each domain table references media_blobs directly, creating clean separation between file storage and domain logic.
 
 - **1.3.1** Plan domain table structure for books and documents
 
-Design database schemas for future books domain (PDF, EPUB, etc.) and documents domain (HTML, Markdown stored as blobs). Ensure the media_files architecture can accommodate different storage patterns (books may have disk storage, documents typically in-database storage).
+Design database schemas for future books domain (PDF, EPUB, etc.) and documents domain (HTML, Markdown stored as blobs). Ensure the enhanced media_blobs architecture can accommodate different storage patterns (books may have disk storage, documents typically in-database storage).
 
 - **1.3.2** Run domain table migrations and update sqlx offline preparation
 
-Execute domain table migrations and run `sqlx prepare` to update .sqlx files with new table schemas. This ensures all repository code using sqlx::query! will have access to the new domain tables.
+Execute domain table migrations and run `sqlx prepare` to update .sqlx files with new table schemas. This ensures all repository code using sqlx::query! will have access to the enhanced media_blobs table and new domain tables.
 
-- **1.4** Update existing media_blob upload logic to create media_files records
+- **1.4** Update existing media_blob upload logic to set blob_type and relationships
 
-Modify the current upload handlers to create corresponding media_files records when new media_blobs are uploaded. This bridges the existing system with the new thumbnail architecture.
+Modify the current upload handlers to set appropriate blob_type ('original') when new media_blobs are uploaded. This bridges the existing system with the enhanced thumbnail architecture using the same table.
 
-- **1.5** Add API endpoints for querying media_files with thumbnail relationships
+- **1.5** Add API endpoints for querying media_blobs with thumbnail relationships
 
-Create REST endpoints that can efficiently query media_files along with their thumbnail relationships, handling the LEFT JOINs to media_blobs for thumbnail data.
+Create REST endpoints that can efficiently query media_blobs along with their thumbnail relationships, using parent_blob_id to find related thumbnails and original files.
 
-- **1.6** Update client-side MediaBlobManager to handle media_files structure
+- **1.6** Update client-side MediaBlobManager to handle enhanced media_blobs structure
 
-Enhance the existing MediaBlobManager to work with the new media_files structure and understand the explicit thumbnail relationships.
+Enhance the existing MediaBlobManager to work with the enhanced media_blobs structure and understand the parent_blob_id thumbnail relationships.
 
-- **1.12** Create MediaFileManager client library
+- **1.12** Enhance MediaBlobManager client library
 
-Develop a new MediaFileManager class in client/js that provides clean abstractions for working with media_files and their thumbnail relationships. This separates business logic from presentation logic in demos.
+Enhance the existing MediaBlobManager class in client/js to handle thumbnail relationships via parent_blob_id and blob_type fields. This separates business logic from presentation logic in demos.
 
 - **1.13** Create domain model classes for client-side
 
-Build TypeScript classes (MediaFile, Song, Photo, Video, Book, Document) that mirror the server-side domain models, providing type safety and encapsulation for client-side business logic.
+Build TypeScript classes (MediaBlob, Song, Photo, Video, Book, Document) that mirror the server-side domain models, providing type safety and encapsulation for client-side business logic.
 
-- **1.14** Update websocket demo to use new MediaFileManager
+- **1.14** Update websocket demo to use enhanced MediaBlobManager
 
-Refactor the existing websocket demo to use the new MediaFileManager abstractions rather than direct API calls, focusing the demo on presentation logic and UI state management.
+Refactor the existing websocket demo to use the enhanced MediaBlobManager abstractions with thumbnail support rather than direct API calls, focusing the demo on presentation logic and UI state management.
 
 - **1.15** Remove client-side URL construction for media blobs
 
@@ -129,7 +125,7 @@ Remove all client-side URL construction logic from MediaBlobManager and other cl
 
 - **1.7** Create domain models and repositories in client/rust package
 
-Define core domain models (MediaFile, Song, Photo, Video, Book, Document) and repository traits in the client/rust package. These will provide type-safe abstractions over the database layer and can be used by all consumers.
+Define core domain models (MediaBlob, Song, Photo, Video, Book, Document) and repository traits in the client/rust package. These will provide type-safe abstractions over the database layer and can be used by all consumers.
 
 - **1.8** Create new upload handlers using domain layer (preserve existing)
 
@@ -153,7 +149,7 @@ Implement a SoftDeleteService in client/rust that handles marking records as del
 
 - **1.10** Create media import service in domain layer
 
-Build a MediaImportService in client/rust that handles importing files from the filesystem, including duplicate detection via SHA256, MIME type detection, and creation of appropriate domain records (songs, photos, videos).
+Build a MediaImportService in client/rust that handles importing files from the filesystem, including duplicate detection via SHA256, MIME type detection, blob_type setting, and creation of appropriate domain records (songs, photos, videos).
 
 - **1.11** Add CLI command for filesystem media import
 
@@ -188,15 +184,15 @@ Design the core job structure that will handle different types of thumbnail gene
 
 - **2.4** Implement image thumbnail generation using imagemagick
 
-Use the configurable `convert` command to resize images to different thumbnail sizes (100x100, 300x300, 600x600) and convert to WebP format for efficiency. Include configuration validation and graceful fallbacks when imagemagick is not available.
+Use the configurable `convert` command to resize images to 100x100px thumbnails and convert to WebP format for efficiency. Include configuration validation and graceful fallbacks when imagemagick is not available.
 
 - **2.5** Implement video frame extraction using ffmpeg
 
-Use configurable ffmpeg to extract frames from video files at specific timestamps (e.g., 1 second in) and resize them to thumbnail dimensions. Include configuration validation and graceful fallbacks when ffmpeg is not available.
+Use configurable ffmpeg to extract frames from video files at specific timestamps (e.g., 1 second in) and resize them to 100x100px thumbnail dimensions. Include configuration validation and graceful fallbacks when ffmpeg is not available.
 
 - **2.6** Implement audio waveform generation using ffmpeg
 
-Use configurable ffmpeg's `showwavespic` filter to generate visual waveform representations of audio files as thumbnail images. Include configuration validation and graceful fallbacks when ffmpeg is not available.
+Use configurable ffmpeg's `showwavespic` filter to generate 100x100px visual waveform representations of audio files as thumbnail images. Include configuration validation and graceful fallbacks when ffmpeg is not available.
 
 - **2.7** Add job worker startup logic to main server process
 
@@ -210,9 +206,9 @@ Automatically enqueue thumbnail generation jobs when new media blobs are uploade
 
 Implement robust error handling with exponential backoff and maximum retry limits for thumbnail generation failures.
 
-- **2.10** Update media_files records when thumbnails are generated
+- **2.10** Update media_blobs records when thumbnails are generated
 
-Store references to generated thumbnail blobs in the appropriate media_files columns when jobs complete successfully.
+Create new media_blob records for generated thumbnails with appropriate parent_blob_id and blob_type when jobs complete successfully.
 
 - **2.11** Create thumbnail service in client/rust package
 
@@ -571,9 +567,9 @@ Test various failure scenarios and ensure graceful recovery and error handling.
 - Foundation for future media management features
 - Easy development of additional client applications
 
-- **F.1** Add support for additional thumbnail sizes dynamically
+- **F.1** Add support for multiple thumbnail sizes
 
-Allow configuration of custom thumbnail sizes beyond the initial small/medium/large options.
+Allow configuration of additional thumbnail sizes beyond the initial 100x100px thumbnail (e.g., 300x300, 600x600 for different use cases).
 
 - **F.2** Implement thumbnail caching and CDN integration
 
@@ -702,102 +698,59 @@ The media blob system will be enhanced with the following capabilities:
 - Cursor-based pagination for efficient client synchronization
 - Extensible domain architecture supporting music, photos, videos, books, and documents
 - Clean separation between file storage and domain-specific business logic
-- Time-based table partitioning for performance and federation readiness
+- Schema designed for future partitioning when scaling is needed
 - Future federation capabilities using PostgreSQL Foreign Data Wrappers (FDW)
 
-## 1. Thumbnail Storage Architecture (Tasks 1.1-1.6, 1.8.1-1.8.3)
+## 1. Enhanced Media Blobs Architecture (Tasks 1.1-1.6, 1.8.1-1.8.3)
 
 ### Database Schema
 
-We'll use a hybrid file storage approach with explicit columns for different thumbnail types:
+We'll enhance the existing media_blobs table with thumbnail relationships:
 
 ```sql
-CREATE TABLE media_files (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  original_blob_id UUID NOT NULL REFERENCES media_blobs(id),
-
-  -- Common thumbnails as explicit columns
-  thumbnail_small_blob_id UUID REFERENCES media_blobs(id),   -- 100x100px
-  thumbnail_medium_blob_id UUID REFERENCES media_blobs(id),  -- 300x300px
-  thumbnail_large_blob_id UUID REFERENCES media_blobs(id),   -- 600x600px
-
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  version BIGINT NOT NULL DEFAULT txid_current(),
-
-  -- Soft delete support
-  deleted_at TIMESTAMPTZ,
-  deleted_by UUID REFERENCES users(id)
-) PARTITION BY RANGE (created_at);
+-- Enhanced media_blobs table with thumbnail relationships
+ALTER TABLE media_blobs ADD COLUMN parent_blob_id UUID REFERENCES media_blobs(id);
+ALTER TABLE media_blobs ADD COLUMN blob_type VARCHAR(20) DEFAULT 'original';
+ALTER TABLE media_blobs ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE media_blobs ADD COLUMN version BIGINT NOT NULL DEFAULT txid_current();
+ALTER TABLE media_blobs ADD COLUMN deleted_at TIMESTAMPTZ;
+ALTER TABLE media_blobs ADD COLUMN deleted_by UUID REFERENCES users(id);
 
 -- Updated media_blobs table with secure local_path storage
 ALTER TABLE media_blobs ALTER COLUMN local_path TYPE TEXT;
 COMMENT ON COLUMN media_blobs.local_path IS 'Full filesystem path (absolute, starting with /). Never exposed to clients.';
-
--- Create initial partitions (monthly partitioning strategy)
-CREATE TABLE media_files_2024_01 PARTITION OF media_files
-    FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
-
-CREATE TABLE media_files_2024_02 PARTITION OF media_files
-    FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
-
--- Function to automatically create new partitions
-CREATE OR REPLACE FUNCTION create_monthly_partition(table_name text, start_date date)
-RETURNS void AS $$
-DECLARE
-    partition_name text;
-    end_date date;
-BEGIN
-    partition_name := table_name || '_' || to_char(start_date, 'YYYY_MM');
-    end_date := start_date + interval '1 month';
-
-    EXECUTE format('CREATE TABLE %I PARTITION OF %I
-                    FOR VALUES FROM (%L) TO (%L)',
-                   partition_name, table_name, start_date, end_date);
-
-    -- Create indexes on new partition
-    EXECUTE format('CREATE INDEX %I ON %I (version)',
-                   partition_name || '_version_idx', partition_name);
-    EXECUTE format('CREATE INDEX %I ON %I (deleted_at) WHERE deleted_at IS NULL',
-                   partition_name || '_active_idx', partition_name);
-
-    -- Add server origin column for federation support
-    EXECUTE format('ALTER TABLE %I ADD COLUMN IF NOT EXISTS origin_server_id UUID DEFAULT gen_random_uuid()',
-                   partition_name);
-    EXECUTE format('CREATE INDEX %I ON %I (origin_server_id)',
-                   partition_name || '_origin_idx', partition_name);
-END;
-$$ LANGUAGE plpgsql;
-
--- Example of federation setup using PostgreSQL FDW (Future Phase 9)
--- CREATE EXTENSION postgres_fdw;
--- CREATE SERVER remote_media_server
---     FOREIGN DATA WRAPPER postgres_fdw
---     OPTIONS (host 'remote-server.example.com', port '5432', dbname 'media_db');
---
--- CREATE FOREIGN TABLE remote_media_files_2024_01
---     PARTITION OF media_files
---     FOR VALUES FROM ('2024-01-01') TO ('2024-02-01')
---     SERVER remote_media_server
---     OPTIONS (schema_name 'public', table_name 'media_files_2024_01');
+COMMENT ON COLUMN media_blobs.parent_blob_id IS 'Points to parent blob for thumbnails. NULL for original files.';
+COMMENT ON COLUMN media_blobs.blob_type IS 'Type: original, thumbnail, etc.';
 
 -- View that filters out soft-deleted records (allows existing queries to work unchanged)
-CREATE VIEW active_media_files AS
-SELECT * FROM media_files WHERE deleted_at IS NULL;
+CREATE VIEW active_media_blobs AS
+SELECT * FROM media_blobs WHERE deleted_at IS NULL;
 
 -- Indexes for efficient querying
-CREATE INDEX idx_media_files_version ON media_files(version);
-CREATE INDEX idx_media_files_deleted_at ON media_files(deleted_at);
-CREATE INDEX idx_media_files_active ON media_files(deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_media_blobs_version ON media_blobs(version);
+CREATE INDEX idx_media_blobs_deleted_at ON media_blobs(deleted_at);
+CREATE INDEX idx_media_blobs_active ON media_blobs(deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_media_blobs_parent ON media_blobs(parent_blob_id);
+CREATE INDEX idx_media_blobs_type ON media_blobs(blob_type);
+
+-- Future partitioning strategy (implement when scaling is needed):
+-- 1. When table reaches 10M+ rows, consider yearly partitioning
+-- 2. ALTER TABLE media_blobs RENAME TO media_blobs_old;
+-- 3. CREATE TABLE media_blobs (...) PARTITION BY RANGE (created_at);
+-- 4. Create yearly partitions and migrate data
+-- 5. Set up automatic partition creation via cron or triggers
+```
 
 -- Trigger to update timestamp and version on changes (explicit UTC)
 CREATE OR REPLACE FUNCTION update_media_files_metadata() RETURNS TRIGGER AS $$
 BEGIN
-    NEW.updated_at = NOW() AT TIME ZONE 'UTC';
-    NEW.version = txid_current();
-    RETURN NEW;
+NEW.updated_at = NOW() AT TIME ZONE 'UTC';
+NEW.version = txid_current();
+RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+
+$$
+LANGUAGE plpgsql;
 
 CREATE TRIGGER media_files_metadata
     BEFORE UPDATE ON media_files
@@ -807,13 +760,13 @@ CREATE TRIGGER media_files_metadata
 
 ### Domain Tables Integration
 
-Domain-specific tables will reference the media_files layer:
+Domain-specific tables will reference media_blobs directly:
 
 ```sql
 -- Music domain (Phase 1 focus)
 CREATE TABLE songs (
   id UUID PRIMARY KEY,
-  media_file_id UUID REFERENCES media_files(id),
+  media_blob_id UUID REFERENCES media_blobs(id),
   title TEXT,
   artist TEXT,
   album TEXT,
@@ -826,7 +779,7 @@ CREATE TABLE songs (
 -- Photo domain
 CREATE TABLE photos (
   id UUID PRIMARY KEY,
-  media_file_id UUID REFERENCES media_files(id),
+  media_blob_id UUID REFERENCES media_blobs(id),
   caption TEXT,
   location TEXT,
   camera_metadata JSONB,
@@ -836,7 +789,7 @@ CREATE TABLE photos (
 -- Video domain
 CREATE TABLE videos (
   id UUID PRIMARY KEY,
-  media_file_id UUID REFERENCES media_files(id),
+  media_blob_id UUID REFERENCES media_blobs(id),
   title TEXT,
   description TEXT,
   duration INTERVAL,
@@ -847,7 +800,7 @@ CREATE TABLE videos (
 -- Books domain (Future Phase)
 CREATE TABLE books (
   id UUID PRIMARY KEY,
-  media_file_id UUID REFERENCES media_files(id),
+  media_blob_id UUID REFERENCES media_blobs(id),
   title TEXT,
   author TEXT,
   isbn TEXT,
@@ -861,7 +814,7 @@ CREATE TABLE books (
 -- Documents domain (Future Phase)
 CREATE TABLE documents (
   id UUID PRIMARY KEY,
-  media_file_id UUID REFERENCES media_files(id),
+  media_blob_id UUID REFERENCES media_blobs(id),
   title TEXT,
   content_type TEXT, -- 'html', 'markdown', 'text'
   tags TEXT[],
@@ -875,11 +828,11 @@ CREATE TABLE documents (
 
 ### Benefits of This Approach
 
-- **Explicit relationships**: Each thumbnail type has a clear, typed column
-- **Domain alignment**: Fits perfectly with planned domain tables
-- **Query simplicity**: Direct column access instead of complex JOINs
-- **Type safety**: Application knows exactly what thumbnails are available
-- **Efficient storage**: NULL columns in PostgreSQL have minimal overhead
+- **Simple relationships**: Thumbnails linked via parent_blob_id, eliminating extra tables
+- **Domain alignment**: Domain tables reference media_blobs directly
+- **Query simplicity**: Find thumbnails with WHERE parent_blob_id = ? AND blob_type = 'thumbnail_small'
+- **Type safety**: blob_type clearly identifies the purpose of each blob
+- **Efficient storage**: No redundant tables, everything in media_blobs
 - **Security**: Filesystem paths kept server-side, never exposed to clients
 - **Access control**: Dedicated API routes enable proper authentication and authorization
 
@@ -898,7 +851,10 @@ GET /api/blobs/{media_blob_id}
   "id": "uuid",
   "href": "http://localhost:8080/api/blobs/uuid",
   "mime": "image/jpeg",
-  "size": 1024000
+  "size": 1024000,
+  "blob_type": "original",
+  "parent_blob_id": null,
+  "thumbnail": {"id": "thumb_uuid", "blob_type": "thumbnail", "href": "..."}
   // local_path never included in client responses
 }
 ```
@@ -954,7 +910,7 @@ impl ThumbnailJob {
         let output = Command::new(&config.imagemagick.binary_path)
             .args([
                 &input_path,
-                "-resize", &format!("{}x{}", width, height),
+                "-resize", "100x100",
                 "-format", "webp",
                 &output_path
             ])
@@ -993,7 +949,7 @@ impl ThumbnailJob {
                 "-i", &input_path,
                 "-ss", "00:00:01",          // Seek to 1 second
                 "-vframes", "1",            // Extract 1 frame
-                "-vf", &format!("scale={}:{}", width, height),
+                "-vf", "scale=100:100",
                 "-f", "webp",
                 &output_path
             ])
@@ -1022,7 +978,7 @@ impl ThumbnailJob {
         let output = Command::new(&config.ffmpeg.binary_path)
             .args([
                 "-i", &input_path,
-                "-filter_complex", "showwavespic=s=300x100:colors=blue",
+                "-filter_complex", "showwavespic=s=100x100:colors=blue",
                 "-frames:v", "1",
                 "-f", "webp",
                 &output_path
@@ -1229,12 +1185,16 @@ websocket.addEventListener("message", (event) => {
 ALTER TABLE media_blobs ADD COLUMN version BIGINT NOT NULL DEFAULT txid_current();
 
 -- Update version on changes
-CREATE OR REPLACE FUNCTION update_version() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION update_version() RETURNS TRIGGER AS
+$$
+
 BEGIN
-    NEW.version = txid_current();
-    RETURN NEW;
+NEW.version = txid_current();
+RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+
+$$
+LANGUAGE plpgsql;
 
 CREATE TRIGGER media_blobs_version
     BEFORE INSERT OR UPDATE ON media_blobs
@@ -1352,12 +1312,16 @@ class MediaBlobSync {
 
 ```sql
 -- Notify clients when media_blobs change
-CREATE OR REPLACE FUNCTION notify_media_blob_sync() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION notify_media_blob_sync() RETURNS TRIGGER AS
+$$
+
 BEGIN
-    PERFORM pg_notify('media_blob_sync', 'changes_available');
-    RETURN NEW;
+PERFORM pg_notify('media_blob_sync', 'changes_available');
+RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+
+$$
+LANGUAGE plpgsql;
 
 CREATE TRIGGER notify_media_blob_sync
     AFTER INSERT OR UPDATE ON media_blobs
@@ -1437,8 +1401,7 @@ Tasks mention "package and distribute" (**6.6**) but:
 - Cursor pagination might be slow with very large datasets
 - WebSocket connection limits not addressed
 - **Missing:** Performance validation tasks
-- Partition management strategy not clearly defined
-- Dynamic table name handling affects all repository code
+- Future partitioning strategy documented but not implemented yet
 - Federation strategy needs careful planning for data consistency and conflict resolution
 - Cross-server authentication and authorization complexity not fully addressed
 - Media blob serving security model needs access control implementation
@@ -1487,3 +1450,4 @@ Lots of config mentioned but:
 🎯 2.1-2.7 (basic job queue + thumbnails)
 🎯 Simple demo showing thumbnails generating
 ```
+$$
