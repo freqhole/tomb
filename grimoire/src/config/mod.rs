@@ -7,7 +7,7 @@ pub mod app_config;
 pub mod service;
 
 // Re-export commonly used types
-pub use app_config::{AppConfig, ConfigError as AppConfigError};
+pub use app_config::{AppConfig, ConfigError as AppConfigError, MediaConfig, StorageBackend};
 pub use service::{
     ConfigDisplayFormat, ConfigError, ConfigGenerationOptions, ConfigService,
     ConfigValidationResult,

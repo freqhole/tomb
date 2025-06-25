@@ -11,7 +11,7 @@ use super::{
     auth_status, finish_authentication, finish_register, logout, start_authentication,
     start_register,
 };
-use crate::config::AppConfig;
+use grimoire::AppConfig;
 
 /// Build authentication and registration routes
 pub fn build_auth_routes(config: &AppConfig) -> Router {

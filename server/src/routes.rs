@@ -7,11 +7,11 @@ use axum::Router;
 
 use crate::analytics::build_analytics_routes;
 use crate::auth::build_auth_routes;
-use crate::config::AppConfig;
 use crate::health::build_health_routes;
 use crate::static_filez::{build_enhanced_private_routes, build_enhanced_public_routes};
 use crate::upload::build_upload_routes;
 use crate::websocket::build_websocket_routes;
+use grimoire::AppConfig;
 
 /// Build all routes for the application
 pub fn build_routes(config: &AppConfig) -> Router {

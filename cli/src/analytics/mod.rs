@@ -7,8 +7,8 @@
 //! - Analytics statistics
 
 use clap::Subcommand;
+use grimoire::DatabaseConnection;
 use grimoire::{AnalyticsQuery, AnalyticsService, CleanupConfig, UserActivityQuery};
-use server::database::DatabaseConnection;
 use server::storage::AnalyticsService as StorageAnalyticsService;
 
 #[derive(Subcommand, Clone)]
@@ -45,7 +45,7 @@ pub enum AnalyticsCommands {
 impl AnalyticsCommands {
     pub async fn handle(
         &self,
-        storage: &StorageAnalyticsService,
+        _storage: &StorageAnalyticsService,
         _db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let analytics_service = AnalyticsService::new();

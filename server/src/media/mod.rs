@@ -12,8 +12,8 @@ pub mod models;
 pub mod repository;
 
 // Re-export commonly used types
-use crate::config::MediaConfig;
 use crate::error::WebauthnError;
+use grimoire::config::MediaConfig;
 pub use models::{CreateMediaBlob, MediaBlob, MediaBlobQuery, MediaBlobStats};
 pub use repository::{MediaError, MediaRepository};
 

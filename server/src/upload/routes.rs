@@ -11,7 +11,7 @@ use axum::{
 };
 
 use crate::auth::{require_admin, require_authentication};
-use crate::config::AppConfig;
+use grimoire::AppConfig;
 
 use super::handlers::{delete_upload, get_upload_info, list_uploads, upload_large_file};
 

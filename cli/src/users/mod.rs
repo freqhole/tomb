@@ -9,8 +9,7 @@
 use clap::Subcommand;
 use grimoire::{AuthService, InviteGenerationConfig};
 
-use server::auth::UserRole;
-use server::database::DatabaseConnection;
+use grimoire::{DatabaseConnection, UserRole};
 
 #[derive(Subcommand, Clone)]
 pub enum UserCommands {

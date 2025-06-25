@@ -3,8 +3,8 @@
 use clap::{Parser, Subcommand};
 use sqlx::PgPool;
 
-use server::config::{AppConfig, StorageBackend};
-use server::database::DatabaseConnection;
+use grimoire::config::StorageBackend;
+use grimoire::{AppConfig, DatabaseConnection};
 use server::storage::AnalyticsService as StorageAnalyticsService;
 
 use crate::analytics::AnalyticsCommands;

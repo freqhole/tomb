@@ -3,9 +3,9 @@
 //! This module provides database access layer for media blobs,
 //! including CRUD operations and queries.
 
-use crate::config::MediaConfig;
 use crate::error::WebauthnError;
 use crate::media::models::{CreateMediaBlob, MediaBlob, MediaBlobQuery, MediaBlobStats};
+use grimoire::config::MediaConfig;
 use grimoire::DatabaseConnection;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
