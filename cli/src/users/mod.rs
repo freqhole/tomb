@@ -7,12 +7,12 @@
 //! - User statistics
 
 use clap::Subcommand;
+use client_rust::AuthService;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use server::auth::{AuthRepository, UserRole};
 use server::database::DatabaseConnection;
 use server::wordlist;
-use sqlx::Row;
 
 #[derive(Subcommand, Clone)]
 pub enum UserCommands {
@@ -458,58 +458,14 @@ impl UserCommands {
         length: usize,
         expires_hours: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let auth_repo = AuthRepository::new(db);
+        let auth_service = AuthService::new(db);
 
-        // Validate code length
-        if let Err(validation_error) = Self::validate_code_length(length) {
-            eprintln!("❌ Invalid code length: {}", validation_error);
-            return Err(validation_error.into());
-        }
-
-        // Check if user exists
-        let _user = match auth_repo.get_user_by_username(username).await? {
-            Some(user) => user,
-            None => {
-                eprintln!("❌ User '{}' not found", username);
-                return Err("User not found".into());
-            }
-        };
-
-        // Generate account link code
-        let code = Self::generate_code(length);
-        let expires_at =
-            time::OffsetDateTime::now_utc() + time::Duration::hours(expires_hours as i64);
-
-        // Use existing invite code insertion logic but with account link fields
-        let result = sqlx::query(
-            r#"
-            INSERT INTO invite_codes (code, code_type, link_for_user_id, link_expires_at, is_active)
-            VALUES ($1, 'account-link', $2, $3, true)
-            RETURNING id, code
-            "#,
-        )
-        .bind(&code)
-        .bind(_user.id)
-        .bind(expires_at)
-        .fetch_one(db.pool())
-        .await;
-
-        match result {
-            Ok(record) => {
-                let code: String = record.get("code");
-                println!("✓ Generated account link code for user '{}':", username);
-                println!("  Code: {}", code);
-                println!("  Expires: {} hours from now", expires_hours);
-                println!();
-                println!("💡 User can now register a new passkey using:");
-                println!("  1. Their existing username: {}", username);
-                println!("  2. This account link code: {}", code);
-                println!("  3. The new passkey will be linked to their existing account");
-                println!();
-                println!("⚠️  Security notes:");
-                println!("  • This code expires in {} hours", expires_hours);
-                println!("  • It can only be used once");
-                println!("  • Share this code securely with the user");
+        match auth_service
+            .generate_account_link_code(username, Some(length), Some(expires_hours))
+            .await
+        {
+            Ok(result) => {
+                println!("{}", result);
             }
             Err(e) => {
                 eprintln!("❌ Failed to generate account link code: {}", e);

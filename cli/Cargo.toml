@@ -20,6 +20,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 server = { path = "../server" }
+client-rust = { path = "../client/rust" }
 
 [features]
 default = []

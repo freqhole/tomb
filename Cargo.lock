@@ -516,6 +516,7 @@ name = "cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "client-rust",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -526,6 +527,21 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "client-rust"
+version = "0.1.0"
+dependencies = [
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "server",
+ "sqlx",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
  "uuid",
 ]
 

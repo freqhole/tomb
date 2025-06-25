@@ -1,0 +1,18 @@
+[package]
+name = "client-rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Workspace dependencies
+uuid.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+rand.workspace = true
+
+# Local dependencies
+server = { path = "../../server" }

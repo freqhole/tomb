@@ -437,4 +437,41 @@ impl<'a> AuthRepository<'a> {
 
         Ok(())
     }
+
+    /// Create an account link code for an existing user
+    pub async fn create_account_link_code(
+        &self,
+        user_id: Uuid,
+        code: &str,
+        expires_at: time::OffsetDateTime,
+    ) -> Result<InviteCode, AuthError> {
+        // Validate code format
+        Self::validate_invite_code_format(code)?;
+
+        let row = sqlx::query!(
+            r#"
+            INSERT INTO invite_codes (code, code_type, link_for_user_id, link_expires_at, is_active)
+            VALUES ($1, 'account-link', $2, $3, true)
+            RETURNING id, code, created_at, used_at, used_by_user_id, is_active,
+                      code_type, link_for_user_id, link_expires_at
+            "#,
+            code,
+            user_id,
+            expires_at
+        )
+        .fetch_one(self.db.pool())
+        .await?;
+
+        Ok(InviteCode {
+            id: row.id,
+            code: row.code,
+            created_at: row.created_at,
+            used_at: row.used_at,
+            used_by_user_id: row.used_by_user_id,
+            is_active: row.is_active,
+            code_type: row.code_type,
+            link_for_user_id: row.link_for_user_id,
+            link_expires_at: row.link_expires_at,
+        })
+    }
 }
