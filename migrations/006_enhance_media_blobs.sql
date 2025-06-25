@@ -34,15 +34,6 @@ CREATE INDEX idx_media_blobs_parent_type ON media_blobs(parent_blob_id, blob_typ
 CREATE VIEW active_media_blobs AS
 SELECT * FROM media_blobs WHERE deleted_at IS NULL;
 
--- Create function to automatically update updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW() AT TIME ZONE 'UTC';
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 -- Create trigger to automatically update updated_at on changes
 CREATE TRIGGER update_media_blobs_updated_at
     BEFORE UPDATE ON media_blobs
