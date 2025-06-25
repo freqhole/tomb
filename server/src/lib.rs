@@ -2,6 +2,7 @@ pub mod analytics;
 pub mod auth;
 pub mod error;
 pub mod health;
+pub mod jobs;
 pub mod logging;
 pub mod media;
 pub mod routes;

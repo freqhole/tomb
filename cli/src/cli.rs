@@ -7,6 +7,7 @@ use grimoire::{AppConfig, DatabaseConnection};
 
 use crate::analytics::AnalyticsCommands;
 use crate::config::ConfigCommands;
+use crate::thumbnails::ThumbnailCommands;
 use crate::users::UserCommands;
 use crate::wordlist::WordlistCommands;
 
@@ -46,6 +47,9 @@ pub enum Commands {
     /// Wordlist management for invite codes
     #[command(subcommand)]
     Wordlist(WordlistCommands),
+    /// Thumbnail generation tools and testing
+    #[command(subcommand)]
+    Thumbnails(ThumbnailCommands),
 }
 
 impl Cli {
@@ -66,6 +70,9 @@ impl Cli {
                 analytics_command.handle(&db).await
             }
             Commands::Wordlist(ref wordlist_command) => wordlist_command.handle().await,
+            Commands::Thumbnails(ref thumbnail_command) => {
+                crate::thumbnails::execute_thumbnail_command(thumbnail_command.clone()).await
+            }
         }
     }
 

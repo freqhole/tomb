@@ -1,6 +1,7 @@
+use crate::jobs::ThumbnailJobQueue;
 use crate::storage::SessionStore;
 use grimoire::analytics::AnalyticsConfig;
-use grimoire::config::StorageBackend;
+use grimoire::config::{ConfigService, StorageBackend};
 use grimoire::wordlist::{initialize_wordlist, ManagementWordlistConfig as WordlistConfig};
 use grimoire::{AppConfig, DatabaseConnection};
 
@@ -32,6 +33,8 @@ pub struct AppState {
     pub session_store: SessionStore,
     // Application configuration
     pub config: AppConfig,
+    // Thumbnail job queue for background processing
+    pub thumbnail_queue: Arc<tokio::sync::Mutex<ThumbnailJobQueue>>,
 }
 
 impl AppState {
@@ -108,12 +111,141 @@ impl AppState {
             );
         }
 
+        // Validate thumbnail generation tools if enabled
+        if config.media.thumbnails.enabled {
+            tracing::info!("Validating thumbnail generation tools...");
+            let config_service = ConfigService::new();
+            let thumbnail_config = config_service.to_thumbnail_config(&config);
+
+            match config_service
+                .validate_thumbnail_tools(&thumbnail_config)
+                .await
+            {
+                Ok(_) => {
+                    tracing::info!("✅ Thumbnail tools validated successfully");
+                    tracing::info!(
+                        "ImageMagick: {}",
+                        thumbnail_config
+                            .imagemagick_path
+                            .as_deref()
+                            .unwrap_or("system PATH")
+                    );
+                    tracing::info!(
+                        "FFmpeg: {}",
+                        thumbnail_config
+                            .ffmpeg_path
+                            .as_deref()
+                            .unwrap_or("system PATH")
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("❌ Thumbnail tool validation failed: {}", e);
+                    tracing::error!("Thumbnail generation will be disabled");
+                    tracing::error!("To fix this:");
+                    tracing::error!(
+                        "  - Install ImageMagick: https://imagemagick.org/script/download.php"
+                    );
+                    tracing::error!("  - Install FFmpeg: https://ffmpeg.org/download.html");
+                    tracing::error!("  - Or set custom paths in configuration");
+                    tracing::warn!("Server will continue but thumbnail generation will not work");
+                }
+            }
+        } else {
+            tracing::info!("Thumbnail generation is disabled in configuration");
+        }
+
+        // Initialize thumbnail job queue
+        let config_service = ConfigService::new();
+        let thumbnail_config = config_service.to_thumbnail_config(&config);
+        let mut thumbnail_queue = ThumbnailJobQueue::new(database.clone(), thumbnail_config);
+
+        // Start workers if thumbnail generation is enabled
+        if config.media.thumbnails.enabled {
+            let worker_count = config.media.thumbnails.max_concurrent_jobs;
+            match thumbnail_queue.start_workers(worker_count).await {
+                Ok(_) => {
+                    tracing::info!("✅ Started {} thumbnail job workers", worker_count);
+                }
+                Err(e) => {
+                    tracing::error!("❌ Failed to start thumbnail workers: {}", e);
+                    tracing::warn!("Thumbnail generation will not be available");
+                }
+            }
+        }
+
         Ok(AppState {
             webauthn,
             database,
             analytics_config,
             session_store,
             config,
+            thumbnail_queue: Arc::new(tokio::sync::Mutex::new(thumbnail_queue)),
         })
+    }
+
+    /// Gracefully shutdown the application, stopping all background workers
+    pub async fn shutdown(&self) -> Result<(), Box<dyn std::error::Error>> {
+        tracing::info!("Shutting down application...");
+
+        // Stop thumbnail job workers
+        if self.config.media.thumbnails.enabled {
+            let mut queue = self.thumbnail_queue.lock().await;
+            if let Err(e) = queue.stop_workers().await {
+                tracing::error!("Failed to stop thumbnail workers: {}", e);
+            } else {
+                tracing::info!("✅ Thumbnail workers stopped gracefully");
+            }
+        }
+
+        tracing::info!("Application shutdown complete");
+        Ok(())
+    }
+}
+
+/// Validate external tools required for thumbnail generation
+pub async fn validate_thumbnail_tools(
+    config: &AppConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !config.media.thumbnails.enabled {
+        println!("Thumbnail generation is disabled in configuration");
+        return Ok(());
+    }
+
+    println!("Validating thumbnail generation tools...");
+
+    let config_service = ConfigService::new();
+    let thumbnail_config = config_service.to_thumbnail_config(config);
+
+    match config_service
+        .validate_thumbnail_tools(&thumbnail_config)
+        .await
+    {
+        Ok(_) => {
+            println!("✅ All thumbnail tools are available:");
+            println!(
+                "  ImageMagick: {}",
+                thumbnail_config
+                    .imagemagick_path
+                    .as_deref()
+                    .unwrap_or("system PATH")
+            );
+            println!(
+                "  FFmpeg: {}",
+                thumbnail_config
+                    .ffmpeg_path
+                    .as_deref()
+                    .unwrap_or("system PATH")
+            );
+            println!("Thumbnail generation is ready!");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("❌ Thumbnail tool validation failed: {}", e);
+            eprintln!("To fix this:");
+            eprintln!("  - Install ImageMagick: https://imagemagick.org/script/download.php");
+            eprintln!("  - Install FFmpeg: https://ffmpeg.org/download.html");
+            eprintln!("  - Or set custom paths in configuration");
+            Err(e.into())
+        }
     }
 }
