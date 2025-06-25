@@ -6,8 +6,11 @@
 
 pub mod auth;
 
-// Re-export commonly used types
-pub use auth::*;
+// Re-export the new service types
+pub use auth::{
+    AccountLinkConfig, AccountLinkResult, AuthService, AuthServiceError, AuthStats,
+    InviteGenerationConfig, InviteGenerationResult,
+};
 
 // Re-export server types that clients need
 pub use server::auth::models::{AuthError, InviteCode, User, UserRole};

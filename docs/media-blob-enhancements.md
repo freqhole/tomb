@@ -14,9 +14,32 @@ This document outlines the planned enhancements to the media blob system, includ
 
 - ✅ **0.1** Set up comprehensive task tracking system in documentation
 - ✅ **0.2** review and refine phases 1 onward before starting.
-- 🔄 **0.3** Create client/rust/ package for centralized domain logic
+- ✅ **0.3** Create client/rust/ package for centralized domain logic
 
-Set up a new Rust package at `client/rust/` that will house centralized application domain logic and abstractions. This package will be consumed by HTTP route handlers, WebSocket handlers, the CLI package, and potentially future Rust consumers like a Tauri desktop app.
+COMPLETED - Created new Rust package at `client/rust/` with centralized authentication domain logic and abstractions. Established clean patterns:
+
+**Architecture Patterns:**
+
+- Repository layer (`server/src/auth/repository.rs`) - Raw SQL operations
+- Service layer (`client/rust/src/auth.rs`) - Business logic, validation, error handling
+- Consumer layer (`cli/src/users/mod.rs`) - Minimal wrappers calling services
+
+**Implemented Services:**
+
+- `AuthService` with invite code generation (custom, random, word-based)
+- Account link code generation with validation and expiration
+- User management (create admin, update roles, list users)
+- Authentication statistics and invite code listing
+- Comprehensive error handling with custom `AuthServiceError` types
+
+**Benefits Achieved:**
+
+- CLI functions reduced from ~60 lines to ~10 lines each
+- Reusable business logic across HTTP, WebSocket, CLI consumers
+- Clean separation of concerns with proper abstraction layers
+- Type-safe error handling and result formatting
+
+**Ready for Phase 1 implementation** - HTTP handlers can now use the same domain services.
 
 - **0.4** Establish architectural pattern for minimal existing code changes
 

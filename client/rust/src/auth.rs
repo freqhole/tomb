@@ -3,9 +3,10 @@
 //! This module provides high-level authentication services that wrap repository
 //! operations with business logic, validation, and error handling.
 
-use server::auth::models::{AuthError, InviteCode, User};
+use server::auth::models::{AuthError, InviteCode, User, UserRole};
 use server::auth::repository::AuthRepository;
 use server::database::DatabaseConnection;
+use server::wordlist;
 use std::fmt;
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -16,8 +17,17 @@ pub enum AuthServiceError {
     #[error("User not found: {username}")]
     UserNotFound { username: String },
 
+    #[error("User already exists: {username}")]
+    UserAlreadyExists { username: String },
+
     #[error("Invalid code length: {0}")]
     InvalidCodeLength(String),
+
+    #[error("Invalid word count: {0}")]
+    InvalidWordCount(String),
+
+    #[error("Wordlist not available: {0}")]
+    WordlistNotAvailable(String),
 
     #[error("Repository error: {0}")]
     Repository(#[from] AuthError),
@@ -51,6 +61,35 @@ pub struct AccountLinkResult {
     pub expires_hours: u32,
 }
 
+/// Result of generating invite codes
+#[derive(Debug, Clone)]
+pub struct InviteGenerationResult {
+    pub codes: Vec<InviteCode>,
+    pub succeeded: usize,
+    pub failed: usize,
+}
+
+/// Configuration for invite code generation
+#[derive(Debug, Clone)]
+pub struct InviteGenerationConfig {
+    pub count: u32,
+    pub length: usize,
+    pub custom_codes: Option<Vec<String>>,
+    pub use_random: bool,
+    pub word_count: usize,
+}
+
+/// Statistics about the auth system
+#[derive(Debug, Clone)]
+pub struct AuthStats {
+    pub total_invite_codes: usize,
+    pub active_invite_codes: usize,
+    pub used_invite_codes: usize,
+    pub total_users: usize,
+    pub admin_users: usize,
+    pub member_users: usize,
+}
+
 impl fmt::Display for AccountLinkResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
@@ -73,6 +112,43 @@ impl fmt::Display for AccountLinkResult {
         writeln!(f, "  • This code expires in {} hours", self.expires_hours)?;
         writeln!(f, "  • It can only be used once")?;
         write!(f, "  • Share this code securely with the user")
+    }
+}
+
+impl fmt::Display for InviteGenerationResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "✓ Invite code generation completed:")?;
+        writeln!(f, "  Successfully created: {}", self.succeeded)?;
+        if self.failed > 0 {
+            writeln!(f, "  Failed: {}", self.failed)?;
+        }
+        writeln!(f, "  Total codes: {}", self.codes.len())?;
+
+        if !self.codes.is_empty() {
+            writeln!(f)?;
+            writeln!(f, "Generated codes:")?;
+            for (i, code) in self.codes.iter().enumerate() {
+                writeln!(f, "  {}: {}", i + 1, code.code)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl fmt::Display for AuthStats {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "📊 Authentication System Statistics")?;
+        writeln!(f)?;
+        writeln!(f, "Invite Codes:")?;
+        writeln!(f, "  Total: {}", self.total_invite_codes)?;
+        writeln!(f, "  Active: {}", self.active_invite_codes)?;
+        writeln!(f, "  Used: {}", self.used_invite_codes)?;
+        writeln!(f)?;
+        writeln!(f, "Users:")?;
+        writeln!(f, "  Total: {}", self.total_users)?;
+        writeln!(f, "  Admins: {}", self.admin_users)?;
+        write!(f, "  Members: {}", self.member_users)
     }
 }
 
@@ -154,6 +230,182 @@ impl<'a> AuthService<'a> {
         }
 
         Ok(())
+    }
+
+    /// Generate invite codes based on configuration
+    pub async fn generate_invite_codes(
+        &self,
+        config: InviteGenerationConfig,
+    ) -> Result<InviteGenerationResult, AuthServiceError> {
+        let mut codes = Vec::new();
+        let mut succeeded = 0;
+        let mut failed = 0;
+
+        // Handle custom codes if provided
+        if let Some(custom_codes) = config.custom_codes {
+            for code in custom_codes {
+                if code.trim().is_empty() {
+                    failed += 1;
+                    continue;
+                }
+
+                // Validate code length
+                if let Err(_) = self.validate_code_length(code.len()) {
+                    failed += 1;
+                    continue;
+                }
+
+                match self.repository.create_invite_code(&code).await {
+                    Ok(invite_code) => {
+                        codes.push(invite_code);
+                        succeeded += 1;
+                    }
+                    Err(_) => {
+                        failed += 1;
+                    }
+                }
+            }
+        } else {
+            // Generate codes based on type
+            for _ in 0..config.count {
+                let code = if config.use_random {
+                    // Validate length before generating
+                    self.validate_code_length(config.length)?;
+                    self.generate_code(config.length)
+                } else {
+                    // Generate word-based code
+                    if config.word_count < 2 || config.word_count > 6 {
+                        return Err(AuthServiceError::InvalidWordCount(
+                            "Word count must be between 2 and 6".to_string(),
+                        ));
+                    }
+
+                    if !wordlist::is_initialized() {
+                        return Err(AuthServiceError::WordlistNotAvailable(
+                            "Wordlist not initialized. Run: cargo run --bin cli wordlist generate"
+                                .to_string(),
+                        ));
+                    }
+
+                    wordlist::generate_word_code(config.word_count)
+                        .map_err(|e| AuthServiceError::WordlistNotAvailable(e.to_string()))?
+                };
+
+                match self.repository.create_invite_code(&code).await {
+                    Ok(invite_code) => {
+                        codes.push(invite_code);
+                        succeeded += 1;
+                    }
+                    Err(_) => {
+                        failed += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(InviteGenerationResult {
+            codes,
+            succeeded,
+            failed,
+        })
+    }
+
+    /// Create a new admin user
+    pub async fn create_admin_user(
+        &self,
+        username: &str,
+        invite_code: Option<&str>,
+    ) -> Result<User, AuthServiceError> {
+        // Check if user already exists
+        if let Some(_) = self.repository.get_user_by_username(username).await? {
+            return Err(AuthServiceError::UserAlreadyExists {
+                username: username.to_string(),
+            });
+        }
+
+        let user = self
+            .repository
+            .create_user_with_role(username, invite_code, UserRole::Admin)
+            .await?;
+
+        Ok(user)
+    }
+
+    /// Update a user's role
+    pub async fn update_user_role(
+        &self,
+        username: &str,
+        new_role: UserRole,
+    ) -> Result<(User, UserRole), AuthServiceError> {
+        // Check if user exists and get current role
+        let user = match self.repository.get_user_by_username(username).await? {
+            Some(user) => user,
+            None => {
+                return Err(AuthServiceError::UserNotFound {
+                    username: username.to_string(),
+                });
+            }
+        };
+
+        let old_role = user.role;
+
+        if old_role == new_role {
+            return Ok((user, old_role));
+        }
+
+        self.repository.update_user_role(user.id, new_role).await?;
+
+        // Return updated user info
+        let updated_user = User {
+            role: new_role,
+            ..user
+        };
+
+        Ok((updated_user, old_role))
+    }
+
+    /// Get authentication system statistics
+    pub async fn get_auth_stats(&self) -> Result<AuthStats, AuthServiceError> {
+        let invite_codes = self.repository.list_invite_codes().await?;
+        let users = self.repository.list_users().await?;
+
+        let active_invite_codes = invite_codes.iter().filter(|c| c.used_at.is_none()).count();
+        let used_invite_codes = invite_codes.len() - active_invite_codes;
+
+        let admin_users = users.iter().filter(|u| u.role == UserRole::Admin).count();
+        let member_users = users.len() - admin_users;
+
+        Ok(AuthStats {
+            total_invite_codes: invite_codes.len(),
+            active_invite_codes,
+            used_invite_codes,
+            total_users: users.len(),
+            admin_users,
+            member_users,
+        })
+    }
+
+    /// List all invite codes, optionally filtering for active only
+    pub async fn list_invite_codes(
+        &self,
+        active_only: bool,
+    ) -> Result<Vec<InviteCode>, AuthServiceError> {
+        let invite_codes = self.repository.list_invite_codes().await?;
+
+        if active_only {
+            Ok(invite_codes
+                .into_iter()
+                .filter(|code| code.used_at.is_none())
+                .collect())
+        } else {
+            Ok(invite_codes)
+        }
+    }
+
+    /// List all users
+    pub async fn list_users(&self) -> Result<Vec<User>, AuthServiceError> {
+        let users = self.repository.list_users().await?;
+        Ok(users)
     }
 
     /// Generate a random alphanumeric code of the specified length

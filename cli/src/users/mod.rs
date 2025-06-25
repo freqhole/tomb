@@ -7,12 +7,10 @@
 //! - User statistics
 
 use clap::Subcommand;
-use client_rust::AuthService;
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
-use server::auth::{AuthRepository, UserRole};
+use client_rust::{AuthService, InviteGenerationConfig};
+
+use server::auth::UserRole;
 use server::database::DatabaseConnection;
-use server::wordlist;
 
 #[derive(Subcommand, Clone)]
 pub enum UserCommands {
@@ -139,132 +137,72 @@ impl UserCommands {
         use_random: bool,
         word_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let auth_repo = AuthRepository::new(db);
+        let auth_service = AuthService::new(db);
 
-        // Handle custom codes if provided
-        if let Some(custom_codes) = custom {
-            let codes: Vec<&str> = custom_codes.split(',').map(|s| s.trim()).collect();
+        // Build configuration
+        let config = if let Some(custom_codes) = custom {
+            let codes: Vec<String> = custom_codes
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
+
             println!("Creating {} custom invite code(s)...", codes.len());
             println!();
 
-            for (i, code) in codes.iter().enumerate() {
-                if code.is_empty() {
-                    eprintln!("Skipping empty code at position {}", i + 1);
-                    continue;
-                }
-
-                // Validate code length
-                if let Err(validation_error) = Self::validate_code_length(code.len()) {
-                    eprintln!(
-                        "Invalid custom invite code '{}': {}",
-                        code, validation_error
-                    );
-                    continue;
-                }
-
-                match auth_repo.create_invite_code(code).await {
-                    Ok(invite_code) => {
-                        println!(
-                            "Created custom invite code {}/{}: {}",
-                            i + 1,
-                            codes.len(),
-                            invite_code.code
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to create custom invite code '{}': {}", code, e);
-                    }
-                }
-            }
-
-            println!();
-            println!("Done! Created {} custom invite code(s).", codes.len());
-            return Ok(());
-        }
-
-        // Handle generated codes
-        let count = count.unwrap_or(default_count);
-
-        if use_random {
-            // Generate random character codes
-            let length = length.unwrap_or(default_length);
-
-            // Validate length before generating
-            if let Err(validation_error) = Self::validate_code_length(length) {
-                return Err(format!("Invalid code length {}: {}", length, validation_error).into());
-            }
-
-            println!(
-                "Generating {} random invite code(s) of length {}...",
-                count, length
-            );
-            println!();
-
-            for i in 1..=count {
-                let code = Self::generate_code(length);
-
-                match auth_repo.create_invite_code(&code).await {
-                    Ok(invite_code) => {
-                        println!(
-                            "Generated invite code {}/{}: {}",
-                            i, count, invite_code.code
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to generate invite code {}/{}: {}", i, count, e);
-                    }
-                }
+            InviteGenerationConfig {
+                count: 0, // Not used for custom codes
+                length: default_length,
+                custom_codes: Some(codes),
+                use_random,
+                word_count,
             }
         } else {
-            // Generate word-based codes
-            if !wordlist::is_initialized() {
-                // Try to initialize wordlist
-                let wordlist_config = wordlist::WordlistConfig::default();
-                if let Err(e) = wordlist::initialize_wordlist(&wordlist_config) {
-                    eprintln!(
-                        "❌ Wordlist not initialized: {}. Run: cargo run --bin cli wordlist generate",
-                        e
-                    );
-                    return Err("Wordlist not available".into());
-                }
-            }
+            let actual_count = count.unwrap_or(default_count);
+            let actual_length = length.unwrap_or(default_length);
 
-            // Validate word count
-            if word_count < 2 || word_count > 6 {
-                return Err("Word count must be between 2 and 6".into());
+            if use_random {
+                println!(
+                    "Generating {} random invite code(s) of length {}...",
+                    actual_count, actual_length
+                );
+            } else {
+                println!(
+                    "Generating {} word-based invite code(s) with {} words each...",
+                    actual_count, word_count
+                );
             }
-
-            println!(
-                "Generating {} word-based invite code(s) with {} words each...",
-                count, word_count
-            );
             println!();
 
-            for i in 1..=count {
-                let code = match wordlist::generate_word_code(word_count) {
-                    Ok(code) => code,
-                    Err(e) => {
-                        eprintln!("Failed to generate word code {}/{}: {}", i, count, e);
-                        continue;
-                    }
-                };
+            InviteGenerationConfig {
+                count: actual_count,
+                length: actual_length,
+                custom_codes: None,
+                use_random,
+                word_count,
+            }
+        };
 
-                match auth_repo.create_invite_code(&code).await {
-                    Ok(invite_code) => {
-                        println!(
-                            "Generated invite code {}/{}: {}",
-                            i, count, invite_code.code
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to create invite code {}/{}: {}", i, count, e);
-                    }
+        match auth_service.generate_invite_codes(config).await {
+            Ok(result) => {
+                // Display progress for each generated code
+                for (i, code) in result.codes.iter().enumerate() {
+                    println!("Generated invite code {}: {}", i + 1, code.code);
                 }
+
+                if result.failed > 0 {
+                    println!();
+                    println!("⚠️  {} codes failed to generate", result.failed);
+                }
+
+                println!();
+                println!("✓ Done! Generated {} invite code(s).", result.succeeded);
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to generate invite codes: {}", e);
+                return Err(e.into());
             }
         }
 
-        println!();
-        println!("Done! Generated {} invite code(s).", count);
         Ok(())
     }
 
@@ -272,19 +210,10 @@ impl UserCommands {
         db: &DatabaseConnection,
         active_only: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let auth_repo = AuthRepository::new(db);
-        let invite_codes = auth_repo.list_invite_codes().await?;
+        let auth_service = AuthService::new(db);
+        let invite_codes = auth_service.list_invite_codes(active_only).await?;
 
-        let filtered_codes: Vec<_> = if active_only {
-            invite_codes
-                .into_iter()
-                .filter(|code| !code.used_at.is_some())
-                .collect()
-        } else {
-            invite_codes
-        };
-
-        if filtered_codes.is_empty() {
+        if invite_codes.is_empty() {
             if active_only {
                 println!("No active invite codes found.");
             } else {
@@ -300,7 +229,7 @@ impl UserCommands {
         );
         println!("{}", "-".repeat(80));
 
-        for code in filtered_codes {
+        for code in invite_codes {
             let status = if code.used_at.is_some() {
                 "Used"
             } else {
@@ -325,27 +254,10 @@ impl UserCommands {
     }
 
     async fn show_stats(db: &DatabaseConnection) -> Result<(), Box<dyn std::error::Error>> {
-        let auth_repo = AuthRepository::new(db);
-        let invite_codes = auth_repo.list_invite_codes().await?;
-        let users = auth_repo.list_users().await?;
+        let auth_service = AuthService::new(db);
+        let stats = auth_service.get_auth_stats().await?;
 
-        let active_codes = invite_codes.iter().filter(|c| c.used_at.is_none()).count();
-        let used_codes = invite_codes.len() - active_codes;
-
-        let admin_count = users.iter().filter(|u| u.role == UserRole::Admin).count();
-        let member_count = users.len() - admin_count;
-
-        println!("📊 Statistics");
-        println!();
-        println!("Invite Codes:");
-        println!("  Total: {}", invite_codes.len());
-        println!("  Active: {}", active_codes);
-        println!("  Used: {}", used_codes);
-        println!();
-        println!("Users:");
-        println!("  Total: {}", users.len());
-        println!("  Admins: {}", admin_count);
-        println!("  Members: {}", member_count);
+        println!("{}", stats);
 
         Ok(())
     }
@@ -355,17 +267,9 @@ impl UserCommands {
         username: &str,
         invite_code: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let auth_repo = AuthRepository::new(db);
+        let auth_service = AuthService::new(db);
 
-        // Check if user already exists
-        if let Ok(Some(_)) = auth_repo.get_user_by_username(username).await {
-            return Err(format!("User '{}' already exists", username).into());
-        }
-
-        match auth_repo
-            .create_user_with_role(username, invite_code, UserRole::Admin)
-            .await
-        {
+        match auth_service.create_admin_user(username, invite_code).await {
             Ok(user) => {
                 println!("✓ Created admin user: {}", user.username);
                 println!("  User ID: {}", user.id);
@@ -375,7 +279,7 @@ impl UserCommands {
                 }
             }
             Err(e) => {
-                eprintln!("Failed to create admin user: {}", e);
+                eprintln!("❌ Failed to create admin user: {}", e);
                 return Err(e.into());
             }
         }
@@ -384,8 +288,8 @@ impl UserCommands {
     }
 
     async fn list_users(db: &DatabaseConnection) -> Result<(), Box<dyn std::error::Error>> {
-        let auth_repo = AuthRepository::new(db);
-        let users = auth_repo.list_users().await?;
+        let auth_service = AuthService::new(db);
+        let users = auth_service.list_users().await?;
 
         if users.is_empty() {
             println!("No users found.");
@@ -421,30 +325,21 @@ impl UserCommands {
         username: &str,
         new_role: UserRole,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let auth_repo = AuthRepository::new(db);
+        let auth_service = AuthService::new(db);
 
-        // Check if user exists
-        let user = match auth_repo.get_user_by_username(username).await? {
-            Some(user) => user,
-            None => {
-                return Err(format!("User '{}' not found", username).into());
-            }
-        };
-
-        if user.role == new_role {
-            println!("User '{}' already has role: {:?}", username, new_role);
-            return Ok(());
-        }
-
-        match auth_repo.update_user_role(user.id, new_role).await {
-            Ok(_) => {
-                println!(
-                    "✓ Updated user '{}' role from {:?} to {:?}",
-                    username, user.role, new_role
-                );
+        match auth_service.update_user_role(username, new_role).await {
+            Ok((_user, old_role)) => {
+                if old_role == new_role {
+                    println!("User '{}' already has role: {:?}", username, new_role);
+                } else {
+                    println!(
+                        "✓ Updated user '{}' role from {:?} to {:?}",
+                        username, old_role, new_role
+                    );
+                }
             }
             Err(e) => {
-                eprintln!("Failed to update user role: {}", e);
+                eprintln!("❌ Failed to update user role: {}", e);
                 return Err(e.into());
             }
         }
@@ -474,37 +369,5 @@ impl UserCommands {
         }
 
         Ok(())
-    }
-
-    /// Validate invite code length constraints
-    fn validate_code_length(length: usize) -> Result<(), String> {
-        const MIN_LENGTH: usize = 8;
-        const MAX_LENGTH: usize = 128;
-
-        if length < MIN_LENGTH {
-            return Err(format!(
-                "Code length must be at least {} characters (got {})",
-                MIN_LENGTH, length
-            ));
-        }
-
-        if length > MAX_LENGTH {
-            return Err(format!(
-                "Code length must be at most {} characters (got {})",
-                MAX_LENGTH, length
-            ));
-        }
-
-        Ok(())
-    }
-
-    /// Generate a random alphanumeric code of specified length
-    fn generate_code(length: usize) -> String {
-        thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(length)
-            .map(char::from)
-            .collect::<String>()
-            .to_uppercase()
     }
 }
