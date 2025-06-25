@@ -3,7 +3,7 @@
 //! This module provides high-level analytics services that will handle
 //! analytics data retrieval, user activity tracking, and cleanup operations.
 
-use server::storage::AnalyticsService as StorageAnalyticsService;
+// use server::storage::AnalyticsService as StorageAnalyticsService; // Temporarily removed to fix circular dependency
 use std::fmt;
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -179,15 +179,17 @@ impl fmt::Display for CleanupResult {
 }
 
 /// Analytics service for high-level analytics operations
-pub struct AnalyticsService<'a> {
-    #[allow(dead_code)] // Placeholder for future implementation
-    storage: &'a StorageAnalyticsService,
+pub struct AnalyticsService {
+    // #[allow(dead_code)] // Placeholder for future implementation
+    // storage: &'a StorageAnalyticsService, // Temporarily removed to fix circular dependency
 }
 
-impl<'a> AnalyticsService<'a> {
+impl AnalyticsService {
     /// Create a new AnalyticsService
-    pub fn new(storage: &'a StorageAnalyticsService) -> Self {
-        Self { storage }
+    pub fn new() -> Self {
+        Self {
+            // storage, // Temporarily removed to fix circular dependency
+        }
     }
 
     /// Get analytics for a time period

@@ -118,7 +118,7 @@ fn parse_wordlist(content: &str) -> Result<Vec<String>, WordlistError> {
 }
 
 /// Validate wordlist meets requirements
-fn validate_wordlist(words: &[String], config: &WordlistConfig) -> Result<(), WordlistError> {
+pub fn validate_wordlist(words: &[String], config: &WordlistConfig) -> Result<(), WordlistError> {
     // Check minimum word count
     if words.len() < config.min_words {
         return Err(WordlistError::ValidationFailed(format!(

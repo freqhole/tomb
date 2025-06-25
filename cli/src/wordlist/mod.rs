@@ -5,7 +5,7 @@
 //! sources and validate existing wordlists.
 
 use clap::Subcommand;
-use client_rust::{WordlistConfig, WordlistService};
+use grimoire::{WordlistConfig, WordlistService};
 use std::fs;
 use std::path::Path;
 

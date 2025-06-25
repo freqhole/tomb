@@ -4,9 +4,9 @@
 //! including CRUD operations and queries.
 
 use crate::config::MediaConfig;
-use crate::database::DatabaseConnection;
 use crate::error::WebauthnError;
 use crate::media::models::{CreateMediaBlob, MediaBlob, MediaBlobQuery, MediaBlobStats};
+use grimoire::DatabaseConnection;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 use time::OffsetDateTime;
@@ -491,7 +491,7 @@ impl<'a> MediaRepository<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::DatabaseConnection;
+    use grimoire::DatabaseConnection;
 
     async fn _setup_test_db() -> DatabaseConnection {
         // This would be set up with test database in real tests

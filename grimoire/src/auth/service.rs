@@ -1,12 +1,12 @@
-//! Authentication services for the client package
+//! Authentication services for the grimoire package
 //!
 //! This module provides high-level authentication services that wrap repository
 //! operations with business logic, validation, and error handling.
 
-use server::auth::models::{AuthError, InviteCode, User, UserRole};
-use server::auth::repository::AuthRepository;
-use server::database::DatabaseConnection;
-use server::wordlist;
+use crate::auth::models::{AuthError, InviteCode, User, UserRole};
+use crate::auth::repository::AuthRepository;
+use crate::database::DatabaseConnection;
+use crate::wordlist::management;
 use std::fmt;
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -61,6 +61,31 @@ pub struct AccountLinkResult {
     pub expires_hours: u32,
 }
 
+impl fmt::Display for AccountLinkResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "✓ Generated account link code for user '{}':",
+            self.user.username
+        )?;
+        writeln!(f, "  Code: {}", self.invite_code.code)?;
+        writeln!(f, "  Expires: {} hours from now", self.expires_hours)?;
+        writeln!(f)?;
+        writeln!(f, "💡 User can now register a new passkey using:")?;
+        writeln!(f, "  1. Their existing username: {}", self.user.username)?;
+        writeln!(f, "  2. This account link code: {}", self.invite_code.code)?;
+        writeln!(
+            f,
+            "  3. The new passkey will be linked to their existing account"
+        )?;
+        writeln!(f)?;
+        writeln!(f, "⚠️  Security notes:")?;
+        writeln!(f, "  • This code expires in {} hours", self.expires_hours)?;
+        writeln!(f, "  • It can only be used once")?;
+        write!(f, "  • Share this code securely with the user")
+    }
+}
+
 /// Result of generating invite codes
 #[derive(Debug, Clone)]
 pub struct InviteGenerationResult {
@@ -88,31 +113,6 @@ pub struct AuthStats {
     pub total_users: usize,
     pub admin_users: usize,
     pub member_users: usize,
-}
-
-impl fmt::Display for AccountLinkResult {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(
-            f,
-            "✓ Generated account link code for user '{}':",
-            self.user.username
-        )?;
-        writeln!(f, "  Code: {}", self.invite_code.code)?;
-        writeln!(f, "  Expires: {} hours from now", self.expires_hours)?;
-        writeln!(f)?;
-        writeln!(f, "💡 User can now register a new passkey using:")?;
-        writeln!(f, "  1. Their existing username: {}", self.user.username)?;
-        writeln!(f, "  2. This account link code: {}", self.invite_code.code)?;
-        writeln!(
-            f,
-            "  3. The new passkey will be linked to their existing account"
-        )?;
-        writeln!(f)?;
-        writeln!(f, "⚠️  Security notes:")?;
-        writeln!(f, "  • This code expires in {} hours", self.expires_hours)?;
-        writeln!(f, "  • It can only be used once")?;
-        write!(f, "  • Share this code securely with the user")
-    }
 }
 
 impl fmt::Display for InviteGenerationResult {
@@ -213,25 +213,6 @@ impl<'a> AuthService<'a> {
         })
     }
 
-    /// Validate code length against configuration
-    fn validate_code_length(&self, length: usize) -> Result<(), AuthServiceError> {
-        if length < self.config.min_length {
-            return Err(AuthServiceError::InvalidCodeLength(format!(
-                "Code length must be at least {} characters (got {})",
-                self.config.min_length, length
-            )));
-        }
-
-        if length > self.config.max_length {
-            return Err(AuthServiceError::InvalidCodeLength(format!(
-                "Code length must be at most {} characters (got {})",
-                self.config.max_length, length
-            )));
-        }
-
-        Ok(())
-    }
-
     /// Generate invite codes based on configuration
     pub async fn generate_invite_codes(
         &self,
@@ -280,14 +261,14 @@ impl<'a> AuthService<'a> {
                         ));
                     }
 
-                    if !wordlist::is_initialized() {
+                    if !management::is_initialized() {
                         return Err(AuthServiceError::WordlistNotAvailable(
                             "Wordlist not initialized. Run: cargo run --bin cli wordlist generate"
                                 .to_string(),
                         ));
                     }
 
-                    wordlist::generate_word_code(config.word_count)
+                    management::generate_word_code(config.word_count)
                         .map_err(|e| AuthServiceError::WordlistNotAvailable(e.to_string()))?
                 };
 
@@ -406,6 +387,25 @@ impl<'a> AuthService<'a> {
     pub async fn list_users(&self) -> Result<Vec<User>, AuthServiceError> {
         let users = self.repository.list_users().await?;
         Ok(users)
+    }
+
+    /// Validate code length against configuration
+    fn validate_code_length(&self, length: usize) -> Result<(), AuthServiceError> {
+        if length < self.config.min_length {
+            return Err(AuthServiceError::InvalidCodeLength(format!(
+                "Code length must be at least {} characters (got {})",
+                self.config.min_length, length
+            )));
+        }
+
+        if length > self.config.max_length {
+            return Err(AuthServiceError::InvalidCodeLength(format!(
+                "Code length must be at most {} characters (got {})",
+                self.config.max_length, length
+            )));
+        }
+
+        Ok(())
     }
 
     /// Generate a random alphanumeric code of the specified length

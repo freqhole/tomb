@@ -9,13 +9,11 @@
 
 pub mod handlers;
 pub mod middleware;
-pub mod models;
-pub mod repository;
 pub mod routes;
 
-// Re-export commonly used types
-pub use models::{AuthError, InviteCode, User, UserRole, WebauthnCredential};
-pub use repository::AuthRepository;
+// Re-export commonly used types from grimoire
+pub use grimoire::auth::{AuthError, InviteCode, User, UserRole, WebauthnCredential};
+pub use grimoire::AuthRepository;
 
 // Re-export handlers
 pub use handlers::*;

@@ -1,5 +1,5 @@
 [workspace]
-members = ["cli", "server", "client/rust"]
+members = ["cli", "server", "grimoire"]
 resolver = "2"
 
 [workspace.dependencies]

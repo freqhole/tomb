@@ -7,7 +7,7 @@
 //! - User statistics
 
 use clap::Subcommand;
-use client_rust::{AuthService, InviteGenerationConfig};
+use grimoire::{AuthService, InviteGenerationConfig};
 
 use server::auth::UserRole;
 use server::database::DatabaseConnection;

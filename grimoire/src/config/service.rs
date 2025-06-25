@@ -3,7 +3,7 @@
 //! This module provides high-level configuration services that handle validation,
 //! generation, schema creation, and environment file management.
 
-use server::config::AppConfig;
+use crate::config::AppConfig;
 use std::fmt;
 use std::path::Path;
 use thiserror::Error;
@@ -21,7 +21,7 @@ pub enum ConfigError {
     Io(#[from] std::io::Error),
 
     #[error("Configuration error: {0}")]
-    Config(#[from] server::config::ConfigError),
+    Config(#[from] crate::config::AppConfigError),
 
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),

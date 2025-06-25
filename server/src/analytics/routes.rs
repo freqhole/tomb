@@ -6,8 +6,8 @@ use axum::{middleware as axum_middleware, routing::get, Router};
 
 use super::{get_metrics, get_prometheus_metrics};
 use crate::auth::{require_admin, require_authentication};
-use crate::config::AppConfig;
 use crate::health::health_check;
+use grimoire::AppConfig;
 
 /// Build analytics and metrics routes
 pub fn build_analytics_routes(config: &AppConfig) -> Router {

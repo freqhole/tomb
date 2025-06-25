@@ -1,5 +1,5 @@
 [package]
-name = "client-rust"
+name = "grimoire"
 version = "0.1.0"
 edition = "2021"
 
@@ -13,9 +13,13 @@ time.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 rand.workspace = true
+tracing.workspace = true
+webauthn-rs.workspace = true
+schemars.workspace = true
+json5.workspace = true
 
 # Local dependencies
-server = { path = "../../server" }
+# server = { path = "../server" } # Temporarily removed to fix circular dependency
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -10,12 +10,13 @@ use tokio::io::AsyncWriteExt;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::auth::{models::User, AuthenticatedUser};
-use crate::config::AppConfig;
-use crate::database::DatabaseConnection;
+use crate::auth::AuthenticatedUser;
 use crate::error::AppError;
 use crate::media::models::{CreateMediaBlob, MediaBlob};
 use crate::media::repository::MediaRepository;
+use grimoire::auth::User;
+use grimoire::AppConfig;
+use grimoire::DatabaseConnection;
 
 use super::models::{UploadConfig, UploadRequest, UploadResponse};
 

@@ -1,12 +1,12 @@
-use super::models::{AuthError, User, UserRole};
-use super::repository::AuthRepository;
-use crate::database::DatabaseConnection;
 use axum::{
     extract::{Extension, Request},
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use grimoire::auth::{AuthError, User, UserRole};
+use grimoire::AuthRepository;
+use grimoire::DatabaseConnection;
 use tower_sessions::Session;
 use uuid::Uuid;
 

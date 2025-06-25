@@ -4,7 +4,6 @@
 //! auth system and handle real-time communication for media blob sharing.
 
 use crate::config::AppConfig;
-use crate::database::DatabaseConnection;
 use crate::media::{CreateMediaBlob, MediaBlobQuery, MediaRepository, MediaService};
 use crate::websocket::messages::{WebSocketMessage, WebSocketResponse};
 use axum::{
@@ -12,6 +11,7 @@ use axum::{
     response::Response,
     Extension,
 };
+use grimoire::DatabaseConnection;
 // use futures_util::{sink::SinkExt, stream::StreamExt}; // TODO: Uncomment when needed
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

@@ -40,6 +40,7 @@ webauthn-rs = { workspace = true, features = [
 
 serde_with = { workspace = true }
 sha2 = { workspace = true }
+grimoire = { path = "../grimoire" }
 
 [dev-dependencies]
 reqwest = { workspace = true }

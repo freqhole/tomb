@@ -2,7 +2,7 @@ use super::models::{
     AnalyticsConfig, AnalyticsError, RequestAnalytics, RequestMetrics, TimeSeriesPoint,
 };
 use super::repository::AnalyticsRepository;
-use crate::database::DatabaseConnection;
+use grimoire::DatabaseConnection;
 use time::OffsetDateTime;
 use uuid::Uuid;
 

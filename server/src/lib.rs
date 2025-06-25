@@ -1,7 +1,5 @@
 pub mod analytics;
 pub mod auth;
-pub mod config;
-pub mod database;
 pub mod error;
 pub mod health;
 pub mod logging;
@@ -12,7 +10,6 @@ pub mod static_filez;
 pub mod storage;
 pub mod upload;
 pub mod websocket;
-pub mod wordlist;
 
 #[macro_use]
 extern crate tracing;

@@ -7,7 +7,7 @@
 //! - Environment file generation
 
 use clap::Subcommand;
-use client_rust::{ConfigDisplayFormat, ConfigGenerationOptions, ConfigService};
+use grimoire::{ConfigDisplayFormat, ConfigGenerationOptions, ConfigService};
 use std::path::PathBuf;
 
 #[derive(Subcommand, Clone)]

@@ -7,7 +7,7 @@
 //! - Analytics statistics
 
 use clap::Subcommand;
-use client_rust::{AnalyticsQuery, AnalyticsService, CleanupConfig, UserActivityQuery};
+use grimoire::{AnalyticsQuery, AnalyticsService, CleanupConfig, UserActivityQuery};
 use server::database::DatabaseConnection;
 use server::storage::AnalyticsService as StorageAnalyticsService;
 
@@ -48,7 +48,7 @@ impl AnalyticsCommands {
         storage: &StorageAnalyticsService,
         _db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let analytics_service = AnalyticsService::new(storage);
+        let analytics_service = AnalyticsService::new();
 
         match self {
             AnalyticsCommands::Analytics { hours, limit } => {
@@ -64,7 +64,7 @@ impl AnalyticsCommands {
     }
 
     async fn show_analytics(
-        analytics: &AnalyticsService<'_>,
+        analytics: &AnalyticsService,
         hours: i32,
         limit: i64,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -87,7 +87,7 @@ impl AnalyticsCommands {
     }
 
     async fn show_user_activity(
-        analytics: &AnalyticsService<'_>,
+        analytics: &AnalyticsService,
         user_id: &str,
         limit: i64,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -122,7 +122,7 @@ impl AnalyticsCommands {
     }
 
     async fn cleanup_analytics(
-        analytics: &AnalyticsService<'_>,
+        analytics: &AnalyticsService,
         days: i32,
         execute: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {

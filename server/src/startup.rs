@@ -1,7 +1,7 @@
-use crate::config::{AppConfig, StorageBackend};
-use crate::database::DatabaseConnection;
-use crate::storage::{AnalyticsService, SessionStore};
-use crate::wordlist::{initialize_wordlist, WordlistConfig};
+use crate::storage::{AnalyticsService, SessionStore, StorageBackend};
+use grimoire::{
+    initialize_wordlist, AppConfig, DatabaseConnection, ManagementWordlistConfig as WordlistConfig,
+};
 
 use std::sync::Arc;
 use tokio::fs;
