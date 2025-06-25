@@ -3,9 +3,7 @@
 use clap::{Parser, Subcommand};
 use sqlx::PgPool;
 
-use grimoire::config::StorageBackend;
 use grimoire::{AppConfig, DatabaseConnection};
-use server::storage::AnalyticsService as StorageAnalyticsService;
 
 use crate::analytics::AnalyticsCommands;
 use crate::config::ConfigCommands;
@@ -64,17 +62,8 @@ impl Cli {
                     .await
             }
             Commands::Analytics(ref analytics_command) => {
-                let (config, db) = self.setup_database().await?;
-
-                // Create analytics service based on storage configuration
-                let analytics = match config.storage.analytics {
-                    StorageBackend::Memory => StorageAnalyticsService::new_memory(),
-                    StorageBackend::Postgres => {
-                        StorageAnalyticsService::new_postgres(db.pool().clone())
-                    }
-                };
-
-                analytics_command.handle(&analytics, &db).await
+                let (_config, db) = self.setup_database().await?;
+                analytics_command.handle(&db).await
             }
             Commands::Wordlist(ref wordlist_command) => wordlist_command.handle().await,
         }

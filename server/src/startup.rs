@@ -1,4 +1,5 @@
-use crate::storage::{AnalyticsService, SessionStore};
+use crate::storage::SessionStore;
+use grimoire::analytics::AnalyticsConfig;
 use grimoire::config::StorageBackend;
 use grimoire::wordlist::{initialize_wordlist, ManagementWordlistConfig as WordlistConfig};
 use grimoire::{AppConfig, DatabaseConnection};
@@ -25,8 +26,8 @@ pub struct AppState {
     pub webauthn: Arc<Webauthn>,
     // Database connection for persistent storage
     pub database: DatabaseConnection,
-    // Analytics service for request tracking
-    pub analytics: AnalyticsService,
+    // Analytics configuration for request tracking
+    pub analytics_config: AnalyticsConfig,
     // Session store for tower-sessions
     pub session_store: SessionStore,
     // Application configuration
@@ -68,11 +69,9 @@ impl AppState {
 
         let database = DatabaseConnection::new(pool.clone());
 
-        // Create analytics service based on storage configuration
-        let analytics = match config.storage.analytics {
-            StorageBackend::Memory => AnalyticsService::new_memory(),
-            StorageBackend::Postgres => AnalyticsService::new_postgres(pool.clone()),
-        };
+        // Create analytics configuration
+        // Analytics service will be created at usage sites to avoid lifetime issues
+        let analytics_config = AnalyticsConfig::default();
 
         // Create session store based on storage configuration
         let session_store = match config.storage.sessions {
@@ -112,7 +111,7 @@ impl AppState {
         Ok(AppState {
             webauthn,
             database,
-            analytics,
+            analytics_config,
             session_store,
             config,
         })

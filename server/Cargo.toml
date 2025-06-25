@@ -8,6 +8,7 @@ edition = "2021"
 license = "MPL-2.0"
 
 [dependencies]
+async-trait.workspace = true
 axum.workspace = true
 time.workspace = true
 clap.workspace = true

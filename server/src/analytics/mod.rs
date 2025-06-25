@@ -6,25 +6,21 @@
 //! - User behavior analytics
 //! - Request metrics and reporting
 //! - Time-series data collection
+//!
+//! The core analytics logic is now housed in the grimoire crate.
+//! This module provides HTTP-specific handlers, middleware, and routes.
 
 pub mod handlers;
 pub mod middleware;
-pub mod models;
-pub mod repository;
 pub mod routes;
-pub mod service;
 
-// Re-export commonly used types
+// Re-export HTTP-specific types
 pub use handlers::{get_metrics, get_prometheus_metrics};
 pub use middleware::{analytics_middleware, security_logging};
-pub use models::{
-    AnalyticsConfig, AnalyticsError, PathMetric, RequestAnalytics, RequestMetrics, TimeSeriesPoint,
-};
-pub use repository::AnalyticsRepository;
 pub use routes::build_analytics_routes;
-pub use service::{AnalyticsService, RequestAnalyticsBuilder};
 
-// Future exports (to be added as we move more code)
-// pub mod collector;
-//
-// pub use collector::RequestCollector;
+// Re-export core analytics types from grimoire
+pub use grimoire::analytics::{
+    AnalyticsConfig, AnalyticsError, AnalyticsRepository, AnalyticsService, PathMetric,
+    RequestAnalytics, RequestAnalyticsBuilder, RequestMetrics, TimeSeriesPoint,
+};

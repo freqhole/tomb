@@ -1,279 +1,344 @@
-//! Analytics service for the client package
+//! Analytics service for the grimoire package
 //!
-//! This module provides high-level analytics services that will handle
-//! analytics data retrieval, user activity tracking, and cleanup operations.
+//! This module provides high-level analytics services that handle business logic,
+//! validation, and data operations for analytics functionality.
 
-// use server::storage::AnalyticsService as StorageAnalyticsService; // Temporarily removed to fix circular dependency
-use std::fmt;
-use thiserror::Error;
+use super::models::{
+    AnalyticsConfig, AnalyticsError, RequestAnalytics, RequestMetrics, TimeSeriesPoint,
+};
+use super::repository::AnalyticsRepository;
+use crate::DatabaseConnection;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-/// Errors that can occur in analytics services
-#[derive(Debug, Error)]
-pub enum AnalyticsError {
-    #[error("Invalid user ID format: {user_id}")]
-    InvalidUserId { user_id: String },
-
-    #[error("Invalid time range: {0}")]
-    InvalidTimeRange(String),
-
-    #[error("Analytics backend error: {0}")]
-    Backend(String),
-
-    #[error("Feature not implemented: {0}")]
-    NotImplemented(String),
+/// Analytics service that provides business logic for analytics operations
+pub struct AnalyticsService<'a> {
+    repo: AnalyticsRepository<'a>,
+    config: AnalyticsConfig,
 }
 
-/// Configuration for analytics queries
-#[derive(Debug, Clone)]
-pub struct AnalyticsQuery {
-    pub hours: i32,
-    pub limit: i64,
-}
-
-impl Default for AnalyticsQuery {
-    fn default() -> Self {
-        Self {
-            hours: 24,
-            limit: 10,
-        }
-    }
-}
-
-/// Configuration for user activity queries
-#[derive(Debug, Clone)]
-pub struct UserActivityQuery {
-    pub user_id: Uuid,
-    pub limit: i64,
-}
-
-/// Configuration for analytics cleanup
-#[derive(Debug, Clone)]
-pub struct CleanupConfig {
-    pub days_to_keep: i32,
-    pub dry_run: bool,
-}
-
-impl Default for CleanupConfig {
-    fn default() -> Self {
-        Self {
-            days_to_keep: 30,
-            dry_run: true,
-        }
-    }
-}
-
-/// Result of analytics query
-#[derive(Debug, Clone)]
-pub struct AnalyticsResult {
-    pub period_hours: i32,
-    pub total_requests: i64,
-    pub unique_users: i64,
-    pub top_paths: Vec<PathMetric>,
-}
-
-impl fmt::Display for AnalyticsResult {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "📊 Request Analytics (last {} hours)", self.period_hours)?;
-        writeln!(f)?;
-        writeln!(f, "Overview:")?;
-        writeln!(f, "  Total requests: {}", self.total_requests)?;
-        writeln!(f, "  Unique users: {}", self.unique_users)?;
-        writeln!(f)?;
-
-        if !self.top_paths.is_empty() {
-            writeln!(f, "Top paths:")?;
-            for (i, path) in self.top_paths.iter().enumerate() {
-                writeln!(f, "  {}: {} ({} requests)", i + 1, path.path, path.count)?;
-            }
-        }
-
-        Ok(())
-    }
-}
-
-/// Path request metrics
-#[derive(Debug, Clone)]
-pub struct PathMetric {
-    pub path: String,
-    pub count: i64,
-}
-
-/// Result of user activity query
-#[derive(Debug, Clone)]
-pub struct UserActivityResult {
-    pub user_id: Uuid,
-    pub request_count: i64,
-    pub recent_requests: Vec<ActivityRecord>,
-}
-
-impl fmt::Display for UserActivityResult {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "👤 User Activity: {}", self.user_id)?;
-        writeln!(f, "  Total requests: {}", self.request_count)?;
-        writeln!(f, "  Showing last {} requests", self.recent_requests.len())?;
-        writeln!(f)?;
-
-        if !self.recent_requests.is_empty() {
-            writeln!(f, "Recent activity:")?;
-            for request in &self.recent_requests {
-                writeln!(
-                    f,
-                    "  {} - {} ({})",
-                    request
-                        .timestamp
-                        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-                        .unwrap_or_else(|_| "Invalid date".to_string()),
-                    request.path,
-                    request.method
-                )?;
-            }
-        }
-
-        Ok(())
-    }
-}
-
-/// Individual activity record
-#[derive(Debug, Clone)]
-pub struct ActivityRecord {
-    pub timestamp: OffsetDateTime,
-    pub path: String,
-    pub method: String,
-}
-
-/// Result of cleanup operation
-#[derive(Debug, Clone)]
-pub struct CleanupResult {
-    pub dry_run: bool,
-    pub days_kept: i32,
-    pub cutoff_date: OffsetDateTime,
-    pub records_affected: i64,
-}
-
-impl fmt::Display for CleanupResult {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "🧹 Analytics Cleanup")?;
-        writeln!(f, "  Keeping last {} days of data", self.days_kept)?;
-        writeln!(
-            f,
-            "  Cutoff date: {}",
-            self.cutoff_date
-                .format(&time::format_description::well_known::Iso8601::DEFAULT)
-                .unwrap_or_else(|_| "Invalid date".to_string())
-        )?;
-
-        if self.dry_run {
-            writeln!(
-                f,
-                "  DRY RUN - Use execute mode to actually perform cleanup"
-            )?;
-            writeln!(f, "  Would affect {} records", self.records_affected)?;
-        } else {
-            writeln!(f, "  ✓ Cleaned up {} records", self.records_affected)?;
-        }
-
-        Ok(())
-    }
-}
-
-/// Analytics service for high-level analytics operations
-pub struct AnalyticsService {
-    // #[allow(dead_code)] // Placeholder for future implementation
-    // storage: &'a StorageAnalyticsService, // Temporarily removed to fix circular dependency
-}
-
-impl AnalyticsService {
+impl<'a> AnalyticsService<'a> {
     /// Create a new AnalyticsService
-    pub fn new() -> Self {
+    pub fn new(db: &'a DatabaseConnection, config: AnalyticsConfig) -> Self {
         Self {
-            // storage, // Temporarily removed to fix circular dependency
+            repo: AnalyticsRepository::new(db),
+            config,
         }
     }
 
-    /// Get analytics for a time period
-    pub async fn get_analytics(
-        &self,
-        query: AnalyticsQuery,
-    ) -> Result<AnalyticsResult, AnalyticsError> {
-        // Placeholder implementation
-        // TODO: Implement actual analytics querying when storage methods are available
-
-        if query.hours <= 0 {
-            return Err(AnalyticsError::InvalidTimeRange(
-                "Hours must be positive".to_string(),
-            ));
-        }
-
-        // For now, return placeholder data
-        Ok(AnalyticsResult {
-            period_hours: query.hours,
-            total_requests: 0,
-            unique_users: 0,
-            top_paths: vec![],
-        })
+    /// Create a new AnalyticsService with default configuration
+    pub fn new_with_defaults(db: &'a DatabaseConnection) -> Self {
+        Self::new(db, AnalyticsConfig::default())
     }
 
-    /// Get user activity
-    pub async fn get_user_activity(
-        &self,
-        query: UserActivityQuery,
-    ) -> Result<UserActivityResult, AnalyticsError> {
-        // Placeholder implementation
-        // TODO: Implement actual user activity querying when storage methods are available
-
-        if query.limit <= 0 {
-            return Err(AnalyticsError::InvalidTimeRange(
-                "Limit must be positive".to_string(),
-            ));
+    /// Record a new request
+    pub async fn record_request(&self, analytics: RequestAnalytics) -> Result<(), AnalyticsError> {
+        if !self.config.enabled || !self.config.track_requests {
+            return Ok(());
         }
 
-        // For now, return placeholder data
-        Ok(UserActivityResult {
-            user_id: query.user_id,
-            request_count: 0,
-            recent_requests: vec![],
-        })
+        // Check if path should be excluded
+        if self.config.exclude_paths.contains(&analytics.path) {
+            return Ok(());
+        }
+
+        // Check if static files should be excluded
+        if self.config.exclude_static_files && self.is_static_file_path(&analytics.path) {
+            return Ok(());
+        }
+
+        self.repo.record_request(&analytics).await
+    }
+
+    /// Get request metrics for a time range
+    pub async fn get_metrics(
+        &self,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> Result<RequestMetrics, AnalyticsError> {
+        if !self.config.enabled {
+            return Err(AnalyticsError::Disabled);
+        }
+
+        self.repo.get_request_metrics(from, to).await
+    }
+
+    /// Get metrics for the last N hours
+    pub async fn get_metrics_for_hours(
+        &self,
+        hours: u32,
+    ) -> Result<RequestMetrics, AnalyticsError> {
+        let to = OffsetDateTime::now_utc();
+        let from = to - time::Duration::hours(hours as i64);
+        self.get_metrics(from, to).await
+    }
+
+    /// Get user requests in a time range
+    pub async fn get_user_requests(
+        &self,
+        user_id: Uuid,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> Result<Vec<RequestAnalytics>, AnalyticsError> {
+        if !self.config.enabled {
+            return Err(AnalyticsError::Disabled);
+        }
+
+        self.repo.get_user_requests(user_id, from, to).await
+    }
+
+    /// Get recent user requests (last N requests)
+    pub async fn get_recent_user_requests(
+        &self,
+        user_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<RequestAnalytics>, AnalyticsError> {
+        let to = OffsetDateTime::now_utc();
+        let from = to - time::Duration::days(30); // Look back 30 days max
+
+        let mut requests = self.repo.get_user_requests(user_id, from, to).await?;
+
+        // Sort by timestamp descending and take only the requested number
+        requests.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        requests.truncate(limit as usize);
+
+        Ok(requests)
+    }
+
+    /// Get request volume time series
+    pub async fn get_request_volume_timeseries(
+        &self,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+        interval_minutes: i32,
+    ) -> Result<Vec<TimeSeriesPoint>, AnalyticsError> {
+        if !self.config.enabled {
+            return Err(AnalyticsError::Disabled);
+        }
+
+        self.repo
+            .get_request_volume_timeseries(from, to, interval_minutes)
+            .await
+    }
+
+    /// Get error rate time series
+    pub async fn get_error_rate_timeseries(
+        &self,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+        interval_minutes: i32,
+    ) -> Result<Vec<TimeSeriesPoint>, AnalyticsError> {
+        if !self.config.enabled {
+            return Err(AnalyticsError::Disabled);
+        }
+
+        self.repo
+            .get_error_rate_timeseries(from, to, interval_minutes)
+            .await
     }
 
     /// Clean up old analytics data
-    pub async fn cleanup_analytics(
+    pub async fn cleanup_old_data(
         &self,
-        config: CleanupConfig,
-    ) -> Result<CleanupResult, AnalyticsError> {
-        // Placeholder implementation
-        // TODO: Implement actual cleanup when storage methods are available
+        older_than: OffsetDateTime,
+    ) -> Result<u64, AnalyticsError> {
+        self.repo.cleanup_old_data(older_than).await
+    }
 
-        if config.days_to_keep <= 0 {
-            return Err(AnalyticsError::InvalidTimeRange(
-                "Days to keep must be positive".to_string(),
-            ));
-        }
+    /// Check if analytics is enabled
+    pub fn is_enabled(&self) -> bool {
+        self.config.enabled
+    }
 
-        let cutoff_date =
-            OffsetDateTime::now_utc() - time::Duration::days(config.days_to_keep as i64);
+    /// Get the current configuration
+    pub fn config(&self) -> &AnalyticsConfig {
+        &self.config
+    }
 
-        // For now, return placeholder data
-        Ok(CleanupResult {
-            dry_run: config.dry_run,
-            days_kept: config.days_to_keep,
-            cutoff_date,
-            records_affected: 0,
-        })
+    /// Update the configuration
+    pub fn update_config(&mut self, config: AnalyticsConfig) {
+        self.config = config;
     }
 
     /// Parse user ID from string
     pub fn parse_user_id(user_id_str: &str) -> Result<Uuid, AnalyticsError> {
-        Uuid::parse_str(user_id_str).map_err(|_| AnalyticsError::InvalidUserId {
-            user_id: user_id_str.to_string(),
-        })
+        Uuid::parse_str(user_id_str).map_err(|_| AnalyticsError::InvalidTimeRange)
+    }
+
+    /// Helper method to determine if a path represents a static file
+    fn is_static_file_path(&self, path: &str) -> bool {
+        // Common static file extensions
+        let static_extensions = [
+            ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2",
+            ".ttf", ".eot", ".map", ".webp", ".avif",
+        ];
+
+        static_extensions.iter().any(|ext| path.ends_with(ext))
+    }
+}
+
+/// Builder for creating RequestAnalytics records
+pub struct RequestAnalyticsBuilder {
+    request_id: String,
+    user_id: Option<Uuid>,
+    method: String,
+    path: String,
+    status_code: i32,
+    duration_ms: Option<i32>,
+    user_agent: Option<String>,
+    ip_address: Option<String>,
+    request_data: Option<serde_json::Value>,
+    response_size: Option<i64>,
+    error_message: Option<String>,
+    trace_id: Option<String>,
+    span_id: Option<String>,
+}
+
+impl RequestAnalyticsBuilder {
+    /// Create a new builder with required fields
+    pub fn new(request_id: String, method: String, path: String, status_code: i32) -> Self {
+        Self {
+            request_id,
+            method,
+            path,
+            status_code,
+            user_id: None,
+            duration_ms: None,
+            user_agent: None,
+            ip_address: None,
+            request_data: None,
+            response_size: None,
+            error_message: None,
+            trace_id: None,
+            span_id: None,
+        }
+    }
+
+    /// Set the user ID
+    pub fn user_id(mut self, user_id: Option<Uuid>) -> Self {
+        self.user_id = user_id;
+        self
+    }
+
+    /// Set the request duration in milliseconds
+    pub fn duration_ms(mut self, duration_ms: i32) -> Self {
+        self.duration_ms = Some(duration_ms);
+        self
+    }
+
+    /// Set the user agent
+    pub fn user_agent(mut self, user_agent: Option<String>) -> Self {
+        self.user_agent = user_agent;
+        self
+    }
+
+    /// Set the IP address
+    pub fn ip_address(mut self, ip_address: Option<String>) -> Self {
+        self.ip_address = ip_address;
+        self
+    }
+
+    /// Set request data
+    pub fn request_data(mut self, request_data: Option<serde_json::Value>) -> Self {
+        self.request_data = request_data;
+        self
+    }
+
+    /// Set response size
+    pub fn response_size(mut self, response_size: Option<i64>) -> Self {
+        self.response_size = response_size;
+        self
+    }
+
+    /// Set error message
+    pub fn error_message(mut self, error_message: Option<String>) -> Self {
+        self.error_message = error_message;
+        self
+    }
+
+    /// Set trace ID
+    pub fn trace_id(mut self, trace_id: Option<String>) -> Self {
+        self.trace_id = trace_id;
+        self
+    }
+
+    /// Set span ID
+    pub fn span_id(mut self, span_id: Option<String>) -> Self {
+        self.span_id = span_id;
+        self
+    }
+
+    /// Build the RequestAnalytics record
+    pub fn build(self) -> RequestAnalytics {
+        RequestAnalytics {
+            id: Uuid::new_v4(),
+            request_id: self.request_id,
+            timestamp: OffsetDateTime::now_utc(),
+            user_id: self.user_id,
+            method: self.method,
+            path: self.path,
+            status_code: self.status_code,
+            duration_ms: self.duration_ms,
+            user_agent: self.user_agent,
+            ip_address: self.ip_address,
+            request_data: self.request_data,
+            response_size: self.response_size,
+            error_message: self.error_message,
+            trace_id: self.trace_id,
+            span_id: self.span_id,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_request_analytics_builder() {
+        let analytics = RequestAnalyticsBuilder::new(
+            "test-123".to_string(),
+            "GET".to_string(),
+            "/api/test".to_string(),
+            200,
+        )
+        .user_id(Some(Uuid::new_v4()))
+        .duration_ms(150)
+        .user_agent(Some("test-agent".to_string()))
+        .build();
+
+        assert_eq!(analytics.request_id, "test-123");
+        assert_eq!(analytics.method, "GET");
+        assert_eq!(analytics.path, "/api/test");
+        assert_eq!(analytics.status_code, 200);
+        assert_eq!(analytics.duration_ms, Some(150));
+        assert!(analytics.user_id.is_some());
+    }
+
+    #[test]
+    fn test_is_static_file_path() {
+        // Test the static file detection logic
+        let static_extensions = [
+            ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2",
+            ".ttf", ".eot", ".map", ".webp", ".avif",
+        ];
+
+        assert!(static_extensions
+            .iter()
+            .any(|ext| "/assets/style.css".ends_with(ext)));
+        assert!(static_extensions
+            .iter()
+            .any(|ext| "/js/app.js".ends_with(ext)));
+        assert!(static_extensions
+            .iter()
+            .any(|ext| "/favicon.ico".ends_with(ext)));
+        assert!(!static_extensions
+            .iter()
+            .any(|ext| "/api/users".ends_with(ext)));
+        assert!(!static_extensions
+            .iter()
+            .any(|ext| "/auth/login".ends_with(ext)));
+    }
 
     #[test]
     fn test_parse_user_id_valid() {
@@ -287,19 +352,5 @@ mod tests {
         let invalid_uuid = "not-a-uuid";
         let result = AnalyticsService::parse_user_id(invalid_uuid);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_analytics_query_default() {
-        let query = AnalyticsQuery::default();
-        assert_eq!(query.hours, 24);
-        assert_eq!(query.limit, 10);
-    }
-
-    #[test]
-    fn test_cleanup_config_default() {
-        let config = CleanupConfig::default();
-        assert_eq!(config.days_to_keep, 30);
-        assert!(config.dry_run);
     }
 }

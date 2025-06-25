@@ -7,9 +7,8 @@
 //! - Analytics statistics
 
 use clap::Subcommand;
+use grimoire::analytics::{AnalyticsCliService, AnalyticsQuery, CleanupConfig, UserActivityQuery};
 use grimoire::DatabaseConnection;
-use grimoire::{AnalyticsQuery, AnalyticsService, CleanupConfig, UserActivityQuery};
-use server::storage::AnalyticsService as StorageAnalyticsService;
 
 #[derive(Subcommand, Clone)]
 pub enum AnalyticsCommands {
@@ -43,12 +42,8 @@ pub enum AnalyticsCommands {
 }
 
 impl AnalyticsCommands {
-    pub async fn handle(
-        &self,
-        _storage: &StorageAnalyticsService,
-        _db: &DatabaseConnection,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let analytics_service = AnalyticsService::new();
+    pub async fn handle(&self, db: &DatabaseConnection) -> Result<(), Box<dyn std::error::Error>> {
+        let analytics_service = AnalyticsCliService::new(db);
 
         match self {
             AnalyticsCommands::Analytics { hours, limit } => {
@@ -64,7 +59,7 @@ impl AnalyticsCommands {
     }
 
     async fn show_analytics(
-        analytics: &AnalyticsService,
+        analytics: &AnalyticsCliService<'_>,
         hours: i32,
         limit: i64,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -73,9 +68,13 @@ impl AnalyticsCommands {
         match analytics.get_analytics(query).await {
             Ok(result) => {
                 println!("{}", result);
-                println!();
-                println!("Note: Analytics functionality is currently in development.");
-                println!("Full analytics data will be available in a future update.");
+                if !analytics.is_enabled() {
+                    println!();
+                    println!("Note: Analytics is currently disabled. Enable it in configuration to see real data.");
+                } else if result.total_requests == 0 {
+                    println!();
+                    println!("Note: No analytics data found for the specified time period.");
+                }
             }
             Err(e) => {
                 eprintln!("❌ Failed to get analytics: {}", e);
@@ -87,15 +86,15 @@ impl AnalyticsCommands {
     }
 
     async fn show_user_activity(
-        analytics: &AnalyticsService,
+        analytics: &AnalyticsCliService<'_>,
         user_id: &str,
         limit: i64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Parse user ID
-        let user_uuid = match AnalyticsService::parse_user_id(user_id) {
+        let user_uuid = match AnalyticsCliService::parse_user_id(user_id) {
             Ok(uuid) => uuid,
             Err(e) => {
-                eprintln!("❌ {}", e);
+                eprintln!("❌ Invalid user ID format: {}", user_id);
                 return Err(e.into());
             }
         };
@@ -108,9 +107,13 @@ impl AnalyticsCommands {
         match analytics.get_user_activity(query).await {
             Ok(result) => {
                 println!("{}", result);
-                println!();
-                println!("Note: User activity tracking is currently in development.");
-                println!("Full activity data will be available in a future update.");
+                if !analytics.is_enabled() {
+                    println!();
+                    println!("Note: Analytics is currently disabled. Enable it in configuration to track user activity.");
+                } else if result.request_count == 0 {
+                    println!();
+                    println!("Note: No activity found for this user in the available data.");
+                }
             }
             Err(e) => {
                 eprintln!("❌ Failed to get user activity: {}", e);
@@ -122,7 +125,7 @@ impl AnalyticsCommands {
     }
 
     async fn cleanup_analytics(
-        analytics: &AnalyticsService,
+        analytics: &AnalyticsCliService<'_>,
         days: i32,
         execute: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -134,12 +137,13 @@ impl AnalyticsCommands {
         match analytics.cleanup_analytics(config).await {
             Ok(result) => {
                 println!("{}", result);
-                println!();
-                if result.dry_run {
+                if result.dry_run && result.records_affected > 0 {
+                    println!();
                     println!("Run with --execute to perform the actual cleanup");
+                } else if !analytics.is_enabled() {
+                    println!();
+                    println!("Note: Analytics is currently disabled.");
                 }
-                println!("Note: Analytics cleanup is currently in development.");
-                println!("Full cleanup functionality will be available in a future update.");
             }
             Err(e) => {
                 eprintln!("❌ Failed to cleanup analytics: {}", e);

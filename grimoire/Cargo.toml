@@ -17,6 +17,7 @@ tracing.workspace = true
 webauthn-rs.workspace = true
 schemars.workspace = true
 json5.workspace = true
+num-traits.workspace = true
 
 # Local dependencies
 # server = { path = "../server" } # Temporarily removed to fix circular dependency

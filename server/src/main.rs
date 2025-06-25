@@ -142,8 +142,9 @@ async fn main() {
         .await
         .expect("Failed to initialize app state");
 
-    // Get analytics service for middleware
-    let analytics_service = app_state.analytics.clone();
+    // Get analytics configuration for middleware
+    let analytics_config = app_state.analytics_config.clone();
+    let database = app_state.database.clone();
 
     // Set up access logging if enabled
     let access_logger = if let Some(access_config) = &config.logging.access_log {
@@ -217,7 +218,8 @@ async fn main() {
     if config.features.analytics_enabled {
         app = app
             .layer(axum_middleware::from_fn(analytics_middleware))
-            .layer(Extension(analytics_service));
+            .layer(Extension(analytics_config))
+            .layer(Extension(database));
     }
 
     app = match &app_state.session_store {
@@ -267,7 +269,10 @@ async fn main() {
         "📁 Assets directory: {}",
         config.static_files.assets_directory
     );
-    info!("💾 Analytics storage: {:?}", config.storage.analytics);
+    info!(
+        "💾 Analytics enabled: {}",
+        config.features.analytics_enabled
+    );
     info!("🗄️  Session storage: {:?}", config.storage.sessions);
 
     if config.development.auto_generate_invites && config.app.environment == "development" {

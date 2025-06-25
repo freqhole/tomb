@@ -50,12 +50,16 @@ COMPLETED - Created comprehensive Rust package at `client/rust/` with centralize
 - ✅ Multi-format display (JSON/Debug) with section filtering
 - ✅ Secrets file generation and management
 
-**Analytics (structured placeholder) (`AnalyticsService`):**
+**Analytics (complete domain implementation) (`AnalyticsService`):**
 
-- ✅ Structured service ready for future implementation
-- ✅ User activity tracking interfaces
-- ✅ Cleanup configuration and dry-run support
-- ✅ Proper error handling and validation
+- ✅ **Complete analytics refactoring** - Moved all domain logic from server to grimoire
+- ✅ **Full business logic service** - Request tracking, metrics, time-series, cleanup operations
+- ✅ **Repository layer** - Database operations for analytics data (PostgreSQL)
+- ✅ **CLI integration** - Working analytics commands with proper grimoire service usage
+- ✅ **HTTP middleware** - Request analytics tracking with lifetime-safe implementation
+- ✅ **Eliminated code duplication** - Removed redundant AnalyticsService from server storage
+- ✅ **Fixed circular dependencies** - Clean import structure between packages
+- ✅ **Type-safe error handling** - Comprehensive AnalyticsError with database/validation errors
 
 **Quality & Testing:**
 
@@ -148,7 +152,7 @@ cli/ (depends on grimoire)
   grimoire/src/
   ├── auth/           # models.rs, repository.rs, service.rs, mod.rs
   ├── config/         # app_config.rs, service.rs, mod.rs
-  ├── analytics/      # service.rs, mod.rs
+  ├── analytics/      # models.rs, repository.rs, service.rs, cli_service.rs, cli_types.rs, mod.rs
   ├── wordlist/       # management.rs, service.rs, mod.rs
   ├── database.rs     # DatabaseConnection
   └── lib.rs          # Clean re-exports
@@ -183,7 +187,7 @@ The grimoire package now provides battle-tested domain services ready for HTTP i
 - **`AuthService`** - User management, invite codes, account linking (Used by CLI ✅)
 - **`ConfigService`** - Configuration validation, generation, display (Used by CLI ✅)
 - **`WordlistService`** - Wordlist generation, validation, statistics (Used by CLI ✅)
-- **`AnalyticsService`** - Structured placeholder for analytics endpoints (Used by CLI ✅)
+- **`AnalyticsService`** - Complete analytics domain service with metrics, time-series, cleanup (Used by CLI ✅, Server ✅)
 - **`AuthRepository`** - Complete SQL operations for authentication
 - **`DatabaseConnection`** - Ready for HTTP handler dependency injection
 
@@ -725,6 +729,50 @@ Establish comprehensive testing for all client library components using modern t
 Set up proper packaging and distribution for the client libraries, making them easily consumable by demos and future applications.
 
 ### Infrastructure & DevOps Tasks
+
+- ✅ **I.0** Analytics Architecture Refactoring
+
+**COMPLETED** - Major infrastructure improvement to consolidate analytics code organization and eliminate technical debt.
+
+**Scope:** Code organization, package architecture, dependency management, service consolidation.
+
+**Achievements:**
+
+- ✅ **Domain logic consolidation** - Moved all analytics business logic from `server/` to `grimoire/` package
+- ✅ **Eliminated code duplication** - Removed redundant `AnalyticsService` implementations across packages
+- ✅ **Fixed circular dependencies** - Resolved import conflicts between CLI, server, and grimoire packages
+- ✅ **Clean package separation** - HTTP concerns (handlers, middleware, routes) remain in server, domain logic in grimoire
+- ✅ **Lifetime-safe middleware** - Redesigned analytics middleware to avoid borrowing conflicts with on-demand service creation
+- ✅ **CLI integration** - All analytics CLI commands now properly use consolidated grimoire services
+- ✅ **Type-safe error handling** - Comprehensive `AnalyticsError` with database and validation error variants
+
+**Architecture Improvements:**
+
+```
+grimoire/src/analytics/
+├── models.rs          # Core domain models (RequestAnalytics, AnalyticsConfig, etc.)
+├── repository.rs      # Database operations layer
+├── service.rs         # Main business logic service
+├── cli_service.rs     # CLI-specific service bridge
+├── cli_types.rs       # CLI display types (AnalyticsResult, etc.)
+└── mod.rs            # Clean, specific exports
+
+server/src/analytics/
+├── handlers.rs        # HTTP endpoint handlers
+├── middleware.rs      # Request tracking middleware
+├── routes.rs          # Route definitions
+└── mod.rs            # HTTP-specific exports + re-exports from grimoire
+```
+
+**Benefits:**
+
+- 🚫 **Zero code duplication** - Single source of truth for analytics logic
+- 🔗 **Clear separation of concerns** - Domain logic vs HTTP presentation
+- 🧪 **Better testability** - Domain logic testable independently of HTTP layer
+- 📈 **Easier maintenance** - Business logic changes in one location
+- 🔄 **Consistent interfaces** - All consumers use same grimoire services
+
+**Status:** ✅ **PRODUCTION READY** - Analytics domain logic properly organized and integration-tested.
 
 **Phase Overview:** Production deployment and operational requirements for thumbnail generation system.
 

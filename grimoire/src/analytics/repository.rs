@@ -1,7 +1,7 @@
 use super::models::{
     AnalyticsError, PathMetric, RequestAnalytics, RequestMetrics, TimeSeriesPoint,
 };
-use grimoire::DatabaseConnection;
+use crate::DatabaseConnection;
 use num_traits::ToPrimitive;
 use time::OffsetDateTime;
 use uuid::Uuid;
