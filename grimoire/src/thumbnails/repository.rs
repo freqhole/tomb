@@ -19,12 +19,12 @@ impl<'a> ThumbnailRepository<'a> {
 
     /// Create a new thumbnail job in the job queue
     pub async fn enqueue_job(&self, job: &ThumbnailJob) -> Result<(), ThumbnailError> {
-        // Insert into fang_tasks table for job queue processing
+        // Insert into thumbnail_jobs table for job queue processing
         let metadata = serde_json::to_value(job)?;
 
         sqlx::query!(
             r#"
-            INSERT INTO fang_tasks (
+            INSERT INTO thumbnail_jobs (
                 id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -49,7 +49,7 @@ impl<'a> ThumbnailRepository<'a> {
         let row = sqlx::query!(
             r#"
             SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at
-            FROM fang_tasks
+            FROM thumbnail_jobs
             WHERE id = $1 AND task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%'
             "#,
             job_id
@@ -92,7 +92,7 @@ impl<'a> ThumbnailRepository<'a> {
 
             sqlx::query!(
                 r#"
-                UPDATE fang_tasks
+                UPDATE thumbnail_jobs
                 SET metadata = $1, state = $2, updated_at = $3
                 WHERE id = $4
                 "#,
@@ -113,7 +113,7 @@ impl<'a> ThumbnailRepository<'a> {
         let rows = sqlx::query!(
             r#"
             SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at
-            FROM fang_tasks
+            FROM thumbnail_jobs
             WHERE state = 'new' OR state = 'retried'
             AND (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')
             AND scheduled_at <= NOW()
@@ -232,7 +232,7 @@ impl<'a> ThumbnailRepository<'a> {
         let exists = sqlx::query_scalar!(
             r#"
             SELECT EXISTS(
-                SELECT 1 FROM fang_tasks
+                SELECT 1 FROM thumbnail_jobs
                 WHERE task_type = $1
                 AND state IN ('new', 'in_progress', 'retried', 'finished')
                 AND metadata->>'media_blob_id' = $2
@@ -258,7 +258,7 @@ impl<'a> ThumbnailRepository<'a> {
                 COUNT(CASE WHEN state = 'in_progress' THEN 1 END) as in_progress_jobs,
                 COUNT(CASE WHEN state = 'finished' THEN 1 END) as completed_jobs,
                 COUNT(CASE WHEN state = 'failed' THEN 1 END) as failed_jobs
-            FROM fang_tasks
+            FROM thumbnail_jobs
             WHERE task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%'
             "#
         )
@@ -271,7 +271,7 @@ impl<'a> ThumbnailRepository<'a> {
             SELECT
                 AVG(jel.duration_ms)::FLOAT as avg_processing_time,
                 (COUNT(*) FILTER (WHERE jel.success = true) * 100.0 / COUNT(*))::FLOAT as success_rate
-            FROM fang_tasks ft
+            FROM thumbnail_jobs ft
             LEFT JOIN job_execution_log jel ON ft.id = jel.task_id
             WHERE (ft.task_type LIKE '%thumbnail%' OR ft.task_type LIKE '%waveform%')
             AND jel.completed_at IS NOT NULL
@@ -299,7 +299,7 @@ impl<'a> ThumbnailRepository<'a> {
     ) -> Result<u64, ThumbnailError> {
         let result = sqlx::query!(
             r#"
-            DELETE FROM fang_tasks
+            DELETE FROM thumbnail_jobs
             WHERE (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')
             AND state IN ('finished', 'failed')
             AND updated_at < $1
@@ -316,7 +316,7 @@ impl<'a> ThumbnailRepository<'a> {
     pub async fn retry_failed_jobs(&self, max_retries: i32) -> Result<u64, ThumbnailError> {
         let result = sqlx::query!(
             r#"
-            UPDATE fang_tasks
+            UPDATE thumbnail_jobs
             SET
                 state = 'retried',
                 retries = retries + 1,
@@ -352,7 +352,7 @@ impl<'a> ThumbnailRepository<'a> {
         let rows = sqlx::query!(
             r#"
             SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at
-            FROM fang_tasks
+            FROM thumbnail_jobs
             WHERE state = $1
             AND (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')
             ORDER BY updated_at DESC

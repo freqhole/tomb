@@ -1,5 +1,5 @@
--- Job Queue System using Fang
--- This migration sets up the Fang job queue tables for asynchronous processing
+-- Thumbnail Job Queue System
+-- This migration sets up the thumbnail job queue tables for asynchronous processing
 
 -- Create function to automatically update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -10,8 +10,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create the main fang_tasks table for job queue
-CREATE TABLE fang_tasks (
+-- Create the main thumbnail_jobs table for job queue
+CREATE TABLE thumbnail_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     metadata JSONB NOT NULL,
     error_message TEXT,
@@ -25,47 +25,48 @@ CREATE TABLE fang_tasks (
 );
 
 -- Add comments for documentation
-COMMENT ON TABLE fang_tasks IS 'Fang job queue for asynchronous task processing';
-COMMENT ON COLUMN fang_tasks.metadata IS 'JSON payload containing job data and parameters';
-COMMENT ON COLUMN fang_tasks.state IS 'Job state: new, in_progress, finished, failed, retried';
-COMMENT ON COLUMN fang_tasks.task_type IS 'Type of task: thumbnail_generation, media_processing, etc.';
-COMMENT ON COLUMN fang_tasks.uniq_hash IS 'SHA-256 hash for deduplication of identical jobs';
-COMMENT ON COLUMN fang_tasks.retries IS 'Number of retry attempts for failed jobs';
-COMMENT ON COLUMN fang_tasks.scheduled_at IS 'When this job should be processed';
+COMMENT ON TABLE thumbnail_jobs IS 'Thumbnail job queue for asynchronous task processing';
+COMMENT ON COLUMN thumbnail_jobs.metadata IS 'JSON payload containing job data and parameters';
+COMMENT ON COLUMN thumbnail_jobs.state IS 'Job state: new, in_progress, finished, failed, retried';
+COMMENT ON COLUMN thumbnail_jobs.task_type IS 'Type of task: thumbnail_generation, media_processing, etc.';
+COMMENT ON COLUMN thumbnail_jobs.uniq_hash IS 'SHA-256 hash for deduplication of identical jobs';
+COMMENT ON COLUMN thumbnail_jobs.retries IS 'Number of retry attempts for failed jobs';
+COMMENT ON COLUMN thumbnail_jobs.scheduled_at IS 'When this job should be processed';
 
 -- Create indexes for efficient job queue operations
-CREATE INDEX idx_fang_tasks_state ON fang_tasks(state);
-CREATE INDEX idx_fang_tasks_type ON fang_tasks(task_type);
-CREATE INDEX idx_fang_tasks_scheduled_at ON fang_tasks(scheduled_at);
-CREATE INDEX idx_fang_tasks_created_at ON fang_tasks(created_at);
-CREATE INDEX idx_fang_tasks_updated_at ON fang_tasks(updated_at);
+CREATE INDEX idx_thumbnail_jobs_state ON thumbnail_jobs(state);
+CREATE INDEX idx_thumbnail_jobs_type ON thumbnail_jobs(task_type);
+CREATE INDEX idx_thumbnail_jobs_scheduled_at ON thumbnail_jobs(scheduled_at);
+CREATE INDEX idx_thumbnail_jobs_created_at ON thumbnail_jobs(created_at);
+CREATE INDEX idx_thumbnail_jobs_updated_at ON thumbnail_jobs(updated_at);
 
 -- Index for finding jobs ready to process
-CREATE INDEX idx_fang_tasks_ready ON fang_tasks(scheduled_at, state)
+CREATE INDEX idx_thumbnail_jobs_ready ON thumbnail_jobs(scheduled_at, state)
     WHERE state = 'new' OR state = 'retried';
 
 -- Index for job deduplication
-CREATE UNIQUE INDEX idx_fang_tasks_uniq_hash ON fang_tasks(uniq_hash)
+CREATE UNIQUE INDEX idx_thumbnail_jobs_uniq_hash ON thumbnail_jobs(uniq_hash)
     WHERE uniq_hash IS NOT NULL AND state IN ('new', 'in_progress', 'retried');
 
 -- Index for monitoring failed jobs
-CREATE INDEX idx_fang_tasks_failed ON fang_tasks(task_type, created_at)
+CREATE INDEX idx_thumbnail_jobs_failed ON thumbnail_jobs(task_type, created_at)
     WHERE state = 'failed';
 
 -- Add constraint for valid states
-ALTER TABLE fang_tasks ADD CONSTRAINT chk_fang_task_state
+ALTER TABLE thumbnail_jobs ADD CONSTRAINT chk_thumbnail_job_state
     CHECK (state IN ('new', 'in_progress', 'finished', 'failed', 'retried'));
 
 -- Create trigger to update updated_at timestamp
-CREATE TRIGGER update_fang_tasks_updated_at
-    BEFORE UPDATE ON fang_tasks
+-- Add trigger to automatically update updated_at on row changes
+CREATE TRIGGER trigger_thumbnail_jobs_updated_at
+    BEFORE UPDATE ON thumbnail_jobs
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
 -- Create table for tracking job execution history/metrics
 CREATE TABLE job_execution_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id UUID NOT NULL REFERENCES fang_tasks(id) ON DELETE CASCADE,
+    task_id UUID NOT NULL REFERENCES thumbnail_jobs(id) ON DELETE CASCADE,
     worker_id TEXT,
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
@@ -97,7 +98,7 @@ SELECT
     AVG(retries) as avg_retries,
     MIN(created_at) as oldest_job,
     MAX(created_at) as newest_job
-FROM fang_tasks
+FROM thumbnail_jobs
 GROUP BY task_type, state;
 
 -- Create view for job performance metrics
@@ -111,7 +112,7 @@ SELECT
     COUNT(*) FILTER (WHERE jel.success = true) as successful_count,
     COUNT(*) FILTER (WHERE jel.success = false) as failed_count,
     (COUNT(*) FILTER (WHERE jel.success = true) * 100.0 / COUNT(*))::DECIMAL(5,2) as success_rate_percent
-FROM fang_tasks ft
+FROM thumbnail_jobs ft
 LEFT JOIN job_execution_log jel ON ft.id = jel.task_id
 WHERE jel.completed_at IS NOT NULL
 GROUP BY ft.task_type;
@@ -123,7 +124,7 @@ DECLARE
     deleted_count INTEGER;
 BEGIN
     -- Delete completed jobs older than specified days
-    DELETE FROM fang_tasks
+    DELETE FROM thumbnail_jobs
     WHERE state IN ('finished', 'failed')
     AND updated_at < NOW() - INTERVAL '1 day' * days_to_keep;
 
@@ -139,7 +140,7 @@ RETURNS INTEGER AS $$
 DECLARE
     updated_count INTEGER;
 BEGIN
-    UPDATE fang_tasks
+    UPDATE thumbnail_jobs
     SET
         state = 'retried',
         retries = retries + 1,

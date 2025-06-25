@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO thumbnail_jobs (\n                id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Varchar",
+        "Varchar",
+        "Timestamptz",
+        "Int4",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0391f420518bbb9ccdd8409620c56cade00a3fea9c684c5896dcde58f092a3b9"
+}

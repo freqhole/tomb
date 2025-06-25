@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE thumbnail_jobs\n                SET metadata = $1, state = $2, updated_at = $3\n                WHERE id = $4\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Varchar",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "37604e82eba8a4df0b9a710e445327f943f9d09f440f4da650f3a1a238dda744"
+}

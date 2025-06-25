@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at\n            FROM fang_tasks\n            WHERE state = $1\n            AND (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')\n            ORDER BY updated_at DESC\n            LIMIT $2\n            ",
+  "query": "\n            SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at\n            FROM thumbnail_jobs\n            WHERE state = 'new' OR state = 'retried'\n            AND (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')\n            AND scheduled_at <= NOW()\n            ORDER BY scheduled_at ASC\n            LIMIT $1\n            ",
   "describe": {
     "columns": [
       {
@@ -46,7 +46,6 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
         "Int8"
       ]
     },
@@ -61,5 +60,5 @@
       false
     ]
   },
-  "hash": "2fb1b322ec9a50cbadda94e03c5648a242c8d41b8ac7a56d3123559d7be69e9b"
+  "hash": "0883f9a7c420d5d252aaf3d8890663d7fab788f39ed13730e0916519801888f1"
 }

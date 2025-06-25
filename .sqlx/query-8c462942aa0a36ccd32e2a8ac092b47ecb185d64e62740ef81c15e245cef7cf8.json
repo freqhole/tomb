@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE thumbnail_jobs\n            SET\n                state = 'retried',\n                retries = retries + 1,\n                scheduled_at = NOW(),\n                updated_at = NOW()\n            WHERE (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')\n            AND state = 'failed'\n            AND retries < $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8c462942aa0a36ccd32e2a8ac092b47ecb185d64e62740ef81c15e245cef7cf8"
+}

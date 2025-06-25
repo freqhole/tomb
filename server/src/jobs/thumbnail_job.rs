@@ -1,7 +1,7 @@
 //! Simple thumbnail job processing without external job queue
 //!
 //! This module provides lightweight job processing that works directly with
-//! our grimoire ThumbnailService and the existing fang_tasks table.
+//! our grimoire ThumbnailService and the existing thumbnail_jobs table.
 
 use grimoire::{
     thumbnails::ThumbnailJobStatus, DatabaseConnection, ThumbnailConfig, ThumbnailJob,
