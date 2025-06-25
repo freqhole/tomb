@@ -26,47 +26,65 @@ This document tracks remaining tasks for implementing the media blob system with
 
 ### Phase 2: Job Queue Setup & Basic Thumbnail Generation
 
-**Scope:** Job queue infrastructure, thumbnail generation algorithms, error handling, database integration.
+**Scope:** Domain services, job queue infrastructure, thumbnail generation algorithms, HTTP/CLI integration.
 
-- **2.1** Set up Fang job queue with PostgreSQL backend
+#### Phase 2A: Domain Layer (Grimoire Package)
 
-Configure Fang for asynchronous job processing with PostgreSQL storage backend. Set up job worker processes and basic queue monitoring.
+- **2.1** Create ThumbnailService and ThumbnailRepository in grimoire
 
-- **2.2** Create ThumbnailJob struct and implementation
+Establish thumbnail domain services following our proven architecture patterns. Create `grimoire/src/thumbnails/` module with repository for database operations and service for business logic.
 
-Define job structure for thumbnail generation tasks including media blob ID, target sizes, job type, and error handling.
+- **2.2** Add thumbnail configuration to ConfigService
 
-- **2.3** Implement basic image thumbnail generation
+Extend existing ConfigService to handle external tool configuration (imagemagick, ffmpeg) with validation, custom binary paths, and enable/disable flags.
 
-Create thumbnail generation for common image formats (JPEG, PNG, WebP) using imagemagick or image processing libraries.
+- **2.3** Create ThumbnailJob struct and ThumbnailError types
 
-- **2.4** Add job enqueueing when media blobs are uploaded
+Define job structure in grimoire with media blob ID, job type, target dimensions, and comprehensive error handling with custom error types.
 
-Integrate job queue with media blob upload process to automatically trigger thumbnail generation.
+- **2.4** Implement thumbnail generation algorithms
 
-- **2.5** Create job worker process/service
+Create thumbnail generation functions for images (imagemagick), video frames (ffmpeg), and audio waveforms with proper error handling and fallbacks.
 
-Set up dedicated worker processes to consume jobs from the queue and process thumbnail generation tasks.
+- **2.5** Add comprehensive unit tests for thumbnail domain logic
 
-- **2.6** Add job status tracking and error handling
+Test thumbnail algorithms, configuration validation, error handling, and repository operations independently of infrastructure.
 
-Implement job status updates, retry logic, and comprehensive error handling for failed thumbnail generation.
+#### Phase 2B: Infrastructure & Job Queue
 
-- **2.7** Configure external tool validation (imagemagick, ffmpeg)
+- **2.6** Set up Fang job queue integration with grimoire services
 
-Add startup validation to ensure required external tools are available and properly configured.
+Configure Fang PostgreSQL backend and integrate ThumbnailJob with job queue, making jobs use grimoire ThumbnailService.
 
-- **2.8** Implement video frame extraction
+- **2.7** Create job worker service using grimoire ThumbnailService
 
-Add video thumbnail generation by extracting representative frames using ffmpeg.
+Build worker processes that consume jobs and delegate to grimoire services, keeping infrastructure separate from business logic.
 
-- **2.9** Add audio waveform generation
+- **2.8** Add external tool validation and startup checks
 
-Generate visual waveforms for audio files to serve as thumbnails.
+Implement startup validation using grimoire ConfigService to check tool availability with clear error messages and configuration guidance.
 
-- **2.10** Create thumbnail cleanup jobs
+- **2.9** Implement job status tracking and retry logic
 
-Implement jobs to clean up orphaned thumbnails and manage storage space.
+Add job status updates, exponential backoff retry logic, and error recovery using grimoire repository patterns.
+
+#### Phase 2C: HTTP & CLI Integration
+
+- **2.10** Add HTTP endpoints for thumbnail management
+
+Create server endpoints for thumbnail status, manual trigger, and progress monitoring using grimoire ThumbnailService.
+
+- **2.11** Integrate job enqueueing with upload handlers
+
+Modify existing upload endpoints to automatically enqueue thumbnail jobs using grimoire services.
+
+- **2.12** Create CLI commands for thumbnail operations
+
+Add CLI subcommands for thumbnail status, retry failed jobs, cleanup orphaned thumbnails, and batch operations using grimoire services.
+
+- **2.13** Add thumbnail cleanup jobs and maintenance
+
+Implement maintenance jobs for cleaning orphaned thumbnails, storage optimization, and scheduled cleanup using job queue system.
 
 ### Phase 3: Real-time Notifications via PostgreSQL NOTIFY/LISTEN
 
