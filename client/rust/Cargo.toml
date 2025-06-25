@@ -16,3 +16,6 @@ rand.workspace = true
 
 # Local dependencies
 server = { path = "../../server" }
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -16,30 +16,51 @@ This document outlines the planned enhancements to the media blob system, includ
 - ✅ **0.2** review and refine phases 1 onward before starting.
 - ✅ **0.3** Create client/rust/ package for centralized domain logic
 
-COMPLETED - Created new Rust package at `client/rust/` with centralized authentication domain logic and abstractions. Established clean patterns:
+COMPLETED - Created comprehensive Rust package at `client/rust/` with centralized domain logic and abstractions. Established clean three-layer architecture patterns:
 
 **Architecture Patterns:**
 
 - Repository layer (`server/src/auth/repository.rs`) - Raw SQL operations
-- Service layer (`client/rust/src/auth.rs`) - Business logic, validation, error handling
-- Consumer layer (`cli/src/users/mod.rs`) - Minimal wrappers calling services
+- Service layer (`client/rust/src/`) - Business logic, validation, error handling
+- Consumer layer (`cli/src/`) - Minimal wrappers calling services
 
-**Implemented Services:**
+**Implemented Domain Services:**
 
-- `AuthService` with invite code generation (custom, random, word-based)
+**Authentication (`AuthService`):**
+
+- Invite code generation (custom, random, word-based)
 - Account link code generation with validation and expiration
 - User management (create admin, update roles, list users)
 - Authentication statistics and invite code listing
-- Comprehensive error handling with custom `AuthServiceError` types
 
-**Benefits Achieved:**
+**Wordlist Management (`WordlistService`):**
 
-- CLI functions reduced from ~60 lines to ~10 lines each
-- Reusable business logic across HTTP, WebSocket, CLI consumers
-- Clean separation of concerns with proper abstraction layers
-- Type-safe error handling and result formatting
+- Wordlist generation with configurable categories (silly, animals, food)
+- Comprehensive validation with detailed error reporting
+- Statistics calculation and entropy analysis
+- Content parsing and file I/O operations
 
-**Ready for Phase 1 implementation** - HTTP handlers can now use the same domain services.
+**Configuration Management (`ConfigService`):**
+
+- Configuration validation and generation logic
+- JSON schema generation for editor support
+- Environment file generation from configuration
+- Multi-format display (JSON/Debug) with section filtering
+
+**Analytics (placeholder) (`AnalyticsService`):**
+
+- Structured service ready for future implementation
+- User activity tracking interfaces
+- Cleanup configuration and dry-run support
+
+**Code Reduction Achieved:**
+
+- CLI functions reduced by 50-80% each (e.g., wordlist generation: 120 lines → 30 lines)
+- Eliminated duplicate business logic across CLI modules
+- Clean error handling with custom service error types
+- Rich display formatting with structured result types
+
+**Ready for Phase 1 implementation** - HTTP handlers can now use the same domain services across all CLI functionality.
 
 - **0.4** Establish architectural pattern for minimal existing code changes
 

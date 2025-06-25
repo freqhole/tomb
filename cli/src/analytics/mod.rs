@@ -7,8 +7,9 @@
 //! - Analytics statistics
 
 use clap::Subcommand;
+use client_rust::{AnalyticsQuery, AnalyticsService, CleanupConfig, UserActivityQuery};
 use server::database::DatabaseConnection;
-use server::storage::AnalyticsService;
+use server::storage::AnalyticsService as StorageAnalyticsService;
 
 #[derive(Subcommand, Clone)]
 pub enum AnalyticsCommands {
@@ -44,85 +45,106 @@ pub enum AnalyticsCommands {
 impl AnalyticsCommands {
     pub async fn handle(
         &self,
-        analytics: &AnalyticsService,
+        storage: &StorageAnalyticsService,
         _db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let analytics_service = AnalyticsService::new(storage);
+
         match self {
             AnalyticsCommands::Analytics { hours, limit } => {
-                Self::show_analytics(analytics, *hours, *limit).await
+                Self::show_analytics(&analytics_service, *hours, *limit).await
             }
             AnalyticsCommands::UserActivity { user_id, limit } => {
-                Self::show_user_activity(analytics, user_id, *limit).await
+                Self::show_user_activity(&analytics_service, user_id, *limit).await
             }
             AnalyticsCommands::CleanupAnalytics { days, execute } => {
-                Self::cleanup_analytics(analytics, *days, *execute).await
+                Self::cleanup_analytics(&analytics_service, *days, *execute).await
             }
         }
     }
 
     async fn show_analytics(
-        _analytics: &AnalyticsService,
+        analytics: &AnalyticsService<'_>,
         hours: i32,
-        _limit: i64,
+        limit: i64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("📊 Request Analytics (last {} hours)", hours);
-        println!();
+        let query = AnalyticsQuery { hours, limit };
 
-        // For now, show placeholder until analytics methods are implemented
-        println!("Overview:");
-        println!("  Analytics functionality will be available in a future update");
-        println!("  Current storage backend: {:?}", "configured");
-        println!();
-
-        println!("Detailed analytics will be available in a future update.");
+        match analytics.get_analytics(query).await {
+            Ok(result) => {
+                println!("{}", result);
+                println!();
+                println!("Note: Analytics functionality is currently in development.");
+                println!("Full analytics data will be available in a future update.");
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to get analytics: {}", e);
+                return Err(e.into());
+            }
+        }
 
         Ok(())
     }
 
     async fn show_user_activity(
-        _analytics: &AnalyticsService,
+        analytics: &AnalyticsService<'_>,
         user_id: &str,
         limit: i64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("👤 User Activity: {}", user_id);
-        println!("  Showing last {} requests", limit);
-        println!();
-
         // Parse user ID
-        let _user_uuid = match uuid::Uuid::parse_str(user_id) {
+        let user_uuid = match AnalyticsService::parse_user_id(user_id) {
             Ok(uuid) => uuid,
-            Err(_) => {
-                return Err(format!("Invalid user ID format: {}", user_id).into());
+            Err(e) => {
+                eprintln!("❌ {}", e);
+                return Err(e.into());
             }
         };
 
-        // For now, just show a placeholder until user activity functionality is implemented
-        println!("User activity tracking will be available in a future update.");
+        let query = UserActivityQuery {
+            user_id: user_uuid,
+            limit,
+        };
+
+        match analytics.get_user_activity(query).await {
+            Ok(result) => {
+                println!("{}", result);
+                println!();
+                println!("Note: User activity tracking is currently in development.");
+                println!("Full activity data will be available in a future update.");
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to get user activity: {}", e);
+                return Err(e.into());
+            }
+        }
 
         Ok(())
     }
 
     async fn cleanup_analytics(
-        _analytics: &AnalyticsService,
+        analytics: &AnalyticsService<'_>,
         days: i32,
         execute: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("🧹 Analytics Cleanup");
-        println!("  Keeping last {} days of data", days);
+        let config = CleanupConfig {
+            days_to_keep: days,
+            dry_run: !execute,
+        };
 
-        if !execute {
-            println!("  DRY RUN - Use --execute to actually perform cleanup");
-        }
-        println!();
-
-        // Calculate cutoff date
-        let _cutoff_date = time::OffsetDateTime::now_utc() - time::Duration::days(days as i64);
-
-        if execute {
-            println!("✓ Analytics cleanup functionality will be implemented in a future update");
-        } else {
-            println!("Would perform analytics cleanup (functionality coming soon)");
-            println!("Run with --execute to perform the actual cleanup");
+        match analytics.cleanup_analytics(config).await {
+            Ok(result) => {
+                println!("{}", result);
+                println!();
+                if result.dry_run {
+                    println!("Run with --execute to perform the actual cleanup");
+                }
+                println!("Note: Analytics cleanup is currently in development.");
+                println!("Full cleanup functionality will be available in a future update.");
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to cleanup analytics: {}", e);
+                return Err(e.into());
+            }
         }
 
         Ok(())

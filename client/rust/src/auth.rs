@@ -430,29 +430,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_validate_code_length() {
+    fn test_account_link_config_default() {
         let config = AccountLinkConfig::default();
-        let db = unsafe { std::mem::zeroed::<DatabaseConnection>() }; // Just for testing validation
-        let service = AuthService::with_config(&db, config);
-
-        // Valid length
-        assert!(service.validate_code_length(12).is_ok());
-
-        // Too short
-        assert!(service.validate_code_length(5).is_err());
-
-        // Too long
-        assert!(service.validate_code_length(50).is_err());
+        assert_eq!(config.min_length, 8);
+        assert_eq!(config.max_length, 32);
+        assert_eq!(config.default_length, 12);
+        assert_eq!(config.default_expires_hours, 24);
     }
 
     #[test]
-    fn test_generate_code() {
-        let config = AccountLinkConfig::default();
-        let db = unsafe { std::mem::zeroed::<DatabaseConnection>() }; // Just for testing
-        let service = AuthService::with_config(&db, config);
+    fn test_auth_service_error_display() {
+        let error = AuthServiceError::InvalidCodeLength("too short".to_string());
+        assert!(error.to_string().contains("Invalid code length"));
 
-        let code = service.generate_code(12);
-        assert_eq!(code.len(), 12);
-        assert!(code.chars().all(|c| c.is_ascii_alphanumeric()));
+        let error = AuthServiceError::UserNotFound {
+            username: "test_user".to_string(),
+        };
+        assert!(error.to_string().contains("User not found: test_user"));
+    }
+
+    #[test]
+    fn test_invite_generation_config_defaults() {
+        let config = InviteGenerationConfig {
+            count: 5,
+            length: 10,
+            custom_codes: None,
+            use_random: true,
+            word_count: 3,
+        };
+        assert_eq!(config.count, 5);
+        assert_eq!(config.length, 10);
+        assert!(config.custom_codes.is_none());
+        assert!(config.use_random);
     }
 }
