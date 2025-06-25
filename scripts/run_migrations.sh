@@ -139,34 +139,7 @@ check_status() {
     }
 }
 
-# Reset database (DANGEROUS - for development only)
-reset_database() {
-    log_warning "⚠️  DANGER: This will DROP ALL TABLES and data!"
-    read -p "Are you sure you want to reset the database? Type 'yes' to confirm: " confirm
 
-    if [[ "$confirm" != "yes" ]]; then
-        log_info "Database reset cancelled"
-        return 0
-    fi
-
-    log_info "Dropping all tables..."
-
-    local drop_query="
-    DROP TABLE IF EXISTS request_analytics CASCADE;
-    DROP TABLE IF EXISTS webauthn_credentials CASCADE;
-    DROP TABLE IF EXISTS tower_sessions CASCADE;
-    DROP TABLE IF EXISTS users CASCADE;
-    DROP TABLE IF EXISTS invite_codes CASCADE;
-    DROP FUNCTION IF EXISTS cleanup_expired_sessions();
-    "
-
-    if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "$drop_query" &> /dev/null; then
-        log_success "Database reset completed"
-    else
-        log_error "Database reset failed"
-        return 1
-    fi
-}
 
 # Show usage information
 show_usage() {
@@ -175,7 +148,6 @@ show_usage() {
     echo "Commands:"
     echo "  run         Run database migrations (default)"
     echo "  status      Check migration status"
-    echo "  reset       Reset database (DANGEROUS - development only)"
     echo "  help        Show this help message"
     echo ""
     echo "Environment Variables:"
@@ -219,12 +191,7 @@ main() {
                 check_status
             fi
             ;;
-        "reset")
-            check_psql
-            if test_connection; then
-                reset_database
-            fi
-            ;;
+
         "help"|"-h"|"--help")
             show_usage
             ;;

@@ -44,7 +44,8 @@ CREATE INDEX idx_media_events_blob_type_date ON media_events(media_blob_id, even
 CREATE INDEX idx_media_events_session_chronological ON media_events(session_id, created_at);
 
 -- Index for time-based analytics (daily, weekly, monthly aggregations)
-CREATE INDEX idx_media_events_time_bucket ON media_events(date_trunc('day', created_at), event_type);
+-- Note: date_trunc index removed due to immutable function requirement
+CREATE INDEX idx_media_events_time_bucket ON media_events(created_at, event_type);
 
 -- GIN index for event_data JSONB queries
 CREATE INDEX idx_media_events_data ON media_events USING GIN(event_data);
@@ -53,7 +54,7 @@ CREATE INDEX idx_media_events_data ON media_events USING GIN(event_data);
 CREATE INDEX idx_media_events_plays ON media_events(media_blob_id, created_at)
     WHERE event_type = 'play';
 
-CREATE INDEX idx_media_events_ratings ON media_events(media_blob_id, (event_data->>'rating')::INTEGER, created_at)
+CREATE INDEX idx_media_events_ratings ON media_events(media_blob_id, created_at)
     WHERE event_type = 'rate' AND event_data->>'rating' IS NOT NULL;
 
 -- Add constraint for valid event types

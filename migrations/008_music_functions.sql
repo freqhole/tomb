@@ -71,17 +71,17 @@ RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
         -- If no position specified, add to end
-        IF NEW.position IS NULL THEN
-            SELECT COALESCE(MAX(position), 0) + 1
-            INTO NEW.position
+        IF NEW."position" IS NULL THEN
+            SELECT COALESCE(MAX("position"), 0) + 1
+            INTO NEW."position"
             FROM playlist_songs
             WHERE playlist_id = NEW.playlist_id;
         ELSE
             -- Shift existing positions to make room
             UPDATE playlist_songs
-            SET position = position + 1
+            SET "position" = "position" + 1
             WHERE playlist_id = NEW.playlist_id
-            AND position >= NEW.position
+            AND "position" >= NEW."position"
             AND id != NEW.id;
         END IF;
         RETURN NEW;
@@ -89,22 +89,22 @@ BEGIN
 
     IF TG_OP = 'UPDATE' THEN
         -- If position changed, reorder accordingly
-        IF OLD.position != NEW.position THEN
+        IF OLD."position" != NEW."position" THEN
             -- Moving to later position
-            IF NEW.position > OLD.position THEN
+            IF NEW."position" > OLD."position" THEN
                 UPDATE playlist_songs
-                SET position = position - 1
+                SET "position" = "position" - 1
                 WHERE playlist_id = NEW.playlist_id
-                AND position > OLD.position
-                AND position <= NEW.position
+                AND "position" > OLD."position"
+                AND "position" <= NEW."position"
                 AND id != NEW.id;
             -- Moving to earlier position
             ELSE
                 UPDATE playlist_songs
-                SET position = position + 1
+                SET "position" = "position" + 1
                 WHERE playlist_id = NEW.playlist_id
-                AND position >= NEW.position
-                AND position < OLD.position
+                AND "position" >= NEW."position"
+                AND "position" < OLD."position"
                 AND id != NEW.id;
             END IF;
         END IF;
@@ -114,9 +114,9 @@ BEGIN
     IF TG_OP = 'DELETE' THEN
         -- Close gaps in position sequence
         UPDATE playlist_songs
-        SET position = position - 1
+        SET "position" = "position" - 1
         WHERE playlist_id = OLD.playlist_id
-        AND position > OLD.position;
+        AND "position" > OLD."position";
         RETURN OLD;
     END IF;
 
@@ -196,7 +196,7 @@ GROUP BY p.id;
 CREATE OR REPLACE FUNCTION get_playlist_songs(playlist_uuid UUID)
 RETURNS TABLE (
     song_id UUID,
-    position INTEGER,
+    "position" INTEGER,
     title TEXT,
     artist TEXT,
     album TEXT,

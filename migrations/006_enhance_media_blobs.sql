@@ -49,10 +49,10 @@ ALTER TABLE media_blobs ADD CONSTRAINT chk_thumbnail_has_parent
     CHECK ((blob_type = 'original' AND parent_blob_id IS NULL) OR
            (blob_type != 'original' AND parent_blob_id IS NOT NULL));
 
--- Add indexes for common query patterns
-CREATE INDEX idx_media_blobs_mime ON media_blobs(mime) WHERE deleted_at IS NULL;
-CREATE INDEX idx_media_blobs_size ON media_blobs(size) WHERE deleted_at IS NULL;
-CREATE INDEX idx_media_blobs_created_at ON media_blobs(created_at) WHERE deleted_at IS NULL;
+-- Add indexes for common query patterns (with soft delete filtering)
+CREATE INDEX idx_media_blobs_mime_active ON media_blobs(mime) WHERE deleted_at IS NULL;
+CREATE INDEX idx_media_blobs_size_active ON media_blobs(size) WHERE deleted_at IS NULL;
+CREATE INDEX idx_media_blobs_created_at_active ON media_blobs(created_at) WHERE deleted_at IS NULL;
 
 -- Performance: Partial indexes for different blob types
 CREATE INDEX idx_media_blobs_originals ON media_blobs(id, created_at)
