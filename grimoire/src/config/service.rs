@@ -449,6 +449,99 @@ impl ConfigService {
         };
         Ok(formatted)
     }
+
+    /// Convert AppConfig thumbnail configuration to grimoire ThumbnailConfig
+    pub fn to_thumbnail_config(
+        &self,
+        app_config: &crate::AppConfig,
+    ) -> crate::thumbnails::ThumbnailConfig {
+        let config_thumbnails = &app_config.media.thumbnails;
+
+        crate::thumbnails::ThumbnailConfig {
+            enabled: config_thumbnails.enabled,
+            imagemagick_path: config_thumbnails.imagemagick_path.clone(),
+            ffmpeg_path: config_thumbnails.ffmpeg_path.clone(),
+            max_concurrent_jobs: config_thumbnails.max_concurrent_jobs,
+            storage_path: config_thumbnails.storage_path.clone(),
+            default_dimensions: crate::thumbnails::ThumbnailDimensions {
+                width: config_thumbnails.default_dimensions.width,
+                height: config_thumbnails.default_dimensions.height,
+                maintain_aspect_ratio: config_thumbnails.default_dimensions.maintain_aspect_ratio,
+                crop_strategy: self
+                    .parse_crop_strategy(&config_thumbnails.default_dimensions.crop_strategy),
+            },
+            quality: config_thumbnails.quality,
+            formats: crate::thumbnails::ThumbnailFormats {
+                image_format: config_thumbnails.formats.image_format.clone(),
+                waveform_format: config_thumbnails.formats.waveform_format.clone(),
+                video_format: config_thumbnails.formats.video_format.clone(),
+            },
+            timeouts: crate::thumbnails::ThumbnailTimeouts {
+                image_processing_seconds: config_thumbnails.timeouts.image_processing_seconds,
+                video_processing_seconds: config_thumbnails.timeouts.video_processing_seconds,
+                audio_processing_seconds: config_thumbnails.timeouts.audio_processing_seconds,
+            },
+        }
+    }
+
+    /// Parse crop strategy string to CropStrategy enum
+    fn parse_crop_strategy(&self, strategy: &str) -> crate::thumbnails::CropStrategy {
+        match strategy {
+            "center" => crate::thumbnails::CropStrategy::Center,
+            "top" => crate::thumbnails::CropStrategy::Top,
+            "bottom" => crate::thumbnails::CropStrategy::Bottom,
+            "left" => crate::thumbnails::CropStrategy::Left,
+            "right" => crate::thumbnails::CropStrategy::Right,
+            "fit" => crate::thumbnails::CropStrategy::Fit,
+            "fill" => crate::thumbnails::CropStrategy::Fill,
+            _ => crate::thumbnails::CropStrategy::Center, // Default fallback
+        }
+    }
+
+    /// Validate external tools availability for thumbnail generation
+    pub async fn validate_thumbnail_tools(
+        &self,
+        config: &crate::thumbnails::ThumbnailConfig,
+    ) -> Result<(), ConfigError> {
+        if !config.enabled {
+            return Ok(());
+        }
+
+        let mut errors = Vec::new();
+
+        // Check ImageMagick
+        let imagemagick_cmd = config.imagemagick_path.as_deref().unwrap_or("convert");
+        if !self.is_tool_available(imagemagick_cmd).await {
+            errors.push(format!(
+                "ImageMagick not found at '{}'. Please install ImageMagick or set custom path.",
+                imagemagick_cmd
+            ));
+        }
+
+        // Check FFmpeg
+        let ffmpeg_cmd = config.ffmpeg_path.as_deref().unwrap_or("ffmpeg");
+        if !self.is_tool_available(ffmpeg_cmd).await {
+            errors.push(format!(
+                "FFmpeg not found at '{}'. Please install FFmpeg or set custom path.",
+                ffmpeg_cmd
+            ));
+        }
+
+        if !errors.is_empty() {
+            return Err(ConfigError::ValidationFailed(errors.join("; ")));
+        }
+
+        Ok(())
+    }
+
+    /// Check if external tool is available
+    async fn is_tool_available(&self, tool_command: &str) -> bool {
+        tokio::process::Command::new(tool_command)
+            .arg("--version")
+            .output()
+            .await
+            .is_ok()
+    }
 }
 
 impl Default for ConfigService {
@@ -515,5 +608,43 @@ mod tests {
 
         let result = service.extract_config_section(&config, "invalid");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_thumbnail_config_conversion() {
+        let service = ConfigService::new();
+        let app_config = crate::AppConfig::default();
+
+        let thumbnail_config = service.to_thumbnail_config(&app_config);
+
+        assert_eq!(thumbnail_config.enabled, true);
+        assert_eq!(thumbnail_config.max_concurrent_jobs, 4);
+        assert_eq!(thumbnail_config.quality, 85);
+        assert_eq!(thumbnail_config.default_dimensions.width, 200);
+        assert_eq!(thumbnail_config.default_dimensions.height, 200);
+        assert_eq!(thumbnail_config.formats.image_format, "webp");
+        assert_eq!(thumbnail_config.timeouts.image_processing_seconds, 30);
+    }
+
+    #[test]
+    fn test_parse_crop_strategy() {
+        let service = ConfigService::new();
+
+        assert!(matches!(
+            service.parse_crop_strategy("center"),
+            crate::thumbnails::CropStrategy::Center
+        ));
+        assert!(matches!(
+            service.parse_crop_strategy("top"),
+            crate::thumbnails::CropStrategy::Top
+        ));
+        assert!(matches!(
+            service.parse_crop_strategy("fit"),
+            crate::thumbnails::CropStrategy::Fit
+        ));
+        assert!(matches!(
+            service.parse_crop_strategy("invalid"),
+            crate::thumbnails::CropStrategy::Center
+        ));
     }
 }

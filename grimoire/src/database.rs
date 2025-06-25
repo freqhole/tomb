@@ -47,5 +47,6 @@ impl DatabaseConnection {
 }
 
 // Re-export for convenient access to repositories
-// pub use crate::analytics::AnalyticsRepository; // TODO: Add when analytics repository is implemented
+pub use crate::analytics::AnalyticsRepository;
 pub use crate::auth::AuthRepository;
+pub use crate::thumbnails::ThumbnailRepository;

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM fang_tasks\n            WHERE (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')\n            AND state IN ('finished', 'failed')\n            AND updated_at < $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "790132e731bfa137644e82b2da2778f71c801500545dff78b85e32235c11d470"
+}

@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, local_path, mime, size, metadata\n            FROM media_blobs\n            WHERE id = $1 AND deleted_at IS NULL AND blob_type = 'original'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "local_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "mime",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "c8704bf2a166cb839cf0330a68a449093955197e0d2f0a27657d65eaa706713d"
+}

@@ -161,6 +161,133 @@ pub struct MediaConfig {
     /// Maximum size for files stored on filesystem (in bytes)
     #[serde(default = "default_max_fs_file_size")]
     pub max_fs_file_size: u64,
+    /// Thumbnail generation configuration
+    #[serde(default)]
+    pub thumbnails: ThumbnailConfig,
+}
+
+/// Thumbnail generation configuration
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ThumbnailConfig {
+    /// Enable thumbnail generation
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Path to ImageMagick convert binary (leave empty to use system PATH)
+    #[serde(default)]
+    pub imagemagick_path: Option<String>,
+    /// Path to FFmpeg binary (leave empty to use system PATH)
+    #[serde(default)]
+    pub ffmpeg_path: Option<String>,
+    /// Maximum number of concurrent thumbnail generation jobs
+    #[serde(default = "default_thumbnail_max_concurrent")]
+    pub max_concurrent_jobs: u32,
+    /// Storage path for generated thumbnails
+    #[serde(default = "default_thumbnail_storage_path")]
+    pub storage_path: String,
+    /// Default thumbnail dimensions
+    #[serde(default)]
+    pub default_dimensions: ThumbnailDimensionsConfig,
+    /// Thumbnail quality (1-100)
+    #[serde(default = "default_thumbnail_quality")]
+    pub quality: u8,
+    /// Output formats for different media types
+    #[serde(default)]
+    pub formats: ThumbnailFormatsConfig,
+    /// Processing timeouts in seconds
+    #[serde(default)]
+    pub timeouts: ThumbnailTimeoutsConfig,
+}
+
+/// Default thumbnail dimensions configuration
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ThumbnailDimensionsConfig {
+    /// Default width in pixels
+    #[serde(default = "default_thumbnail_width")]
+    pub width: u32,
+    /// Default height in pixels
+    #[serde(default = "default_thumbnail_height")]
+    pub height: u32,
+    /// Maintain aspect ratio when resizing
+    #[serde(default = "default_true")]
+    pub maintain_aspect_ratio: bool,
+    /// Crop strategy when aspect ratios don't match
+    #[serde(default = "default_crop_strategy")]
+    pub crop_strategy: String,
+}
+
+/// Thumbnail output formats configuration
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ThumbnailFormatsConfig {
+    /// Format for image thumbnails (webp, jpeg, png)
+    #[serde(default = "default_image_format")]
+    pub image_format: String,
+    /// Format for audio waveforms (png, svg)
+    #[serde(default = "default_waveform_format")]
+    pub waveform_format: String,
+    /// Format for video thumbnails (webp, jpeg, png)
+    #[serde(default = "default_video_format")]
+    pub video_format: String,
+}
+
+/// Thumbnail processing timeouts configuration
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ThumbnailTimeoutsConfig {
+    /// Image processing timeout in seconds
+    #[serde(default = "default_image_timeout")]
+    pub image_processing_seconds: u32,
+    /// Video processing timeout in seconds
+    #[serde(default = "default_video_timeout")]
+    pub video_processing_seconds: u32,
+    /// Audio processing timeout in seconds
+    #[serde(default = "default_audio_timeout")]
+    pub audio_processing_seconds: u32,
+}
+
+impl Default for ThumbnailConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            imagemagick_path: None,
+            ffmpeg_path: None,
+            max_concurrent_jobs: default_thumbnail_max_concurrent(),
+            storage_path: default_thumbnail_storage_path(),
+            default_dimensions: ThumbnailDimensionsConfig::default(),
+            quality: default_thumbnail_quality(),
+            formats: ThumbnailFormatsConfig::default(),
+            timeouts: ThumbnailTimeoutsConfig::default(),
+        }
+    }
+}
+
+impl Default for ThumbnailDimensionsConfig {
+    fn default() -> Self {
+        Self {
+            width: default_thumbnail_width(),
+            height: default_thumbnail_height(),
+            maintain_aspect_ratio: default_true(),
+            crop_strategy: default_crop_strategy(),
+        }
+    }
+}
+
+impl Default for ThumbnailFormatsConfig {
+    fn default() -> Self {
+        Self {
+            image_format: default_image_format(),
+            waveform_format: default_waveform_format(),
+            video_format: default_video_format(),
+        }
+    }
+}
+
+impl Default for ThumbnailTimeoutsConfig {
+    fn default() -> Self {
+        Self {
+            image_processing_seconds: default_image_timeout(),
+            video_processing_seconds: default_video_timeout(),
+            audio_processing_seconds: default_audio_timeout(),
+        }
+    }
 }
 
 /// Session configuration
@@ -398,7 +525,56 @@ fn default_assets_dir() -> String {
     "assets".to_string()
 }
 fn default_upload_dir() -> String {
-    "assets/private/uploads".to_string()
+    "uploads".to_string()
+}
+
+// Thumbnail configuration defaults
+fn default_thumbnail_max_concurrent() -> u32 {
+    4
+}
+
+fn default_thumbnail_storage_path() -> String {
+    "/tmp/thumbnails".to_string()
+}
+
+fn default_thumbnail_width() -> u32 {
+    200
+}
+
+fn default_thumbnail_height() -> u32 {
+    200
+}
+
+fn default_thumbnail_quality() -> u8 {
+    85
+}
+
+fn default_crop_strategy() -> String {
+    "center".to_string()
+}
+
+fn default_image_format() -> String {
+    "webp".to_string()
+}
+
+fn default_waveform_format() -> String {
+    "png".to_string()
+}
+
+fn default_video_format() -> String {
+    "webp".to_string()
+}
+
+fn default_image_timeout() -> u32 {
+    30
+}
+
+fn default_video_timeout() -> u32 {
+    60
+}
+
+fn default_audio_timeout() -> u32 {
+    45
 }
 
 fn default_true() -> bool {
@@ -501,6 +677,7 @@ impl AppConfig {
             media: MediaConfig {
                 max_blob_file_size: default_max_blob_file_size(),
                 max_fs_file_size: default_max_fs_file_size(),
+                thumbnails: ThumbnailConfig::default(),
             },
             development: DevelopmentConfig {
                 auto_generate_invites: false,
@@ -578,6 +755,77 @@ impl AppConfig {
             errors.push(
                 "PostgreSQL analytics storage requires valid database configuration".to_string(),
             );
+        }
+
+        // Validate thumbnail configuration
+        if self.media.thumbnails.enabled {
+            if self.media.thumbnails.max_concurrent_jobs == 0 {
+                errors.push("Thumbnail max_concurrent_jobs cannot be 0".to_string());
+            }
+
+            if self.media.thumbnails.quality > 100 {
+                errors.push("Thumbnail quality must be between 1 and 100".to_string());
+            }
+
+            if self.media.thumbnails.default_dimensions.width == 0
+                || self.media.thumbnails.default_dimensions.height == 0
+            {
+                errors.push("Thumbnail dimensions must be greater than 0".to_string());
+            }
+
+            // Validate crop strategy
+            let valid_crop_strategies = ["center", "top", "bottom", "left", "right", "fit", "fill"];
+            if !valid_crop_strategies.contains(
+                &self
+                    .media
+                    .thumbnails
+                    .default_dimensions
+                    .crop_strategy
+                    .as_str(),
+            ) {
+                errors.push("Thumbnail crop_strategy must be one of: center, top, bottom, left, right, fit, fill".to_string());
+            }
+
+            // Validate formats
+            let valid_image_formats = ["webp", "jpeg", "jpg", "png"];
+            if !valid_image_formats.contains(&self.media.thumbnails.formats.image_format.as_str()) {
+                errors.push(
+                    "Thumbnail image_format must be one of: webp, jpeg, jpg, png".to_string(),
+                );
+            }
+
+            let valid_waveform_formats = ["png", "svg"];
+            if !valid_waveform_formats
+                .contains(&self.media.thumbnails.formats.waveform_format.as_str())
+            {
+                errors.push("Thumbnail waveform_format must be one of: png, svg".to_string());
+            }
+
+            let valid_video_formats = ["webp", "jpeg", "jpg", "png"];
+            if !valid_video_formats.contains(&self.media.thumbnails.formats.video_format.as_str()) {
+                errors.push(
+                    "Thumbnail video_format must be one of: webp, jpeg, jpg, png".to_string(),
+                );
+            }
+
+            // Validate timeouts
+            if self.media.thumbnails.timeouts.image_processing_seconds == 0 {
+                errors
+                    .push("Thumbnail image_processing_seconds must be greater than 0".to_string());
+            }
+            if self.media.thumbnails.timeouts.video_processing_seconds == 0 {
+                errors
+                    .push("Thumbnail video_processing_seconds must be greater than 0".to_string());
+            }
+            if self.media.thumbnails.timeouts.audio_processing_seconds == 0 {
+                errors
+                    .push("Thumbnail audio_processing_seconds must be greater than 0".to_string());
+            }
+
+            // Validate storage path is not empty
+            if self.media.thumbnails.storage_path.is_empty() {
+                errors.push("Thumbnail storage_path cannot be empty".to_string());
+            }
         }
 
         if !errors.is_empty() {
@@ -661,6 +909,7 @@ impl Default for AppConfig {
             media: MediaConfig {
                 max_blob_file_size: default_max_blob_file_size(),
                 max_fs_file_size: default_max_fs_file_size(),
+                thumbnails: ThumbnailConfig::default(),
             },
             development: DevelopmentConfig {
                 auto_generate_invites: false,

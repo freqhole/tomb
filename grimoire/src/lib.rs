@@ -11,6 +11,7 @@ pub mod analytics;
 pub mod auth;
 pub mod config;
 pub mod database;
+pub mod thumbnails;
 pub mod wordlist;
 
 // Re-export analytics types
@@ -33,6 +34,12 @@ pub use config::{
 // Re-export wordlist types
 pub use wordlist::{
     WordlistConfig, WordlistGenerationResult, WordlistService, WordlistValidationResult,
+};
+
+// Re-export thumbnails types
+pub use thumbnails::{
+    ThumbnailConfig, ThumbnailError, ThumbnailJob, ThumbnailJobType, ThumbnailRepository,
+    ThumbnailService,
 };
 
 // Re-export database connection
