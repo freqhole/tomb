@@ -45,6 +45,7 @@
     "tests",
     "web-component",
     "src/web-components",
+    "src/examples",
     "**/*.test.ts",
     "**/*.spec.ts"
   ]

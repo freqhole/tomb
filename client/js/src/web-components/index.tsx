@@ -24,6 +24,10 @@ import "./websocket-status";
 import "./websocket-demo";
 import "./simple-test";
 import "./smart-file-upload";
+import "./sync-status";
+import "./sync-progress";
+import "./sync-controls";
+import "./sync-demo";
 
 // Component registration confirmation
 const REGISTERED_COMPONENTS = [
@@ -33,6 +37,10 @@ const REGISTERED_COMPONENTS = [
   "websocket-demo",
   "simple-test",
   "smart-file-upload",
+  "sync-status",
+  "sync-progress",
+  "sync-controls",
+  "sync-demo",
 ] as const;
 
 export { REGISTERED_COMPONENTS };
@@ -70,6 +78,46 @@ declare global {
         multiple?: boolean;
         accept?: string;
         disabled?: boolean;
+      };
+
+      "sync-status": {
+        status?: string;
+        showText?: boolean;
+        showProgress?: boolean;
+        itemsSynced?: number;
+        totalItems?: number;
+        compact?: boolean;
+        className?: string;
+      };
+
+      "sync-progress": {
+        progress?: number;
+        itemsSynced?: number;
+        totalItems?: number;
+        currentBatch?: number;
+        totalBatches?: number;
+        estimatedRemainingSeconds?: number;
+        showBatchInfo?: boolean;
+        showETA?: boolean;
+        showItemCount?: boolean;
+        animated?: boolean;
+        className?: string;
+      };
+
+      "sync-controls": {
+        status?: string;
+        disabled?: boolean;
+        showForceSync?: boolean;
+        showPauseResume?: boolean;
+        compact?: boolean;
+        className?: string;
+      };
+
+      "sync-demo": {
+        apiBaseUrl?: string;
+        clientId?: string;
+        autoConnect?: boolean;
+        className?: string;
       };
     }
   }
@@ -114,4 +162,8 @@ console.log("🧩 Web Components Library loaded - Available components:", [
   "websocket-demo",
   "simple-test",
   "smart-file-upload",
+  "sync-status",
+  "sync-progress",
+  "sync-controls",
+  "sync-demo",
 ]);
