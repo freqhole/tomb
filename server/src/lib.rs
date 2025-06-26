@@ -10,6 +10,7 @@ pub mod routes;
 pub mod startup;
 pub mod static_filez;
 pub mod storage;
+pub mod sync;
 pub mod thumbnails;
 pub mod upload;
 pub mod websocket;

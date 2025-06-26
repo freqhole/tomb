@@ -39,8 +39,10 @@ pub use wordlist::{
 
 // Re-export media types
 pub use media::{
-    CreateMediaBlob, MediaBlob, MediaBlobCursor, MediaBlobQuery, MediaBlobRepository,
-    MediaBlobService, MediaBlobStats, PaginatedResult, PaginationDirection,
+    ClientSyncState, CreateMediaBlob, FullSyncRequest, MediaBlob, MediaBlobCursor, MediaBlobQuery,
+    MediaBlobRepository, MediaBlobService, MediaBlobStats, PaginatedResult, PaginationDirection,
+    SyncAcknowledgment, SyncCapabilities, SyncPriority, SyncRecommendations, SyncRequest,
+    SyncResponse, SyncStatus, SyncStatusResponse,
 };
 
 // Re-export thumbnails types

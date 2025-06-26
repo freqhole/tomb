@@ -9,6 +9,10 @@ use super::models::{
     CreateMediaBlob, MediaBlob, MediaBlobQuery, PaginatedResult, PaginationDirection,
 };
 use super::repository::{MediaBlobRepository, MediaRepositoryError};
+use super::sync::{
+    ClientSyncState, FullSyncRequest, SyncAcknowledgment, SyncCapabilities, SyncError, SyncRequest,
+    SyncResponse, SyncStatus, SyncStatusResponse,
+};
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::{debug, info, warn};
@@ -226,12 +230,273 @@ impl MediaBlobService {
     }
 
     /// Get media blob statistics
+    /// Get media blob statistics
     pub async fn get_statistics(
         &self,
     ) -> Result<super::repository::MediaBlobStats, MediaServiceError> {
         debug!("Retrieving media blob statistics");
         let stats = self.repository.get_stats().await?;
         Ok(stats)
+    }
+
+    /// Perform incremental sync for a client
+    pub async fn incremental_sync(
+        &self,
+        request: SyncRequest,
+    ) -> Result<SyncResponse, MediaServiceError> {
+        info!(
+            "Starting incremental sync for client: {} since: {:?}",
+            request.client_id, request.last_sync_time
+        );
+
+        // Validate request
+        request.validate(1000)?; // Max 1000 items per batch
+
+        let page_size = request.effective_page_size(50, 1000);
+
+        // Build query for incremental sync
+        let mut query = MediaBlobQuery::with_cursor(request.cursor.clone(), Some(page_size));
+
+        // Add timestamp filter for incremental sync
+        if let Some(last_sync) = request.last_sync_time {
+            query.created_after = Some(last_sync);
+        }
+
+        // Add MIME type filters if specified
+        if let Some(mime_types) = &request.mime_types {
+            if !mime_types.is_empty() {
+                // For simplicity, use the first MIME type as a pattern
+                // In a full implementation, this would support multiple patterns
+                query.mime_pattern = Some(mime_types[0].clone());
+            }
+        }
+
+        // Execute query
+        let result = self.query_media_blobs(query).await?;
+
+        // Remove binary data if not requested
+        let mut items = result.items;
+        if !request.include_data.unwrap_or(false) {
+            for item in &mut items {
+                item.data = None;
+            }
+        }
+
+        // Create sync response
+        let sync_response = SyncResponse::new(
+            items,
+            result.pagination.has_next_page,
+            result.pagination.next_cursor,
+            false, // This is incremental, not full sync
+        );
+
+        info!(
+            "Incremental sync completed for client: {} - {} items",
+            request.client_id, sync_response.pagination.batch_size
+        );
+
+        Ok(sync_response)
+    }
+
+    /// Perform full sync for a client
+    pub async fn full_sync(
+        &self,
+        request: FullSyncRequest,
+    ) -> Result<SyncResponse, MediaServiceError> {
+        info!("Starting full sync for client: {}", request.client_id);
+
+        let page_size = request.batch_size.unwrap_or(50).min(1000).max(1);
+
+        // Build query for full sync
+        let mut query = MediaBlobQuery::with_cursor(request.start_cursor.clone(), Some(page_size));
+
+        // Add MIME type filters if specified
+        if let Some(mime_types) = &request.mime_types {
+            if !mime_types.is_empty() {
+                query.mime_pattern = Some(mime_types[0].clone());
+            }
+        }
+
+        // Execute query
+        let result = self.query_media_blobs(query).await?;
+
+        // Remove binary data if not requested
+        let mut items = result.items;
+        if !request.include_data.unwrap_or(false) {
+            for item in &mut items {
+                item.data = None;
+            }
+        }
+
+        // Get total count for progress calculation
+        let stats = self.get_statistics().await?;
+        let total_items = stats.total_count;
+
+        // Calculate progress if possible
+        let progress = if total_items > 0 {
+            let synced_so_far = items.len() as f64;
+            Some(synced_so_far / total_items as f64)
+        } else {
+            None
+        };
+
+        // Create sync response
+        let mut sync_response = SyncResponse::new(
+            items,
+            result.pagination.has_next_page,
+            result.pagination.next_cursor,
+            true, // This is full sync
+        );
+
+        if let Some(progress_val) = progress {
+            sync_response = sync_response.with_progress(progress_val, total_items);
+        }
+
+        info!(
+            "Full sync batch completed for client: {} - {} items",
+            request.client_id, sync_response.pagination.batch_size
+        );
+
+        Ok(sync_response)
+    }
+
+    /// Get sync status and server capabilities
+    pub async fn get_sync_status(&self) -> Result<SyncStatusResponse, MediaServiceError> {
+        debug!("Getting sync status");
+
+        let stats = self.get_statistics().await?;
+
+        // Get latest modification time by querying recent items
+        let recent_query = MediaBlobQuery::with_cursor(None, Some(1));
+        let recent_result = self.query_media_blobs(recent_query).await?;
+        let last_modification = recent_result.items.first().map(|item| item.updated_at);
+
+        let capabilities = SyncCapabilities {
+            max_batch_size: 1000,
+            min_sync_interval: 1, // 1 second minimum
+            supported_mime_filters: vec![
+                "image/*".to_string(),
+                "video/*".to_string(),
+                "audio/*".to_string(),
+                "text/*".to_string(),
+                "application/*".to_string(),
+            ],
+            supports_incremental: true,
+            supports_cursors: true,
+            sync_history_retention_days: 30,
+        };
+
+        Ok(SyncStatusResponse {
+            server_time: OffsetDateTime::now_utc(),
+            active_syncs: 0, // Would track this in a real implementation
+            total_items: stats.total_count,
+            last_modification,
+            capabilities,
+        })
+    }
+
+    /// Process sync acknowledgment from client
+    pub async fn process_sync_acknowledgment(
+        &self,
+        ack: SyncAcknowledgment,
+    ) -> Result<(), MediaServiceError> {
+        info!(
+            "Processing sync acknowledgment from client: {} - {} items synced",
+            ack.client_id, ack.items_synced
+        );
+
+        // In a full implementation, this would:
+        // 1. Update client sync state in database
+        // 2. Clean up any temporary sync state
+        // 3. Log sync metrics
+        // 4. Handle any failed items
+
+        if !ack.failed_items.is_empty() {
+            warn!(
+                "Client {} reported {} failed sync items: {:?}",
+                ack.client_id,
+                ack.failed_items.len(),
+                ack.failed_items
+            );
+        }
+
+        debug!("Sync acknowledgment processed successfully");
+        Ok(())
+    }
+
+    /// Check if incremental sync is needed for a client
+    pub async fn needs_sync(
+        &self,
+        client_id: &str,
+        last_sync_time: OffsetDateTime,
+    ) -> Result<bool, MediaServiceError> {
+        debug!(
+            "Checking if client {} needs sync since {}",
+            client_id, last_sync_time
+        );
+
+        // Query for any items modified since last sync
+        let mut query = MediaBlobQuery::with_cursor(None, Some(1));
+        query.created_after = Some(last_sync_time);
+
+        let result = self.query_media_blobs(query).await?;
+
+        let needs_sync = !result.items.is_empty();
+        debug!("Client {} needs sync: {}", client_id, needs_sync);
+
+        Ok(needs_sync)
+    }
+
+    /// Get sync recommendations for a client
+    pub async fn get_sync_recommendations(
+        &self,
+        client_id: &str,
+        last_sync_time: Option<OffsetDateTime>,
+    ) -> Result<SyncRecommendations, MediaServiceError> {
+        debug!("Getting sync recommendations for client: {}", client_id);
+
+        let now = OffsetDateTime::now_utc();
+        let default_last_sync = now - time::Duration::days(7); // Default to last week
+        let last_sync = last_sync_time.unwrap_or(default_last_sync);
+
+        // Count items that need sync
+        let mut count_query = MediaBlobQuery::with_cursor(None, Some(1000));
+        count_query.created_after = Some(last_sync);
+        let result = self.query_media_blobs(count_query).await?;
+
+        let items_to_sync = result
+            .pagination
+            .total_count
+            .unwrap_or(result.items.len() as i64);
+        let time_since_sync = now - last_sync;
+
+        // Calculate recommendations
+        let recommended_batch_size = if items_to_sync > 1000 {
+            100 // Smaller batches for large syncs
+        } else if items_to_sync > 100 {
+            50
+        } else {
+            items_to_sync.max(10)
+        };
+
+        let recommended_interval = if time_since_sync > time::Duration::days(1) {
+            300 // 5 minutes for old syncs
+        } else {
+            60 // 1 minute for recent syncs
+        };
+
+        Ok(SyncRecommendations {
+            should_sync: items_to_sync > 0,
+            recommended_batch_size,
+            recommended_interval_seconds: recommended_interval,
+            estimated_batches: (items_to_sync as f64 / recommended_batch_size as f64).ceil() as i64,
+            estimated_duration_seconds: (items_to_sync / 10).max(1), // Rough estimate
+            priority: if time_since_sync > time::Duration::hours(1) {
+                SyncPriority::High
+            } else {
+                SyncPriority::Normal
+            },
+        })
     }
 
     /// Find media blobs by client ID
@@ -416,6 +681,40 @@ impl MediaBlobService {
                     .unwrap_or(0)
             }
             _ => 0,
+        }
+    }
+}
+
+/// Sync recommendations for a client
+#[derive(Debug, Clone)]
+pub struct SyncRecommendations {
+    pub should_sync: bool,
+    pub recommended_batch_size: i64,
+    pub recommended_interval_seconds: u64,
+    pub estimated_batches: i64,
+    pub estimated_duration_seconds: i64,
+    pub priority: SyncPriority,
+}
+
+/// Sync priority levels
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncPriority {
+    Low,
+    Normal,
+    High,
+    Critical,
+}
+
+impl From<SyncError> for MediaServiceError {
+    fn from(err: SyncError) -> Self {
+        match err {
+            SyncError::InvalidTimestamp(msg) => MediaServiceError::Validation(msg),
+            SyncError::InvalidCursor(msg) => MediaServiceError::Validation(msg),
+            SyncError::BatchSizeTooLarge(_, _) => MediaServiceError::Validation(err.to_string()),
+            SyncError::ClientStateNotFound(msg) => MediaServiceError::BusinessLogic(msg),
+            SyncError::SyncInProgress(msg) => MediaServiceError::BusinessLogic(msg),
+            SyncError::RateLimitExceeded(msg) => MediaServiceError::BusinessLogic(msg),
+            SyncError::OperationFailed(msg) => MediaServiceError::BusinessLogic(msg),
         }
     }
 }

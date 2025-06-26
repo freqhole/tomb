@@ -54,19 +54,25 @@
 pub mod models;
 pub mod repository;
 pub mod service;
+pub mod sync;
 
 pub use models::{
     CreateMediaBlob, CursorError, MediaBlob, MediaBlobCursor, MediaBlobQuery, PaginatedResult,
     PaginationDirection, PaginationMetadata,
 };
 pub use repository::{MediaBlobRepository, MediaBlobStats, MediaRepositoryError, MimeTypeCount};
-pub use service::{MediaBlobService, MediaServiceError};
+pub use service::{MediaBlobService, MediaServiceError, SyncPriority, SyncRecommendations};
+pub use sync::{
+    ClientSyncState, FullSyncRequest, SyncAcknowledgment, SyncCapabilities, SyncError, SyncRequest,
+    SyncResponse, SyncStatus, SyncStatusResponse,
+};
 
 /// Re-exports for convenience
 pub mod prelude {
     pub use super::{
         CreateMediaBlob, MediaBlob, MediaBlobCursor, MediaBlobQuery, MediaBlobRepository,
-        MediaBlobService, PaginatedResult, PaginationDirection,
+        MediaBlobService, PaginatedResult, PaginationDirection, SyncRequest, SyncResponse,
+        SyncStatusResponse,
     };
 }
 
