@@ -270,13 +270,7 @@ export class SyncStorageManager {
       let cursor: IDBRequest<IDBCursorWithValue | null>;
 
       // Choose appropriate index based on query
-      if (options.unsynced_only) {
-        cursor = store.index("synced").openCursor(IDBKeyRange.only(false));
-      } else if (options.locally_modified_only) {
-        cursor = store
-          .index("locally_modified")
-          .openCursor(IDBKeyRange.only(true));
-      } else if (options.created_after || options.created_before) {
+      if (options.created_after || options.created_before) {
         const range = this.createDateRange(
           options.created_after,
           options.created_before
@@ -424,15 +418,16 @@ export class SyncStorageManager {
       "readonly",
       (store) => {
         return new Promise<OfflineOperation[]>((resolve, reject) => {
-          const request = store
-            .index("should_retry")
-            .openCursor(IDBKeyRange.only(true));
+          const request = store.openCursor();
           const operations: OfflineOperation[] = [];
 
           request.onsuccess = () => {
             const cursor = request.result;
             if (cursor) {
-              operations.push(cursor.value);
+              const operation = cursor.value as OfflineOperation;
+              if (operation.should_retry) {
+                operations.push(operation);
+              }
               cursor.continue();
             } else {
               // Sort by queued_at timestamp
@@ -508,15 +503,16 @@ export class SyncStorageManager {
 
     return this.performTransaction("conflicts", "readonly", (store) => {
       return new Promise<SyncConflict[]>((resolve, reject) => {
-        const request = store
-          .index("resolved")
-          .openCursor(IDBKeyRange.only(false));
+        const request = store.openCursor();
         const conflicts: SyncConflict[] = [];
 
         request.onsuccess = () => {
           const cursor = request.result;
           if (cursor) {
-            conflicts.push(cursor.value);
+            const conflict = cursor.value as SyncConflict;
+            if (!conflict.resolved) {
+              conflicts.push(conflict);
+            }
             cursor.continue();
           } else {
             resolve(conflicts);
@@ -699,6 +695,14 @@ export class SyncStorageManager {
     blob: StoredMediaBlob,
     options: StorageQueryOptions
   ): boolean {
+    if (options.unsynced_only && blob.synced) {
+      return false;
+    }
+
+    if (options.locally_modified_only && !blob.locally_modified) {
+      return false;
+    }
+
     if (options.mime_pattern && blob.mime) {
       const pattern = new RegExp(options.mime_pattern, "i");
       if (!pattern.test(blob.mime)) {
@@ -816,8 +820,21 @@ export class SyncStorageManager {
   private async getConflictsCount(): Promise<number> {
     return this.performTransaction("conflicts", "readonly", (store) => {
       return new Promise<number>((resolve, reject) => {
-        const request = store.index("resolved").count(IDBKeyRange.only(false));
-        request.onsuccess = () => resolve(request.result);
+        const request = store.openCursor();
+        let count = 0;
+
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (cursor) {
+            const conflict = cursor.value as SyncConflict;
+            if (!conflict.resolved) {
+              count++;
+            }
+            cursor.continue();
+          } else {
+            resolve(count);
+          }
+        };
         request.onerror = () => reject(request.error);
       });
     });

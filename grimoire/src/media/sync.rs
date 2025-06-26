@@ -13,6 +13,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncRequest {
     /// Last sync timestamp - only get items modified after this time
+    #[serde(with = "time::serde::rfc3339::option")]
     pub last_sync_time: Option<OffsetDateTime>,
     /// Pagination cursor for continuing a large sync operation
     pub cursor: Option<String>,
@@ -34,6 +35,7 @@ pub struct SyncResponse {
     /// Pagination metadata for continuing the sync
     pub pagination: SyncPaginationMetadata,
     /// Server timestamp when this sync response was generated
+    #[serde(with = "time::serde::rfc3339")]
     pub sync_timestamp: OffsetDateTime,
     /// Whether this is a full sync (true) or incremental (false)
     pub is_full_sync: bool,
@@ -62,6 +64,7 @@ pub struct SyncAcknowledgment {
     /// Client ID acknowledging the sync
     pub client_id: String,
     /// Timestamp of the sync that was successfully processed
+    #[serde(with = "time::serde::rfc3339")]
     pub sync_timestamp: OffsetDateTime,
     /// Number of items successfully synced
     pub items_synced: i64,
@@ -77,6 +80,7 @@ pub struct ClientSyncState {
     /// Client identifier
     pub client_id: String,
     /// Last successful sync timestamp
+    #[serde(with = "time::serde::rfc3339")]
     pub last_sync_time: OffsetDateTime,
     /// Total number of items synced by this client
     pub total_items_synced: i64,
@@ -85,6 +89,7 @@ pub struct ClientSyncState {
     /// Last sync cursor position (for resuming interrupted syncs)
     pub last_cursor: Option<String>,
     /// Timestamp when this state was last updated
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
 
@@ -122,12 +127,14 @@ pub struct FullSyncRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncStatusResponse {
     /// Current server timestamp
+    #[serde(with = "time::serde::rfc3339")]
     pub server_time: OffsetDateTime,
     /// Number of active sync sessions
     pub active_syncs: i64,
     /// Total items available for sync
     pub total_items: i64,
     /// Last modification time in the system
+    #[serde(with = "time::serde::rfc3339::option")]
     pub last_modification: Option<OffsetDateTime>,
     /// Server sync capabilities
     pub capabilities: SyncCapabilities,

@@ -17,7 +17,6 @@ import {
   SyncSessionState,
   SyncCapabilities,
   FullSyncRequest,
-  SyncAcknowledgment,
 } from "./sync-state.js";
 import { createSyncEventSystem } from "./sync-events.js";
 import {
@@ -188,6 +187,26 @@ export class SyncManager {
         this.eventSystem.emit(
           this.eventSystem.builder.syncPaused("user", true)
         );
+      }
+    }
+  }
+
+  /**
+   * Stop the current sync operation
+   */
+  stopSync(): void {
+    if (this.abortController) {
+      this.abortController.abort();
+      this.persistentState.markFailed();
+
+      if (this.sessionState) {
+        const syncError: SyncError = {
+          type: "user_stopped",
+          message: "Sync stopped by user",
+          timestamp: new Date().toISOString(),
+          recoverable: true,
+        };
+        this.eventSystem.emit(this.eventSystem.builder.syncFailed(syncError));
       }
     }
   }
@@ -408,9 +427,17 @@ export class SyncManager {
       hasMore = response.pagination.has_more;
       cursor = response.pagination.next_cursor;
 
-      // Update persistent state
+      // Update persistent state with validated timestamp
+      const syncTimestamp = new Date(response.sync_timestamp);
+      if (isNaN(syncTimestamp.getTime())) {
+        console.warn(
+          "Invalid sync timestamp received:",
+          response.sync_timestamp
+        );
+        syncTimestamp.setTime(Date.now());
+      }
       this.persistentState.updateAfterSync(
-        new Date(response.sync_timestamp),
+        syncTimestamp,
         response.items.length,
         cursor
       );
@@ -465,9 +492,17 @@ export class SyncManager {
       hasMore = response.pagination.has_more;
       cursor = response.pagination.next_cursor;
 
-      // Update persistent state
+      // Update persistent state with validated timestamp
+      const syncTimestamp = new Date(response.sync_timestamp);
+      if (isNaN(syncTimestamp.getTime())) {
+        console.warn(
+          "Invalid sync timestamp received:",
+          response.sync_timestamp
+        );
+        syncTimestamp.setTime(Date.now());
+      }
       this.persistentState.updateAfterSync(
-        new Date(response.sync_timestamp),
+        syncTimestamp,
         response.items.length,
         cursor
       );
@@ -665,12 +700,11 @@ export class SyncManager {
       (e) => e.context?.item_id
     ).map((e) => e.context!.item_id as string);
 
-    const acknowledgment: SyncAcknowledgment = {
-      client_id: this.config.clientId,
+    // Match server's SyncAckRequest structure
+    const acknowledgment = {
       sync_timestamp: response.sync_timestamp,
       items_synced: processedCount,
-      failed_items: failedItems,
-      client_sync_state: this.persistentState.toClientSyncState(),
+      failed_items: failedItems.length > 0 ? failedItems : undefined,
     };
 
     try {

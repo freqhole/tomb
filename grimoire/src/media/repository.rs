@@ -546,7 +546,7 @@ impl MediaBlobRepository {
             r#"
             SELECT
                 COUNT(*) as total_count,
-                COALESCE(SUM(size), 0) as total_size,
+                COALESCE(SUM(size), 0)::BIGINT as total_size,
                 COUNT(DISTINCT sha256) as unique_sha256_count
             FROM media_blobs
             "#,
