@@ -114,6 +114,9 @@ export {
   WebAuthnAssertionSchema,
 } from "./api-spec.js";
 
+// Sync functionality
+export * from "../sync/index.js";
+
 // Re-export zod for convenience
 export { z } from "zod";
 

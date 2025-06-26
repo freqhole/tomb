@@ -300,6 +300,56 @@ export class ApiClient {
       endpoint: "health",
     });
   }
+
+  // Generic request method for sync and other endpoints
+  async makeRequest<T>(
+    method: string,
+    url: string,
+    options: {
+      data?: unknown;
+      params?: Record<string, any>;
+      headers?: Record<string, string>;
+    } = {}
+  ): Promise<T> {
+    const requestUrl = new URL(url, this.baseUrl);
+
+    // Add query parameters if provided
+    if (options.params) {
+      Object.entries(options.params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          requestUrl.searchParams.append(key, String(value));
+        }
+      });
+    }
+
+    const requestHeaders = {
+      ...this.defaultHeaders,
+      ...options.headers,
+    };
+
+    if (options.data && method !== "GET") {
+      requestHeaders["Content-Type"] = "application/json";
+    }
+
+    const response = await fetch(requestUrl.toString(), {
+      method,
+      headers: requestHeaders,
+      body: options.data ? JSON.stringify(options.data) : undefined,
+      credentials: this.credentials,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new ApiError(
+        `Request failed: ${response.status} ${response.statusText}`,
+        response.status,
+        errorText,
+        requestUrl.toString()
+      );
+    }
+
+    return response.json();
+  }
 }
 
 // Default client instance

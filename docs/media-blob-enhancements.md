@@ -175,55 +175,71 @@ Add maintenance jobs for notification cleanup, connection monitoring, performanc
 - **4.1** ✅ Add cursor-based pagination to media blobs queries
 - **4.2** ✅ Implement sync endpoints with timestamp cursors
 
-- **4.3** Add client-side sync state management
+- **4.3** Core Sync Library (merged with 5.1)
 
-Implement client-side logic to track sync state and handle incremental updates.
+Implement core client-side sync library with state management and incremental update algorithms.
 
 **READY TO START** - Server-side sync infrastructure provides rich metadata and state tracking capabilities. Client implementation can leverage cursor-based pagination, sync recommendations, and acknowledgment workflows for robust synchronization.
 
-- **4.4** Create incremental sync algorithms
+#### Phase 4.3A: Core Sync Engine
 
-Develop algorithms to efficiently sync only changed data since last sync.
+- **4.3.1** Create sync state management
 
-- **4.5** Add conflict resolution for concurrent updates
+Implement sync state tracking, cursor management, and incremental update detection using TypeScript.
 
-Handle scenarios where multiple clients update the same data simultaneously.
+- **4.3.2** Build sync manager with event system
 
-- **4.6** Implement sync progress tracking
+Create core SyncManager class with progress events, error handling, and state persistence hooks.
 
-Add progress indicators and status reporting for long-running sync operations.
+- **4.3.3** Implement incremental sync algorithms
 
-- **4.7** Add sync pause/resume functionality
+Develop algorithms to efficiently sync only changed data since last sync using cursor-based pagination.
 
-Allow clients to pause and resume sync operations without data loss.
+- **4.3.4** Add conflict detection logic
 
-### Phase 5: Client-Side Sync Integration
+Handle scenarios where multiple clients update the same data simultaneously with conflict detection (resolution UI comes later).
 
-**Scope:** JavaScript client library, local storage, offline support, sync UI components.
+#### Phase 4.3B: JavaScript Client Library
 
-- **5.1** Create JavaScript client library for media blob sync
+- **4.3.5** Package as reusable TypeScript library
 
-Develop reusable JavaScript library for handling media blob synchronization.
+Structure core sync functionality as a framework-agnostic JavaScript/TypeScript library with proper exports.
 
-- **5.2** Implement local storage caching
+- **4.3.6** Add sync pause/resume functionality
 
-Add client-side caching with IndexedDB or similar for offline access.
+Allow clients to pause and resume sync operations without data loss using persistent state.
 
-- **5.3** Add offline queue for pending operations
+- **4.3.7** Create comprehensive sync events API
 
-Queue client operations when offline and sync when connection is restored.
+Implement event system for sync progress, completion, errors, and state changes.
 
-- **5.4** Create sync status UI components
+### Phase 5: Advanced Client Features
 
-Build UI components to show sync progress, conflicts, and connection status.
+**Scope:** Storage, offline support, UI components, selective sync, service workers.
 
-- **5.5** Implement selective sync (folders, file types)
+- **5.1** Implement local storage caching
+
+Add client-side caching with IndexedDB for offline access and performance optimization.
+
+- **5.2** Add offline queue for pending operations
+
+Queue client operations when offline and sync when connection is restored with conflict resolution.
+
+- **5.3** Create sync status UI components
+
+Build framework-agnostic UI components to show sync progress, conflicts, and connection status.
+
+- **5.4** Implement selective sync (folders, file types)
 
 Allow clients to choose which content to sync based on folders, file types, or other criteria.
 
-- **5.6** Add background sync for service workers
+- **5.5** Add background sync for service workers
 
-Implement service worker integration for background synchronization.
+Implement service worker integration for background synchronization and offline support.
+
+- **5.6** Create conflict resolution UI
+
+Build user interfaces for resolving sync conflicts detected in Phase 4.3.4.
 
 ### Phase 6: Client Library Architecture & Demo Integration
 
