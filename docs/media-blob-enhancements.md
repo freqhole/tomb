@@ -9,7 +9,7 @@ This document tracks remaining tasks for implementing the media blob system with
 **✅ Phase 2** - Job Queue Setup & Basic Thumbnail Generation (COMPLETED)
 **🔄 Phase 3** - Real-time Notifications via PostgreSQL NOTIFY/LISTEN (READY TO START)
 
-**Latest Achievement**: Phase 2C completed with full HTTP & CLI integration! The thumbnail system now has production-ready API endpoints, comprehensive CLI tools, automatic job enqueueing, and maintenance capabilities.
+**Latest Achievement**: Phase 2C completed with full HTTP & CLI integration! The thumbnail system now has production-ready API endpoints, comprehensive CLI tools, automatic job enqueueing, and maintenance capabilities. Phase 3 tasks have been improved with domain-driven architecture following proven Phase 2 patterns.
 
 ## Implementation Task List
 
@@ -99,31 +99,71 @@ Implement maintenance jobs for cleaning orphaned thumbnails, storage optimizatio
 
 ### Phase 3: Real-time Notifications via PostgreSQL NOTIFY/LISTEN
 
-**Scope:** WebSocket integration, PostgreSQL pub/sub, client-side event handling, notification routing.
+**Scope:** Domain services, notification infrastructure, WebSocket integration, client-side event handling, CLI management.
 
-- **3.1** Set up PostgreSQL NOTIFY triggers for job completion
+#### Phase 3A: Domain Layer (Grimoire Package)
 
-Configure database triggers to send notifications when thumbnail generation jobs complete.
+- **3.1** Create NotificationService and models in grimoire
 
-- **3.2** Implement LISTEN connection pool for job events
+Establish notification domain services following Phase 2 patterns. Create `grimoire/src/notifications/` module with NotificationEvent, NotificationChannel, NotificationConfig models and comprehensive error handling.
 
-Create dedicated PostgreSQL connections for listening to job completion events.
+- **3.2** Add notification configuration to ConfigService
 
-- **3.3** Add WebSocket connection management
+Extend existing ConfigService with NotificationConfig for WebSocket settings, PostgreSQL NOTIFY/LISTEN configuration, and channel management rules.
 
-Set up WebSocket server infrastructure for real-time client communication.
+- **3.3** Implement event publishing abstractions
 
-- **3.4** Create notification routing system
+Create Publisher trait with PostgresNotificationPublisher and WebSocketNotificationPublisher implementations, plus mock publishers for testing.
 
-Route job completion events to appropriate WebSocket clients based on user sessions and permissions.
+- **3.4** Create notification filtering and routing
 
-- **3.5** Implement client-side WebSocket handlers
+Add user permission-based event filtering, channel subscription management, event deduplication and rate limiting using grimoire services.
 
-Add JavaScript/client-side code to handle thumbnail completion notifications.
+- **3.5** Add comprehensive unit tests for notification domain
 
-- **3.6** Add notification queuing for offline clients
+Test event creation, filtering, routing, publisher abstractions, configuration validation, and error handling independently of infrastructure.
 
-Buffer notifications for clients that are temporarily disconnected.
+#### Phase 3B: Infrastructure & Event Streaming
+
+- **3.6** Set up PostgreSQL NOTIFY triggers and listeners
+
+Configure database triggers for thumbnail job state changes, connection pools for LISTEN operations, and integration with grimoire NotificationService.
+
+- **3.7** Implement WebSocket server infrastructure
+
+Build WebSocket connection management with authentication, lifecycle handling, heartbeat/reconnection, and integration with grimoire event routing.
+
+- **3.8** Create notification worker service
+
+Build background workers that consume PostgreSQL notifications, route events through grimoire NotificationService, and deliver to WebSocket clients with retry logic.
+
+- **3.9** Add connection state management
+
+Implement user session tracking, WebSocket mapping, subscription management per connection, and graceful cleanup with memory leak prevention.
+
+- **3.10** Implement notification queuing for reliability
+
+Add queuing for offline clients, persistent storage for undelivered messages, delivery confirmation and retry logic, plus queue cleanup and maintenance.
+
+#### Phase 3C: HTTP & CLI Integration
+
+- **3.11** Add HTTP endpoints for notification management
+
+Create server endpoints for notification status, connection metrics, test notifications, and admin broadcast messages using grimoire NotificationService.
+
+- **3.12** Create CLI commands for notification operations
+
+Add CLI subcommands for system health, connection monitoring, test notifications, and queue cleanup using grimoire services.
+
+- **3.13** Add client-side WebSocket integration
+
+Develop JavaScript client library for WebSocket connections with automatic reconnection, subscription management, and event handler registration.
+
+- **3.14** Implement notification maintenance system
+
+Add maintenance jobs for notification cleanup, connection monitoring, performance metrics, and integration with existing maintenance scheduler.
+
+**Phase 3 Summary**: Real-time notification system following proven Phase 2 domain-driven architecture. Provides PostgreSQL NOTIFY/LISTEN integration, WebSocket infrastructure, and comprehensive management tools while maintaining clean separation between domain logic (grimoire), infrastructure (server), and integration (CLI/HTTP). See [Phase 3 improvement recommendations](./phase-3-improvement-recommendations.md) for detailed architectural decisions.
 
 ### Phase 4: Cursor-Based Pagination for Efficient Sync
 
