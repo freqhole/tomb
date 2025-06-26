@@ -58,6 +58,10 @@ impl Cli {
             Commands::Config { command } => command.handle(self.config, self.secrets).await,
             Commands::Users(ref user_command) => {
                 let (_config, db) = self.setup_database().await?;
+
+                // Initialize wordlist if needed for invite code generation
+                self.ensure_wordlist_initialized().await?;
+
                 user_command
                     .handle(
                         &db, 5,  // default count
@@ -127,5 +131,36 @@ impl Cli {
                 Ok((AppConfig::default(), None))
             }
         }
+    }
+
+    async fn ensure_wordlist_initialized(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use grimoire::wordlist::{initialize_wordlist, is_initialized, ManagementWordlistConfig};
+
+        // Check if wordlist is already initialized
+        if is_initialized() {
+            return Ok(());
+        }
+
+        // Try to initialize from default wordlist file
+        let wordlist_path = "assets/config/wordlist.txt";
+        if !std::path::Path::new(wordlist_path).exists() {
+            return Err(format!(
+                "Wordlist file not found: {}. Run 'cargo run --bin cli wordlist generate' first.",
+                wordlist_path
+            )
+            .into());
+        }
+
+        let config = ManagementWordlistConfig {
+            file_path: wordlist_path.to_string(),
+            ..Default::default()
+        };
+
+        initialize_wordlist(&config).map_err(|e| {
+            format!("Failed to initialize wordlist: {}. Try regenerating with 'cargo run --bin cli wordlist generate'", e)
+        })?;
+
+        tracing::info!("Wordlist initialized successfully from {}", wordlist_path);
+        Ok(())
     }
 }
