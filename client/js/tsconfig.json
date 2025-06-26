@@ -37,8 +37,7 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "include": [
-    "src/lib/**/*",
-    "src/index.ts"
+    "src/**/*"
   ],
   "exclude": [
     "node_modules",
