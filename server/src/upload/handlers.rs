@@ -279,17 +279,21 @@ pub async fn list_uploads(
         ..Default::default()
     };
 
-    let blobs = repo.query(query).await.map_err(|e| {
+    let blobs_result = repo.query(query).await.map_err(|e| {
         error!("Failed to list uploads: {}", e);
         AppError::InternalServerError("Failed to list uploads".to_string())
     })?;
 
     // Filter to only include blobs with local_path
-    let upload_blobs: Vec<_> = blobs
+    let upload_blobs: Vec<_> = blobs_result
+        .items
         .into_iter()
         .filter(|b| b.local_path.is_some())
         .collect();
-    let total_count = upload_blobs.len() as i64;
+    let total_count = blobs_result
+        .pagination
+        .total_count
+        .unwrap_or(upload_blobs.len() as i64);
 
     let response = ListUploadsResponse {
         uploads: upload_blobs.into_iter().map(|b| b.without_data()).collect(),

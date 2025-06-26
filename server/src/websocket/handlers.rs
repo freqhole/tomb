@@ -241,9 +241,16 @@ async fn handle_message(
             };
 
             match service.list_blobs(query).await {
-                Ok(blobs) => {
-                    let total_count = blobs.len() as u32;
-                    Some(WebSocketResponse::MediaBlobs { blobs, total_count })
+                Ok(blobs_result) => {
+                    let total_count = blobs_result
+                        .pagination
+                        .total_count
+                        .unwrap_or(blobs_result.items.len() as i64)
+                        as u32;
+                    Some(WebSocketResponse::MediaBlobs {
+                        blobs: blobs_result.items,
+                        total_count,
+                    })
                 }
                 Err(e) => {
                     error!("Failed to fetch media blobs: {}", e);

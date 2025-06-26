@@ -1,27 +1,29 @@
 //! Media blob repository for database operations
 //!
 //! This module provides database access layer for media blobs,
-//! including CRUD operations and queries.
+//! including CRUD operations and queries with cursor-based pagination support.
 
 use crate::error::WebauthnError;
-use crate::media::models::{CreateMediaBlob, MediaBlob, MediaBlobQuery, MediaBlobStats};
-use grimoire::config::MediaConfig;
+use grimoire::media::{
+    CreateMediaBlob, MediaBlob, MediaBlobQuery, MediaBlobRepository, MediaBlobService,
+    MediaBlobStats, MediaRepositoryError, MediaServiceError, PaginatedResult,
+};
 use grimoire::DatabaseConnection;
-use sqlx::postgres::PgRow;
-use sqlx::Row;
-use time::OffsetDateTime;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
-/// Media blob repository for database operations
+/// Media repository wrapper that uses grimoire services
 pub struct MediaRepository<'a> {
-    db: &'a DatabaseConnection,
+    service: MediaBlobService,
+    _db: &'a DatabaseConnection,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum MediaError {
-    #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
+    #[error("Service error: {0}")]
+    Service(#[from] MediaServiceError),
+    #[error("Repository error: {0}")]
+    Repository(#[from] MediaRepositoryError),
     #[error("Media blob not found")]
     NotFound,
     #[error("Invalid SHA256 hash")]
@@ -35,7 +37,19 @@ pub enum MediaError {
 impl From<MediaError> for WebauthnError {
     fn from(err: MediaError) -> Self {
         match err {
-            MediaError::Database(e) => WebauthnError::SqlxError(e),
+            MediaError::Service(MediaServiceError::Repository(MediaRepositoryError::NotFound(
+                _,
+            ))) => WebauthnError::UserNotFound,
+            MediaError::Service(MediaServiceError::Validation(_)) => WebauthnError::BadRequest,
+            MediaError::Service(MediaServiceError::BusinessLogic(_)) => WebauthnError::BadRequest,
+            MediaError::Service(e) => {
+                error!("Media service error: {}", e);
+                WebauthnError::DatabaseError
+            }
+            MediaError::Repository(e) => {
+                error!("Media repository error: {}", e);
+                WebauthnError::DatabaseError
+            }
             MediaError::NotFound => WebauthnError::UserNotFound,
             MediaError::InvalidHash => WebauthnError::BadRequest,
             MediaError::Validation(_) => WebauthnError::BadRequest,
@@ -44,138 +58,62 @@ impl From<MediaError> for WebauthnError {
     }
 }
 
+impl From<MediaServiceError> for WebauthnError {
+    fn from(err: MediaServiceError) -> Self {
+        match err {
+            MediaServiceError::Repository(MediaRepositoryError::NotFound(_)) => {
+                WebauthnError::UserNotFound
+            }
+            MediaServiceError::Repository(MediaRepositoryError::NotFoundBySha256(_)) => {
+                WebauthnError::UserNotFound
+            }
+            MediaServiceError::Validation(_) => WebauthnError::BadRequest,
+            MediaServiceError::BusinessLogic(_) => WebauthnError::BadRequest,
+            MediaServiceError::ConcurrentModification => WebauthnError::BadRequest,
+            MediaServiceError::Repository(e) => {
+                error!("Media repository error: {}", e);
+                WebauthnError::DatabaseError
+            }
+        }
+    }
+}
+
 impl<'a> MediaRepository<'a> {
     /// Create a new repository instance
     pub fn new(db: &'a DatabaseConnection) -> Self {
-        Self { db }
+        let repository = MediaBlobRepository::new(db.pool().clone());
+        let service = MediaBlobService::new(repository);
+        Self { service, _db: db }
     }
 
     /// Create a new media blob
     pub async fn create(
         &self,
         params: CreateMediaBlob,
-        media_config: &MediaConfig,
+        _media_config: &grimoire::config::MediaConfig,
     ) -> Result<MediaBlob, WebauthnError> {
-        // Validate input with config-based limits
-        params
-            .validate(
-                media_config.max_blob_file_size,
-                media_config.max_fs_file_size,
-            )
-            .map_err(|e| {
-                warn!("zomg>>>> bad media_blob {}", e);
-
-                WebauthnError::BadRequest
-            })?;
-
         info!("Creating media blob with SHA256: {}", params.sha256);
 
-        let blob = MediaBlob::new(params);
+        let blob = self.service.create_media_blob(params).await?;
 
-        let result = sqlx::query!(
-            r#"
-            INSERT INTO media_blobs (
-                id, data, sha256, size, mime, source_client_id,
-                local_path, metadata, created_at, updated_at
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-            )
-            "#,
-            blob.id,
-            blob.data,
-            blob.sha256,
-            blob.size,
-            blob.mime,
-            blob.source_client_id,
-            blob.local_path,
-            blob.metadata,
-            blob.created_at,
-            blob.updated_at
-        )
-        .execute(self.db.pool())
-        .await;
-
-        match result {
-            Ok(_) => {
-                info!("Successfully created media blob: {}", blob.id);
-                Ok(blob)
-            }
-            Err(sqlx::Error::Database(db_err)) if db_err.is_unique_violation() => {
-                warn!("Duplicate SHA256 hash: {}", blob.sha256);
-                Err(WebauthnError::BadRequest)
-            }
-            Err(e) => {
-                error!("Failed to create media blob: {}", e);
-                println!("onoz blob Failed to create media blob: {}", e);
-                Err(WebauthnError::SqlxError(e))
-            }
-        }
+        info!("Successfully created media blob: {}", blob.id);
+        Ok(blob)
     }
 
     /// Find a media blob by ID
     pub async fn find_by_id(&self, id: Uuid) -> Result<MediaBlob, WebauthnError> {
         debug!("Finding media blob by ID: {}", id);
 
-        let row = sqlx::query!(
-            r#"
-            SELECT id, data, sha256, size, mime, source_client_id,
-                   local_path, metadata, created_at, updated_at
-            FROM media_blobs
-            WHERE id = $1
-            "#,
-            id
-        )
-        .fetch_optional(self.db.pool())
-        .await?;
-
-        match row {
-            Some(r) => Ok(MediaBlob {
-                id: r.id,
-                data: r.data,
-                sha256: r.sha256,
-                size: r.size,
-                mime: r.mime,
-                source_client_id: r.source_client_id,
-                local_path: r.local_path,
-                metadata: r.metadata.unwrap_or_else(|| serde_json::json!({})),
-                created_at: r.created_at.unwrap_or_else(OffsetDateTime::now_utc),
-                updated_at: r.updated_at.unwrap_or_else(OffsetDateTime::now_utc),
-            }),
-            None => Err(WebauthnError::UserNotFound),
-        }
+        let blob = self.service.get_media_blob(id).await?;
+        Ok(blob)
     }
 
     /// Find a media blob by SHA256 hash
     pub async fn get_by_sha256(&self, sha256: &str) -> Result<MediaBlob, WebauthnError> {
         debug!("Finding media blob by SHA256: {}", sha256);
 
-        let row = sqlx::query!(
-            r#"
-            SELECT id, data, sha256, size, mime, source_client_id,
-                   local_path, metadata, created_at, updated_at
-            FROM media_blobs
-            WHERE sha256 = $1
-            "#,
-            sha256
-        )
-        .fetch_optional(self.db.pool())
-        .await?;
-
-        match row {
-            Some(r) => Ok(MediaBlob {
-                id: r.id,
-                data: r.data,
-                sha256: r.sha256,
-                size: r.size,
-                mime: r.mime,
-                source_client_id: r.source_client_id,
-                local_path: r.local_path,
-                metadata: r.metadata.unwrap_or_else(|| serde_json::json!({})),
-                created_at: r.created_at.unwrap_or_else(OffsetDateTime::now_utc),
-                updated_at: r.updated_at.unwrap_or_else(OffsetDateTime::now_utc),
-            }),
-            None => Err(WebauthnError::UserNotFound),
-        }
+        let blob = self.service.get_media_blob_by_sha256(sha256).await?;
+        Ok(blob)
     }
 
     /// Find a media blob by ID without data (for efficient responses)
@@ -183,226 +121,77 @@ impl<'a> MediaRepository<'a> {
     pub async fn get_by_id_without_data(&self, id: Uuid) -> Result<MediaBlob, WebauthnError> {
         debug!("Finding media blob by ID without data: {}", id);
 
-        let row = sqlx::query!(
-            r#"
-            SELECT id, sha256, size, mime, source_client_id,
-                   local_path, metadata, created_at, updated_at
-            FROM media_blobs
-            WHERE id = $1
-            "#,
-            id
-        )
-        .fetch_optional(self.db.pool())
-        .await?;
-
-        match row {
-            Some(r) => Ok(MediaBlob {
-                id: r.id,
-                data: None, // Explicitly exclude data
-                sha256: r.sha256,
-                size: r.size,
-                mime: r.mime,
-                source_client_id: r.source_client_id,
-                local_path: r.local_path,
-                metadata: r.metadata.unwrap_or_else(|| serde_json::json!({})),
-                created_at: r.created_at.unwrap_or_else(OffsetDateTime::now_utc),
-                updated_at: r.updated_at.unwrap_or_else(OffsetDateTime::now_utc),
-            }),
-            None => Err(WebauthnError::UserNotFound),
-        }
+        let blob = self.service.get_media_blob_metadata(id).await?;
+        Ok(blob)
     }
 
-    /// Query media blobs with filtering and pagination
-    pub async fn query(&self, params: MediaBlobQuery) -> Result<Vec<MediaBlob>, WebauthnError> {
+    /// Query media blobs with filtering and pagination (supports both cursor and offset)
+    pub async fn query(
+        &self,
+        params: MediaBlobQuery,
+    ) -> Result<PaginatedResult<MediaBlob>, WebauthnError> {
         debug!("Querying media blobs with params: {:?}", params);
 
-        let limit = params.limit.unwrap_or(50).min(1000); // Cap at 1000
-        let offset = params.offset.unwrap_or(0);
+        let result = self.service.query_media_blobs(params).await?;
+        Ok(result)
+    }
 
-        // Build the query manually since we need to handle type conversion
-        let mut sql = String::from(
-            "SELECT id, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at FROM media_blobs WHERE 1=1"
-        );
-        let mut param_count = 0;
-
-        if let Some(ref _sha256) = params.sha256 {
-            param_count += 1;
-            sql.push_str(&format!(" AND sha256 = ${}", param_count));
-        }
-
-        if let Some(ref _client_id) = params.source_client_id {
-            param_count += 1;
-            sql.push_str(&format!(" AND source_client_id = ${}", param_count));
-        }
-
-        if let Some(ref _mime_pattern) = params.mime_pattern {
-            param_count += 1;
-            sql.push_str(&format!(" AND mime LIKE ${}", param_count));
-        }
-
-        param_count += 1;
-        sql.push_str(&format!(" ORDER BY created_at DESC LIMIT ${}", param_count));
-        param_count += 1;
-        sql.push_str(&format!(" OFFSET ${}", param_count));
-
-        // Execute the query manually
-        let mut query = sqlx::query(&sql);
-
-        if let Some(ref sha256) = params.sha256 {
-            query = query.bind(sha256);
-        }
-        if let Some(ref client_id) = params.source_client_id {
-            query = query.bind(client_id);
-        }
-        if let Some(ref mime_pattern) = params.mime_pattern {
-            query = query.bind(format!("%{}%", mime_pattern));
-        }
-        query = query.bind(limit).bind(offset);
-
-        let rows = query.fetch_all(self.db.pool()).await?;
-
-        let blobs = rows
-            .into_iter()
-            .map(|row: PgRow| {
-                MediaBlob {
-                    id: row.get("id"),
-                    data: None, // Don't include data in query results
-                    sha256: row.get("sha256"),
-                    size: row.get("size"),
-                    mime: row.get("mime"),
-                    source_client_id: row.get("source_client_id"),
-                    local_path: row.get("local_path"),
-                    metadata: row
-                        .get::<Option<serde_json::Value>, _>("metadata")
-                        .unwrap_or_else(|| serde_json::json!({})),
-                    created_at: row
-                        .get::<Option<OffsetDateTime>, _>("created_at")
-                        .unwrap_or_else(OffsetDateTime::now_utc),
-                    updated_at: row
-                        .get::<Option<OffsetDateTime>, _>("updated_at")
-                        .unwrap_or_else(OffsetDateTime::now_utc),
-                }
-            })
-            .collect();
-
-        Ok(blobs)
+    /// Legacy method for backward compatibility - returns only the items
+    pub async fn query_legacy(
+        &self,
+        params: MediaBlobQuery,
+    ) -> Result<Vec<MediaBlob>, WebauthnError> {
+        let result = self.query(params).await?;
+        Ok(result.items)
     }
 
     /// Get media blob statistics
     pub async fn get_stats(&self) -> Result<MediaBlobStats, WebauthnError> {
         debug!("Getting media blob statistics");
 
-        // TODO: Uncomment after running sqlx prepare
-        /*
-        // Get total count and size
-        let totals = sqlx::query!(
-            r#"
-            SELECT
-                COUNT(*) as total_count,
-                SUM(size) as total_size,
-                COUNT(DISTINCT sha256) as unique_sha256_count
-            FROM media_blobs
-            "#
-        )
-        .fetch_one(self.db.pool())
-        .await?;
-
-        // Get MIME type distribution
-        let mime_rows = sqlx::query!(
-            r#"
-            SELECT mime, COUNT(*) as count
-            FROM media_blobs
-            GROUP BY mime
-            ORDER BY count DESC
-            "#
-        )
-        .fetch_all(self.db.pool())
-        .await?;
-
-        let mime_type_distribution = mime_rows
-            .into_iter()
-            .map(|r| MimeTypeCount {
-                mime_type: r.mime,
-                count: r.count.unwrap_or(0),
-            })
-            .collect();
-
-        Ok(MediaBlobStats {
-            total_count: totals.total_count.unwrap_or(0),
-            total_size: totals
-                .total_size
-                .map(|s| s.to_string().parse::<i64>().unwrap_or(0)),
-            unique_sha256_count: totals.unique_sha256_count.unwrap_or(0),
-            mime_type_distribution,
-        })
-        */
-
-        // Temporary mock implementation
-        Ok(MediaBlobStats {
-            total_count: 0,
-            total_size: None,
-            unique_sha256_count: 0,
-            mime_type_distribution: vec![],
-        })
+        let stats = self.service.get_statistics().await?;
+        Ok(stats)
     }
 
     /// Update blob metadata
     pub async fn update_metadata(
         &self,
         id: Uuid,
-        _metadata: serde_json::Value,
+        metadata: serde_json::Value,
     ) -> Result<MediaBlob, WebauthnError> {
         debug!("Updating metadata for media blob: {}", id);
 
-        // TODO: Uncomment after running sqlx prepare
-        /*
-        let updated_at = OffsetDateTime::now_utc();
-
-        sqlx::query!(
-            r#"
-            UPDATE media_blobs
-            SET metadata = $1, updated_at = $2
-            WHERE id = $3
-            "#,
-            metadata,
-            updated_at,
-            id
-        )
-        .execute(self.db.pool())
-        .await?;
-
-        // Return the updated blob
-        self.find_by_id(id).await
-        */
-
-        // Temporary mock implementation
-        Err(WebauthnError::UserNotFound)
+        let updated_blob = self.service.update_metadata(id, metadata).await?;
+        Ok(updated_blob)
     }
 
     /// Delete a media blob by ID
     pub async fn delete(&self, id: Uuid) -> Result<bool, WebauthnError> {
         info!("Deleting media blob: {}", id);
 
-        let result = sqlx::query!("DELETE FROM media_blobs WHERE id = $1", id)
-            .execute(self.db.pool())
-            .await?;
-
-        Ok(result.rows_affected() > 0)
+        self.service.delete_media_blob(id).await?;
+        Ok(true)
     }
 
     /// Clean up old media blobs (older than specified days)
     pub async fn cleanup_old_blobs(&self, days: i32) -> Result<u64, WebauthnError> {
         info!("Cleaning up media blobs older than {} days", days);
 
-        let cutoff_date = OffsetDateTime::now_utc() - time::Duration::days(days as i64);
+        let cutoff_date = time::OffsetDateTime::now_utc() - time::Duration::days(days as i64);
 
-        let result = sqlx::query!("DELETE FROM media_blobs WHERE created_at < $1", cutoff_date)
-            .execute(self.db.pool())
-            .await?;
+        let mut query = MediaBlobQuery::with_cursor(None, Some(1000));
+        query.created_before = Some(cutoff_date);
 
-        let deleted_count = result.rows_affected();
+        // Get all old blobs and delete them
+        let old_blobs = self.service.query_media_blobs(query).await?;
+        let mut deleted_count = 0;
+
+        for blob in old_blobs.items {
+            self.service.delete_media_blob(blob.id).await?;
+            deleted_count += 1;
+        }
+
         info!("Deleted {} old media blobs", deleted_count);
-
         Ok(deleted_count)
     }
 
@@ -413,79 +202,36 @@ impl<'a> MediaRepository<'a> {
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<MediaBlob>, WebauthnError> {
-        let query = MediaBlobQuery {
-            limit,
-            offset,
-            source_client_id: Some(client_id.to_string()),
-            ..Default::default()
-        };
+        let mut query = MediaBlobQuery::with_offset(limit, offset);
+        query.source_client_id = Some(client_id.to_string());
 
-        self.query(query).await
+        let result = self.query(query).await?;
+        Ok(result.items)
     }
 
     /// Check if a media blob exists by SHA256
     pub async fn exists_by_sha256(&self, sha256: &str) -> Result<bool, WebauthnError> {
         debug!("Checking if media blob exists by SHA256: {}", sha256);
 
-        let result = sqlx::query!(
-            "SELECT 1 as exists FROM media_blobs WHERE sha256 = $1 LIMIT 1",
-            sha256
-        )
-        .fetch_optional(self.db.pool())
-        .await?;
-
-        Ok(result.is_some())
+        let exists = self.service.exists_by_sha256(sha256).await?;
+        Ok(exists)
     }
 
     /// Get recent media blobs (within last N days)
     pub async fn get_recent(
         &self,
         days: i32,
-        _limit: Option<i64>,
+        limit: Option<i64>,
     ) -> Result<Vec<MediaBlob>, WebauthnError> {
         debug!("Getting recent media blobs from last {} days", days);
 
-        // TODO: Uncomment after running sqlx prepare
-        /*
-        let cutoff_date = OffsetDateTime::now_utc() - time::Duration::days(days as i64);
-        let limit = limit.unwrap_or(50).min(1000);
+        let cutoff_date = time::OffsetDateTime::now_utc() - time::Duration::days(days as i64);
 
-        let rows = sqlx::query!(
-            r#"
-            SELECT id, sha256, size, mime, source_client_id,
-                   local_path, metadata, created_at, updated_at
-            FROM media_blobs
-            WHERE created_at >= $1
-            ORDER BY created_at DESC
-            LIMIT $2
-            "#,
-            cutoff_date,
-            limit
-        )
-        .fetch_all(self.db.pool())
-        .await?;
-
-        let blobs = rows
-            .into_iter()
-            .map(|r| MediaBlob {
-                id: r.id,
-                data: None,
-                sha256: r.sha256,
-                size: r.size,
-                mime: r.mime,
-                source_client_id: r.source_client_id,
-                local_path: r.local_path,
-                metadata: r.metadata.unwrap_or_else(|| serde_json::json!({})),
-                created_at: r.created_at.unwrap_or_else(OffsetDateTime::now_utc),
-                updated_at: r.updated_at.unwrap_or_else(OffsetDateTime::now_utc),
-            })
-            .collect();
-
-        Ok(blobs)
-        */
-
-        // Temporary mock implementation
-        Ok(vec![])
+        let result = self
+            .service
+            .get_media_blobs_since(cutoff_date, None, limit)
+            .await?;
+        Ok(result.items)
     }
 }
 

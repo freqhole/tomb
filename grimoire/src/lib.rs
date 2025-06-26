@@ -11,6 +11,7 @@ pub mod analytics;
 pub mod auth;
 pub mod config;
 pub mod database;
+pub mod media;
 pub mod thumbnails;
 pub mod wordlist;
 
@@ -34,6 +35,12 @@ pub use config::{
 // Re-export wordlist types
 pub use wordlist::{
     WordlistConfig, WordlistGenerationResult, WordlistService, WordlistValidationResult,
+};
+
+// Re-export media types
+pub use media::{
+    CreateMediaBlob, MediaBlob, MediaBlobCursor, MediaBlobQuery, MediaBlobRepository,
+    MediaBlobService, MediaBlobStats, PaginatedResult, PaginationDirection,
 };
 
 // Re-export thumbnails types

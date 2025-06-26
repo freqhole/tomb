@@ -169,9 +169,23 @@ Add maintenance jobs for notification cleanup, connection monitoring, performanc
 
 **Scope:** Database indexing, pagination API design, sync algorithms, cursor generation, client integration.
 
-- **4.1** Add cursor-based pagination to media blobs queries
+- **4.1** ✅ Add cursor-based pagination to media blobs queries
 
 Replace limit/offset pagination with cursor-based pagination for better performance.
+
+**COMPLETED** - Implemented comprehensive cursor-based pagination system with:
+
+- New `MediaBlobCursor` model using timestamp + ID for unique ordering
+- `PaginatedResult<T>` wrapper with rich pagination metadata
+- Dual pagination support (cursor and offset) in `MediaBlobQuery`
+- Base64-encoded cursors for API safety
+- Forward/backward pagination direction support
+- Grimoire domain layer with `MediaBlobRepository` and `MediaBlobService`
+- Updated server repository to use grimoire services
+- Backward compatibility with existing offset-based pagination
+- Enhanced filtering with timestamp ranges (`created_after`, `created_before`)
+- Comprehensive error handling and validation
+- Integration tests framework for pagination verification
 
 - **4.2** Implement sync endpoints with timestamp cursors
 

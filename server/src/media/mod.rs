@@ -14,7 +14,7 @@ pub mod repository;
 // Re-export commonly used types
 use crate::error::WebauthnError;
 use grimoire::config::MediaConfig;
-pub use models::{CreateMediaBlob, MediaBlob, MediaBlobQuery, MediaBlobStats};
+pub use models::{CreateMediaBlob, MediaBlob, MediaBlobQuery, MediaBlobStats, PaginatedResult};
 pub use repository::{MediaError, MediaRepository};
 
 /// Media blob service that combines repository operations with business logic
@@ -57,9 +57,20 @@ impl<'a> MediaService<'a> {
         }
     }
 
-    /// List blobs with pagination and filtering
-    pub async fn list_blobs(&self, query: MediaBlobQuery) -> Result<Vec<MediaBlob>, WebauthnError> {
+    /// List blobs with pagination and filtering (new cursor-based pagination)
+    pub async fn list_blobs(
+        &self,
+        query: MediaBlobQuery,
+    ) -> Result<PaginatedResult<MediaBlob>, WebauthnError> {
         self.repository.query(query).await
+    }
+
+    /// List blobs with pagination and filtering (legacy - returns only items)
+    pub async fn list_blobs_legacy(
+        &self,
+        query: MediaBlobQuery,
+    ) -> Result<Vec<MediaBlob>, WebauthnError> {
+        self.repository.query_legacy(query).await
     }
 
     /// Get media statistics
