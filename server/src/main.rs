@@ -16,6 +16,7 @@ use server::routes::build_routes;
 use server::startup::AppState;
 use server::static_filez::build_assets_fallback_service;
 use server::storage::SessionStore;
+use server::thumbnails::build_routes as build_thumbnail_routes;
 
 #[macro_use]
 extern crate tracing;
@@ -202,6 +203,11 @@ async fn main() {
 
     // Build main router with all routes
     let mut app = build_routes(&config)
+        .merge(
+            axum::Router::new()
+                .nest("/api/thumbnails", build_thumbnail_routes())
+                .with_state(app_state.clone()),
+        )
         .layer(Extension(config.clone()))
         .layer(Extension(app_state.database.clone()))
         .layer(Extension(app_state.clone()))

@@ -1,4 +1,5 @@
 use crate::jobs::ThumbnailJobQueue;
+use crate::maintenance::{MaintenanceConfig, MaintenanceScheduler};
 use crate::storage::SessionStore;
 use grimoire::analytics::AnalyticsConfig;
 use grimoire::config::{ConfigService, StorageBackend};
@@ -35,6 +36,8 @@ pub struct AppState {
     pub config: AppConfig,
     // Thumbnail job queue for background processing
     pub thumbnail_queue: Arc<tokio::sync::Mutex<ThumbnailJobQueue>>,
+    // Maintenance scheduler for cleanup tasks
+    pub maintenance_scheduler: Option<Arc<MaintenanceScheduler>>,
 }
 
 impl AppState {
@@ -173,6 +176,25 @@ impl AppState {
             }
         }
 
+        // Initialize maintenance scheduler
+        let maintenance_scheduler = if config.media.thumbnails.enabled {
+            let maintenance_config = MaintenanceConfig {
+                auto_run: false,        // Disabled by default for safety
+                interval_seconds: 3600, // Run every hour
+                max_completed_job_age_days: 30,
+                cleanup_orphaned_files: true,
+                max_jobs_per_cycle: 1000,
+            };
+
+            let scheduler = MaintenanceScheduler::new(maintenance_config);
+            tracing::info!("🧹 Maintenance scheduler configured (auto_run: disabled)");
+            tracing::info!("💡 Enable maintenance in production with appropriate configuration");
+
+            Some(Arc::new(scheduler))
+        } else {
+            None
+        };
+
         Ok(AppState {
             webauthn,
             database,
@@ -180,12 +202,18 @@ impl AppState {
             session_store,
             config,
             thumbnail_queue: Arc::new(tokio::sync::Mutex::new(thumbnail_queue)),
+            maintenance_scheduler,
         })
     }
 
     /// Gracefully shutdown the application, stopping all background workers
     pub async fn shutdown(&self) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Shutting down application...");
+
+        // Stop maintenance scheduler
+        if let Some(scheduler) = &self.maintenance_scheduler {
+            scheduler.stop();
+        }
 
         // Stop thumbnail job workers
         if self.config.media.thumbnails.enabled {

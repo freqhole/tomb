@@ -14,6 +14,7 @@ use crate::auth::AuthenticatedUser;
 use crate::error::AppError;
 use crate::media::models::{CreateMediaBlob, MediaBlob};
 use crate::media::repository::MediaRepository;
+use crate::startup::AppState;
 use grimoire::auth::User;
 use grimoire::AppConfig;
 use grimoire::DatabaseConnection;
@@ -24,6 +25,7 @@ use super::models::{UploadConfig, UploadRequest, UploadResponse};
 pub async fn upload_large_file(
     Extension(db): Extension<DatabaseConnection>,
     Extension(config): Extension<AppConfig>,
+    Extension(app_state): Extension<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, AppError> {
@@ -202,6 +204,33 @@ pub async fn upload_large_file(
         "Successfully uploaded large file: {} (ID: {})",
         upload_request.filename, media_blob.id
     );
+
+    // Auto-enqueue thumbnail jobs if enabled
+    if config.media.thumbnails.enabled {
+        info!(
+            "Auto-enqueueing thumbnail jobs for media blob: {}",
+            media_blob.id
+        );
+
+        let queue = app_state.thumbnail_queue.lock().await;
+        match queue.auto_enqueue_for_media_blob(media_blob.id).await {
+            Ok(job_ids) => {
+                info!(
+                    "Enqueued {} thumbnail job(s) for media blob {}: {:?}",
+                    job_ids.len(),
+                    media_blob.id,
+                    job_ids
+                );
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to auto-enqueue thumbnail jobs for media blob {}: {}",
+                    media_blob.id, e
+                );
+                // Don't fail the upload if thumbnail enqueueing fails
+            }
+        }
+    }
 
     let response = UploadResponse {
         id: media_blob.id,

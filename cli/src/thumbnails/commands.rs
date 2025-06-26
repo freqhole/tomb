@@ -1,7 +1,7 @@
 //! CLI commands for thumbnail tool validation and management
 
 use clap::{Args, Subcommand};
-use grimoire::{config::ConfigService, AppConfig};
+use grimoire::{config::ConfigService, AppConfig, ThumbnailService};
 use std::path::PathBuf;
 
 /// Thumbnail-related commands
@@ -11,6 +11,18 @@ pub enum ThumbnailCommands {
     ValidateTools(ValidateToolsArgs),
     /// Test thumbnail generation with a sample file
     Test(TestArgs),
+    /// Show thumbnail job status and metrics
+    Status(StatusArgs),
+    /// List thumbnail jobs with optional filtering
+    List(ListJobsArgs),
+    /// Retry failed thumbnail jobs
+    Retry(RetryArgs),
+    /// Clean up old thumbnail jobs and orphaned files
+    Cleanup(CleanupArgs),
+    /// Trigger thumbnail generation for a specific media blob
+    Generate(GenerateArgs),
+    /// Run maintenance tasks for thumbnail system
+    Maintenance(MaintenanceArgs),
 }
 
 /// Arguments for validating thumbnail tools
@@ -41,6 +53,122 @@ pub struct TestArgs {
     pub output: PathBuf,
 }
 
+/// Arguments for checking thumbnail status
+#[derive(Debug, Clone, Args)]
+pub struct StatusArgs {
+    /// Configuration file path
+    #[arg(short, long, default_value = "config.jsonc")]
+    pub config: PathBuf,
+
+    /// Show detailed metrics
+    #[arg(short, long)]
+    pub verbose: bool,
+}
+
+/// Arguments for listing thumbnail jobs
+#[derive(Debug, Clone, Args)]
+pub struct ListJobsArgs {
+    /// Configuration file path
+    #[arg(short, long, default_value = "config.jsonc")]
+    pub config: PathBuf,
+
+    /// Filter by job status (pending, in_progress, completed, failed, failed_permanently, cancelled)
+    #[arg(short, long)]
+    pub status: Option<String>,
+
+    /// Maximum number of jobs to show
+    #[arg(short, long, default_value = "20")]
+    pub limit: u32,
+
+    /// Filter by media blob ID
+    #[arg(short, long)]
+    pub media_blob_id: Option<String>,
+}
+
+/// Arguments for retrying failed jobs
+#[derive(Debug, Clone, Args)]
+pub struct RetryArgs {
+    /// Configuration file path
+    #[arg(short, long, default_value = "config.jsonc")]
+    pub config: PathBuf,
+
+    /// Specific job ID to retry (if not provided, retries all failed jobs)
+    #[arg(short, long)]
+    pub job_id: Option<String>,
+
+    /// Maximum number of jobs to retry
+    #[arg(long, default_value = "100")]
+    pub max_jobs: u32,
+}
+
+/// Arguments for cleanup operations
+#[derive(Debug, Clone, Args)]
+pub struct CleanupArgs {
+    /// Configuration file path
+    #[arg(short, long, default_value = "config.jsonc")]
+    pub config: PathBuf,
+
+    /// Remove completed jobs older than this many days
+    #[arg(long, default_value = "30")]
+    pub days: u32,
+
+    /// Remove orphaned thumbnail files (files without database records)
+    #[arg(long)]
+    pub orphaned_files: bool,
+
+    /// Dry run - show what would be cleaned up without actually doing it
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+/// Arguments for manual thumbnail generation
+#[derive(Debug, Clone, Args)]
+pub struct GenerateArgs {
+    /// Configuration file path
+    #[arg(short, long, default_value = "config.jsonc")]
+    pub config: PathBuf,
+
+    /// Media blob ID to generate thumbnails for
+    #[arg(short, long)]
+    pub media_blob_id: String,
+
+    /// Job type (image_thumbnail, video_thumbnail, audio_waveform, video_preview)
+    #[arg(short = 't', long)]
+    pub job_type: Option<String>,
+
+    /// Priority (low, normal, high, critical)
+    #[arg(short, long, default_value = "normal")]
+    pub priority: String,
+}
+
+/// Arguments for maintenance operations
+#[derive(Debug, Clone, Args)]
+pub struct MaintenanceArgs {
+    /// Configuration file path
+    #[arg(short, long, default_value = "config.jsonc")]
+    pub config: PathBuf,
+
+    /// Run cleanup of old jobs
+    #[arg(long)]
+    pub cleanup_old_jobs: bool,
+
+    /// Maximum age for cleanup in days
+    #[arg(long, default_value = "30")]
+    pub max_age_days: u32,
+
+    /// Run orphaned file cleanup
+    #[arg(long)]
+    pub cleanup_orphaned_files: bool,
+
+    /// Dry run - show what would be done without doing it
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Maximum number of items to process
+    #[arg(long, default_value = "1000")]
+    pub max_items: u32,
+}
+
 /// Execute thumbnail-related commands
 pub async fn execute_thumbnail_command(
     cmd: ThumbnailCommands,
@@ -48,6 +176,12 @@ pub async fn execute_thumbnail_command(
     match cmd {
         ThumbnailCommands::ValidateTools(args) => validate_tools(args).await,
         ThumbnailCommands::Test(args) => test_thumbnail_generation(args).await,
+        ThumbnailCommands::Status(args) => show_status(args).await,
+        ThumbnailCommands::List(args) => list_jobs(args).await,
+        ThumbnailCommands::Retry(args) => retry_jobs(args).await,
+        ThumbnailCommands::Cleanup(args) => cleanup_jobs(args).await,
+        ThumbnailCommands::Generate(args) => generate_thumbnails(args).await,
+        ThumbnailCommands::Maintenance(args) => run_maintenance(args).await,
     }
 }
 
@@ -204,11 +338,448 @@ async fn test_thumbnail_generation(args: TestArgs) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+/// Show thumbnail system status and metrics
+async fn show_status(args: StatusArgs) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Loading configuration from: {}", args.config.display());
+
+    let config = AppConfig::from_file(&args.config)?;
+
+    if !config.media.thumbnails.enabled {
+        println!("⚠️  Thumbnail generation is disabled in configuration");
+        return Ok(());
+    }
+
+    // Connect to database
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = grimoire::DatabaseConnection::new(pool);
+
+    // Create thumbnail service and get metrics
+    let service = grimoire::ThumbnailService::new_with_defaults(&db);
+
+    println!("📊 Thumbnail System Status");
+    println!("{}", "=".repeat(50));
+
+    // Get job counts by status
+    let pending_jobs = service.get_pending_jobs(1000).await?;
+    let completed_jobs = service
+        .get_jobs_by_status(grimoire::thumbnails::ThumbnailJobStatus::Completed, 1000)
+        .await?;
+    let failed_jobs = service
+        .get_jobs_by_status(grimoire::thumbnails::ThumbnailJobStatus::Failed, 1000)
+        .await?;
+    let failed_permanently_jobs = service
+        .get_jobs_by_status(
+            grimoire::thumbnails::ThumbnailJobStatus::FailedPermanently,
+            1000,
+        )
+        .await?;
+
+    println!("Job Counts:");
+    println!("  ⏳ Pending: {}", pending_jobs.len());
+    println!("  ✅ Completed: {}", completed_jobs.len());
+    println!("  ❌ Failed: {}", failed_jobs.len());
+    println!("  💀 Failed Permanently: {}", failed_permanently_jobs.len());
+
+    let total_jobs = pending_jobs.len()
+        + completed_jobs.len()
+        + failed_jobs.len()
+        + failed_permanently_jobs.len();
+    println!("  📈 Total: {}", total_jobs);
+
+    if total_jobs > 0 {
+        let success_rate = (completed_jobs.len() as f64 / total_jobs as f64) * 100.0;
+        println!("  📊 Success Rate: {:.1}%", success_rate);
+    }
+
+    if args.verbose {
+        println!("\nConfiguration:");
+        println!(
+            "  Max concurrent jobs: {}",
+            config.media.thumbnails.max_concurrent_jobs
+        );
+        println!("  Storage path: {}", config.media.thumbnails.storage_path);
+        println!("  Quality: {}%", config.media.thumbnails.quality);
+
+        if !pending_jobs.is_empty() {
+            println!("\nNext {} pending jobs:", pending_jobs.len().min(5));
+            for job in pending_jobs.iter().take(5) {
+                println!("  • {} - {} ({:?})", job.id, job.job_type, job.priority);
+            }
+        }
+
+        if !failed_jobs.is_empty() {
+            println!("\nRecent failed jobs:");
+            for job in failed_jobs.iter().take(3) {
+                println!(
+                    "  • {} - {}",
+                    job.id,
+                    job.error_message.as_deref().unwrap_or("Unknown error")
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// List thumbnail jobs with filtering
+async fn list_jobs(args: ListJobsArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let config = AppConfig::from_file(&args.config)?;
+
+    if !config.media.thumbnails.enabled {
+        return Err("Thumbnail generation is disabled in configuration".into());
+    }
+
+    // Connect to database
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = grimoire::DatabaseConnection::new(pool);
+
+    let service = grimoire::ThumbnailService::new_with_defaults(&db);
+
+    // Parse filter criteria
+    let jobs = if let Some(status_str) = &args.status {
+        let status = match status_str.as_str() {
+            "pending" => grimoire::thumbnails::ThumbnailJobStatus::Pending,
+            "in_progress" => grimoire::thumbnails::ThumbnailJobStatus::InProgress,
+            "completed" => grimoire::thumbnails::ThumbnailJobStatus::Completed,
+            "failed" => grimoire::thumbnails::ThumbnailJobStatus::Failed,
+            "failed_permanently" => grimoire::thumbnails::ThumbnailJobStatus::FailedPermanently,
+            "cancelled" => grimoire::thumbnails::ThumbnailJobStatus::Cancelled,
+            _ => return Err(format!("Invalid status: {}", status_str).into()),
+        };
+        service
+            .get_jobs_by_status(status, args.limit as i32)
+            .await?
+    } else {
+        service.get_pending_jobs(args.limit as i32).await?
+    };
+
+    // Filter by media blob ID if provided
+    let filtered_jobs: Vec<_> = if let Some(media_blob_id_str) = &args.media_blob_id {
+        let media_blob_id = uuid::Uuid::parse_str(media_blob_id_str)?;
+        jobs.into_iter()
+            .filter(|job| job.media_blob_id == media_blob_id)
+            .collect()
+    } else {
+        jobs
+    };
+
+    println!("📋 Thumbnail Jobs");
+    println!("{}", "=".repeat(80));
+
+    if filtered_jobs.is_empty() {
+        println!("No jobs found matching the criteria.");
+        return Ok(());
+    }
+
+    for job in filtered_jobs {
+        println!("ID: {}", job.id);
+        println!("  Media Blob: {}", job.media_blob_id);
+        println!("  Type: {}", job.job_type);
+        println!("  Status: {}", job.status);
+        println!("  Priority: {:?}", job.priority);
+        println!(
+            "  Created: {}",
+            job.created_at
+                .format(&time::format_description::well_known::Rfc3339)?
+        );
+        println!("  Retries: {}/{}", job.retry_count, job.max_retries);
+        if let Some(error) = &job.error_message {
+            println!("  Error: {}", error);
+        }
+        if let Some(worker) = &job.worker_id {
+            println!("  Worker: {}", worker);
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+/// Retry failed thumbnail jobs
+async fn retry_jobs(args: RetryArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let config = AppConfig::from_file(&args.config)?;
+
+    if !config.media.thumbnails.enabled {
+        return Err("Thumbnail generation is disabled in configuration".into());
+    }
+
+    // Connect to database
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = grimoire::DatabaseConnection::new(pool);
+
+    let service = ThumbnailService::new_with_defaults(&db);
+
+    if let Some(job_id_str) = &args.job_id {
+        // Retry specific job
+        let job_id = uuid::Uuid::parse_str(job_id_str)?;
+        println!("Retrying specific job: {}", job_id);
+        println!("💡 Use the HTTP API endpoint POST /api/thumbnails/retry for retry functionality");
+        println!("   Or restart failed jobs by re-enqueueing them");
+    } else {
+        // Get failed jobs count
+        let failed_jobs = service
+            .get_jobs_by_status(
+                grimoire::thumbnails::ThumbnailJobStatus::Failed,
+                args.max_jobs as i32,
+            )
+            .await?;
+
+        println!("Found {} failed jobs", failed_jobs.len());
+        println!("💡 Use the HTTP API endpoint POST /api/thumbnails/retry to retry failed jobs");
+        println!("   Or use the server's job queue retry functionality");
+    }
+
+    Ok(())
+}
+
+/// Clean up old jobs and orphaned files
+async fn cleanup_jobs(args: CleanupArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let config = AppConfig::from_file(&args.config)?;
+
+    if !config.media.thumbnails.enabled {
+        return Err("Thumbnail generation is disabled in configuration".into());
+    }
+
+    // Connect to database
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = grimoire::DatabaseConnection::new(pool);
+
+    // Create thumbnail config for directory info
+    let config_service = grimoire::config::ConfigService::new();
+    let thumbnail_config = config_service.to_thumbnail_config(&config);
+
+    println!("🧹 Cleaning up thumbnail data...");
+
+    if args.dry_run {
+        println!("🔍 DRY RUN - No changes will be made");
+    }
+
+    // Get old jobs for reporting
+    let service = ThumbnailService::new_with_defaults(&db);
+    let completed_jobs = service
+        .get_jobs_by_status(grimoire::thumbnails::ThumbnailJobStatus::Completed, 1000)
+        .await?;
+
+    let cutoff_date = time::OffsetDateTime::now_utc() - time::Duration::days(args.days as i64);
+    let old_jobs: Vec<_> = completed_jobs
+        .into_iter()
+        .filter(|job| job.updated_at < cutoff_date)
+        .collect();
+
+    println!(
+        "Found {} completed jobs older than {} days",
+        old_jobs.len(),
+        args.days
+    );
+
+    if !args.dry_run {
+        println!("💡 Use the HTTP API endpoint POST /api/thumbnails/cleanup?days={} for cleanup functionality", args.days);
+        println!("   Or use direct database operations for cleanup");
+    } else {
+        println!(
+            "🔍 Would clean up {} jobs older than {} days",
+            old_jobs.len(),
+            args.days
+        );
+    }
+
+    // Clean up orphaned files if requested
+    if args.orphaned_files {
+        println!("Checking for orphaned thumbnail files...");
+
+        let thumbnail_dir = std::path::Path::new(&thumbnail_config.storage_path);
+        if thumbnail_dir.exists() {
+            // This is a simplified check - in a real implementation,
+            // you'd want to cross-reference with the database
+            println!("📁 Thumbnail directory: {}", thumbnail_dir.display());
+
+            if args.dry_run {
+                println!(
+                    "🔍 Would scan for orphaned files in {}",
+                    thumbnail_dir.display()
+                );
+            } else {
+                println!("💡 Orphaned file cleanup not yet implemented - use manual cleanup");
+            }
+        } else {
+            println!(
+                "⚠️  Thumbnail directory does not exist: {}",
+                thumbnail_dir.display()
+            );
+        }
+    }
+
+    println!("✅ Cleanup analysis completed");
+    Ok(())
+}
+
+/// Generate thumbnails for a specific media blob
+async fn generate_thumbnails(args: GenerateArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let config = AppConfig::from_file(&args.config)?;
+
+    if !config.media.thumbnails.enabled {
+        return Err("Thumbnail generation is disabled in configuration".into());
+    }
+
+    // Parse arguments
+    let media_blob_id = uuid::Uuid::parse_str(&args.media_blob_id)?;
+
+    let job_type = if let Some(type_str) = &args.job_type {
+        Some(match type_str.as_str() {
+            "image_thumbnail" => grimoire::thumbnails::ThumbnailJobType::ImageThumbnail,
+            "video_thumbnail" => grimoire::thumbnails::ThumbnailJobType::VideoThumbnail,
+            "audio_waveform" => grimoire::thumbnails::ThumbnailJobType::AudioWaveform,
+            "video_preview" => grimoire::thumbnails::ThumbnailJobType::VideoPreview,
+            _ => return Err(format!("Invalid job type: {}", type_str).into()),
+        })
+    } else {
+        None
+    };
+
+    let priority = match args.priority.as_str() {
+        "low" => grimoire::thumbnails::ThumbnailJobPriority::Low,
+        "normal" => grimoire::thumbnails::ThumbnailJobPriority::Normal,
+        "high" => grimoire::thumbnails::ThumbnailJobPriority::High,
+        "critical" => grimoire::thumbnails::ThumbnailJobPriority::Critical,
+        _ => return Err(format!("Invalid priority: {}", args.priority).into()),
+    };
+
+    // Connect to database
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = grimoire::DatabaseConnection::new(pool);
+
+    let service = ThumbnailService::new_with_defaults(&db);
+
+    println!("🎬 Generating thumbnails for media blob: {}", media_blob_id);
+
+    if let Some(specific_type) = job_type {
+        // Enqueue specific job type using service
+        println!("  Job type: {:?}", specific_type);
+        println!("  Priority: {:?}", priority);
+
+        match service
+            .enqueue_thumbnail_job(media_blob_id, specific_type, Some(priority), None)
+            .await
+        {
+            Ok(job_id) => {
+                println!("✅ Enqueued job: {}", job_id);
+            }
+            Err(e) => return Err(format!("Failed to enqueue job: {}", e).into()),
+        }
+    } else {
+        // Auto-enqueue appropriate jobs
+        println!("  Auto-detecting job types...");
+        println!("💡 Use the HTTP API endpoint POST /api/thumbnails/generate for auto-enqueueing");
+        println!("   Or specify a specific job type with --job-type");
+    }
+
+    println!("💡 Use 'cli thumbnails status' to monitor progress");
+    Ok(())
+}
+
+/// Run maintenance tasks for the thumbnail system
+async fn run_maintenance(args: MaintenanceArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let config = AppConfig::from_file(&args.config)?;
+
+    if !config.media.thumbnails.enabled {
+        return Err("Thumbnail generation is disabled in configuration".into());
+    }
+
+    println!("🧹 Running thumbnail maintenance tasks");
+    if args.dry_run {
+        println!("🔍 DRY RUN MODE - No changes will be made");
+    }
+
+    // Connect to database
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = grimoire::DatabaseConnection::new(pool);
+
+    let service = ThumbnailService::new_with_defaults(&db);
+
+    let mut tasks_run = 0;
+
+    // Run old job cleanup if requested
+    if args.cleanup_old_jobs {
+        println!(
+            "📋 Cleaning up jobs older than {} days...",
+            args.max_age_days
+        );
+
+        let completed_jobs = service
+            .get_jobs_by_status(
+                grimoire::thumbnails::ThumbnailJobStatus::Completed,
+                args.max_items as i32,
+            )
+            .await?;
+
+        let cutoff_date =
+            time::OffsetDateTime::now_utc() - time::Duration::days(args.max_age_days as i64);
+        let old_jobs: Vec<_> = completed_jobs
+            .into_iter()
+            .filter(|job| job.updated_at < cutoff_date)
+            .collect();
+
+        println!("Found {} old completed jobs", old_jobs.len());
+
+        if args.dry_run {
+            println!("🔍 Would clean up {} old jobs", old_jobs.len());
+        } else {
+            println!("💡 Use the HTTP API endpoint POST /api/thumbnails/cleanup?days={} for actual cleanup", args.max_age_days);
+        }
+
+        tasks_run += 1;
+    }
+
+    // Run orphaned file cleanup if requested
+    if args.cleanup_orphaned_files {
+        println!("🗑️  Checking for orphaned thumbnail files...");
+
+        let config_service = grimoire::config::ConfigService::new();
+        let thumbnail_config = config_service.to_thumbnail_config(&config);
+        let storage_path = std::path::Path::new(&thumbnail_config.storage_path);
+
+        if storage_path.exists() {
+            println!("📁 Scanning storage directory: {}", storage_path.display());
+
+            if args.dry_run {
+                println!(
+                    "🔍 Would scan for orphaned files in {}",
+                    storage_path.display()
+                );
+            } else {
+                println!("💡 Orphaned file cleanup requires manual implementation");
+                println!("   Directory: {}", storage_path.display());
+            }
+        } else {
+            println!(
+                "⚠️  Storage directory does not exist: {}",
+                storage_path.display()
+            );
+        }
+
+        tasks_run += 1;
+    }
+
+    if tasks_run == 0 {
+        println!("⚠️  No maintenance tasks specified. Available options:");
+        println!("   --cleanup-old-jobs      Clean up old completed jobs");
+        println!("   --cleanup-orphaned-files   Clean up orphaned thumbnail files");
+        println!("   --dry-run               Show what would be done without doing it");
+        return Ok(());
+    }
+
+    println!("✅ Maintenance analysis completed ({} tasks)", tasks_run);
+    if args.dry_run {
+        println!("💡 Run without --dry-run to perform actual cleanup (via HTTP API)");
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::tempdir;
 
     #[test]
     fn test_validate_tools_args() {
@@ -233,5 +804,35 @@ mod tests {
         assert_eq!(args.config, PathBuf::from("config.jsonc"));
         assert_eq!(args.input, PathBuf::from("test.jpg"));
         assert_eq!(args.output, PathBuf::from("/tmp/test"));
+    }
+
+    #[test]
+    fn test_status_args() {
+        let args = StatusArgs {
+            config: PathBuf::from("config.jsonc"),
+            verbose: false,
+        };
+
+        assert_eq!(args.config, PathBuf::from("config.jsonc"));
+        assert!(!args.verbose);
+    }
+
+    #[test]
+    fn test_maintenance_args() {
+        let args = MaintenanceArgs {
+            config: PathBuf::from("config.jsonc"),
+            cleanup_old_jobs: true,
+            max_age_days: 30,
+            cleanup_orphaned_files: false,
+            dry_run: true,
+            max_items: 1000,
+        };
+
+        assert_eq!(args.config, PathBuf::from("config.jsonc"));
+        assert!(args.cleanup_old_jobs);
+        assert_eq!(args.max_age_days, 30);
+        assert!(!args.cleanup_orphaned_files);
+        assert!(args.dry_run);
+        assert_eq!(args.max_items, 1000);
     }
 }

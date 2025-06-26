@@ -243,7 +243,6 @@ impl ThumbnailJobError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use grimoire::thumbnails::{ThumbnailJobPriority, ThumbnailJobType};
 
     #[test]
     fn test_job_execution_result_creation() {
@@ -304,7 +303,7 @@ mod tests {
     fn test_job_processor_creation() {
         // This test just ensures the processor can be created
         // In practice, it would need a real database connection
-        let config = ThumbnailConfig::default();
+        let _config = ThumbnailConfig::default();
 
         // Mock database connection would be needed here
         // let db = DatabaseConnection::new(mock_pool);

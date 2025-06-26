@@ -3,19 +3,15 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 /// User roles in the system
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[sqlx(type_name = "user_role", rename_all = "lowercase")]
 pub enum UserRole {
     /// System administrator with full access
     Admin,
     /// Regular authenticated user
+    #[default]
     Member,
-}
-
-impl Default for UserRole {
-    fn default() -> Self {
-        UserRole::Member
-    }
 }
 
 impl UserRole {
