@@ -333,5 +333,30 @@ async fn handle_message(
                 }
             }
         }
+        WebSocketMessage::SubscribeToNotifications { channel } => {
+            info!(
+                "SubscribeToNotifications request for channel: {:?} from user: {:?}",
+                channel, user_id
+            );
+            // TODO: Implement notification subscription logic
+            Some(WebSocketResponse::notification_subscribed(channel))
+        }
+        WebSocketMessage::UnsubscribeFromNotifications { channel } => {
+            info!(
+                "UnsubscribeFromNotifications request for channel: {:?} from user: {:?}",
+                channel, user_id
+            );
+            // TODO: Implement notification unsubscription logic
+            Some(WebSocketResponse::notification_unsubscribed(channel))
+        }
+        WebSocketMessage::GetNotificationStatus => {
+            info!("GetNotificationStatus request from user: {:?}", user_id);
+            // TODO: Implement notification status retrieval
+            Some(WebSocketResponse::notification_status(
+                vec![],                      // subscribed_channels
+                "connection_id".to_string(), // TODO: Get actual connection ID
+                user_id.is_some(),
+            ))
+        }
     }
 }

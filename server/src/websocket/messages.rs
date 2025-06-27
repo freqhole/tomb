@@ -4,7 +4,10 @@
 //! client and server, with serde for JSON serialization.
 
 use crate::media::MediaBlob;
+use grimoire::notifications::{NotificationChannel, NotificationEvent};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 /// Messages sent from client to server
@@ -24,6 +27,12 @@ pub enum WebSocketMessage {
     GetMediaBlob { id: Uuid },
     /// Client requests media blob data by ID
     GetMediaBlobData { id: Uuid },
+    /// Client subscribes to notification channel
+    SubscribeToNotifications { channel: NotificationChannel },
+    /// Client unsubscribes from notification channel
+    UnsubscribeFromNotifications { channel: NotificationChannel },
+    /// Client requests notification status
+    GetNotificationStatus,
 }
 
 /// Messages sent from server to client
@@ -58,6 +67,25 @@ pub enum WebSocketResponse {
     },
     /// Server sends connection status update
     ConnectionStatus { connected: bool, user_count: u32 },
+    /// Server sends real-time notification
+    Notification {
+        id: Uuid,
+        channel: NotificationChannel,
+        event_type: String,
+        payload: Value,
+        priority: String,
+        timestamp: OffsetDateTime,
+    },
+    /// Server confirms subscription to notifications
+    NotificationSubscribed { channel: NotificationChannel },
+    /// Server confirms unsubscription from notifications
+    NotificationUnsubscribed { channel: NotificationChannel },
+    /// Server sends notification status
+    NotificationStatus {
+        subscribed_channels: Vec<NotificationChannel>,
+        connection_id: String,
+        is_authenticated: bool,
+    },
 }
 
 impl WebSocketMessage {
@@ -94,6 +122,17 @@ impl std::fmt::Debug for WebSocketMessage {
             WebSocketMessage::GetMediaBlobData { id } => {
                 f.debug_struct("GetMediaBlobData").field("id", id).finish()
             }
+            WebSocketMessage::SubscribeToNotifications { channel } => f
+                .debug_struct("SubscribeToNotifications")
+                .field("channel", channel)
+                .finish(),
+            WebSocketMessage::UnsubscribeFromNotifications { channel } => f
+                .debug_struct("UnsubscribeFromNotifications")
+                .field("channel", channel)
+                .finish(),
+            WebSocketMessage::GetNotificationStatus => {
+                f.debug_struct("GetNotificationStatus").finish()
+            }
         }
     }
 }
@@ -126,6 +165,41 @@ impl WebSocketResponse {
         Self::Error {
             message: message.into(),
             code: Some(code.into()),
+        }
+    }
+
+    /// Create a notification response from a NotificationEvent
+    pub fn notification(event: &NotificationEvent) -> Self {
+        Self::Notification {
+            id: event.id,
+            channel: event.channel,
+            event_type: event.event_type.clone(),
+            payload: event.payload_value().clone(),
+            priority: format!("{:?}", event.priority),
+            timestamp: event.timestamp(),
+        }
+    }
+
+    /// Create a notification subscribed response
+    pub fn notification_subscribed(channel: NotificationChannel) -> Self {
+        Self::NotificationSubscribed { channel }
+    }
+
+    /// Create a notification unsubscribed response
+    pub fn notification_unsubscribed(channel: NotificationChannel) -> Self {
+        Self::NotificationUnsubscribed { channel }
+    }
+
+    /// Create a notification status response
+    pub fn notification_status(
+        subscribed_channels: Vec<NotificationChannel>,
+        connection_id: String,
+        is_authenticated: bool,
+    ) -> Self {
+        Self::NotificationStatus {
+            subscribed_channels,
+            connection_id,
+            is_authenticated,
         }
     }
 }
@@ -174,6 +248,39 @@ impl std::fmt::Debug for WebSocketResponse {
                 .debug_struct("ConnectionStatus")
                 .field("connected", connected)
                 .field("user_count", user_count)
+                .finish(),
+            WebSocketResponse::Notification {
+                id,
+                channel,
+                event_type,
+                priority,
+                timestamp,
+                ..
+            } => f
+                .debug_struct("Notification")
+                .field("id", id)
+                .field("channel", channel)
+                .field("event_type", event_type)
+                .field("priority", priority)
+                .field("timestamp", timestamp)
+                .finish(),
+            WebSocketResponse::NotificationSubscribed { channel } => f
+                .debug_struct("NotificationSubscribed")
+                .field("channel", channel)
+                .finish(),
+            WebSocketResponse::NotificationUnsubscribed { channel } => f
+                .debug_struct("NotificationUnsubscribed")
+                .field("channel", channel)
+                .finish(),
+            WebSocketResponse::NotificationStatus {
+                subscribed_channels,
+                connection_id,
+                is_authenticated,
+            } => f
+                .debug_struct("NotificationStatus")
+                .field("subscribed_channels", subscribed_channels)
+                .field("connection_id", connection_id)
+                .field("is_authenticated", is_authenticated)
                 .finish(),
         }
     }

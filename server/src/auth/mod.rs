@@ -20,7 +20,8 @@ pub use handlers::*;
 
 // Re-export middleware
 pub use middleware::{
-    require_admin, require_analytics_access, require_authentication, AuthenticatedUser,
+    require_admin, require_analytics_access, require_authentication, require_user,
+    AuthenticatedUser,
 };
 
 // Re-export routes

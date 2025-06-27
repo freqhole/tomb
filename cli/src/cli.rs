@@ -7,6 +7,7 @@ use grimoire::{AppConfig, DatabaseConnection};
 
 use crate::analytics::AnalyticsCommands;
 use crate::config::ConfigCommands;
+use crate::notifications::NotificationCommands;
 use crate::thumbnails::ThumbnailCommands;
 use crate::users::UserCommands;
 use crate::wordlist::WordlistCommands;
@@ -50,6 +51,9 @@ pub enum Commands {
     /// Thumbnail generation tools and testing
     #[command(subcommand)]
     Thumbnails(ThumbnailCommands),
+    /// Notification system management
+    #[command(subcommand)]
+    Notifications(NotificationCommands),
 }
 
 impl Cli {
@@ -76,6 +80,10 @@ impl Cli {
             Commands::Wordlist(ref wordlist_command) => wordlist_command.handle().await,
             Commands::Thumbnails(ref thumbnail_command) => {
                 crate::thumbnails::execute_thumbnail_command(thumbnail_command.clone()).await
+            }
+            Commands::Notifications(ref notification_command) => {
+                let (_config, db) = self.setup_database().await?;
+                notification_command.handle(&db).await
             }
         }
     }

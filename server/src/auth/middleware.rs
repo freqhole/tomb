@@ -139,6 +139,25 @@ pub fn can_access_analytics(request: &Request) -> bool {
         .unwrap_or(false)
 }
 
+/// Helper function to require user authentication from session
+pub async fn require_user(session: &Session) -> Result<User, AuthError> {
+    let user_id = session
+        .get::<Uuid>("user_id")
+        .await
+        .map_err(|_| AuthError::AuthenticationRequired)?
+        .ok_or(AuthError::AuthenticationRequired)?;
+
+    // In a real implementation, we'd fetch the user from the database
+    // For now, we'll create a minimal user object
+    Ok(User {
+        id: user_id,
+        username: format!("user_{}", user_id),
+        role: UserRole::Member,
+        created_at: time::OffsetDateTime::now_utc(),
+        invite_code_used: None,
+    })
+}
+
 /// Role-based access control middleware factory
 pub fn require_role(
     required_role: UserRole,

@@ -74,6 +74,16 @@ impl NotificationEvent {
         self.metadata.source_client_id = Some(client_id);
         self
     }
+
+    /// Get timestamp as alias for created_at (for compatibility)
+    pub fn timestamp(&self) -> OffsetDateTime {
+        self.created_at
+    }
+
+    /// Get payload as raw JSON value (for serialization)
+    pub fn payload_value(&self) -> &serde_json::Value {
+        &self.payload.data
+    }
 }
 
 /// Notification channels that events can be published to
