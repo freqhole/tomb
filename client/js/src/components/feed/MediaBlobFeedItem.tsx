@@ -33,6 +33,7 @@ export interface MediaBlobFeedItemProps {
   onItemClick?: (item: MediaBlob) => void;
   onGetThumbnails?: (mediaBlobId: string) => void;
   className?: string;
+  requestedThumbnails?: Set<string>;
 }
 
 export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
@@ -142,11 +143,15 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
 
   // Auto-request thumbnails for supported media types
   onMount(() => {
+    const alreadyRequested =
+      props.requestedThumbnails?.has(props.item.id) ||
+      props.item.metadata?.thumbnails_requested;
+
     if (
       shouldShowThumbnails() &&
       canGenerateThumbnails() &&
       !hasThumbnails() &&
-      !props.item.metadata?.thumbnails_requested
+      !alreadyRequested
     ) {
       if (props.onGetThumbnails) {
         setShowThumbnailPlaceholder(true);

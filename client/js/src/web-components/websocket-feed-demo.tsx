@@ -18,6 +18,25 @@ import MediaBlobFeedListComponent from "../components/feed/MediaBlobFeedList.js"
 import FeedControlsComponent from "../components/feed/FeedControls.js";
 import type { NotificationChannel } from "../lib/websocket-types.js";
 
+// Helper function to parse URL parameters
+function getUrlParams(): Record<string, string> {
+  const params = new URLSearchParams(window.location.search);
+  const result: Record<string, string> = {};
+  for (const [key, value] of params) {
+    result[key] = value;
+  }
+  return result;
+}
+
+// Helper function to convert string to boolean
+function stringToBoolean(
+  value: string | undefined,
+  defaultValue: boolean
+): boolean {
+  if (!value) return defaultValue;
+  return value.toLowerCase() === "true" || value === "1";
+}
+
 export interface WebSocketFeedDemoProps {
   /** WebSocket URL (defaults to ws://localhost:8080/ws) */
   wsUrl?: string;
@@ -44,22 +63,48 @@ export interface WebSocketFeedDemoProps {
 }
 
 function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
+  // Parse URL parameters to override props
+  const urlParams = getUrlParams();
+
+  // Override props with URL parameters if provided
+  const resolvedProps = {
+    ...props,
+    debug: stringToBoolean(urlParams.debug, props.debug || false),
+    autoConnect: stringToBoolean(
+      urlParams.autoConnect,
+      props.autoConnect !== false
+    ),
+    showControls: stringToBoolean(
+      urlParams.showControls,
+      props.showControls !== false
+    ),
+    showStats: stringToBoolean(urlParams.showStats, props.showStats !== false),
+    wsUrl: urlParams.wsUrl || props.wsUrl || "ws://localhost:8080/ws",
+    itemMode:
+      (urlParams.itemMode as "default" | "compact" | "detailed") ||
+      props.itemMode ||
+      "default",
+    maxHeight: urlParams.maxHeight || props.maxHeight || "400px",
+    className: urlParams.className || props.className,
+    demoMode: stringToBoolean(urlParams.demoMode, props.demoMode || false),
+  };
+
   // Local UI state
   const [displayMode, setDisplayMode] = createSignal<
     "default" | "compact" | "detailed"
-  >(props.itemMode || "default");
+  >(resolvedProps.itemMode);
   const [logs, setLogs] = createSignal<string[]>([]);
 
   // Business logic via hook
   const feed = useWebSocketFeed({
-    wsUrl: props.wsUrl || "ws://localhost:8080/ws",
+    wsUrl: resolvedProps.wsUrl,
     channels: props.channels || ["MediaBlobs"],
-    debug: props.debug || false,
-    autoConnect: props.autoConnect !== false,
+    debug: resolvedProps.debug,
+    autoConnect: resolvedProps.autoConnect,
   });
 
   const addLog = (message: string) => {
-    if (props.debug) {
+    if (resolvedProps.debug) {
       const timestamp = new Date().toLocaleTimeString();
       setLogs((prev) => [...prev.slice(-19), `[${timestamp}] ${message}`]);
     }
@@ -148,7 +193,10 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
   });
 
   return (
-    <div class={props.className} style={containerStyles()}>
+    <div
+      class={resolvedProps.className || props.className}
+      style={containerStyles()}
+    >
       {/* Header Section */}
       <div style={headerStyles()}>
         <h2 style={titleStyles()}>Real-time Media Feed</h2>
@@ -160,7 +208,7 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
             compact={false}
           />
 
-          <Show when={props.showControls !== false}>
+          <Show when={resolvedProps.showControls}>
             <ConnectionControlsComponent
               status={feed.state().connectionStatus}
               onConnect={handleConnect}
@@ -174,7 +222,7 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
       </div>
 
       {/* Feed Controls */}
-      <Show when={props.showStats !== false}>
+      <Show when={resolvedProps.showStats}>
         <FeedControlsComponent
           totalCount={feed.state().totalCount}
           subscribedChannels={feed.state().subscribedChannels}
@@ -214,16 +262,17 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
         isLoading={feed.state().isLoading}
         error={feed.state().error}
         mode={displayMode()}
-        maxHeight={props.maxHeight || "400px"}
+        maxHeight={resolvedProps.maxHeight}
         showPreview={true}
         showMetadata={true}
         showThumbnails={true}
         onItemClick={handleItemClick}
         onGetThumbnails={feed.actions.getThumbnails}
+        requestedThumbnails={feed.state().requestedThumbnails}
       />
 
       {/* Debug Logs */}
-      <Show when={props.debug && logs().length > 0}>
+      <Show when={resolvedProps.debug && logs().length > 0}>
         <div>
           <div
             style={{
@@ -244,7 +293,7 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
       </Show>
 
       {/* Demo Info */}
-      <Show when={props.demoMode}>
+      <Show when={resolvedProps.demoMode}>
         <div
           style={{
             "font-size": "12px",

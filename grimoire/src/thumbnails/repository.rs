@@ -211,14 +211,19 @@ impl<'a> ThumbnailRepository<'a> {
         // Calculate SHA256 hash of the thumbnail file
         let sha256_hash = self.calculate_file_hash(&thumbnail.local_path)?;
 
+        // Read the thumbnail file data
+        let thumbnail_data =
+            std::fs::read(&thumbnail.local_path).map_err(|e| ThumbnailError::Io(e))?;
+
         sqlx::query!(
             r#"
             INSERT INTO media_blobs (
-                id, parent_blob_id, blob_type, local_path, mime, size, sha256, source_client_id, metadata, created_at, updated_at
+                id, data, parent_blob_id, blob_type, local_path, mime, size, sha256, source_client_id, metadata, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
             "#,
             thumbnail_id,
+            thumbnail_data,
             thumbnail.media_blob_id,
             thumbnail.blob_type,
             thumbnail.local_path,

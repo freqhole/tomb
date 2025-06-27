@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at\n            FROM thumbnail_jobs\n            WHERE state = $1\n            AND (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')\n            ORDER BY updated_at DESC\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "state",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "task_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "scheduled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "retries",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "fa56450d597a1172b2b527f255f1d27268439a237b2b2e16eab69b13c2851e5e"
+}

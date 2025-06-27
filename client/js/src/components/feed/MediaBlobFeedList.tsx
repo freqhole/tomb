@@ -8,7 +8,9 @@
 /* @jsxImportSource solid-js */
 import { Show, For } from "solid-js";
 import type { MediaBlob } from "../../lib/websocket-types.js";
-import MediaBlobFeedItemComponent from "./MediaBlobFeedItem.js";
+import MediaBlobFeedItemComponent, {
+  type DisplayMediaBlob,
+} from "./MediaBlobFeedItem.js";
 
 export interface MediaBlobFeedListProps {
   items: MediaBlob[];
@@ -20,9 +22,10 @@ export interface MediaBlobFeedListProps {
   showMetadata?: boolean;
   showThumbnails?: boolean;
   emptyMessage?: string;
-  onItemClick?: (item: MediaBlob) => void;
+  onItemClick?: (item: DisplayMediaBlob) => void;
   onGetThumbnails?: (mediaBlobId: string) => void;
   className?: string;
+  requestedThumbnails?: Set<string>;
 }
 
 export function MediaBlobFeedListComponent(props: MediaBlobFeedListProps) {
@@ -185,6 +188,7 @@ export function MediaBlobFeedListComponent(props: MediaBlobFeedListProps) {
                 showThumbnails={props.showThumbnails}
                 onItemClick={props.onItemClick}
                 onGetThumbnails={props.onGetThumbnails}
+                requestedThumbnails={props.requestedThumbnails}
               />
             )}
           </For>
