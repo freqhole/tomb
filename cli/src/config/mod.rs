@@ -22,7 +22,14 @@ pub enum ConfigCommands {
         with_secrets: bool,
     },
     /// Validate the configuration file
-    Validate,
+    Validate {
+        /// Path to configuration file to validate
+        #[arg(short, long, default_value = "assets/config/config.jsonc")]
+        config: PathBuf,
+        /// Path to secrets file (optional)
+        #[arg(short, long)]
+        secrets: Option<PathBuf>,
+    },
     /// Generate default secrets configuration
     InitSecrets {
         /// Force overwrite existing secrets file
@@ -75,11 +82,11 @@ impl ConfigCommands {
                 Self::init_config(&config_service, &default_config_path, *force, *with_secrets)
                     .await
             }
-            ConfigCommands::Validate => {
+            ConfigCommands::Validate { config, secrets } => {
                 Self::validate_config(
                     &config_service,
-                    &default_config_path,
-                    Some(&default_secrets_path),
+                    config.to_str().unwrap(),
+                    secrets.as_ref().map(|s| s.to_str().unwrap()),
                 )
                 .await
             }
