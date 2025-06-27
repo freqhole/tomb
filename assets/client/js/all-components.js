@@ -1,4 +1,149 @@
-import"./webauthn-auth.js";import"./websocket-components.js";import{F as pe,W as ue}from"./websocket-demo.js";import"./websocket-feed-demo.js";import{d as X,r as fe,c as S,a as _,t as v,i,b as be,e as me,o as ge,u as he,F as ve,S as P,f as W,g as F,s as ye}from"./types-_W326vkb.js";import"./api-client-ft5uSM9o.js";import"./websocket-types-Dx0SV9wO.js";import"./sync-demo.js";import"./websocket-client-CWQMkZh_.js";var $e=v("<div><h2>Simple Solid.js Test</h2><p>Count: </p><button>Increment");console.log("🚀 Script started loading");function xe(){console.log("📦 SimpleTest component created");const[a,h]=_(0);return(()=>{var p=$e(),E=p.firstChild,y=E.nextSibling;y.firstChild;var T=y.nextSibling;return p.style.setProperty("padding","20px"),p.style.setProperty("border","1px solid #ccc"),p.style.setProperty("margin","20px"),i(y,a,null),T.$$click=()=>h(a()+1),p})()}class Se extends HTMLElement{dispose;connectedCallback(){console.log("🔌 SimpleTestElement connected");try{this.dispose=fe(()=>S(xe,{}),this),console.log("✅ Render successful")}catch(h){console.error("❌ Render failed:",h)}}disconnectedCallback(){console.log("🔌 SimpleTestElement disconnected"),this.dispose&&this.dispose()}}console.log("📝 About to register custom element");try{customElements.define("simple-test",Se),console.log("✅ Custom element registered successfully")}catch(a){console.error("❌ Failed to register custom element:",a)}X(["click"]);var ke=v("<div class=upload-list>"),we=v("<div class=controls><button class=control-button>Clear Completed</button><span> total, <!> completed"),_e=v("<div class=threshold-info><strong>Upload Routing:</strong><br>• Files &lt; <!>: WebSocket (stored in database)<br>• Files ≥ <!>: HTTP API (stored on disk, admin only)"),Ce=v(`<div class=smart-file-upload><style>
+import"./webauthn-auth.js";import"./websocket-components.js";import{F as ge,W as me}from"./websocket-demo.js";import"./websocket-feed-demo.js";import{c as fe,d as ce,a as y,o as he,b as ue,t as v,i as o,e as P,f as j,S as M,m as be,g as G,r as ve,h as ye,u as xe,F as $e,s as we}from"./types-DHjY8jnN.js";import{C as T}from"./websocket-types-BKbG2VtF.js";import"./api-client-B8dKKbm7.js";import"./sync-demo.js";import"./websocket-client-CdmpF5ya.js";var ke=v("<div class=section-header><h3 class=section-title>Connection</h3><div>"),Se=v('<div class=controls><button class="control-button primary">Connect</button><button class="control-button danger">Disconnect</button><button class=control-button>Refresh</button><div>Subscribed: '),_e=v("<div><h3 class=section-title>Feed Statistics</h3><div class=stats-grid><div class=stat-card><div class=stat-value></div><div class=stat-label>Items Loaded</div></div><div class=stat-card><div class=stat-value></div><div class=stat-label>Total Available</div></div><div class=stat-card><div class=stat-value></div><div class=stat-label>Last Updated</div></div><div class=stat-card><div class=stat-value></div><div class=stat-label>Subscriptions"),Ce=v("<div><h3 class=section-title>Selected Item</h3><div class=selected-item><div class=selected-item-title></div><div class=selected-item-details>ID: <!> • Type: <!> • Size: "),Pe=v("<div>⚠️ "),Ue=v("<div class=logs-container>"),ze=v(`<div><style>
+        .websocket-feed-demo-v2 .controls {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .websocket-feed-demo-v2 .control-button {
+          padding: 8px 16px;
+          border-radius: 6px;
+          border: 1px solid #d1d5db;
+          background-color: #ffffff;
+          color: #374151;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .websocket-feed-demo-v2 .control-button:hover {
+          background-color: #f9fafb;
+          border-color: #9ca3af;
+        }
+
+        .websocket-feed-demo-v2 .control-button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .websocket-feed-demo-v2 .control-button.primary {
+          background-color: #3b82f6;
+          color: #ffffff;
+          border-color: #3b82f6;
+        }
+
+        .websocket-feed-demo-v2 .control-button.primary:hover {
+          background-color: #2563eb;
+          border-color: #2563eb;
+        }
+
+        .websocket-feed-demo-v2 .control-button.danger {
+          background-color: #ef4444;
+          color: #ffffff;
+          border-color: #ef4444;
+        }
+
+        .websocket-feed-demo-v2 .control-button.danger:hover {
+          background-color: #dc2626;
+          border-color: #dc2626;
+        }
+
+        .websocket-feed-demo-v2 .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 12px;
+        }
+
+        .websocket-feed-demo-v2 .stat-card {
+          padding: 12px;
+          border-radius: 8px;
+          background-color: #f8fafc;
+          border: 1px solid #e2e8f0;
+          text-align: center;
+        }
+
+        .websocket-feed-demo-v2 .stat-value {
+          font-size: 20px;
+          font-weight: 600;
+          color: #111827;
+          margin-bottom: 4px;
+        }
+
+        .websocket-feed-demo-v2 .stat-label {
+          font-size: 12px;
+          color: #6b7280;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        .websocket-feed-demo-v2 .logs-container {
+          max-height: 200px;
+          overflow-y: auto;
+          background-color: #1f2937;
+          color: #f9fafb;
+          padding: 12px;
+          border-radius: 6px;
+          font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+          font-size: 12px;
+          line-height: 1.4;
+        }
+
+        .websocket-feed-demo-v2 .logs-container::-webkit-scrollbar {
+          width: 6px;
+        }
+
+        .websocket-feed-demo-v2 .logs-container::-webkit-scrollbar-track {
+          background: #374151;
+        }
+
+        .websocket-feed-demo-v2 .logs-container::-webkit-scrollbar-thumb {
+          background: #6b7280;
+          border-radius: 3px;
+        }
+
+        .websocket-feed-demo-v2 .section-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin: 0 0 8px 0;
+        }
+
+        .websocket-feed-demo-v2 .section-title {
+          font-size: 16px;
+          font-weight: 600;
+          color: #111827;
+          margin: 0;
+        }
+
+        .websocket-feed-demo-v2 .toggle-button {
+          background: none;
+          border: none;
+          color: #3b82f6;
+          cursor: pointer;
+          font-size: 12px;
+          text-decoration: underline;
+        }
+
+        .websocket-feed-demo-v2 .selected-item {
+          padding: 12px;
+          border-radius: 8px;
+          background-color: #eff6ff;
+          border: 1px solid #bfdbfe;
+        }
+
+        .websocket-feed-demo-v2 .selected-item-title {
+          font-weight: 500;
+          color: #1e40af;
+          margin: 0 0 4px 0;
+        }
+
+        .websocket-feed-demo-v2 .selected-item-details {
+          font-size: 12px;
+          color: #3730a3;
+        }
+      </style><div><h2>🔄 WebSocket Feed Demo V2</h2><p>Real-time media blob feed powered by reusable hooks and components</p></div><div><h3 class=section-title>Live Feed</h3><div><p>Feed component will be integrated once TypeScript issues are resolved.</p><p>Items: <!> | Connected: </p><p>Selected: </p></div></div><div><div class=section-header><h3 class=section-title>Activity Log</h3><div><button class=toggle-button></button><button class=toggle-button>Clear`),Fe=v("<div>No activity yet..."),De=v("<div>");function Le(b){const[U,$]=y([]),[k]=y(null),[z,O]=y(!1),ee=()=>b.showControls!==!1,te=()=>b.showStats!==!1,[oe]=y([]),[R]=y(!1),[re]=y(T.Disconnected),[N]=y([]),[_]=y(0),[Y]=y(null),[q]=y(null),[J]=y(!1),d={state:()=>({items:oe(),isConnected:R(),connectionStatus:re(),subscribedChannels:N(),totalCount:_(),lastUpdated:Y(),error:q(),isLoading:J()}),actions:{connect:()=>x("Connect not implemented yet"),disconnect:()=>x("Disconnect not implemented yet"),refresh:()=>x("Refresh not implemented yet")}},x=e=>{const s=new Date().toLocaleTimeString();$(t=>[...t.slice(-19),`[${s}] ${e}`])},se=()=>{x("🔌 Connecting..."),d.actions.connect()},le=()=>{x("🔌 Disconnecting..."),d.actions.disconnect()},ne=()=>{x("🔄 Refreshing..."),d.actions.refresh()},ie=()=>{$([])},ae=e=>{switch(e){case T.Connected:return"🟢 Connected";case T.Connecting:return"🟡 Connecting";case T.Disconnected:return"🔴 Disconnected";case T.Error:return"❌ Error";default:return"⚪ Unknown"}},W=e=>{switch(e){case T.Connected:return"#10b981";case T.Connecting:return"#f59e0b";case T.Disconnected:return"#6b7280";case T.Error:return"#ef4444";default:return"#9ca3af"}},de=()=>{const e=d.state();e.isConnected?x("🔌 Connected"):e.connectionStatus===T.Connecting?x("🔌 Connecting..."):e.connectionStatus===T.Disconnected&&x("🔌 Disconnected"),e.items.length>0&&e.lastUpdated&&Date.now()-e.lastUpdated.getTime()<1e3&&x(`📦 Feed updated: ${e.items.length} items`),e.error&&x(`❌ Error: ${e.error}`)};return he(()=>{x("🚀 Feed demo v2 initialized"),setInterval(de,1e3)}),ue(()=>{x("🧹 Feed demo v2 cleanup")}),(()=>{var e=ze(),s=e.firstChild,t=s.nextSibling,r=t.firstChild,c=r.nextSibling,p=t.nextSibling,V=p.firstChild,H=V.nextSibling,Q=H.firstChild,F=Q.nextSibling,X=F.firstChild,i=X.nextSibling;i.nextSibling;var n=F.nextSibling;n.firstChild;var u=p.nextSibling,D=u.firstChild,C=D.firstChild,L=C.nextSibling,A=L.firstChild,B=A.nextSibling;return e.style.setProperty("display","flex"),e.style.setProperty("flex-direction","column"),e.style.setProperty("gap","16px"),e.style.setProperty("padding","20px"),e.style.setProperty("border-radius","12px"),e.style.setProperty("background-color","#ffffff"),e.style.setProperty("border","1px solid #e2e8f0"),e.style.setProperty("box-shadow","0 1px 3px rgba(0, 0, 0, 0.1)"),e.style.setProperty("font-family","system-ui, -apple-system, sans-serif"),e.style.setProperty("max-width","800px"),e.style.setProperty("margin","0 auto"),t.style.setProperty("text-align","center"),r.style.setProperty("margin","0 0 8px 0"),r.style.setProperty("color","#111827"),r.style.setProperty("font-size","24px"),c.style.setProperty("margin","0"),c.style.setProperty("color","#6b7280"),c.style.setProperty("font-size","14px"),o(e,P(M,{get when(){return ee()},get children(){return[(()=>{var l=ke(),g=l.firstChild,a=g.nextSibling;return a.style.setProperty("display","flex"),a.style.setProperty("align-items","center"),a.style.setProperty("gap","12px"),a.style.setProperty("padding","6px 12px"),a.style.setProperty("border-radius","20px"),a.style.setProperty("font-size","12px"),a.style.setProperty("font-weight","500"),o(a,()=>ae(d.state().connectionStatus)),j(m=>{var f=W(d.state().connectionStatus)+"20",h=W(d.state().connectionStatus);return f!==m.e&&((m.e=f)!=null?a.style.setProperty("background-color",f):a.style.removeProperty("background-color")),h!==m.t&&((m.t=h)!=null?a.style.setProperty("color",h):a.style.removeProperty("color")),m},{e:void 0,t:void 0}),l})(),(()=>{var l=Se(),g=l.firstChild,a=g.nextSibling,m=a.nextSibling,f=m.nextSibling;return f.firstChild,g.$$click=se,a.$$click=le,m.$$click=ne,f.style.setProperty("margin-left","auto"),f.style.setProperty("font-size","12px"),f.style.setProperty("color","#6b7280"),o(f,()=>d.state().subscribedChannels.join(", ")||"None",null),j(h=>{var S=d.state().isConnected,E=!d.state().isConnected,I=!d.state().isConnected;return S!==h.e&&(g.disabled=h.e=S),E!==h.t&&(a.disabled=h.t=E),I!==h.a&&(m.disabled=h.a=I),h},{e:void 0,t:void 0,a:void 0}),l})()]}}),p),o(e,P(M,{get when(){return te()},get children(){var l=_e(),g=l.firstChild,a=g.nextSibling,m=a.firstChild,f=m.firstChild,h=m.nextSibling,S=h.firstChild,E=h.nextSibling,I=E.firstChild,w=E.nextSibling,Z=w.firstChild;return o(f,()=>d.state().items.length),o(S,()=>d.state().totalCount),o(I,(()=>{var K=be(()=>!!d.state().lastUpdated);return()=>K()?d.state().lastUpdated.toLocaleTimeString():"Never"})()),o(Z,()=>d.state().subscribedChannels.length),l}}),p),o(e,P(M,{get when(){return k()},get children(){var l=Ce(),g=l.firstChild,a=g.nextSibling,m=a.firstChild,f=m.nextSibling,h=f.firstChild,S=h.nextSibling,E=S.nextSibling,I=E.nextSibling;return I.nextSibling,o(m,()=>k().local_path?.split("/").pop()||`${k().sha256.slice(0,8)}...${k().sha256.slice(-4)}`),o(f,()=>k().id,S),o(f,()=>k().mime||"Unknown",I),o(f,(()=>{var w=be(()=>!!k().size);return()=>w()?`${(k().size/1024).toFixed(1)} KB`:"Unknown"})(),null),l}}),p),o(e,P(M,{get when(){return d.state().error},get children(){var l=Pe();return l.firstChild,l.style.setProperty("padding","12px"),l.style.setProperty("border-radius","6px"),l.style.setProperty("background-color","#fee2e2"),l.style.setProperty("color","#991b1b"),l.style.setProperty("border","1px solid #fecaca"),l.style.setProperty("font-size","14px"),o(l,()=>d.state().error,null),l}}),p),H.style.setProperty("padding","20px"),H.style.setProperty("border","1px solid #e2e8f0"),H.style.setProperty("border-radius","8px"),H.style.setProperty("text-align","center"),H.style.setProperty("color","#6b7280"),o(F,()=>d.state().items.length,i),o(F,()=>d.state().isConnected?"Yes":"No",null),o(n,()=>k()?.id.slice(0,8)||"None",null),A.$$click=()=>O(!z()),o(A,()=>z()?"Hide":"Show"),B.$$click=ie,B.style.setProperty("margin-left","8px"),o(u,P(M,{get when(){return z()},get children(){var l=Ue();return o(l,P(M,{get when(){return U().length>0},get fallback(){return(()=>{var g=Fe();return g.style.setProperty("color","#9ca3af"),g.style.setProperty("font-style","italic"),g})()},get children(){return U().map(g=>(()=>{var a=De();return a.style.setProperty("margin-bottom","2px"),o(a,g),a})())}})),l}}),null),j(()=>G(e,`websocket-feed-demo-v2 ${b.className||""}`)),e})()}fe("websocket-feed-demo-v2",{wsUrl:"ws://localhost:8080/ws",channels:["MediaBlobs"],debug:!1,autoConnect:!0,itemMode:"default",maxHeight:"400px",showControls:!0,showStats:!0,className:""},Le);ce(["click"]);var Te=v("<div><h2>Simple Solid.js Test</h2><p>Count: </p><button>Increment");console.log("🚀 Script started loading");function Ee(){console.log("📦 SimpleTest component created");const[b,U]=y(0);return(()=>{var $=Te(),k=$.firstChild,z=k.nextSibling;z.firstChild;var O=z.nextSibling;return $.style.setProperty("padding","20px"),$.style.setProperty("border","1px solid #ccc"),$.style.setProperty("margin","20px"),o(z,b,null),O.$$click=()=>U(b()+1),$})()}class Ie extends HTMLElement{dispose;connectedCallback(){console.log("🔌 SimpleTestElement connected");try{this.dispose=ve(()=>P(Ee,{}),this),console.log("✅ Render successful")}catch(U){console.error("❌ Render failed:",U)}}disconnectedCallback(){console.log("🔌 SimpleTestElement disconnected"),this.dispose&&this.dispose()}}console.log("📝 About to register custom element");try{customElements.define("simple-test",Ie),console.log("✅ Custom element registered successfully")}catch(b){console.error("❌ Failed to register custom element:",b)}ce(["click"]);var Me=v("<div class=upload-list>"),He=v("<div class=controls><button class=control-button>Clear Completed</button><span> total, <!> completed"),Re=v("<div class=threshold-info><strong>Upload Routing:</strong><br>• Files &lt; <!>: WebSocket (stored in database)<br>• Files ≥ <!>: HTTP API (stored on disk, admin only)"),We=v(`<div class=smart-file-upload><style>
         .smart-file-upload {
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
           max-width: 600px;
@@ -213,5 +358,5 @@ import"./webauthn-auth.js";import"./websocket-components.js";import{F as pe,W as
         .hidden {
           display: none;
         }
-      </style><div><div>📁</div><div>Drop files here or click to browse</div><div>Small files (&lt;<!>) use WebSocket, large files use HTTP API</div><button class=upload-button>Select Files</button></div><input type=file class=hidden>`),Ue=v('<button class="action-button retry">Retry'),ze=v('<div class=upload-progress><div class=progress-bar><div></div></div><div class=upload-status><span></span><div class=upload-actions><button class="action-button remove">Remove'),Pe=v("<div class=upload-item><div class=upload-header><div class=upload-info><div class=upload-filename></div><div class=upload-details><span></span><span></span><span>");const Fe=a=>{const[h,p]=_([]),[E,y]=_(!1),[T,Y]=_(null),[Z,ee]=_(null),$=()=>a.sizeThreshold||10*1024*1024,te=()=>a.baseUrl||window.location.origin;let C;me(()=>{const e=new pe({baseUrl:te(),minFileSize:$(),maxFileSize:1073741824});e.addEventListener("upload-progress",t=>{const{uploadId:r,stage:n,progress:d,error:I}=t.detail;u(r,d,n==="error"?"error":"uploading",I?.message)}),Y(e);const o=new ue({maxFileSize:$()});o.addEventListener("upload-processed",t=>{const{uploadId:r,blob:n}=t.detail;a.websocketConnection?a.websocketConnection.uploadMediaBlob(n)?u(r,100,"completed"):u(r,0,"error","Failed to send via WebSocket"):u(r,0,"error","WebSocket not connected")}),o.addEventListener("upload-error",t=>{const{uploadId:r,error:n}=t.detail;u(r,0,"error",n)}),ee(o),ge(()=>{e.cancelAllUploads(),o.destroy()})});const u=(e,o,t,r)=>{p(n=>n.map(d=>d.id===e?{...d,progress:o,status:t,error:r}:d))},A=async e=>{const o=Array.from(e),t=[];for(const r of o){const n=crypto.randomUUID(),d=r.size>=$()?"http":"websocket";t.push({id:n,file:r,method:d,status:"pending",progress:0})}p(r=>[...r,...t]);for(const r of t)r.method==="http"?M(r):B(r)},M=async e=>{const o=T();if(o){u(e.id,0,"uploading");try{const t=await o.uploadFile(e.file,{uploadedVia:"smart-file-upload",originalMethod:"http"});u(e.id,100,"completed"),p(r=>r.map(n=>n.id===e.id?{...n,result:t}:n))}catch(t){const r=t instanceof Error?t.message:String(t);u(e.id,0,"error",r)}}},B=async e=>{const o=Z();if(o){u(e.id,0,"uploading");try{await o.addFiles([e.file])}catch(t){const r=t instanceof Error?t.message:String(t);u(e.id,0,"error",r)}}},re=e=>{p(o=>o.filter(t=>t.id!==e))},oe=()=>{p(e=>e.filter(o=>o.status!=="completed"))},le=e=>{e.method==="http"?M(e):B(e)},se=e=>{const o=e.target;o.files&&o.files.length>0&&(A(o.files),o.value="")},ne=e=>{e.preventDefault(),y(!0)},ie=e=>{e.preventDefault(),y(!1)},ae=e=>{e.preventDefault(),y(!1),e.dataTransfer?.files&&A(e.dataTransfer.files)},U=e=>{if(!e)return"0 B";const o=["B","KB","MB","GB"];let t=e,r=0;for(;t>=1024&&r<o.length-1;)t/=1024,r++;return`${t.toFixed(1)} ${o[r]}`},de=e=>e==="websocket"?"WebSocket":"HTTP API";return(()=>{var e=Ce(),o=e.firstChild,t=o.nextSibling,r=t.firstChild,n=r.nextSibling,d=n.nextSibling,I=d.firstChild,R=I.nextSibling;R.nextSibling;var j=d.nextSibling,x=t.nextSibling;t.addEventListener("drop",ae),t.addEventListener("dragleave",ie),t.addEventListener("dragover",ne),t.$$click=()=>!a.disabled&&C?.click(),r.style.setProperty("margin-bottom","1rem"),r.style.setProperty("font-size","2rem"),n.style.setProperty("margin-bottom","0.5rem"),n.style.setProperty("font-weight","500"),n.style.setProperty("color","#374151"),d.style.setProperty("font-size","0.875rem"),d.style.setProperty("color","#6b7280"),d.style.setProperty("margin-bottom","1rem"),i(d,()=>U($()),R),j.$$click=s=>{s.stopPropagation(),C?.click()},x.addEventListener("change",se);var O=C;return typeof O=="function"?he(O,x):C=x,i(e,S(P,{get when(){return h().length>0},get children(){return[(()=>{var s=ke();return i(s,S(ve,{get each(){return h()},children:l=>(()=>{var c=Pe(),m=c.firstChild,f=m.firstChild,g=f.firstChild,D=g.nextSibling,z=D.firstChild,k=z.nextSibling,G=k.nextSibling;return i(g,()=>l.file.name),i(z,()=>U(l.file.size)),i(k,()=>l.file.type||"Unknown type"),i(G,()=>de(l.method)),i(c,S(P,{get when(){return l.status!=="pending"},get children(){var K=ze(),N=K.firstChild,L=N.firstChild,ce=N.nextSibling,w=ce.firstChild,V=w.nextSibling,q=V.firstChild;return i(w,()=>l.status==="uploading"&&`Uploading... ${l.progress}%`,null),i(w,()=>l.status==="completed"&&"✅ Upload completed",null),i(w,()=>l.status==="error"&&`❌ ${l.error||"Upload failed"}`,null),i(V,S(P,{get when(){return l.status==="error"},get children(){var b=Ue();return b.$$click=()=>le(l),b}}),q),q.$$click=()=>re(l.id),W(b=>{var J=`progress-fill ${l.status}`,H=`${l.progress}%`,Q=`status-text ${l.status}`;return J!==b.e&&F(L,b.e=J),H!==b.t&&((b.t=H)!=null?L.style.setProperty("width",H):L.style.removeProperty("width")),Q!==b.a&&F(w,b.a=Q),b},{e:void 0,t:void 0,a:void 0}),K}}),null),W(()=>F(G,`upload-method ${l.method}`)),c})()})),s})(),(()=>{var s=we(),l=s.firstChild,c=l.nextSibling,m=c.firstChild,f=m.nextSibling;return f.nextSibling,l.$$click=oe,c.style.setProperty("font-size","0.875rem"),c.style.setProperty("color","#6b7280"),c.style.setProperty("align-self","center"),i(c,()=>h().length,m),i(c,()=>h().filter(g=>g.status==="completed").length,f),s})()]}}),null),i(e,S(P,{get when(){return a.showDebug},get children(){var s=_e(),l=s.firstChild,c=l.nextSibling,m=c.nextSibling,f=m.nextSibling,g=f.nextSibling,D=g.nextSibling,z=D.nextSibling,k=z.nextSibling;return k.nextSibling,i(s,()=>U($()),f),i(s,()=>U($()),k),s}}),null),W(s=>{var l=`upload-zone ${E()?"drag-over":""} ${a.disabled?"disabled":""}`,c=a.disabled,m=a.multiple!==!1,f=a.accept,g=a.disabled;return l!==s.e&&F(t,s.e=l),c!==s.t&&(j.disabled=s.t=c),m!==s.a&&(x.multiple=s.a=m),f!==s.o&&ye(x,"accept",s.o=f),g!==s.i&&(x.disabled=s.i=g),s},{e:void 0,t:void 0,a:void 0,o:void 0,i:void 0}),e})()};be("smart-file-upload",{baseUrl:void 0,websocketConnection:void 0,sizeThreshold:10*1024*1024,showDebug:!1,multiple:!0,accept:void 0,disabled:!1},Fe);X(["click"]);console.log("🧩 Web Components Library loaded - Available components:",["webauthn-auth","websocket-handler","websocket-status","websocket-demo","websocket-feed-manager","websocket-feed-demo","media-blob-feed-item","media-blob-feed-list","simple-test","smart-file-upload","sync-status","sync-progress","sync-controls","sync-demo"]);
+      </style><div><div>📁</div><div>Drop files here or click to browse</div><div>Small files (&lt;<!>) use WebSocket, large files use HTTP API</div><button class=upload-button>Select Files</button></div><input type=file class=hidden>`),Ae=v('<button class="action-button retry">Retry'),Be=v('<div class=upload-progress><div class=progress-bar><div></div></div><div class=upload-status><span></span><div class=upload-actions><button class="action-button remove">Remove'),Ne=v("<div class=upload-item><div class=upload-header><div class=upload-info><div class=upload-filename></div><div class=upload-details><span></span><span></span><span>");const je=b=>{const[U,$]=y([]),[k,z]=y(!1),[O,ee]=y(null),[te,oe]=y(null),R=()=>b.sizeThreshold||10*1024*1024,re=()=>b.baseUrl||window.location.origin;let N;ye(()=>{const e=new ge({baseUrl:re(),minFileSize:R(),maxFileSize:1073741824});e.addEventListener("upload-progress",t=>{const{uploadId:r,stage:c,progress:p,error:V}=t.detail;_(r,p,c==="error"?"error":"uploading",V?.message)}),ee(e);const s=new me({maxFileSize:R()});s.addEventListener("upload-processed",t=>{const{uploadId:r,blob:c}=t.detail;b.websocketConnection?b.websocketConnection.uploadMediaBlob(c)?_(r,100,"completed"):_(r,0,"error","Failed to send via WebSocket"):_(r,0,"error","WebSocket not connected")}),s.addEventListener("upload-error",t=>{const{uploadId:r,error:c}=t.detail;_(r,0,"error",c)}),oe(s),ue(()=>{e.cancelAllUploads(),s.destroy()})});const _=(e,s,t,r)=>{$(c=>c.map(p=>p.id===e?{...p,progress:s,status:t,error:r}:p))},Y=async e=>{const s=Array.from(e),t=[];for(const r of s){const c=crypto.randomUUID(),p=r.size>=R()?"http":"websocket";t.push({id:c,file:r,method:p,status:"pending",progress:0})}$(r=>[...r,...t]);for(const r of t)r.method==="http"?q(r):J(r)},q=async e=>{const s=O();if(s){_(e.id,0,"uploading");try{const t=await s.uploadFile(e.file,{uploadedVia:"smart-file-upload",originalMethod:"http"});_(e.id,100,"completed"),$(r=>r.map(c=>c.id===e.id?{...c,result:t}:c))}catch(t){const r=t instanceof Error?t.message:String(t);_(e.id,0,"error",r)}}},J=async e=>{const s=te();if(s){_(e.id,0,"uploading");try{await s.addFiles([e.file])}catch(t){const r=t instanceof Error?t.message:String(t);_(e.id,0,"error",r)}}},d=e=>{$(s=>s.filter(t=>t.id!==e))},x=()=>{$(e=>e.filter(s=>s.status!=="completed"))},se=e=>{e.method==="http"?q(e):J(e)},le=e=>{const s=e.target;s.files&&s.files.length>0&&(Y(s.files),s.value="")},ne=e=>{e.preventDefault(),z(!0)},ie=e=>{e.preventDefault(),z(!1)},ae=e=>{e.preventDefault(),z(!1),e.dataTransfer?.files&&Y(e.dataTransfer.files)},W=e=>{if(!e)return"0 B";const s=["B","KB","MB","GB"];let t=e,r=0;for(;t>=1024&&r<s.length-1;)t/=1024,r++;return`${t.toFixed(1)} ${s[r]}`},de=e=>e==="websocket"?"WebSocket":"HTTP API";return(()=>{var e=We(),s=e.firstChild,t=s.nextSibling,r=t.firstChild,c=r.nextSibling,p=c.nextSibling,V=p.firstChild,H=V.nextSibling;H.nextSibling;var Q=p.nextSibling,F=t.nextSibling;t.addEventListener("drop",ae),t.addEventListener("dragleave",ie),t.addEventListener("dragover",ne),t.$$click=()=>!b.disabled&&N?.click(),r.style.setProperty("margin-bottom","1rem"),r.style.setProperty("font-size","2rem"),c.style.setProperty("margin-bottom","0.5rem"),c.style.setProperty("font-weight","500"),c.style.setProperty("color","#374151"),p.style.setProperty("font-size","0.875rem"),p.style.setProperty("color","#6b7280"),p.style.setProperty("margin-bottom","1rem"),o(p,()=>W(R()),H),Q.$$click=i=>{i.stopPropagation(),N?.click()},F.addEventListener("change",le);var X=N;return typeof X=="function"?xe(X,F):N=F,o(e,P(M,{get when(){return U().length>0},get children(){return[(()=>{var i=Me();return o(i,P($e,{get each(){return U()},children:n=>(()=>{var u=Ne(),D=u.firstChild,C=D.firstChild,L=C.firstChild,A=L.nextSibling,B=A.firstChild,l=B.nextSibling,g=l.nextSibling;return o(L,()=>n.file.name),o(B,()=>W(n.file.size)),o(l,()=>n.file.type||"Unknown type"),o(g,()=>de(n.method)),o(u,P(M,{get when(){return n.status!=="pending"},get children(){var a=Be(),m=a.firstChild,f=m.firstChild,h=m.nextSibling,S=h.firstChild,E=S.nextSibling,I=E.firstChild;return o(S,()=>n.status==="uploading"&&`Uploading... ${n.progress}%`,null),o(S,()=>n.status==="completed"&&"✅ Upload completed",null),o(S,()=>n.status==="error"&&`❌ ${n.error||"Upload failed"}`,null),o(E,P(M,{get when(){return n.status==="error"},get children(){var w=Ae();return w.$$click=()=>se(n),w}}),I),I.$$click=()=>d(n.id),j(w=>{var Z=`progress-fill ${n.status}`,K=`${n.progress}%`,pe=`status-text ${n.status}`;return Z!==w.e&&G(f,w.e=Z),K!==w.t&&((w.t=K)!=null?f.style.setProperty("width",K):f.style.removeProperty("width")),pe!==w.a&&G(S,w.a=pe),w},{e:void 0,t:void 0,a:void 0}),a}}),null),j(()=>G(g,`upload-method ${n.method}`)),u})()})),i})(),(()=>{var i=He(),n=i.firstChild,u=n.nextSibling,D=u.firstChild,C=D.nextSibling;return C.nextSibling,n.$$click=x,u.style.setProperty("font-size","0.875rem"),u.style.setProperty("color","#6b7280"),u.style.setProperty("align-self","center"),o(u,()=>U().length,D),o(u,()=>U().filter(L=>L.status==="completed").length,C),i})()]}}),null),o(e,P(M,{get when(){return b.showDebug},get children(){var i=Re(),n=i.firstChild,u=n.nextSibling,D=u.nextSibling,C=D.nextSibling,L=C.nextSibling,A=L.nextSibling,B=A.nextSibling,l=B.nextSibling;return l.nextSibling,o(i,()=>W(R()),C),o(i,()=>W(R()),l),i}}),null),j(i=>{var n=`upload-zone ${k()?"drag-over":""} ${b.disabled?"disabled":""}`,u=b.disabled,D=b.multiple!==!1,C=b.accept,L=b.disabled;return n!==i.e&&G(t,i.e=n),u!==i.t&&(Q.disabled=i.t=u),D!==i.a&&(F.multiple=i.a=D),C!==i.o&&we(F,"accept",i.o=C),L!==i.i&&(F.disabled=i.i=L),i},{e:void 0,t:void 0,a:void 0,o:void 0,i:void 0}),e})()};fe("smart-file-upload",{baseUrl:void 0,websocketConnection:void 0,sizeThreshold:10*1024*1024,showDebug:!1,multiple:!0,accept:void 0,disabled:!1},je);ce(["click"]);console.log("🧩 Web Components Library loaded - Available components:",["webauthn-auth","websocket-handler","websocket-status","websocket-demo","websocket-feed-manager","websocket-feed-demo","websocket-feed-demo-v2","media-blob-feed-item","media-blob-feed-list","simple-test","smart-file-upload","sync-status","sync-progress","sync-controls","sync-demo"]);
 //# sourceMappingURL=all-components.js.map
