@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Feed Demo - Real-time Media Blob Feed</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8fafc;
+            color: #1f2937;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            margin: 0 0 8px 0;
+            color: #111827;
+            font-size: 2.5rem;
+        }
+
+        .header p {
+            margin: 0;
+            color: #6b7280;
+            font-size: 1.1rem;
+        }
+
+        .demo-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        @media (min-width: 1024px) {
+            .demo-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .demo-section {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+
+        .demo-section h2 {
+            margin: 0 0 16px 0;
+            color: #111827;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .demo-section p {
+            margin: 0 0 20px 0;
+            color: #6b7280;
+            line-height: 1.6;
+        }
+
+        .features {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 40px;
+        }
+
+        .features h2 {
+            margin: 0 0 20px 0;
+            color: #111827;
+            font-size: 1.5rem;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+
+        .feature-card {
+            padding: 16px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: #f9fafb;
+        }
+
+        .feature-card h3 {
+            margin: 0 0 8px 0;
+            color: #111827;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .feature-card p {
+            margin: 0;
+            color: #6b7280;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        .instructions {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 30px;
+        }
+
+        .instructions h3 {
+            margin: 0 0 8px 0;
+            color: #1e40af;
+            font-size: 1rem;
+        }
+
+        .instructions p {
+            margin: 0;
+            color: #3730a3;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        .comparison {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 40px;
+        }
+
+        .comparison h2 {
+            margin: 0 0 20px 0;
+            color: #111827;
+            font-size: 1.5rem;
+        }
+
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .comparison-item {
+            padding: 16px;
+            border-radius: 8px;
+        }
+
+        .comparison-item.old {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+        }
+
+        .comparison-item.new {
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+        }
+
+        .comparison-item h3 {
+            margin: 0 0 12px 0;
+            font-size: 1rem;
+        }
+
+        .comparison-item.old h3 {
+            color: #991b1b;
+        }
+
+        .comparison-item.new h3 {
+            color: #065f46;
+        }
+
+        .comparison-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .comparison-list li {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 0.875rem;
+        }
+
+        .comparison-item.old .comparison-list li {
+            color: #7f1d1d;
+        }
+
+        .comparison-item.new .comparison-list li {
+            color: #064e3b;
+        }
+
+        .footer {
+            text-align: center;
+            color: #6b7280;
+            font-size: 0.875rem;
+            margin-top: 40px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔄 WebSocket Feed Demo</h1>
+            <p>Real-time media blob feed powered by WebSocket notifications</p>
+        </div>
+
+        <div class="instructions">
+            <h3>🚀 Getting Started</h3>
+            <p>
+                Make sure your server is running on localhost:8080 with WebSocket support enabled.
+                The demo will automatically connect and subscribe to media blob notifications.
+                Try uploading files through the API or other clients to see real-time updates!
+            </p>
+        </div>
+
+        <div class="features">
+            <h2>✨ Key Features</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <h3>⚡ Real-time Updates</h3>
+                    <p>Instant notifications when media blobs are created, updated, or deleted via WebSocket connections.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>🖼️ Thumbnail Support</h3>
+                    <p>Automatic thumbnail loading with fallback placeholders and loading states for optimal UX.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>🔌 Auto-reconnection</h3>
+                    <p>Robust connection management with automatic reconnection and graceful error handling.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>📱 Responsive Design</h3>
+                    <p>Adaptive layout that works seamlessly across desktop and mobile devices.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>🎯 Event-driven</h3>
+                    <p>Clean component architecture with event-based communication and modular design.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>📊 Live Statistics</h3>
+                    <p>Real-time feed statistics, connection status, and activity logging for monitoring.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="comparison">
+            <h2>📈 Old vs New Approach</h2>
+            <div class="comparison-grid">
+                <div class="comparison-item old">
+                    <h3>❌ Polling Approach (Removed)</h3>
+                    <ul class="comparison-list">
+                        <li>⏱️ 30-second polling intervals</li>
+                        <li>🔄 Unnecessary server requests</li>
+                        <li>⚡ Delayed updates (up to 30s)</li>
+                        <li>🔋 Higher battery usage</li>
+                        <li>📡 Inefficient bandwidth usage</li>
+                        <li>⚠️ Potential sync conflicts</li>
+                    </ul>
+                </div>
+                <div class="comparison-item new">
+                    <h3>✅ WebSocket Notifications (New)</h3>
+                    <ul class="comparison-list">
+                        <li>⚡ Instant real-time updates</li>
+                        <li>🔌 Persistent WebSocket connection</li>
+                        <li>📡 Efficient push notifications</li>
+                        <li>🔋 Lower resource consumption</li>
+                        <li>🎯 Event-driven architecture</li>
+                        <li>🚀 Immediate user feedback</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="demo-grid">
+            <!-- New WebSocket Feed Demo -->
+            <div class="demo-section">
+                <h2>🆕 WebSocket Feed Demo</h2>
+                <p>
+                    Experience real-time media blob updates with instant notifications.
+                    This demo showcases the new WebSocket-based approach with live feed updates,
+                    thumbnail support, and comprehensive connection management.
+                </p>
+                <websocket-feed-demo
+                    wsUrl="ws://localhost:8080/ws"
+                    channels='["MediaBlobs"]'
+                    debug="true"
+                    autoConnect="true"
+                    itemMode="default"
+                    maxHeight="500px"
+                    showControls="true"
+                    showStats="true"
+                    refreshInterval="0">
+                </websocket-feed-demo>
+            </div>
+
+            <!-- Original Sync Demo (Updated) -->
+            <div class="demo-section">
+                <h2>🔄 Sync Demo (Updated)</h2>
+                <p>
+                    The original sync demo with polling removed. This component now focuses
+                    on manual sync operations and state management without the automatic
+                    30-second polling that has been replaced by WebSocket notifications.
+                </p>
+                <sync-demo
+                    apiBaseUrl="http://localhost:8080"
+                    autoConnect="true"
+                    debug="true">
+                </sync-demo>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>
+                Built with SolidJS web components • WebSocket real-time communication • Modern TypeScript
+            </p>
+        </div>
+    </div>
+
+    <!-- Include the compiled web components -->
+    <script type="module">
+        // Import the web components
+        import '../src/web-components/websocket-feed-demo.js';
+        import '../src/web-components/sync-demo.js';
+
+        // Add global error handling for better debugging
+        window.addEventListener('error', (event) => {
+            console.error('Global error:', event.error);
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            console.error('Unhandled promise rejection:', event.reason);
+        });
+
+        // Log when components are loaded
+        console.log('WebSocket Feed Demo components loaded');
+    </script>
+</body>
+</html>

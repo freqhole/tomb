@@ -34,7 +34,10 @@
     "checkJs": false,
     "incremental": true,
     "composite": false,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "types": ["vite/client"]
   },
   "include": [
     "src/**/*"

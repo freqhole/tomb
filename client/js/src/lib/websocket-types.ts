@@ -12,6 +12,19 @@ const UuidSchema = z.string().uuid();
 const DateTimeSchema = z.string().datetime();
 
 /**
+ * Notification channel enum matching server-side NotificationChannel
+ */
+export const NotificationChannelSchema = z.enum([
+  "MediaBlobs",
+  "ThumbnailJobs",
+  "UserAuth",
+  "System",
+  "Analytics",
+]);
+
+export type NotificationChannel = z.infer<typeof NotificationChannelSchema>;
+
+/**
  * Media blob data structure matching the server-side MediaBlob
  */
 export const MediaBlobSchema = z.object({
@@ -62,6 +75,21 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
     data: z.object({
       id: UuidSchema,
     }),
+  }),
+  z.object({
+    type: z.literal("SubscribeToNotifications"),
+    data: z.object({
+      channel: NotificationChannelSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal("UnsubscribeFromNotifications"),
+    data: z.object({
+      channel: NotificationChannelSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal("GetNotificationStatus"),
   }),
 ]);
 
@@ -117,6 +145,37 @@ export const WebSocketResponseSchema = z.discriminatedUnion("type", [
       user_count: z.number().int().min(0),
     }),
   }),
+  z.object({
+    type: z.literal("Notification"),
+    data: z.object({
+      id: UuidSchema,
+      channel: NotificationChannelSchema,
+      event_type: z.string(),
+      payload: z.any(),
+      priority: z.string(),
+      timestamp: DateTimeSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal("NotificationSubscribed"),
+    data: z.object({
+      channel: NotificationChannelSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal("NotificationUnsubscribed"),
+    data: z.object({
+      channel: NotificationChannelSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal("NotificationStatus"),
+    data: z.object({
+      subscribed_channels: z.array(NotificationChannelSchema),
+      connection_id: z.string(),
+      is_authenticated: z.boolean(),
+    }),
+  }),
 ]);
 
 export type WebSocketResponse = z.infer<typeof WebSocketResponseSchema>;
@@ -155,6 +214,24 @@ export const createMessage = {
   uploadMediaBlob: (blob: MediaBlob): WebSocketMessage => ({
     type: "UploadMediaBlob",
     data: { blob },
+  }),
+
+  subscribeToNotifications: (
+    channel: NotificationChannel
+  ): WebSocketMessage => ({
+    type: "SubscribeToNotifications",
+    data: { channel },
+  }),
+
+  unsubscribeFromNotifications: (
+    channel: NotificationChannel
+  ): WebSocketMessage => ({
+    type: "UnsubscribeFromNotifications",
+    data: { channel },
+  }),
+
+  getNotificationStatus: (): WebSocketMessage => ({
+    type: "GetNotificationStatus",
   }),
 };
 
@@ -218,6 +295,36 @@ export const isMediaBlobDataMessage = (
   response: WebSocketResponse
 ): response is Extract<WebSocketResponse, { type: "MediaBlobData" }> => {
   return response.type === "MediaBlobData";
+};
+
+export const isNotificationMessage = (
+  response: WebSocketResponse
+): response is Extract<WebSocketResponse, { type: "Notification" }> => {
+  return response.type === "Notification";
+};
+
+export const isNotificationSubscribedMessage = (
+  response: WebSocketResponse
+): response is Extract<
+  WebSocketResponse,
+  { type: "NotificationSubscribed" }
+> => {
+  return response.type === "NotificationSubscribed";
+};
+
+export const isNotificationUnsubscribedMessage = (
+  response: WebSocketResponse
+): response is Extract<
+  WebSocketResponse,
+  { type: "NotificationUnsubscribed" }
+> => {
+  return response.type === "NotificationUnsubscribed";
+};
+
+export const isNotificationStatusMessage = (
+  response: WebSocketResponse
+): response is Extract<WebSocketResponse, { type: "NotificationStatus" }> => {
+  return response.type === "NotificationStatus";
 };
 
 /**

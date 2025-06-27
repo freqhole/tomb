@@ -11,6 +11,7 @@ import {
   safeParseWebSocketResponse,
   createMessage,
   MediaBlob,
+  NotificationChannel,
 } from "./websocket-types.js";
 
 // Re-export types for convenience
@@ -48,6 +49,25 @@ export interface WebSocketClientEvents {
   error: (data: { message: string; code?: string }) => void;
   /** Connection status update from server */
   connectionStatus: (data: { connected: boolean; user_count: number }) => void;
+  /** Received notification */
+  notification: (data: {
+    id: string;
+    channel: NotificationChannel;
+    event_type: string;
+    payload?: any;
+    priority: string;
+    timestamp: string;
+  }) => void;
+  /** Notification subscription confirmed */
+  notificationSubscribed: (data: { channel: NotificationChannel }) => void;
+  /** Notification unsubscription confirmed */
+  notificationUnsubscribed: (data: { channel: NotificationChannel }) => void;
+  /** Notification status received */
+  notificationStatus: (data: {
+    subscribed_channels: NotificationChannel[];
+    connection_id: string;
+    is_authenticated: boolean;
+  }) => void;
   /** Raw message received (for debugging) */
   rawMessage: (message: string) => void;
   /** Message parse error */
@@ -190,6 +210,27 @@ export class WebSocketClient {
     return this.send(createMessage.uploadMediaBlob(blob));
   }
 
+  /**
+   * Subscribe to notification channel
+   */
+  subscribeToNotifications(channel: NotificationChannel): boolean {
+    return this.send(createMessage.subscribeToNotifications(channel));
+  }
+
+  /**
+   * Unsubscribe from notification channel
+   */
+  unsubscribeFromNotifications(channel: NotificationChannel): boolean {
+    return this.send(createMessage.unsubscribeFromNotifications(channel));
+  }
+
+  /**
+   * Get notification status
+   */
+  getNotificationStatus(): boolean {
+    return this.send(createMessage.getNotificationStatus());
+  }
+
   private setupSocketListeners(): void {
     if (!this.socket) return;
 
@@ -262,6 +303,18 @@ export class WebSocketClient {
           break;
         case "ConnectionStatus":
           this.listeners.connectionStatus?.(response.data);
+          break;
+        case "Notification":
+          this.listeners.notification?.(response.data);
+          break;
+        case "NotificationSubscribed":
+          this.listeners.notificationSubscribed?.(response.data);
+          break;
+        case "NotificationUnsubscribed":
+          this.listeners.notificationUnsubscribed?.(response.data);
+          break;
+        case "NotificationStatus":
+          this.listeners.notificationStatus?.(response.data);
           break;
         default:
           this.log("Unknown message type:", response);

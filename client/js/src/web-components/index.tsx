@@ -22,6 +22,10 @@ import "./webauthn-component";
 import "./websocket-handler";
 import "./websocket-status";
 import "./websocket-demo";
+import "./websocket-feed-manager";
+import "./websocket-feed-demo";
+import "./media-blob-feed-item";
+import "./media-blob-feed-list";
 import "./simple-test";
 import "./smart-file-upload";
 import "./sync-status";
@@ -35,6 +39,10 @@ const REGISTERED_COMPONENTS = [
   "websocket-handler",
   "websocket-status",
   "websocket-demo",
+  "websocket-feed-manager",
+  "websocket-feed-demo",
+  "media-blob-feed-item",
+  "media-blob-feed-list",
   "simple-test",
   "smart-file-upload",
   "sync-status",
@@ -64,6 +72,58 @@ declare global {
         websocketUrl?: string;
         autoConnect?: boolean;
         showDebugLog?: boolean;
+      };
+
+      "websocket-feed-manager": {
+        wsUrl?: string;
+        channels?: string;
+        debug?: boolean;
+        autoConnect?: boolean;
+        pageSize?: number;
+        className?: string;
+      };
+
+      "websocket-feed-demo": {
+        wsUrl?: string;
+        channels?: string;
+        debug?: boolean;
+        autoConnect?: boolean;
+        itemMode?: "default" | "compact" | "detailed";
+        maxHeight?: string;
+        showControls?: boolean;
+        showStats?: boolean;
+        className?: string;
+        refreshInterval?: number;
+        demoMode?: boolean;
+      };
+
+      "media-blob-feed-item": {
+        blob?: any;
+        showThumbnail?: boolean;
+        showMetadata?: boolean;
+        showTimestamps?: boolean;
+        compact?: boolean;
+        clickable?: boolean;
+        className?: string;
+        thumbnailSize?: number;
+        showLoadingPlaceholder?: boolean;
+      };
+
+      "media-blob-feed-list": {
+        items?: any[];
+        loading?: boolean;
+        error?: string;
+        emptyMessage?: string;
+        maxHeight?: string;
+        itemMode?: "default" | "compact";
+        showThumbnails?: boolean;
+        showMetadata?: boolean;
+        showTimestamps?: boolean;
+        clickableItems?: boolean;
+        className?: string;
+        thumbnailSize?: number;
+        showItemCount?: boolean;
+        animationDuration?: number;
       };
 
       "simple-test": {
@@ -160,6 +220,10 @@ console.log("🧩 Web Components Library loaded - Available components:", [
   "websocket-handler",
   "websocket-status",
   "websocket-demo",
+  "websocket-feed-manager",
+  "websocket-feed-demo",
+  "media-blob-feed-item",
+  "media-blob-feed-list",
   "simple-test",
   "smart-file-upload",
   "sync-status",

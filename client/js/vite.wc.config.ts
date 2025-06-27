@@ -1,138 +1,149 @@
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
-function inlineHtmlTemplate(): import("vite").Plugin {
-  return {
-    name: "generate-html-templates",
-    generateBundle(_, bundle) {
-      const jsAsset = Object.values(bundle).find(
-        (file) => file.type === "chunk" && file.fileName.includes("webauthn")
-      );
+interface ComponentTemplate {
+  name: string;
+  title: string;
+  description: string;
+  element: string;
+  attributes: Record<string, string>;
+  instructions: string[];
+  styles?: string;
+}
 
-      const wsAsset = Object.values(bundle).find(
-        (file) => file.type === "chunk" && file.fileName.includes("websocket")
-      );
-
-      const allAsset = Object.values(bundle).find(
-        (file) =>
-          file.type === "chunk" && file.fileName.includes("all-components")
-      );
-
-      const demoAsset = Object.values(bundle).find(
-        (file) =>
-          file.type === "chunk" && file.fileName.includes("websocket-demo")
-      );
-
-      const syncDemoAsset = Object.values(bundle).find(
-        (file) => file.type === "chunk" && file.fileName.includes("sync-demo")
-      );
-
-      // Generate WebAuthn standalone HTML
-      if (jsAsset && jsAsset.type === "chunk") {
-        const webauthnHtml = `<!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WebAuthn Component Test</title>
-  </head>
-  <body>
-    <h1>🔐 WebAuthn Component Test</h1>
-    <webauthn-auth base-url="http://localhost:8080" theme="dark"></webauthn-auth>
-
-    <script type="module">
-  PLACEHOLDER_JS_CODE
-    </script>
-  </body>
-  </html>`;
-
-        this.emitFile({
-          type: "asset",
-          fileName: "webauthn-auth-standalone.html",
-          source: webauthnHtml.replace("PLACEHOLDER_JS_CODE", jsAsset.code),
-        });
-
-        this.emitFile({
-          type: "asset",
-          fileName: "webauthn-auth-standalone.js",
-          source: jsAsset.code,
-        });
+const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
+  webauthn: {
+    name: "webauthn-auth",
+    title: "WebAuthn Component Test",
+    description: "🔐 WebAuthn Authentication Testing",
+    element: "webauthn-auth",
+    attributes: {
+      "base-url": "http://localhost:8080",
+      theme: "dark",
+    },
+    instructions: [
+      "Make sure your server is running on <code>http://localhost:8080</code>",
+      "Click register to create a new WebAuthn credential",
+      "Try logging in with your registered credential",
+    ],
+  },
+  websocket: {
+    name: "websocket-components",
+    title: "WebSocket Components Test",
+    description: "🔌 WebSocket Connection Testing",
+    element: "websocket-handler",
+    attributes: {
+      websocketUrl: "ws://localhost:8080/ws",
+      autoConnect: "false",
+      showDebugLog: "true",
+    },
+    instructions: [
+      "Make sure your WebSocket server is running on <code>ws://localhost:8080/ws</code>",
+      "Click connect to establish WebSocket connection",
+      "Try sending messages and observe the debug log",
+    ],
+    styles: `
+      .websocket-status {
+        margin: 20px 0;
       }
+    `,
+  },
+  "websocket-demo": {
+    name: "websocket-demo",
+    title: "WebSocket Demo - Modular Components",
+    description: "🚀 Complete WebSocket Demo with All Components",
+    element: "websocket-demo",
+    attributes: {
+      websocketUrl: "ws://localhost:8080/ws",
+      autoConnect: "false",
+      showDebugLog: "true",
+    },
+    instructions: [
+      "Make sure your server is running on <code>localhost:8080</code>",
+      "Components demonstrate full WebSocket functionality",
+      "Try uploading files and watch real-time updates",
+    ],
+  },
+  "websocket-feed-demo": {
+    name: "websocket-feed-demo",
+    title: "WebSocket Feed Demo - Real-time Media Blob Feed",
+    description: "🔄 Real-time Media Blob Feed with WebSocket Notifications",
+    element: "websocket-feed-demo",
+    attributes: {
+      "ws-url": "ws://localhost:8080/ws",
+      channels: '["MediaBlobs"]',
+      debug: "true",
+      "auto-connect": "true",
+      "item-mode": "default",
+      "max-height": "500px",
+      "show-controls": "true",
+      "show-stats": "true",
+    },
+    instructions: [
+      "Make sure your server is running on <code>localhost:8080</code> with WebSocket support",
+      "The demo automatically connects and subscribes to media blob notifications",
+      "Try uploading files through the API to see real-time feed updates",
+      "No more polling - updates happen instantly via WebSocket!",
+    ],
+    styles: `
+      .instructions {
+        background: #dcfce7;
+        border: 1px solid #16a34a;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 30px;
+        color: #166534;
+      }
+    `,
+  },
 
-      // Generate WebSocket standalone HTML and JS (safe approach without string replacement)
-      if (wsAsset && wsAsset.type === "chunk") {
-        const htmlBefore = `<!DOCTYPE html>
+  "sync-demo": {
+    name: "sync-demo",
+    title: "Sync Demo - Media Blob Sync System",
+    description: "🔄 Media Blob Sync System - End-to-End Component Testing",
+    element: "sync-demo",
+    attributes: {
+      "api-base-url": "http://localhost:8080",
+      "client-id": "standalone-demo",
+      "auto-connect": "true",
+    },
+    instructions: [
+      "Make sure your API server is running on <code>http://localhost:8080</code>",
+      "Components will auto-connect and show real sync status",
+      "Try starting a sync operation to see live progress updates",
+      "Note: Polling has been removed in favor of WebSocket notifications",
+    ],
+    styles: `
+      .instructions {
+        background: #fef3c7;
+        border: 1px solid #f59e0b;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 30px;
+        color: #92400e;
+      }
+    `,
+  },
+};
+
+function generateHtmlTemplate(
+  template: ComponentTemplate,
+  jsCode: string
+): string {
+  const attributesStr = Object.entries(template.attributes)
+    .map(([key, value]) => {
+      // Escape quotes in attribute values
+      const escapedValue = value.replace(/"/g, "&quot;");
+      return `${key}="${escapedValue}"`;
+    })
+    .join(" ");
+
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WebSocket Components Test</title>
-</head>
-<body>
-  <h1>🔌 WebSocket Components Test</h1>
-  <h2>Connection Status</h2>
-  <websocket-status status="disconnected" showText="true" showUserCount="true"></websocket-status>
-  <h2>WebSocket Handler</h2>
-  <websocket-handler websocketUrl="ws://localhost:8080/ws" autoConnect="false" showDebugLog="true"></websocket-handler>
-
-  <script type="module">`;
-
-        const htmlAfter = `  </script>
-</body>
-</html>`;
-
-        this.emitFile({
-          type: "asset",
-          fileName: "websocket-components-standalone.html",
-          source: htmlBefore + "\n" + wsAsset.code + "\n" + htmlAfter,
-        });
-
-        this.emitFile({
-          type: "asset",
-          fileName: "websocket-components-standalone.js",
-          source: wsAsset.code,
-        });
-      }
-
-      // Generate WebSocket Demo standalone HTML
-      if (demoAsset && demoAsset.type === "chunk") {
-        const demoHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WebSocket Demo - Modular Components</title>
-</head>
-<body>
-  <websocket-demo websocketUrl="ws://localhost:8080/ws" autoConnect="false" showDebugLog="true"></websocket-demo>
-
-  <script type="module">
-${demoAsset.code}
-  </script>
-</body>
-</html>`;
-
-        this.emitFile({
-          type: "asset",
-          fileName: "websocket-demo-standalone.html",
-          source: demoHtml,
-        });
-
-        this.emitFile({
-          type: "asset",
-          fileName: "websocket-demo-standalone.js",
-          source: demoAsset.code,
-        });
-      }
-
-      // Generate Sync Demo standalone HTML
-      if (syncDemoAsset && syncDemoAsset.type === "chunk") {
-        const syncDemoHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sync Demo - Media Blob Sync System</title>
+  <title>${template.title}</title>
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -143,7 +154,7 @@ ${demoAsset.code}
       line-height: 1.6;
     }
     .container {
-      max-width: 800px;
+      max-width: 1000px;
       margin: 0 auto;
     }
     .header {
@@ -154,70 +165,130 @@ ${demoAsset.code}
       border-radius: 12px;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     }
+    .header h1 {
+      margin: 0 0 8px 0;
+      color: #111827;
+      font-size: 2rem;
+    }
+    .header p {
+      margin: 0;
+      color: #6b7280;
+      font-size: 1.1rem;
+    }
     .instructions {
-      background: #fef3c7;
-      border: 1px solid #f59e0b;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
       border-radius: 8px;
       padding: 16px;
       margin-bottom: 30px;
-      color: #92400e;
+      color: #1e40af;
     }
+    .instructions h3 {
+      margin: 0 0 8px 0;
+      color: #1e40af;
+      font-size: 1rem;
+    }
+    .instructions ul {
+      margin: 8px 0 0 0;
+      padding-left: 20px;
+    }
+    .instructions li {
+      margin-bottom: 4px;
+      font-size: 0.875rem;
+    }
+    ${template.styles || ""}
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>🔄 Sync Demo</h1>
-      <p>Media Blob Sync System - End-to-End Component Testing</p>
+      <h1>${template.description}</h1>
+      <p>${template.title}</p>
     </div>
 
     <div class="instructions">
       <h3>🚀 Getting Started</h3>
       <ul>
-        <li>Make sure your API server is running on <code>http://localhost:8080</code></li>
-        <li>Components will auto-connect and show real sync status</li>
-        <li>Try starting a sync operation to see live progress updates</li>
+        ${template.instructions.map((instruction) => `<li>${instruction}</li>`).join("\n        ")}
       </ul>
     </div>
 
-    <sync-demo api-base-url="http://localhost:8080" client-id="standalone-demo" auto-connect="true"></sync-demo>
+    <${template.element} ${attributesStr}></${template.element}>
   </div>
 
   <script type="module">
-${syncDemoAsset.code}
+${jsCode}
   </script>
 </body>
 </html>`;
+}
 
+function generateStandaloneFiles(): import("vite").Plugin {
+  return {
+    name: "generate-standalone-files",
+    generateBundle(_, bundle) {
+      const chunks = Object.values(bundle).filter(
+        (file): file is import("rollup").OutputChunk =>
+          file.type === "chunk" && typeof file.code === "string"
+      );
+
+      for (const chunk of chunks) {
+        // Map JS file names back to template keys
+        const nameMapping: Record<string, string> = {
+          "webauthn-auth.js": "webauthn",
+          "websocket-components.js": "websocket",
+          "websocket-demo.js": "websocket-demo",
+          "websocket-feed-demo.js": "websocket-feed-demo",
+          "sync-demo.js": "sync-demo",
+        };
+
+        const templateKey = nameMapping[chunk.fileName];
+        const template = templateKey ? COMPONENT_TEMPLATES[templateKey] : null;
+
+        if (!template) {
+          // Skip chunks that don't have templates (shared dependencies, etc)
+          continue;
+        }
+
+        // Generate standalone HTML
+        const html = generateHtmlTemplate(template, chunk.code);
         this.emitFile({
           type: "asset",
-          fileName: "sync-demo-standalone.html",
-          source: syncDemoHtml,
+          fileName: `${template.name}-standalone.html`,
+          source: html,
         });
 
+        // Generate standalone JS
         this.emitFile({
           type: "asset",
-          fileName: "sync-demo-standalone.js",
-          source: syncDemoAsset.code,
+          fileName: `${template.name}-standalone.js`,
+          source: chunk.code,
         });
+
+        console.log(`✅ Generated standalone files for: ${template.name}`);
       }
 
-      // Generate all components HTML
-      if (allAsset && allAsset.type === "chunk") {
+      // Generate all components standalone JS
+      const allComponentsChunk = chunks.find((chunk) =>
+        chunk.fileName.includes("all-components")
+      );
+
+      if (allComponentsChunk) {
         this.emitFile({
           type: "asset",
           fileName: "all-components-standalone.js",
-          source: allAsset.code,
+          source: allComponentsChunk.code,
         });
+        console.log("✅ Generated all-components standalone file");
       }
 
-      console.log("✅ Generated standalone files for all available components");
+      console.log("🎉 All standalone files generated successfully!");
     },
   };
 }
 
 export default defineConfig({
-  plugins: [solid(), inlineHtmlTemplate()],
+  plugins: [solid(), generateStandaloneFiles()],
   build: {
     outDir: "dist",
     target: "esnext",
@@ -228,17 +299,21 @@ export default defineConfig({
         webauthn: "./src/web-components/webauthn-component.tsx",
         websocket: "./src/web-components/websocket-handler.tsx",
         "websocket-demo": "./src/web-components/websocket-demo.tsx",
+        "websocket-feed-demo": "./src/web-components/websocket-feed-demo.tsx",
         "sync-demo": "./src/web-components/sync-demo.tsx",
         "all-components": "./src/web-components/index.tsx",
       },
       output: {
         entryFileNames: (chunkInfo) => {
-          if (chunkInfo.name === "webauthn") return "webauthn-auth.js";
-          if (chunkInfo.name === "websocket") return "websocket-components.js";
-          if (chunkInfo.name === "websocket-demo") return "websocket-demo.js";
-          if (chunkInfo.name === "sync-demo") return "sync-demo.js";
-          if (chunkInfo.name === "all-components") return "all-components.js";
-          return "[name].js";
+          const nameMap: Record<string, string> = {
+            webauthn: "webauthn-auth.js",
+            websocket: "websocket-components.js",
+            "websocket-demo": "websocket-demo.js",
+            "websocket-feed-demo": "websocket-feed-demo.js",
+            "sync-demo": "sync-demo.js",
+            "all-components": "all-components.js",
+          };
+          return nameMap[chunkInfo.name] || "[name].js";
         },
         chunkFileNames: "[name]-[hash].js",
         assetFileNames: "[name]-[hash].[ext]",
