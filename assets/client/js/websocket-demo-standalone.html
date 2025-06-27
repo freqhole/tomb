@@ -4,12 +4,82 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WebSocket Demo - Modular Components</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f8fafc;
+      color: #1f2937;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding: 20px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    .header h1 {
+      margin: 0 0 8px 0;
+      color: #111827;
+      font-size: 2rem;
+    }
+    .header p {
+      margin: 0;
+      color: #6b7280;
+      font-size: 1.1rem;
+    }
+    .instructions {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 30px;
+      color: #1e40af;
+    }
+    .instructions h3 {
+      margin: 0 0 8px 0;
+      color: #1e40af;
+      font-size: 1rem;
+    }
+    .instructions ul {
+      margin: 8px 0 0 0;
+      padding-left: 20px;
+    }
+    .instructions li {
+      margin-bottom: 4px;
+      font-size: 0.875rem;
+    }
+    
+  </style>
 </head>
 <body>
-  <websocket-demo websocketUrl="ws://localhost:8080/ws" autoConnect="false" showDebugLog="true"></websocket-demo>
+  <div class="container">
+    <div class="header">
+      <h1>🚀 Complete WebSocket Demo with All Components</h1>
+      <p>WebSocket Demo - Modular Components</p>
+    </div>
+
+    <div class="instructions">
+      <h3>🚀 Getting Started</h3>
+      <ul>
+        <li>Make sure your server is running on <code>localhost:8080</code></li>
+        <li>Components demonstrate full WebSocket functionality</li>
+        <li>Try uploading files and watch real-time updates</li>
+      </ul>
+    </div>
+
+    <websocket-demo websocketUrl="ws://localhost:8080/ws" autoConnect="false" showDebugLog="true"></websocket-demo>
+  </div>
 
   <script type="module">
-import{k as le,l as We,n as Y,p as _,q as Ne,v as xt,b as Ct,d as Pt,a as k,e as He,o as kt,t as b,i as a,c as B,m as R,S as I,F as ve,f as te,g as $e,s as Bt,u as Lt}from"./types-DK-BerWZ.js";import{W as Ut}from"./websocket-client-BAoRwFj6.js";import{C as Oe}from"./websocket-types-CVwOJfv-.js";//! Event utilities for cleaner EventTarget management
+import{k as le,l as We,n as Y,p as _,q as Ne,v as xt,b as Ct,d as Pt,a as k,e as He,o as kt,t as b,i as a,c as B,m as R,S as I,F as ve,f as te,g as $e,s as Bt,u as Lt}from"./types-Bv8JCg1W.js";import{W as Ut}from"./websocket-client-CXdLnJCR.js";import{C as Oe}from"./websocket-types-Dt_hrJq4.js";//! Event utilities for cleaner EventTarget management
 //!
 //! This module provides utility functions to reduce code duplication
 //! in EventTarget cleanup and management across the codebase.

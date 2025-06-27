@@ -4,16 +4,86 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WebSocket Components Test</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f8fafc;
+      color: #1f2937;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding: 20px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    .header h1 {
+      margin: 0 0 8px 0;
+      color: #111827;
+      font-size: 2rem;
+    }
+    .header p {
+      margin: 0;
+      color: #6b7280;
+      font-size: 1.1rem;
+    }
+    .instructions {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 30px;
+      color: #1e40af;
+    }
+    .instructions h3 {
+      margin: 0 0 8px 0;
+      color: #1e40af;
+      font-size: 1rem;
+    }
+    .instructions ul {
+      margin: 8px 0 0 0;
+      padding-left: 20px;
+    }
+    .instructions li {
+      margin-bottom: 4px;
+      font-size: 0.875rem;
+    }
+    
+      .websocket-status {
+        margin: 20px 0;
+      }
+    
+  </style>
 </head>
 <body>
-  <h1>🔌 WebSocket Components Test</h1>
-  <h2>Connection Status</h2>
-  <websocket-status status="disconnected" showText="true" showUserCount="true"></websocket-status>
-  <h2>WebSocket Handler</h2>
-  <websocket-handler websocketUrl="ws://localhost:8080/ws" autoConnect="false" showDebugLog="true"></websocket-handler>
+  <div class="container">
+    <div class="header">
+      <h1>🔌 WebSocket Connection Testing</h1>
+      <p>WebSocket Components Test</p>
+    </div>
+
+    <div class="instructions">
+      <h3>🚀 Getting Started</h3>
+      <ul>
+        <li>Make sure your WebSocket server is running on <code>ws://localhost:8080/ws</code></li>
+        <li>Click connect to establish WebSocket connection</li>
+        <li>Try sending messages and observe the debug log</li>
+      </ul>
+    </div>
+
+    <websocket-handler websocketUrl="ws://localhost:8080/ws" autoConnect="false" showDebugLog="true"></websocket-handler>
+  </div>
 
   <script type="module">
-import{b as be,a as p,e as j,t as d,i as r,c as f,f as H,g as W,m as Y,S as m,d as ke,F as De}from"./types-DK-BerWZ.js";import{C as l}from"./websocket-types-CVwOJfv-.js";import{W as Me}from"./websocket-client-BAoRwFj6.js";var Ee=d("<span>"),Ue=d("<span class=user-count>(<!> user<!>)"),Be=d(`<div><style>
+import{b as be,a as p,e as j,t as d,i as r,c as f,f as H,g as W,m as Y,S as m,d as ke,F as De}from"./types-Bv8JCg1W.js";import{C as l}from"./websocket-types-Dt_hrJq4.js";import{W as Me}from"./websocket-client-CXdLnJCR.js";var Ee=d("<span>"),Ue=d("<span class=user-count>(<!> user<!>)"),Be=d(`<div><style>
         .status-indicator {
           width: 12px;
           height: 12px;
