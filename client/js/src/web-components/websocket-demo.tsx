@@ -10,7 +10,7 @@ import { customElement } from "solid-element";
 import { createSignal, createEffect, For, Show, onCleanup } from "solid-js";
 import { WebSocketDemoClient } from "../lib/websocket-demo-client.js";
 import { FileUploadHandler } from "../lib/file-upload.js";
-import type { MediaBlob } from "../lib/media-blob-manager.js";
+import type { MediaBlob } from "../lib/websocket-types.js";
 import type { UploadProgress } from "../lib/file-upload.js";
 
 export interface WebSocketDemoProps {
@@ -776,7 +776,9 @@ const WebSocketDemo = (props: WebSocketDemoProps) => {
                         </button>
                       </Show>
                       <button
-                        onClick={() => handleDownload(blob.id, blob.local_path)}
+                        onClick={() =>
+                          handleDownload(blob.id, blob.local_path || undefined)
+                        }
                       >
                         📥 Download
                       </button>

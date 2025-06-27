@@ -5,18 +5,8 @@
  * and display formatting for WebSocket-received media blobs.
  */
 
-export interface MediaBlob {
-  id: string;
-  data?: number[];
-  sha256: string;
-  size: number;
-  mime: string;
-  source_client_id?: string;
-  local_path?: string;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
+import type { MediaBlob } from "./websocket-types.js";
+import { ManagedEventTarget } from "./event-utils.js";
 
 export interface MediaBlobData {
   id: string;
@@ -39,7 +29,7 @@ export interface BlobDisplayInfo {
   storageType: "database" | "disk"; // How the file is stored
 }
 
-export class MediaBlobManager extends EventTarget {
+export class MediaBlobManager extends ManagedEventTarget {
   private blobs: MediaBlob[] = [];
   private blobDataCache = new Map<string, string>(); // blob ID -> data URL
   private loadingBlobs = new Set<string>();
@@ -168,7 +158,7 @@ export class MediaBlobManager extends EventTarget {
     return {
       id: blob.id,
       mime: blob.mime || "Unknown type",
-      size: this.formatFileSize(blob.size),
+      size: this.formatFileSize(blob.size || 0),
       sha256: blob.sha256,
       clientId: blob.source_client_id || "Unknown",
       path: blob.local_path || "None",
@@ -463,22 +453,6 @@ export class MediaBlobManager extends EventTarget {
     this.blobs = [];
 
     // Remove all event listeners
-    const events = [
-      "blobs-updated",
-      "blob-data-cached",
-      "blob-data-requested",
-      "blob-downloaded",
-      "blob-viewed",
-      "cache-cleared",
-    ];
-    events.forEach((event) => {
-      // Remove all listeners for each event type
-      const listeners =
-        (this as unknown as { _listeners?: Record<string, unknown[]> })
-          ._listeners?.[event] || [];
-      listeners.forEach((listener: unknown) => {
-        this.removeEventListener(event, listener as EventListener);
-      });
-    });
+    this.cleanup(); // Use ManagedEventTarget cleanup
   }
 }

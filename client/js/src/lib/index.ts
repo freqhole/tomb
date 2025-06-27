@@ -73,11 +73,7 @@ export type {
 } from "./websocket-connection.js";
 
 export { MediaBlobManager } from "./media-blob-manager.js";
-export type {
-  MediaBlob as ManagedMediaBlob,
-  MediaBlobData,
-  BlobDisplayInfo,
-} from "./media-blob-manager.js";
+export type { MediaBlobData, BlobDisplayInfo } from "./media-blob-manager.js";
 
 // HTTP File Upload (for large files >10MB, admin only)
 export { FileUploadHandler } from "./file-upload.js";

@@ -4,7 +4,8 @@
 //! and offline operations using IndexedDB. It supports caching, conflict
 //! resolution, and efficient data retrieval for sync operations.
 
-import { MediaBlob, SyncConflict, SyncError } from "./sync-state.js";
+import { SyncConflict, SyncError } from "./sync-state.js";
+import type { MediaBlob } from "../lib/websocket-types.js";
 
 /**
  * Local storage entry for a media blob
@@ -25,11 +26,10 @@ export interface StoredMediaBlob extends MediaBlob {
 /**
  * Offline operation types
  */
-export enum OfflineOperationType {
-  Create = "create",
-  Update = "update",
-  Delete = "delete",
-}
+import { OfflineOperationType } from "./sync-constants.js";
+
+// Re-export for convenience
+export { OfflineOperationType } from "./sync-constants.js";
 
 /**
  * Offline operation for queuing when disconnected
@@ -41,8 +41,8 @@ export interface OfflineOperation {
   type: OfflineOperationType;
   /** Target media blob ID */
   media_blob_id: string;
-  /** Operation data */
-  data: any;
+  /** Operation data - specific to operation type */
+  data: OperationData;
   /** Timestamp when operation was queued */
   queued_at: string; // ISO 8601 timestamp
   /** Number of retry attempts */
@@ -52,6 +52,14 @@ export interface OfflineOperation {
   /** Whether operation should be retried */
   should_retry: boolean;
 }
+
+/**
+ * Type-safe operation data based on operation type
+ */
+export type OperationData =
+  | { type: "create"; blob: MediaBlob; metadata?: Record<string, unknown> }
+  | { type: "update"; changes: Partial<MediaBlob>; version?: string }
+  | { type: "delete"; reason?: string; backup?: boolean };
 
 /**
  * Storage statistics
@@ -303,7 +311,7 @@ export class SyncStorageManager {
               // Apply limit
               if (!options.limit || count < options.limit) {
                 if (!options.include_data) {
-                  const { data, ...blobWithoutData } = blob;
+                  const { data, ...blobWithoutData } = blob as any;
                   results.push(blobWithoutData as StoredMediaBlob);
                 } else {
                   results.push(blob);
@@ -382,7 +390,7 @@ export class SyncStorageManager {
   async queueOfflineOperation(
     type: OfflineOperationType,
     mediaBlobId: string,
-    data: any
+    data: OperationData
   ): Promise<string> {
     await this.ensureInitialized();
 
@@ -703,9 +711,9 @@ export class SyncStorageManager {
       return false;
     }
 
-    if (options.mime_pattern && blob.mime) {
+    if (options.mime_pattern && (blob as MediaBlob).mime) {
       const pattern = new RegExp(options.mime_pattern, "i");
-      if (!pattern.test(blob.mime)) {
+      if (!pattern.test((blob as MediaBlob).mime!)) {
         return false;
       }
     }

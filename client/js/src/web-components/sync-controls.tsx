@@ -9,9 +9,10 @@
 import { customElement } from "solid-element";
 import { createSignal, createEffect, Show } from "solid-js";
 import { SyncStatus } from "../sync/index.js";
+import type { SyncStatus as SyncStatusType } from "../sync/index.js";
 
 export interface SyncControlsProps {
-  status?: SyncStatus;
+  status?: SyncStatusType;
   disabled?: boolean;
   showForceSync?: boolean;
   showPauseResume?: boolean;
@@ -25,7 +26,9 @@ export interface SyncControlsProps {
 }
 
 function SyncControlsComponent(props: SyncControlsProps) {
-  const [status, setStatus] = createSignal<SyncStatus>(props.status || SyncStatus.Never);
+  const [status, setStatus] = createSignal<SyncStatusType>(
+    props.status || SyncStatus.Never
+  );
   const [isPaused, setIsPaused] = createSignal<boolean>(false);
 
   createEffect(() => {
@@ -73,7 +76,10 @@ function SyncControlsComponent(props: SyncControlsProps) {
     }
   };
 
-  const buttonStyle = (enabled: boolean, variant: "primary" | "secondary" | "danger" = "secondary") => ({
+  const buttonStyle = (
+    enabled: boolean,
+    variant: "primary" | "secondary" | "danger" = "secondary"
+  ) => ({
     padding: props.compact ? "6px 12px" : "8px 16px",
     "border-radius": "6px",
     border: "1px solid",
@@ -85,8 +91,8 @@ function SyncControlsComponent(props: SyncControlsProps) {
       ? variant === "primary"
         ? "#3b82f6"
         : variant === "danger"
-        ? "#ef4444"
-        : "#ffffff"
+          ? "#ef4444"
+          : "#ffffff"
       : "#f3f4f6",
     color: enabled
       ? variant === "primary" || variant === "danger"
@@ -97,8 +103,8 @@ function SyncControlsComponent(props: SyncControlsProps) {
       ? variant === "primary"
         ? "#3b82f6"
         : variant === "danger"
-        ? "#ef4444"
-        : "#d1d5db"
+          ? "#ef4444"
+          : "#d1d5db"
       : "#d1d5db",
   });
 
@@ -193,11 +199,11 @@ function SyncControlsComponent(props: SyncControlsProps) {
             "background-color":
               status() === SyncStatus.InProgress
                 ? "#f59e0b"
-                : status() === SyncStatus.Idle
-                ? "#10b981"
-                : status() === SyncStatus.Failed
-                ? "#ef4444"
-                : "#94a3b8",
+                : status() === SyncStatus.Complete
+                  ? "#10b981"
+                  : status() === SyncStatus.Failed
+                    ? "#ef4444"
+                    : "#94a3b8",
           }}
         />
         <span>
@@ -205,29 +211,33 @@ function SyncControlsComponent(props: SyncControlsProps) {
             ? isPaused()
               ? "Paused"
               : "Syncing"
-            : status() === SyncStatus.Idle
-            ? "Ready"
-            : status() === SyncStatus.Failed
-            ? "Error"
-            : "Not synced"}
+            : status() === SyncStatus.Complete
+              ? "Ready"
+              : status() === SyncStatus.Failed
+                ? "Error"
+                : "Not synced"}
         </span>
       </div>
     </div>
   );
 }
 
-customElement("sync-controls", {
-  status: undefined,
-  disabled: false,
-  showForceSync: true,
-  showPauseResume: true,
-  compact: false,
-  className: "",
-  onStartSync: undefined,
-  onStopSync: undefined,
-  onPauseSync: undefined,
-  onResumeSync: undefined,
-  onForceSync: undefined,
-}, SyncControlsComponent);
+customElement(
+  "sync-controls",
+  {
+    status: undefined,
+    disabled: false,
+    showForceSync: true,
+    showPauseResume: true,
+    compact: false,
+    className: "",
+    onStartSync: undefined,
+    onStopSync: undefined,
+    onPauseSync: undefined,
+    onResumeSync: undefined,
+    onForceSync: undefined,
+  },
+  SyncControlsComponent
+);
 
 export default SyncControlsComponent;

@@ -4,48 +4,18 @@
 //! allowing UI components and other parts of the application to react
 //! to sync state changes, progress updates, and errors.
 
-import {
-  SyncProgress,
-  SyncError,
-  SyncConflict,
-  MediaBlob,
-} from "./sync-state.js";
+import { SyncProgress, SyncError, SyncConflict } from "./sync-state.js";
+import { SyncEventType } from "./sync-constants.js";
+import type { MediaBlob } from "../lib/websocket-types.js";
 
-/**
- * Event types for sync operations
- */
-export enum SyncEventType {
-  /** Sync operation started */
-  SyncStarted = "sync:started",
-  /** Sync progress updated */
-  SyncProgress = "sync:progress",
-  /** Sync batch completed */
-  SyncBatchCompleted = "sync:batch-completed",
-  /** Sync operation completed successfully */
-  SyncCompleted = "sync:completed",
-  /** Sync operation failed */
-  SyncFailed = "sync:failed",
-  /** Sync operation paused */
-  SyncPaused = "sync:paused",
-  /** Sync operation resumed */
-  SyncResumed = "sync:resumed",
-  /** Sync conflict detected */
-  SyncConflict = "sync:conflict",
-  /** Sync conflict resolved */
-  SyncConflictResolved = "sync:conflict-resolved",
-  /** Connection status changed */
-  ConnectionChanged = "sync:connection-changed",
-  /** Items received from sync */
-  ItemsReceived = "sync:items-received",
-  /** Items processed locally */
-  ItemsProcessed = "sync:items-processed",
-}
+// Re-export event types for convenience
+export { SyncEventType } from "./sync-constants.js";
 
 /**
  * Base sync event interface
  */
 export interface BaseSyncEvent {
-  type: SyncEventType;
+  type: string;
   timestamp: Date;
   sessionId: string;
   clientId: string;
@@ -55,8 +25,8 @@ export interface BaseSyncEvent {
  * Sync started event
  */
 export interface SyncStartedEvent extends BaseSyncEvent {
-  type: SyncEventType.SyncStarted;
-  isFullSync: boolean;
+  type: typeof SyncEventType.Started;
+  fullSync: boolean;
   estimatedItems?: number;
 }
 
@@ -64,7 +34,7 @@ export interface SyncStartedEvent extends BaseSyncEvent {
  * Sync progress event
  */
 export interface SyncProgressEvent extends BaseSyncEvent {
-  type: SyncEventType.SyncProgress;
+  type: typeof SyncEventType.Progress;
   progress: SyncProgress;
 }
 
@@ -72,9 +42,10 @@ export interface SyncProgressEvent extends BaseSyncEvent {
  * Sync batch completed event
  */
 export interface SyncBatchCompletedEvent extends BaseSyncEvent {
-  type: SyncEventType.SyncBatchCompleted;
+  type: typeof SyncEventType.BatchCompleted;
   batchNumber: number;
   itemsInBatch: number;
+  totalItems?: number;
   cursor?: string;
   hasMore: boolean;
 }
@@ -83,27 +54,28 @@ export interface SyncBatchCompletedEvent extends BaseSyncEvent {
  * Sync completed event
  */
 export interface SyncCompletedEvent extends BaseSyncEvent {
-  type: SyncEventType.SyncCompleted;
+  type: typeof SyncEventType.Completed;
   totalItems: number;
   duration: number; // milliseconds
-  conflictsResolved: number;
+  conflicts: number;
+  errors: number;
 }
 
 /**
  * Sync failed event
  */
 export interface SyncFailedEvent extends BaseSyncEvent {
-  type: SyncEventType.SyncFailed;
+  type: typeof SyncEventType.Failed;
   error: SyncError;
+  partialResults?: number;
   canRetry: boolean;
-  retryDelay?: number; // seconds
 }
 
 /**
  * Sync paused event
  */
 export interface SyncPausedEvent extends BaseSyncEvent {
-  type: SyncEventType.SyncPaused;
+  type: typeof SyncEventType.Paused;
   reason: "user" | "error" | "network" | "rate-limit";
   canResume: boolean;
 }
@@ -112,15 +84,16 @@ export interface SyncPausedEvent extends BaseSyncEvent {
  * Sync resumed event
  */
 export interface SyncResumedEvent extends BaseSyncEvent {
-  type: SyncEventType.SyncResumed;
-  resumeFromCursor?: string;
+  type: typeof SyncEventType.Resumed;
+  resumeCursor?: string;
+  itemsToProcess?: number;
 }
 
 /**
  * Sync conflict event
  */
 export interface SyncConflictEvent extends BaseSyncEvent {
-  type: SyncEventType.SyncConflict;
+  type: typeof SyncEventType.ConflictDetected;
   conflict: SyncConflict;
 }
 
@@ -128,7 +101,7 @@ export interface SyncConflictEvent extends BaseSyncEvent {
  * Sync conflict resolved event
  */
 export interface SyncConflictResolvedEvent extends BaseSyncEvent {
-  type: SyncEventType.SyncConflictResolved;
+  type: typeof SyncEventType.ConflictResolved;
   conflictId: string;
   resolution: "keep_local" | "keep_server" | "merge" | "skip";
 }
@@ -137,7 +110,7 @@ export interface SyncConflictResolvedEvent extends BaseSyncEvent {
  * Connection status changed event
  */
 export interface ConnectionChangedEvent extends BaseSyncEvent {
-  type: SyncEventType.ConnectionChanged;
+  type: typeof SyncEventType.ConnectionChanged;
   isOnline: boolean;
   canSync: boolean;
 }
@@ -146,20 +119,20 @@ export interface ConnectionChangedEvent extends BaseSyncEvent {
  * Items received event
  */
 export interface ItemsReceivedEvent extends BaseSyncEvent {
-  type: SyncEventType.ItemsReceived;
+  type: typeof SyncEventType.ItemsReceived;
   items: MediaBlob[];
   batchNumber: number;
-  totalReceived: number;
+  totalBatches?: number;
 }
 
 /**
  * Items processed event
  */
 export interface ItemsProcessedEvent extends BaseSyncEvent {
-  type: SyncEventType.ItemsProcessed;
+  type: typeof SyncEventType.ItemsProcessed;
   processedCount: number;
   failedCount: number;
-  totalProcessed: number;
+  skippedCount: number;
 }
 
 /**
@@ -379,10 +352,10 @@ export class SyncEventBuilder {
   /**
    * Create sync started event
    */
-  syncStarted(isFullSync: boolean, estimatedItems?: number): SyncStartedEvent {
+  syncStarted(fullSync: boolean, estimatedItems?: number): SyncStartedEvent {
     return {
-      ...this.createBase(SyncEventType.SyncStarted),
-      isFullSync,
+      ...this.createBase(SyncEventType.Started),
+      fullSync,
       estimatedItems,
     };
   }
@@ -392,7 +365,7 @@ export class SyncEventBuilder {
    */
   syncProgress(progress: SyncProgress): SyncProgressEvent {
     return {
-      ...this.createBase(SyncEventType.SyncProgress),
+      ...this.createBase(SyncEventType.Progress),
       progress,
     };
   }
@@ -407,7 +380,7 @@ export class SyncEventBuilder {
     hasMore: boolean = false
   ): SyncBatchCompletedEvent {
     return {
-      ...this.createBase(SyncEventType.SyncBatchCompleted),
+      ...this.createBase(SyncEventType.BatchCompleted),
       batchNumber,
       itemsInBatch,
       cursor,
@@ -421,29 +394,26 @@ export class SyncEventBuilder {
   syncCompleted(
     totalItems: number,
     duration: number,
-    conflictsResolved: number = 0
+    conflicts: number = 0,
+    errors: number = 0
   ): SyncCompletedEvent {
     return {
-      ...this.createBase(SyncEventType.SyncCompleted),
+      ...this.createBase(SyncEventType.Completed),
       totalItems,
       duration,
-      conflictsResolved,
+      conflicts,
+      errors,
     };
   }
 
   /**
    * Create sync failed event
    */
-  syncFailed(
-    error: SyncError,
-    canRetry: boolean = true,
-    retryDelay?: number
-  ): SyncFailedEvent {
+  syncFailed(error: SyncError, canRetry: boolean = true): SyncFailedEvent {
     return {
-      ...this.createBase(SyncEventType.SyncFailed),
+      ...this.createBase(SyncEventType.Failed),
       error,
       canRetry,
-      retryDelay,
     };
   }
 
@@ -455,7 +425,7 @@ export class SyncEventBuilder {
     canResume: boolean = true
   ): SyncPausedEvent {
     return {
-      ...this.createBase(SyncEventType.SyncPaused),
+      ...this.createBase(SyncEventType.Paused),
       reason,
       canResume,
     };
@@ -464,10 +434,14 @@ export class SyncEventBuilder {
   /**
    * Create sync resumed event
    */
-  syncResumed(resumeFromCursor?: string): SyncResumedEvent {
+  syncResumed(
+    resumeCursor?: string,
+    itemsToProcess?: number
+  ): SyncResumedEvent {
     return {
-      ...this.createBase(SyncEventType.SyncResumed),
-      resumeFromCursor,
+      ...this.createBase(SyncEventType.Resumed),
+      resumeCursor,
+      itemsToProcess,
     };
   }
 
@@ -476,20 +450,20 @@ export class SyncEventBuilder {
    */
   syncConflict(conflict: SyncConflict): SyncConflictEvent {
     return {
-      ...this.createBase(SyncEventType.SyncConflict),
+      ...this.createBase(SyncEventType.ConflictDetected),
       conflict,
     };
   }
 
   /**
-   * Create sync conflict resolved event
+   * Sync conflict resolved event
    */
   syncConflictResolved(
     conflictId: string,
     resolution: "keep_local" | "keep_server" | "merge" | "skip"
   ): SyncConflictResolvedEvent {
     return {
-      ...this.createBase(SyncEventType.SyncConflictResolved),
+      ...this.createBase(SyncEventType.ConflictResolved),
       conflictId,
       resolution,
     };
@@ -515,13 +489,13 @@ export class SyncEventBuilder {
   itemsReceived(
     items: MediaBlob[],
     batchNumber: number,
-    totalReceived: number
+    totalBatches?: number
   ): ItemsReceivedEvent {
     return {
       ...this.createBase(SyncEventType.ItemsReceived),
       items,
       batchNumber,
-      totalReceived,
+      totalBatches,
     };
   }
 
@@ -531,13 +505,13 @@ export class SyncEventBuilder {
   itemsProcessed(
     processedCount: number,
     failedCount: number,
-    totalProcessed: number
+    skippedCount: number
   ): ItemsProcessedEvent {
     return {
       ...this.createBase(SyncEventType.ItemsProcessed),
       processedCount,
       failedCount,
-      totalProcessed,
+      skippedCount,
     };
   }
 }

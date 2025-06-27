@@ -7,13 +7,14 @@
 
 /* @jsxImportSource solid-js */
 import { customElement } from "solid-element";
-import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
+import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { ApiClient } from "../lib/api-client.js";
 import {
   createSyncManager,
-  SyncEventType,
   SyncStatus,
+  SyncEventType,
   type SyncManager,
+  type SyncStatus as SyncStatusType,
 } from "../sync/index.js";
 import SyncStatusComponent from "./sync-status.js";
 import SyncProgressComponent from "./sync-progress.js";
@@ -28,7 +29,7 @@ export interface SyncDemoProps {
 
 function SyncDemoComponent(props: SyncDemoProps) {
   const [syncManager, setSyncManager] = createSignal<SyncManager | null>(null);
-  const [status, setStatus] = createSignal<SyncStatus>(SyncStatus.Never);
+  const [status, setStatus] = createSignal<SyncStatusType>(SyncStatus.Never);
   const [progress, setProgress] = createSignal<number>(0);
   const [itemsSynced, setItemsSynced] = createSignal<number>(0);
   const [totalItems, setTotalItems] = createSignal<number>(0);
@@ -94,15 +95,15 @@ function SyncDemoComponent(props: SyncDemoProps) {
       );
 
       // Set up event listeners
-      manager.on(SyncEventType.SyncStarted, (event: any) => {
+      manager.on(SyncEventType.Started, (event: any) => {
         setStatus(SyncStatus.InProgress);
-        addLog(`Sync started: ${event.isFullSync ? "Full" : "Incremental"}`);
+        addLog(`Sync started: ${event.fullSync ? "Full" : "Incremental"}`);
         if (event.estimatedItems) {
           setTotalItems(event.estimatedItems);
         }
       });
 
-      manager.on(SyncEventType.SyncProgress, (event: any) => {
+      manager.on(SyncEventType.Progress, (event: any) => {
         const { progress: progressData } = event;
         setProgress(progressData.progress || 0);
         setItemsSynced(progressData.items_synced || 0);
@@ -115,8 +116,8 @@ function SyncDemoComponent(props: SyncDemoProps) {
         );
       });
 
-      manager.on(SyncEventType.SyncCompleted, (event: any) => {
-        setStatus(SyncStatus.Idle);
+      manager.on(SyncEventType.Completed, (event: any) => {
+        setStatus(SyncStatus.Complete);
         setProgress(100);
         addLog(
           `Sync completed: ${event.totalItems} items in ${(event.duration / 1000).toFixed(1)}s`
@@ -130,13 +131,13 @@ function SyncDemoComponent(props: SyncDemoProps) {
         }, 2000);
       });
 
-      manager.on(SyncEventType.SyncFailed, (event: any) => {
+      manager.on(SyncEventType.Failed, (event: any) => {
         setStatus(SyncStatus.Failed);
         setError(event.error.message);
         addLog(`Sync failed: ${event.error.message}`);
       });
 
-      manager.on(SyncEventType.SyncBatchCompleted, (event: any) => {
+      manager.on(SyncEventType.BatchCompleted, (event: any) => {
         addLog(
           `Batch ${event.batchNumber} completed: ${event.itemsInBatch} items`
         );
@@ -147,7 +148,7 @@ function SyncDemoComponent(props: SyncDemoProps) {
         addLog(`Connection: ${event.isOnline ? "Online" : "Offline"}`);
       });
 
-      manager.on(SyncEventType.SyncConflict, (event: any) => {
+      manager.on(SyncEventType.ConflictDetected, (event: any) => {
         addLog(
           `Conflict detected: ${event.conflict.id} (${event.conflict.type})`
         );
@@ -156,7 +157,7 @@ function SyncDemoComponent(props: SyncDemoProps) {
       await manager.initialize();
       setSyncManager(manager);
       setIsConnected(true);
-      setStatus(SyncStatus.Idle);
+      setStatus(SyncStatus.Complete);
       addLog("Sync manager initialized");
 
       // Start auto-sync for real-time behavior
@@ -189,7 +190,7 @@ function SyncDemoComponent(props: SyncDemoProps) {
 
     try {
       await manager.stopSync();
-      setStatus(SyncStatus.Idle);
+      setStatus(SyncStatus.Complete);
       addLog("Sync stopped");
     } catch (err) {
       addLog(
@@ -453,10 +454,8 @@ function SyncDemoComponent(props: SyncDemoProps) {
               </div>
             }
           >
-            {logs().map((log, index) => (
-              <div key={index} style={{ "margin-bottom": "2px" }}>
-                {log}
-              </div>
+            {logs().map((log) => (
+              <div style={{ "margin-bottom": "2px" }}>{log}</div>
             ))}
           </Show>
         </div>

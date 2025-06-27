@@ -11,11 +11,8 @@ import {
   type WebSocketClientConfig,
 } from "./websocket-client.js";
 import { ConnectionStatus } from "./websocket-types.js";
-import {
-  MediaBlobManager,
-  type MediaBlob,
-  type MediaBlobData,
-} from "./media-blob-manager.js";
+import { MediaBlobManager, type MediaBlobData } from "./media-blob-manager.js";
+import type { MediaBlob } from "./websocket-types.js";
 import {
   WebSocketFileUploadHandler,
   type WebSocketFileUploadOptions,
@@ -40,6 +37,8 @@ export class WebSocketDemoClient extends EventTarget {
   private uploadHandler: WebSocketFileUploadHandler;
   private eventLog: DemoClientEvent[] = [];
   private options: WebSocketDemoClientOptions;
+  private connectionId: string = "";
+  private userCount: number = 0;
 
   constructor(websocketUrl: string, options: WebSocketDemoClientOptions = {}) {
     super();
@@ -152,16 +151,14 @@ export class WebSocketDemoClient extends EventTarget {
    * Get current user count
    */
   getUserCount(): number {
-    // User count is maintained by connection status messages
-    return 0; // TODO: Track this from ConnectionStatus messages
+    return this.userCount;
   }
 
   /**
    * Get connection ID
    */
   getConnectionId(): string {
-    // Connection ID is received in Welcome message
-    return ""; // TODO: Track this from Welcome messages
+    return this.connectionId;
   }
 
   /**
@@ -254,6 +251,10 @@ export class WebSocketDemoClient extends EventTarget {
 
     this.client.on("welcome", (data) => {
       this.log("info", "Welcome received", data);
+      // Extract connection ID from welcome message
+      if (data && typeof data === "object" && "connection_id" in data) {
+        this.connectionId = String(data.connection_id);
+      }
       this.dispatchEvent(new CustomEvent("welcome", { detail: data }));
     });
 
@@ -285,6 +286,10 @@ export class WebSocketDemoClient extends EventTarget {
 
     this.client.on("connectionStatus", (data) => {
       this.handleServerMessage({ type: "ConnectionStatus", data });
+      // Extract user count from connection status
+      if (data && typeof data === "object" && "user_count" in data) {
+        this.userCount = Number(data.user_count) || 0;
+      }
     });
 
     // Media blob manager events

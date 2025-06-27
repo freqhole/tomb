@@ -6,13 +6,14 @@
  * Uses Zod schemas for type-safe message validation.
  */
 
-import { MediaBlob } from "./media-blob-manager.js";
+import type { MediaBlob } from "./websocket-types.js";
 import {
   WebSocketMessage,
   validateIncomingMessage,
   validateOutgoingMessage,
   createMessage,
 } from "./websocket-types.js";
+import { ManagedEventTarget } from "./event-utils.js";
 
 export type WebSocketConnectionStatus =
   | "disconnected"
@@ -36,7 +37,7 @@ export interface WebSocketConnectionOptions {
   debug?: boolean;
 }
 
-export class WebSocketConnection extends EventTarget {
+export class WebSocketConnection extends ManagedEventTarget {
   private socket: WebSocket | null = null;
   private status: WebSocketConnectionStatus = "disconnected";
   private options: Required<WebSocketConnectionOptions>;
@@ -134,11 +135,9 @@ export class WebSocketConnection extends EventTarget {
     } catch (error) {
       const errorMessage = `Send error: ${error}`;
       this.log("error", errorMessage);
-      this.dispatchEvent(
-        new CustomEvent("error", {
-          detail: { error: errorMessage },
-        })
-      );
+      this.dispatchTypedEvent("error", {
+        error: errorMessage,
+      });
       return false;
     }
   }
@@ -215,11 +214,10 @@ export class WebSocketConnection extends EventTarget {
       this.setStatus("disconnected");
       this.socket = null;
 
-      this.dispatchEvent(
-        new CustomEvent("connection-closed", {
-          detail: { code: event.code, reason: event.reason },
-        })
-      );
+      this.dispatchTypedEvent("connection-closed", {
+        code: event.code,
+        reason: event.reason,
+      });
 
       // Attempt reconnection if enabled
       if (
@@ -296,11 +294,9 @@ export class WebSocketConnection extends EventTarget {
 
       case "Pong": {
         this.log("debug", "Pong received");
-        this.dispatchEvent(
-          new CustomEvent("pong", {
-            detail: { timestamp: Date.now() },
-          })
-        );
+        this.dispatchTypedEvent("pong", {
+          timestamp: Date.now(),
+        });
         break;
       }
 
@@ -430,35 +426,10 @@ export class WebSocketConnection extends EventTarget {
   }
 
   /**
-   * Clean up resources
+   * Clean up all event listeners and close connection
    */
   destroy(): void {
     this.disconnect();
-    this.clearTimers();
-    this.removeAllListeners();
-  }
-
-  private removeAllListeners(): void {
-    const events = [
-      "status-change",
-      "message",
-      "connection-closed",
-      "connection-error",
-      "message-sent",
-      "error",
-      "pong",
-      "server-error",
-      "validation-error",
-      "reconnecting",
-    ];
-    events.forEach((event) => {
-      // Remove all listeners for each event type
-      const listeners =
-        (this as unknown as { _listeners?: Record<string, unknown[]> })
-          ._listeners?.[event] || [];
-      listeners.forEach((listener: unknown) => {
-        this.removeEventListener(event, listener as EventListener);
-      });
-    });
+    this.cleanup(); // Use ManagedEventTarget cleanup
   }
 }

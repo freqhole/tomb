@@ -307,7 +307,7 @@ export class ApiClient {
     url: string,
     options: {
       data?: unknown;
-      params?: Record<string, any>;
+      params?: Record<string, unknown>;
       headers?: Record<string, string>;
     } = {}
   ): Promise<T> {

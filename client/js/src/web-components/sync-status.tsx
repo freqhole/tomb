@@ -9,9 +9,10 @@
 import { customElement } from "solid-element";
 import { createSignal, createEffect, Show } from "solid-js";
 import { SyncStatus } from "../sync/index.js";
+import type { SyncStatus as SyncStatusType } from "../sync/index.js";
 
 export interface SyncStatusProps {
-  status?: SyncStatus;
+  status?: SyncStatusType;
   showText?: boolean;
   showProgress?: boolean;
   itemsSynced?: number;
@@ -21,9 +22,15 @@ export interface SyncStatusProps {
 }
 
 function SyncStatusComponent(props: SyncStatusProps) {
-  const [status, setStatus] = createSignal<SyncStatus>(props.status || SyncStatus.Never);
-  const [itemsSynced, setItemsSynced] = createSignal<number>(props.itemsSynced || 0);
-  const [totalItems, setTotalItems] = createSignal<number>(props.totalItems || 0);
+  const [status, setStatus] = createSignal<SyncStatusType>(
+    props.status || SyncStatus.Never
+  );
+  const [itemsSynced, setItemsSynced] = createSignal<number>(
+    props.itemsSynced || 0
+  );
+  const [totalItems, setTotalItems] = createSignal<number>(
+    props.totalItems || 0
+  );
 
   createEffect(() => {
     if (props.status !== undefined) {
@@ -47,7 +54,7 @@ function SyncStatusComponent(props: SyncStatusProps) {
     switch (status()) {
       case SyncStatus.Never:
         return "#94a3b8"; // gray
-      case SyncStatus.Idle:
+      case SyncStatus.Complete:
         return "#10b981"; // green
       case SyncStatus.InProgress:
         return "#f59e0b"; // amber
@@ -62,7 +69,7 @@ function SyncStatusComponent(props: SyncStatusProps) {
     switch (status()) {
       case SyncStatus.Never:
         return "Not synced";
-      case SyncStatus.Idle:
+      case SyncStatus.Complete:
         return "Up to date";
       case SyncStatus.InProgress:
         return "Syncing...";
@@ -77,7 +84,7 @@ function SyncStatusComponent(props: SyncStatusProps) {
     switch (status()) {
       case SyncStatus.Never:
         return "○";
-      case SyncStatus.Idle:
+      case SyncStatus.Complete:
         return "✓";
       case SyncStatus.InProgress:
         return "⟳";
@@ -152,7 +159,13 @@ function SyncStatusComponent(props: SyncStatusProps) {
         </span>
       </Show>
 
-      <Show when={props.showProgress && status() === SyncStatus.InProgress && totalItems() > 0}>
+      <Show
+        when={
+          props.showProgress &&
+          status() === SyncStatus.InProgress &&
+          totalItems() > 0
+        }
+      >
         <div
           style={{
             display: "flex",
@@ -182,14 +195,18 @@ function SyncStatusComponent(props: SyncStatusProps) {
   );
 }
 
-customElement("sync-status", {
-  status: undefined,
-  showText: true,
-  showProgress: false,
-  itemsSynced: 0,
-  totalItems: 0,
-  compact: false,
-  className: "",
-}, SyncStatusComponent);
+customElement(
+  "sync-status",
+  {
+    status: undefined,
+    showText: true,
+    showProgress: false,
+    itemsSynced: 0,
+    totalItems: 0,
+    compact: false,
+    className: "",
+  },
+  SyncStatusComponent
+);
 
 export default SyncStatusComponent;
