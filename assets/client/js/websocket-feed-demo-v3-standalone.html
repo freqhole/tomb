@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebSocket Feed Demo V3 - Domain Components</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f8fafc;
+      color: #1f2937;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding: 20px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    .header h1 {
+      margin: 0 0 8px 0;
+      color: #111827;
+      font-size: 2rem;
+    }
+    .header p {
+      margin: 0;
+      color: #6b7280;
+      font-size: 1.1rem;
+    }
+    .instructions {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 30px;
+      color: #1e40af;
+    }
+    .instructions h3 {
+      margin: 0 0 8px 0;
+      color: #1e40af;
+      font-size: 1rem;
+    }
+    .instructions ul {
+      margin: 8px 0 0 0;
+      padding-left: 20px;
+    }
+    .instructions li {
+      margin-bottom: 4px;
+      font-size: 0.875rem;
+    }
+    
+      .instructions {
+        background: #f0fdf4;
+        border: 1px solid #22c55e;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 30px;
+        color: #15803d;
+      }
+    
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎯 Clean Architecture with Domain-Organized Components</h1>
+      <p>WebSocket Feed Demo V3 - Domain Components</p>
+    </div>
+
+    <div class="instructions">
+      <h3>🚀 Getting Started</h3>
+      <ul>
+        <li>Make sure your server is running on <code>localhost:8080</code> with WebSocket support</li>
+        <li>This V3 demo showcases the complete clean architecture refactor</li>
+        <li>Components are organized by domain: websocket/, feed/, common/</li>
+        <li>Web components are simple demos that compose reusable domain components</li>
+        <li>Try uploading files to see real-time notifications with the new architecture!</li>
+      </ul>
+    </div>
+
+    <websocket-feed-demo-v3 ws-url="ws://localhost:8080/ws" channels="[&quot;MediaBlobs&quot;]" debug="true" auto-connect="true" item-mode="default" max-height="500px" show-controls="true" show-stats="true" demo-mode="true"></websocket-feed-demo-v3>
+  </div>
+
+  <script type="module">
+import{c as U,a as w,o as W,d as T,t as g,i as r,h as a,S as c,e as v,j as u,m as V,f as H}from"./types-wRdBRQEO.js";import{u as N,C as j,a as B,F as E,M as I}from"./FeedControls-D37lmQUp.js";import"./websocket-client-CzEhP7Z_.js";import"./websocket-types-HIMKE9rI.js";var q=g("<div><span>❌</span><span>"),A=g("<div><div>Debug Logs:</div><div>"),G=g("<div>🎯 Demo Mode: This component uses clean architecture with hooks + domain components"),J=g("<div><div><h2>WebSocket Feed Demo V3</h2><div>"),K=g("<div>");function O(n){const[y,C]=w(n.itemMode||"default"),[x,S]=w([]),o=N({wsUrl:n.wsUrl||"ws://localhost:8080/ws",channels:n.channels||["MediaBlobs"],debug:n.debug||!1,autoConnect:n.autoConnect!==!1}),l=t=>{if(n.debug){const m=new Date().toLocaleTimeString();S(p=>[...p.slice(-19),`[${m}] ${t}`])}};W(()=>{l("🚀 WebSocket Feed Demo V3 mounted")}),T(()=>{l("🧹 WebSocket Feed Demo V3 cleanup")});const P=t=>{l(`🖱️ Clicked item: ${t.filename} (${t.id.slice(0,8)})`)},$=t=>{C(t),l(`🎨 Display mode changed to: ${t}`)},b=()=>{l("🔄 Manual refresh triggered"),o.actions.refresh()},k=()=>{l("🔌 Connect button clicked"),o.actions.connect()},M=()=>{l("🔌 Disconnect button clicked"),o.actions.disconnect()},D=()=>({"font-family":"system-ui, -apple-system, sans-serif","max-width":"800px",margin:"0 auto",padding:"16px",display:"flex","flex-direction":"column",gap:"16px","background-color":"#ffffff",border:"1px solid #e2e8f0","border-radius":"12px","box-shadow":"0 4px 6px -1px rgba(0, 0, 0, 0.1)"}),_=()=>({display:"flex","align-items":"center","justify-content":"space-between",padding:"0 4px",gap:"16px","flex-wrap":"wrap"}),L=()=>({"font-size":"20px","font-weight":"600",color:"#1e293b",margin:"0"}),F=()=>({display:"flex","align-items":"center",gap:"12px","flex-wrap":"wrap"}),z=()=>({"font-size":"11px","font-family":"monospace","background-color":"#f1f5f9",border:"1px solid #e2e8f0","border-radius":"6px",padding:"8px","max-height":"120px","overflow-y":"auto",color:"#475569"});return(()=>{var t=J(),m=t.firstChild,p=m.firstChild,h=p.nextSibling;return r(h,a(j,{get status(){return o.state().connectionStatus},showText:!0,compact:!1}),null),r(h,a(c,{get when(){return n.showControls!==!1},get children(){return a(B,{get status(){return o.state().connectionStatus},onConnect:k,onDisconnect:M,onRefresh:b,showRefresh:!0,compact:!1})}}),null),r(t,a(c,{get when(){return n.showStats!==!1},get children(){return a(E,{get totalCount(){return o.state().totalCount},get subscribedChannels(){return o.state().subscribedChannels},get lastUpdated(){return o.state().lastUpdated},get isLoading(){return o.state().isLoading},get mode(){return y()},onModeChange:$,onRefresh:b,showStats:!0,showModeToggle:!0})}}),null),r(t,a(c,{get when(){return o.state().error},get children(){var e=q(),s=e.firstChild,i=s.nextSibling;return e.style.setProperty("padding","12px"),e.style.setProperty("background-color","#fef2f2"),e.style.setProperty("border","1px solid #fecaca"),e.style.setProperty("border-radius","6px"),e.style.setProperty("color","#dc2626"),e.style.setProperty("font-size","14px"),e.style.setProperty("display","flex"),e.style.setProperty("align-items","center"),e.style.setProperty("gap","8px"),r(i,()=>o.state().error),e}}),null),r(t,a(I,{get items(){return o.state().items},get isLoading(){return o.state().isLoading},get error(){return o.state().error},get mode(){return y()},get maxHeight(){return n.maxHeight||"400px"},showPreview:!0,showMetadata:!0,onItemClick:P}),null),r(t,a(c,{get when(){return V(()=>!!n.debug)()&&x().length>0},get children(){var e=A(),s=e.firstChild,i=s.nextSibling;return s.style.setProperty("font-size","12px"),s.style.setProperty("font-weight","500"),s.style.setProperty("margin-bottom","4px"),s.style.setProperty("color","#64748b"),r(i,()=>x().map(d=>(()=>{var f=K();return r(f,d),f})())),v(d=>u(i,z(),d)),e}}),null),r(t,a(c,{get when(){return n.demoMode},get children(){var e=G();return e.style.setProperty("font-size","12px"),e.style.setProperty("color","#64748b"),e.style.setProperty("text-align","center"),e.style.setProperty("padding","8px"),e.style.setProperty("background-color","#f8fafc"),e.style.setProperty("border","1px solid #e2e8f0"),e.style.setProperty("border-radius","6px"),e}}),null),v(e=>{var s=n.className,i=D(),d=_(),f=L(),R=F();return s!==e.e&&H(t,e.e=s),e.t=u(t,i,e.t),e.a=u(m,d,e.a),e.o=u(p,f,e.o),e.i=u(h,R,e.i),e},{e:void 0,t:void 0,a:void 0,o:void 0,i:void 0}),t})()}U("websocket-feed-demo-v3",{wsUrl:void 0,channels:void 0,debug:!1,autoConnect:!0,itemMode:"default",maxHeight:"400px",showControls:!0,showStats:!0,className:void 0,demoMode:!1},O);
+//# sourceMappingURL=websocket-feed-demo-v3.js.map
+
+  </script>
+</body>
+</html>
