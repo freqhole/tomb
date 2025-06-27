@@ -20,6 +20,7 @@ pub struct ThumbnailJobQueue {
     worker_handles: Arc<RwLock<Vec<JoinHandle<()>>>>,
     shutdown_tx: Option<broadcast::Sender<()>>,
     stats: Arc<RwLock<QueueStats>>,
+    notification_tx: Option<broadcast::Sender<String>>,
 }
 
 impl ThumbnailJobQueue {
@@ -31,6 +32,23 @@ impl ThumbnailJobQueue {
             worker_handles: Arc::new(RwLock::new(Vec::new())),
             shutdown_tx: None,
             stats: Arc::new(RwLock::new(QueueStats::new())),
+            notification_tx: None,
+        }
+    }
+
+    /// Create a new job queue manager with notification support
+    pub fn new_with_notifications(
+        db: DatabaseConnection,
+        config: ThumbnailConfig,
+        notification_tx: broadcast::Sender<String>,
+    ) -> Self {
+        Self {
+            db,
+            config,
+            worker_handles: Arc::new(RwLock::new(Vec::new())),
+            shutdown_tx: None,
+            stats: Arc::new(RwLock::new(QueueStats::new())),
+            notification_tx: Some(notification_tx),
         }
     }
 
@@ -52,8 +70,17 @@ impl ThumbnailJobQueue {
             let stats = Arc::clone(&self.stats);
             let mut local_shutdown_rx = shutdown_tx.subscribe();
 
+            let notification_tx = self.notification_tx.clone();
             let handle = tokio::spawn(async move {
-                let processor = ThumbnailJobProcessor::new(db.clone(), config.clone());
+                let processor = if let Some(notification_tx) = notification_tx {
+                    ThumbnailJobProcessor::new_with_notifications(
+                        db.clone(),
+                        config.clone(),
+                        notification_tx,
+                    )
+                } else {
+                    ThumbnailJobProcessor::new(db.clone(), config.clone())
+                };
 
                 tracing::info!(
                     worker_id = worker_id,

@@ -209,13 +209,31 @@ impl Default for ThumbnailTimeouts {
 }
 
 /// Media blob information for thumbnail generation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaBlobInfo {
     pub id: Uuid,
-    pub local_path: String,
+    pub local_path: Option<String>,
+    pub data: Option<Vec<u8>>,
     pub mime_type: String,
     pub size: i64,
     pub metadata: Option<serde_json::Value>,
+}
+
+impl MediaBlobInfo {
+    /// Check if this media blob has file data available (either on disk or in memory)
+    pub fn has_data(&self) -> bool {
+        self.local_path.as_ref().map_or(false, |p| !p.is_empty()) || self.data.is_some()
+    }
+
+    /// Check if this is a large file stored on disk
+    pub fn is_large_file(&self) -> bool {
+        self.local_path.as_ref().map_or(false, |p| !p.is_empty()) && self.data.is_none()
+    }
+
+    /// Check if this is a small file stored in memory
+    pub fn is_small_file(&self) -> bool {
+        self.data.is_some() && self.local_path.as_ref().map_or(true, |p| p.is_empty())
+    }
 }
 
 /// Generated thumbnail information
@@ -511,17 +529,57 @@ mod tests {
         let blob_id = Uuid::new_v4();
         let media_info = MediaBlobInfo {
             id: blob_id,
-            local_path: "/path/to/media.jpg".to_string(),
+            local_path: Some("/path/to/media.jpg".to_string()),
+            data: None,
             mime_type: "image/jpeg".to_string(),
             size: 1024,
             metadata: Some(serde_json::json!({"width": 800, "height": 600})),
         };
 
         assert_eq!(media_info.id, blob_id);
-        assert_eq!(media_info.local_path, "/path/to/media.jpg");
+        assert_eq!(
+            media_info.local_path,
+            Some("/path/to/media.jpg".to_string())
+        );
         assert_eq!(media_info.mime_type, "image/jpeg");
         assert_eq!(media_info.size, 1024);
         assert!(media_info.metadata.is_some());
+        assert!(media_info.is_large_file());
+        assert!(!media_info.is_small_file());
+    }
+
+    #[test]
+    fn test_media_blob_info_small_file() {
+        let blob_id = Uuid::new_v4();
+        let media_info = MediaBlobInfo {
+            id: blob_id,
+            local_path: None,
+            data: Some(vec![1, 2, 3, 4]),
+            mime_type: "image/jpeg".to_string(),
+            size: 4,
+            metadata: None,
+        };
+
+        assert!(media_info.is_small_file());
+        assert!(!media_info.is_large_file());
+        assert!(media_info.has_data());
+    }
+
+    #[test]
+    fn test_media_blob_info_large_file() {
+        let blob_id = Uuid::new_v4();
+        let media_info = MediaBlobInfo {
+            id: blob_id,
+            local_path: Some("/path/to/large/file.mp4".to_string()),
+            data: None,
+            mime_type: "video/mp4".to_string(),
+            size: 50_000_000,
+            metadata: None,
+        };
+
+        assert!(media_info.is_large_file());
+        assert!(!media_info.is_small_file());
+        assert!(media_info.has_data());
     }
 
     #[test]

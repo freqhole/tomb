@@ -68,6 +68,11 @@ export interface WebSocketClientEvents {
     connection_id: string;
     is_authenticated: boolean;
   }) => void;
+  /** Received thumbnails for a media blob */
+  thumbnails: (data: {
+    media_blob_id: string;
+    thumbnails: MediaBlob[];
+  }) => void;
   /** Raw message received (for debugging) */
   rawMessage: (message: string) => void;
   /** Message parse error */
@@ -211,6 +216,13 @@ export class WebSocketClient {
   }
 
   /**
+   * Request thumbnails for a media blob
+   */
+  getThumbnails(mediaBlobId: string): boolean {
+    return this.send(createMessage.getThumbnails(mediaBlobId));
+  }
+
+  /**
    * Subscribe to notification channel
    */
   subscribeToNotifications(channel: NotificationChannel): boolean {
@@ -315,6 +327,9 @@ export class WebSocketClient {
           break;
         case "NotificationStatus":
           this.listeners.notificationStatus?.(response.data);
+          break;
+        case "Thumbnails":
+          this.listeners.thumbnails?.(response.data);
           break;
         default:
           this.log("Unknown message type:", response);

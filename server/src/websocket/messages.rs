@@ -33,6 +33,8 @@ pub enum WebSocketMessage {
     UnsubscribeFromNotifications { channel: NotificationChannel },
     /// Client requests notification status
     GetNotificationStatus,
+    /// Client requests thumbnails for a media blob
+    GetThumbnails { media_blob_id: Uuid },
 }
 
 /// Messages sent from server to client
@@ -86,6 +88,11 @@ pub enum WebSocketResponse {
         connection_id: String,
         is_authenticated: bool,
     },
+    /// Server sends thumbnails for a media blob
+    Thumbnails {
+        media_blob_id: Uuid,
+        thumbnails: Vec<MediaBlob>,
+    },
 }
 
 impl WebSocketMessage {
@@ -133,6 +140,10 @@ impl std::fmt::Debug for WebSocketMessage {
             WebSocketMessage::GetNotificationStatus => {
                 f.debug_struct("GetNotificationStatus").finish()
             }
+            WebSocketMessage::GetThumbnails { media_blob_id } => f
+                .debug_struct("GetThumbnails")
+                .field("media_blob_id", media_blob_id)
+                .finish(),
         }
     }
 }
@@ -281,6 +292,14 @@ impl std::fmt::Debug for WebSocketResponse {
                 .field("subscribed_channels", subscribed_channels)
                 .field("connection_id", connection_id)
                 .field("is_authenticated", is_authenticated)
+                .finish(),
+            WebSocketResponse::Thumbnails {
+                media_blob_id,
+                thumbnails,
+            } => f
+                .debug_struct("Thumbnails")
+                .field("media_blob_id", media_blob_id)
+                .field("thumbnail_count", &thumbnails.len())
                 .finish(),
         }
     }

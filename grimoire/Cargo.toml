@@ -24,5 +24,7 @@ async-trait.workspace = true
 # Local dependencies
 # server = { path = "../server" } # Temporarily removed to fix circular dependency
 
-[dev-dependencies]
 tempfile.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]

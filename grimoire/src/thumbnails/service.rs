@@ -10,6 +10,7 @@ use super::models::{
 };
 use super::repository::ThumbnailRepository;
 use crate::DatabaseConnection;
+
 use std::path::Path;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -170,22 +171,44 @@ impl<'a> ThumbnailService<'a> {
             .await?
             .ok_or(ThumbnailError::MediaBlobNotFound(job.media_blob_id))?;
 
-        // Validate input file exists
-        if !Path::new(&media_info.local_path).exists() {
-            return Err(ThumbnailError::FileNotFound(media_info.local_path.clone()));
+        // Validate media data is available
+        if !media_info.has_data() {
+            return Err(ThumbnailError::FileNotFound(
+                "Media blob has no data available (neither local_path nor data field)".to_string(),
+            ));
         }
 
+        // Prepare input file path (either existing file or temporary file from data)
+        let input_path = self.prepare_input_file(&media_info).await?;
+
         // Generate thumbnail based on job type
-        match job.job_type {
+        let result = match job.job_type {
             ThumbnailJobType::ImageThumbnail => {
-                self.generate_image_thumbnail(&media_info, job).await
+                self.generate_image_thumbnail_with_path(&input_path, &media_info, job)
+                    .await
             }
             ThumbnailJobType::VideoThumbnail => {
-                self.generate_video_thumbnail(&media_info, job).await
+                self.generate_video_thumbnail_with_path(&input_path, &media_info, job)
+                    .await
             }
-            ThumbnailJobType::AudioWaveform => self.generate_audio_waveform(&media_info, job).await,
-            ThumbnailJobType::VideoPreview => self.generate_video_preview(&media_info, job).await,
+            ThumbnailJobType::AudioWaveform => {
+                self.generate_audio_waveform_with_path(&input_path, &media_info, job)
+                    .await
+            }
+            ThumbnailJobType::VideoPreview => {
+                self.generate_video_preview_with_path(&input_path, &media_info, job)
+                    .await
+            }
+        };
+
+        // Clean up temporary file if we created one
+        if media_info.is_small_file() {
+            if let Err(e) = std::fs::remove_file(&input_path) {
+                tracing::warn!("Failed to clean up temporary file {}: {}", input_path, e);
+            }
         }
+
+        result
     }
 
     /// Store generated thumbnail
@@ -339,9 +362,74 @@ impl<'a> ThumbnailService<'a> {
             .is_ok()
     }
 
-    /// Generate image thumbnail using ImageMagick
-    async fn generate_image_thumbnail(
+    /// Prepare input file path for processing
+    /// - For files stored on disk: returns the existing path
+    /// - For files stored in database: creates a temporary file and returns its path
+    async fn prepare_input_file(
         &self,
+        media_info: &MediaBlobInfo,
+    ) -> Result<String, ThumbnailError> {
+        if media_info.is_large_file() {
+            // File is stored on disk, validate it exists
+            let path = media_info.local_path.as_ref().unwrap();
+            if !Path::new(path).exists() {
+                return Err(ThumbnailError::FileNotFound(path.clone()));
+            }
+            Ok(path.clone())
+        } else if media_info.is_small_file() {
+            // File is stored in database, create temporary file
+            let data = media_info.data.as_ref().unwrap();
+
+            // Determine file extension from MIME type
+            let extension = self.get_extension_from_mime(&media_info.mime_type);
+
+            // Create temporary file path in system temp directory
+            let temp_dir = std::env::temp_dir();
+            let temp_filename = if extension.is_empty() {
+                format!("thumbnail_input_{}", uuid::Uuid::new_v4())
+            } else {
+                format!("thumbnail_input_{}.{}", uuid::Uuid::new_v4(), extension)
+            };
+            let temp_path = temp_dir.join(temp_filename);
+
+            // Write data to temporary file
+            std::fs::write(&temp_path, data).map_err(|e| ThumbnailError::Io(e))?;
+
+            Ok(temp_path.to_string_lossy().to_string())
+        } else {
+            Err(ThumbnailError::FileNotFound(
+                "Media blob has no valid data source".to_string(),
+            ))
+        }
+    }
+
+    /// Get file extension from MIME type
+    fn get_extension_from_mime(&self, mime_type: &str) -> String {
+        match mime_type {
+            "image/jpeg" => "jpg",
+            "image/png" => "png",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            "image/bmp" => "bmp",
+            "image/tiff" => "tiff",
+            "video/mp4" => "mp4",
+            "video/mpeg" => "mpeg",
+            "video/quicktime" => "mov",
+            "video/x-msvideo" => "avi",
+            "video/webm" => "webm",
+            "audio/mpeg" => "mp3",
+            "audio/wav" => "wav",
+            "audio/ogg" => "ogg",
+            "audio/flac" => "flac",
+            _ => "",
+        }
+        .to_string()
+    }
+
+    /// Generate image thumbnail using ImageMagick with provided input path
+    async fn generate_image_thumbnail_with_path(
+        &self,
+        input_path: &str,
         media_info: &MediaBlobInfo,
         job: &ThumbnailJob,
     ) -> Result<ThumbnailResult, ThumbnailError> {
@@ -361,7 +449,7 @@ impl<'a> ThumbnailService<'a> {
         let imagemagick_cmd = self.config.imagemagick_path.as_deref().unwrap_or("convert");
         let mut cmd = tokio::process::Command::new(imagemagick_cmd);
 
-        cmd.arg(&media_info.local_path);
+        cmd.arg(input_path);
 
         // Add resize parameters based on crop strategy
         match dimensions.crop_strategy {
@@ -421,9 +509,10 @@ impl<'a> ThumbnailService<'a> {
         })
     }
 
-    /// Generate video thumbnail using FFmpeg
-    async fn generate_video_thumbnail(
+    /// Generate video thumbnail using FFmpeg with provided input path
+    async fn generate_video_thumbnail_with_path(
         &self,
+        input_path: &str,
         media_info: &MediaBlobInfo,
         job: &ThumbnailJob,
     ) -> Result<ThumbnailResult, ThumbnailError> {
@@ -444,7 +533,7 @@ impl<'a> ThumbnailService<'a> {
         let mut cmd = tokio::process::Command::new(ffmpeg_cmd);
 
         cmd.arg("-i")
-            .arg(&media_info.local_path)
+            .arg(input_path)
             .arg("-ss")
             .arg("00:00:01") // Seek to 1 second
             .arg("-vframes")
@@ -486,9 +575,10 @@ impl<'a> ThumbnailService<'a> {
         })
     }
 
-    /// Generate audio waveform using FFmpeg
-    async fn generate_audio_waveform(
+    /// Generate audio waveform using FFmpeg with provided input path
+    async fn generate_audio_waveform_with_path(
         &self,
+        input_path: &str,
         media_info: &MediaBlobInfo,
         job: &ThumbnailJob,
     ) -> Result<ThumbnailResult, ThumbnailError> {
@@ -509,7 +599,7 @@ impl<'a> ThumbnailService<'a> {
         let mut cmd = tokio::process::Command::new(ffmpeg_cmd);
 
         cmd.arg("-i")
-            .arg(&media_info.local_path)
+            .arg(input_path)
             .arg("-filter_complex")
             .arg(format!(
                 "showwavespic=s={}x{}:colors=0x3b82f6",
@@ -552,9 +642,10 @@ impl<'a> ThumbnailService<'a> {
         })
     }
 
-    /// Generate video preview using FFmpeg
-    async fn generate_video_preview(
+    /// Generate video preview using FFmpeg with provided input path
+    async fn generate_video_preview_with_path(
         &self,
+        input_path: &str,
         media_info: &MediaBlobInfo,
         job: &ThumbnailJob,
     ) -> Result<ThumbnailResult, ThumbnailError> {
@@ -572,7 +663,7 @@ impl<'a> ThumbnailService<'a> {
         let mut cmd = tokio::process::Command::new(ffmpeg_cmd);
 
         cmd.arg("-i")
-            .arg(&media_info.local_path)
+            .arg(input_path)
             .arg("-vf")
             .arg(format!(
                 "select='not(mod(n\\,30))',scale={}:{},tile=3x3",

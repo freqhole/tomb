@@ -38,6 +38,12 @@ export const MediaBlobSchema = z.object({
   metadata: z.record(z.any()).default({}), // JSONB as Record<string, any>
   created_at: DateTimeSchema,
   updated_at: DateTimeSchema,
+  // Thumbnail support
+  parent_blob_id: UuidSchema.optional(),
+  blob_type: z
+    .enum(["original", "thumbnail", "waveform", "preview"])
+    .default("original"),
+  thumbnail_data: z.array(z.number()).optional(), // Thumbnail blob data when available
 });
 
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
@@ -90,6 +96,12 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("GetNotificationStatus"),
+  }),
+  z.object({
+    type: z.literal("GetThumbnails"),
+    data: z.object({
+      media_blob_id: UuidSchema,
+    }),
   }),
 ]);
 
@@ -176,6 +188,13 @@ export const WebSocketResponseSchema = z.discriminatedUnion("type", [
       is_authenticated: z.boolean(),
     }),
   }),
+  z.object({
+    type: z.literal("Thumbnails"),
+    data: z.object({
+      media_blob_id: UuidSchema,
+      thumbnails: z.array(MediaBlobSchema),
+    }),
+  }),
 ]);
 
 export type WebSocketResponse = z.infer<typeof WebSocketResponseSchema>;
@@ -232,6 +251,11 @@ export const createMessage = {
 
   getNotificationStatus: (): WebSocketMessage => ({
     type: "GetNotificationStatus",
+  }),
+
+  getThumbnails: (mediaBlobId: string): WebSocketMessage => ({
+    type: "GetThumbnails",
+    data: { media_blob_id: mediaBlobId },
   }),
 };
 

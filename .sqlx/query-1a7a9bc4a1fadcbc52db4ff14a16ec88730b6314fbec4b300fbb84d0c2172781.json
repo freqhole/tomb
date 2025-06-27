@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, metadata, state, task_type, created_at FROM thumbnail_jobs ORDER BY created_at DESC LIMIT 5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "state",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "task_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1a7a9bc4a1fadcbc52db4ff14a16ec88730b6314fbec4b300fbb84d0c2172781"
+}

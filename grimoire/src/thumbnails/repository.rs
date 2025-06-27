@@ -1,8 +1,12 @@
 use super::models::{
-    MediaBlobInfo, ThumbnailError, ThumbnailJob, ThumbnailJobMetrics, ThumbnailJobStatus,
-    ThumbnailJobType, ThumbnailResult,
+    MediaBlobInfo, ThumbnailError, ThumbnailJob, ThumbnailJobMetrics, ThumbnailJobPriority,
+    ThumbnailJobStatus, ThumbnailJobType, ThumbnailResult,
 };
 use crate::DatabaseConnection;
+
+use sha2::{Digest, Sha256};
+use std::fs::File;
+use std::io::Read;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -22,22 +26,55 @@ impl<'a> ThumbnailRepository<'a> {
         // Insert into thumbnail_jobs table for job queue processing
         let metadata = serde_json::to_value(job)?;
 
-        sqlx::query!(
+        // Map ThumbnailJobStatus to the status column
+        let status = match job.status {
+            ThumbnailJobStatus::Pending => "pending",
+            ThumbnailJobStatus::InProgress => "processing",
+            ThumbnailJobStatus::Completed => "completed",
+            ThumbnailJobStatus::Failed => "failed",
+            ThumbnailJobStatus::FailedPermanently => "failed",
+            ThumbnailJobStatus::Cancelled => "cancelled",
+        };
+
+        // Map ThumbnailJobPriority to the priority column
+        let priority = match job.priority {
+            ThumbnailJobPriority::Low => "low",
+            ThumbnailJobPriority::Normal => "normal",
+            ThumbnailJobPriority::High => "high",
+            ThumbnailJobPriority::Critical => "critical",
+        };
+
+        // Extract dimensions if available
+        let (width, height) = if let Some(ref dims) = job.target_dimensions {
+            (Some(dims.width as i32), Some(dims.height as i32))
+        } else {
+            (None, None)
+        };
+
+        sqlx::query(
             r#"
             INSERT INTO thumbnail_jobs (
-                id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at
+                id, media_blob_id, status, priority, width, height,
+                metadata, state, task_type, scheduled_at, retries,
+                created_at, updated_at, error_message
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             "#,
-            job.id,
-            metadata,
-            "new",
-            job.job_type.to_string(),
-            job.scheduled_at,
-            job.retry_count,
-            job.created_at,
-            job.updated_at
         )
+        .bind(job.id)
+        .bind(job.media_blob_id)
+        .bind(status)
+        .bind(priority)
+        .bind(width)
+        .bind(height)
+        .bind(metadata)
+        .bind("new")
+        .bind(job.job_type.to_string())
+        .bind(job.scheduled_at)
+        .bind(job.retry_count)
+        .bind(job.created_at)
+        .bind(job.updated_at)
+        .bind(job.error_message.clone())
         .execute(self.db.pool())
         .await?;
 
@@ -83,11 +120,11 @@ impl<'a> ThumbnailRepository<'a> {
             let metadata = serde_json::to_value(job)?;
             let state = match status {
                 ThumbnailJobStatus::Pending => "new",
-                ThumbnailJobStatus::InProgress => "in_progress",
+                ThumbnailJobStatus::InProgress => "running",
                 ThumbnailJobStatus::Completed => "finished",
                 ThumbnailJobStatus::Failed => "failed",
                 ThumbnailJobStatus::FailedPermanently => "failed",
-                ThumbnailJobStatus::Cancelled => "failed",
+                ThumbnailJobStatus::Cancelled => "cancelled",
             };
 
             sqlx::query!(
@@ -141,7 +178,7 @@ impl<'a> ThumbnailRepository<'a> {
     ) -> Result<Option<MediaBlobInfo>, ThumbnailError> {
         let row = sqlx::query!(
             r#"
-            SELECT id, local_path, mime, size, metadata
+            SELECT id, local_path, data, mime, size, metadata
             FROM media_blobs
             WHERE id = $1 AND deleted_at IS NULL AND blob_type = 'original'
             "#,
@@ -153,7 +190,8 @@ impl<'a> ThumbnailRepository<'a> {
         if let Some(row) = row {
             Ok(Some(MediaBlobInfo {
                 id: row.id,
-                local_path: row.local_path.unwrap_or_default(),
+                local_path: row.local_path,
+                data: row.data,
                 mime_type: row.mime.unwrap_or_default(),
                 size: row.size.unwrap_or(0),
                 metadata: row.metadata,
@@ -170,12 +208,15 @@ impl<'a> ThumbnailRepository<'a> {
     ) -> Result<Uuid, ThumbnailError> {
         let thumbnail_id = Uuid::new_v4();
 
+        // Calculate SHA256 hash of the thumbnail file
+        let sha256_hash = self.calculate_file_hash(&thumbnail.local_path)?;
+
         sqlx::query!(
             r#"
             INSERT INTO media_blobs (
-                id, parent_blob_id, blob_type, local_path, mime, size, metadata, created_at, updated_at
+                id, parent_blob_id, blob_type, local_path, mime, size, sha256, source_client_id, metadata, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
             "#,
             thumbnail_id,
             thumbnail.media_blob_id,
@@ -183,12 +224,34 @@ impl<'a> ThumbnailRepository<'a> {
             thumbnail.local_path,
             thumbnail.mime_type,
             thumbnail.size,
+            sha256_hash,
+            "thumbnail-generator",
             thumbnail.metadata
         )
         .execute(self.db.pool())
         .await?;
 
         Ok(thumbnail_id)
+    }
+
+    /// Calculate SHA256 hash of a file
+    fn calculate_file_hash(&self, file_path: &str) -> Result<String, ThumbnailError> {
+        let mut file = File::open(file_path).map_err(|e| ThumbnailError::Io(e))?;
+
+        let mut hasher = Sha256::new();
+        let mut buffer = [0; 8192];
+
+        loop {
+            let bytes_read = file.read(&mut buffer).map_err(|e| ThumbnailError::Io(e))?;
+
+            if bytes_read == 0 {
+                break;
+            }
+
+            hasher.update(&buffer[..bytes_read]);
+        }
+
+        Ok(format!("{:x}", hasher.finalize()))
     }
 
     /// Get existing thumbnails for a media blob
@@ -198,7 +261,7 @@ impl<'a> ThumbnailRepository<'a> {
     ) -> Result<Vec<MediaBlobInfo>, ThumbnailError> {
         let rows = sqlx::query!(
             r#"
-            SELECT id, local_path, mime, size, metadata
+            SELECT id, local_path, data, mime, size, metadata
             FROM media_blobs
             WHERE parent_blob_id = $1 AND deleted_at IS NULL
             AND blob_type IN ('thumbnail', 'waveform', 'preview')
@@ -213,7 +276,8 @@ impl<'a> ThumbnailRepository<'a> {
         for row in rows {
             thumbnails.push(MediaBlobInfo {
                 id: row.id,
-                local_path: row.local_path.unwrap_or_default(),
+                local_path: row.local_path,
+                data: row.data,
                 mime_type: row.mime.unwrap_or_default(),
                 size: row.size.unwrap_or(0),
                 metadata: row.metadata,
@@ -235,11 +299,11 @@ impl<'a> ThumbnailRepository<'a> {
                 SELECT 1 FROM thumbnail_jobs
                 WHERE task_type = $1
                 AND state IN ('new', 'in_progress', 'retried', 'finished')
-                AND metadata->>'media_blob_id' = $2
+                AND media_blob_id = $2
             )
             "#,
             job_type.to_string(),
-            blob_id.to_string()
+            blob_id
         )
         .fetch_one(self.db.pool())
         .await?;

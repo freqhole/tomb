@@ -18,8 +18,10 @@ export interface MediaBlobFeedListProps {
   maxHeight?: string;
   showPreview?: boolean;
   showMetadata?: boolean;
+  showThumbnails?: boolean;
   emptyMessage?: string;
   onItemClick?: (item: MediaBlob) => void;
+  onGetThumbnails?: (mediaBlobId: string) => void;
   className?: string;
 }
 
@@ -180,7 +182,9 @@ export function MediaBlobFeedListComponent(props: MediaBlobFeedListProps) {
                 mode={mode()}
                 showPreview={props.showPreview}
                 showMetadata={props.showMetadata}
+                showThumbnails={props.showThumbnails}
                 onItemClick={props.onItemClick}
+                onGetThumbnails={props.onGetThumbnails}
               />
             )}
           </For>

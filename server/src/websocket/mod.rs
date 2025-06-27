@@ -23,3 +23,10 @@ pub fn build_websocket_routes() -> Router {
         .route("/ws", get(websocket_handler))
         .layer(Extension(connection_manager))
 }
+
+/// Build websocket routes with external connection manager
+pub fn build_websocket_routes_with_manager(connection_manager: ConnectionManager) -> Router {
+    Router::new()
+        .route("/ws", get(websocket_handler))
+        .layer(Extension(connection_manager))
+}

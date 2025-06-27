@@ -8,6 +8,10 @@ use grimoire::{
     ThumbnailService,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+
+use time::format_description;
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 /// Simple thumbnail job processor
@@ -15,6 +19,7 @@ pub struct ThumbnailJobProcessor {
     db: DatabaseConnection,
     config: ThumbnailConfig,
     worker_id: String,
+    notification_tx: Option<broadcast::Sender<String>>,
 }
 
 impl ThumbnailJobProcessor {
@@ -25,6 +30,22 @@ impl ThumbnailJobProcessor {
             db,
             config,
             worker_id,
+            notification_tx: None,
+        }
+    }
+
+    /// Create a new job processor with notification support
+    pub fn new_with_notifications(
+        db: DatabaseConnection,
+        config: ThumbnailConfig,
+        notification_tx: broadcast::Sender<String>,
+    ) -> Self {
+        let worker_id = format!("worker_{}", Uuid::new_v4());
+        Self {
+            db,
+            config,
+            worker_id,
+            notification_tx: Some(notification_tx),
         }
     }
 
@@ -92,6 +113,46 @@ impl ThumbnailJobProcessor {
                                 "Failed to update job status to completed"
                             );
                             return Err(ThumbnailJobError::Database(e.to_string()));
+                        }
+
+                        // Send notification about thumbnail completion
+                        if let Some(ref notification_tx) = self.notification_tx {
+                            let notification_message = json!({
+                                "type": "Notification",
+                                "data": {
+                                    "id": Uuid::new_v4(),
+                                    "channel": "MediaBlobs",
+                                    "event_type": "thumbnail.created",
+                                    "payload": {
+                                        "media_blob_id": job.media_blob_id,
+                                        "thumbnail_id": thumbnail_id,
+                                        "job_id": job.id,
+                                        "job_type": job.job_type
+                                    },
+                                    "priority": "Normal",
+                                    "timestamp": time::OffsetDateTime::now_utc().format(&format_description::well_known::Rfc3339).unwrap()
+                                }
+                            });
+
+                            if let Ok(notification_json) =
+                                serde_json::to_string(&notification_message)
+                            {
+                                if let Err(e) = notification_tx.send(notification_json) {
+                                    tracing::warn!(
+                                        job_id = %job.id,
+                                        thumbnail_id = %thumbnail_id,
+                                        error = %e,
+                                        "Failed to send thumbnail completion notification"
+                                    );
+                                } else {
+                                    tracing::info!(
+                                        job_id = %job.id,
+                                        thumbnail_id = %thumbnail_id,
+                                        media_blob_id = %job.media_blob_id,
+                                        "📡 Sent thumbnail completion notification"
+                                    );
+                                }
+                            }
                         }
 
                         Ok(())

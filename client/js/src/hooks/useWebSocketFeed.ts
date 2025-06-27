@@ -24,6 +24,7 @@ export interface FeedState {
   totalCount: number;
   lastUpdated: Date | null;
   error: string | null;
+  requestedThumbnails: Set<string>;
 }
 
 export interface FeedConfig {
@@ -40,6 +41,7 @@ export interface FeedActions {
   refresh: () => void;
   subscribe: (channel: NotificationChannel) => void;
   unsubscribe: (channel: NotificationChannel) => void;
+  getThumbnails: (mediaBlobId: string) => void;
 }
 
 export interface WebSocketFeedHook {
@@ -73,6 +75,7 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     totalCount: 0,
     lastUpdated: null,
     error: null,
+    requestedThumbnails: new Set<string>(),
   });
 
   const log = (...args: unknown[]) => {
@@ -210,6 +213,35 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
       updateFeedItem(data.blob);
     });
 
+    // Thumbnails response
+    wsClient.on("thumbnails", (data) => {
+      log(
+        "Received thumbnails for blob:",
+        data.media_blob_id,
+        "count:",
+        data.thumbnails.length
+      );
+      // Update the original blob's metadata to include thumbnail info
+      setFeedState((prev) => ({
+        ...prev,
+        items: prev.items.map((item) => {
+          if (item.id === data.media_blob_id) {
+            return {
+              ...item,
+              metadata: {
+                ...item.metadata,
+                thumbnails: data.thumbnails,
+                has_thumbnails: data.thumbnails.length > 0,
+                thumbnails_requested: true,
+              },
+            };
+          }
+          return item;
+        }),
+        lastUpdated: new Date(),
+      }));
+    });
+
     // Real-time notifications
     wsClient.on("notification", (data) => {
       log("🔔 Received notification:", data);
@@ -233,6 +265,23 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
             } else {
               log(
                 "❌ media_blob.created notification missing payload or media_blob"
+              );
+            }
+            break;
+          case "thumbnail.created":
+            if (data.payload && data.payload.media_blob_id) {
+              log(
+                "🖼️ Thumbnail created for blob:",
+                data.payload.media_blob_id.slice(0, 8)
+              );
+              // Automatically fetch updated thumbnails for the blob
+              const wsClient = client();
+              if (wsClient) {
+                wsClient.getThumbnails(data.payload.media_blob_id);
+              }
+            } else {
+              log(
+                "❌ thumbnail.created notification missing payload or media_blob_id"
               );
             }
             break;
@@ -362,6 +411,30 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     }
   };
 
+  const getThumbnails = (mediaBlobId: string) => {
+    const wsClient = client();
+    if (wsClient && feedState().isConnected) {
+      // Check if we've already requested thumbnails for this blob
+      if (feedState().requestedThumbnails.has(mediaBlobId)) {
+        log("Thumbnails already requested for blob:", mediaBlobId.slice(0, 8));
+        return;
+      }
+
+      log("Requesting thumbnails for blob:", mediaBlobId.slice(0, 8));
+
+      // Mark as requested
+      setFeedState((prev) => ({
+        ...prev,
+        requestedThumbnails: new Set([
+          ...prev.requestedThumbnails,
+          mediaBlobId,
+        ]),
+      }));
+
+      wsClient.getThumbnails(mediaBlobId);
+    }
+  };
+
   // Initialize WebSocket client only once
   createEffect(() => {
     if (!client()) {
@@ -390,6 +463,7 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     refresh,
     subscribe,
     unsubscribe,
+    getThumbnails,
   };
 
   return {

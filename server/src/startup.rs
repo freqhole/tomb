@@ -1,6 +1,7 @@
 use crate::jobs::ThumbnailJobQueue;
 use crate::maintenance::{MaintenanceConfig, MaintenanceScheduler};
 use crate::storage::SessionStore;
+use crate::websocket::handlers::ConnectionManager;
 use grimoire::analytics::AnalyticsConfig;
 use grimoire::config::{ConfigService, StorageBackend};
 
@@ -9,6 +10,7 @@ use grimoire::{AppConfig, DatabaseConnection};
 
 use std::sync::Arc;
 use tokio::fs;
+
 use webauthn_rs::prelude::*;
 
 /*
@@ -37,6 +39,8 @@ pub struct AppState {
     pub config: AppConfig,
     // Thumbnail job queue for background processing
     pub thumbnail_queue: Arc<tokio::sync::Mutex<ThumbnailJobQueue>>,
+    // WebSocket connection manager for real-time notifications
+    pub connection_manager: ConnectionManager,
     // Maintenance scheduler for cleanup tasks
     pub maintenance_scheduler: Option<Arc<MaintenanceScheduler>>,
 }
@@ -158,10 +162,18 @@ impl AppState {
             tracing::info!("Thumbnail generation is disabled in configuration");
         }
 
-        // Initialize thumbnail job queue
+        // Create shared connection manager for WebSocket and thumbnail notifications
+        let connection_manager = ConnectionManager::new();
+        let notification_tx = connection_manager.get_notification_sender();
+
+        // Initialize thumbnail job queue with notification support
         let config_service = ConfigService::new();
         let thumbnail_config = config_service.to_thumbnail_config(&config);
-        let mut thumbnail_queue = ThumbnailJobQueue::new(database.clone(), thumbnail_config);
+        let mut thumbnail_queue = ThumbnailJobQueue::new_with_notifications(
+            database.clone(),
+            thumbnail_config,
+            notification_tx,
+        );
 
         // Start workers if thumbnail generation is enabled
         if config.media.thumbnails.enabled {
@@ -203,6 +215,7 @@ impl AppState {
             session_store,
             config,
             thumbnail_queue: Arc::new(tokio::sync::Mutex::new(thumbnail_queue)),
+            connection_manager,
             maintenance_scheduler,
         })
     }

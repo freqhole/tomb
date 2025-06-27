@@ -217,7 +217,9 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
         maxHeight={props.maxHeight || "400px"}
         showPreview={true}
         showMetadata={true}
+        showThumbnails={true}
         onItemClick={handleItemClick}
+        onGetThumbnails={feed.actions.getThumbnails}
       />
 
       {/* Debug Logs */}

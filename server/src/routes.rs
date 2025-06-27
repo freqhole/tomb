@@ -13,18 +13,18 @@ use crate::static_filez::{build_enhanced_private_routes, build_enhanced_public_r
 
 use crate::sync::create_sync_routes;
 use crate::upload::build_upload_routes;
-use crate::websocket::build_websocket_routes;
+use crate::websocket::{build_websocket_routes_with_manager, handlers::ConnectionManager};
 use grimoire::AppConfig;
 
 /// Build all routes for the application
-pub fn build_routes(config: &AppConfig) -> Router {
+pub fn build_routes(config: &AppConfig, connection_manager: ConnectionManager) -> Router {
     Router::new()
         .merge(build_auth_routes(config))
         .merge(build_analytics_routes(config))
         .merge(build_enhanced_private_routes(config))
         .merge(build_enhanced_public_routes(config))
         .merge(build_health_routes())
-        .merge(build_websocket_routes())
+        .merge(build_websocket_routes_with_manager(connection_manager))
         .merge(build_upload_routes(config))
         .merge(create_sync_routes())
 }
@@ -36,7 +36,8 @@ mod tests {
     #[test]
     fn test_build_routes() {
         let config = AppConfig::default();
-        let _router = build_routes(&config);
+        let connection_manager = ConnectionManager::new();
+        let _router = build_routes(&config, connection_manager);
         // Basic test to ensure router builds without panicking
     }
 }

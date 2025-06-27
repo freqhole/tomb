@@ -276,7 +276,7 @@ async fn main() {
     };
 
     // Build main router with all routes
-    let mut app = build_routes(&config)
+    let mut app = build_routes(&config, app_state.connection_manager.clone())
         .merge(
             axum::Router::new()
                 .nest("/api/thumbnails", build_thumbnail_routes())

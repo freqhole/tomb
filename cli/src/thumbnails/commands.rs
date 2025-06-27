@@ -1,35 +1,40 @@
 //! CLI commands for thumbnail tool validation and management
 
-use clap::{Args, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use grimoire::{config::ConfigService, AppConfig, ThumbnailService};
 use std::path::PathBuf;
+use uuid::Uuid;
 
 /// Thumbnail-related commands
 #[derive(Debug, Clone, Subcommand)]
 pub enum ThumbnailCommands {
-    /// Validate external tools for thumbnail generation
+    /// Validate thumbnail generation tools (ImageMagick, FFmpeg)
     ValidateTools(ValidateToolsArgs),
     /// Test thumbnail generation with a sample file
     Test(TestArgs),
-    /// Show thumbnail job status and metrics
+    /// Show thumbnail job queue status and metrics
     Status(StatusArgs),
     /// List thumbnail jobs with optional filtering
     List(ListJobsArgs),
     /// Retry failed thumbnail jobs
     Retry(RetryArgs),
-    /// Clean up old thumbnail jobs and orphaned files
+    /// Clean up old completed jobs and orphaned files
     Cleanup(CleanupArgs),
-    /// Trigger thumbnail generation for a specific media blob
+    /// Generate thumbnails for specific media blobs
     Generate(GenerateArgs),
-    /// Run maintenance tasks for thumbnail system
+    /// Run maintenance tasks
     Maintenance(MaintenanceArgs),
+    /// Debug thumbnail job database issues
+    Debug(DebugArgs),
+    /// Bulk generate thumbnails for existing media blobs
+    BulkGenerate(BulkGenerateArgs),
 }
 
 /// Arguments for validating thumbnail tools
 #[derive(Debug, Clone, Args)]
 pub struct ValidateToolsArgs {
     /// Configuration file path
-    #[arg(short, long, default_value = "config.jsonc")]
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
     pub config: PathBuf,
 
     /// Show detailed tool information
@@ -41,7 +46,7 @@ pub struct ValidateToolsArgs {
 #[derive(Debug, Clone, Args)]
 pub struct TestArgs {
     /// Configuration file path
-    #[arg(short, long, default_value = "config.jsonc")]
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
     pub config: PathBuf,
 
     /// Input media file to test with
@@ -57,7 +62,7 @@ pub struct TestArgs {
 #[derive(Debug, Clone, Args)]
 pub struct StatusArgs {
     /// Configuration file path
-    #[arg(short, long, default_value = "config.jsonc")]
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
     pub config: PathBuf,
 
     /// Show detailed metrics
@@ -69,7 +74,7 @@ pub struct StatusArgs {
 #[derive(Debug, Clone, Args)]
 pub struct ListJobsArgs {
     /// Configuration file path
-    #[arg(short, long, default_value = "config.jsonc")]
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
     pub config: PathBuf,
 
     /// Filter by job status (pending, in_progress, completed, failed, failed_permanently, cancelled)
@@ -89,12 +94,12 @@ pub struct ListJobsArgs {
 #[derive(Debug, Clone, Args)]
 pub struct RetryArgs {
     /// Configuration file path
-    #[arg(short, long, default_value = "config.jsonc")]
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
     pub config: PathBuf,
 
     /// Specific job ID to retry (if not provided, retries all failed jobs)
-    #[arg(short, long)]
-    pub job_id: Option<String>,
+    #[arg(long)]
+    pub job_id: Option<Uuid>,
 
     /// Maximum number of jobs to retry
     #[arg(long, default_value = "100")]
@@ -105,7 +110,7 @@ pub struct RetryArgs {
 #[derive(Debug, Clone, Args)]
 pub struct CleanupArgs {
     /// Configuration file path
-    #[arg(short, long, default_value = "config.jsonc")]
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
     pub config: PathBuf,
 
     /// Remove completed jobs older than this many days
@@ -125,19 +130,19 @@ pub struct CleanupArgs {
 #[derive(Debug, Clone, Args)]
 pub struct GenerateArgs {
     /// Configuration file path
-    #[arg(short, long, default_value = "config.jsonc")]
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
     pub config: PathBuf,
 
     /// Media blob ID to generate thumbnails for
-    #[arg(short, long)]
-    pub media_blob_id: String,
+    #[arg(long)]
+    pub media_blob_id: Uuid,
 
-    /// Job type (image_thumbnail, video_thumbnail, audio_waveform, video_preview)
-    #[arg(short = 't', long)]
+    /// Job type to generate (image_thumbnail, video_thumbnail, audio_waveform, video_preview)
+    #[arg(long)]
     pub job_type: Option<String>,
 
-    /// Priority (low, normal, high, critical)
-    #[arg(short, long, default_value = "normal")]
+    /// Job priority (low, normal, high, critical)
+    #[arg(long, default_value = "normal")]
     pub priority: String,
 }
 
@@ -145,7 +150,7 @@ pub struct GenerateArgs {
 #[derive(Debug, Clone, Args)]
 pub struct MaintenanceArgs {
     /// Configuration file path
-    #[arg(short, long, default_value = "config.jsonc")]
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
     pub config: PathBuf,
 
     /// Run cleanup of old jobs
@@ -169,11 +174,45 @@ pub struct MaintenanceArgs {
     pub max_items: u32,
 }
 
+#[derive(Debug, Clone, Args)]
+pub struct DebugArgs {
+    /// Configuration file path
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
+    pub config: PathBuf,
+
+    /// Job ID to debug (optional)
+    #[arg(long)]
+    pub job_id: Option<String>,
+
+    /// Show raw database content
+    #[arg(long)]
+    pub raw: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct BulkGenerateArgs {
+    /// Configuration file path
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
+    pub config: PathBuf,
+
+    /// Limit number of media blobs to process
+    #[arg(long, default_value = "10")]
+    pub limit: usize,
+
+    /// Only process specific MIME types (comma-separated)
+    #[arg(long)]
+    pub mime_types: Option<String>,
+
+    /// Dry run - don't actually create jobs
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
 /// Execute thumbnail-related commands
 pub async fn execute_thumbnail_command(
-    cmd: ThumbnailCommands,
+    command: ThumbnailCommands,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    match cmd {
+    match command {
         ThumbnailCommands::ValidateTools(args) => validate_tools(args).await,
         ThumbnailCommands::Test(args) => test_thumbnail_generation(args).await,
         ThumbnailCommands::Status(args) => show_status(args).await,
@@ -182,6 +221,8 @@ pub async fn execute_thumbnail_command(
         ThumbnailCommands::Cleanup(args) => cleanup_jobs(args).await,
         ThumbnailCommands::Generate(args) => generate_thumbnails(args).await,
         ThumbnailCommands::Maintenance(args) => run_maintenance(args).await,
+        ThumbnailCommands::Debug(args) => debug_jobs(args).await,
+        ThumbnailCommands::BulkGenerate(args) => bulk_generate_thumbnails(args).await,
     }
 }
 
@@ -510,9 +551,8 @@ async fn retry_jobs(args: RetryArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     let service = ThumbnailService::new_with_defaults(&db);
 
-    if let Some(job_id_str) = &args.job_id {
+    if let Some(job_id) = &args.job_id {
         // Retry specific job
-        let job_id = uuid::Uuid::parse_str(job_id_str)?;
         println!("Retrying specific job: {}", job_id);
         println!("💡 Use the HTTP API endpoint POST /api/thumbnails/retry for retry functionality");
         println!("   Or restart failed jobs by re-enqueueing them");
@@ -623,7 +663,7 @@ async fn generate_thumbnails(args: GenerateArgs) -> Result<(), Box<dyn std::erro
     }
 
     // Parse arguments
-    let media_blob_id = uuid::Uuid::parse_str(&args.media_blob_id)?;
+    let media_blob_id = args.media_blob_id;
 
     let job_type = if let Some(type_str) = &args.job_type {
         Some(match type_str.as_str() {
@@ -731,48 +771,190 @@ async fn run_maintenance(args: MaintenanceArgs) -> Result<(), Box<dyn std::error
         tasks_run += 1;
     }
 
-    // Run orphaned file cleanup if requested
-    if args.cleanup_orphaned_files {
-        println!("🗑️  Checking for orphaned thumbnail files...");
+    Ok(())
+}
 
-        let config_service = grimoire::config::ConfigService::new();
-        let thumbnail_config = config_service.to_thumbnail_config(&config);
-        let storage_path = std::path::Path::new(&thumbnail_config.storage_path);
+/// Debug thumbnail job database issues
+async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let config = AppConfig::from_file(&args.config)?;
 
-        if storage_path.exists() {
-            println!("📁 Scanning storage directory: {}", storage_path.display());
+    // Connect to database
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = grimoire::DatabaseConnection::new(pool);
 
-            if args.dry_run {
-                println!(
-                    "🔍 Would scan for orphaned files in {}",
-                    storage_path.display()
-                );
+    println!("🔍 Debugging Thumbnail Jobs Database");
+    println!("{}", "=".repeat(80));
+
+    if let Some(job_id_str) = &args.job_id {
+        let job_id = uuid::Uuid::parse_str(job_id_str)?;
+
+        // Query raw database record
+        let row = sqlx::query!(
+                "SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at FROM thumbnail_jobs WHERE id = $1",
+                job_id
+            )
+            .fetch_optional(db.pool())
+            .await?;
+
+        if let Some(row) = row {
+            println!("Raw Database Record:");
+            println!("  ID: {}", row.id);
+            println!("  State: {}", row.state);
+            println!("  Task Type: {}", row.task_type);
+            println!("  Retries: {}", row.retries);
+            println!("  Created: {}", row.created_at);
+            println!("  Metadata JSON:");
+
+            if args.raw {
+                println!("{}", serde_json::to_string_pretty(&row.metadata)?);
             } else {
-                println!("💡 Orphaned file cleanup requires manual implementation");
-                println!("   Directory: {}", storage_path.display());
+                // Try to deserialize as ThumbnailJob
+                match serde_json::from_value::<grimoire::ThumbnailJob>(row.metadata.clone()) {
+                    Ok(job) => {
+                        println!("  ✅ Successfully deserialized as ThumbnailJob:");
+                        println!("    Media Blob ID: {}", job.media_blob_id);
+                        println!("    Job Type: {}", job.job_type);
+                        println!("    Status: {}", job.status);
+                    }
+                    Err(e) => {
+                        println!("  ❌ Failed to deserialize as ThumbnailJob: {}", e);
+                        println!("  Raw metadata:");
+                        println!("{}", serde_json::to_string_pretty(&row.metadata)?);
+                    }
+                }
             }
         } else {
+            println!("❌ Job with ID {} not found", job_id);
+        }
+    } else {
+        // Show general database state
+        let recent_jobs = sqlx::query!(
+                "SELECT id, metadata, state, task_type, created_at FROM thumbnail_jobs ORDER BY created_at DESC LIMIT 5"
+            )
+            .fetch_all(db.pool())
+            .await?;
+
+        println!("Recent 5 Jobs:");
+        for row in recent_jobs {
             println!(
-                "⚠️  Storage directory does not exist: {}",
-                storage_path.display()
+                "  ID: {} | State: {} | Type: {} | Created: {}",
+                row.id, row.state, row.task_type, row.created_at
             );
+
+            // Try to extract media_blob_id from metadata
+            if let Ok(metadata) = serde_json::from_value::<serde_json::Value>(row.metadata) {
+                if let Some(media_blob_id) = metadata.get("media_blob_id") {
+                    println!("    Media Blob ID: {}", media_blob_id);
+                } else {
+                    println!("    ❌ No media_blob_id found in metadata");
+                }
+            }
         }
 
-        tasks_run += 1;
+        // Show database schema
+        let schema = sqlx::query!(
+                "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'thumbnail_jobs' ORDER BY ordinal_position"
+            )
+            .fetch_all(db.pool())
+            .await?;
+
+        println!("\nDatabase Schema:");
+        for col in schema {
+            println!(
+                "  {}: {}",
+                col.column_name.unwrap_or_else(|| "unknown".to_string()),
+                col.data_type.unwrap_or_else(|| "unknown".to_string())
+            );
+        }
     }
 
-    if tasks_run == 0 {
-        println!("⚠️  No maintenance tasks specified. Available options:");
-        println!("   --cleanup-old-jobs      Clean up old completed jobs");
-        println!("   --cleanup-orphaned-files   Clean up orphaned thumbnail files");
-        println!("   --dry-run               Show what would be done without doing it");
+    Ok(())
+}
+
+/// Bulk generate thumbnails for existing media blobs
+async fn bulk_generate_thumbnails(
+    args: BulkGenerateArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = AppConfig::from_file(&args.config)?;
+
+    if !config.media.thumbnails.enabled {
+        return Err("Thumbnail generation is disabled in configuration".into());
+    }
+
+    // Connect to database
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = grimoire::DatabaseConnection::new(pool);
+
+    println!("🚀 Bulk Thumbnail Generation");
+    println!("{}", "=".repeat(80));
+
+    // Build MIME type filter
+    let mime_filter = if let Some(mime_types_str) = &args.mime_types {
+        mime_types_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect::<Vec<_>>()
+    } else {
+        vec!["image/%".to_string(), "video/%".to_string()]
+    };
+
+    println!("MIME type filter: {:?}", mime_filter);
+
+    // Query media blobs that might need thumbnails
+    let mut query = "SELECT id, mime, local_path FROM media_blobs WHERE deleted_at IS NULL AND blob_type = 'original'".to_string();
+
+    if !mime_filter.is_empty() {
+        let conditions: Vec<String> = mime_filter
+            .iter()
+            .map(|mime| format!("mime LIKE '{}'", mime))
+            .collect();
+        query.push_str(&format!(" AND ({})", conditions.join(" OR ")));
+    }
+
+    query.push_str(&format!(" ORDER BY created_at DESC LIMIT {}", args.limit));
+
+    let media_blobs = sqlx::query_as::<_, (uuid::Uuid, Option<String>, Option<String>)>(&query)
+        .fetch_all(db.pool())
+        .await?;
+
+    println!("Found {} media blobs to process", media_blobs.len());
+
+    if args.dry_run {
+        println!("🔍 DRY RUN - would process:");
+        for (id, mime, path) in media_blobs {
+            println!(
+                "  {} | {} | {:?}",
+                id,
+                mime.unwrap_or("unknown".to_string()),
+                path
+            );
+        }
         return Ok(());
     }
 
-    println!("✅ Maintenance analysis completed ({} tasks)", tasks_run);
-    if args.dry_run {
-        println!("💡 Run without --dry-run to perform actual cleanup (via HTTP API)");
+    let service = grimoire::ThumbnailService::new_with_defaults(&db);
+    let mut successful = 0;
+    let mut failed = 0;
+
+    for (media_blob_id, _mime, _path) in media_blobs {
+        print!("Processing {} ... ", media_blob_id);
+
+        match service.auto_enqueue_for_media_blob(media_blob_id).await {
+            Ok(job_ids) => {
+                println!("✅ {} jobs enqueued: {:?}", job_ids.len(), job_ids);
+                successful += 1;
+            }
+            Err(e) => {
+                println!("❌ Failed: {}", e);
+                failed += 1;
+            }
+        }
     }
+
+    println!("\n📊 Summary:");
+    println!("  ✅ Successful: {}", successful);
+    println!("  ❌ Failed: {}", failed);
+    println!("  📝 Total: {}", successful + failed);
 
     Ok(())
 }

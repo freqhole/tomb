@@ -398,6 +398,10 @@ export class WebSocketConnection extends ManagedEventTarget {
     return this.send(createMessage.uploadMediaBlob(blob));
   }
 
+  getThumbnails(mediaBlobId: string): boolean {
+    return this.send(createMessage.getThumbnails(mediaBlobId));
+  }
+
   private log(
     level: "debug" | "info" | "warn" | "error",
     message: string,

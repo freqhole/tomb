@@ -14,6 +14,7 @@ use grimoire::AppConfig;
 use grimoire::DatabaseConnection;
 // use futures_util::{sink::SinkExt, stream::StreamExt}; // TODO: Uncomment when needed
 use grimoire::notifications::NotificationChannel;
+use grimoire::thumbnails::ThumbnailService;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -49,6 +50,10 @@ impl ConnectionManager {
 
     pub fn get_notification_receiver(&self) -> broadcast::Receiver<String> {
         self.notification_tx.subscribe()
+    }
+
+    pub fn get_notification_sender(&self) -> broadcast::Sender<String> {
+        self.notification_tx.clone()
     }
 
     pub async fn broadcast_notification(
@@ -445,6 +450,33 @@ async fn handle_message(
                 Ok(created_blob) => {
                     info!("Successfully created media blob: {}", created_blob.id);
 
+                    // Enqueue thumbnail generation job if applicable
+                    if let Some(ref mime) = created_blob.mime {
+                        if mime.starts_with("image/") || mime.starts_with("video/") {
+                            let thumbnail_service = ThumbnailService::new_with_defaults(db);
+
+                            match thumbnail_service
+                                .auto_enqueue_for_media_blob(created_blob.id)
+                                .await
+                            {
+                                Ok(job_ids) => {
+                                    info!(
+                                        "🖼️ Enqueued {} thumbnail jobs for blob {}: {:?}",
+                                        job_ids.len(),
+                                        created_blob.id,
+                                        job_ids
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "⚠️ Failed to enqueue thumbnail jobs for blob {}: {}",
+                                        created_blob.id, e
+                                    );
+                                }
+                            }
+                        }
+                    }
+
                     // Create a safe version of the blob without the data field for notifications
                     let safe_blob = json!({
                         "id": created_blob.id,
@@ -550,6 +582,53 @@ async fn handle_message(
                 connection_id.to_string(),
                 user_id.is_some(),
             ))
+        }
+        WebSocketMessage::GetThumbnails { media_blob_id } => {
+            info!(
+                "GetThumbnails request for blob ID: {} from user: {:?}",
+                media_blob_id, user_id
+            );
+
+            let thumbnail_service = ThumbnailService::new_with_defaults(db);
+
+            match thumbnail_service
+                .get_thumbnails_for_blob(media_blob_id)
+                .await
+            {
+                Ok(thumbnail_infos) => {
+                    info!(
+                        "Found {} thumbnails for blob {}",
+                        thumbnail_infos.len(),
+                        media_blob_id
+                    );
+
+                    // Convert MediaBlobInfo to MediaBlob by fetching full records
+                    let media_repository = MediaRepository::new(db);
+                    let media_service = MediaService::new(media_repository);
+                    let mut thumbnails = Vec::new();
+
+                    for thumbnail_info in thumbnail_infos {
+                        match media_service.get_blob(thumbnail_info.id, true).await {
+                            Ok(media_blob) => thumbnails.push(media_blob),
+                            Err(e) => {
+                                warn!(
+                                    "Failed to fetch full thumbnail blob {}: {}",
+                                    thumbnail_info.id, e
+                                );
+                            }
+                        }
+                    }
+
+                    Some(WebSocketResponse::Thumbnails {
+                        media_blob_id,
+                        thumbnails,
+                    })
+                }
+                Err(e) => {
+                    warn!("Failed to get thumbnails for blob {}: {}", media_blob_id, e);
+                    Some(WebSocketResponse::error("Failed to get thumbnails"))
+                }
+            }
         }
     }
 }
