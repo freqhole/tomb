@@ -542,6 +542,76 @@ impl ConfigService {
             .await
             .is_ok()
     }
+
+    /// Get notification configuration from AppConfig
+    pub fn get_notification_config<'a>(
+        &self,
+        app_config: &'a crate::AppConfig,
+    ) -> &'a crate::notifications::NotificationConfig {
+        &app_config.notifications
+    }
+
+    /// Validate notification configuration
+    pub fn validate_notification_config(
+        &self,
+        config: &crate::notifications::NotificationConfig,
+    ) -> Result<(), ConfigError> {
+        if let Err(e) = config.validate() {
+            return Err(ConfigError::ValidationFailed(e));
+        }
+
+        // Additional validation for specific environments
+        if config.rate_limiting.global_events_per_minute == 0 && config.rate_limiting.enabled {
+            return Err(ConfigError::ValidationFailed(
+                "Rate limiting is enabled but global events per minute is 0".to_string(),
+            ));
+        }
+
+        // Validate WebSocket configuration
+        if config.websocket.enabled && config.websocket.max_connections == 0 {
+            return Err(ConfigError::ValidationFailed(
+                "WebSocket is enabled but max connections is 0".to_string(),
+            ));
+        }
+
+        // Validate PostgreSQL configuration
+        if config.postgres.enabled && config.postgres.listener_connections == 0 {
+            return Err(ConfigError::ValidationFailed(
+                "PostgreSQL notifications enabled but listener connections is 0".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Create a development-optimized notification configuration
+    pub fn create_development_notification_config(
+        &self,
+    ) -> crate::notifications::NotificationConfig {
+        crate::notifications::NotificationConfig::development()
+    }
+
+    /// Create a production-optimized notification configuration
+    pub fn create_production_notification_config(
+        &self,
+    ) -> crate::notifications::NotificationConfig {
+        crate::notifications::NotificationConfig::production()
+    }
+
+    /// Update notification configuration in AppConfig
+    pub fn update_notification_config(
+        &self,
+        app_config: &mut crate::AppConfig,
+        notification_config: crate::notifications::NotificationConfig,
+    ) -> Result<(), ConfigError> {
+        // Validate the new configuration first
+        self.validate_notification_config(&notification_config)?;
+
+        // Update the configuration
+        app_config.notifications = notification_config;
+
+        Ok(())
+    }
 }
 
 impl Default for ConfigService {
@@ -646,5 +716,81 @@ mod tests {
             service.parse_crop_strategy("invalid"),
             crate::thumbnails::CropStrategy::Center
         ));
+    }
+
+    #[test]
+    fn test_get_notification_config() {
+        let service = ConfigService::new();
+        let app_config = AppConfig::default();
+
+        let notification_config = service.get_notification_config(&app_config);
+
+        assert!(notification_config.rate_limiting.enabled);
+        assert_eq!(
+            notification_config.rate_limiting.global_events_per_minute,
+            5000
+        );
+        assert!(notification_config.websocket.enabled);
+        assert!(notification_config.postgres.enabled);
+    }
+
+    #[test]
+    fn test_validate_notification_config() {
+        let service = ConfigService::new();
+        let valid_config = crate::notifications::NotificationConfig::default();
+
+        assert!(service.validate_notification_config(&valid_config).is_ok());
+
+        // Test invalid config - rate limiting enabled but 0 events per minute
+        let mut invalid_config = valid_config.clone();
+        invalid_config.rate_limiting.enabled = true;
+        invalid_config.rate_limiting.global_events_per_minute = 0;
+
+        assert!(service
+            .validate_notification_config(&invalid_config)
+            .is_err());
+    }
+
+    #[test]
+    fn test_create_development_notification_config() {
+        let service = ConfigService::new();
+        let dev_config = service.create_development_notification_config();
+
+        assert_eq!(dev_config.rate_limiting.global_events_per_minute, 10000);
+        assert!(dev_config.general.enable_debug_logging);
+        assert_eq!(dev_config.general.default_delivery_timeout.as_secs(), 3);
+    }
+
+    #[test]
+    fn test_create_production_notification_config() {
+        let service = ConfigService::new();
+        let prod_config = service.create_production_notification_config();
+
+        assert_eq!(prod_config.rate_limiting.global_events_per_minute, 1000);
+        assert!(!prod_config.general.enable_debug_logging);
+        assert_eq!(prod_config.general.default_delivery_timeout.as_secs(), 30);
+        assert!(prod_config.queue.enable_persistence);
+    }
+
+    #[test]
+    fn test_update_notification_config() {
+        let service = ConfigService::new();
+        let mut app_config = AppConfig::default();
+        let new_notification_config = service.create_development_notification_config();
+
+        let result =
+            service.update_notification_config(&mut app_config, new_notification_config.clone());
+        assert!(result.is_ok());
+
+        // Verify the config was updated
+        assert_eq!(
+            app_config
+                .notifications
+                .rate_limiting
+                .global_events_per_minute,
+            new_notification_config
+                .rate_limiting
+                .global_events_per_minute
+        );
     }
 }

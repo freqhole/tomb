@@ -56,6 +56,8 @@ pub struct AppConfig {
     pub storage: StorageConfig,
     /// Media and file upload configuration
     pub media: MediaConfig,
+    /// Real-time notifications configuration
+    pub notifications: crate::notifications::NotificationConfig,
     /// Development-specific settings
     pub development: DevelopmentConfig,
     /// Feature flags
@@ -679,6 +681,7 @@ impl AppConfig {
                 max_fs_file_size: default_max_fs_file_size(),
                 thumbnails: ThumbnailConfig::default(),
             },
+            notifications: crate::notifications::NotificationConfig::default(),
             development: DevelopmentConfig {
                 auto_generate_invites: false,
             },
@@ -911,6 +914,7 @@ impl Default for AppConfig {
                 max_fs_file_size: default_max_fs_file_size(),
                 thumbnails: ThumbnailConfig::default(),
             },
+            notifications: crate::notifications::NotificationConfig::default(),
             development: DevelopmentConfig {
                 auto_generate_invites: false,
             },

@@ -12,6 +12,7 @@ pub mod auth;
 pub mod config;
 pub mod database;
 pub mod media;
+pub mod notifications;
 pub mod thumbnails;
 pub mod wordlist;
 
@@ -49,6 +50,13 @@ pub use media::{
 pub use thumbnails::{
     ThumbnailConfig, ThumbnailError, ThumbnailJob, ThumbnailJobType, ThumbnailRepository,
     ThumbnailService,
+};
+
+// Re-export notifications types
+pub use notifications::{
+    ChannelSubscription, EventStats, NotificationChannel, NotificationChannelConfig,
+    NotificationConfig, NotificationEvent, NotificationFilter, NotificationService,
+    NotificationServiceError, Publisher, PublisherError,
 };
 
 // Re-export database connection

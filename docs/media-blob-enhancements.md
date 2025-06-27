@@ -8,9 +8,9 @@ This document tracks remaining tasks for implementing the media blob system with
 **✅ Phase 1** - Media Files Table & Basic Thumbnail Storage (COMPLETED)
 **✅ Phase 2** - Job Queue Setup & Basic Thumbnail Generation (COMPLETED)
 **✅ Phase 4.1-4.2** - Cursor-Based Pagination & Sync Endpoints (COMPLETED)
-**🔄 Phase 3** - Real-time Notifications via PostgreSQL NOTIFY/LISTEN (READY TO START)
+**🔄 Phase 3.1-3.2** - Notification Domain Layer & ConfigService Integration (COMPLETED)
 
-**Latest Achievement**: Phase 4.2 completed with comprehensive sync API endpoints! The system now features cursor-based pagination for efficient data access, timestamp-based incremental sync, intelligent sync recommendations, and a complete sync workflow infrastructure. Foundation ready for Phase 4.3 client-side sync state management.
+**Latest Achievement**: Phase 3.1-3.2 completed with comprehensive notification domain layer and ConfigService integration! The system now features NotificationService with event publishing, subscription management, Publisher enum for PostgreSQL/WebSocket/Mock delivery, rate limiting, and extensive configuration. NotificationConfig fully integrated into AppConfig with validation, development/production presets, and service methods. All domain logic implemented following established patterns with 39 passing tests. Ready for infrastructure implementation (Phase 3B).
 
 ## Implementation Task List
 
@@ -108,15 +108,17 @@ Implement maintenance jobs for cleaning orphaned thumbnails, storage optimizatio
 
 **Scope:** Domain services, notification infrastructure, WebSocket integration, client-side event handling, CLI management.
 
+**READY FOR INFRASTRUCTURE** - Phase 3A (Domain Layer) completed with comprehensive notification models, service infrastructure, and ConfigService integration.
+
 #### Phase 3A: Domain Layer (Grimoire Package)
 
-- **3.1** Create NotificationService and models in grimoire
+- **3.1** ✅ Create NotificationService and models in grimoire
 
-Establish notification domain services following Phase 2 patterns. Create `grimoire/src/notifications/` module with NotificationEvent, NotificationChannel, NotificationConfig models and comprehensive error handling.
+**COMPLETED** - Full notification domain layer implemented with NotificationEvent, NotificationChannel, NotificationConfig models, Publisher enum (PostgreSQL/WebSocket/Mock), subscription management, rate limiting, and comprehensive error handling. All 28 tests passing.
 
-- **3.2** Add notification configuration to ConfigService
+- **3.2** ✅ Add notification configuration to ConfigService
 
-Extend existing ConfigService with NotificationConfig for WebSocket settings, PostgreSQL NOTIFY/LISTEN configuration, and channel management rules.
+**COMPLETED** - NotificationConfig fully integrated into AppConfig with JsonSchema support, ConfigService methods for validation, development/production presets, and comprehensive testing. Includes get_notification_config, validate_notification_config, create_development/production_notification_config, and update_notification_config methods.
 
 - **3.3** Implement event publishing abstractions
 

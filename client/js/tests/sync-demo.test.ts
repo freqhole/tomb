@@ -4,7 +4,7 @@
 //! showing the complete flow of events, state management, and persistence.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { SyncDemo, runSyncDemo } from "../src/sync/demo-example.js";
+import { SyncDemo, runSyncDemo } from "../src/examples/sync/demo-example.js";
 import { SyncEventType, SyncStatus } from "../src/sync/index.js";
 
 // Mock browser globals for Node.js environment
