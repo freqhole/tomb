@@ -3,6 +3,7 @@ use crate::maintenance::{MaintenanceConfig, MaintenanceScheduler};
 use crate::storage::SessionStore;
 use grimoire::analytics::AnalyticsConfig;
 use grimoire::config::{ConfigService, StorageBackend};
+
 use grimoire::wordlist::{initialize_wordlist, ManagementWordlistConfig as WordlistConfig};
 use grimoire::{AppConfig, DatabaseConnection};
 

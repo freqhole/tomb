@@ -13,9 +13,12 @@ use axum::{
 use grimoire::AppConfig;
 use grimoire::DatabaseConnection;
 // use futures_util::{sink::SinkExt, stream::StreamExt}; // TODO: Uncomment when needed
+use grimoire::notifications::NotificationChannel;
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use time::OffsetDateTime;
+use time::{format_description, OffsetDateTime};
+use tokio::sync::broadcast;
 use tower_sessions::Session;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -24,20 +27,35 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct ConnectionManager {
     connections: Arc<Mutex<HashMap<String, ConnectionInfo>>>,
+    notification_tx: broadcast::Sender<String>,
 }
 
 /// Information about an active WebSocket connection
 #[derive(Debug, Clone)]
 struct ConnectionInfo {
-    _user_id: Option<Uuid>,
-    _connected_at: OffsetDateTime,
+    user_id: Option<Uuid>,
+    connected_at: OffsetDateTime,
+    subscribed_channels: Vec<NotificationChannel>,
 }
 
 impl ConnectionManager {
     pub fn new() -> Self {
+        let (notification_tx, _) = broadcast::channel(1000);
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
+            notification_tx,
         }
+    }
+
+    pub fn get_notification_receiver(&self) -> broadcast::Receiver<String> {
+        self.notification_tx.subscribe()
+    }
+
+    pub async fn broadcast_notification(
+        &self,
+        message: String,
+    ) -> Result<usize, broadcast::error::SendError<String>> {
+        self.notification_tx.send(message)
     }
 
     fn add_connection(&self, connection_id: String, user_id: Option<Uuid>) {
@@ -45,8 +63,9 @@ impl ConnectionManager {
             connections.insert(
                 connection_id,
                 ConnectionInfo {
-                    _user_id: user_id,
-                    _connected_at: OffsetDateTime::now_utc(),
+                    user_id,
+                    connected_at: OffsetDateTime::now_utc(),
+                    subscribed_channels: Vec::new(),
                 },
             );
         }
@@ -63,6 +82,38 @@ impl ConnectionManager {
             .lock()
             .map(|connections| connections.len() as u32)
             .unwrap_or(0)
+    }
+
+    fn subscribe_to_channel(&self, connection_id: &str, channel: NotificationChannel) -> bool {
+        if let Ok(mut connections) = self.connections.lock() {
+            if let Some(conn_info) = connections.get_mut(connection_id) {
+                if !conn_info.subscribed_channels.contains(&channel) {
+                    conn_info.subscribed_channels.push(channel);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn unsubscribe_from_channel(&self, connection_id: &str, channel: &NotificationChannel) -> bool {
+        if let Ok(mut connections) = self.connections.lock() {
+            if let Some(conn_info) = connections.get_mut(connection_id) {
+                let before_len = conn_info.subscribed_channels.len();
+                conn_info.subscribed_channels.retain(|c| c != channel);
+                return conn_info.subscribed_channels.len() < before_len;
+            }
+        }
+        false
+    }
+
+    fn get_subscribed_channels(&self, connection_id: &str) -> Vec<NotificationChannel> {
+        if let Ok(connections) = self.connections.lock() {
+            if let Some(conn_info) = connections.get(connection_id) {
+                return conn_info.subscribed_channels.clone();
+            }
+        }
+        Vec::new()
     }
 }
 
@@ -135,57 +186,53 @@ pub async fn handle_websocket_connection(
             .await;
     }
 
-    // Handle messages in a loop
-    while let Some(msg) = socket.recv().await {
-        match msg {
-            Ok(axum::extract::ws::Message::Text(text)) => {
-                debug!("Received WebSocket message: {}", text);
+    // Set up notification receiver for broadcasting
+    let mut notification_rx = connection_manager.get_notification_receiver();
 
-                match WebSocketMessage::from_json(&text) {
-                    Ok(parsed_msg) => {
-                        if let Some(response) =
-                            handle_message(parsed_msg, user_id, &db, &config, &connection_manager)
-                                .await
-                        {
-                            if let Ok(response_json) = response.to_json() {
-                                if let Err(e) = socket
-                                    .send(axum::extract::ws::Message::Text(response_json.into()))
-                                    .await
-                                {
-                                    error!("Failed to send response: {}", e);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Failed to parse WebSocket message: {}", e);
-                        let error_response = WebSocketResponse::error("Invalid message format");
-                        if let Ok(error_json) = error_response.to_json() {
-                            let _ = socket
-                                .send(axum::extract::ws::Message::Text(error_json.into()))
-                                .await;
-                        }
-                    }
-                }
-            }
-            Ok(axum::extract::ws::Message::Close(_)) => {
-                info!("WebSocket connection closed: {}", connection_id);
-                break;
-            }
-            Ok(axum::extract::ws::Message::Ping(data)) => {
-                debug!("Received ping, sending pong");
-                if let Err(e) = socket.send(axum::extract::ws::Message::Pong(data)).await {
-                    error!("Failed to send pong: {}", e);
+    // Handle messages and notifications concurrently
+    loop {
+        tokio::select! {
+            // Handle incoming WebSocket messages
+            msg = socket.recv() => {
+                let Some(msg) = msg else {
                     break;
+                };
+
+                match handle_websocket_message(
+                    msg,
+                    &mut socket,
+                    user_id,
+                    &db,
+                    &config,
+                    &connection_manager,
+                    &connection_id
+                ).await {
+                    Ok(should_continue) => {
+                        if !should_continue {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
                 }
             }
-            Ok(_) => {
-                // Ignore other message types (Binary, Pong)
-            }
-            Err(e) => {
-                error!("WebSocket error: {}", e);
-                break;
+
+            // Handle notification broadcasts
+            notification = notification_rx.recv() => {
+                match notification {
+                    Ok(notification_json) => {
+                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(notification_json.into())).await {
+                            error!("Failed to send notification: {}", e);
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        debug!("Notification channel closed");
+                        break;
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        warn!("Notification receiver lagged, continuing");
+                    }
+                }
             }
         }
     }
@@ -198,13 +245,85 @@ pub async fn handle_websocket_connection(
     );
 }
 
+/// Handle a single WebSocket message
+async fn handle_websocket_message(
+    msg: Result<axum::extract::ws::Message, axum::Error>,
+    socket: &mut WebSocket,
+    user_id: Option<Uuid>,
+    db: &DatabaseConnection,
+    config: &AppConfig,
+    connection_manager: &ConnectionManager,
+    connection_id: &str,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    match msg {
+        Ok(axum::extract::ws::Message::Text(text)) => {
+            debug!("Received WebSocket message: {}", text);
+
+            match WebSocketMessage::from_json(&text) {
+                Ok(parsed_msg) => {
+                    if let Some(response) = handle_message(
+                        parsed_msg,
+                        user_id,
+                        db,
+                        config,
+                        connection_manager,
+                        connection_id,
+                    )
+                    .await
+                    {
+                        if let Ok(response_json) = response.to_json() {
+                            if let Err(e) = socket
+                                .send(axum::extract::ws::Message::Text(response_json.into()))
+                                .await
+                            {
+                                error!("Failed to send response: {}", e);
+                                return Ok(false);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to parse WebSocket message: {}", e);
+                    let error_response = WebSocketResponse::error("Invalid message format");
+                    if let Ok(error_json) = error_response.to_json() {
+                        let _ = socket
+                            .send(axum::extract::ws::Message::Text(error_json.into()))
+                            .await;
+                    }
+                }
+            }
+        }
+        Ok(axum::extract::ws::Message::Close(_)) => {
+            info!("WebSocket connection closed");
+            return Ok(false);
+        }
+        Ok(axum::extract::ws::Message::Ping(data)) => {
+            debug!("Received ping, sending pong");
+            if let Err(e) = socket.send(axum::extract::ws::Message::Pong(data)).await {
+                error!("Failed to send pong: {}", e);
+                return Ok(false);
+            }
+        }
+        Ok(_) => {
+            // Ignore other message types (Binary, Pong)
+        }
+        Err(e) => {
+            error!("WebSocket error: {}", e);
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
 /// Handle a parsed WebSocket message and return optional response
 async fn handle_message(
     message: WebSocketMessage,
     user_id: Option<Uuid>,
     db: &DatabaseConnection,
     config: &AppConfig,
-    _connection_manager: &ConnectionManager,
+    connection_manager: &ConnectionManager,
+    connection_id: &str,
 ) -> Option<WebSocketResponse> {
     match &message {
         WebSocketMessage::UploadMediaBlob { blob } => {
@@ -325,6 +444,53 @@ async fn handle_message(
             match service.create_blob(create_params, &config.media).await {
                 Ok(created_blob) => {
                     info!("Successfully created media blob: {}", created_blob.id);
+
+                    // Create a safe version of the blob without the data field for notifications
+                    let safe_blob = json!({
+                        "id": created_blob.id,
+                        "sha256": created_blob.sha256,
+                        "size": created_blob.size,
+                        "mime": created_blob.mime,
+                        "source_client_id": created_blob.source_client_id,
+                        "local_path": created_blob.local_path,
+                        "metadata": created_blob.metadata,
+                        "created_at": created_blob.created_at,
+                        "updated_at": created_blob.updated_at
+                        // Intentionally omitting 'data' field to avoid large payloads in notifications
+                    });
+
+                    // Broadcast notification to all connected clients
+                    let notification_message = json!({
+                        "type": "Notification",
+                        "data": {
+                            "id": Uuid::new_v4(),
+                            "channel": "MediaBlobs",
+                            "event_type": "media_blob.created",
+                            "payload": {
+                                "media_blob": safe_blob
+                            },
+                            "priority": "Normal",
+                            "timestamp": OffsetDateTime::now_utc().format(&format_description::well_known::Rfc3339).unwrap()
+                        }
+                    });
+
+                    if let Ok(notification_json) = serde_json::to_string(&notification_message) {
+                        match connection_manager
+                            .broadcast_notification(notification_json)
+                            .await
+                        {
+                            Ok(receiver_count) => {
+                                info!(
+                                    "📡 Broadcast media_blob.created notification to {} receivers for blob: {}",
+                                    receiver_count, created_blob.id
+                                );
+                            }
+                            Err(e) => {
+                                warn!("Failed to broadcast notification: {}", e);
+                            }
+                        }
+                    }
+
                     Some(WebSocketResponse::MediaBlob { blob: created_blob })
                 }
                 Err(e) => {
@@ -338,23 +504,50 @@ async fn handle_message(
                 "SubscribeToNotifications request for channel: {:?} from user: {:?}",
                 channel, user_id
             );
-            // TODO: Implement notification subscription logic
-            Some(WebSocketResponse::notification_subscribed(channel))
+
+            if connection_manager.subscribe_to_channel(connection_id, channel) {
+                info!(
+                    "✅ Successfully subscribed connection {} to channel {:?}",
+                    connection_id, channel
+                );
+                Some(WebSocketResponse::notification_subscribed(channel))
+            } else {
+                warn!(
+                    "❌ Failed to subscribe connection {} to channel {:?}",
+                    connection_id, channel
+                );
+                Some(WebSocketResponse::error("Failed to subscribe to channel"))
+            }
         }
         WebSocketMessage::UnsubscribeFromNotifications { channel } => {
             info!(
                 "UnsubscribeFromNotifications request for channel: {:?} from user: {:?}",
                 channel, user_id
             );
-            // TODO: Implement notification unsubscription logic
-            Some(WebSocketResponse::notification_unsubscribed(channel))
+
+            if connection_manager.unsubscribe_from_channel(connection_id, &channel) {
+                info!(
+                    "✅ Successfully unsubscribed connection {} from channel {:?}",
+                    connection_id, channel
+                );
+                Some(WebSocketResponse::notification_unsubscribed(channel))
+            } else {
+                warn!(
+                    "❌ Failed to unsubscribe connection {} from channel {:?}",
+                    connection_id, channel
+                );
+                Some(WebSocketResponse::error(
+                    "Failed to unsubscribe from channel",
+                ))
+            }
         }
         WebSocketMessage::GetNotificationStatus => {
             info!("GetNotificationStatus request from user: {:?}", user_id);
-            // TODO: Implement notification status retrieval
+
+            let subscribed_channels = connection_manager.get_subscribed_channels(connection_id);
             Some(WebSocketResponse::notification_status(
-                vec![],                      // subscribed_channels
-                "connection_id".to_string(), // TODO: Get actual connection ID
+                subscribed_channels,
+                connection_id.to_string(),
                 user_id.is_some(),
             ))
         }
