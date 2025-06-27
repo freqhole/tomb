@@ -605,6 +605,7 @@ mod tests {
     use uuid::Uuid;
 
     // Helper function for tests that need a database
+    #[allow(dead_code)]
     async fn setup_test_db() -> PgPool {
         // This would typically use a test database
         // For now, we'll skip actual database tests

@@ -479,6 +479,11 @@ impl CompositePublisher {
         self.publishers.push(publisher);
     }
 
+    /// Get the configuration for this composite publisher
+    pub fn config(&self) -> &PublishConfig {
+        &self.config
+    }
+
     /// Publish a single event
     pub async fn publish_event(&self, event: &NotificationEvent) -> PublisherResult<()> {
         let mut errors = Vec::new();

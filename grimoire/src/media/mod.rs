@@ -80,11 +80,10 @@ pub mod prelude {
 mod integration_tests {
     use super::*;
     use sqlx::PgPool;
-    use time::OffsetDateTime;
-    use uuid::Uuid;
 
     // Helper function to create a test service
     // This would be implemented in actual integration tests
+    #[allow(dead_code)]
     async fn create_test_service(_pool: PgPool) -> MediaBlobService {
         todo!("Implement test service creation for integration tests")
     }
