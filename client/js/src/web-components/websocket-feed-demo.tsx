@@ -16,6 +16,7 @@ import ConnectionStatusComponent from "../components/websocket/ConnectionStatus.
 import ConnectionControlsComponent from "../components/websocket/ConnectionControls.js";
 import MediaBlobFeedListComponent from "../components/feed/MediaBlobFeedList.js";
 import FeedControlsComponent from "../components/feed/FeedControls.js";
+import FeedPaginationComponent from "../components/feed/FeedPagination.js";
 import type { NotificationChannel } from "../lib/websocket-types.js";
 
 // Helper function to parse URL parameters
@@ -269,6 +270,22 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
         onItemClick={handleItemClick}
         onGetThumbnails={feed.actions.getThumbnails}
         requestedThumbnails={feed.state().requestedThumbnails}
+      />
+
+      {/* Pagination */}
+      <FeedPaginationComponent
+        currentPage={feed.state().currentPage}
+        pageSize={feed.state().pageSize}
+        totalCount={feed.state().totalCount}
+        hasMore={feed.state().hasMore}
+        isLoading={feed.state().isLoading}
+        isLoadingMore={feed.state().isLoadingMore}
+        mode="both"
+        onLoadMore={feed.actions.loadMore}
+        onLoadPage={feed.actions.loadPage}
+        onPageSizeChange={feed.actions.setPageSize}
+        showPageSizeSelector={true}
+        showStats={true}
       />
 
       {/* Debug Logs */}

@@ -25,6 +25,12 @@ export interface FeedState {
   lastUpdated: Date | null;
   error: string | null;
   requestedThumbnails: Set<string>;
+  // Pagination state
+  currentPage: number;
+  pageSize: number;
+  hasMore: boolean;
+  isLoadingMore: boolean;
+  targetPage?: number; // Track the page we're loading to
 }
 
 export interface FeedConfig {
@@ -42,6 +48,10 @@ export interface FeedActions {
   subscribe: (channel: NotificationChannel) => void;
   unsubscribe: (channel: NotificationChannel) => void;
   getThumbnails: (mediaBlobId: string) => void;
+  // Pagination actions
+  loadMore: () => void;
+  loadPage: (page: number) => void;
+  setPageSize: (size: number) => void;
 }
 
 export interface WebSocketFeedHook {
@@ -76,6 +86,12 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     lastUpdated: null,
     error: null,
     requestedThumbnails: new Set<string>(),
+    // Pagination state
+    currentPage: 0,
+    pageSize: pageSize,
+    hasMore: true,
+    isLoadingMore: false,
+    targetPage: undefined,
   });
 
   const log = (...args: unknown[]) => {
@@ -123,10 +139,16 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     const wsClient = client();
     if (!wsClient) return;
 
-    updateFeedState({ isLoading: true, error: null });
+    updateFeedState({
+      isLoading: true,
+      error: null,
+      currentPage: 0,
+      items: [], // Clear existing items for fresh load
+      targetPage: 0,
+    });
     log("Loading initial feed...");
 
-    if (!wsClient.getMediaBlobs(pageSize, 0)) {
+    if (!wsClient.getMediaBlobs(feedState().pageSize, 0)) {
       updateFeedState({
         isLoading: false,
         error: "Failed to request initial feed data",
@@ -196,14 +218,39 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     });
 
     // Initial media blobs response
+    // Media blobs response
     wsClient.on("mediaBlobs", (data) => {
       log("Loaded", data.blobs.length, "media blobs");
+      const state = feedState();
+      const isLoadingMore = state.isLoadingMore;
+      const targetPage = state.targetPage;
+
+      const newItems = isLoadingMore
+        ? [...state.items, ...data.blobs]
+        : data.blobs;
+
+      // Determine the correct page number
+      let newPage: number;
+      if (isLoadingMore) {
+        newPage = state.currentPage + 1;
+      } else if (targetPage !== undefined) {
+        newPage = targetPage;
+      } else {
+        newPage = 0; // Initial load
+      }
+
+      const hasMore = newItems.length < data.total_count;
+
       updateFeedState({
-        items: data.blobs,
+        items: newItems,
         totalCount: data.total_count,
         isLoading: false,
-        lastUpdated: new Date(),
+        isLoadingMore: false,
         error: null,
+        lastUpdated: new Date(),
+        currentPage: newPage,
+        hasMore: hasMore,
+        targetPage: undefined, // Clear target page after loading
       });
     });
 
@@ -244,10 +291,12 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
 
     // Real-time notifications
     wsClient.on("notification", (data) => {
-      log("🔔 Received notification:", data);
-      log("📊 Notification details:", {
+      log("🔔 Received notification:", {
+        id: data.id,
         channel: data.channel,
         event_type: data.event_type,
+        priority: data.priority,
+        timestamp: data.timestamp,
         has_payload: !!data.payload,
         payload_keys: data.payload ? Object.keys(data.payload) : [],
       });
@@ -435,6 +484,72 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     }
   };
 
+  const loadMore = () => {
+    const wsClient = client();
+    const state = feedState();
+
+    if (
+      !wsClient ||
+      !state.isConnected ||
+      state.isLoadingMore ||
+      !state.hasMore
+    ) {
+      return;
+    }
+
+    const nextOffset = (state.currentPage + 1) * state.pageSize;
+    log("Loading more items, offset:", nextOffset);
+
+    updateFeedState({
+      isLoadingMore: true,
+      error: null,
+      targetPage: undefined, // Clear any target page for load more
+    });
+
+    if (!wsClient.getMediaBlobs(state.pageSize, nextOffset)) {
+      updateFeedState({
+        isLoadingMore: false,
+        error: "Failed to load more items",
+      });
+    }
+  };
+
+  const loadPage = (page: number) => {
+    const wsClient = client();
+    const state = feedState();
+
+    if (!wsClient || !state.isConnected || state.isLoading || page < 0) {
+      return;
+    }
+
+    const offset = page * state.pageSize;
+    log("Loading page", page, "offset:", offset);
+
+    updateFeedState({
+      isLoading: true,
+      error: null,
+      items: [], // Clear items for page load
+      targetPage: page, // Track which page we're loading
+    });
+
+    if (!wsClient.getMediaBlobs(state.pageSize, offset)) {
+      updateFeedState({
+        isLoading: false,
+        error: "Failed to load page",
+      });
+    }
+  };
+
+  const setPageSize = (size: number) => {
+    if (size <= 0 || size > 100) return; // Reasonable limits
+
+    log("Setting page size to:", size);
+    updateFeedState({ pageSize: size });
+
+    // Reload current page with new page size
+    loadPage(0);
+  };
+
   // Initialize WebSocket client only once
   createEffect(() => {
     if (!client()) {
@@ -464,6 +579,9 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     subscribe,
     unsubscribe,
     getThumbnails,
+    loadMore,
+    loadPage,
+    setPageSize,
   };
 
   return {

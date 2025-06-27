@@ -124,7 +124,7 @@ export class WebSocketConnection extends ManagedEventTarget {
       const json = JSON.stringify(validation.data);
       this.socket!.send(json);
 
-      this.log("debug", "Message sent", validation.data);
+      this.log("debug", "Message sent", { type: validation.data.type });
       this.dispatchEvent(
         new CustomEvent("message-sent", {
           detail: { message: validation.data },

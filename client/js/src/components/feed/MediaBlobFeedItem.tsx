@@ -109,8 +109,7 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
     const thumbs = thumbnails();
     console.log(
       `[MediaBlobFeedItem] Thumbnails for ${props.item.id.slice(0, 8)}:`,
-      thumbs.length,
-      thumbs
+      thumbs.length
     );
 
     if (thumbs.length > 0 && thumbs[0]) {

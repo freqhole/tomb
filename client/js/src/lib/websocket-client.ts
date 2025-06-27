@@ -274,7 +274,7 @@ export class WebSocketClient {
   }
 
   private handleMessage(rawMessage: string): void {
-    this.log("Received raw message:", rawMessage);
+    this.log("Received message:", rawMessage.length, "bytes");
     this.listeners.rawMessage?.(rawMessage);
 
     try {
