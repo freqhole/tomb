@@ -7,7 +7,6 @@ use crate::notifications::models::{NotificationChannel, NotificationPriority};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
 
 /// Main configuration for the notification system
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -59,7 +58,7 @@ impl NotificationConfig {
         config.general.enable_debug_logging = true;
 
         // Shorter timeouts for faster feedback
-        config.general.default_delivery_timeout = Duration::from_secs(3);
+        config.general.default_delivery_timeout_seconds = 3;
 
         config
     }
@@ -76,7 +75,7 @@ impl NotificationConfig {
         config.general.enable_debug_logging = false;
 
         // Longer timeouts for reliability
-        config.general.default_delivery_timeout = Duration::from_secs(30);
+        config.general.default_delivery_timeout_seconds = 30;
 
         // Enable queue persistence
         config.queue.enable_persistence = true;
@@ -110,7 +109,7 @@ impl NotificationConfig {
         }
 
         // Validate timeouts
-        if self.general.default_delivery_timeout.as_secs() == 0 {
+        if self.general.default_delivery_timeout_seconds == 0 {
             return Err("Delivery timeout cannot be zero".to_string());
         }
 
@@ -145,14 +144,14 @@ pub struct NotificationChannelConfig {
     pub enable_persistence: bool,
     /// Maximum number of subscribers for this channel
     pub max_subscribers: u32,
-    /// Delivery timeout for this channel
-    pub delivery_timeout: Duration,
+    /// Delivery timeout for this channel in seconds
+    pub delivery_timeout_seconds: u32,
     /// Whether to enable batch delivery for this channel
     pub enable_batching: bool,
     /// Batch size for delivery (if batching is enabled)
     pub batch_size: u32,
-    /// Batch timeout - deliver partial batches after this time
-    pub batch_timeout: Duration,
+    /// Batch timeout - deliver partial batches after this time in seconds
+    pub batch_timeout_seconds: u32,
 }
 
 impl Default for NotificationChannelConfig {
@@ -164,10 +163,10 @@ impl Default for NotificationChannelConfig {
             min_priority: NotificationPriority::Low,
             enable_persistence: true,
             max_subscribers: 10000,
-            delivery_timeout: Duration::from_secs(10),
+            delivery_timeout_seconds: 10,
             enable_batching: false,
             batch_size: 10,
-            batch_timeout: Duration::from_secs(5),
+            batch_timeout_seconds: 5,
         }
     }
 }
@@ -177,7 +176,7 @@ impl NotificationChannelConfig {
     pub fn high_priority() -> Self {
         Self {
             min_priority: NotificationPriority::High,
-            delivery_timeout: Duration::from_secs(3),
+            delivery_timeout_seconds: 3,
             enable_batching: false,
             ..Default::default()
         }
@@ -188,7 +187,7 @@ impl NotificationChannelConfig {
         Self {
             enable_batching: true,
             batch_size: 50,
-            batch_timeout: Duration::from_secs(10),
+            batch_timeout_seconds: 10,
             ..Default::default()
         }
     }
@@ -207,7 +206,7 @@ impl NotificationChannelConfig {
             return Err("Max subscribers cannot be zero".to_string());
         }
 
-        if self.delivery_timeout.as_secs() == 0 {
+        if self.delivery_timeout_seconds == 0 {
             return Err("Delivery timeout cannot be zero".to_string());
         }
 
@@ -270,10 +269,10 @@ pub struct PostgresNotificationConfig {
     pub enabled: bool,
     /// Number of database connections for listening
     pub listener_connections: u32,
-    /// Timeout for PostgreSQL LISTEN operations
-    pub listen_timeout: Duration,
-    /// Reconnection attempt interval
-    pub reconnect_interval: Duration,
+    /// Timeout for PostgreSQL LISTEN operations in seconds
+    pub listen_timeout_seconds: u32,
+    /// Reconnection attempt interval in seconds
+    pub reconnect_interval_seconds: u32,
     /// Maximum reconnection attempts (0 = unlimited)
     pub max_reconnect_attempts: u32,
     /// Buffer size for incoming notifications
@@ -285,8 +284,8 @@ impl Default for PostgresNotificationConfig {
         Self {
             enabled: true,
             listener_connections: 2,
-            listen_timeout: Duration::from_secs(30),
-            reconnect_interval: Duration::from_secs(5),
+            listen_timeout_seconds: 30,
+            reconnect_interval_seconds: 5,
             max_reconnect_attempts: 10,
             notification_buffer_size: 1000,
         }
@@ -300,10 +299,10 @@ pub struct WebSocketNotificationConfig {
     pub enabled: bool,
     /// Maximum number of concurrent WebSocket connections
     pub max_connections: u32,
-    /// Heartbeat interval for WebSocket connections
-    pub heartbeat_interval: Duration,
-    /// Connection timeout
-    pub connection_timeout: Duration,
+    /// Heartbeat interval for WebSocket connections in seconds
+    pub heartbeat_interval_seconds: u32,
+    /// Connection timeout in seconds
+    pub connection_timeout_seconds: u32,
     /// Maximum message size in bytes
     pub max_message_size_bytes: usize,
     /// Buffer size for outgoing messages per connection
@@ -315,8 +314,8 @@ impl Default for WebSocketNotificationConfig {
         Self {
             enabled: true,
             max_connections: 10000,
-            heartbeat_interval: Duration::from_secs(30),
-            connection_timeout: Duration::from_secs(60),
+            heartbeat_interval_seconds: 30,
+            connection_timeout_seconds: 60,
             max_message_size_bytes: 1024 * 1024, // 1MB
             per_connection_buffer_size: 100,
         }
@@ -330,10 +329,10 @@ pub struct NotificationQueueConfig {
     pub enable_persistence: bool,
     /// Maximum queue size (events)
     pub max_queue_size: usize,
-    /// Queue cleanup interval
-    pub cleanup_interval: Duration,
-    /// Maximum age for queued events
-    pub max_event_age: Duration,
+    /// Queue cleanup interval in seconds
+    pub cleanup_interval_seconds: u32,
+    /// Maximum age for queued events in seconds
+    pub max_event_age_seconds: u32,
     /// Number of delivery retry attempts
     pub max_retry_attempts: u32,
     /// Retry backoff strategy
@@ -347,8 +346,8 @@ impl Default for NotificationQueueConfig {
         Self {
             enable_persistence: true,
             max_queue_size: 50000,
-            cleanup_interval: Duration::from_secs(300), // 5 minutes
-            max_event_age: Duration::from_secs(86400),  // 24 hours
+            cleanup_interval_seconds: 300, // 5 minutes
+            max_event_age_seconds: 86400,  // 24 hours
             max_retry_attempts: 3,
             retry_backoff: RetryBackoffStrategy::Exponential,
             dead_letter_queue: true,
@@ -360,7 +359,7 @@ impl Default for NotificationQueueConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub enum RetryBackoffStrategy {
     /// Fixed delay between retries
-    Fixed(Duration),
+    Fixed,
     /// Exponential backoff (base delay doubles each time)
     Exponential,
     /// Linear backoff (base delay increases linearly)
@@ -372,14 +371,14 @@ pub enum RetryBackoffStrategy {
 pub struct GeneralNotificationConfig {
     /// Enable debug logging
     pub enable_debug_logging: bool,
-    /// Default delivery timeout
-    pub default_delivery_timeout: Duration,
+    /// Default delivery timeout in seconds
+    pub default_delivery_timeout_seconds: u32,
     /// Enable metrics collection
     pub enable_metrics: bool,
-    /// Metrics collection interval
-    pub metrics_interval: Duration,
-    /// Health check interval
-    pub health_check_interval: Duration,
+    /// Metrics collection interval in seconds
+    pub metrics_interval_seconds: u32,
+    /// Health check interval in seconds
+    pub health_check_interval_seconds: u32,
     /// Maximum number of concurrent event processors
     pub max_concurrent_processors: u32,
 }
@@ -388,10 +387,10 @@ impl Default for GeneralNotificationConfig {
     fn default() -> Self {
         Self {
             enable_debug_logging: false,
-            default_delivery_timeout: Duration::from_secs(10),
+            default_delivery_timeout_seconds: 10,
             enable_metrics: true,
-            metrics_interval: Duration::from_secs(60),
-            health_check_interval: Duration::from_secs(30),
+            metrics_interval_seconds: 60,
+            health_check_interval_seconds: 30,
             max_concurrent_processors: 100,
         }
     }
@@ -448,7 +447,7 @@ mod tests {
     fn test_channel_config_high_priority() {
         let config = NotificationChannelConfig::high_priority();
         assert_eq!(config.min_priority, NotificationPriority::High);
-        assert_eq!(config.delivery_timeout, Duration::from_secs(3));
+        assert_eq!(config.delivery_timeout_seconds, 3);
         assert!(!config.enable_batching);
     }
 
@@ -457,6 +456,6 @@ mod tests {
         let config = NotificationChannelConfig::batch_optimized();
         assert!(config.enable_batching);
         assert_eq!(config.batch_size, 50);
-        assert_eq!(config.batch_timeout, Duration::from_secs(10));
+        assert_eq!(config.batch_timeout_seconds, 10);
     }
 }

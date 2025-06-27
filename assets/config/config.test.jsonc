@@ -64,6 +64,51 @@
     "max_blob_file_size": 10485760,
     "max_fs_file_size": 1073741824
   },
+  "notifications": {
+    "channels": {},
+    "rate_limiting": {
+      "enabled": true,
+      "global_events_per_minute": 10000,
+      "per_channel_events_per_minute": 5000,
+      "per_user_events_per_minute": 100,
+      "time_window_seconds": 60,
+      "overflow_strategy": "Drop",
+      "apply_to_high_priority": false
+    },
+    "postgres": {
+      "enabled": false,
+      "listener_connections": 1,
+      "listen_timeout_seconds": 10,
+      "reconnect_interval_seconds": 2,
+      "max_reconnect_attempts": 3,
+      "notification_buffer_size": 100
+    },
+    "websocket": {
+      "enabled": false,
+      "max_connections": 100,
+      "heartbeat_interval_seconds": 10,
+      "connection_timeout_seconds": 30,
+      "max_message_size_bytes": 65536,
+      "per_connection_buffer_size": 10
+    },
+    "queue": {
+      "enable_persistence": false,
+      "max_queue_size": 1000,
+      "cleanup_interval_seconds": 60,
+      "max_event_age_seconds": 3600,
+      "max_retry_attempts": 1,
+      "retry_backoff": "Fixed",
+      "dead_letter_queue": false
+    },
+    "general": {
+      "enable_debug_logging": true,
+      "default_delivery_timeout_seconds": 1,
+      "enable_metrics": false,
+      "metrics_interval_seconds": 30,
+      "health_check_interval_seconds": 15,
+      "max_concurrent_processors": 10
+    }
+  },
   "development": {
     "auto_generate_invites": true
   },

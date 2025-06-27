@@ -758,7 +758,7 @@ mod tests {
 
         assert_eq!(dev_config.rate_limiting.global_events_per_minute, 10000);
         assert!(dev_config.general.enable_debug_logging);
-        assert_eq!(dev_config.general.default_delivery_timeout.as_secs(), 3);
+        assert_eq!(dev_config.general.default_delivery_timeout_seconds, 3);
     }
 
     #[test]
@@ -768,7 +768,7 @@ mod tests {
 
         assert_eq!(prod_config.rate_limiting.global_events_per_minute, 1000);
         assert!(!prod_config.general.enable_debug_logging);
-        assert_eq!(prod_config.general.default_delivery_timeout.as_secs(), 30);
+        assert_eq!(prod_config.general.default_delivery_timeout_seconds, 30);
         assert!(prod_config.queue.enable_persistence);
     }
 

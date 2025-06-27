@@ -107,12 +107,67 @@
     "max_fs_file_size": 1073741824 // Maximum size for files on filesystem (1GB = 1024 * 1024 * 1024 bytes)
   },
 
+  // Real-time notifications configuration
+  "notifications": {
+    "channels": {}, // Channel-specific configurations (auto-configured based on usage)
+
+    // Rate limiting for notifications
+    "rate_limiting": {
+      "enabled": true, // Enable rate limiting globally
+      "global_events_per_minute": 10000, // Max events per minute across all channels
+      "per_channel_events_per_minute": 5000, // Max events per minute per channel
+      "per_user_events_per_minute": 100, // Max events per minute per user
+      "time_window_seconds": 60, // Rate limiting time window
+      "overflow_strategy": "Drop", // What to do when rate limited: Drop, Queue, Error
+      "apply_to_high_priority": false // Whether to rate limit high priority events
+    },
+
+    // PostgreSQL NOTIFY/LISTEN configuration
+    "postgres": {
+      "enabled": true, // Enable PostgreSQL notifications
+      "listener_connections": 2, // Number of database connections for listening
+      "listen_timeout_seconds": 30, // Timeout for LISTEN operations
+      "reconnect_interval_seconds": 5, // How often to retry failed connections
+      "max_reconnect_attempts": 10, // Max reconnection attempts (0 = unlimited)
+      "notification_buffer_size": 1000 // Buffer size for incoming notifications
+    },
+
+    // WebSocket notification configuration
+    "websocket": {
+      "enabled": true, // Enable WebSocket notifications
+      "max_connections": 10000, // Maximum concurrent WebSocket connections
+      "heartbeat_interval_seconds": 30, // Heartbeat interval for connections
+      "connection_timeout_seconds": 60, // Connection timeout
+      "max_message_size_bytes": 1048576, // Maximum message size (1MB)
+      "per_connection_buffer_size": 100 // Buffer size per connection
+    },
+
+    // Notification queue for reliable delivery
+    "queue": {
+      "enable_persistence": true, // Persist notifications to database
+      "max_queue_size": 50000, // Maximum number of queued notifications
+      "cleanup_interval_seconds": 300, // How often to clean up old notifications (5 min)
+      "max_event_age_seconds": 86400, // Maximum age for notifications (24 hours)
+      "max_retry_attempts": 3, // Number of delivery retry attempts
+      "retry_backoff": "Exponential", // Retry strategy: Fixed, Exponential, Linear
+      "dead_letter_queue": true // Enable dead letter queue for failed deliveries
+    },
+
+    // General notification service settings
+    "general": {
+      "enable_debug_logging": false, // Enable verbose debug logging
+      "default_delivery_timeout_seconds": 10, // Default timeout for delivery attempts
+      "enable_metrics": true, // Enable metrics collection
+      "metrics_interval_seconds": 60, // Metrics collection interval
+      "health_check_interval_seconds": 30, // Health check interval
+      "max_concurrent_processors": 100 // Maximum concurrent notification processors
+    }
+  },
+
   // Development-specific settings (only active when environment = "development")
   "development": {
     "auto_generate_invites": true // Automatically generate invite codes on startup
   },
-
-
 
   // Feature flags - enable/disable functionality
   "features": {

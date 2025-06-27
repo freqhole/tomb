@@ -102,15 +102,89 @@ async fn main() {
                     "❌ Failed to load configuration from {}: {}",
                     config_path, e
                 );
-                eprintln!("💡 Run 'cargo run --bin cli config init' to create a config file");
-                eprintln!("🔄 Using default configuration...");
+                eprintln!();
+
+                // Provide specific guidance based on the error type
+                let error_str = e.to_string();
+                if error_str.contains("missing field") {
+                    eprintln!("🔧 CONFIG ISSUE: Your config file is missing required fields.");
+                    if error_str.contains("notifications") {
+                        eprintln!(
+                            "   The 'notifications' section is missing from your config file."
+                        );
+                        eprintln!("   This is a new required field for the notification system.");
+                        eprintln!();
+                        eprintln!("📝 To fix this, you can:");
+                        eprintln!("   1. Add the missing section manually, or");
+                        eprintln!("   2. Regenerate your config file:");
+                        eprintln!("      cargo run --bin cli config init --force");
+                        eprintln!("      (Warning: This will overwrite your existing config)");
+                        eprintln!();
+                        eprintln!("   3. Or copy the missing section from the default config:");
+                        eprintln!(
+                            "      cargo run --bin cli config init --output new-config.jsonc"
+                        );
+                        eprintln!(
+                            "      Then copy the 'notifications' section to your existing config."
+                        );
+                    } else {
+                        eprintln!("   Check the error message above for which field is missing.");
+                        eprintln!();
+                        eprintln!("📝 To fix this:");
+                        eprintln!("   1. Compare with a fresh config: cargo run --bin cli config init --output example.jsonc");
+                        eprintln!("   2. Or regenerate: cargo run --bin cli config init --force");
+                    }
+                } else if error_str.contains("unknown field") {
+                    eprintln!("🔧 CONFIG ISSUE: Your config file contains unknown fields.");
+                    eprintln!("   This usually happens when field names have changed.");
+                    eprintln!();
+                    eprintln!("📝 To fix this:");
+                    eprintln!("   1. Check the field name in the error message above");
+                    eprintln!(
+                        "   2. Compare with current schema: cargo run --bin cli config schema"
+                    );
+                    eprintln!(
+                        "   3. Or regenerate config: cargo run --bin cli config init --force"
+                    );
+                } else if error_str.contains("invalid type") {
+                    eprintln!("🔧 CONFIG ISSUE: A field in your config has the wrong data type.");
+                    eprintln!("   Check the error message above for the specific field and expected type.");
+                    eprintln!();
+                    eprintln!("📝 To fix this:");
+                    eprintln!("   1. Fix the data type for the problematic field");
+                    eprintln!("   2. Validate your config: cargo run --bin cli config validate");
+                } else {
+                    eprintln!(
+                        "🔧 CONFIG ISSUE: There's a problem with your configuration file format."
+                    );
+                    eprintln!();
+                    eprintln!("📝 To troubleshoot:");
+                    eprintln!("   1. Check JSON syntax (trailing commas, quotes, brackets)");
+                    eprintln!("   2. Validate your config: cargo run --bin cli config validate");
+                    eprintln!(
+                        "   3. Generate a fresh one: cargo run --bin cli config init --force"
+                    );
+                }
+
+                eprintln!();
+                eprintln!("🔄 Continuing with default configuration for now...");
+                eprintln!("   Database: postgresql://postgres:postgres@localhost:5432/webauthn_db");
+                eprintln!("   Server: http://localhost:8080");
+                eprintln!();
+
                 AppConfig::default()
             }
         }
     } else {
         eprintln!("⚠️  Configuration file '{}' not found", config_path);
-        eprintln!("💡 Run 'cargo run --bin cli config init' to create one");
-        eprintln!("🔄 Using default configuration...");
+        eprintln!();
+        eprintln!("📝 To create a configuration file:");
+        eprintln!("   cargo run --bin cli config init");
+        eprintln!();
+        eprintln!("🔄 Using default configuration for now...");
+        eprintln!("   Database: postgresql://postgres:postgres@localhost:5432/webauthn_db");
+        eprintln!("   Server: http://localhost:8080");
+        eprintln!();
         AppConfig::default()
     };
 
