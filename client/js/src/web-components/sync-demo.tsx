@@ -38,10 +38,35 @@ function SyncDemoComponent(props: SyncDemoProps) {
   const [isConnected, setIsConnected] = createSignal<boolean>(false);
   const [error, setError] = createSignal<string | null>(null);
   const [logs, setLogs] = createSignal<string[]>([]);
+  let autoSyncTimer: number | undefined;
 
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString();
     setLogs((prev) => [...prev.slice(-9), `[${timestamp}] ${message}`]);
+  };
+
+  const startAutoSync = () => {
+    if (autoSyncTimer) {
+      clearInterval(autoSyncTimer);
+    }
+    autoSyncTimer = window.setInterval(() => {
+      const manager = syncManager();
+      if (manager && status() !== SyncStatus.InProgress && isConnected()) {
+        addLog("Auto-sync triggered");
+        manager.sync({ force: false }).catch((err) => {
+          addLog(
+            `Auto-sync failed: ${err instanceof Error ? err.message : "Unknown error"}`
+          );
+        });
+      }
+    }, 30000); // Auto-sync every 30 seconds
+  };
+
+  const stopAutoSync = () => {
+    if (autoSyncTimer) {
+      clearInterval(autoSyncTimer);
+      autoSyncTimer = undefined;
+    }
   };
 
   const initializeSyncManager = async () => {
@@ -133,6 +158,10 @@ function SyncDemoComponent(props: SyncDemoProps) {
       setIsConnected(true);
       setStatus(SyncStatus.Idle);
       addLog("Sync manager initialized");
+
+      // Start auto-sync for real-time behavior
+      startAutoSync();
+      addLog("Auto-sync enabled (30s interval)");
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       setError(errorMessage);
@@ -223,6 +252,7 @@ function SyncDemoComponent(props: SyncDemoProps) {
   });
 
   onCleanup(async () => {
+    stopAutoSync();
     const manager = syncManager();
     if (manager) {
       await manager.cleanup();
