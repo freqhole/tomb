@@ -7,10 +7,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   PersistentSyncState,
   SyncSessionState,
-  SyncStatus,
   SyncConflict,
   SyncError,
 } from "../src/sync/sync-state.js";
+import { SyncStatus } from "../src/sync/index.js";
 
 // Mock browser globals for Node.js environment
 Object.defineProperty(globalThis, "window", {

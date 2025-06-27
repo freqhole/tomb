@@ -126,14 +126,14 @@ describe("Sync Demo", () => {
       const events = demo.getEventHistory();
       const eventTypes = events.map((e) => e.type);
 
-      expect(eventTypes).toContain(SyncEventType.SyncStarted);
+      expect(eventTypes).toContain(SyncEventType.Started);
       expect(eventTypes).toContain(SyncEventType.ItemsReceived);
-      expect(eventTypes).toContain(SyncEventType.SyncBatchCompleted);
-      expect(eventTypes).toContain(SyncEventType.SyncCompleted);
+      expect(eventTypes).toContain(SyncEventType.BatchCompleted);
+      expect(eventTypes).toContain(SyncEventType.Completed);
 
       // Should have multiple batches
       const batchEvents = events.filter(
-        (e) => e.type === SyncEventType.SyncBatchCompleted
+        (e) => e.type === SyncEventType.BatchCompleted
       );
       expect(batchEvents.length).toBeGreaterThan(1);
     });
@@ -232,19 +232,15 @@ describe("Sync Demo", () => {
       await demo.performMockSync();
 
       // Verify event ordering
-      const startedIndex = eventOrder.indexOf(SyncEventType.SyncStarted);
-      const completedIndex = eventOrder.lastIndexOf(
-        SyncEventType.SyncCompleted
-      );
+      const startedIndex = eventOrder.indexOf(SyncEventType.Started);
+      const completedIndex = eventOrder.lastIndexOf(SyncEventType.Completed);
 
       expect(startedIndex).toBe(0); // Should be first
       expect(completedIndex).toBe(eventOrder.length - 1); // Should be last
 
       // Verify progress events come between start and completion
       const progressIndices = eventOrder
-        .map((type, index) =>
-          type === SyncEventType.SyncProgress ? index : -1
-        )
+        .map((type, index) => (type === SyncEventType.Progress ? index : -1))
         .filter((index) => index !== -1);
 
       progressIndices.forEach((index) => {
@@ -259,7 +255,7 @@ describe("Sync Demo", () => {
       demo.setupEventListeners();
       const eventSystem = (demo as any).eventSystem;
 
-      eventSystem.on(SyncEventType.SyncBatchCompleted, (event: any) => {
+      eventSystem.on(SyncEventType.BatchCompleted, (event: any) => {
         batchEvents.push(event);
       });
 
@@ -330,7 +326,7 @@ describe("Sync Demo", () => {
       demo.setupEventListeners();
       const eventSystem = (demo as any).eventSystem;
 
-      eventSystem.on(SyncEventType.SyncBatchCompleted, () => {
+      eventSystem.on(SyncEventType.BatchCompleted, () => {
         eventTimes.push(Date.now());
       });
 
