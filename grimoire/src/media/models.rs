@@ -107,6 +107,7 @@ pub struct MediaBlob {
     pub sha256: String,
     pub size: Option<i64>,
     pub mime: Option<String>,
+    #[serde(serialize_with = "serialize_source_client_id")]
     pub source_client_id: Option<String>,
     pub local_path: Option<String>,
     #[serde(default)]
@@ -115,6 +116,17 @@ pub struct MediaBlob {
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
+}
+
+/// Custom serializer for source_client_id that provides a default value for null
+fn serialize_source_client_id<S>(value: &Option<String>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match value {
+        Some(s) => serializer.serialize_str(s),
+        None => serializer.serialize_str("unknown"),
+    }
 }
 
 impl MediaBlob {
