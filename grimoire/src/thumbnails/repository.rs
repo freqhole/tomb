@@ -122,41 +122,53 @@ impl<'a> ThumbnailRepository<'a> {
         error_message: Option<String>,
         worker_id: Option<String>,
     ) -> Result<(), ThumbnailError> {
-        // First get the current job to update the metadata
-        if let Some(mut job) = self.get_job(job_id).await? {
-            job.status = status.clone();
-            job.error_message = error_message.clone();
-            job.worker_id = worker_id.clone();
-            job.updated_at = OffsetDateTime::now_utc();
+        let status_str = match status {
+            ThumbnailJobStatus::Pending => "pending",
+            ThumbnailJobStatus::InProgress => "in_progress",
+            ThumbnailJobStatus::Completed => "completed",
+            ThumbnailJobStatus::Failed => "failed",
+            ThumbnailJobStatus::FailedPermanently => "failed_permanently",
+            ThumbnailJobStatus::Cancelled => "cancelled",
+        };
 
-            let metadata = serde_json::to_value(job)?;
-            let status_str = match status {
-                ThumbnailJobStatus::Pending => "pending",
-                ThumbnailJobStatus::InProgress => "in_progress",
-                ThumbnailJobStatus::Completed => "completed",
-                ThumbnailJobStatus::Failed => "failed",
-                ThumbnailJobStatus::FailedPermanently => "failed_permanently",
-                ThumbnailJobStatus::Cancelled => "cancelled",
-            };
+        // Set completed_at if job is completing
+        let completed_at = if matches!(
+            status,
+            ThumbnailJobStatus::Completed
+                | ThumbnailJobStatus::Failed
+                | ThumbnailJobStatus::FailedPermanently
+                | ThumbnailJobStatus::Cancelled
+        ) {
+            Some(time::OffsetDateTime::now_utc())
+        } else {
+            None
+        };
 
-            sqlx::query!(
-                r#"
-                UPDATE thumbnail_jobs
-                SET metadata = $1, status = $2, updated_at = $3, error_message = $4, worker_id = $5
-                WHERE id = $6
-                "#,
-                metadata,
-                status_str,
-                time::OffsetDateTime::now_utc(),
-                error_message,
-                worker_id,
-                job_id
-            )
-            .execute(self.db.pool())
-            .await?;
+        let result = sqlx::query!(
+            r#"
+            UPDATE thumbnail_jobs
+            SET status = $1,
+                updated_at = $2,
+                error_message = $3,
+                worker_id = $4,
+                completed_at = $5
+            WHERE id = $6
+            "#,
+            status_str,
+            time::OffsetDateTime::now_utc(),
+            error_message,
+            worker_id,
+            completed_at,
+            job_id
+        )
+        .execute(self.db.pool())
+        .await?;
+
+        if result.rows_affected() == 0 {
+            Err(ThumbnailError::JobNotFound(job_id))
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 
     /// Get pending jobs ready for processing using atomic claiming

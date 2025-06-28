@@ -318,6 +318,9 @@ pub enum ThumbnailError {
     #[error("Maximum retries exceeded for job: {0}")]
     MaxRetriesExceeded(Uuid),
 
+    #[error("Job not found: {0}")]
+    JobNotFound(Uuid),
+
     #[error("Concurrent job limit exceeded")]
     ConcurrencyLimitExceeded,
 
