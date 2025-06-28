@@ -70,21 +70,6 @@
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <h1>🔄 Real-time Media Blob Feed with WebSocket Notifications</h1>
-      <p>WebSocket Feed Demo - Real-time Media Blob Feed</p>
-    </div>
-
-    <div class="instructions">
-      <h3>🚀 Getting Started</h3>
-      <ul>
-        <li>Make sure your server is running on <code>localhost:8080</code> with WebSocket support</li>
-        <li>The demo automatically connects and subscribes to media blob notifications</li>
-        <li>Try uploading files through the API to see real-time feed updates</li>
-        <li>No more polling - updates happen instantly via WebSocket!</li>
-      </ul>
-    </div>
-
     <websocket-feed-demo ws-url="ws://localhost:8080/ws" channels="[&quot;MediaBlobs&quot;]" debug="true" auto-connect="true" item-mode="default" max-height="500px" show-controls="true" show-stats="true"></websocket-feed-demo>
   </div>
 
