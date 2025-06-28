@@ -12,6 +12,7 @@ use axum::{
 
 use grimoire::{media::MediaBlobService, DatabaseConnection};
 use mime_guess::from_path;
+use tokio::fs;
 use uuid::Uuid;
 
 use crate::{auth::AuthenticatedUser, error::AppError};
@@ -69,10 +70,34 @@ pub async fn get_blob(
     // - User roles and permissions
     // - Organization/team access controls
 
-    // Check if blob has data
-    let data = blob.data.ok_or_else(|| {
-        AppError::InternalServerError("Blob exists but has no data available".to_string())
-    })?;
+    // Get blob data - either from database or from file
+    let data = if let Some(data) = blob.data {
+        // Small file: data is stored in database
+        data
+    } else if let Some(ref local_path) = blob.local_path {
+        // Large file: read from filesystem
+        let file_path = std::path::Path::new("assets").join(local_path);
+
+        match fs::read(&file_path).await {
+            Ok(file_data) => file_data,
+            Err(e) => {
+                tracing::error!(
+                    blob_id = %id,
+                    local_path = %local_path,
+                    error = %e,
+                    "Failed to read file from disk"
+                );
+                return Err(AppError::InternalServerError(format!(
+                    "Failed to read file from disk: {}",
+                    e
+                )));
+            }
+        }
+    } else {
+        return Err(AppError::InternalServerError(
+            "Blob exists but has no data or file path available".to_string(),
+        ));
+    };
 
     // Determine content type from MIME type or file extension
     let content_type = if let Some(ref mime) = blob.mime {

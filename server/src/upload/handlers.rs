@@ -339,20 +339,12 @@ pub async fn delete_upload(
         .local_path
         .ok_or_else(|| AppError::BadRequest("Cannot delete non-uploaded media blob".to_string()))?;
 
-    // Construct full file path
-    let full_path = std::path::Path::new("assets").join(&local_path);
-
-    // Delete file from disk
-    if full_path.exists() {
-        if let Err(e) = fs::remove_file(&full_path).await {
-            warn!("Failed to delete file {}: {}", full_path.display(), e);
-            // Continue with database deletion even if file deletion fails
-        } else {
-            info!("Deleted file: {}", full_path.display());
-        }
-    } else {
-        warn!("File not found on disk: {}", full_path.display());
-    }
+    // NOTE: File is left on disk intentionally for safety
+    // A separate CLI tool will handle careful file cleanup later
+    info!(
+        "Marking upload for deletion (file kept on disk): {}",
+        local_path
+    );
 
     // Delete database record
     repo.delete(id).await.map_err(|e| {

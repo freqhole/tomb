@@ -9,6 +9,7 @@
 import { customElement } from "solid-element";
 import { createSignal, createEffect, Show } from "solid-js";
 import type { MediaBlob } from "../lib/websocket-types.js";
+import { BlobClient } from "../lib/blob-client.js";
 
 export interface MediaBlobFeedItemProps {
   /** The media blob to display */
@@ -29,6 +30,10 @@ export interface MediaBlobFeedItemProps {
   thumbnailSize?: number;
   /** Show loading placeholder while thumbnail loads */
   showLoadingPlaceholder?: boolean;
+  /** Base URL for blob API (default: current origin) */
+  baseUrl?: string;
+  /** Enable inline blob viewer expansion (default: true) */
+  enableInlineViewer?: boolean;
 }
 
 interface ThumbnailState {
@@ -44,6 +49,16 @@ function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
     url: null,
   });
 
+  const [expanded, setExpanded] = createSignal(false);
+  const [blobViewerLoading, setBlobViewerLoading] = createSignal(false);
+  const [blobViewerError, setBlobViewerError] = createSignal<string | null>(
+    null
+  );
+
+  const blobClient = new BlobClient({
+    baseUrl: props.baseUrl || window.location.origin,
+  });
+
   const showThumbnail = () => props.showThumbnail !== false;
   const showMetadata = () => props.showMetadata !== false;
   const showTimestamps = () => props.showTimestamps !== false;
@@ -51,6 +66,7 @@ function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
   const clickable = () => props.clickable !== false;
   const thumbnailSize = () => props.thumbnailSize || 120;
   const showLoadingPlaceholder = () => props.showLoadingPlaceholder !== false;
+  const enableInlineViewer = () => props.enableInlineViewer !== false;
 
   const formatFileSize = (size?: number): string => {
     if (!size) return "Unknown size";
@@ -141,13 +157,71 @@ function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
   const handleItemClick = () => {
     if (!clickable()) return;
 
-    // Emit custom event for parent components to handle
-    const event = new CustomEvent("media-blob-click", {
-      detail: { blob: props.blob },
-      bubbles: true,
-    });
+    if (enableInlineViewer()) {
+      toggleExpanded();
+    } else {
+      // Emit custom event for parent components to handle
+      const event = new CustomEvent("media-blob-click", {
+        detail: { blob: props.blob },
+        bubbles: true,
+      });
+      // Dispatch from the component element
+      const element = document.querySelector(
+        `[data-blob-id="${props.blob.id}"]`
+      );
+      element?.dispatchEvent(event);
+    }
+  };
 
-    // Dispatch from the component element
+  const toggleExpanded = () => {
+    setExpanded(!expanded());
+    if (!expanded()) {
+      setBlobViewerError(null);
+    }
+  };
+
+  const handleViewBlob = async (e: Event) => {
+    e.stopPropagation();
+    if (!enableInlineViewer()) {
+      // Open blob in new tab/window
+      window.open(`/api/blobs/${props.blob.id}`, "_blank");
+      return;
+    }
+
+    setBlobViewerLoading(true);
+    setBlobViewerError(null);
+    setExpanded(true);
+
+    try {
+      // Pre-load blob to check if it exists
+      await blobClient.getBlobMetadata(props.blob.id);
+    } catch (error) {
+      setBlobViewerError(`Failed to load blob: ${error}`);
+    } finally {
+      setBlobViewerLoading(false);
+    }
+  };
+
+  const handleDownloadBlob = async (e: Event) => {
+    e.stopPropagation();
+    try {
+      const filename =
+        (props.blob.metadata as any)?.filename || `blob-${props.blob.id}`;
+      await blobClient.downloadBlob(props.blob.id, filename);
+    } catch (error) {
+      console.error("Download failed:", error);
+      // Could emit an error event here
+    }
+  };
+
+  const copyBlobId = async (e: Event) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(props.blob.id);
+      // Could show a toast notification here
+    } catch (error) {
+      console.error("Failed to copy blob ID:", error);
+    }
     const element = document.querySelector(`[data-blob-id="${props.blob.id}"]`);
     element?.dispatchEvent(event);
   };
@@ -311,57 +385,179 @@ function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
         class="content"
         style={{ flex: compact() ? "1" : "auto", "min-width": "0" }}
       >
-        {/* Title */}
-        <h3 class="title">
-          {props.blob.local_path?.split("/").pop() ||
-            `${props.blob.sha256.slice(0, 8)}...${props.blob.sha256.slice(-4)}`}
-        </h3>
+        <div
+          style={{
+            display: "flex",
+            "justify-content": "space-between",
+            "align-items": "flex-start",
+            gap: "8px",
+          }}
+        >
+          <div style={{ flex: "1", "min-width": "0" }}>
+            {/* Title */}
+            <h3 class="title">
+              {props.blob.local_path?.split("/").pop() ||
+                `${props.blob.sha256.slice(0, 8)}...${props.blob.sha256.slice(-4)}`}
+            </h3>
 
-        {/* Metadata */}
-        <Show when={showMetadata()}>
-          <div class="metadata">
-            <div class="metadata-item">
-              <span>{getMimeTypeIcon(props.blob.mime)}</span>
-              <span>{props.blob.mime || "Unknown type"}</span>
-            </div>
+            {/* Metadata */}
+            <Show when={showMetadata()}>
+              <div class="metadata">
+                <div class="metadata-item">
+                  <span>{getMimeTypeIcon(props.blob.mime)}</span>
+                  <span>{props.blob.mime || "Unknown type"}</span>
+                </div>
 
-            <Show when={props.blob.size}>
-              <div class="metadata-item">
-                <span>📏</span>
-                <span>{formatFileSize(props.blob.size)}</span>
+                <Show when={props.blob.size}>
+                  <div class="metadata-item">
+                    <span>📏</span>
+                    <span>{formatFileSize(props.blob.size)}</span>
+                  </div>
+                </Show>
+
+                <Show when={props.blob.source_client_id}>
+                  <div class="metadata-item">
+                    <span>📱</span>
+                    <span title={props.blob.source_client_id}>
+                      {props.blob.source_client_id?.slice(0, 8)}...
+                    </span>
+                  </div>
+                </Show>
               </div>
             </Show>
 
-            <Show when={props.blob.source_client_id}>
-              <div class="metadata-item">
-                <span>📱</span>
-                <span title={props.blob.source_client_id}>
-                  {props.blob.source_client_id?.slice(0, 8)}...
-                </span>
+            {/* Timestamps */}
+            <Show when={showTimestamps()}>
+              <div
+                style={{
+                  "margin-top": "4px",
+                  "font-size": "11px",
+                  color: "#9ca3af",
+                }}
+              >
+                <Show
+                  when={props.blob.created_at !== props.blob.updated_at}
+                  fallback={
+                    <span>Added {formatTimestamp(props.blob.created_at)}</span>
+                  }
+                >
+                  <span>
+                    Added {formatTimestamp(props.blob.created_at)} • Updated{" "}
+                    {formatTimestamp(props.blob.updated_at)}
+                  </span>
+                </Show>
               </div>
             </Show>
           </div>
-        </Show>
 
-        {/* Timestamps */}
-        <Show when={showTimestamps()}>
+          {/* Action Buttons */}
+          <div style={{ display: "flex", gap: "4px", "flex-shrink": "0" }}>
+            <button
+              onClick={handleViewBlob}
+              style={{
+                padding: "4px 8px",
+                "font-size": "12px",
+                border: "1px solid #d1d5db",
+                "border-radius": "4px",
+                "background-color": "#f9fafb",
+                cursor: "pointer",
+                display: "flex",
+                "align-items": "center",
+                gap: "4px",
+              }}
+              title="View blob content"
+            >
+              👁️ {expanded() ? "Hide" : "View"}
+            </button>
+            <button
+              onClick={handleDownloadBlob}
+              style={{
+                padding: "4px 8px",
+                "font-size": "12px",
+                border: "1px solid #d1d5db",
+                "border-radius": "4px",
+                "background-color": "#f9fafb",
+                cursor: "pointer",
+                display: "flex",
+                "align-items": "center",
+                gap: "4px",
+              }}
+              title="Download blob"
+            >
+              📥
+            </button>
+            <button
+              onClick={copyBlobId}
+              style={{
+                padding: "4px 8px",
+                "font-size": "12px",
+                border: "1px solid #d1d5db",
+                "border-radius": "4px",
+                "background-color": "#f9fafb",
+                cursor: "pointer",
+                display: "flex",
+                "align-items": "center",
+                gap: "4px",
+              }}
+              title="Copy blob ID"
+            >
+              📋
+            </button>
+          </div>
+        </div>
+
+        {/* Expanded Blob Viewer */}
+        <Show when={expanded()}>
           <div
             style={{
-              "margin-top": "4px",
-              "font-size": "11px",
-              color: "#9ca3af",
+              "margin-top": "12px",
+              padding: "12px",
+              border: "1px solid #e5e7eb",
+              "border-radius": "6px",
+              "background-color": "#f9fafb",
             }}
           >
             <Show
-              when={props.blob.created_at !== props.blob.updated_at}
+              when={!blobViewerLoading() && !blobViewerError()}
               fallback={
-                <span>Added {formatTimestamp(props.blob.created_at)}</span>
+                <div>
+                  <Show when={blobViewerLoading()}>
+                    <div
+                      style={{
+                        "text-align": "center",
+                        padding: "20px",
+                        color: "#6b7280",
+                      }}
+                    >
+                      Loading blob content...
+                    </div>
+                  </Show>
+                  <Show when={blobViewerError()}>
+                    <div
+                      style={{
+                        padding: "12px",
+                        "background-color": "#fef2f2",
+                        color: "#dc2626",
+                        "border-radius": "4px",
+                        border: "1px solid #fecaca",
+                      }}
+                    >
+                      {blobViewerError()}
+                    </div>
+                  </Show>
+                </div>
               }
             >
-              <span>
-                Added {formatTimestamp(props.blob.created_at)} • Updated{" "}
-                {formatTimestamp(props.blob.updated_at)}
-              </span>
+              {/* Inline Blob Viewer */}
+              <blob-viewer
+                blobId={props.blob.id}
+                baseUrl={props.baseUrl}
+                maxWidth="100%"
+                maxHeight="300px"
+                showMetadata={false}
+                enableDownload={false}
+                autoLoad={true}
+              />
             </Show>
           </div>
         </Show>
@@ -382,6 +578,8 @@ customElement(
     className: "",
     thumbnailSize: 120,
     showLoadingPlaceholder: true,
+    baseUrl: undefined,
+    enableInlineViewer: true,
   },
   MediaBlobFeedItemComponent
 );

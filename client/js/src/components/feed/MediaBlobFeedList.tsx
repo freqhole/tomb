@@ -26,6 +26,8 @@ export interface MediaBlobFeedListProps {
   onGetThumbnails?: (mediaBlobId: string) => void;
   className?: string;
   requestedThumbnails?: Set<string>;
+  enableInlineViewer?: boolean;
+  baseUrl?: string;
 }
 
 export function MediaBlobFeedListComponent(props: MediaBlobFeedListProps) {
@@ -189,6 +191,8 @@ export function MediaBlobFeedListComponent(props: MediaBlobFeedListProps) {
                 onItemClick={props.onItemClick}
                 onGetThumbnails={props.onGetThumbnails}
                 requestedThumbnails={props.requestedThumbnails}
+                enableInlineViewer={props.enableInlineViewer !== false}
+                baseUrl={props.baseUrl}
               />
             )}
           </For>

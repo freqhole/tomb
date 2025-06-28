@@ -75,6 +75,36 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     pageSize = 20,
   } = config;
 
+  // Helper function to check if a blob is a thumbnail
+  const isThumbnailBlob = (item: MediaBlob): boolean => {
+    // Check if blob_type is thumbnail
+    if (item.blob_type === "thumbnail") {
+      return true;
+    }
+
+    // Check if this blob has a parent (indicating it's derived from another blob)
+    if (item.parent_blob_id) {
+      return true;
+    }
+
+    // Check if metadata indicates it's a thumbnail
+    if (item.metadata && typeof item.metadata === "object") {
+      const meta = item.metadata as any;
+      if (meta.generator || meta.thumbnail_of) {
+        return true;
+      }
+    }
+
+    // Check if MIME type and size suggest it's a thumbnail
+    const isImage = item.mime?.startsWith("image/");
+    const isSmall = (item.size || 0) < 100000; // Less than 100KB
+    if (isImage && isSmall && item.local_path?.includes("thumbnail")) {
+      return true;
+    }
+
+    return false;
+  };
+
   const [client, setClient] = createSignal<WebSocketClient | null>(null);
   const [feedState, setFeedState] = createSignal<FeedState>({
     items: [],
@@ -105,6 +135,12 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
   };
 
   const addFeedItem = (item: MediaBlob) => {
+    // Filter out thumbnail blobs
+    if (isThumbnailBlob(item)) {
+      log("Filtered out thumbnail blob:", item.id);
+      return;
+    }
+
     setFeedState((prev) => ({
       ...prev,
       items: [item, ...prev.items],
@@ -225,9 +261,17 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
       const isLoadingMore = state.isLoadingMore;
       const targetPage = state.targetPage;
 
+      // Filter out thumbnail blobs from the loaded data
+      const filteredBlobs = data.blobs.filter((blob) => !isThumbnailBlob(blob));
+      log(
+        "Filtered out",
+        data.blobs.length - filteredBlobs.length,
+        "thumbnail blobs"
+      );
+
       const newItems = isLoadingMore
-        ? [...state.items, ...data.blobs]
-        : data.blobs;
+        ? [...state.items, ...filteredBlobs]
+        : filteredBlobs;
 
       // Determine the correct page number
       let newPage: number;
@@ -475,7 +519,7 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
       setFeedState((prev) => ({
         ...prev,
         requestedThumbnails: new Set([
-          ...prev.requestedThumbnails,
+          ...Array.from(prev.requestedThumbnails),
           mediaBlobId,
         ]),
       }));

@@ -8,6 +8,7 @@
 /* @jsxImportSource solid-js */
 import { Show, createMemo, createSignal, onMount } from "solid-js";
 import type { MediaBlob } from "../../lib/websocket-types.js";
+import { BlobClient } from "../../lib/index.js";
 
 // Helper function to convert binary data to data URL
 const createDataUrl = (data: number[], mimeType: string): string => {
@@ -34,6 +35,8 @@ export interface MediaBlobFeedItemProps {
   onGetThumbnails?: (mediaBlobId: string) => void;
   className?: string;
   requestedThumbnails?: Set<string>;
+  enableInlineViewer?: boolean;
+  baseUrl?: string;
 }
 
 export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
@@ -44,6 +47,19 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
   // Thumbnail state
   const [showThumbnailPlaceholder, setShowThumbnailPlaceholder] =
     createSignal(false);
+
+  // Blob viewer state
+  const [expanded, setExpanded] = createSignal(false);
+  const [blobViewerLoading, setBlobViewerLoading] = createSignal(false);
+  const [blobViewerError, setBlobViewerError] = createSignal<string | null>(
+    null
+  );
+
+  const blobClient = new BlobClient({
+    baseUrl: props.baseUrl || window.location.origin,
+  });
+
+  const enableInlineViewer = () => props.enableInlineViewer !== false;
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -99,6 +115,60 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
   const shouldShowThumbnails = createMemo(() => {
     return props.showThumbnails !== false && !isCompact();
   });
+
+  const handleItemClick = () => {
+    if (enableInlineViewer()) {
+      toggleExpanded();
+    } else if (props.onItemClick) {
+      props.onItemClick(props.item);
+    }
+  };
+
+  const toggleExpanded = () => {
+    setExpanded(!expanded());
+    if (!expanded()) {
+      setBlobViewerError(null);
+    }
+  };
+
+  const handleViewBlob = async (e: Event) => {
+    e.stopPropagation();
+    if (!enableInlineViewer()) {
+      window.open(`/api/blobs/${props.item.id}`, "_blank");
+      return;
+    }
+
+    setBlobViewerLoading(true);
+    setBlobViewerError(null);
+    setExpanded(true);
+
+    try {
+      await blobClient.getBlobMetadata(props.item.id);
+    } catch (error) {
+      setBlobViewerError(`Failed to load blob: ${error}`);
+    } finally {
+      setBlobViewerLoading(false);
+    }
+  };
+
+  const handleDownloadBlob = async (e: Event) => {
+    e.stopPropagation();
+    try {
+      const filename = props.item.filename || `blob-${props.item.id}`;
+      await blobClient.downloadBlob(props.item.id, filename);
+    } catch (error) {
+      console.error("Download failed:", error);
+    }
+  };
+
+  const copyBlobId = async (e: Event) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(props.item.id);
+    } catch (error) {
+      console.error("Failed to copy blob ID:", error);
+    }
+  };
 
   const canGenerateThumbnails = createMemo(() => {
     const mimeType = props.item.mime_type || props.item.mime || "";
@@ -197,7 +267,9 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
   };
 
   const handleClick = () => {
-    if (props.onItemClick) {
+    if (enableInlineViewer()) {
+      handleItemClick();
+    } else if (props.onItemClick) {
       props.onItemClick(props.item);
     }
   };
@@ -340,40 +412,120 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
           gap: isCompact() ? "2px" : "4px",
         }}
       >
-        {/* Filename */}
+        {/* Main content and action buttons container */}
         <div
           style={{
-            "font-size": isCompact() ? "14px" : "16px",
-            "font-weight": "500",
-            color: "#1e293b",
-            overflow: "hidden",
-            "text-overflow": "ellipsis",
-            "white-space": isCompact() ? "nowrap" : "normal",
-            "word-break": "break-word",
+            display: "flex",
+            "justify-content": "space-between",
+            "align-items": "flex-start",
+            gap: "8px",
           }}
-          title={getDisplayFilename()}
         >
-          {getDisplayFilename()}
-        </div>
-
-        {/* Metadata */}
-        <Show when={!isCompact() || props.showMetadata}>
+          {/* File info section */}
           <div
             style={{
+              flex: 1,
+              "min-width": 0,
               display: "flex",
-              gap: "12px",
-              "font-size": "12px",
-              color: "#64748b",
-              "flex-wrap": isCompact() ? "nowrap" : "wrap",
+              "flex-direction": "column",
+              gap: isCompact() ? "2px" : "4px",
             }}
           >
-            <span title="File size">{formatFileSize(getFileSize())}</span>
-            <span title="MIME type">{getMimeType()}</span>
-            <Show when={isDetailed()}>
-              <span title="Created">{formatDate(props.item.created_at)}</span>
+            {/* Filename */}
+            <div
+              style={{
+                "font-size": isCompact() ? "14px" : "16px",
+                "font-weight": "500",
+                color: "#1e293b",
+                overflow: "hidden",
+                "text-overflow": "ellipsis",
+                "white-space": isCompact() ? "nowrap" : "normal",
+                "word-break": "break-word",
+              }}
+              title={getDisplayFilename()}
+            >
+              {getDisplayFilename()}
+            </div>
+
+            {/* Metadata */}
+            <Show when={!isCompact() || props.showMetadata}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "12px",
+                  "font-size": "12px",
+                  color: "#64748b",
+                  "flex-wrap": isCompact() ? "nowrap" : "wrap",
+                }}
+              >
+                <span title="File size">{formatFileSize(getFileSize())}</span>
+                <span title="MIME type">{getMimeType()}</span>
+                <Show when={isDetailed()}>
+                  <span title="Created">
+                    {formatDate(props.item.created_at)}
+                  </span>
+                </Show>
+              </div>
             </Show>
           </div>
-        </Show>
+
+          {/* Action Buttons */}
+          <Show when={!isCompact()}>
+            <div style={{ display: "flex", gap: "4px", "flex-shrink": "0" }}>
+              <button
+                onClick={handleViewBlob}
+                style={{
+                  padding: "4px 8px",
+                  "font-size": "12px",
+                  border: "1px solid #d1d5db",
+                  "border-radius": "4px",
+                  "background-color": "#f9fafb",
+                  cursor: "pointer",
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "4px",
+                }}
+                title="View blob content"
+              >
+                👁️ {expanded() ? "Hide" : "View"}
+              </button>
+              <button
+                onClick={handleDownloadBlob}
+                style={{
+                  padding: "4px 8px",
+                  "font-size": "12px",
+                  border: "1px solid #d1d5db",
+                  "border-radius": "4px",
+                  "background-color": "#f9fafb",
+                  cursor: "pointer",
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "4px",
+                }}
+                title="Download blob"
+              >
+                📥
+              </button>
+              <button
+                onClick={copyBlobId}
+                style={{
+                  padding: "4px 8px",
+                  "font-size": "12px",
+                  border: "1px solid #d1d5db",
+                  "border-radius": "4px",
+                  "background-color": "#f9fafb",
+                  cursor: "pointer",
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "4px",
+                }}
+                title="Copy blob ID"
+              >
+                📋
+              </button>
+            </div>
+          </Show>
+        </div>
 
         {/* Description (detailed mode only) */}
         <Show when={isDetailed() && props.item.description}>
@@ -495,6 +647,185 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
           title={`ID: ${props.item.id}`}
         >
           {props.item.id.slice(0, 8)}...
+        </div>
+      </Show>
+
+      {/* Expanded Blob Viewer */}
+      <Show when={expanded()}>
+        <div
+          style={{
+            "margin-top": "12px",
+            padding: "12px",
+            border: "1px solid #e5e7eb",
+            "border-radius": "6px",
+            "background-color": "#f9fafb",
+          }}
+        >
+          <Show
+            when={!blobViewerLoading() && !blobViewerError()}
+            fallback={
+              <div>
+                <Show when={blobViewerLoading()}>
+                  <div
+                    style={{
+                      "text-align": "center",
+                      padding: "20px",
+                      color: "#6b7280",
+                    }}
+                  >
+                    Loading blob content...
+                  </div>
+                </Show>
+                <Show when={blobViewerError()}>
+                  <div
+                    style={{
+                      padding: "12px",
+                      "background-color": "#fef2f2",
+                      color: "#dc2626",
+                      "border-radius": "4px",
+                      border: "1px solid #fecaca",
+                    }}
+                  >
+                    {blobViewerError()}
+                  </div>
+                </Show>
+              </div>
+            }
+          >
+            {/* Inline Media Viewer */}
+            <Show
+              when={getMimeType().startsWith("image/")}
+              fallback={
+                <Show
+                  when={getMimeType().startsWith("video/")}
+                  fallback={
+                    <Show
+                      when={getMimeType().startsWith("audio/")}
+                      fallback={
+                        <div
+                          style={{
+                            padding: "20px",
+                            "text-align": "center",
+                            border: "2px dashed #ccc",
+                            "border-radius": "8px",
+                            "background-color": "#f9f9f9",
+                          }}
+                        >
+                          <div
+                            style={{
+                              "font-size": "3rem",
+                              "margin-bottom": "1rem",
+                            }}
+                          >
+                            📄
+                          </div>
+                          <div
+                            style={{
+                              "font-weight": "bold",
+                              "margin-bottom": "0.5rem",
+                            }}
+                          >
+                            {getDisplayFilename()}
+                          </div>
+                          <div style={{ color: "#666", "font-size": "0.9rem" }}>
+                            {getMimeType()} • {formatFileSize(getFileSize())}
+                          </div>
+                          <div style={{ "margin-top": "1rem" }}>
+                            <a
+                              href={`/api/blobs/${props.item.id}`}
+                              target="_blank"
+                              style={{
+                                padding: "8px 16px",
+                                "background-color": "#007bff",
+                                color: "white",
+                                "text-decoration": "none",
+                                "border-radius": "4px",
+                                "font-size": "14px",
+                              }}
+                            >
+                              View in New Tab
+                            </a>
+                          </div>
+                        </div>
+                      }
+                    >
+                      {/* Audio Player */}
+                      <div style={{ "text-align": "center" }}>
+                        <audio
+                          controls
+                          style={{ width: "100%", "max-width": "400px" }}
+                          preload="metadata"
+                        >
+                          <source
+                            src={`/api/blobs/${props.item.id}`}
+                            type={getMimeType()}
+                          />
+                          Your browser does not support audio playback.
+                        </audio>
+                        <div
+                          style={{
+                            "margin-top": "8px",
+                            "font-size": "14px",
+                            color: "#666",
+                          }}
+                        >
+                          {getDisplayFilename()}
+                        </div>
+                      </div>
+                    </Show>
+                  }
+                >
+                  {/* Video Player */}
+                  <video
+                    controls
+                    style={{
+                      width: "100%",
+                      "max-width": "100%",
+                      "max-height": "300px",
+                      "border-radius": "4px",
+                    }}
+                    preload="metadata"
+                  >
+                    <source
+                      src={`/api/blobs/${props.item.id}`}
+                      type={getMimeType()}
+                    />
+                    Your browser does not support video playback.
+                  </video>
+                </Show>
+              }
+            >
+              {/* Image Display */}
+              <img
+                src={`/api/blobs/${props.item.id}`}
+                alt={getDisplayFilename()}
+                style={{
+                  "max-width": "100%",
+                  "max-height": "300px",
+                  "object-fit": "contain",
+                  "border-radius": "4px",
+                  display: "block",
+                  margin: "0 auto",
+                }}
+                onError={(e) => {
+                  // Fallback to download link on error
+                  const target = e.target as HTMLImageElement;
+                  target.style.display = "none";
+                  const fallback = document.createElement("div");
+                  fallback.innerHTML = `
+                    <div style="padding: 20px; text-align: center; border: 2px dashed #ccc; border-radius: 8px; background-color: #f9f9f9;">
+                      <div style="font-size: 2rem; margin-bottom: 1rem;">❌</div>
+                      <div>Failed to load image</div>
+                      <div style="margin-top: 1rem;">
+                        <a href="/api/blobs/${props.item.id}" target="_blank" style="padding: 8px 16px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px;">View in New Tab</a>
+                      </div>
+                    </div>
+                  `;
+                  target.parentNode?.appendChild(fallback);
+                }}
+              />
+            </Show>
+          </Show>
         </div>
       </Show>
     </div>

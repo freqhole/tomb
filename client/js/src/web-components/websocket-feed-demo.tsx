@@ -277,6 +277,10 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
         onItemClick={handleItemClick}
         onGetThumbnails={feed.actions.getThumbnails}
         requestedThumbnails={feed.state().requestedThumbnails}
+        enableInlineViewer={true}
+        baseUrl={resolvedProps()
+          .wsUrl?.replace(/^ws/, "http")
+          .replace(/\/ws$/, "")}
       />
 
       {/* Pagination */}

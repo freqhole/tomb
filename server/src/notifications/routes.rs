@@ -29,7 +29,7 @@ pub fn build_notification_routes() -> Router<Arc<NotificationInfrastructure>> {
         .route("/notifications/stats", get(get_notification_stats))
         .route("/notifications/connections", get(get_active_connections))
         .route(
-            "/notifications/connections/:connection_id",
+            "/notifications/connections/{connection_id}",
             get(get_connection_info),
         )
         .route("/notifications/test", post(send_test_notification))
@@ -37,7 +37,7 @@ pub fn build_notification_routes() -> Router<Arc<NotificationInfrastructure>> {
         .route("/notifications/health", get(health_check))
         .route("/notifications/channels", get(list_notification_channels))
         .route(
-            "/notifications/channels/:channel/test",
+            "/notifications/channels/{channel}/test",
             post(test_channel_notification),
         )
 }

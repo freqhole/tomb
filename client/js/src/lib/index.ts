@@ -88,6 +88,21 @@ export type {
   UploadErrorType,
 } from "./file-upload.js";
 
+// Blob API Client (for fetching uploaded files and blob data)
+export {
+  BlobClient,
+  blobClient,
+  createTemporaryBlobUrl,
+  displayBlobAsImage,
+  BlobError,
+  BlobErrorType,
+} from "./blob-client.js";
+export type {
+  BlobMetadata,
+  BlobViewerInfo,
+  BlobClientConfig,
+} from "./blob-client.js";
+
 // WebSocket File Upload (for small files <10MB via WebSocket)
 export { WebSocketFileUploadHandler } from "./websocket-file-upload.js";
 export type {

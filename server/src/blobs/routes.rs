@@ -38,8 +38,8 @@ pub fn build_blob_routes(_config: &AppConfig) -> Router {
 
     // Protected routes (authentication required)
     let protected_routes = Router::new()
-        .route("/api/blobs/:id", get(get_blob))
-        .route("/api/blobs/:id/metadata", get(get_blob_metadata))
+        .route("/api/blobs/{id}", get(get_blob))
+        .route("/api/blobs/{id}/metadata", get(get_blob_metadata))
         .layer(middleware::from_fn(require_authentication));
 
     // Combine all routes

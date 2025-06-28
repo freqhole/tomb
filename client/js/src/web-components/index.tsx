@@ -32,6 +32,7 @@ import "./sync-status";
 import "./sync-progress";
 import "./sync-controls";
 import "./sync-demo";
+import "./blob-viewer";
 
 // Component registration confirmation
 const REGISTERED_COMPONENTS = [
@@ -49,6 +50,7 @@ const REGISTERED_COMPONENTS = [
   "sync-progress",
   "sync-controls",
   "sync-demo",
+  "blob-viewer",
 ] as const;
 
 export { REGISTERED_COMPONENTS };
@@ -179,6 +181,16 @@ declare global {
         autoConnect?: boolean;
         className?: string;
       };
+
+      "blob-viewer": {
+        blobId?: string;
+        baseUrl?: string;
+        maxWidth?: string;
+        maxHeight?: string;
+        showMetadata?: boolean;
+        enableDownload?: boolean;
+        autoLoad?: boolean;
+      };
     }
   }
 }
@@ -230,4 +242,5 @@ console.log("🧩 Web Components Library loaded - Available components:", [
   "sync-progress",
   "sync-controls",
   "sync-demo",
+  "blob-viewer",
 ]);
