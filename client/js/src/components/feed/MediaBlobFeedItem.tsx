@@ -249,6 +249,27 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
   });
 
   const getDisplayFilename = () => {
+    // Check metadata for original filename first
+    if (props.item.metadata && typeof props.item.metadata === "object") {
+      const meta = props.item.metadata as any;
+      if (
+        meta.originalName ||
+        meta.filename ||
+        meta.original_filename ||
+        meta.file_name ||
+        meta.name
+      ) {
+        return (
+          meta.originalName ||
+          meta.filename ||
+          meta.original_filename ||
+          meta.file_name ||
+          meta.name
+        );
+      }
+    }
+
+    // Fallback to existing logic
     return (
       props.item.filename ||
       props.item.local_path?.split("/").pop() ||

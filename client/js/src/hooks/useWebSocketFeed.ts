@@ -25,6 +25,10 @@ export interface FeedState {
   lastUpdated: Date | null;
   error: string | null;
   requestedThumbnails: Set<string>;
+  // Auto-refresh state
+  autoRefresh: boolean;
+  pendingUpdates: MediaBlob[];
+  hasPendingUpdates: boolean;
   // Pagination state
   currentPage: number;
   pageSize: number;
@@ -39,6 +43,7 @@ export interface FeedConfig {
   debug?: boolean;
   autoConnect?: boolean;
   pageSize?: number;
+  autoRefresh?: boolean;
 }
 
 export interface FeedActions {
@@ -48,6 +53,10 @@ export interface FeedActions {
   subscribe: (channel: NotificationChannel) => void;
   unsubscribe: (channel: NotificationChannel) => void;
   getThumbnails: (mediaBlobId: string) => void;
+  // Auto-refresh actions
+  toggleAutoRefresh: () => void;
+  applyPendingUpdates: () => void;
+  clearPendingUpdates: () => void;
   // Pagination actions
   loadMore: () => void;
   loadPage: (page: number) => void;
@@ -73,32 +82,16 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     debug = false,
     autoConnect = true,
     pageSize = 20,
+    autoRefresh = false,
   } = config;
 
   // Helper function to check if a blob is a thumbnail
   const isThumbnailBlob = (item: MediaBlob): boolean => {
-    // Check if blob_type is thumbnail
-    if (item.blob_type === "thumbnail") {
-      return true;
-    }
-
     // Check if this blob has a parent (indicating it's derived from another blob)
     if (item.parent_blob_id) {
-      return true;
-    }
-
-    // Check if metadata indicates it's a thumbnail
-    if (item.metadata && typeof item.metadata === "object") {
-      const meta = item.metadata as any;
-      if (meta.generator || meta.thumbnail_of) {
-        return true;
-      }
-    }
-
-    // Check if MIME type and size suggest it's a thumbnail
-    const isImage = item.mime?.startsWith("image/");
-    const isSmall = (item.size || 0) < 100000; // Less than 100KB
-    if (isImage && isSmall && item.local_path?.includes("thumbnail")) {
+      log(
+        `🔍 Filtering derived blob: ${item.id.slice(0, 8)} (type: ${item.blob_type}, parent: ${item.parent_blob_id.slice(0, 8)})`
+      );
       return true;
     }
 
@@ -116,6 +109,10 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     lastUpdated: null,
     error: null,
     requestedThumbnails: new Set<string>(),
+    // Auto-refresh state
+    autoRefresh: autoRefresh,
+    pendingUpdates: [],
+    hasPendingUpdates: false,
     // Pagination state
     currentPage: 0,
     pageSize: pageSize,
@@ -141,23 +138,62 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
       return;
     }
 
-    setFeedState((prev) => ({
-      ...prev,
-      items: [item, ...prev.items],
-      totalCount: prev.totalCount + 1,
-      lastUpdated: new Date(),
-    }));
-    log("Added new feed item:", item.id);
+    setFeedState((prev) => {
+      if (prev.autoRefresh) {
+        // Auto-refresh is on, add immediately
+        log("Auto-refresh: Added new feed item:", item.id);
+        return {
+          ...prev,
+          items: [item, ...prev.items],
+          totalCount: prev.totalCount + 1,
+          lastUpdated: new Date(),
+        };
+      } else {
+        // Auto-refresh is off, add to pending updates
+        log("Auto-refresh off: Added to pending updates:", item.id);
+        return {
+          ...prev,
+          pendingUpdates: [item, ...prev.pendingUpdates],
+          hasPendingUpdates: true,
+        };
+      }
+    });
   };
 
   const updateFeedItem = (updatedItem: MediaBlob) => {
-    setFeedState((prev) => ({
-      ...prev,
-      items: prev.items.map((item) =>
-        item.id === updatedItem.id ? updatedItem : item
-      ),
-      lastUpdated: new Date(),
-    }));
+    setFeedState((prev) => {
+      if (prev.autoRefresh) {
+        // Auto-refresh is on, update immediately
+        return {
+          ...prev,
+          items: prev.items.map((item) =>
+            item.id === updatedItem.id ? updatedItem : item
+          ),
+          lastUpdated: new Date(),
+        };
+      } else {
+        // Auto-refresh is off, update in pending updates if it exists there
+        const pendingIndex = prev.pendingUpdates.findIndex(
+          (item) => item.id === updatedItem.id
+        );
+        if (pendingIndex !== -1) {
+          const newPendingUpdates = [...prev.pendingUpdates];
+          newPendingUpdates[pendingIndex] = updatedItem;
+          return {
+            ...prev,
+            pendingUpdates: newPendingUpdates,
+          };
+        }
+        // Also update in current items if it exists there
+        return {
+          ...prev,
+          items: prev.items.map((item) =>
+            item.id === updatedItem.id ? updatedItem : item
+          ),
+          lastUpdated: new Date(),
+        };
+      }
+    });
     log("Updated feed item:", updatedItem.id);
   };
 
@@ -165,8 +201,11 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     setFeedState((prev) => ({
       ...prev,
       items: prev.items.filter((item) => item.id !== itemId),
+      pendingUpdates: prev.pendingUpdates.filter((item) => item.id !== itemId),
       totalCount: Math.max(0, prev.totalCount - 1),
       lastUpdated: new Date(),
+      hasPendingUpdates:
+        prev.pendingUpdates.filter((item) => item.id !== itemId).length > 0,
     }));
     log("Removed feed item:", itemId);
   };
@@ -262,11 +301,21 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
       const targetPage = state.targetPage;
 
       // Filter out thumbnail blobs from the loaded data
-      const filteredBlobs = data.blobs.filter((blob) => !isThumbnailBlob(blob));
+      const filteredBlobs = data.blobs.filter((blob) => {
+        const isThumb = isThumbnailBlob(blob);
+        if (isThumb) {
+          log(
+            `🖼️ Filtering thumbnail: ${blob.id.slice(0, 8)} (type: ${blob.blob_type}, parent: ${blob.parent_blob_id?.slice(0, 8) || "none"})`
+          );
+        }
+        return !isThumb;
+      });
       log(
-        "Filtered out",
+        "✅ Filtered out",
         data.blobs.length - filteredBlobs.length,
-        "thumbnail blobs"
+        "thumbnail blobs, kept",
+        filteredBlobs.length,
+        "parent blobs"
       );
 
       const newItems = isLoadingMore
@@ -594,6 +643,55 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     loadPage(0);
   };
 
+  const toggleAutoRefresh = () => {
+    setFeedState((prev) => {
+      const newAutoRefresh = !prev.autoRefresh;
+      log("Auto-refresh toggled:", newAutoRefresh);
+
+      // If turning auto-refresh back on, apply pending updates
+      if (newAutoRefresh && prev.hasPendingUpdates) {
+        log("Applying pending updates after enabling auto-refresh");
+        return {
+          ...prev,
+          autoRefresh: newAutoRefresh,
+          items: [...prev.pendingUpdates, ...prev.items],
+          pendingUpdates: [],
+          hasPendingUpdates: false,
+          lastUpdated: new Date(),
+        };
+      }
+
+      return {
+        ...prev,
+        autoRefresh: newAutoRefresh,
+      };
+    });
+  };
+
+  const applyPendingUpdates = () => {
+    setFeedState((prev) => {
+      if (!prev.hasPendingUpdates) return prev;
+
+      log("Applying", prev.pendingUpdates.length, "pending updates");
+      return {
+        ...prev,
+        items: [...prev.pendingUpdates, ...prev.items],
+        pendingUpdates: [],
+        hasPendingUpdates: false,
+        lastUpdated: new Date(),
+      };
+    });
+  };
+
+  const clearPendingUpdates = () => {
+    setFeedState((prev) => ({
+      ...prev,
+      pendingUpdates: [],
+      hasPendingUpdates: false,
+    }));
+    log("Cleared pending updates");
+  };
+
   // Initialize WebSocket client only once
   createEffect(() => {
     if (!client()) {
@@ -623,6 +721,9 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     subscribe,
     unsubscribe,
     getThumbnails,
+    toggleAutoRefresh,
+    applyPendingUpdates,
+    clearPendingUpdates,
     loadMore,
     loadPage,
     setPageSize,

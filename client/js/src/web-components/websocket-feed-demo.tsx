@@ -68,6 +68,8 @@ export interface WebSocketFeedDemoProps {
   refreshInterval?: number;
   /** Enable demo mode with mock data when server is unavailable */
   demoMode?: boolean;
+  /** Enable auto-refresh of feed (defaults to true) */
+  autoRefresh?: boolean;
 }
 
 function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
@@ -95,6 +97,10 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
     maxHeight: urlParams.maxHeight || props.maxHeight || "400px",
     className: urlParams.className || props.className,
     demoMode: stringToBoolean(urlParams.demoMode, props.demoMode || false),
+    autoRefresh: stringToBoolean(
+      urlParams.autoRefresh,
+      props.autoRefresh !== false
+    ),
   }));
 
   // Local UI state
@@ -109,6 +115,7 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
     channels: props.channels || ["MediaBlobs"],
     debug: resolvedProps().debug,
     autoConnect: resolvedProps().autoConnect,
+    autoRefresh: resolvedProps().autoRefresh,
   });
 
   const addLog = (message: string) => {
@@ -149,6 +156,17 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
   const handleDisconnect = () => {
     addLog("🔌 Disconnect button clicked");
     feed.actions.disconnect();
+  };
+
+  const handleToggleAutoRefresh = () => {
+    const newState = !feed.state().autoRefresh;
+    addLog(`🔄 Auto-refresh ${newState ? "enabled" : "disabled"}`);
+    feed.actions.toggleAutoRefresh();
+  };
+
+  const handleApplyPendingUpdates = () => {
+    addLog("📥 Applying pending updates");
+    feed.actions.applyPendingUpdates();
   };
 
   const containerStyles = () => ({
@@ -264,6 +282,81 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
         </div>
       </Show>
 
+      {/* Auto-refresh Controls */}
+      <div
+        style={{
+          display: "flex",
+          "align-items": "center",
+          "justify-content": "space-between",
+          padding: "12px",
+          "background-color": "#f8fafc",
+          border: "1px solid #e2e8f0",
+          "border-radius": "6px",
+          "font-size": "14px",
+          gap: "12px",
+        }}
+      >
+        <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+          <span>🔄</span>
+          <span>Auto-refresh:</span>
+          <button
+            onClick={handleToggleAutoRefresh}
+            style={{
+              padding: "4px 12px",
+              "border-radius": "4px",
+              border: "1px solid #d1d5db",
+              "background-color": feed.state().autoRefresh
+                ? "#10b981"
+                : "#6b7280",
+              color: "white",
+              "font-size": "12px",
+              cursor: "pointer",
+              "font-weight": "500",
+            }}
+          >
+            {feed.state().autoRefresh ? "ON" : "OFF"}
+          </button>
+        </div>
+
+        <Show
+          when={feed.state().hasPendingUpdates && !feed.state().autoRefresh}
+        >
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span
+              style={{
+                "background-color": "#f59e0b",
+                color: "white",
+                padding: "2px 6px",
+                "border-radius": "10px",
+                "font-size": "11px",
+                "font-weight": "600",
+              }}
+            >
+              {feed.state().pendingUpdates.length}
+            </span>
+            <button
+              onClick={handleApplyPendingUpdates}
+              style={{
+                padding: "6px 12px",
+                "border-radius": "4px",
+                border: "1px solid #f59e0b",
+                "background-color": "#fbbf24",
+                color: "#92400e",
+                "font-size": "12px",
+                cursor: "pointer",
+                "font-weight": "500",
+                display: "flex",
+                "align-items": "center",
+                gap: "4px",
+              }}
+            >
+              <span>📬</span>
+              <span>New content available - Click to refresh!</span>
+            </button>
+          </div>
+        </Show>
+      </div>
+
       {/* Feed List */}
       <MediaBlobFeedListComponent
         items={feed.state().items}
@@ -353,6 +446,7 @@ customElement(
     className: undefined,
     refreshInterval: 0,
     demoMode: false,
+    autoRefresh: false,
   },
   WebSocketFeedDemoComponent
 );

@@ -8,12 +8,7 @@
 /* @jsxImportSource solid-js */
 import { customElement } from "solid-element";
 import { createSignal, createEffect, Show, onCleanup } from "solid-js";
-import {
-  BlobClient,
-  type BlobViewerInfo,
-  BlobError,
-  BlobErrorType,
-} from "../lib/index.js";
+import { BlobClient, type BlobViewerInfo, BlobError } from "../lib/index.js";
 
 export interface BlobViewerProps {
   /** Blob ID to display */

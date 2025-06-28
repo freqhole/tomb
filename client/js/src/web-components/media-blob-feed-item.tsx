@@ -223,7 +223,7 @@ function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
       console.error("Failed to copy blob ID:", error);
     }
     const element = document.querySelector(`[data-blob-id="${props.blob.id}"]`);
-    element?.dispatchEvent(event);
+    event && element?.dispatchEvent(event);
   };
 
   const handleThumbnailLoad = () => {
