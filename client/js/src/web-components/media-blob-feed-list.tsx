@@ -79,7 +79,7 @@ function MediaBlobFeedListComponent(props: MediaBlobFeedListProps) {
   const handleItemClick = (event: CustomEvent) => {
     const { blob } = event.detail as { blob: MediaBlob };
 
-    setState(prev => ({
+    setState((prev) => ({
       ...prev,
       selectedItemId: blob.id === prev.selectedItemId ? null : blob.id,
     }));
@@ -263,15 +263,11 @@ function MediaBlobFeedListComponent(props: MediaBlobFeedListProps) {
       {/* Error State */}
       <Show when={error() && !loading()}>
         <div class="error-state">
-          <div style={{ "font-size": "48px", "margin-bottom": "16px" }}>
-            ⚠️
-          </div>
+          <div style={{ "font-size": "48px", "margin-bottom": "16px" }}>⚠️</div>
           <div style={{ "font-weight": "500", "margin-bottom": "8px" }}>
             Failed to load feed
           </div>
-          <div style={{ "font-size": "14px", opacity: "0.8" }}>
-            {error()}
-          </div>
+          <div style={{ "font-size": "14px", opacity: "0.8" }}>{error()}</div>
         </div>
       </Show>
 

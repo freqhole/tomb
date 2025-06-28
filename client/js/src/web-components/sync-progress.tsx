@@ -25,11 +25,21 @@ export interface SyncProgressProps {
 
 function SyncProgressComponent(props: SyncProgressProps) {
   const [progress, setProgress] = createSignal<number>(props.progress || 0);
-  const [itemsSynced, setItemsSynced] = createSignal<number>(props.itemsSynced || 0);
-  const [totalItems, setTotalItems] = createSignal<number>(props.totalItems || 0);
-  const [currentBatch, setCurrentBatch] = createSignal<number>(props.currentBatch || 0);
-  const [totalBatches, setTotalBatches] = createSignal<number>(props.totalBatches || 0);
-  const [eta, setEta] = createSignal<number>(props.estimatedRemainingSeconds || 0);
+  const [itemsSynced, setItemsSynced] = createSignal<number>(
+    props.itemsSynced || 0
+  );
+  const [totalItems, setTotalItems] = createSignal<number>(
+    props.totalItems || 0
+  );
+  const [currentBatch, setCurrentBatch] = createSignal<number>(
+    props.currentBatch || 0
+  );
+  const [totalBatches, setTotalBatches] = createSignal<number>(
+    props.totalBatches || 0
+  );
+  const [eta, setEta] = createSignal<number>(
+    props.estimatedRemainingSeconds || 0
+  );
 
   createEffect(() => {
     if (props.progress !== undefined) {
@@ -210,18 +220,22 @@ function SyncProgressComponent(props: SyncProgressProps) {
   );
 }
 
-customElement("sync-progress", {
-  progress: 0,
-  itemsSynced: 0,
-  totalItems: 0,
-  currentBatch: 0,
-  totalBatches: 0,
-  estimatedRemainingSeconds: 0,
-  showBatchInfo: true,
-  showETA: true,
-  showItemCount: true,
-  animated: true,
-  className: "",
-}, SyncProgressComponent);
+customElement(
+  "sync-progress",
+  {
+    progress: 0,
+    itemsSynced: 0,
+    totalItems: 0,
+    currentBatch: 0,
+    totalBatches: 0,
+    estimatedRemainingSeconds: 0,
+    showBatchInfo: true,
+    showETA: true,
+    showItemCount: true,
+    animated: true,
+    className: "",
+  },
+  SyncProgressComponent
+);
 
 export default SyncProgressComponent;

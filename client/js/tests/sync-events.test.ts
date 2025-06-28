@@ -11,8 +11,6 @@ import {
   createSyncEventSystem,
   SyncStartedEvent,
   SyncProgressEvent,
-  SyncFailedEvent,
-  SyncConflictEvent,
 } from "../src/sync/sync-events.js";
 import {
   SyncProgress,

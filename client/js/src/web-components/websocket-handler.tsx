@@ -282,6 +282,7 @@ const WebSocketHandler = (props: WebSocketHandlerProps) => {
       mime: file.type || "application/octet-stream",
       source_client_id: "web-component",
       local_path: file.name,
+      blob_type: "original" as const,
       metadata: {
         originalName: file.name,
         lastModified: file.lastModified,

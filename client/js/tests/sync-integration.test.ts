@@ -9,14 +9,13 @@ import {
   SyncEventType,
   SyncStatus,
   SyncManager,
-  SyncStorageManager,
 } from "../src/sync/index.js";
 import { ApiClient } from "../src/lib/api-client.js";
 
 // Mock browser globals for Node.js environment
 Object.defineProperty(globalThis, "window", {
   value: {
-    setInterval: (fn: Function, ms: number) => setInterval(fn, ms),
+    setInterval: (fn: () => void, ms: number) => setInterval(fn, ms),
     clearInterval: (id: number) => clearInterval(id),
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
@@ -42,11 +41,15 @@ Object.defineProperty(globalThis, "crypto", {
 Object.defineProperty(globalThis, "localStorage", {
   value: {
     store: new Map<string, string>(),
-    getItem: vi.fn((key: string) => globalThis.localStorage.store.get(key) || null),
+    getItem: vi.fn(
+      (key: string) => globalThis.localStorage.store.get(key) || null
+    ),
     setItem: vi.fn((key: string, value: string) =>
       globalThis.localStorage.store.set(key, value)
     ),
-    removeItem: vi.fn((key: string) => globalThis.localStorage.store.delete(key)),
+    removeItem: vi.fn((key: string) =>
+      globalThis.localStorage.store.delete(key)
+    ),
     clear: vi.fn(() => globalThis.localStorage.store.clear()),
   },
   writable: true,
@@ -287,12 +290,16 @@ describe("Sync Integration Tests", () => {
       mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
       const errorEvents: any[] = [];
-      syncManager.on(SyncEventType.SyncFailed, (event) => errorEvents.push(event));
+      syncManager.on(SyncEventType.SyncFailed, (event) =>
+        errorEvents.push(event)
+      );
 
       await syncManager.initialize();
 
       // Sync should fail but not throw
-      await expect(syncManager.sync({ force: true })).rejects.toThrow("Network error");
+      await expect(syncManager.sync({ force: true })).rejects.toThrow(
+        "Network error"
+      );
 
       // Verify error event was emitted
       expect(errorEvents).toHaveLength(1);
@@ -501,7 +508,9 @@ describe("Sync Integration Tests", () => {
       window.dispatchEvent?.(offlineEvent);
 
       // Should not be able to sync when offline
-      await expect(syncManager.sync()).rejects.toThrow("Cannot sync while offline");
+      await expect(syncManager.sync()).rejects.toThrow(
+        "Cannot sync while offline"
+      );
 
       // Simulate coming back online
       Object.defineProperty(navigator, "onLine", {

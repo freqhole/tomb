@@ -34,8 +34,8 @@ pub struct ConnectionManager {
 /// Information about an active WebSocket connection
 #[derive(Debug, Clone)]
 struct ConnectionInfo {
-    user_id: Option<Uuid>,
-    connected_at: OffsetDateTime,
+    _user_id: Option<Uuid>,
+    _connected_at: OffsetDateTime,
     subscribed_channels: Vec<NotificationChannel>,
 }
 
@@ -68,8 +68,8 @@ impl ConnectionManager {
             connections.insert(
                 connection_id,
                 ConnectionInfo {
-                    user_id,
-                    connected_at: OffsetDateTime::now_utc(),
+                    _user_id: user_id,
+                    _connected_at: OffsetDateTime::now_utc(),
                     subscribed_channels: Vec::new(),
                 },
             );

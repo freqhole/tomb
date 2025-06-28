@@ -1,6 +1,6 @@
 //! CLI commands for thumbnail tool validation and management
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Subcommand};
 use grimoire::{config::ConfigService, AppConfig, ThumbnailService};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -737,7 +737,7 @@ async fn run_maintenance(args: MaintenanceArgs) -> Result<(), Box<dyn std::error
 
     let service = ThumbnailService::new_with_defaults(&db);
 
-    let mut tasks_run = 0;
+    let mut _tasks_run = 0;
 
     // Run old job cleanup if requested
     if args.cleanup_old_jobs {
@@ -768,7 +768,7 @@ async fn run_maintenance(args: MaintenanceArgs) -> Result<(), Box<dyn std::error
             println!("💡 Use the HTTP API endpoint POST /api/thumbnails/cleanup?days={} for actual cleanup", args.max_age_days);
         }
 
-        tasks_run += 1;
+        _tasks_run += 1;
     }
 
     Ok(())

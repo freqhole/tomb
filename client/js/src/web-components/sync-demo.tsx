@@ -7,7 +7,7 @@
 
 /* @jsxImportSource solid-js */
 import { customElement } from "solid-element";
-import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import { createSignal, onMount, onCleanup, Show, For } from "solid-js";
 import { ApiClient } from "../lib/api-client.js";
 import {
   createSyncManager,
@@ -428,9 +428,9 @@ function SyncDemoComponent(props: SyncDemoProps) {
               </div>
             }
           >
-            {logs().map((log) => (
-              <div style={{ "margin-bottom": "2px" }}>{log}</div>
-            ))}
+            <For each={logs()}>
+              {(log) => <div style={{ "margin-bottom": "2px" }}>{log}</div>}
+            </For>
           </Show>
         </div>
       </div>

@@ -10,7 +10,14 @@
 
 /* @jsxImportSource solid-js */
 import { customElement } from "solid-element";
-import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import {
+  createSignal,
+  onMount,
+  onCleanup,
+  Show,
+  createMemo,
+  For,
+} from "solid-js";
 import { useWebSocketFeed } from "../hooks/useWebSocketFeed.js";
 import ConnectionStatusComponent from "../components/websocket/ConnectionStatus.js";
 import ConnectionControlsComponent from "../components/websocket/ConnectionControls.js";
@@ -67,8 +74,8 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
   // Parse URL parameters to override props
   const urlParams = getUrlParams();
 
-  // Override props with URL parameters if provided
-  const resolvedProps = {
+  // Override props with URL parameters if provided (using createMemo for reactivity)
+  const resolvedProps = createMemo(() => ({
     ...props,
     debug: stringToBoolean(urlParams.debug, props.debug || false),
     autoConnect: stringToBoolean(
@@ -88,24 +95,24 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
     maxHeight: urlParams.maxHeight || props.maxHeight || "400px",
     className: urlParams.className || props.className,
     demoMode: stringToBoolean(urlParams.demoMode, props.demoMode || false),
-  };
+  }));
 
   // Local UI state
   const [displayMode, setDisplayMode] = createSignal<
     "default" | "compact" | "detailed"
-  >(resolvedProps.itemMode);
+  >(resolvedProps().itemMode);
   const [logs, setLogs] = createSignal<string[]>([]);
 
   // Business logic via hook
   const feed = useWebSocketFeed({
-    wsUrl: resolvedProps.wsUrl,
+    wsUrl: resolvedProps().wsUrl,
     channels: props.channels || ["MediaBlobs"],
-    debug: resolvedProps.debug,
-    autoConnect: resolvedProps.autoConnect,
+    debug: resolvedProps().debug,
+    autoConnect: resolvedProps().autoConnect,
   });
 
   const addLog = (message: string) => {
-    if (resolvedProps.debug) {
+    if (resolvedProps().debug) {
       const timestamp = new Date().toLocaleTimeString();
       setLogs((prev) => [...prev.slice(-19), `[${timestamp}] ${message}`]);
     }
@@ -195,7 +202,7 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
 
   return (
     <div
-      class={resolvedProps.className || props.className}
+      class={resolvedProps().className || props.className}
       style={containerStyles()}
     >
       {/* Header Section */}
@@ -209,7 +216,7 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
             compact={false}
           />
 
-          <Show when={resolvedProps.showControls}>
+          <Show when={resolvedProps().showControls}>
             <ConnectionControlsComponent
               status={feed.state().connectionStatus}
               onConnect={handleConnect}
@@ -223,7 +230,7 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
       </div>
 
       {/* Feed Controls */}
-      <Show when={resolvedProps.showStats}>
+      <Show when={resolvedProps().showStats}>
         <FeedControlsComponent
           totalCount={feed.state().totalCount}
           subscribedChannels={feed.state().subscribedChannels}
@@ -263,7 +270,7 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
         isLoading={feed.state().isLoading}
         error={feed.state().error}
         mode={displayMode()}
-        maxHeight={resolvedProps.maxHeight}
+        maxHeight={resolvedProps().maxHeight}
         showPreview={true}
         showMetadata={true}
         showThumbnails={true}
@@ -289,7 +296,7 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
       />
 
       {/* Debug Logs */}
-      <Show when={resolvedProps.debug && logs().length > 0}>
+      <Show when={resolvedProps().debug && logs().length > 0}>
         <div>
           <div
             style={{
@@ -302,15 +309,13 @@ function WebSocketFeedDemoComponent(props: WebSocketFeedDemoProps) {
             Debug Logs:
           </div>
           <div style={debugLogStyles()}>
-            {logs().map((log) => (
-              <div>{log}</div>
-            ))}
+            <For each={logs()}>{(log) => <div>{log}</div>}</For>
           </div>
         </div>
       </Show>
 
       {/* Demo Info */}
-      <Show when={resolvedProps.demoMode}>
+      <Show when={resolvedProps().demoMode}>
         <div
           style={{
             "font-size": "12px",
