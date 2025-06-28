@@ -52,6 +52,9 @@
 pub mod hasher;
 pub mod jobs;
 pub mod metadata;
+pub mod models;
+pub mod playlist_service;
+pub mod repository;
 pub mod scanner;
 pub mod service;
 pub mod thumbnail;
@@ -68,6 +71,13 @@ pub use metadata::{
     extract_metadata, extract_standard_fields, AudioProperties, AudioTags, CompleteMetadata,
     FileMetadata, MetadataExtractor, StandardFields,
 };
+pub use models::{
+    AlbumSummary, AlbumTrack, ArtistAlbum, CreatePlaylist, CreateSong, Playlist, PlaylistComplete,
+    PlaylistQuery, PlaylistSong, PlaylistSongDetail, PlaylistSongFromJson, PlaylistSongWithMedia,
+    PlaylistSummary, PlaylistWithCount, Song, SongQuery, UpdatePlaylist,
+};
+pub use playlist_service::{PlaylistService, PlaylistServiceError};
+pub use repository::{MusicRepository, MusicRepositoryError};
 pub use scanner::{ConsoleScanProgress, ScanProgress, Scanner, ScannerConfig};
 pub use service::{
     CleanupResult, MusicService, MusicServiceError, ScanConfig, ScanResult, SessionStats,

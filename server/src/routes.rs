@@ -9,6 +9,7 @@ use crate::analytics::build_analytics_routes;
 use crate::auth::build_auth_routes;
 use crate::blobs::build_blob_routes;
 use crate::health::build_health_routes;
+use crate::media::build_media_routes;
 
 use crate::static_filez::{build_enhanced_private_routes, build_enhanced_public_routes};
 
@@ -29,6 +30,7 @@ pub fn build_routes(config: &AppConfig, connection_manager: ConnectionManager) -
         .merge(build_websocket_routes_with_manager(connection_manager))
         .merge(build_upload_routes(config))
         .merge(create_sync_routes())
+        .merge(build_media_routes())
 }
 
 #[cfg(test)]

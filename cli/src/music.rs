@@ -10,7 +10,9 @@ use clap::Subcommand;
 use grimoire::media::{CreateMediaBlob, MediaBlobRepository, MediaTypeDetector};
 use grimoire::music::{extract_metadata, extract_thumbnail, hash_file, TitleBuilder};
 use grimoire::music::{ConsoleScanProgress, MusicService, ScanConfig, ScanProgress, ScannerConfig};
+use grimoire::music::{CreatePlaylist, MusicRepository, PlaylistQuery, PlaylistService, SongQuery};
 use grimoire::{AppConfig, DatabaseConnection};
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -84,6 +86,169 @@ pub enum MusicCommands {
 
     /// Test database connectivity and show record counts
     Test,
+
+    /// List all songs with their IDs and titles
+    Songs {
+        /// Show only favorites
+        #[arg(long, short)]
+        favorites: bool,
+
+        /// Filter by artist (partial match)
+        #[arg(long, short)]
+        artist: Option<String>,
+
+        /// Filter by album (partial match)
+        #[arg(long)]
+        album: Option<String>,
+
+        /// Limit number of results
+        #[arg(long, short, default_value = "50")]
+        limit: i64,
+
+        /// Offset for pagination
+        #[arg(long, short)]
+        offset: Option<i64>,
+    },
+
+    /// List all playlists
+    Playlists {
+        /// Show only public playlists
+        #[arg(long, short)]
+        public: bool,
+
+        /// Show detailed information
+        #[arg(long, short)]
+        verbose: bool,
+    },
+
+    /// Create a new playlist
+    CreatePlaylist {
+        /// Playlist title
+        title: String,
+
+        /// Optional description
+        #[arg(long, short)]
+        description: Option<String>,
+
+        /// Make playlist public
+        #[arg(long, short)]
+        public: bool,
+
+        /// Song IDs to add to playlist (comma-separated)
+        #[arg(long)]
+        songs: Option<String>,
+    },
+
+    /// Add songs to an existing playlist
+    AddToPlaylist {
+        /// Playlist title (or ID if exact match not found)
+        playlist: String,
+
+        /// Song IDs to add (comma-separated)
+        songs: String,
+    },
+
+    /// Remove songs from a playlist
+    RemoveFromPlaylist {
+        /// Playlist title (or ID if exact match not found)
+        playlist: String,
+
+        /// Song IDs to remove (comma-separated)
+        songs: String,
+    },
+
+    /// Show songs in a playlist
+    ShowPlaylist {
+        /// Playlist title (or ID if exact match not found)
+        playlist: String,
+
+        /// Show detailed song information
+        #[arg(long, short)]
+        verbose: bool,
+    },
+
+    /// Delete a playlist
+    DeletePlaylist {
+        /// Playlist title (or ID if exact match not found)
+        playlist: String,
+
+        /// Skip confirmation prompt
+        #[arg(long, short)]
+        force: bool,
+    },
+
+    /// Move song to different position in playlist
+    MoveSong {
+        /// Playlist title (or ID if exact match not found)
+        playlist: String,
+
+        /// Song ID to move
+        song_id: Uuid,
+
+        /// New position (1-based)
+        position: i32,
+    },
+
+    /// Reorder entire playlist
+    ReorderPlaylist {
+        /// Playlist title (or ID if exact match not found)
+        playlist: String,
+
+        /// Song IDs in new order (comma-separated)
+        song_ids: String,
+    },
+
+    /// Show playlist summaries
+    PlaylistSummaries {
+        /// Limit number of results
+        #[arg(long, short, default_value = "20")]
+        limit: i64,
+    },
+
+    /// Show album summaries
+    Albums {
+        /// Limit number of results
+        #[arg(long, short, default_value = "20")]
+        limit: i64,
+    },
+
+    /// Show album tracks
+    AlbumTracks {
+        /// Album name
+        album: String,
+
+        /// Artist name (optional for filtering)
+        #[arg(long, short)]
+        artist: Option<String>,
+    },
+
+    /// Show artist albums
+    ArtistAlbums {
+        /// Artist name
+        artist: String,
+
+        /// Maximum number of albums
+        #[arg(long, short, default_value = "20")]
+        limit: i32,
+    },
+
+    /// Create playlist from album
+    PlaylistFromAlbum {
+        /// Album name
+        album: String,
+
+        /// Artist name (optional for filtering)
+        #[arg(long, short)]
+        artist: Option<String>,
+
+        /// Playlist title (defaults to album name)
+        #[arg(long, short)]
+        title: Option<String>,
+
+        /// Make playlist public
+        #[arg(long, short)]
+        public: bool,
+    },
 }
 
 impl MusicCommands {
@@ -120,6 +285,96 @@ impl MusicCommands {
             Self::Cancel { session_id } => self.handle_cancel(&service, *session_id).await,
             Self::Cleanup { days } => self.handle_cleanup(&service, *days).await,
             Self::Test => self.handle_test(&service).await,
+            Self::Songs {
+                favorites,
+                artist,
+                album,
+                limit,
+                offset,
+            } => {
+                self.handle_songs(
+                    &service,
+                    *favorites,
+                    artist.clone(),
+                    album.clone(),
+                    *limit,
+                    *offset,
+                )
+                .await
+            }
+            Self::Playlists { public, verbose } => {
+                self.handle_playlists(&service, *public, *verbose).await
+            }
+            Self::CreatePlaylist {
+                title,
+                description,
+                public,
+                songs,
+            } => {
+                self.handle_create_playlist(
+                    &service,
+                    title.clone(),
+                    description.clone(),
+                    *public,
+                    songs.clone(),
+                )
+                .await
+            }
+            Self::AddToPlaylist { playlist, songs } => {
+                self.handle_add_to_playlist(&service, playlist.clone(), songs.clone())
+                    .await
+            }
+            Self::RemoveFromPlaylist { playlist, songs } => {
+                self.handle_remove_from_playlist(&service, playlist.clone(), songs.clone())
+                    .await
+            }
+            Self::ShowPlaylist { playlist, verbose } => {
+                self.handle_show_playlist(&service, playlist.clone(), *verbose)
+                    .await
+            }
+            Self::DeletePlaylist { playlist, force } => {
+                self.handle_delete_playlist(&service, playlist.clone(), *force)
+                    .await
+            }
+            Self::MoveSong {
+                playlist,
+                song_id,
+                position,
+            } => {
+                self.handle_move_song(&service, playlist.clone(), *song_id, *position)
+                    .await
+            }
+            Self::ReorderPlaylist { playlist, song_ids } => {
+                self.handle_reorder_playlist(&service, playlist.clone(), song_ids.clone())
+                    .await
+            }
+            Self::PlaylistSummaries { limit } => {
+                self.handle_playlist_summaries(&service, *limit).await
+            }
+            Self::Albums { limit } => self.handle_albums(&service, *limit).await,
+            Self::AlbumTracks { album, artist } => {
+                self.handle_album_tracks(&service, album.clone(), artist.clone())
+                    .await
+            }
+            Self::ArtistAlbums { artist, limit } => {
+                self.handle_artist_albums(&service, artist.clone(), *limit)
+                    .await
+            }
+            Self::PlaylistFromAlbum {
+                album,
+                artist,
+                title,
+                public,
+            } => {
+                self.handle_playlist_from_album(
+                    &service,
+                    album.clone(),
+                    artist.clone(),
+                    title.clone(),
+                    *public,
+                )
+                .await
+            }
         }
     }
 
@@ -760,6 +1015,703 @@ impl MusicCommands {
         );
 
         // TODO: Queue waveform generation job
+
+        Ok(())
+    }
+
+    /// Handle listing songs command
+    async fn handle_songs(
+        &self,
+        service: &MusicService<'_>,
+        favorites: bool,
+        artist: Option<String>,
+        album: Option<String>,
+        limit: i64,
+        offset: Option<i64>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🎵 Songs:");
+        println!("=========");
+
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        let query = SongQuery {
+            favorites_only: if favorites { Some(true) } else { None },
+            artist,
+            album,
+            limit: Some(limit),
+            offset,
+            ..Default::default()
+        };
+
+        let songs = playlist_service.query_songs(query).await?;
+
+        if songs.is_empty() {
+            println!("No songs found.");
+            return Ok(());
+        }
+
+        for song in songs {
+            let favorite_indicator = if song.is_favorite { " ⭐" } else { "" };
+            println!(
+                "  {} | {}{}",
+                song.id,
+                song.detailed_display_title(),
+                favorite_indicator
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Handle listing playlists command
+    async fn handle_playlists(
+        &self,
+        service: &MusicService<'_>,
+        public: bool,
+        verbose: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("📋 Playlists:");
+        println!("=============");
+
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        let query = PlaylistQuery {
+            public_only: if public { Some(true) } else { None },
+            ..Default::default()
+        };
+
+        let playlists = playlist_service.query_playlists(query).await?;
+
+        if playlists.is_empty() {
+            println!("No playlists found.");
+            return Ok(());
+        }
+
+        for playlist_with_count in playlists {
+            let playlist = &playlist_with_count.playlist;
+            let song_count = playlist_with_count.song_count;
+            let visibility = playlist.visibility_string();
+
+            if verbose {
+                println!(
+                    "  {} | {} ({} songs) [{}]",
+                    playlist.id, playlist.title, song_count, visibility
+                );
+                if let Some(ref desc) = playlist.description {
+                    println!("    Description: {}", desc);
+                }
+            } else {
+                println!(
+                    "  {} | {} ({} songs)",
+                    playlist.id, playlist.title, song_count
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle creating a new playlist
+    async fn handle_create_playlist(
+        &self,
+        service: &MusicService<'_>,
+        title: String,
+        description: Option<String>,
+        public: bool,
+        songs: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("📝 Creating playlist: {}", title);
+
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        let create_params = CreatePlaylist {
+            title: title.clone(),
+            description,
+            client_id: Some("cli".to_string()),
+            is_public: Some(public),
+            is_collaborative: Some(false),
+            metadata: None,
+        };
+
+        let song_ids = if let Some(song_ids_str) = songs {
+            match playlist_service.parse_song_ids(&song_ids_str) {
+                Ok(ids) => Some(ids),
+                Err(e) => {
+                    println!("❌ Error parsing song IDs: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        match playlist_service
+            .create_playlist_with_songs(create_params, song_ids, Some("cli".to_string()))
+            .await
+        {
+            Ok((playlist, added_song_ids)) => {
+                println!(
+                    "✅ Created playlist: {} (ID: {})",
+                    playlist.title, playlist.id
+                );
+
+                for song_id in added_song_ids {
+                    println!("  ➕ Added song {}", song_id);
+                }
+            }
+            Err(e) => {
+                println!("❌ Failed to create playlist: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle adding songs to playlist
+    async fn handle_add_to_playlist(
+        &self,
+        service: &MusicService<'_>,
+        playlist_input: String,
+        songs_input: String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        // Parse song IDs
+        let song_ids = match playlist_service.parse_song_ids(&songs_input) {
+            Ok(ids) => ids,
+            Err(e) => {
+                println!("❌ Error parsing song IDs: {}", e);
+                return Ok(());
+            }
+        };
+
+        match playlist_service
+            .add_songs_to_playlist_by_title_or_id(
+                &playlist_input,
+                song_ids,
+                Some("cli".to_string()),
+            )
+            .await
+        {
+            Ok((playlist, added, skipped)) => {
+                println!("📋 Adding songs to playlist: {}", playlist.title);
+
+                for song_id in added {
+                    println!("  ➕ Added song {}", song_id);
+                }
+
+                for song_id in skipped {
+                    println!(
+                        "⚠️  Song {} not found or already in playlist, skipping",
+                        song_id
+                    );
+                }
+            }
+            Err(e) => {
+                println!("❌ Failed to add songs to playlist: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle removing songs from playlist
+    async fn handle_remove_from_playlist(
+        &self,
+        service: &MusicService<'_>,
+        playlist_input: String,
+        songs_input: String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        // Parse song IDs
+        let song_ids = match playlist_service.parse_song_ids(&songs_input) {
+            Ok(ids) => ids,
+            Err(e) => {
+                println!("❌ Error parsing song IDs: {}", e);
+                return Ok(());
+            }
+        };
+
+        match playlist_service
+            .remove_songs_from_playlist_by_title_or_id(&playlist_input, song_ids)
+            .await
+        {
+            Ok((playlist, removed_count, not_found)) => {
+                println!("📋 Removing songs from playlist: {}", playlist.title);
+
+                if removed_count > 0 {
+                    println!("  ➖ Removed {} song(s)", removed_count);
+                }
+
+                for song_id in not_found {
+                    println!("⚠️  Song {} not found in playlist", song_id);
+                }
+            }
+            Err(e) => {
+                println!("❌ Failed to remove songs from playlist: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle showing playlist contents
+    async fn handle_show_playlist(
+        &self,
+        service: &MusicService<'_>,
+        playlist_input: String,
+        verbose: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        match playlist_service
+            .get_playlist_songs_by_title_or_id(&playlist_input)
+            .await
+        {
+            Ok(playlist_songs) => {
+                // We need to get the playlist title separately since get_playlist_songs_by_title_or_id
+                // returns the songs but we need the playlist info too
+                let playlist = playlist_service
+                    .find_playlist_by_title_or_id(&playlist_input)
+                    .await?;
+
+                println!("📋 Playlist: {}", playlist.title);
+                println!("{}", "=".repeat(playlist.title.len() + 12));
+
+                if playlist_songs.is_empty() {
+                    println!("Empty playlist.");
+                    return Ok(());
+                }
+
+                for playlist_song in playlist_songs {
+                    let song = &playlist_song.song;
+
+                    if verbose {
+                        let duration_str = song
+                            .formatted_duration()
+                            .unwrap_or_else(|| "Unknown".to_string());
+                        let favorite_indicator = if song.is_favorite { " ⭐" } else { "" };
+                        println!(
+                            "  {}. {} | {} [{}]{}",
+                            playlist_song.position,
+                            song.id,
+                            song.detailed_display_title(),
+                            duration_str,
+                            favorite_indicator
+                        );
+                    } else {
+                        println!(
+                            "  {}. {} | {}",
+                            playlist_song.position,
+                            song.id,
+                            song.detailed_display_title()
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                println!("❌ Failed to show playlist: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle deleting a playlist
+    async fn handle_delete_playlist(
+        &self,
+        service: &MusicService<'_>,
+        playlist_input: String,
+        force: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        // Find the playlist first
+        let playlist = match playlist_service
+            .find_playlist_by_title_or_id(&playlist_input)
+            .await
+        {
+            Ok(playlist) => playlist,
+            Err(e) => {
+                println!("❌ Playlist '{}' not found: {}", playlist_input, e);
+                return Ok(());
+            }
+        };
+
+        if !force {
+            // Check song count
+            let song_count = playlist_service
+                .get_playlist_song_count(playlist.id)
+                .await?;
+
+            println!(
+                "⚠️  About to delete playlist '{}' with {} songs.",
+                playlist.title, song_count
+            );
+            print!("Are you sure? (y/N): ");
+            io::stdout().flush()?;
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+
+            if !input.trim().to_lowercase().starts_with('y') {
+                println!("Cancelled.");
+                return Ok(());
+            }
+        }
+
+        match playlist_service.delete_playlist(playlist.id, None).await {
+            Ok(_) => {
+                println!("✅ Deleted playlist: {}", playlist.title);
+            }
+            Err(e) => {
+                println!("❌ Failed to delete playlist: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle moving song in playlist
+    async fn handle_move_song(
+        &self,
+        service: &MusicService<'_>,
+        playlist_input: String,
+        song_id: Uuid,
+        position: i32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        match playlist_service
+            .move_playlist_song_by_title_or_id(&playlist_input, song_id, position)
+            .await
+        {
+            Ok(playlist) => {
+                println!(
+                    "✅ Moved song {} to position {} in playlist '{}'",
+                    song_id, position, playlist.title
+                );
+            }
+            Err(e) => {
+                println!("❌ Failed to move song: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle reordering playlist
+    async fn handle_reorder_playlist(
+        &self,
+        service: &MusicService<'_>,
+        playlist_input: String,
+        song_ids_str: String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        // Parse song IDs
+        let song_ids = match playlist_service.parse_song_ids(&song_ids_str) {
+            Ok(ids) => ids,
+            Err(e) => {
+                println!("❌ Error parsing song IDs: {}", e);
+                return Ok(());
+            }
+        };
+
+        match playlist_service
+            .reorder_playlist_by_title_or_id(&playlist_input, &song_ids)
+            .await
+        {
+            Ok(playlist) => {
+                println!(
+                    "✅ Reordered {} songs in playlist '{}'",
+                    song_ids.len(),
+                    playlist.title
+                );
+            }
+            Err(e) => {
+                println!("❌ Failed to reorder playlist: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle playlist summaries
+    async fn handle_playlist_summaries(
+        &self,
+        service: &MusicService<'_>,
+        limit: i64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("📋 Playlist Summaries:");
+        println!("======================");
+
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        match playlist_service.get_playlist_summaries(Some(limit)).await {
+            Ok(summaries) => {
+                if summaries.is_empty() {
+                    println!("No playlists found.");
+                    return Ok(());
+                }
+
+                for summary in summaries {
+                    let duration = summary
+                        .formatted_total_duration()
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    let visibility = summary.visibility_string();
+
+                    println!(
+                        "  {} | {} ({} songs, {}) [{}]",
+                        summary.id, summary.title, summary.song_count, duration, visibility
+                    );
+
+                    if let Some(ref description) = summary.description {
+                        println!("    Description: {}", description);
+                    }
+
+                    let preview = summary.song_preview();
+                    if preview != "Empty playlist" {
+                        println!("    Songs: {}", preview);
+                    }
+
+                    println!();
+                }
+            }
+            Err(e) => {
+                println!("❌ Failed to get playlist summaries: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle albums command
+    async fn handle_albums(
+        &self,
+        service: &MusicService<'_>,
+        limit: i64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("💿 Albums:");
+        println!("==========");
+
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        match playlist_service.get_album_summaries(Some(limit)).await {
+            Ok(albums) => {
+                if albums.is_empty() {
+                    println!("No albums found.");
+                    return Ok(());
+                }
+
+                for album in albums {
+                    let artist = album
+                        .primary_artist()
+                        .map(|a| a.as_str())
+                        .unwrap_or("Unknown Artist");
+                    let duration = album
+                        .formatted_total_duration()
+                        .unwrap_or_else(|| "Unknown".to_string());
+
+                    println!(
+                        "  {} - {} ({} tracks, {})",
+                        artist,
+                        album.display_name(),
+                        album.track_count,
+                        duration
+                    );
+
+                    if let Some(ref genres) = album.genres {
+                        println!("    Genres: {}", genres);
+                    }
+
+                    if album.avg_rating.is_some() || album.favorite_count > 0 {
+                        let rating = album
+                            .avg_rating
+                            .map(|r| format!("{:.1}★", r))
+                            .unwrap_or_else(|| "Unrated".to_string());
+                        println!("    Rating: {}, {} favorites", rating, album.favorite_count);
+                    }
+
+                    println!();
+                }
+            }
+            Err(e) => {
+                println!("❌ Failed to get albums: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle album tracks command
+    async fn handle_album_tracks(
+        &self,
+        service: &MusicService<'_>,
+        album: String,
+        artist: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🎵 Album Tracks: {}", album);
+        if let Some(ref artist) = artist {
+            println!("   by {}", artist);
+        }
+        println!("{}", "=".repeat(album.len() + 16));
+
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        match playlist_service
+            .get_album_tracks(&album, artist.as_deref())
+            .await
+        {
+            Ok(tracks) => {
+                if tracks.is_empty() {
+                    println!("No tracks found for this album.");
+                    return Ok(());
+                }
+
+                for track in tracks {
+                    let duration = track
+                        .formatted_duration()
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    let favorite = if track.is_favorite { " ⭐" } else { "" };
+                    let rating = track
+                        .rating
+                        .map(|r| format!(" ({}★)", r))
+                        .unwrap_or_default();
+
+                    println!(
+                        "  {} | {} [{}]{}{}",
+                        track.song_id,
+                        track.track_display(),
+                        duration,
+                        rating,
+                        favorite
+                    );
+                }
+            }
+            Err(e) => {
+                println!("❌ Failed to get album tracks: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle artist albums command
+    async fn handle_artist_albums(
+        &self,
+        service: &MusicService<'_>,
+        artist: String,
+        limit: i32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🎤 {}'s Albums:", artist);
+        println!("{}", "=".repeat(artist.len() + 11));
+
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        match playlist_service
+            .get_artist_albums(&artist, Some(limit))
+            .await
+        {
+            Ok(albums) => {
+                if albums.is_empty() {
+                    println!("No albums found for this artist.");
+                    return Ok(());
+                }
+
+                for album in albums {
+                    let duration = album
+                        .formatted_total_duration()
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    let rating = album
+                        .avg_rating
+                        .map(|r| format!(" ({:.1}★)", r))
+                        .unwrap_or_default();
+
+                    println!(
+                        "  {} ({} tracks, {}){}",
+                        album.display_name(),
+                        album.track_count,
+                        duration,
+                        rating
+                    );
+                }
+            }
+            Err(e) => {
+                println!("❌ Failed to get artist albums: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle creating playlist from album
+    async fn handle_playlist_from_album(
+        &self,
+        service: &MusicService<'_>,
+        album: String,
+        artist: Option<String>,
+        title: Option<String>,
+        public: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        let playlist_title = title.unwrap_or_else(|| match &artist {
+            Some(artist) => format!("{} - {}", artist, album),
+            None => album.clone(),
+        });
+
+        println!("📝 Creating playlist from album: {}", album);
+        if let Some(ref artist) = artist {
+            println!("   by {}", artist);
+        }
+
+        match playlist_service
+            .create_playlist_from_album(
+                playlist_title,
+                &album,
+                artist.as_deref(),
+                Some(public),
+                Some("cli".to_string()),
+            )
+            .await
+        {
+            Ok(playlist) => {
+                println!(
+                    "✅ Created playlist: {} (ID: {})",
+                    playlist.title, playlist.id
+                );
+
+                // Show the songs that were added
+                if let Ok(songs) = playlist_service.get_playlist_songs(playlist.id).await {
+                    println!("   Added {} songs:", songs.len());
+                    for song in songs.iter().take(5) {
+                        println!("     {}. {}", song.position, song.display_title());
+                    }
+                    if songs.len() > 5 {
+                        println!("     ... and {} more", songs.len() - 5);
+                    }
+                }
+            }
+            Err(e) => {
+                println!("❌ Failed to create playlist from album: {}", e);
+            }
+        }
 
         Ok(())
     }

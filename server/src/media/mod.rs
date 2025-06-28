@@ -10,6 +10,7 @@
 
 pub mod models;
 pub mod repository;
+pub mod songs;
 
 // Re-export commonly used types
 use crate::error::WebauthnError;
@@ -96,4 +97,9 @@ impl<'a> MediaService<'a> {
     pub async fn cleanup_old_blobs(&self, days: i32) -> Result<u64, WebauthnError> {
         self.repository.cleanup_old_blobs(days).await
     }
+}
+
+/// Build media routes including songs and playlists
+pub fn build_media_routes() -> axum::Router {
+    axum::Router::new().nest("/api/media", songs::create_routes())
 }
