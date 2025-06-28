@@ -170,16 +170,21 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
     }
   };
 
-  const canGenerateThumbnails = createMemo(() => {
-    const mimeType = props.item.mime_type || props.item.mime || "";
-    return mimeType.startsWith("image/") || mimeType.startsWith("video/");
-  });
-
   const thumbnailPreviewUrl = createMemo(() => {
     const thumbs = thumbnails();
+    const mimeType = props.item.mime_type || props.item.mime || "";
     console.log(
-      `[MediaBlobFeedItem] Thumbnails for ${props.item.id.slice(0, 8)}:`,
-      thumbs.length
+      `[MediaBlobFeedItem] Thumbnails for ${props.item.id.slice(0, 8)} (${mimeType}):`,
+      {
+        count: thumbs.length,
+        hasMetadata: !!props.item.metadata,
+        metadata: props.item.metadata,
+        thumbnails: thumbs.map((t) => ({
+          id: t.id.slice(0, 8),
+          type: t.blob_type,
+          mime: t.mime,
+        })),
+      }
     );
 
     if (thumbs.length > 0 && thumbs[0]) {
@@ -216,12 +221,9 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
       props.requestedThumbnails?.has(props.item.id) ||
       props.item.metadata?.thumbnails_requested;
 
-    if (
-      shouldShowThumbnails() &&
-      canGenerateThumbnails() &&
-      !hasThumbnails() &&
-      !alreadyRequested
-    ) {
+    // Always try to get thumbnails if we don't have them yet
+    // The backend will determine if thumbnails can be generated for this file type
+    if (shouldShowThumbnails() && !hasThumbnails() && !alreadyRequested) {
       if (props.onGetThumbnails) {
         setShowThumbnailPlaceholder(true);
         props.onGetThumbnails(props.item.id);
@@ -325,11 +327,7 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
               when={previewUrl()}
               fallback={
                 <Show
-                  when={
-                    showThumbnailPlaceholder() &&
-                    canGenerateThumbnails() &&
-                    !isCompact()
-                  }
+                  when={showThumbnailPlaceholder() && !isCompact()}
                   fallback={
                     <span
                       style={{ "font-size": isCompact() ? "16px" : "20px" }}
