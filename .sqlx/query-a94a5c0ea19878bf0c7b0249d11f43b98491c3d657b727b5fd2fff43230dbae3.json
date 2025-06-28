@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, metadata, status, job_type, created_at FROM thumbnail_jobs ORDER BY created_at DESC LIMIT 10",
+  "query": "SELECT id, media_blob_id, status, job_type, retry_count, created_at FROM thumbnail_jobs ORDER BY created_at DESC LIMIT 10",
   "describe": {
     "columns": [
       {
@@ -10,8 +10,8 @@
       },
       {
         "ordinal": 1,
-        "name": "metadata",
-        "type_info": "Jsonb"
+        "name": "media_blob_id",
+        "type_info": "Uuid"
       },
       {
         "ordinal": 2,
@@ -25,6 +25,11 @@
       },
       {
         "ordinal": 4,
+        "name": "retry_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -34,11 +39,12 @@
     },
     "nullable": [
       false,
-      true,
+      false,
+      false,
       false,
       false,
       false
     ]
   },
-  "hash": "c40a57a4237e401479eb8a9e215a3eca85600ba3fedd03eeb4cd963a7236b78f"
+  "hash": "a94a5c0ea19878bf0c7b0249d11f43b98491c3d657b727b5fd2fff43230dbae3"
 }

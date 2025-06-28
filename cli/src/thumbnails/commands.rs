@@ -28,6 +28,8 @@ pub enum ThumbnailCommands {
     Debug(DebugArgs),
     /// Bulk generate thumbnails for existing media blobs
     BulkGenerate(BulkGenerateArgs),
+    /// Check system health and get recommendations
+    Health(HealthArgs),
     /// Clean up duplicate thumbnails
     CleanupDuplicates(CleanupDuplicatesArgs),
 }
@@ -176,19 +178,36 @@ pub struct MaintenanceArgs {
     pub max_items: u32,
 }
 
+/// Arguments for debugging thumbnail jobs
 #[derive(Debug, Clone, Args)]
 pub struct DebugArgs {
     /// Configuration file path
     #[arg(short, long, default_value = "assets/config/config.jsonc")]
     pub config: PathBuf,
 
-    /// Job ID to debug (optional)
+    /// Specific job ID to debug
     #[arg(long)]
     pub job_id: Option<String>,
 
-    /// Show raw database content
+    /// Show raw metadata
     #[arg(long)]
     pub raw: bool,
+}
+
+/// Arguments for health check
+#[derive(Debug, Clone, Args)]
+pub struct HealthArgs {
+    /// Configuration file path
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
+    pub config: PathBuf,
+
+    /// Cancel stuck jobs automatically
+    #[arg(long)]
+    pub fix_stuck: bool,
+
+    /// Timeout in minutes for stuck job detection
+    #[arg(long, default_value = "60")]
+    pub stuck_timeout: i32,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -245,6 +264,7 @@ pub async fn execute_thumbnail_command(
         ThumbnailCommands::Maintenance(args) => run_maintenance(args).await,
         ThumbnailCommands::Debug(args) => debug_jobs(args).await,
         ThumbnailCommands::BulkGenerate(args) => bulk_generate_thumbnails(args).await,
+        ThumbnailCommands::Health(args) => check_system_health(args).await,
         ThumbnailCommands::CleanupDuplicates(args) => cleanup_duplicate_thumbnails(args).await,
     }
 }
@@ -733,8 +753,20 @@ async fn generate_thumbnails(args: GenerateArgs) -> Result<(), Box<dyn std::erro
     } else {
         // Auto-enqueue appropriate jobs
         println!("  Auto-detecting job types...");
-        println!("💡 Use the HTTP API endpoint POST /api/thumbnails/generate for auto-enqueueing");
-        println!("   Or specify a specific job type with --job-type");
+
+        match service.auto_enqueue_for_media_blob(media_blob_id).await {
+            Ok(job_ids) => {
+                if job_ids.is_empty() {
+                    println!("ℹ️  No new thumbnail jobs needed (all thumbnails already exist)");
+                } else {
+                    println!("✅ Enqueued {} jobs:", job_ids.len());
+                    for job_id in job_ids {
+                        println!("  - {}", job_id);
+                    }
+                }
+            }
+            Err(e) => return Err(format!("Failed to auto-enqueue jobs: {}", e).into()),
+        }
     }
 
     println!("💡 Use 'cli thumbnails status' to monitor progress");
@@ -813,7 +845,7 @@ async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
 
         // Query raw database record
         let row = sqlx::query!(
-                "SELECT id, metadata, status, job_type, scheduled_at, retry_count, created_at, updated_at FROM thumbnail_jobs WHERE id = $1",
+                "SELECT id, media_blob_id, job_type, status, priority, worker_id, target_width, target_height, scheduled_at, started_at, completed_at, retry_count, max_retries, error_message, metadata, created_at, updated_at FROM thumbnail_jobs WHERE id = $1",
                 job_id
             )
             .fetch_optional(db.pool())
@@ -822,29 +854,47 @@ async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(row) = row {
             println!("Raw Database Record:");
             println!("  ID: {}", row.id);
-            println!("  Status: {}", row.status);
+            println!("  Media Blob ID: {}", row.media_blob_id);
             println!("  Job Type: {}", row.job_type);
-            println!("  Retry Count: {}", row.retry_count);
+            println!("  Status: {}", row.status);
+            println!(
+                "  Target Dimensions: {}x{}",
+                row.target_width
+                    .map(|w| w.to_string())
+                    .unwrap_or("None".to_string()),
+                row.target_height
+                    .map(|h| h.to_string())
+                    .unwrap_or("None".to_string())
+            );
+            println!("  Retry Count: {}/{}", row.retry_count, row.max_retries);
+            println!(
+                "  Worker ID: {}",
+                row.worker_id.unwrap_or("None".to_string())
+            );
             println!("  Created: {}", row.created_at);
-            println!("  Metadata JSON:");
+            println!("  Updated: {}", row.updated_at);
+            println!("  Scheduled: {}", row.scheduled_at);
+            if let Some(started) = row.started_at {
+                println!("  Started: {}", started);
+            }
+            if let Some(completed) = row.completed_at {
+                println!("  Completed: {}", completed);
+            }
+            if let Some(error) = &row.error_message {
+                println!("  Error: {}", error);
+            }
 
             if args.raw {
+                println!("  Metadata JSON:");
                 println!("{}", serde_json::to_string_pretty(&row.metadata)?);
             } else {
-                // Try to deserialize as ThumbnailJob
-                match serde_json::from_value::<grimoire::ThumbnailJob>(
-                    row.metadata.clone().unwrap_or_default(),
-                ) {
-                    Ok(job) => {
-                        println!("  ✅ Successfully deserialized as ThumbnailJob:");
-                        println!("    Media Blob ID: {}", job.media_blob_id);
-                        println!("    Job Type: {}", job.job_type);
-                        println!("    Status: {}", job.status);
-                    }
-                    Err(e) => {
-                        println!("  ❌ Failed to deserialize as ThumbnailJob: {}", e);
-                        println!("  Raw metadata:");
-                        println!("{}", serde_json::to_string_pretty(&row.metadata)?);
+                println!("  ✅ Successfully read job data from columns");
+                if let Some(metadata_value) = &row.metadata {
+                    if let Some(metadata_obj) = metadata_value.as_object() {
+                        if !metadata_obj.is_empty() {
+                            println!("  Additional metadata:");
+                            println!("{}", serde_json::to_string_pretty(metadata_value)?);
+                        }
                     }
                 }
             }
@@ -854,28 +904,22 @@ async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         // Show general database state
         let recent_jobs = sqlx::query!(
-                "SELECT id, metadata, status, job_type, created_at FROM thumbnail_jobs ORDER BY created_at DESC LIMIT 10"
+                "SELECT id, media_blob_id, status, job_type, retry_count, created_at FROM thumbnail_jobs ORDER BY created_at DESC LIMIT 10"
             )
             .fetch_all(db.pool())
             .await?;
 
-        println!("Recent 5 Jobs:");
+        println!("Recent 10 Jobs:");
         for row in recent_jobs {
             println!(
-                "  ID: {} | Status: {} | Type: {} | Created: {}",
-                row.id, row.status, row.job_type, row.created_at
+                "  ID: {} | Status: {} | Type: {} | Media: {} | Retries: {} | Created: {}",
+                &row.id.to_string()[0..8],
+                row.status,
+                row.job_type,
+                &row.media_blob_id.to_string()[0..8],
+                row.retry_count,
+                row.created_at
             );
-
-            // Try to extract media_blob_id from metadata
-            if let Ok(metadata) =
-                serde_json::from_value::<serde_json::Value>(row.metadata.unwrap_or_default())
-            {
-                if let Some(media_blob_id) = metadata.get("media_blob_id") {
-                    println!("    Media Blob ID: {}", media_blob_id);
-                } else {
-                    println!("    ❌ No media_blob_id found in metadata");
-                }
-            }
         }
 
         // Show database schema
@@ -892,6 +936,85 @@ async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
                 col.column_name.unwrap_or_else(|| "unknown".to_string()),
                 col.data_type.unwrap_or_else(|| "unknown".to_string())
             );
+        }
+    }
+
+    Ok(())
+}
+
+/// Check system health and get recommendations
+async fn check_system_health(args: HealthArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let config = AppConfig::from_file(&args.config)?;
+
+    if !config.media.thumbnails.enabled {
+        return Err("Thumbnail generation is disabled in configuration".into());
+    }
+
+    println!("🏥 Thumbnail System Health Check");
+    println!("================================================================================");
+
+    // Connect to database
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = grimoire::DatabaseConnection::new(pool);
+    let service = ThumbnailService::new_with_defaults(&db);
+
+    // Get health summary
+    match service.get_system_health().await {
+        Ok(health) => {
+            // Print status with appropriate emoji
+            let status_emoji = match health.status.as_str() {
+                "healthy" => "✅",
+                "degraded" => "⚠️",
+                "overloaded" => "🔥",
+                _ => "❓",
+            };
+
+            println!(
+                "System Status: {} {}",
+                status_emoji,
+                health.status.to_uppercase()
+            );
+            println!();
+
+            // Print metrics
+            println!("📊 Current Metrics:");
+            println!("  Pending Jobs: {}", health.pending_jobs_count);
+            println!("  Stuck Jobs: {}", health.stuck_jobs_count);
+            println!("  Recent Failures (24h): {}", health.recent_failures_count);
+            println!(
+                "  Avg Queue Time: {:.1} minutes",
+                health.avg_queue_time_minutes
+            );
+            println!();
+
+            // Print recommendations
+            println!("💡 Recommendations:");
+            for (i, rec) in health.recommendations.iter().enumerate() {
+                println!("  {}. {}", i + 1, rec);
+            }
+
+            // Handle stuck jobs if requested
+            if args.fix_stuck && health.stuck_jobs_count > 0 {
+                println!();
+                println!("🔧 Fixing stuck jobs...");
+
+                match service.cancel_stale_jobs(args.stuck_timeout).await {
+                    Ok(cancelled_count) => {
+                        println!("✅ Cancelled {} stuck jobs", cancelled_count);
+                    }
+                    Err(e) => {
+                        println!("❌ Failed to cancel stuck jobs: {}", e);
+                    }
+                }
+            } else if health.stuck_jobs_count > 0 {
+                println!();
+                println!("💡 To fix stuck jobs automatically, run:");
+                println!("   cargo run -p cli -- thumbnails health --fix-stuck");
+            }
+        }
+        Err(e) => {
+            println!("❌ Failed to get health status: {}", e);
+            return Err(e.into());
         }
     }
 

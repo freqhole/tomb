@@ -6,7 +6,7 @@ use super::models::{
 use crate::DatabaseConnection;
 
 use sha2::{Digest, Sha256};
-use sqlx::Row;
+use sqlx::types::BigDecimal;
 use std::fs::File;
 use std::io::Read;
 use time::OffsetDateTime;
@@ -50,17 +50,8 @@ impl<'a> ThumbnailRepository<'a> {
             (None, None)
         };
 
-        // Store any additional metadata as JSONB for extensibility
-        let metadata = if let Some(ref error_msg) = job.error_message {
-            serde_json::json!({
-                "error_message": error_msg,
-                "original_job": serde_json::to_value(job)?
-            })
-        } else {
-            serde_json::json!({
-                "original_job": serde_json::to_value(job)?
-            })
-        };
+        // Store only extensible metadata as JSONB (no core job data)
+        let metadata = serde_json::json!({});
 
         sqlx::query(
             r#"
@@ -404,44 +395,25 @@ impl<'a> ThumbnailRepository<'a> {
 
     /// Get job metrics for monitoring
     pub async fn get_job_metrics(&self) -> Result<ThumbnailJobMetrics, ThumbnailError> {
-        // Get overall metrics
-        let summary_row = sqlx::query!(
-            r#"
-            SELECT
-                COUNT(*) as total_jobs,
-                COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_jobs,
-                COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress_jobs,
-                COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_jobs,
-                COUNT(CASE WHEN status = 'failed' OR status = 'failed_permanently' THEN 1 END) as failed_jobs
-            FROM thumbnail_jobs
-            WHERE job_type LIKE '%thumbnail%' OR job_type LIKE '%waveform%'
-            "#
-        )
-        .fetch_one(self.db.pool())
-        .await?;
-
-        // Get performance metrics from job execution log
-        let perf_row = sqlx::query!(
-            r#"
-            SELECT
-                AVG(jel.duration_ms)::FLOAT as avg_processing_time_ms,
-                COUNT(jel.id) as total_executions
-            FROM thumbnail_jobs tj
-            LEFT JOIN job_execution_log jel ON tj.id = jel.job_id
-            WHERE jel.completed_at IS NOT NULL
-            "#
-        )
-        .fetch_one(self.db.pool())
-        .await?;
+        // Use optimized database function for comprehensive metrics
+        let metrics_row = sqlx::query!("SELECT * FROM get_thumbnail_job_metrics()")
+            .fetch_one(self.db.pool())
+            .await?;
 
         Ok(ThumbnailJobMetrics {
-            total_jobs: summary_row.total_jobs.unwrap_or(0),
-            pending_jobs: summary_row.pending_jobs.unwrap_or(0),
-            in_progress_jobs: summary_row.in_progress_jobs.unwrap_or(0),
-            completed_jobs: summary_row.completed_jobs.unwrap_or(0),
-            failed_jobs: summary_row.failed_jobs.unwrap_or(0),
-            average_processing_time_ms: perf_row.avg_processing_time_ms.unwrap_or(0.0),
-            success_rate: 0.0, // Will be calculated from total_executions if needed
+            total_jobs: metrics_row.total_jobs.unwrap_or(0),
+            pending_jobs: metrics_row.pending_jobs.unwrap_or(0),
+            in_progress_jobs: metrics_row.in_progress_jobs.unwrap_or(0),
+            completed_jobs: metrics_row.completed_jobs.unwrap_or(0),
+            failed_jobs: metrics_row.failed_jobs.unwrap_or(0),
+            average_processing_time_ms: metrics_row
+                .avg_processing_time_ms
+                .map(|d: BigDecimal| d.to_string().parse().unwrap_or(0.0))
+                .unwrap_or(0.0),
+            success_rate: metrics_row
+                .success_rate_percent
+                .map(|d: BigDecimal| d.to_string().parse().unwrap_or(0.0))
+                .unwrap_or(0.0),
             jobs_by_type: Vec::new(), // TODO: Implement detailed type metrics
         })
     }
@@ -570,42 +542,36 @@ impl<'a> ThumbnailRepository<'a> {
     pub async fn find_duplicate_thumbnails(
         &self,
     ) -> Result<Vec<DuplicateGroupRow>, ThumbnailError> {
-        let rows = sqlx::query(
-            r#"
-            SELECT
-                parent_blob_id,
-                blob_type,
-                COUNT(*) as duplicate_count,
-                ARRAY_AGG(id ORDER BY created_at ASC) as thumbnail_ids
-            FROM media_blobs
-            WHERE blob_type IN ('thumbnail', 'preview', 'waveform')
-            AND parent_blob_id IS NOT NULL
-            GROUP BY parent_blob_id, blob_type
-            HAVING COUNT(*) > 1
-            ORDER BY duplicate_count DESC
-            "#,
-        )
-        .fetch_all(self.db.pool())
-        .await?;
+        // Use optimized database function for finding duplicates
+        let rows = sqlx::query!("SELECT * FROM find_duplicate_thumbnails(100)")
+            .fetch_all(self.db.pool())
+            .await?;
 
-        let mut duplicate_groups = Vec::new();
-        for row in rows {
-            let parent_blob_id: Option<Uuid> = row.get("parent_blob_id");
-            let blob_type: String = row.get("blob_type");
-            let duplicate_count: Option<i64> = row.get("duplicate_count");
-            let thumbnail_ids: Option<Vec<Uuid>> = row.get("thumbnail_ids");
-
-            if let (Some(parent_blob_id), Some(duplicate_count), Some(thumbnail_ids)) =
-                (parent_blob_id, duplicate_count, thumbnail_ids)
-            {
-                duplicate_groups.push(DuplicateGroupRow {
-                    parent_blob_id,
-                    blob_type,
-                    duplicate_count: duplicate_count as usize,
-                    thumbnail_ids,
-                });
-            }
-        }
+        let duplicate_groups = rows
+            .into_iter()
+            .filter_map(|row| {
+                if let (
+                    Some(parent_blob_id),
+                    Some(blob_type),
+                    Some(duplicate_count),
+                    Some(thumbnail_ids),
+                ) = (
+                    row.parent_blob_id,
+                    row.blob_type,
+                    row.duplicate_count,
+                    row.thumbnail_ids,
+                ) {
+                    Some(DuplicateGroupRow {
+                        parent_blob_id,
+                        blob_type,
+                        duplicate_count: duplicate_count as usize,
+                        thumbnail_ids,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         Ok(duplicate_groups)
     }
@@ -616,13 +582,55 @@ impl<'a> ThumbnailRepository<'a> {
             return Ok(0);
         }
 
-        let delete_result = sqlx::query("DELETE FROM media_blobs WHERE id = ANY($1)")
-            .bind(ids)
-            .execute(self.db.pool())
+        // Use safer batch delete function that validates thumbnail types
+        let result = sqlx::query!("SELECT * FROM batch_delete_thumbnails($1)", ids)
+            .fetch_one(self.db.pool())
             .await?;
 
-        Ok(delete_result.rows_affected())
+        Ok(result.deleted_count.unwrap_or(0) as u64)
     }
+
+    /// Get comprehensive health summary of the thumbnail system
+    pub async fn get_system_health(&self) -> Result<SystemHealthSummary, ThumbnailError> {
+        let health_row = sqlx::query!("SELECT * FROM get_job_health_summary()")
+            .fetch_one(self.db.pool())
+            .await?;
+
+        Ok(SystemHealthSummary {
+            status: health_row.system_status.unwrap_or("unknown".to_string()),
+            pending_jobs_count: health_row.pending_jobs_count.unwrap_or(0),
+            stuck_jobs_count: health_row.stuck_jobs_count.unwrap_or(0),
+            recent_failures_count: health_row.recent_failures_count.unwrap_or(0),
+            avg_queue_time_minutes: health_row
+                .avg_queue_time_minutes
+                .map(|d: BigDecimal| d.to_string().parse().unwrap_or(0.0))
+                .unwrap_or(0.0),
+            recommendations: health_row.recommendations.unwrap_or_default(),
+        })
+    }
+
+    /// Cancel stale jobs that have been processing too long
+    pub async fn cancel_stale_jobs(&self, timeout_minutes: i32) -> Result<u64, ThumbnailError> {
+        let result = sqlx::query!(
+            "SELECT cancel_stale_jobs($1) as cancelled_count",
+            timeout_minutes
+        )
+        .fetch_one(self.db.pool())
+        .await?;
+
+        Ok(result.cancelled_count.unwrap_or(0) as u64)
+    }
+}
+
+/// Health summary for the thumbnail system
+#[derive(Debug, Clone)]
+pub struct SystemHealthSummary {
+    pub status: String,
+    pub pending_jobs_count: i64,
+    pub stuck_jobs_count: i64,
+    pub recent_failures_count: i64,
+    pub avg_queue_time_minutes: f64,
+    pub recommendations: Vec<String>,
 }
 
 /// Raw data from duplicate thumbnails query

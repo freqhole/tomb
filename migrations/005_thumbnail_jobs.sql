@@ -331,6 +331,229 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Function to get comprehensive job metrics in a single query
+CREATE OR REPLACE FUNCTION get_thumbnail_job_metrics()
+RETURNS TABLE (
+    total_jobs BIGINT,
+    pending_jobs BIGINT,
+    in_progress_jobs BIGINT,
+    completed_jobs BIGINT,
+    failed_jobs BIGINT,
+    avg_processing_time_ms DECIMAL,
+    success_rate_percent DECIMAL,
+    oldest_pending_age_minutes INTEGER
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        COUNT(*)::BIGINT as total_jobs,
+        COUNT(CASE WHEN tj.status = 'pending' THEN 1 END)::BIGINT as pending_jobs,
+        COUNT(CASE WHEN tj.status = 'in_progress' THEN 1 END)::BIGINT as in_progress_jobs,
+        COUNT(CASE WHEN tj.status = 'completed' THEN 1 END)::BIGINT as completed_jobs,
+        COUNT(CASE WHEN tj.status IN ('failed', 'failed_permanently') THEN 1 END)::BIGINT as failed_jobs,
+        COALESCE(AVG(jel.duration_ms), 0)::DECIMAL as avg_processing_time_ms,
+        CASE
+            WHEN COUNT(jel.id) > 0 THEN
+                (COUNT(CASE WHEN jel.success = true THEN 1 END) * 100.0 / COUNT(jel.id))::DECIMAL
+            ELSE 0
+        END as success_rate_percent,
+        COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(CASE WHEN tj.status = 'pending' THEN tj.created_at END)))::INTEGER / 60, 0) as oldest_pending_age_minutes
+    FROM thumbnail_jobs tj
+    LEFT JOIN job_execution_log jel ON tj.id = jel.job_id AND jel.completed_at IS NOT NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to find duplicate thumbnails efficiently
+CREATE OR REPLACE FUNCTION find_duplicate_thumbnails(limit_results INTEGER DEFAULT 100)
+RETURNS TABLE (
+    parent_blob_id UUID,
+    blob_type VARCHAR,
+    duplicate_count BIGINT,
+    thumbnail_ids UUID[]
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        mb.parent_blob_id,
+        mb.blob_type::VARCHAR,
+        COUNT(*)::BIGINT as duplicate_count,
+        ARRAY_AGG(mb.id ORDER BY mb.created_at ASC) as thumbnail_ids
+    FROM media_blobs mb
+    WHERE mb.blob_type IN ('thumbnail', 'preview', 'waveform')
+    AND mb.parent_blob_id IS NOT NULL
+    GROUP BY mb.parent_blob_id, mb.blob_type
+    HAVING COUNT(*) > 1
+    ORDER BY duplicate_count DESC
+    LIMIT limit_results;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get jobs by status with comprehensive information
+CREATE OR REPLACE FUNCTION get_jobs_by_status_detailed(
+    status_filter VARCHAR,
+    limit_results INTEGER DEFAULT 50
+)
+RETURNS TABLE (
+    id UUID,
+    media_blob_id UUID,
+    job_type VARCHAR,
+    status VARCHAR,
+    priority VARCHAR,
+    target_width INTEGER,
+    target_height INTEGER,
+    retry_count INTEGER,
+    max_retries INTEGER,
+    error_message TEXT,
+    worker_id TEXT,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
+    scheduled_at TIMESTAMPTZ,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    processing_duration_ms BIGINT,
+    queue_wait_time_ms BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        tj.id,
+        tj.media_blob_id,
+        tj.job_type,
+        tj.status,
+        tj.priority,
+        tj.target_width,
+        tj.target_height,
+        tj.retry_count,
+        tj.max_retries,
+        tj.error_message,
+        tj.worker_id,
+        tj.created_at,
+        tj.updated_at,
+        tj.scheduled_at,
+        tj.started_at,
+        tj.completed_at,
+        CASE
+            WHEN tj.started_at IS NOT NULL AND tj.completed_at IS NOT NULL THEN
+                EXTRACT(EPOCH FROM (tj.completed_at - tj.started_at))::BIGINT * 1000
+            ELSE NULL
+        END as processing_duration_ms,
+        CASE
+            WHEN tj.started_at IS NOT NULL THEN
+                EXTRACT(EPOCH FROM (tj.started_at - tj.created_at))::BIGINT * 1000
+            ELSE NULL
+        END as queue_wait_time_ms
+    FROM thumbnail_jobs tj
+    WHERE tj.status = status_filter
+    ORDER BY tj.scheduled_at ASC
+    LIMIT limit_results;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to batch delete thumbnails safely
+CREATE OR REPLACE FUNCTION batch_delete_thumbnails(thumbnail_ids UUID[])
+RETURNS TABLE (
+    deleted_count INTEGER,
+    deleted_ids UUID[]
+) AS $$
+DECLARE
+    deleted_count_var INTEGER;
+    deleted_ids_var UUID[];
+BEGIN
+    -- Verify all IDs exist and are thumbnails before deletion
+    SELECT ARRAY_AGG(id) INTO deleted_ids_var
+    FROM media_blobs
+    WHERE id = ANY(thumbnail_ids)
+    AND blob_type IN ('thumbnail', 'preview', 'waveform');
+
+    -- Only delete if we found valid thumbnail IDs
+    IF deleted_ids_var IS NOT NULL AND array_length(deleted_ids_var, 1) > 0 THEN
+        DELETE FROM media_blobs WHERE id = ANY(deleted_ids_var);
+        GET DIAGNOSTICS deleted_count_var = ROW_COUNT;
+    ELSE
+        deleted_count_var := 0;
+        deleted_ids_var := ARRAY[]::UUID[];
+    END IF;
+
+    RETURN QUERY SELECT deleted_count_var, deleted_ids_var;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get job health summary for monitoring
+CREATE OR REPLACE FUNCTION get_job_health_summary()
+RETURNS TABLE (
+    system_status TEXT,
+    pending_jobs_count BIGINT,
+    stuck_jobs_count BIGINT,
+    recent_failures_count BIGINT,
+    avg_queue_time_minutes DECIMAL,
+    recommendations TEXT[]
+) AS $$
+DECLARE
+    pending_count BIGINT;
+    stuck_count BIGINT;
+    recent_failures BIGINT;
+    avg_queue_minutes DECIMAL;
+    recommendations_arr TEXT[] := ARRAY[]::TEXT[];
+    status_text TEXT := 'healthy';
+BEGIN
+    -- Get pending jobs count
+    SELECT COUNT(*) INTO pending_count
+    FROM thumbnail_jobs
+    WHERE status = 'pending';
+
+    -- Get stuck jobs (in_progress for too long)
+    SELECT COUNT(*) INTO stuck_count
+    FROM thumbnail_jobs
+    WHERE status = 'in_progress'
+    AND started_at < NOW() - INTERVAL '1 hour';
+
+    -- Get recent failures (last 24 hours)
+    SELECT COUNT(*) INTO recent_failures
+    FROM thumbnail_jobs
+    WHERE status IN ('failed', 'failed_permanently')
+    AND updated_at > NOW() - INTERVAL '24 hours';
+
+    -- Get average queue time for completed jobs
+    SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (started_at - created_at)) / 60), 0)::DECIMAL
+    INTO avg_queue_minutes
+    FROM thumbnail_jobs
+    WHERE started_at IS NOT NULL
+    AND created_at > NOW() - INTERVAL '24 hours';
+
+    -- Determine system status and recommendations
+    IF pending_count > 100 THEN
+        status_text := 'overloaded';
+        recommendations_arr := array_append(recommendations_arr, 'High pending job count - consider scaling workers');
+    END IF;
+
+    IF stuck_count > 0 THEN
+        status_text := 'degraded';
+        recommendations_arr := array_append(recommendations_arr, 'Stuck jobs detected - run cancel_stale_jobs()');
+    END IF;
+
+    IF recent_failures > 10 THEN
+        status_text := 'degraded';
+        recommendations_arr := array_append(recommendations_arr, 'High failure rate - check error logs');
+    END IF;
+
+    IF avg_queue_minutes > 30 THEN
+        recommendations_arr := array_append(recommendations_arr, 'Long queue times - consider adding workers');
+    END IF;
+
+    IF array_length(recommendations_arr, 1) IS NULL THEN
+        recommendations_arr := ARRAY['System operating normally'];
+    END IF;
+
+    RETURN QUERY SELECT
+        status_text,
+        pending_count,
+        stuck_count,
+        recent_failures,
+        avg_queue_minutes,
+        recommendations_arr;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Add some sample data validation
 -- Ensure we don't have any orphaned jobs
 -- This would be in the application, but documenting here for reference

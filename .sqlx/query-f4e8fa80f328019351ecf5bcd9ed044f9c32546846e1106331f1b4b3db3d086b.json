@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM find_duplicate_thumbnails(100)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "parent_blob_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "blob_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "duplicate_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "thumbnail_ids",
+        "type_info": "UuidArray"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "f4e8fa80f328019351ecf5bcd9ed044f9c32546846e1106331f1b4b3db3d086b"
+}

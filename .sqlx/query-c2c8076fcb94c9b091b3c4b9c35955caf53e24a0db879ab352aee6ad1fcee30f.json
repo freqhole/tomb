@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT cancel_stale_jobs($1) as cancelled_count",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cancelled_count",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c2c8076fcb94c9b091b3c4b9c35955caf53e24a0db879ab352aee6ad1fcee30f"
+}

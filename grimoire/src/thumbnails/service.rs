@@ -15,6 +15,17 @@ use std::path::Path;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+/// Health status for the thumbnail system
+#[derive(Debug, Clone)]
+pub struct ThumbnailSystemHealth {
+    pub status: String,
+    pub pending_jobs_count: i64,
+    pub stuck_jobs_count: i64,
+    pub recent_failures_count: i64,
+    pub avg_queue_time_minutes: f64,
+    pub recommendations: Vec<String>,
+}
+
 /// Thumbnail service that provides business logic for thumbnail operations
 pub struct ThumbnailService<'a> {
     repo: ThumbnailRepository<'a>,
@@ -254,6 +265,25 @@ impl<'a> ThumbnailService<'a> {
         limit: i32,
     ) -> Result<Vec<ThumbnailJob>, ThumbnailError> {
         self.repo.get_jobs_by_status(status, limit).await
+    }
+
+    /// Get comprehensive health check of the thumbnail system
+    pub async fn get_system_health(&self) -> Result<ThumbnailSystemHealth, ThumbnailError> {
+        let health_summary = self.repo.get_system_health().await?;
+
+        Ok(ThumbnailSystemHealth {
+            status: health_summary.status,
+            pending_jobs_count: health_summary.pending_jobs_count,
+            stuck_jobs_count: health_summary.stuck_jobs_count,
+            recent_failures_count: health_summary.recent_failures_count,
+            avg_queue_time_minutes: health_summary.avg_queue_time_minutes,
+            recommendations: health_summary.recommendations,
+        })
+    }
+
+    /// Cancel stale jobs that have been processing too long
+    pub async fn cancel_stale_jobs(&self, timeout_minutes: i32) -> Result<u64, ThumbnailError> {
+        self.repo.cancel_stale_jobs(timeout_minutes).await
     }
 
     /// Check if thumbnails are enabled

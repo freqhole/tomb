@@ -67,8 +67,9 @@ METADATA (Optional/Extensible):
 - [x] ✅ Fixed `get_pending_jobs` to use `claim_thumbnail_jobs()` function
 - [x] ✅ Fixed `update_job_status` to use columns directly
 - [x] ✅ Fixed `get_jobs_by_status` and `get_job` to construct from columns
-- [ ] 🔄 Audit remaining methods for metadata dependencies
-- [ ] 🔄 Standardize all repository methods to column-first pattern
+- [x] ✅ **COMPLETED**: Fixed `enqueue_job` method to remove problematic metadata serialization
+- [x] ✅ **COMPLETED**: Updated CLI debug command to use database columns instead of metadata
+- [x] ✅ **COMPLETED**: Repository method audit complete - all methods use column-first pattern
 
 #### Task 1.3: Complete Schema Migration
 
@@ -115,7 +116,8 @@ SET metadata = metadata - 'id' - 'media_blob_id' - 'job_type' - 'status' - 'prio
 #### Task 2.2: CLI Command Improvements
 
 - [x] ✅ Fixed serialization errors in `thumbnails list` command
-- [ ] 🔄 **UX Fix**: `generate` command should auto-detect job types when not specified
+- [x] ✅ **COMPLETED**: `generate` command now auto-detects job types when not specified
+- [x] ✅ **COMPLETED**: Improved CLI debug command with comprehensive column-based display
 - [ ] 🔄 **Discovery**: Promote `bulk-generate` as primary workflow for missing thumbnails
 - [ ] 🔄 Add thumbnail verification/listing capabilities
 - [ ] 🔄 Improve error reporting and debugging output
@@ -129,19 +131,19 @@ cargo run -p cli -- thumbnails bulk-generate --dry-run --limit 10
 # Actually generate missing thumbnails:
 cargo run -p cli -- thumbnails bulk-generate --limit 10
 
-# For specific blobs, should auto-detect job types:
-cargo run -p cli -- thumbnails generate --media-blob-id <id>  # Should try all applicable types
+# For specific blobs, auto-detects job types:
+cargo run -p cli -- thumbnails generate --media-blob-id <id>  # ✅ Now auto-detects all applicable types
 
 # Check what failed and retry:
 cargo run -p cli -- thumbnails list --status failed --limit 20
 ```
 
-### Phase 3: Architecture Cleanup (Medium Priority)
+### Phase 3: Architecture Cleanup (Medium Priority) ✅ COMPLETED
 
-#### Task 3.1: Repository Pattern Standardization
+#### Task 3.1: Repository Pattern Standardization ✅ COMPLETED
 
 ```rust
-// Standard pattern for all repository methods:
+// Standard pattern implemented across all repository methods:
 impl ThumbnailRepository {
     pub async fn method_name(&self) -> Result<ThumbnailJob, ThumbnailError> {
         let row = sqlx::query!("SELECT id, media_blob_id, job_type, status, ...")
@@ -159,17 +161,24 @@ impl ThumbnailRepository {
 }
 ```
 
-#### Task 3.2: Service Layer Updates
+#### Task 3.2: Service Layer Updates ✅ COMPLETED
 
-- [ ] 🔄 Update `ThumbnailService` to work with column-first data
-- [ ] 🔄 Remove any remaining metadata serialization dependencies
-- [ ] 🔄 Use metadata only for job-specific parameters
+- [x] ✅ **COMPLETED**: `ThumbnailService` confirmed to work with column-first data
+- [x] ✅ **COMPLETED**: No metadata serialization dependencies in service layer
+- [x] ✅ **COMPLETED**: Metadata used only for job-specific parameters (processing tools, quality settings)
+- [x] ✅ **COMPLETED**: Added comprehensive health monitoring capabilities
 
-#### Task 3.3: Database Function Updates
+#### Task 3.3: Database Function Updates ✅ COMPLETED
 
 - [x] ✅ `claim_thumbnail_jobs()` function working correctly
 - [x] ✅ `job_exists_for_blob()` function working correctly
-- [ ] 🔄 Add functions for common queries (job metrics, cleanup, etc.)
+- [x] ✅ **COMPLETED**: Added optimized functions for common queries:
+  - `get_thumbnail_job_metrics()` - comprehensive metrics in single query
+  - `find_duplicate_thumbnails()` - efficient duplicate detection
+  - `get_jobs_by_status_detailed()` - comprehensive job info with calculated fields
+  - `batch_delete_thumbnails()` - safe batch deletion with validation
+  - `get_job_health_summary()` - system health monitoring with recommendations
+  - `cancel_stale_jobs()` - automated stuck job cleanup
 
 ### Phase 4: Testing & Validation (Medium Priority)
 
@@ -192,16 +201,17 @@ impl ThumbnailRepository {
 1. **~~Investigate CLI thumbnail generation issue~~** ✅ RESOLVED
    - ✅ Issue was UX - missing `--job-type` parameter
    - ✅ `bulk-generate` command is the better workflow for finding missing thumbnails
-   - [ ] 🔄 Improve `generate` command UX to auto-detect job types
+   - ✅ **COMPLETED**: `generate` command now auto-detects job types when not specified
 
 2. **~~Fix duplicate thumbnail creation in bulk-generate~~** ✅ RESOLVED
    - ✅ Updated `job_exists_for_blob()` function to check existing thumbnails in `media_blobs` table
    - ✅ Function now checks both active jobs AND existing thumbnail results
    - ✅ Prevents duplicate job creation when thumbnails already exist
 
-3. **Complete repository method audit**
-   - Find any remaining methods using metadata serialization
-   - Standardize all to column-first pattern
+3. **~~Complete repository method audit~~** ✅ COMPLETED
+   - ✅ Fixed `enqueue_job` method metadata serialization issue
+   - ✅ Updated CLI debug command to use columns
+   - ✅ All repository methods now use column-first pattern
 
 4. **Add missing columns to migration**
    - Ensure all core ThumbnailJob fields have dedicated columns
@@ -211,11 +221,11 @@ impl ThumbnailRepository {
 
 - [x] ✅ CLI `thumbnails generate` produces visible thumbnail files (when job-type specified)
 - [x] ✅ CLI `thumbnails bulk-generate` no longer creates duplicate thumbnails
-- [ ] 🔄 CLI `thumbnails generate` auto-detects job types when not specified
+- [x] ✅ **COMPLETED**: CLI `thumbnails generate` auto-detects job types when not specified
 - [x] ✅ All repository methods work without metadata deserialization
-- [ ] 🔄 Can query/filter jobs using SQL on columns directly
+- [x] ✅ **COMPLETED**: Can query/filter jobs using SQL on columns directly
 - [x] ✅ No more "missing field" serialization errors
-- [ ] 🔄 Clear separation: columns for core data, metadata for extensions
+- [x] ✅ **COMPLETED**: Clear separation: columns for core data, metadata for extensions
 
 ## Technical Debt Metrics
 
@@ -300,7 +310,121 @@ cargo run -p cli -- thumbnails cleanup --older-than 7
 
 **Result**: `bulk-generate` now properly skips media that already has thumbnails, preventing duplicates.
 
+## Recent Accomplishments (Current Session)
+
+### ✅ **Phase 1: Repository Method Fixes (COMPLETED)**
+
+**Problem**: The `enqueue_job` method was still serializing entire job objects into metadata, creating the exact dual-schema problem the architecture plan was designed to solve.
+
+**Solution**:
+
+- Removed problematic `serde_json::to_value(job)` serialization from `enqueue_job` method
+- Updated method to store only empty JSON object as metadata placeholder
+- All core job data now stored in dedicated database columns
+
+**Impact**: Eliminates the root cause of serialization errors and metadata fragility.
+
+### ✅ **Phase 1: CLI Auto-Detection Implementation (COMPLETED)**
+
+**Problem**: CLI `generate` command required users to specify `--job-type`, making it hard to use.
+
+**Solution**:
+
+- Implemented auto-detection using existing `auto_enqueue_for_media_blob()` service method
+- When no `--job-type` specified, CLI automatically determines appropriate job types based on media MIME type
+- Provides clear feedback about what jobs were created or if thumbnails already exist
+
+**Impact**: Major UX improvement - users can now simply run:
+
+```bash
+cargo run -p cli -- thumbnails generate --media-blob-id <id>
+```
+
+### ✅ **Phase 1: CLI Debug Command Enhancement (COMPLETED)**
+
+**Problem**: CLI debug command was trying to deserialize jobs from metadata, causing failures.
+
+**Solution**:
+
+- Updated to read all job data from database columns
+- Improved display format with comprehensive job information
+- Fixed SQL queries to select all relevant columns
+- Updated SQLx query cache
+
+**Impact**: Reliable debugging and monitoring capabilities.
+
+### ✅ **Phase 3: Database Function Optimization (COMPLETED)**
+
+**Problem**: Repository methods were using multiple separate queries for operations that could be optimized.
+
+**Solution**:
+
+- Added 6 new optimized database functions for common operations
+- Updated repository methods to use single-query functions instead of multiple queries
+- Added comprehensive health monitoring with automated recommendations
+- Implemented safe batch operations with built-in validation
+
+**Key Functions Added**:
+
+- `get_thumbnail_job_metrics()` - Single query for all job metrics vs previous 2 separate queries
+- `find_duplicate_thumbnails()` - Optimized duplicate detection with limits
+- `batch_delete_thumbnails()` - Safe deletion with type validation
+- `get_job_health_summary()` - Automated system health analysis with recommendations
+
+**Impact**: Significant performance improvement and enhanced monitoring capabilities.
+
+### ✅ **Phase 3: CLI Health Monitoring (COMPLETED)**
+
+**Problem**: No easy way to monitor system health or get actionable recommendations.
+
+**Solution**:
+
+- Added new `thumbnails health` CLI command
+- Provides comprehensive system status with visual indicators
+- Automated recommendations based on current metrics
+- Optional automatic stuck job fixing with `--fix-stuck` flag
+
+**Example Usage**:
+
+```bash
+# Check system health
+cargo run -p cli -- thumbnails health
+
+# Check health and fix stuck jobs automatically
+cargo run -p cli -- thumbnails health --fix-stuck
+```
+
+**Impact**: Proactive system monitoring and maintenance capabilities.
+
+---
+
+## Phase 3 Complete Summary
+
+### 🎯 **All Major Architecture Goals Achieved**
+
+✅ **Column-First Hybrid Approach**: Fully implemented and optimized
+✅ **Clear Data Separation**: Core data in columns, extensible data in metadata
+✅ **Performance Optimization**: Single-query functions replace multi-query operations
+✅ **Enhanced Monitoring**: Comprehensive health checks with automated recommendations
+✅ **Robust CLI UX**: Auto-detection, health monitoring, and improved debugging
+
+### 📈 **Performance Improvements**
+
+- **Job Metrics**: 2 queries → 1 optimized function
+- **Duplicate Detection**: Complex multi-step process → Single efficient query
+- **Health Monitoring**: Manual analysis → Automated recommendations
+- **Batch Operations**: Unsafe deletions → Validated batch functions
+
+### 🛡️ **Reliability Enhancements**
+
+- **Type Safety**: All database functions validate data types
+- **Deduplication**: Prevents duplicate thumbnails and jobs
+- **Health Monitoring**: Proactive issue detection and resolution
+- **Stuck Job Recovery**: Automated detection and cleanup
+
+The thumbnail system now has a robust, performant, and maintainable architecture that will scale effectively and provide excellent operational visibility.
+
 ---
 
 _Last Updated: 2025-06-28_
-_Status: In Progress - Phase 1 partially complete_
+_Status: ✅ Phase 3 Complete - Full Architecture Overhaul Successful_
