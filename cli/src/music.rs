@@ -8,7 +8,7 @@
 
 use clap::Subcommand;
 use grimoire::media::{CreateMediaBlob, MediaBlobRepository, MediaTypeDetector};
-use grimoire::music::{extract_metadata, hash_file, TitleBuilder};
+use grimoire::music::{extract_metadata, extract_thumbnail, hash_file, TitleBuilder};
 use grimoire::music::{ConsoleScanProgress, MusicService, ScanConfig, ScanProgress, ScannerConfig};
 use grimoire::{AppConfig, DatabaseConnection};
 use std::path::PathBuf;
@@ -195,8 +195,8 @@ impl MusicCommands {
         let mut processed_count = 0;
         let mut last_processed_path: Option<String> = None;
         let mut songs_added_total = 0;
-        let mut songs_updated_total = 0;
-        let mut songs_skipped_total = 0;
+        let songs_updated_total = 0;
+        let songs_skipped_total = 0;
         let mut errors_total = 0;
 
         // Start scanning
@@ -490,6 +490,13 @@ impl MusicCommands {
         .fetch_one(service.db().pool())
         .await?;
 
+        // Count thumbnail blobs
+        let thumbnail_blob_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM media_blobs WHERE source_client_id = 'music-cli-thumbnail'",
+        )
+        .fetch_one(service.db().pool())
+        .await?;
+
         // Count songs
         let song_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM songs")
             .fetch_one(service.db().pool())
@@ -504,12 +511,13 @@ impl MusicCommands {
         println!("📊 Database Record Counts:");
         println!("   🎵 Songs: {}", song_count);
         println!("   📁 Media Blobs (music-cli): {}", media_blob_count);
+        println!("   🖼️  Thumbnail Blobs: {}", thumbnail_blob_count);
         println!("   📋 Scan Sessions: {}", session_count);
 
-        // Show recent songs
+        // Show recent songs with thumbnail status
         let recent_songs = sqlx::query!(
             r#"
-            SELECT id, title, artist, album
+            SELECT id, title, artist, album, thumbnail_blob_id
             FROM songs
             ORDER BY created_at DESC
             LIMIT 5
@@ -521,11 +529,17 @@ impl MusicCommands {
         if !recent_songs.is_empty() {
             println!("\n🎼 Recent Songs:");
             for song in recent_songs {
+                let thumbnail_status = if song.thumbnail_blob_id.is_some() {
+                    " 🖼️"
+                } else {
+                    ""
+                };
                 println!(
-                    "   • {} by {} (Album: {})",
+                    "   • {} by {} (Album: {}{})",
                     song.title,
                     song.artist.unwrap_or("Unknown Artist".to_string()),
-                    song.album.unwrap_or("Unknown Album".to_string())
+                    song.album.unwrap_or("Unknown Album".to_string()),
+                    thumbnail_status
                 );
             }
         }
@@ -580,7 +594,7 @@ impl MusicCommands {
         // Create media blob
         let create_blob = CreateMediaBlob {
             data: Some(file_content),
-            sha256: file_hash,
+            sha256: file_hash.clone(),
             size: Some(file_size),
             mime: Some(mime_type.clone()),
             source_client_id: Some("music-cli".to_string()),
@@ -596,6 +610,49 @@ impl MusicCommands {
         };
 
         let media_blob = media_repository.create(create_blob).await?;
+
+        // Try to extract embedded album art thumbnail
+        let thumbnail_blob_id = match extract_thumbnail(file_path).await {
+            Ok(Some(extracted_image)) => {
+                // Create thumbnail media blob
+                let thumbnail_hash = format!("{}_thumbnail", file_hash);
+
+                let thumbnail_create_blob = CreateMediaBlob {
+                    data: Some(extracted_image.data.clone()),
+                    sha256: thumbnail_hash,
+                    size: Some(extracted_image.data.len() as i64),
+                    mime: Some(extracted_image.format.content_type().to_string()),
+                    source_client_id: Some("music-cli-thumbnail".to_string()),
+                    local_path: None,
+                    metadata: serde_json::json!({
+                        "thumbnail_source": "embedded_album_art",
+                        "parent_media_blob_id": media_blob.id,
+                        "extracted_from": file_path.to_string_lossy(),
+                        "image_format": format!("{:?}", extracted_image.format),
+                        "dimensions": extracted_image.dimensions
+                    }),
+                };
+
+                match media_repository.create(thumbnail_create_blob).await {
+                    Ok(thumbnail_blob) => {
+                        println!("  🖼️  Extracted album art thumbnail: {}", thumbnail_blob.id);
+                        Some(thumbnail_blob.id)
+                    }
+                    Err(e) => {
+                        eprintln!("  ⚠️  Failed to save thumbnail: {}", e);
+                        None
+                    }
+                }
+            }
+            Ok(None) => {
+                println!("  📷 No embedded album art found");
+                None
+            }
+            Err(e) => {
+                eprintln!("  ⚠️  Error extracting thumbnail: {}", e);
+                None
+            }
+        };
 
         // Build smart title using TitleBuilder
         let title_builder = TitleBuilder::new();
@@ -653,14 +710,15 @@ impl MusicCommands {
         let song_result = sqlx::query!(
             r#"
             INSERT INTO songs (
-                media_blob_id, title, artist, album, album_artist,
+                media_blob_id, thumbnail_blob_id, title, artist, album, album_artist,
                 track_number, disc_number, genre, year,
                 metadata
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id
             "#,
             media_blob.id,
+            thumbnail_blob_id,
             smart_title,
             artist,
             album,
@@ -677,20 +735,27 @@ impl MusicCommands {
                     "processor": "music-cli",
                     "file_path": file_path.to_string_lossy()
                 },
-                "duration_seconds": audio_metadata.properties.duration_seconds
+                "duration_seconds": audio_metadata.properties.duration_seconds,
+                "has_embedded_thumbnail": thumbnail_blob_id.is_some()
             })
         )
         .fetch_one(music_service.db().pool())
         .await?;
 
+        let thumbnail_info = if thumbnail_blob_id.is_some() {
+            " + Thumbnail"
+        } else {
+            ""
+        };
+
         println!(
-            "✅ Processed: {} -> Song ID: {} (Media Blob: {})",
+            "✅ Processed: {} -> Song ID: {} (Media Blob: {}{})",
             file_path.display(),
             song_result.id,
-            media_blob.id
+            media_blob.id,
+            thumbnail_info
         );
 
-        // TODO: Queue thumbnail extraction job if the audio file has embedded artwork
         // TODO: Queue waveform generation job
 
         Ok(())
