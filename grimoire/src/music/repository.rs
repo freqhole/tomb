@@ -4,9 +4,10 @@
 //! including CRUD operations and queries with proper error handling.
 
 use crate::music::models::{
-    AlbumSummary, AlbumTrack, ArtistAlbum, CreatePlaylist, CreateSong, Playlist, PlaylistComplete,
-    PlaylistQuery, PlaylistSong, PlaylistSongDetail, PlaylistSongWithMedia, PlaylistSummary,
-    PlaylistWithCount, Song, SongQuery, SongWithMedia, UpdatePlaylist,
+    AlbumSummary, AlbumTrack, ArtistAlbum, CreatePlaylist, CreateSong, MusicDatabaseStats,
+    Playlist, PlaylistComplete, PlaylistQuery, PlaylistSong, PlaylistSongDetail,
+    PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount, RecentSongWithThumbnail, Song,
+    SongQuery, SongWithMedia, UpdatePlaylist,
 };
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -863,6 +864,152 @@ impl MusicRepository {
         .await?;
 
         Ok(playlist_song)
+    }
+
+    // Administrative and operational methods
+
+    /// Get comprehensive database statistics for CLI status commands
+    pub async fn get_database_stats(&self) -> Result<MusicDatabaseStats> {
+        // Count songs
+        let song_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM songs")
+            .fetch_one(&self.pool)
+            .await?;
+
+        // Count media blobs from music CLI
+        let media_blob_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM media_blobs WHERE source_client_id = 'music-cli'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        // Count thumbnail blobs from music CLI
+        let thumbnail_blob_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM media_blobs WHERE source_client_id = 'music-cli-thumbnail'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        // Count scan sessions
+        let scan_session_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM music_scan_sessions")
+                .fetch_one(&self.pool)
+                .await?;
+
+        Ok(MusicDatabaseStats {
+            song_count,
+            media_blob_count,
+            thumbnail_blob_count,
+            scan_session_count,
+        })
+    }
+
+    /// Get recent songs with thumbnail status for debugging
+    pub async fn get_recent_songs_with_thumbnails(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<RecentSongWithThumbnail>> {
+        let songs = sqlx::query_as::<_, RecentSongWithThumbnail>(
+            r#"
+            SELECT id, title, artist, album, thumbnail_blob_id
+            FROM songs
+            ORDER BY created_at DESC
+            LIMIT $1
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(songs)
+    }
+
+    /// Get thumbnail blob ID for a specific song
+    pub async fn get_song_thumbnail_id(&self, song_id: Uuid) -> Result<Option<Uuid>> {
+        let thumbnail_id = sqlx::query_scalar::<_, Option<Uuid>>(
+            "SELECT thumbnail_blob_id FROM songs WHERE id = $1",
+        )
+        .bind(song_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(thumbnail_id)
+    }
+
+    /// Create a song record with full metadata (used during scanning)
+    pub async fn create_song_with_metadata(
+        &self,
+        media_blob_id: Uuid,
+        thumbnail_blob_id: Option<Uuid>,
+        title: String,
+        artist: Option<String>,
+        album: Option<String>,
+        album_artist: Option<String>,
+        track_number: Option<i32>,
+        disc_number: Option<i32>,
+        genre: Option<String>,
+        year: Option<i32>,
+        metadata: serde_json::Value,
+    ) -> Result<Uuid> {
+        let song_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO songs (
+                media_blob_id, thumbnail_blob_id, title, artist, album, album_artist,
+                track_number, disc_number, genre, year, metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            RETURNING id
+            "#,
+        )
+        .bind(media_blob_id)
+        .bind(thumbnail_blob_id)
+        .bind(title)
+        .bind(artist)
+        .bind(album)
+        .bind(album_artist)
+        .bind(track_number)
+        .bind(disc_number)
+        .bind(genre)
+        .bind(year)
+        .bind(metadata)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(song_id)
+    }
+
+    /// Safely reorder playlist using the SQL function that handles triggers
+    pub async fn reorder_playlist_by_function(
+        &self,
+        playlist_id: Uuid,
+        song_ids_ordered: &[Uuid],
+    ) -> Result<()> {
+        sqlx::query!(
+            "SELECT reorder_playlist_positions($1, $2)",
+            playlist_id,
+            song_ids_ordered
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Get count of songs in the database
+    pub async fn get_song_count(&self) -> Result<i64> {
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM songs")
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(count)
+    }
+
+    /// Get count of scan sessions
+    pub async fn get_scan_session_count(&self) -> Result<i64> {
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM music_scan_sessions")
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(count)
     }
 }
 

@@ -966,3 +966,38 @@ mod tests {
         assert_eq!(private_playlist.visibility_string(), "Private");
     }
 }
+
+/// Statistics about the music database
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MusicDatabaseStats {
+    pub song_count: i64,
+    pub media_blob_count: i64,
+    pub thumbnail_blob_count: i64,
+    pub scan_session_count: i64,
+}
+
+/// Recent song with thumbnail status for debugging
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct RecentSongWithThumbnail {
+    pub id: Uuid,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub thumbnail_blob_id: Option<Uuid>,
+}
+
+impl RecentSongWithThumbnail {
+    /// Check if this song has a thumbnail
+    pub fn has_thumbnail(&self) -> bool {
+        self.thumbnail_blob_id.is_some()
+    }
+
+    /// Get a formatted display title for the song
+    /// Returns format: "Artist - Title" or just "Title" if no artist
+    pub fn display_title(&self) -> String {
+        match &self.artist {
+            Some(artist) => format!("{} - {}", artist, self.title),
+            None => self.title.clone(),
+        }
+    }
+}

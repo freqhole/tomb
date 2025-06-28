@@ -72,9 +72,10 @@ pub use metadata::{
     FileMetadata, MetadataExtractor, StandardFields,
 };
 pub use models::{
-    AlbumSummary, AlbumTrack, ArtistAlbum, CreatePlaylist, CreateSong, Playlist, PlaylistComplete,
-    PlaylistQuery, PlaylistSong, PlaylistSongDetail, PlaylistSongFromJson, PlaylistSongWithMedia,
-    PlaylistSummary, PlaylistWithCount, Song, SongQuery, UpdatePlaylist,
+    AlbumSummary, AlbumTrack, ArtistAlbum, CreatePlaylist, CreateSong, MusicDatabaseStats,
+    Playlist, PlaylistComplete, PlaylistQuery, PlaylistSong, PlaylistSongDetail,
+    PlaylistSongFromJson, PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount,
+    RecentSongWithThumbnail, Song, SongQuery, UpdatePlaylist,
 };
 pub use playlist_service::{PlaylistService, PlaylistServiceError};
 pub use repository::{MusicRepository, MusicRepositoryError};

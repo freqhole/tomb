@@ -834,48 +834,20 @@ impl MusicCommands {
     ) -> Result<(), Box<dyn std::error::Error>> {
         println!("🧪 Testing database connectivity and showing record counts...");
 
-        // Count media blobs
-        let media_blob_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM media_blobs WHERE source_client_id = 'music-cli'",
-        )
-        .fetch_one(service.db().pool())
-        .await?;
+        // Use MusicRepository for database stats
+        let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
 
-        // Count thumbnail blobs
-        let thumbnail_blob_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM media_blobs WHERE source_client_id = 'music-cli-thumbnail'",
-        )
-        .fetch_one(service.db().pool())
-        .await?;
-
-        // Count songs
-        let song_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM songs")
-            .fetch_one(service.db().pool())
-            .await?;
-
-        // Count scan sessions
-        let session_count =
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM music_scan_sessions")
-                .fetch_one(service.db().pool())
-                .await?;
+        // Get comprehensive database stats
+        let stats = repository.get_database_stats().await?;
 
         println!("📊 Database Record Counts:");
-        println!("   🎵 Songs: {}", song_count);
-        println!("   📁 Media Blobs (music-cli): {}", media_blob_count);
-        println!("   🖼️  Thumbnail Blobs: {}", thumbnail_blob_count);
-        println!("   📋 Scan Sessions: {}", session_count);
+        println!("   🎵 Songs: {}", stats.song_count);
+        println!("   📁 Media Blobs (music-cli): {}", stats.media_blob_count);
+        println!("   🖼️  Thumbnail Blobs: {}", stats.thumbnail_blob_count);
+        println!("   📋 Scan Sessions: {}", stats.scan_session_count);
 
         // Show recent songs with thumbnail status
-        let recent_songs = sqlx::query!(
-            r#"
-            SELECT id, title, artist, album, thumbnail_blob_id
-            FROM songs
-            ORDER BY created_at DESC
-            LIMIT 5
-            "#
-        )
-        .fetch_all(service.db().pool())
-        .await?;
+        let recent_songs = repository.get_recent_songs_with_thumbnails(5).await?;
 
         if !recent_songs.is_empty() {
             println!("\n🎼 Recent Songs:");
@@ -1077,41 +1049,36 @@ impl MusicCommands {
             .or_else(|| audio_metadata.tags.tags.get("DATE"))
             .and_then(|s| s.parse::<i32>().ok());
 
-        // Create song record (skip duration for now due to interval type complexity)
-        let song_result = sqlx::query!(
-            r#"
-            INSERT INTO songs (
-                media_blob_id, thumbnail_blob_id, title, artist, album, album_artist,
-                track_number, disc_number, genre, year,
-                metadata
+        // Create song record using MusicRepository
+        let repository = grimoire::music::MusicRepository::new(music_service.db().pool().clone());
+
+        let metadata_json = serde_json::json!({
+            "audio_properties": audio_metadata.properties,
+            "original_tags": audio_metadata.tags.tags,
+            "processing_info": {
+                "processed_at": time::OffsetDateTime::now_utc(),
+                "processor": "music-cli",
+                "file_path": file_path.to_string_lossy()
+            },
+            "duration_seconds": audio_metadata.properties.duration_seconds,
+            "has_embedded_thumbnail": thumbnail_blob_id.is_some()
+        });
+
+        let song_id = repository
+            .create_song_with_metadata(
+                media_blob.id,
+                thumbnail_blob_id,
+                smart_title,
+                artist,
+                album,
+                album_artist,
+                track_number,
+                disc_number,
+                genre,
+                year,
+                metadata_json,
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING id
-            "#,
-            media_blob.id,
-            thumbnail_blob_id,
-            smart_title,
-            artist,
-            album,
-            album_artist,
-            track_number,
-            disc_number.unwrap_or(1),
-            genre,
-            year,
-            serde_json::json!({
-                "audio_properties": audio_metadata.properties,
-                "original_tags": audio_metadata.tags.tags,
-                "processing_info": {
-                    "processed_at": time::OffsetDateTime::now_utc(),
-                    "processor": "music-cli",
-                    "file_path": file_path.to_string_lossy()
-                },
-                "duration_seconds": audio_metadata.properties.duration_seconds,
-                "has_embedded_thumbnail": thumbnail_blob_id.is_some()
-            })
-        )
-        .fetch_one(music_service.db().pool())
-        .await?;
+            .await?;
 
         let thumbnail_info = if thumbnail_blob_id.is_some() {
             " + Thumbnail"
@@ -1122,7 +1089,7 @@ impl MusicCommands {
         println!(
             "✅ Processed: {} -> Song ID: {} (Media Blob: {}{})",
             file_path.display(),
-            song_result.id,
+            song_id,
             media_blob.id,
             thumbnail_info
         );
@@ -2936,17 +2903,13 @@ impl MusicCommands {
         playlist: &grimoire::music::PlaylistSummary,
         songs: &[grimoire::music::PlaylistSongWithMedia],
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Use the safe reorder function that handles trigger conflicts
+        // Use MusicRepository for safe reordering
+        let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
         let song_ids: Vec<uuid::Uuid> = songs.iter().map(|s| s.song_id).collect();
 
-        // Call the SQL function that safely handles reordering
-        sqlx::query!(
-            "SELECT reorder_playlist_positions($1, $2)",
-            playlist.id,
-            &song_ids[..]
-        )
-        .execute(service.db().pool())
-        .await?;
+        repository
+            .reorder_playlist_by_function(playlist.id, &song_ids)
+            .await?;
 
         println!("✅ Playlist order saved successfully!");
         Ok(())
@@ -3155,17 +3118,12 @@ impl MusicCommands {
                 // Show ASCII art thumbnail if available
                 // Get thumbnail directly using song_id since playlist mapping is broken
                 println!(
-                    "   🔍 Debug: Querying thumbnail for song_id: {}",
+                    "   🔍 Debug: Looking for thumbnail for song ID: {}",
                     song.song_id
                 );
-                let thumbnail_query = sqlx::query_scalar::<_, Option<uuid::Uuid>>(
-                    "SELECT thumbnail_blob_id FROM songs WHERE id = $1",
-                )
-                .bind(song.song_id)
-                .fetch_one(service.db().pool())
-                .await;
 
-                match thumbnail_query {
+                let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
+                match repository.get_song_thumbnail_id(song.song_id).await {
                     Ok(Some(thumbnail_id)) => {
                         println!("   🔍 Debug: Found thumbnail_id: {}", thumbnail_id);
                         if let Some(ascii_art) = self

@@ -604,6 +604,21 @@ impl MediaBlobRepository {
             mime_type_distribution,
         })
     }
+
+    /// Count media blobs by source client ID
+    pub async fn count_by_source_client_id(
+        &self,
+        source_client_id: &str,
+    ) -> Result<i64, MediaRepositoryError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM media_blobs WHERE source_client_id = $1",
+        )
+        .bind(source_client_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count)
+    }
 }
 
 /// Media blob statistics
