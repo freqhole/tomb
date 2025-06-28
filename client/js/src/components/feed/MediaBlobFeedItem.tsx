@@ -298,377 +298,381 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
   };
 
   return (
-    <div
-      class={props.className}
-      style={itemStyles()}
-      onClick={handleClick}
-      title={props.onItemClick ? "Click to view details" : undefined}
-    >
-      {/* Preview/Icon Section */}
+    <div style={{ display: "flex", "flex-direction": "column" }}>
       <div
-        style={{
-          "flex-shrink": 0,
-          width: isCompact() ? "32px" : "48px",
-          height: isCompact() ? "32px" : "48px",
-          display: "flex",
-          "align-items": "center",
-          "justify-content": "center",
-          "border-radius": "6px",
-          "background-color": "#f8fafc",
-          border: "1px solid #e2e8f0",
-          overflow: "hidden",
-          position: "relative",
-        }}
+        class={props.className}
+        style={itemStyles()}
+        onClick={handleClick}
+        title={props.onItemClick ? "Click to view details" : undefined}
       >
-        <Show
-          when={thumbnailPreviewUrl()}
-          fallback={
-            <Show
-              when={previewUrl()}
-              fallback={
-                <Show
-                  when={showThumbnailPlaceholder() && !isCompact()}
-                  fallback={
-                    <span
-                      style={{ "font-size": isCompact() ? "16px" : "20px" }}
-                    >
-                      {getFileTypeIcon(props.item.mime_type)}
-                    </span>
-                  }
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      "align-items": "center",
-                      "justify-content": "center",
-                      "flex-direction": "column",
-                      gap: "2px",
-                      color: "#94a3b8",
-                      "font-size": "10px",
-                      "text-align": "center",
-                    }}
-                  >
-                    <span
-                      style={{ "font-size": isCompact() ? "12px" : "16px" }}
-                    >
-                      ⏳
-                    </span>
-                    <span>Generating...</span>
-                  </div>
-                </Show>
-              }
-            >
-              <img
-                src={previewUrl()!}
-                alt={getDisplayFilename()}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  "object-fit": "cover",
-                }}
-                loading="lazy"
-              />
-            </Show>
-          }
-        >
-          <img
-            src={thumbnailPreviewUrl()!}
-            alt={`Thumbnail for ${getDisplayFilename()}`}
-            style={{
-              width: "100%",
-              height: "100%",
-              "object-fit": "cover",
-            }}
-            loading="lazy"
-          />
-        </Show>
-
-        {/* Thumbnail indicator */}
-        <Show when={hasThumbnails() && !isCompact()}>
-          <div
-            style={{
-              position: "absolute",
-              top: "2px",
-              right: "2px",
-              width: "8px",
-              height: "8px",
-              "background-color": "#10b981",
-              "border-radius": "50%",
-              "box-shadow": "0 0 0 1px #ffffff",
-            }}
-            title="Has thumbnails"
-          />
-        </Show>
-
-        {/* Thumbnail loading indicator */}
-        <Show
-          when={showThumbnailPlaceholder() && !hasThumbnails() && !isCompact()}
-        >
-          <div
-            style={{
-              position: "absolute",
-              top: "2px",
-              right: "2px",
-              width: "8px",
-              height: "8px",
-              "background-color": "#f59e0b",
-              "border-radius": "50%",
-              "box-shadow": "0 0 0 1px #ffffff",
-              animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-            }}
-            title="Generating thumbnails..."
-          />
-        </Show>
-      </div>
-
-      {/* Content Section */}
-      <div
-        style={{
-          flex: 1,
-          "min-width": 0,
-          display: "flex",
-          "flex-direction": "column",
-          gap: isCompact() ? "2px" : "4px",
-        }}
-      >
-        {/* Main content and action buttons container */}
+        {/* Preview/Icon Section */}
         <div
           style={{
+            "flex-shrink": 0,
+            width: isCompact() ? "32px" : "48px",
+            height: isCompact() ? "32px" : "48px",
             display: "flex",
-            "justify-content": "space-between",
-            "align-items": "flex-start",
-            gap: "8px",
+            "align-items": "center",
+            "justify-content": "center",
+            "border-radius": "6px",
+            "background-color": "#f8fafc",
+            border: "1px solid #e2e8f0",
+            overflow: "hidden",
+            position: "relative",
           }}
         >
-          {/* File info section */}
-          <div
-            style={{
-              flex: 1,
-              "min-width": 0,
-              display: "flex",
-              "flex-direction": "column",
-              gap: isCompact() ? "2px" : "4px",
-            }}
+          <Show
+            when={thumbnailPreviewUrl()}
+            fallback={
+              <Show
+                when={previewUrl()}
+                fallback={
+                  <Show
+                    when={showThumbnailPlaceholder() && !isCompact()}
+                    fallback={
+                      <span
+                        style={{ "font-size": isCompact() ? "16px" : "20px" }}
+                      >
+                        {getFileTypeIcon(props.item.mime_type)}
+                      </span>
+                    }
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        "align-items": "center",
+                        "justify-content": "center",
+                        "flex-direction": "column",
+                        gap: "2px",
+                        color: "#94a3b8",
+                        "font-size": "10px",
+                        "text-align": "center",
+                      }}
+                    >
+                      <span
+                        style={{ "font-size": isCompact() ? "12px" : "16px" }}
+                      >
+                        ⏳
+                      </span>
+                      <span>Generating...</span>
+                    </div>
+                  </Show>
+                }
+              >
+                <img
+                  src={previewUrl()!}
+                  alt={getDisplayFilename()}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    "object-fit": "cover",
+                  }}
+                  loading="lazy"
+                />
+              </Show>
+            }
           >
-            {/* Filename */}
+            <img
+              src={thumbnailPreviewUrl()!}
+              alt={`Thumbnail for ${getDisplayFilename()}`}
+              style={{
+                width: "100%",
+                height: "100%",
+                "object-fit": "cover",
+              }}
+              loading="lazy"
+            />
+          </Show>
+
+          {/* Thumbnail indicator */}
+          <Show when={hasThumbnails() && !isCompact()}>
             <div
               style={{
-                "font-size": isCompact() ? "14px" : "16px",
-                "font-weight": "500",
-                color: "#1e293b",
-                overflow: "hidden",
-                "text-overflow": "ellipsis",
-                "white-space": isCompact() ? "nowrap" : "normal",
-                "word-break": "break-word",
+                position: "absolute",
+                top: "2px",
+                right: "2px",
+                width: "8px",
+                height: "8px",
+                "background-color": "#10b981",
+                "border-radius": "50%",
+                "box-shadow": "0 0 0 1px #ffffff",
               }}
-              title={getDisplayFilename()}
-            >
-              {getDisplayFilename()}
-            </div>
+              title="Has thumbnails"
+            />
+          </Show>
 
-            {/* Metadata */}
-            <Show when={!isCompact() || props.showMetadata}>
+          {/* Thumbnail loading indicator */}
+          <Show
+            when={
+              showThumbnailPlaceholder() && !hasThumbnails() && !isCompact()
+            }
+          >
+            <div
+              style={{
+                position: "absolute",
+                top: "2px",
+                right: "2px",
+                width: "8px",
+                height: "8px",
+                "background-color": "#f59e0b",
+                "border-radius": "50%",
+                "box-shadow": "0 0 0 1px #ffffff",
+                animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+              }}
+              title="Generating thumbnails..."
+            />
+          </Show>
+        </div>
+
+        {/* Content Section */}
+        <div
+          style={{
+            flex: 1,
+            "min-width": 0,
+            display: "flex",
+            "flex-direction": "column",
+            gap: isCompact() ? "2px" : "4px",
+          }}
+        >
+          {/* Main content and action buttons container */}
+          <div
+            style={{
+              display: "flex",
+              "justify-content": "space-between",
+              "align-items": "flex-start",
+              gap: "8px",
+            }}
+          >
+            {/* File info section */}
+            <div
+              style={{
+                flex: 1,
+                "min-width": 0,
+                display: "flex",
+                "flex-direction": "column",
+                gap: isCompact() ? "2px" : "4px",
+              }}
+            >
+              {/* Filename */}
               <div
                 style={{
-                  display: "flex",
-                  gap: "12px",
-                  "font-size": "12px",
-                  color: "#64748b",
-                  "flex-wrap": isCompact() ? "nowrap" : "wrap",
+                  "font-size": isCompact() ? "14px" : "16px",
+                  "font-weight": "500",
+                  color: "#1e293b",
+                  overflow: "hidden",
+                  "text-overflow": "ellipsis",
+                  "white-space": isCompact() ? "nowrap" : "normal",
+                  "word-break": "break-word",
                 }}
+                title={getDisplayFilename()}
               >
-                <span title="File size">{formatFileSize(getFileSize())}</span>
-                <span title="MIME type">{getMimeType()}</span>
-                <Show when={isDetailed()}>
-                  <span title="Created">
-                    {formatDate(props.item.created_at)}
-                  </span>
-                </Show>
+                {getDisplayFilename()}
+              </div>
+
+              {/* Metadata */}
+              <Show when={!isCompact() || props.showMetadata}>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "12px",
+                    "font-size": "12px",
+                    color: "#64748b",
+                    "flex-wrap": isCompact() ? "nowrap" : "wrap",
+                  }}
+                >
+                  <span title="File size">{formatFileSize(getFileSize())}</span>
+                  <span title="MIME type">{getMimeType()}</span>
+                  <Show when={isDetailed()}>
+                    <span title="Created">
+                      {formatDate(props.item.created_at)}
+                    </span>
+                  </Show>
+                </div>
+              </Show>
+            </div>
+
+            {/* Action Buttons */}
+            <Show when={!isCompact()}>
+              <div style={{ display: "flex", gap: "4px", "flex-shrink": "0" }}>
+                <button
+                  onClick={handleViewBlob}
+                  style={{
+                    padding: "4px 8px",
+                    "font-size": "12px",
+                    border: "1px solid #d1d5db",
+                    "border-radius": "4px",
+                    "background-color": "#f9fafb",
+                    cursor: "pointer",
+                    display: "flex",
+                    "align-items": "center",
+                    gap: "4px",
+                  }}
+                  title="View blob content"
+                >
+                  👁️ {expanded() ? "Hide" : "View"}
+                </button>
+                <button
+                  onClick={handleDownloadBlob}
+                  style={{
+                    padding: "4px 8px",
+                    "font-size": "12px",
+                    border: "1px solid #d1d5db",
+                    "border-radius": "4px",
+                    "background-color": "#f9fafb",
+                    cursor: "pointer",
+                    display: "flex",
+                    "align-items": "center",
+                    gap: "4px",
+                  }}
+                  title="Download blob"
+                >
+                  📥
+                </button>
+                <button
+                  onClick={copyBlobId}
+                  style={{
+                    padding: "4px 8px",
+                    "font-size": "12px",
+                    border: "1px solid #d1d5db",
+                    "border-radius": "4px",
+                    "background-color": "#f9fafb",
+                    cursor: "pointer",
+                    display: "flex",
+                    "align-items": "center",
+                    gap: "4px",
+                  }}
+                  title="Copy blob ID"
+                >
+                  📋
+                </button>
               </div>
             </Show>
           </div>
 
-          {/* Action Buttons */}
-          <Show when={!isCompact()}>
-            <div style={{ display: "flex", gap: "4px", "flex-shrink": "0" }}>
-              <button
-                onClick={handleViewBlob}
+          {/* Description (detailed mode only) */}
+          <Show when={isDetailed() && props.item.description}>
+            <div
+              style={{
+                "font-size": "13px",
+                color: "#475569",
+                "margin-top": "4px",
+                "line-height": "1.4",
+              }}
+            >
+              {props.item.description}
+            </div>
+          </Show>
+
+          {/* Tags (detailed mode only) */}
+          <Show
+            when={isDetailed() && props.item.tags && props.item.tags.length > 0}
+          >
+            <div
+              style={{
+                display: "flex",
+                gap: "4px",
+                "margin-top": "4px",
+                "flex-wrap": "wrap",
+              }}
+            >
+              {props.item.tags!.map((tag) => (
+                <span
+                  style={{
+                    "font-size": "11px",
+                    padding: "2px 6px",
+                    "background-color": "#e2e8f0",
+                    color: "#475569",
+                    "border-radius": "4px",
+                  }}
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </Show>
+
+          {/* Thumbnail Gallery (detailed mode only) */}
+          <Show
+            when={
+              isDetailed() && shouldShowThumbnails() && thumbnails().length > 0
+            }
+          >
+            <div
+              style={{
+                display: "flex",
+                gap: "4px",
+                "margin-top": "8px",
+                "flex-wrap": "wrap",
+              }}
+            >
+              <div
                 style={{
-                  padding: "4px 8px",
-                  "font-size": "12px",
-                  border: "1px solid #d1d5db",
-                  "border-radius": "4px",
-                  "background-color": "#f9fafb",
-                  cursor: "pointer",
-                  display: "flex",
-                  "align-items": "center",
-                  gap: "4px",
+                  "font-size": "11px",
+                  color: "#64748b",
+                  "margin-bottom": "4px",
+                  width: "100%",
                 }}
-                title="View blob content"
               >
-                👁️ {expanded() ? "Hide" : "View"}
-              </button>
-              <button
-                onClick={handleDownloadBlob}
-                style={{
-                  padding: "4px 8px",
-                  "font-size": "12px",
-                  border: "1px solid #d1d5db",
-                  "border-radius": "4px",
-                  "background-color": "#f9fafb",
-                  cursor: "pointer",
-                  display: "flex",
-                  "align-items": "center",
-                  gap: "4px",
-                }}
-                title="Download blob"
-              >
-                📥
-              </button>
-              <button
-                onClick={copyBlobId}
-                style={{
-                  padding: "4px 8px",
-                  "font-size": "12px",
-                  border: "1px solid #d1d5db",
-                  "border-radius": "4px",
-                  "background-color": "#f9fafb",
-                  cursor: "pointer",
-                  display: "flex",
-                  "align-items": "center",
-                  gap: "4px",
-                }}
-                title="Copy blob ID"
-              >
-                📋
-              </button>
+                Thumbnails ({thumbnails().length}):
+              </div>
+              {thumbnails().map((thumbnail) => {
+                const thumbnailUrl =
+                  thumbnail.data && thumbnail.data.length > 0
+                    ? createDataUrl(
+                        thumbnail.data,
+                        thumbnail.mime || "image/webp"
+                      )
+                    : `/api/media-blobs/${thumbnail.id}/download`;
+
+                return (
+                  <div
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      "border-radius": "4px",
+                      overflow: "hidden",
+                      border: "1px solid #e2e8f0",
+                      cursor: "pointer",
+                    }}
+                    title={`Thumbnail: ${thumbnail.blob_type || "thumbnail"}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Could open thumbnail in modal or full size
+                    }}
+                  >
+                    <img
+                      src={thumbnailUrl}
+                      alt="Thumbnail"
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        "object-fit": "cover",
+                      }}
+                      loading="lazy"
+                    />
+                  </div>
+                );
+              })}
             </div>
           </Show>
         </div>
 
-        {/* Description (detailed mode only) */}
-        <Show when={isDetailed() && props.item.description}>
+        {/* ID (compact mode, right-aligned) */}
+        <Show when={isCompact()}>
           <div
             style={{
-              "font-size": "13px",
-              color: "#475569",
-              "margin-top": "4px",
-              "line-height": "1.4",
+              "font-size": "10px",
+              color: "#94a3b8",
+              "font-family": "monospace",
+              "flex-shrink": 0,
             }}
+            title={`ID: ${props.item.id}`}
           >
-            {props.item.description}
-          </div>
-        </Show>
-
-        {/* Tags (detailed mode only) */}
-        <Show
-          when={isDetailed() && props.item.tags && props.item.tags.length > 0}
-        >
-          <div
-            style={{
-              display: "flex",
-              gap: "4px",
-              "margin-top": "4px",
-              "flex-wrap": "wrap",
-            }}
-          >
-            {props.item.tags!.map((tag) => (
-              <span
-                style={{
-                  "font-size": "11px",
-                  padding: "2px 6px",
-                  "background-color": "#e2e8f0",
-                  color: "#475569",
-                  "border-radius": "4px",
-                }}
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        </Show>
-
-        {/* Thumbnail Gallery (detailed mode only) */}
-        <Show
-          when={
-            isDetailed() && shouldShowThumbnails() && thumbnails().length > 0
-          }
-        >
-          <div
-            style={{
-              display: "flex",
-              gap: "4px",
-              "margin-top": "8px",
-              "flex-wrap": "wrap",
-            }}
-          >
-            <div
-              style={{
-                "font-size": "11px",
-                color: "#64748b",
-                "margin-bottom": "4px",
-                width: "100%",
-              }}
-            >
-              Thumbnails ({thumbnails().length}):
-            </div>
-            {thumbnails().map((thumbnail) => {
-              const thumbnailUrl =
-                thumbnail.data && thumbnail.data.length > 0
-                  ? createDataUrl(
-                      thumbnail.data,
-                      thumbnail.mime || "image/webp"
-                    )
-                  : `/api/media-blobs/${thumbnail.id}/download`;
-
-              return (
-                <div
-                  style={{
-                    width: "32px",
-                    height: "32px",
-                    "border-radius": "4px",
-                    overflow: "hidden",
-                    border: "1px solid #e2e8f0",
-                    cursor: "pointer",
-                  }}
-                  title={`Thumbnail: ${thumbnail.blob_type || "thumbnail"}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Could open thumbnail in modal or full size
-                  }}
-                >
-                  <img
-                    src={thumbnailUrl}
-                    alt="Thumbnail"
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      "object-fit": "cover",
-                    }}
-                    loading="lazy"
-                  />
-                </div>
-              );
-            })}
+            {props.item.id.slice(0, 8)}...
           </div>
         </Show>
       </div>
-
-      {/* ID (compact mode, right-aligned) */}
-      <Show when={isCompact()}>
-        <div
-          style={{
-            "font-size": "10px",
-            color: "#94a3b8",
-            "font-family": "monospace",
-            "flex-shrink": 0,
-          }}
-          title={`ID: ${props.item.id}`}
-        >
-          {props.item.id.slice(0, 8)}...
-        </div>
-      </Show>
-
+      DEAL WITH THIS BUT NEEDZ FLEX COLUMN
       {/* Expanded Blob Viewer */}
       <Show when={expanded()}>
         <div

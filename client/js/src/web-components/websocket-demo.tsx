@@ -287,6 +287,7 @@ const WebSocketDemo = (props: WebSocketDemoProps) => {
           padding: 0.5rem 1rem;
           border: 1px solid #ccc;
           background: white;
+          color: black;
           cursor: pointer;
           border-radius: 4px;
           font-size: 0.875rem;
@@ -312,6 +313,7 @@ const WebSocketDemo = (props: WebSocketDemoProps) => {
         }
         .log-container {
           background: #f8f9fa;
+          color: black;
           border: 1px solid #e9ecef;
           border-radius: 4px;
           padding: 1rem;
@@ -327,6 +329,7 @@ const WebSocketDemo = (props: WebSocketDemoProps) => {
           border-radius: 8px;
           padding: 1rem;
           background: white;
+          color: black;
         }
         .blob-header {
           display: flex;
@@ -366,6 +369,7 @@ const WebSocketDemo = (props: WebSocketDemoProps) => {
           text-align: center;
           margin: 1rem 0;
           background: #fafafa;
+          color: black;
           transition: all 0.2s ease;
           cursor: pointer;
         }
@@ -380,6 +384,7 @@ const WebSocketDemo = (props: WebSocketDemoProps) => {
         }
         .upload-status {
           background: #f3f4f6;
+          color: black;
           border-radius: 6px;
           padding: 0.75rem;
           margin: 0.5rem 0;

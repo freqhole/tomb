@@ -85,16 +85,6 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
       "Try uploading files through the API to see real-time feed updates",
       "No more polling - updates happen instantly via WebSocket!",
     ],
-    styles: `
-      .instructions {
-        background: #dcfce7;
-        border: 1px solid #16a34a;
-        border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 30px;
-        color: #166534;
-      }
-    `,
   },
 
   "sync-demo": {
@@ -113,16 +103,6 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
       "Try starting a sync operation to see live progress updates",
       "Note: Polling has been removed in favor of WebSocket notifications",
     ],
-    styles: `
-      .instructions {
-        background: #fef3c7;
-        border: 1px solid #f59e0b;
-        border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 30px;
-        color: #92400e;
-      }
-    `,
   },
 };
 
@@ -138,81 +118,36 @@ function generateHtmlTemplate(
     })
     .join(" ");
 
-  return `<!DOCTYPE html>
+  return `<!--
+${template.title}
+${template.description}
+
+${template.instructions.join("\n        ")}
+-->
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${template.title}</title>
   <style>
+    * { box-sizing: border-box; }
     body {
       font-family: system-ui, -apple-system, sans-serif;
-      margin: 0;
-      padding: 20px;
-      background-color: #f8fafc;
-      color: #1f2937;
-      line-height: 1.6;
+      margin: 0px;
+      padding: 0px;
+      background-color: black;
+      color: white;
     }
     .container {
       max-width: 1000px;
       margin: 0 auto;
-    }
-    .header {
-      text-align: center;
-      margin-bottom: 40px;
-      padding: 20px;
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    }
-    .header h1 {
-      margin: 0 0 8px 0;
-      color: #111827;
-      font-size: 2rem;
-    }
-    .header p {
-      margin: 0;
-      color: #6b7280;
-      font-size: 1.1rem;
-    }
-    .instructions {
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 30px;
-      color: #1e40af;
-    }
-    .instructions h3 {
-      margin: 0 0 8px 0;
-      color: #1e40af;
-      font-size: 1rem;
-    }
-    .instructions ul {
-      margin: 8px 0 0 0;
-      padding-left: 20px;
-    }
-    .instructions li {
-      margin-bottom: 4px;
-      font-size: 0.875rem;
     }
     ${template.styles || ""}
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <h1>${template.description}</h1>
-      <p>${template.title}</p>
-    </div>
-
-    <div class="instructions">
-      <h3>🚀 Getting Started</h3>
-      <ul>
-        ${template.instructions.map((instruction) => `<li>${instruction}</li>`).join("\n        ")}
-      </ul>
-    </div>
-
     <${template.element} ${attributesStr}></${template.element}>
   </div>
 
