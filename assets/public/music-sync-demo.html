@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Sync Demo - FREQHOLE</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0a0a0a;
+            color: #ffffff;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 20px;
+            background: linear-gradient(135deg, #ff00ff, #00ffff);
+            border-radius: 12px;
+            color: #000;
+        }
+
+        .sync-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .sync-panel {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .sync-panel h3 {
+            color: #ff00ff;
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .status-indicator.idle { background: #00ff00; }
+        .status-indicator.syncing { background: #ffff00; animation: pulse 1s infinite; }
+        .status-indicator.error { background: #ff0000; }
+        .status-indicator.paused { background: #ffa500; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #333;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff00ff, #00ffff);
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-card {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00ffff;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #aaa;
+            text-transform: uppercase;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+
+        button {
+            background: #ff00ff;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: #ff44ff;
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            background: #666;
+            color: #999;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .log-panel {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            height: 300px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .log-entry.info { background: rgba(0, 255, 255, 0.1); color: #00ffff; }
+        .log-entry.success { background: rgba(0, 255, 0, 0.1); color: #00ff00; }
+        .log-entry.error { background: rgba(255, 0, 0, 0.1); color: #ff0000; }
+        .log-entry.warning { background: rgba(255, 255, 0, 0.1); color: #ffff00; }
+
+        .music-library {
+            margin-top: 30px;
+        }
+
+        .library-section {
+            margin: 20px 0;
+        }
+
+        .library-section h4 {
+            color: #00ffff;
+            border-bottom: 2px solid #333;
+            padding-bottom: 5px;
+        }
+
+        .item-list {
+            max-height: 200px;
+            overflow-y: auto;
+            background: #2a2a2a;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .item {
+            padding: 8px;
+            border-bottom: 1px solid #444;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .item:last-child {
+            border-bottom: none;
+        }
+
+        .item-title {
+            font-weight: bold;
+        }
+
+        .item-meta {
+            font-size: 12px;
+            color: #aaa;
+        }
+
+        .sync-badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+        .sync-badge.synced { background: #00ff0033; color: #00ff00; }
+        .sync-badge.unsynced { background: #ff000033; color: #ff0000; }
+        .sync-badge.modified { background: #ffff0033; color: #ffff00; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎵 FREQHOLE Music Sync Demo</h1>
+        <p>Advanced IndexedDB sync with Songs, Playlists, and Binary Data</p>
+    </div>
+
+    <div class="sync-container">
+        <div class="sync-panel">
+            <h3>
+                <span class="status-indicator" id="sync-status"></span>
+                Sync Status
+            </h3>
+            <div id="sync-phase">Phase: Idle</div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div id="progress-text">Ready to sync</div>
+
+            <div class="controls">
+                <button id="sync-all">Sync All</button>
+                <button id="sync-songs">Sync Songs</button>
+                <button id="sync-playlists">Sync Playlists</button>
+                <button id="pause-sync">Pause</button>
+                <button id="resume-sync">Resume</button>
+            </div>
+        </div>
+
+        <div class="sync-panel">
+            <h3>📊 Statistics</h3>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-songs">0</div>
+                    <div class="stat-label">Songs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-playlists">0</div>
+                    <div class="stat-label">Playlists</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-storage">0 MB</div>
+                    <div class="stat-label">Storage Used</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-health">100%</div>
+                    <div class="stat-label">Health Score</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="sync-panel">
+        <h3>📝 Sync Log</h3>
+        <div class="log-panel" id="log-panel"></div>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <div class="music-library">
+        <h3>🎼 Local Music Library</h3>
+
+        <div class="library-section">
+            <h4>Songs</h4>
+            <div class="item-list" id="songs-list">
+                <div style="text-align: center; color: #666; padding: 20px;">
+                    No songs synced yet. Click "Sync Songs" to begin.
+                </div>
+            </div>
+        </div>
+
+        <div class="library-section">
+            <h4>Playlists</h4>
+            <div class="item-list" id="playlists-list">
+                <div style="text-align: center; color: #666; padding: 20px;">
+                    No playlists synced yet. Click "Sync Playlists" to begin.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import {
+            MusicSyncManager,
+            createMusicSyncManager,
+            SyncStatus
+        } from '../src/sync/index.js';
+
+        // Configuration
+        const config = {
+            apiBaseUrl: 'http://localhost:3000',
+            authToken: 'demo-token-123',
+            clientId: 'music-sync-demo',
+            batchSize: 25,
+            maxStorageSize: 100 * 1024 * 1024, // 100MB
+            syncBinaryData: true,
+            musicOptions: {
+                enableBackgroundSync: false,
+                autoSyncInterval: 60000, // 1 minute
+            }
+        };
+
+        // Initialize sync manager
+        let syncManager;
+
+        try {
+            syncManager = createMusicSyncManager(config);
+            log('Sync manager created successfully', 'success');
+        } catch (error) {
+            log(`Failed to create sync manager: ${error.message}`, 'error');
+        }
+
+        // UI Elements
+        const statusIndicator = document.getElementById('sync-status');
+        const syncPhase = document.getElementById('sync-phase');
+        const progressFill = document.getElementById('progress-fill');
+        const progressText = document.getElementById('progress-text');
+        const logPanel = document.getElementById('log-panel');
+
+        // Control buttons
+        const syncAllBtn = document.getElementById('sync-all');
+        const syncSongsBtn = document.getElementById('sync-songs');
+        const syncPlaylistsBtn = document.getElementById('sync-playlists');
+        const pauseSyncBtn = document.getElementById('pause-sync');
+        const resumeSyncBtn = document.getElementById('resume-sync');
+
+        // Statistics elements
+        const statSongs = document.getElementById('stat-songs');
+        const statPlaylists = document.getElementById('stat-playlists');
+        const statStorage = document.getElementById('stat-storage');
+        const statHealth = document.getElementById('stat-health');
+
+        // Library lists
+        const songsList = document.getElementById('songs-list');
+        const playlistsList = document.getElementById('playlists-list');
+
+        // Logging function
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logPanel.appendChild(logEntry);
+            logPanel.scrollTop = logPanel.scrollHeight;
+            console.log(`[MusicSync] ${message}`);
+        }
+
+        function clearLog() {
+            logPanel.innerHTML = '';
+        }
+
+        // Update status indicator
+        function updateStatus(status) {
+            statusIndicator.className = `status-indicator ${status.toLowerCase()}`;
+        }
+
+        // Update progress
+        function updateProgress(progress) {
+            if (progress.overallProgress !== undefined) {
+                progressFill.style.width = `${progress.overallProgress}%`;
+                progressText.textContent = `${Math.round(progress.overallProgress)}% (${progress.totalItemsSynced} items)`;
+            }
+
+            syncPhase.textContent = `Phase: ${progress.currentPhase.replace('_', ' ').toUpperCase()}`;
+        }
+
+        // Update statistics
+        async function updateStats() {
+            if (!syncManager) return;
+
+            try {
+                const stats = await syncManager.getStats();
+                statSongs.textContent = stats.totalSongs.toLocaleString();
+                statPlaylists.textContent = stats.totalPlaylists.toLocaleString();
+                statStorage.textContent = `${(stats.storageSize / 1024 / 1024).toFixed(1)} MB`;
+                statHealth.textContent = `${stats.healthScore}%`;
+            } catch (error) {
+                log(`Failed to update stats: ${error.message}`, 'error');
+            }
+        }
+
+        // Update library displays
+        async function updateLibrary() {
+            if (!syncManager) return;
+
+            try {
+                // Update songs list
+                const songs = await syncManager.getSongs({ limit: 10 });
+                if (songs.length > 0) {
+                    songsList.innerHTML = songs.map(song => `
+                        <div class="item">
+                            <div>
+                                <div class="item-title">${escapeHtml(song.title)}</div>
+                                <div class="item-meta">
+                                    ${escapeHtml(song.artist || 'Unknown Artist')} •
+                                    ${escapeHtml(song.album || 'Unknown Album')}
+                                </div>
+                            </div>
+                            <span class="sync-badge ${song.synced ? 'synced' : song.locally_modified ? 'modified' : 'unsynced'}">
+                                ${song.synced ? 'Synced' : song.locally_modified ? 'Modified' : 'Unsynced'}
+                            </span>
+                        </div>
+                    `).join('');
+                }
+
+                // Update playlists list
+                const playlists = await syncManager.getPlaylists({ limit: 10 });
+                if (playlists.length > 0) {
+                    playlistsList.innerHTML = playlists.map(playlist => `
+                        <div class="item">
+                            <div>
+                                <div class="item-title">${escapeHtml(playlist.title)}</div>
+                                <div class="item-meta">
+                                    ${playlist.description ? escapeHtml(playlist.description) : 'No description'} •
+                                    ${playlist.is_public ? 'Public' : 'Private'}
+                                </div>
+                            </div>
+                            <span class="sync-badge ${playlist.synced ? 'synced' : playlist.locally_modified ? 'modified' : 'unsynced'}">
+                                ${playlist.synced ? 'Synced' : playlist.locally_modified ? 'Modified' : 'Unsynced'}
+                            </span>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                log(`Failed to update library: ${error.message}`, 'error');
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Event handlers
+        if (syncManager) {
+            // Set up event listeners
+            syncManager.on('initialized', (data) => {
+                log('Sync manager initialized', 'success');
+                updateStats();
+                updateLibrary();
+            });
+
+            syncManager.on('status_changed', (data) => {
+                log(`Status changed: ${data.previousStatus} → ${data.status}`, 'info');
+                updateStatus(data.status);
+            });
+
+            syncManager.on('progress', (data) => {
+                updateProgress(data.progress);
+            });
+
+            syncManager.on('sync_completed', (data) => {
+                log('Full sync completed successfully', 'success');
+                updateStats();
+                updateLibrary();
+            });
+
+            syncManager.on('songs_synced', (data) => {
+                log(`Synced ${data.songs.length} songs`, 'success');
+                updateLibrary();
+            });
+
+            syncManager.on('playlists_synced', (data) => {
+                log(`Synced ${data.playlists.length} playlists`, 'success');
+                updateLibrary();
+            });
+
+            syncManager.on('error', (data) => {
+                log(`Sync error: ${data.error.message}`, 'error');
+            });
+
+            // Button event handlers
+            syncAllBtn.addEventListener('click', async () => {
+                try {
+                    log('Starting full sync...', 'info');
+                    await syncManager.syncAll();
+                } catch (error) {
+                    log(`Full sync failed: ${error.message}`, 'error');
+                }
+            });
+
+            syncSongsBtn.addEventListener('click', async () => {
+                try {
+                    log('Starting songs sync...', 'info');
+                    await syncManager.syncSongs();
+                } catch (error) {
+                    log(`Songs sync failed: ${error.message}`, 'error');
+                }
+            });
+
+            syncPlaylistsBtn.addEventListener('click', async () => {
+                try {
+                    log('Starting playlists sync...', 'info');
+                    await syncManager.syncPlaylists();
+                } catch (error) {
+                    log(`Playlists sync failed: ${error.message}`, 'error');
+                }
+            });
+
+            pauseSyncBtn.addEventListener('click', () => {
+                log('Pausing sync...', 'warning');
+                syncManager.pauseSync();
+            });
+
+            resumeSyncBtn.addEventListener('click', async () => {
+                try {
+                    log('Resuming sync...', 'info');
+                    await syncManager.resumeSync();
+                } catch (error) {
+                    log(`Resume failed: ${error.message}`, 'error');
+                }
+            });
+
+            // Initialize the sync manager
+            syncManager.initialize().catch(error => {
+                log(`Initialization failed: ${error.message}`, 'error');
+            });
+        }
+
+        // Periodic stats update
+        setInterval(updateStats, 5000);
+
+        // Demo data creation (for testing)
+        window.createDemoData = async function() {
+            if (!syncManager) return;
+
+            try {
+                log('Creating demo playlist...', 'info');
+                const playlist = await syncManager.createPlaylist(
+                    'Demo Playlist',
+                    'Created by the sync demo',
+                    true
+                );
+                log(`Created playlist: ${playlist.title}`, 'success');
+                updateLibrary();
+            } catch (error) {
+                log(`Failed to create demo data: ${error.message}`, 'error');
+            }
+        };
+
+        // Make sync manager available globally for debugging
+        window.syncManager = syncManager;
+
+        log('Music sync demo initialized. Open browser console for debugging.', 'info');
+        log('Try: window.createDemoData() to create test data', 'info');
+    </script>
+</body>
+</html>
