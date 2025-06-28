@@ -80,6 +80,11 @@ The application uses JSONC (JSON with comments) configuration files for all sett
     "max_blob_file_size": 10485760,
     "max_fs_file_size": 104857600,
     "supported_audio_formats": ["mp3", "flac", "ogg", "m4a"],
+    "playback": {
+      "player_path": null,
+      "player_command": "ffplay",
+      "player_args": ["-nodisp", "-autoexit"],
+    },
     "thumbnails": {
       "enabled": true,
       "imagemagick_path": null,
@@ -111,6 +116,42 @@ The application uses JSONC (JSON with comments) configuration files for all sett
       "heartbeat_interval": 30,
     },
   },
+}
+```
+
+### Audio Playback Configuration
+
+The `media.playback` section configures terminal audio playback for CLI commands:
+
+- `player_path` - Custom path to audio player binary (null = use system PATH)
+- `player_command` - Audio player command (default: "ffplay")
+- `player_args` - Arguments passed to the player (default: ["-nodisp", "-autoexit"])
+
+**Common configurations:**
+
+```jsonc
+// FFplay (default - quiet mode)
+"playback": {
+  "player_command": "ffplay",
+  "player_args": ["-nodisp", "-autoexit", "-hide_banner", "-loglevel", "quiet"]
+}
+
+// MPV (recommended - better controls)
+"playback": {
+  "player_command": "mpv",
+  "player_args": ["--no-video", "--really-quiet"]
+}
+
+// MPV with progress bar
+"playback": {
+  "player_command": "mpv",
+  "player_args": ["--no-video", "--term-status-msg=♪ ${filename} [${time-pos}/${duration}]"]
+}
+
+// Custom path
+"playback": {
+  "player_path": "/usr/local/bin/ffplay",
+  "player_args": ["-nodisp", "-autoexit"]
 }
 ```
 

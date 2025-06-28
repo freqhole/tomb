@@ -75,7 +75,12 @@
     // Maximum file size for files stored on filesystem (1GB default)
     "max_fs_file_size": 1073741824,
     // Supported audio file formats for music scanning
-    "supported_audio_formats": ["mp3", "ogg", "wav", "flac", "m4a"]
+    "supported_audio_formats": ["mp3", "ogg", "wav", "flac", "m4a"],
+    // Audio playback configuration for CLI
+    "playback": {
+      "player_command": "mpv",
+      "player_args": ["--no-video", "--term-osd-bar"]
+    }
   },
   "notifications": {
     "channels": {},

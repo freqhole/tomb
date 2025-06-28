@@ -142,6 +142,11 @@ impl<'a> MusicService<'a> {
         self.db
     }
 
+    /// Get configuration
+    pub fn config(&self) -> &'a AppConfig {
+        self.config
+    }
+
     /// Start a new music scan
     pub async fn start_scan(
         &self,

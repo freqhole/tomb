@@ -14,6 +14,7 @@ cli music scan /media/music --depth 3 --batch-size 50
 ```
 
 **Options:**
+
 - `--name <name>` - Name for the scan session
 - `--depth <depth>` - Maximum directory depth (default: 10)
 - `--batch-size <size>` - Files to process per batch (default: 100)
@@ -67,6 +68,7 @@ cli music songs --limit 50 --offset 100  # Pagination
 ```
 
 **Options:**
+
 - `--favorites` - Show only favorited songs
 - `--artist <name>` - Filter by artist name
 - `--album <name>` - Filter by album name
@@ -94,6 +96,7 @@ cli music create-playlist "Road Trip" --description "Songs for driving" --public
 ```
 
 **Options:**
+
 - `--description <text>` - Playlist description
 - `--public` - Make playlist public
 - `--songs <ids>` - Comma-separated song IDs to add
@@ -117,10 +120,12 @@ cli music add-to-playlist-by-title "Existing" "song4" --description "Auto-create
 ```
 
 **Options:**
+
 - `--description <text>` - Description for new playlist (if created)
 - `--public` - Make new playlist public (if created)
 
 **Behavior:**
+
 - If title matches exactly 1 playlist: adds songs to that playlist
 - If title matches multiple playlists: shows error with playlist list
 - If title matches no playlists: creates new playlist with that title
@@ -144,6 +149,7 @@ cli music show-playlist 550e8400-e29b-41d4-a716-446655440000 --verbose
 ```
 
 **Options:**
+
 - `--verbose` - Show detailed song information
 
 ### `music delete-playlist <playlist>`
@@ -156,6 +162,7 @@ cli music delete-playlist 550e8400-e29b-41d4-a716-446655440000 --force
 ```
 
 **Options:**
+
 - `--force` - Skip confirmation prompt
 
 ### `music move-song <playlist> <song-id> <position>`
@@ -211,6 +218,7 @@ cli music playlist-from-album "The Wall" --artist "Pink Floyd" --title "Pink Flo
 ```
 
 **Options:**
+
 - `--artist <name>` - Filter by artist
 - `--title <title>` - Custom playlist title (defaults to album name)
 - `--public` - Make playlist public
@@ -233,6 +241,60 @@ Test database connectivity and show record counts.
 cli music test
 ```
 
+### `music play`
+
+Interactive playlist selection and playback with keyboard navigation.
+
+```bash
+cli music play
+cli music play --shuffle
+```
+
+**Options:**
+
+- `--shuffle` - Randomize playback order
+
+**Features:**
+
+- Browse all playlists with song counts and durations
+- Navigate with arrow keys and select with Enter
+- Shows playlist title, song count, and total duration
+- Escape or Ctrl+C to cancel selection
+- Automatically starts playback of selected playlist
+
+### `music play-song <song-id>`
+
+Play a single song using the configured audio player.
+
+```bash
+cli music play-song 550e8400-e29b-41d4-a716-446655440000
+cli music play-song 550e8400-e29b-41d4-a716-446655440000 --visualize
+```
+
+**Options:**
+
+- `--visualize` - Show audio visualizer (requires `cava` to be installed)
+
+### `music play-playlist <playlist>`
+
+Play an entire playlist sequentially.
+
+```bash
+cli music play-playlist "My Favorites"
+cli music play-playlist 550e8400-e29b-41d4-a716-446655440000 --shuffle
+```
+
+**Options:**
+
+- `--shuffle` - Randomize playback order
+
+**Behavior:**
+
+- Plays songs sequentially using configured audio player
+- Shows progress indicator with song titles and duration
+- Handles missing files gracefully by skipping with warning
+- Full keyboard controls available during playback
+
 ## Examples
 
 ```bash
@@ -250,7 +312,44 @@ cli music playlist-from-album "OK Computer" --artist "Radiohead" --public
 # Manage existing playlists
 cli music show-playlist "Chill Mix" --verbose
 cli music move-song "Chill Mix" song2 1
+
+# Audio playback
+cli music play                          # Interactive playlist picker
+cli music play --shuffle                # Interactive with shuffle
+cli music play-song 550e8400-e29b-41d4-a716-446655440000
+cli music play-song 550e8400-e29b-41d4-a716-446655440000 --visualize
+cli music play-playlist "Road Trip Mix" --shuffle
 ```
+
+## Audio Playback
+
+Playback commands use the audio player configured in `media.playback` section:
+
+**Default Configuration:**
+
+- Player: `ffplay` (part of FFmpeg)
+- Arguments: `-nodisp -autoexit`
+
+**Common Players:**
+
+- `mpv` - Modern media player with excellent keyboard controls (recommended)
+- `ffplay` - Part of FFmpeg, widely available
+- `afplay` - macOS built-in player
+
+**Keyboard Controls (mpv):**
+
+- `Space` - Pause/play
+- `q` or `n` - Skip to next song
+- `←/→` - Seek backward/forward 10 seconds
+- `↑/↓` - Seek forward/backward 60 seconds
+- `9/0` - Volume down/up
+- `Ctrl+C` - Stop playlist completely
+
+**Visualizer Support:**
+
+- Requires `cava` to be installed (`brew install cava`)
+- Shows real-time audio spectrum in terminal
+- Works alongside any configured audio player
 
 ## Notes
 
@@ -259,3 +358,5 @@ cli music move-song "Chill Mix" song2 1
 - Partial title matching is supported when no exact match is found
 - Duplicate songs in playlists are automatically skipped
 - All operations preserve existing playlist order when adding songs
+- Playback requires `local_path` to be set on media blobs
+- Audio player configuration can be customized in config file

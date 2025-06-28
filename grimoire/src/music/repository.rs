@@ -6,7 +6,7 @@
 use crate::music::models::{
     AlbumSummary, AlbumTrack, ArtistAlbum, CreatePlaylist, CreateSong, Playlist, PlaylistComplete,
     PlaylistQuery, PlaylistSong, PlaylistSongDetail, PlaylistSongWithMedia, PlaylistSummary,
-    PlaylistWithCount, Song, SongQuery, UpdatePlaylist,
+    PlaylistWithCount, Song, SongQuery, SongWithMedia, UpdatePlaylist,
 };
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -59,6 +59,17 @@ impl MusicRepository {
                 .fetch_optional(&self.pool)
                 .await?
                 .ok_or(MusicRepositoryError::SongNotFound(id))?;
+
+        Ok(song)
+    }
+
+    /// Get song with media information for playback
+    pub async fn get_song_with_media(&self, id: Uuid) -> Result<SongWithMedia> {
+        let song = sqlx::query_as::<_, SongWithMedia>("SELECT * FROM get_song_with_media($1)")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(MusicRepositoryError::SongNotFound(id))?;
 
         Ok(song)
     }

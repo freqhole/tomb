@@ -169,6 +169,9 @@ pub struct MediaConfig {
     /// Thumbnail generation configuration
     #[serde(default)]
     pub thumbnails: ThumbnailConfig,
+    /// Audio playback configuration
+    #[serde(default)]
+    pub playback: AudioPlaybackConfig,
 }
 
 /// Thumbnail generation configuration
@@ -271,6 +274,30 @@ impl Default for ThumbnailDimensionsConfig {
             height: default_thumbnail_height(),
             maintain_aspect_ratio: default_true(),
             crop_strategy: default_crop_strategy(),
+        }
+    }
+}
+
+/// Audio playback configuration
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AudioPlaybackConfig {
+    /// Path to audio player binary (leave empty to use system PATH)
+    #[serde(default)]
+    pub player_path: Option<String>,
+    /// Player command to use (ffplay, mpv, etc.)
+    #[serde(default = "default_audio_player")]
+    pub player_command: String,
+    /// Additional arguments for the player
+    #[serde(default = "default_audio_player_args")]
+    pub player_args: Vec<String>,
+}
+
+impl Default for AudioPlaybackConfig {
+    fn default() -> Self {
+        Self {
+            player_path: None,
+            player_command: default_audio_player(),
+            player_args: default_audio_player_args(),
         }
     }
 }
@@ -592,6 +619,20 @@ fn default_audio_timeout() -> u32 {
     45
 }
 
+fn default_audio_player() -> String {
+    "ffplay".to_string()
+}
+
+fn default_audio_player_args() -> Vec<String> {
+    vec![
+        "-nodisp".to_string(),
+        "-autoexit".to_string(),
+        "-hide_banner".to_string(),
+        "-loglevel".to_string(),
+        "quiet".to_string(),
+    ]
+}
+
 fn default_true() -> bool {
     true
 }
@@ -694,6 +735,7 @@ impl AppConfig {
                 max_fs_file_size: default_max_fs_file_size(),
                 supported_audio_formats: default_supported_audio_formats(),
                 thumbnails: ThumbnailConfig::default(),
+                playback: AudioPlaybackConfig::default(),
             },
             notifications: crate::notifications::NotificationConfig::default(),
             development: DevelopmentConfig {
@@ -928,6 +970,7 @@ impl Default for AppConfig {
                 max_fs_file_size: default_max_fs_file_size(),
                 supported_audio_formats: default_supported_audio_formats(),
                 thumbnails: ThumbnailConfig::default(),
+                playback: AudioPlaybackConfig::default(),
             },
             notifications: crate::notifications::NotificationConfig::default(),
             development: DevelopmentConfig {

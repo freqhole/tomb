@@ -7,11 +7,18 @@
 //! - Managing music scan sessions
 
 use clap::Subcommand;
+use colored::*;
+use console::measure_text_width;
 use grimoire::media::{CreateMediaBlob, MediaBlobRepository, MediaTypeDetector};
 use grimoire::music::{extract_metadata, extract_thumbnail, hash_file, TitleBuilder};
 use grimoire::music::{ConsoleScanProgress, MusicService, ScanConfig, ScanProgress, ScannerConfig};
 use grimoire::music::{CreatePlaylist, MusicRepository, PlaylistQuery, PlaylistService, SongQuery};
 use grimoire::{AppConfig, DatabaseConnection};
+use image::io::Reader as ImageReader;
+use inquire::{
+    ui::{Color, RenderConfig, StyleSheet, Styled},
+    Select,
+};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -266,12 +273,56 @@ pub enum MusicCommands {
         #[arg(long, short)]
         public: bool,
     },
+
+    /// Play a single song
+    PlaySong {
+        /// Song ID to play
+        song_id: String,
+
+        /// Show visualizer (requires cava)
+        #[arg(long, short)]
+        visualize: bool,
+    },
+
+    /// Play a playlist
+    PlayPlaylist {
+        /// Playlist ID or title
+        playlist: String,
+
+        /// Shuffle playback
+        #[arg(long, short)]
+        shuffle: bool,
+    },
+
+    /// Interactive playlist selection and playback
+    Play {
+        /// Shuffle playback
+        #[arg(long, short)]
+        shuffle: bool,
+    },
+
+    /// Play playlist without interactive picker (better terminal control)
+    PlayDirect {
+        /// Playlist ID or title
+        playlist: String,
+
+        /// Shuffle playback
+        #[arg(long, short)]
+        shuffle: bool,
+    },
 }
 
 impl MusicCommands {
     /// Execute the music command
     pub async fn handle(&self, db: &DatabaseConnection) -> Result<(), Box<dyn std::error::Error>> {
-        let config = AppConfig::default();
+        // Load config from file instead of using defaults
+        let (config, _secrets) = match AppConfig::from_files("assets/config/config.jsonc", None) {
+            Ok((config, secrets)) => (config, secrets),
+            Err(_) => {
+                println!("⚠️  Could not load config file, using defaults");
+                (AppConfig::default(), None)
+            }
+        };
         let service = MusicService::new(db, &config);
 
         match self {
@@ -406,6 +457,19 @@ impl MusicCommands {
                     *public,
                 )
                 .await
+            }
+            Self::PlaySong { song_id, visualize } => {
+                self.handle_play_song(&service, song_id.clone(), *visualize)
+                    .await
+            }
+            Self::PlayPlaylist { playlist, shuffle } => {
+                self.handle_play_playlist(&service, playlist.clone(), *shuffle)
+                    .await
+            }
+            Self::Play { shuffle } => self.handle_interactive_play(&service, *shuffle).await,
+            Self::PlayDirect { playlist, shuffle } => {
+                self.handle_direct_play(&service, playlist.clone(), *shuffle)
+                    .await
             }
         }
     }
@@ -828,6 +892,23 @@ impl MusicCommands {
                     song.album.unwrap_or("Unknown Album".to_string()),
                     thumbnail_status
                 );
+
+                // Show ASCII art for songs with thumbnails
+                if let Some(thumbnail_blob_id) = song.thumbnail_blob_id {
+                    println!("     🖼️  ASCII Art Preview:");
+                    if let Some(ascii_art) = self
+                        .generate_ascii_art(thumbnail_blob_id, service.db().pool())
+                        .await
+                    {
+                        for line in ascii_art.lines() {
+                            if !line.trim().is_empty() {
+                                println!("     {}", line.bright_white());
+                            }
+                        }
+                        println!("     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    }
+                    println!(); // Extra spacing between songs
+                }
             }
         }
 
@@ -1895,6 +1976,796 @@ impl MusicCommands {
             }
         }
 
+        Ok(())
+    }
+
+    /// Handle playing a single song
+    async fn handle_play_song(
+        &self,
+        service: &MusicService<'_>,
+        song_id: String,
+        visualize: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = MusicRepository::new(service.db().pool().clone());
+
+        // Parse song ID
+        let uuid = song_id
+            .parse::<uuid::Uuid>()
+            .map_err(|_| "Invalid song ID format")?;
+
+        // Get song details with media info
+        let song = repository.get_song_with_media(uuid).await?;
+
+        println!("🎵 Playing: {}", song.display_title());
+
+        // Check if local_path is available
+        let file_path = song.local_path.ok_or("Song file path not available")?;
+
+        // Get audio playback config
+        let config = service.config();
+        let playback_config = &config.media.playback;
+
+        // Build command
+        let player_cmd = if let Some(path) = &playback_config.player_path {
+            path.clone()
+        } else {
+            playback_config.player_command.clone()
+        };
+
+        if visualize {
+            // Play with visualizer (requires cava)
+            let cmd = format!(
+                "{} {} '{}' & cava",
+                player_cmd,
+                playback_config.player_args.join(" "),
+                file_path
+            );
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&cmd)
+                .spawn()?;
+        } else {
+            // Execute player directly to hand over terminal control
+            let status = std::process::Command::new(&player_cmd)
+                .args(&playback_config.player_args)
+                .arg(&file_path)
+                .status()?;
+
+            if !status.success() {
+                println!("⚠️  Playback failed");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle playing a playlist
+    async fn handle_play_playlist(
+        &self,
+        service: &MusicService<'_>,
+        playlist_input: String,
+        shuffle: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        // Find playlist by title or ID
+        let playlist = playlist_service
+            .find_playlist_by_title_or_id(&playlist_input)
+            .await?;
+
+        // Get playlist songs with media info (create new repository instance)
+        let repository2 = MusicRepository::new(service.db().pool().clone());
+        let mut songs = repository2
+            .get_playlist_songs_with_media(playlist.id)
+            .await?;
+
+        if shuffle {
+            use rand::seq::SliceRandom;
+            let mut rng = rand::thread_rng();
+            songs.shuffle(&mut rng);
+        }
+
+        println!(
+            "🎵 Playing playlist: {} ({} songs)",
+            playlist.title,
+            songs.len()
+        );
+        println!("⌨️  Controls: Space=pause/play, q/n=next song, ←/→=seek, 9/0=volume, Ctrl+C=stop playlist");
+        println!();
+
+        // Get audio playback config
+        let config = service.config();
+        let playback_config = &config.media.playback;
+
+        // Build base command
+        let player_cmd = if let Some(path) = &playback_config.player_path {
+            path.clone()
+        } else {
+            playback_config.player_command.clone()
+        };
+
+        for (index, song) in songs.iter().enumerate() {
+            println!(
+                "▶️  [{}/{}] {} {}",
+                index + 1,
+                songs.len(),
+                song.display_title(),
+                if let Some(duration) = &song.duration {
+                    let total_seconds = duration.microseconds / 1_000_000;
+                    let minutes = total_seconds / 60;
+                    let seconds = total_seconds % 60;
+                    format!("({}:{:02})", minutes, seconds)
+                } else {
+                    String::new()
+                }
+            );
+
+            // Check if local_path is available
+            if let Some(file_path) = &song.local_path {
+                println!("   📁 {}", file_path);
+
+                // Simple direct execution now that config loading is fixed
+                let status = std::process::Command::new(&player_cmd)
+                    .args(&playback_config.player_args)
+                    .arg(file_path)
+                    .status();
+
+                match status {
+                    Ok(exit_status) => {
+                        if !exit_status.success() {
+                            println!("⚠️  Playback failed, skipping to next song...");
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        println!("⚠️  Error starting player: {}, skipping...", e);
+                        continue;
+                    }
+                }
+            } else {
+                println!("⚠️  No file path available for song, skipping...");
+                continue;
+            }
+        }
+
+        println!("✅ Playlist finished");
+        Ok(())
+    }
+
+    /// Handle interactive playlist selection and playback
+    async fn handle_interactive_play(
+        &self,
+        service: &MusicService<'_>,
+        shuffle: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Show the epic FREQHOLE banner
+        self.show_freqhole_banner();
+
+        // Configure custom theme with magenta highlights
+        let render_config = RenderConfig::default()
+            .with_highlighted_option_prefix(Styled::new("🎵 ").with_fg(Color::LightMagenta))
+            .with_selected_option(Some(StyleSheet::new().with_fg(Color::LightMagenta)));
+
+        loop {
+            // Let user choose between playlists and songs
+            let mode_options = vec![
+                "🎵 Browse Playlists".to_string(),
+                "🎶 Browse All Songs".to_string(),
+            ];
+
+            let mode_selection = Select::new(
+                &"Choose your music source:"
+                    .bright_magenta()
+                    .bold()
+                    .to_string(),
+                mode_options,
+            )
+            .with_help_message("↑↓ to navigate, Enter to select, Esc to cancel")
+            .with_render_config(render_config.clone())
+            .prompt();
+
+            match mode_selection {
+                Ok(selected) if selected.contains("Playlists") => {
+                    match self.handle_playlist_selection(service, shuffle).await {
+                        Ok(_) => return Ok(()),
+                        Err(e) => {
+                            println!("❌ Error: {}", e);
+                            continue; // Back to main menu
+                        }
+                    }
+                }
+                Ok(selected) if selected.contains("Songs") => {
+                    match self.handle_all_songs_selection(service, shuffle).await {
+                        Ok(_) => return Ok(()),
+                        Err(e) => {
+                            println!("❌ Error: {}", e);
+                            continue; // Back to main menu
+                        }
+                    }
+                }
+                Ok(_) => {
+                    println!("❌ Unknown selection");
+                    continue;
+                }
+                Err(inquire::InquireError::OperationCanceled) => {
+                    println!("🚫 Cancelled");
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("❌ Error: {}", e);
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    async fn handle_playlist_selection(
+        &self,
+        service: &MusicService<'_>,
+        shuffle: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Configure custom theme with magenta highlights
+        let render_config = RenderConfig::default()
+            .with_highlighted_option_prefix(Styled::new("🎵 ").with_fg(Color::LightMagenta))
+            .with_selected_option(Some(StyleSheet::new().with_fg(Color::LightMagenta)));
+
+        let repository = MusicRepository::new(service.db().pool().clone());
+
+        // Get playlist summaries
+        let summaries = repository.get_playlist_summaries(Some(100)).await?;
+
+        if summaries.is_empty() {
+            println!("📭 No playlists found. Create one first with:");
+            println!("   cli music create-playlist \"My Playlist\"");
+            return Ok(());
+        }
+
+        // Create display options for inquire
+        let options: Vec<String> = summaries
+            .iter()
+            .map(|playlist| {
+                let duration_str = if let Some(duration) = &playlist.total_duration {
+                    let total_seconds = duration.microseconds / 1_000_000;
+                    let minutes = total_seconds / 60;
+                    let seconds = total_seconds % 60;
+                    format!(" ({}:{:02})", minutes, seconds)
+                } else {
+                    String::new()
+                };
+
+                format!(
+                    "{} - {} songs{}",
+                    playlist.title, playlist.song_count, duration_str
+                )
+            })
+            .collect();
+
+        // Loop to allow returning to playlist selection after playback
+        loop {
+            // Use inquire for interactive selection with keyboard navigation
+            let prompt_text = if shuffle {
+                "🎶 Select a playlist to play (shuffled):"
+                    .bright_magenta()
+                    .bold()
+                    .to_string()
+            } else {
+                "🎶 Select a playlist to play:"
+                    .bright_magenta()
+                    .bold()
+                    .to_string()
+            };
+
+            let selection = Select::new(&prompt_text, options.clone())
+                .with_help_message("↑↓ to navigate, Enter to select, Esc to go back")
+                .with_render_config(render_config.clone())
+                .prompt();
+
+            let selected_index = match selection {
+                Ok(selected_option) => options
+                    .iter()
+                    .position(|option| option == &selected_option)
+                    .unwrap_or(0),
+                Err(inquire::InquireError::OperationCanceled) => {
+                    return Err("cancelled".into()); // Signal to go back to main menu
+                }
+                Err(e) => {
+                    return Err(e.into());
+                }
+            };
+
+            let selected_playlist = &summaries[selected_index];
+            println!(
+                "{}",
+                format!("🎵 Selected: {}", selected_playlist.title)
+                    .bright_cyan()
+                    .bold()
+            );
+
+            // Call the direct play method
+            self.handle_direct_play(service, selected_playlist.id.to_string(), shuffle)
+                .await?;
+
+            // After playlist finishes, continue loop to show selection again
+            println!("\n🔄 Returning to playlist selection...\n");
+        }
+    }
+
+    async fn handle_all_songs_selection(
+        &self,
+        service: &MusicService<'_>,
+        shuffle: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Configure custom theme with magenta highlights
+        let render_config = RenderConfig::default()
+            .with_highlighted_option_prefix(Styled::new("🎵 ").with_fg(Color::LightMagenta))
+            .with_selected_option(Some(StyleSheet::new().with_fg(Color::LightMagenta)));
+
+        let repository = MusicRepository::new(service.db().pool().clone());
+
+        // Get all songs
+        let songs_result = repository
+            .query_songs(SongQuery {
+                limit: Some(1000), // Reasonable limit
+                ..Default::default()
+            })
+            .await?;
+
+        if songs_result.is_empty() {
+            println!("📭 No songs found in the database.");
+            return Ok(());
+        }
+
+        println!(
+            "{}",
+            format!("🎵 {} songs available", songs_result.len()).bright_cyan()
+        );
+
+        // Create display options for all songs
+        let song_options: Vec<String> = songs_result
+            .iter()
+            .map(|song| {
+                let artist = song.artist.as_deref().unwrap_or("Unknown Artist");
+                let album = song.album.as_deref().unwrap_or("Unknown Album");
+                format!("{} - {} ({})", song.title, artist, album)
+            })
+            .collect();
+
+        // Loop to allow returning to song selection after playback
+        loop {
+            let song_selection = Select::new(
+                &format!(
+                    "🎶 Select a song to play{}:",
+                    if shuffle { " (shuffled)" } else { "" }
+                ),
+                song_options.clone(),
+            )
+            .with_help_message("↑↓ to navigate, type to filter, Enter to select, Esc to go back")
+            .with_render_config(render_config.clone())
+            .prompt();
+
+            match song_selection {
+                Ok(selected_option) => {
+                    let selected_index = song_options
+                        .iter()
+                        .position(|option| option == &selected_option)
+                        .unwrap_or(0);
+
+                    let selected_song = &songs_result[selected_index];
+
+                    println!(
+                        "{}",
+                        format!("🎵 Selected: {}", selected_song.title)
+                            .bright_cyan()
+                            .bold()
+                    );
+
+                    // Play the single song
+                    self.handle_single_song_play(service, selected_song, shuffle)
+                        .await?;
+
+                    // After song finishes, continue loop to show selection again
+                    println!("\n🔄 Returning to song selection...\n");
+                }
+                Err(inquire::InquireError::OperationCanceled) => {
+                    return Err("cancelled".into()); // Signal to go back to main menu
+                }
+                Err(e) => {
+                    return Err(e.into());
+                }
+            }
+        }
+    }
+
+    async fn handle_single_song_play(
+        &self,
+        service: &MusicService<'_>,
+        song: &grimoire::music::Song,
+        _shuffle: bool, // Not relevant for single song
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Show now playing banner for single song
+        println!(
+            "{}",
+            "┌─────────────────────────────────────────────────────────────────────────────┐"
+                .bright_cyan()
+        );
+        println!(
+            "{}",
+            "│                              🎵 NOW PLAYING 🎵                              │"
+                .bright_cyan()
+        );
+        println!(
+            "{}",
+            "├─────────────────────────────────────────────────────────────────────────────┤"
+                .bright_cyan()
+        );
+
+        let song_info = format!("🎶 Song: {}", song.title);
+        let info_width = measure_text_width(&song_info);
+        let content_width = 75;
+        let padding = if info_width < content_width {
+            content_width - info_width
+        } else {
+            0
+        };
+        println!(
+            "{}{}{}{}",
+            "│ ".bright_cyan(),
+            song_info.white().bold(),
+            " ".repeat(padding),
+            "│".bright_cyan()
+        );
+
+        let controls_info = "⌨️  Controls: Space=pause/play, q=quit, ←/→=seek, 9/0=volume";
+        let controls_width = measure_text_width(controls_info);
+        let controls_padding = if controls_width < content_width {
+            content_width - controls_width
+        } else {
+            0
+        };
+        println!(
+            "{}{}{}{}",
+            "│ ".bright_cyan(),
+            controls_info.white(),
+            " ".repeat(controls_padding),
+            "│".bright_cyan()
+        );
+
+        println!(
+            "{}",
+            "└─────────────────────────────────────────────────────────────────────────────┘"
+                .bright_cyan()
+        );
+        println!();
+
+        // Create a temporary playlist with just this song
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let _playlist_service = PlaylistService::new(repository);
+
+        // Use the existing direct play method by creating a single-song playlist ID
+        println!("{}", format!("🎶 {}", song.title).bright_magenta().bold());
+
+        // Show ASCII art thumbnail if available
+        if let Some(thumbnail_id) = song.thumbnail_blob_id {
+            if let Some(ascii_art) = self
+                .generate_ascii_art(thumbnail_id, service.db().pool())
+                .await
+            {
+                println!("   🖼️  Album Art:");
+                for line in ascii_art.lines() {
+                    if !line.trim().is_empty() {
+                        println!("   {}", line.bright_white());
+                    }
+                }
+            }
+        }
+
+        println!(
+            "{}",
+            "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_yellow()
+        );
+
+        // Get media blob to find local path
+        let media_blob_id = song.media_blob_id;
+        let media_repository = MediaBlobRepository::new(service.db().pool().clone());
+        if let Ok(blob) = media_repository.find_by_id(media_blob_id).await {
+            if let Some(file_path) = &blob.local_path {
+                // Get audio config and play
+                let config = service.config();
+                let playback_config = &config.media.playback;
+                let player_cmd = if let Some(path) = &playback_config.player_path {
+                    path.clone()
+                } else {
+                    playback_config.player_command.clone()
+                };
+
+                let status = std::process::Command::new(&player_cmd)
+                    .args(&playback_config.player_args)
+                    .arg(file_path)
+                    .status()?;
+
+                if !status.success() {
+                    println!("⚠️ Playback may have been interrupted");
+                }
+            } else {
+                println!("❌ No local file path found for song");
+            }
+        } else {
+            println!("❌ Could not retrieve media blob for song");
+        }
+
+        Ok(())
+    }
+
+    fn show_freqhole_banner(&self) {
+        let banner = r#"
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║  ███████╗██████╗ ███████╗ ██████╗ ██╗  ██╗ ██████╗ ██╗     ███████╗        ║
+║  ██╔════╝██╔══██╗██╔════╝██╔═══██╗██║  ██║██╔═══██╗██║     ██╔════╝        ║
+║  █████╗  ██████╔╝█████╗  ██║   ██║███████║██║   ██║██║     █████╗          ║
+║  ██╔══╝  ██╔══██╗██╔══╝  ██║▄▄ ██║██╔══██║██║   ██║██║     ██╔══╝          ║
+║  ██║     ██║  ██║███████╗╚██████╔╝██║  ██║╚██████╔╝███████╗███████╗        ║
+║  ╚═╝     ╚═╝  ╚═╝╚══════╝ ╚══▀▀═╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚══════╝        ║
+║                                                                              ║
+║                        🎵 MUSIC PLAYER SUPREME 🎵                          ║
+║                              ～ v i b e s ～                                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"#;
+
+        println!("{}", banner.bright_magenta().bold());
+        println!(
+            "{}",
+            "🌈✨ Welcome to the audio dimension ✨🌈"
+                .bright_cyan()
+                .italic()
+        );
+        println!();
+    }
+
+    async fn generate_ascii_art(
+        &self,
+        thumbnail_blob_id: uuid::Uuid,
+        db_pool: &sqlx::PgPool,
+    ) -> Option<String> {
+        // Get the thumbnail blob data
+        let media_repository = MediaBlobRepository::new(db_pool.clone());
+
+        let blob = match media_repository.find_by_id(thumbnail_blob_id).await {
+            Ok(blob) => blob,
+            _ => return None,
+        };
+
+        let image_data = blob.data?;
+
+        // Load the image
+        let img = match ImageReader::new(std::io::Cursor::new(&image_data)).with_guessed_format() {
+            Ok(reader) => match reader.decode() {
+                Ok(img) => img,
+                Err(_) => return None,
+            },
+            Err(_) => return None,
+        };
+
+        // Resize to fit in terminal (10 lines high, maintain aspect ratio)
+        let target_height = 10;
+        let target_width = (target_height * img.width() * 2) / img.height(); // *2 because chars are taller than wide
+        let target_width = target_width.min(60); // Don't make it too wide
+
+        let resized = img.resize(
+            target_width,
+            target_height,
+            image::imageops::FilterType::Nearest,
+        );
+
+        // Convert to grayscale and then to ASCII
+        let gray_img = resized.to_luma8();
+        let mut ascii_art = String::new();
+
+        // ASCII characters from darkest to lightest
+        let chars = [' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'];
+
+        for y in 0..gray_img.height() {
+            for x in 0..gray_img.width() {
+                let pixel = gray_img.get_pixel(x, y)[0];
+                let char_index = (pixel as usize * (chars.len() - 1)) / 255;
+                ascii_art.push(chars[char_index]);
+            }
+            ascii_art.push('\n');
+        }
+
+        Some(ascii_art)
+    }
+
+    /// Handle direct playlist playback without interactive picker
+    async fn handle_direct_play(
+        &self,
+        service: &MusicService<'_>,
+        playlist_input: String,
+        shuffle: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        // Find playlist by title or ID
+        let playlist = playlist_service
+            .find_playlist_by_title_or_id(&playlist_input)
+            .await?;
+
+        // Get playlist songs with media info
+        let repository2 = MusicRepository::new(service.db().pool().clone());
+        let mut songs = repository2
+            .get_playlist_songs_with_media(playlist.id)
+            .await?;
+
+        if shuffle {
+            use rand::seq::SliceRandom;
+            let mut rng = rand::thread_rng();
+            songs.shuffle(&mut rng);
+        }
+
+        // Get audio config
+        let config = service.config();
+        let playback_config = &config.media.playback;
+        let player_cmd = if let Some(path) = &playback_config.player_path {
+            path.clone()
+        } else {
+            playback_config.player_command.clone()
+        };
+
+        // Show now playing banner
+        println!(
+            "{}",
+            "┌─────────────────────────────────────────────────────────────────────────────┐"
+                .bright_cyan()
+        );
+        println!(
+            "{}",
+            "│                              🎵 NOW PLAYING 🎵                              │"
+                .bright_cyan()
+        );
+        println!(
+            "{}",
+            "├─────────────────────────────────────────────────────────────────────────────┤"
+                .bright_cyan()
+        );
+
+        let playlist_info = format!("📀 Playlist: {} ({} songs)", playlist.title, songs.len());
+        let content_width = 75; // 79 total - 4 for borders
+
+        let info_width = measure_text_width(&playlist_info);
+        let info_padding = if info_width < content_width {
+            content_width - info_width
+        } else {
+            0
+        };
+        println!(
+            "{}{}{}{}",
+            "│ ".bright_cyan(),
+            playlist_info.white().bold(),
+            " ".repeat(info_padding),
+            "│".bright_cyan()
+        );
+
+        let controls_info = "⌨️  Controls: Space=pause/play, q/n=next song, ←/→=seek, 9/0=volume";
+        let controls_width = measure_text_width(controls_info);
+        let controls_padding = if controls_width < content_width {
+            content_width - controls_width
+        } else {
+            0
+        };
+        println!(
+            "{}{}{}{}",
+            "│ ".bright_cyan(),
+            controls_info.white(),
+            " ".repeat(controls_padding),
+            "│".bright_cyan()
+        );
+
+        println!(
+            "{}",
+            "└─────────────────────────────────────────────────────────────────────────────┘"
+                .bright_cyan()
+        );
+        println!();
+
+        // Play songs sequentially
+        for (index, song) in songs.iter().enumerate() {
+            if let Some(file_path) = &song.local_path {
+                let duration_str = if let Some(duration) = &song.duration {
+                    let total_seconds = duration.microseconds / 1_000_000;
+                    let minutes = total_seconds / 60;
+                    let seconds = total_seconds % 60;
+                    format!("({}:{:02})", minutes, seconds)
+                } else {
+                    String::new()
+                };
+
+                // Show current song with fancy formatting
+                println!(
+                    "{}",
+                    format!(
+                        "🎶 [{}/{}] {}",
+                        index + 1,
+                        songs.len(),
+                        song.display_title()
+                    )
+                    .bright_magenta()
+                    .bold()
+                );
+                println!(
+                    "{}{}",
+                    "   ⏱️  Duration: ".bright_cyan(),
+                    duration_str.white()
+                );
+
+                // Show ASCII art thumbnail if available
+                // Get thumbnail directly using song_id since playlist mapping is broken
+                println!(
+                    "   🔍 Debug: Querying thumbnail for song_id: {}",
+                    song.song_id
+                );
+                let thumbnail_query = sqlx::query_scalar::<_, Option<uuid::Uuid>>(
+                    "SELECT thumbnail_blob_id FROM songs WHERE id = $1",
+                )
+                .bind(song.song_id)
+                .fetch_one(service.db().pool())
+                .await;
+
+                match thumbnail_query {
+                    Ok(Some(thumbnail_id)) => {
+                        println!("   🔍 Debug: Found thumbnail_id: {}", thumbnail_id);
+                        if let Some(ascii_art) = self
+                            .generate_ascii_art(thumbnail_id, service.db().pool())
+                            .await
+                        {
+                            println!("   🖼️  Album Art:");
+                            for line in ascii_art.lines() {
+                                if !line.trim().is_empty() {
+                                    println!("   {}", line.bright_white());
+                                }
+                            }
+                        } else {
+                            println!("   ❌ Debug: Failed to generate ASCII art");
+                        }
+                    }
+                    Ok(None) => {
+                        println!("   🔍 Debug: Song has no thumbnail_blob_id in database");
+                    }
+                    Err(e) => {
+                        println!("   ❌ Debug: Query failed: {:?}", e);
+                    }
+                }
+
+                println!(
+                    "{}",
+                    "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_yellow()
+                );
+
+                let status = std::process::Command::new(&player_cmd)
+                    .args(&playback_config.player_args)
+                    .arg(file_path)
+                    .status();
+
+                match status {
+                    Ok(exit_status) => {
+                        if !exit_status.success() {
+                            println!("⚠️  Playback failed, skipping to next song...");
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        println!("⚠️  Error starting player: {}, skipping...", e);
+                        continue;
+                    }
+                }
+            } else {
+                println!("⚠️  No file path available for song, skipping...");
+                continue;
+            }
+        }
+
+        println!("✅ Playlist finished");
         Ok(())
     }
 }

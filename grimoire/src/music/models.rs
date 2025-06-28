@@ -417,10 +417,65 @@ pub struct PlaylistSongWithMedia {
     pub media_blob_id: Uuid,
     pub audio_mime: Option<String>,
     pub audio_size: Option<i64>,
+    pub local_path: Option<String>,
     pub thumbnail_id: Option<Uuid>,
     pub thumbnail_mime: Option<String>,
     pub waveform_id: Option<Uuid>,
     pub waveform_mime: Option<String>,
+}
+
+/// Individual song with media information for playback
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct SongWithMedia {
+    pub song_id: Uuid,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub track_number: Option<i32>,
+    pub disc_number: Option<i32>,
+    #[serde(skip)]
+    pub duration: Option<PgInterval>,
+    pub genre: Option<String>,
+    pub year: Option<i32>,
+    pub is_favorite: bool,
+    pub rating: Option<i32>,
+    pub created_at: OffsetDateTime,
+    pub media_blob_id: Uuid,
+    pub audio_mime: Option<String>,
+    pub audio_size: Option<i64>,
+    pub local_path: Option<String>,
+    pub thumbnail_id: Option<Uuid>,
+    pub thumbnail_mime: Option<String>,
+    pub waveform_id: Option<Uuid>,
+    pub waveform_mime: Option<String>,
+}
+
+impl SongWithMedia {
+    /// Get formatted duration
+    pub fn formatted_duration(&self) -> Option<String> {
+        self.duration.map(|d| {
+            let seconds = d.microseconds / 1_000_000;
+            format!("{}:{:02}", seconds / 60, seconds % 60)
+        })
+    }
+
+    /// Get display title
+    pub fn display_title(&self) -> String {
+        match &self.artist {
+            Some(artist) => format!("{} - {}", artist, self.title),
+            None => self.title.clone(),
+        }
+    }
+
+    /// Get detailed display title
+    pub fn detailed_display_title(&self) -> String {
+        match (&self.artist, &self.album) {
+            (Some(artist), Some(album)) => format!("{} - {} ({})", artist, self.title, album),
+            (Some(artist), None) => format!("{} - {}", artist, self.title),
+            (None, Some(album)) => format!("{} ({})", self.title, album),
+            (None, None) => self.title.clone(),
+        }
+    }
 }
 
 impl PlaylistSongWithMedia {
