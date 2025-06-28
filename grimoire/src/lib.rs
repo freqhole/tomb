@@ -13,6 +13,7 @@ pub mod config;
 pub mod database;
 pub mod filesys;
 pub mod media;
+pub mod music;
 pub mod notifications;
 pub mod thumbnails;
 pub mod wordlist;
@@ -60,6 +61,13 @@ pub use notifications::{
     NotificationService, NotificationServiceError, PlaylistEventPayload, PlaylistSongEventPayload,
     Publisher, PublisherError, ScanCompletedPayload, ScanFailedPayload, ScanProgressPayload,
     SongEventPayload,
+};
+
+// Re-export music types
+pub use music::{
+    AudioMetadata, JobParameters, JobPriority, JobResult, JobStatus, MusicJob, MusicJobHealth,
+    MusicJobType, MusicScanSession, ScanSessionStats, ScanSessionStatus, TitleBuilder,
+    TitleBuilderConfig, TitleBuilderError,
 };
 
 // Re-export database connection

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM cleanup_old_music_data($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "deleted_sessions",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "deleted_jobs",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "2c5ba524850ab9f01af05e90c19e899a6c1c7f36f24b3ace781a0161f198d14c"
+}

@@ -7,6 +7,7 @@ use grimoire::{AppConfig, DatabaseConnection};
 
 use crate::analytics::AnalyticsCommands;
 use crate::config::ConfigCommands;
+use crate::music::MusicCommands;
 use crate::notifications::NotificationCommands;
 use crate::thumbnails::ThumbnailCommands;
 use crate::users::UserCommands;
@@ -54,6 +55,9 @@ pub enum Commands {
     /// Notification system management
     #[command(subcommand)]
     Notifications(NotificationCommands),
+    /// Music library management and scanning
+    #[command(subcommand)]
+    Music(MusicCommands),
 }
 
 impl Cli {
@@ -84,6 +88,10 @@ impl Cli {
             Commands::Notifications(ref notification_command) => {
                 let (_config, db) = self.setup_database().await?;
                 notification_command.handle(&db).await
+            }
+            Commands::Music(ref music_command) => {
+                let (_config, db) = self.setup_database().await?;
+                music_command.handle(&db).await
             }
         }
     }

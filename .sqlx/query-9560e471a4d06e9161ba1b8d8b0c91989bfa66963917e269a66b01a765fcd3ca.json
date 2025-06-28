@@ -1,0 +1,136 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id, base_path, session_name,\n                status as \"status: String\",\n                total_files, processed_files, last_processed_path,\n                songs_added, songs_updated, songs_skipped, errors_encountered,\n                started_at, completed_at, estimated_completion, error_message,\n                client_id, initiated_by_user_id, configuration,\n                created_at, updated_at\n            FROM music_scan_sessions\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "base_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "session_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "status: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "total_files",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "processed_files",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_processed_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "songs_added",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "songs_updated",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "songs_skipped",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "errors_encountered",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "completed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "estimated_completion",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "error_message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "client_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "initiated_by_user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 17,
+        "name": "configuration",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 18,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 19,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "9560e471a4d06e9161ba1b8d8b0c91989bfa66963917e269a66b01a765fcd3ca"
+}

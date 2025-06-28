@@ -20,11 +20,14 @@ json5.workspace = true
 num-traits.workspace = true
 base64.workspace = true
 async-trait.workspace = true
+regex.workspace = true
 
 # Local dependencies
 # server = { path = "../server" } # Temporarily removed to fix circular dependency
 
 tempfile.workspace = true
 sha2.workspace = true
+lofty.workspace = true
+walkdir.workspace = true
 
 [dev-dependencies]
