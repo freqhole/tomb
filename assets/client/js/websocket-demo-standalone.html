@@ -1,3 +1,11 @@
+<!--
+WebSocket Demo - Modular Components
+🚀 Complete WebSocket Demo with All Components
+
+Make sure your server is running on <code>localhost:8080</code>
+        Components demonstrate full WebSocket functionality
+        Try uploading files and watch real-time updates
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,76 +13,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WebSocket Demo - Modular Components</title>
   <style>
+    * { box-sizing: border-box; }
     body {
       font-family: system-ui, -apple-system, sans-serif;
-      margin: 0;
-      padding: 20px;
-      background-color: #f8fafc;
-      color: #1f2937;
-      line-height: 1.6;
+      margin: 0px;
+      padding: 0px;
+      background-color: black;
+      color: white;
     }
     .container {
       max-width: 1000px;
       margin: 0 auto;
-    }
-    .header {
-      text-align: center;
-      margin-bottom: 40px;
-      padding: 20px;
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    }
-    .header h1 {
-      margin: 0 0 8px 0;
-      color: #111827;
-      font-size: 2rem;
-    }
-    .header p {
-      margin: 0;
-      color: #6b7280;
-      font-size: 1.1rem;
-    }
-    .instructions {
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 30px;
-      color: #1e40af;
-    }
-    .instructions h3 {
-      margin: 0 0 8px 0;
-      color: #1e40af;
-      font-size: 1rem;
-    }
-    .instructions ul {
-      margin: 8px 0 0 0;
-      padding-left: 20px;
-    }
-    .instructions li {
-      margin-bottom: 4px;
-      font-size: 0.875rem;
     }
     
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <h1>🚀 Complete WebSocket Demo with All Components</h1>
-      <p>WebSocket Demo - Modular Components</p>
-    </div>
-
-    <div class="instructions">
-      <h3>🚀 Getting Started</h3>
-      <ul>
-        <li>Make sure your server is running on <code>localhost:8080</code></li>
-        <li>Components demonstrate full WebSocket functionality</li>
-        <li>Try uploading files and watch real-time updates</li>
-      </ul>
-    </div>
-
     <websocket-demo websocketUrl="ws://localhost:8080/ws" autoConnect="false" showDebugLog="true"></websocket-demo>
   </div>
 
@@ -100,6 +55,7 @@ function Ct(y){return e=>{y(e.detail)}}function Et(y,e,t,r){const o=new CustomEv
           padding: 0.5rem 1rem;
           border: 1px solid #ccc;
           background: white;
+          color: black;
           cursor: pointer;
           border-radius: 4px;
           font-size: 0.875rem;
@@ -125,6 +81,7 @@ function Ct(y){return e=>{y(e.detail)}}function Et(y,e,t,r){const o=new CustomEv
         }
         .log-container {
           background: #f8f9fa;
+          color: black;
           border: 1px solid #e9ecef;
           border-radius: 4px;
           padding: 1rem;
@@ -140,6 +97,7 @@ function Ct(y){return e=>{y(e.detail)}}function Et(y,e,t,r){const o=new CustomEv
           border-radius: 8px;
           padding: 1rem;
           background: white;
+          color: black;
         }
         .blob-header {
           display: flex;
@@ -179,6 +137,7 @@ function Ct(y){return e=>{y(e.detail)}}function Et(y,e,t,r){const o=new CustomEv
           text-align: center;
           margin: 1rem 0;
           background: #fafafa;
+          color: black;
           transition: all 0.2s ease;
           cursor: pointer;
         }
@@ -193,6 +152,7 @@ function Ct(y){return e=>{y(e.detail)}}function Et(y,e,t,r){const o=new CustomEv
         }
         .upload-status {
           background: #f3f4f6;
+          color: black;
           border-radius: 6px;
           padding: 0.75rem;
           margin: 0.5rem 0;

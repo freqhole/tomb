@@ -1,3 +1,12 @@
+<!--
+Sync Demo - Media Blob Sync System
+🔄 Media Blob Sync System - End-to-End Component Testing
+
+Make sure your API server is running on <code>http://localhost:8080</code>
+        Components will auto-connect and show real sync status
+        Try starting a sync operation to see live progress updates
+        Note: Polling has been removed in favor of WebSocket notifications
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,86 +14,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sync Demo - Media Blob Sync System</title>
   <style>
+    * { box-sizing: border-box; }
     body {
       font-family: system-ui, -apple-system, sans-serif;
-      margin: 0;
-      padding: 20px;
-      background-color: #f8fafc;
-      color: #1f2937;
-      line-height: 1.6;
+      margin: 0px;
+      padding: 0px;
+      background-color: black;
+      color: white;
     }
     .container {
       max-width: 1000px;
       margin: 0 auto;
     }
-    .header {
-      text-align: center;
-      margin-bottom: 40px;
-      padding: 20px;
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    }
-    .header h1 {
-      margin: 0 0 8px 0;
-      color: #111827;
-      font-size: 2rem;
-    }
-    .header p {
-      margin: 0;
-      color: #6b7280;
-      font-size: 1.1rem;
-    }
-    .instructions {
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 30px;
-      color: #1e40af;
-    }
-    .instructions h3 {
-      margin: 0 0 8px 0;
-      color: #1e40af;
-      font-size: 1rem;
-    }
-    .instructions ul {
-      margin: 8px 0 0 0;
-      padding-left: 20px;
-    }
-    .instructions li {
-      margin-bottom: 4px;
-      font-size: 0.875rem;
-    }
-    
-      .instructions {
-        background: #fef3c7;
-        border: 1px solid #f59e0b;
-        border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 30px;
-        color: #92400e;
-      }
     
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <h1>🔄 Media Blob Sync System - End-to-End Component Testing</h1>
-      <p>Sync Demo - Media Blob Sync System</p>
-    </div>
-
-    <div class="instructions">
-      <h3>🚀 Getting Started</h3>
-      <ul>
-        <li>Make sure your API server is running on <code>http://localhost:8080</code></li>
-        <li>Components will auto-connect and show real sync status</li>
-        <li>Try starting a sync operation to see live progress updates</li>
-        <li>Note: Polling has been removed in favor of WebSocket notifications</li>
-      </ul>
-    </div>
-
     <sync-demo api-base-url="http://localhost:8080" client-id="standalone-demo" auto-connect="true"></sync-demo>
   </div>
 

@@ -19,6 +19,7 @@ function Ct(y){return e=>{y(e.detail)}}function Et(y,e,t,r){const o=new CustomEv
           padding: 0.5rem 1rem;
           border: 1px solid #ccc;
           background: white;
+          color: black;
           cursor: pointer;
           border-radius: 4px;
           font-size: 0.875rem;
@@ -44,6 +45,7 @@ function Ct(y){return e=>{y(e.detail)}}function Et(y,e,t,r){const o=new CustomEv
         }
         .log-container {
           background: #f8f9fa;
+          color: black;
           border: 1px solid #e9ecef;
           border-radius: 4px;
           padding: 1rem;
@@ -59,6 +61,7 @@ function Ct(y){return e=>{y(e.detail)}}function Et(y,e,t,r){const o=new CustomEv
           border-radius: 8px;
           padding: 1rem;
           background: white;
+          color: black;
         }
         .blob-header {
           display: flex;
@@ -98,6 +101,7 @@ function Ct(y){return e=>{y(e.detail)}}function Et(y,e,t,r){const o=new CustomEv
           text-align: center;
           margin: 1rem 0;
           background: #fafafa;
+          color: black;
           transition: all 0.2s ease;
           cursor: pointer;
         }
@@ -112,6 +116,7 @@ function Ct(y){return e=>{y(e.detail)}}function Et(y,e,t,r){const o=new CustomEv
         }
         .upload-status {
           background: #f3f4f6;
+          color: black;
           border-radius: 6px;
           padding: 0.75rem;
           margin: 0.5rem 0;
