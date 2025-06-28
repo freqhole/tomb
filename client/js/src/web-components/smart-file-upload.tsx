@@ -168,6 +168,7 @@ const SmartFileUpload = (props: SmartFileUploadProps) => {
       const result = await uploader.uploadFile(upload.file, {
         uploadedVia: "smart-file-upload",
         originalMethod: "http",
+        originalName: upload.file.name,
       });
 
       updateUploadProgress(upload.id, 100, "completed");

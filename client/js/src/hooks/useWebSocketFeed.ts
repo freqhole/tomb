@@ -211,7 +211,7 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
       isLoading: true,
       error: null,
       currentPage: 0,
-      items: [], // Clear existing items for fresh load
+      // Don't clear items here - preserve them until new data arrives
       targetPage: 0,
     });
     log("Loading initial feed...");
@@ -296,9 +296,31 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
       // Server-side filtering ensures only original blobs are returned
       log("✅ Loaded", data.blobs.length, "original media blobs");
 
+      // Preserve thumbnail metadata when refreshing by merging with existing items
+      const mergeWithExistingMetadata = (newBlob: MediaBlob): MediaBlob => {
+        if (isLoadingMore) return newBlob; // Don't merge for pagination
+
+        const existingItem = state.items.find((item) => item.id === newBlob.id);
+        if (existingItem && existingItem.metadata?.thumbnails) {
+          log(
+            `Preserving thumbnail metadata for blob: ${newBlob.id.slice(0, 8)}`
+          );
+          return {
+            ...newBlob,
+            metadata: {
+              ...newBlob.metadata,
+              thumbnails: existingItem.metadata.thumbnails,
+              has_thumbnails: existingItem.metadata.has_thumbnails,
+              thumbnails_requested: existingItem.metadata.thumbnails_requested,
+            },
+          };
+        }
+        return newBlob;
+      };
+
       const newItems = isLoadingMore
         ? [...state.items, ...data.blobs]
-        : data.blobs;
+        : data.blobs.map(mergeWithExistingMetadata);
 
       // Determine the correct page number
       let newPage: number;

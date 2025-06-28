@@ -193,6 +193,7 @@ const WebSocketDemo = (props: WebSocketDemoProps) => {
           const result = await currentHttpUploader.uploadFile(file, {
             uploadedVia: "websocket-demo",
             originalMethod: "http",
+            originalName: file.name,
           });
           console.log(`Large file uploaded successfully: ${file.name}`, result);
           // Refresh media blobs to show the new upload
