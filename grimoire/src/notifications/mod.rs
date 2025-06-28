@@ -50,6 +50,7 @@
 
 pub mod config;
 pub mod models;
+pub mod music_events;
 pub mod publisher;
 pub mod service;
 
@@ -57,6 +58,10 @@ pub use config::{NotificationChannelConfig, NotificationConfig, RateLimitConfig}
 pub use models::{
     ChannelSubscription, EventMetadata, NotificationChannel, NotificationEvent, NotificationFilter,
     NotificationPayload, NotificationPriority,
+};
+pub use music_events::{
+    LibraryStatsPayload, MusicEventType, PlaylistEventPayload, PlaylistSongEventPayload,
+    ScanCompletedPayload, ScanFailedPayload, ScanProgressPayload, SongEventPayload,
 };
 pub use publisher::{
     MockNotificationPublisher, PostgresNotificationPublisher, Publisher, PublisherError,
@@ -67,8 +72,8 @@ pub use service::{EventStats, NotificationService, NotificationServiceError};
 /// Re-exports for convenience
 pub mod prelude {
     pub use super::{
-        ChannelSubscription, NotificationChannel, NotificationConfig, NotificationEvent,
-        NotificationFilter, NotificationService, Publisher,
+        ChannelSubscription, MusicEventType, NotificationChannel, NotificationConfig,
+        NotificationEvent, NotificationFilter, NotificationService, Publisher, SongEventPayload,
     };
 }
 

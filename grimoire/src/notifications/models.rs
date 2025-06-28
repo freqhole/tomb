@@ -101,6 +101,8 @@ pub enum NotificationChannel {
     System,
     /// Analytics events (stats updates, reports, etc.)
     Analytics,
+    /// Music domain events (songs, playlists, scanning)
+    Music,
 }
 
 impl NotificationChannel {
@@ -112,6 +114,7 @@ impl NotificationChannel {
             Self::UserAuth => "user_auth_notifications",
             Self::System => "system_notifications",
             Self::Analytics => "analytics_notifications",
+            Self::Music => "music_notifications",
         }
     }
 
@@ -123,6 +126,7 @@ impl NotificationChannel {
             Self::UserAuth => "user-auth",
             Self::System => "system",
             Self::Analytics => "analytics",
+            Self::Music => "music",
         }
     }
 
@@ -134,6 +138,7 @@ impl NotificationChannel {
             Self::UserAuth,
             Self::System,
             Self::Analytics,
+            Self::Music,
         ]
     }
 }
@@ -438,6 +443,10 @@ mod tests {
             NotificationChannel::ThumbnailJobs.postgres_channel(),
             "thumbnail_jobs_notifications"
         );
+        assert_eq!(
+            NotificationChannel::Music.postgres_channel(),
+            "music_notifications"
+        );
     }
 
     #[test]
@@ -512,6 +521,22 @@ mod tests {
         assert!(NotificationPriority::Critical > NotificationPriority::High);
         assert!(NotificationPriority::High > NotificationPriority::Normal);
         assert!(NotificationPriority::Normal > NotificationPriority::Low);
+    }
+
+    #[test]
+    fn test_music_channel_websocket_topics() {
+        assert_eq!(NotificationChannel::Music.websocket_topic(), "music");
+        assert_eq!(
+            NotificationChannel::MediaBlobs.websocket_topic(),
+            "media-blobs"
+        );
+    }
+
+    #[test]
+    fn test_music_channel_in_all_channels() {
+        let all_channels = NotificationChannel::all();
+        assert!(all_channels.contains(&NotificationChannel::Music));
+        assert_eq!(all_channels.len(), 6); // MediaBlobs, ThumbnailJobs, UserAuth, System, Analytics, Music
     }
 
     #[test]

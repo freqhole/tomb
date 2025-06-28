@@ -55,9 +55,11 @@ pub use thumbnails::{
 
 // Re-export notifications types
 pub use notifications::{
-    ChannelSubscription, EventStats, NotificationChannel, NotificationChannelConfig,
-    NotificationConfig, NotificationEvent, NotificationFilter, NotificationService,
-    NotificationServiceError, Publisher, PublisherError,
+    ChannelSubscription, EventStats, LibraryStatsPayload, MusicEventType, NotificationChannel,
+    NotificationChannelConfig, NotificationConfig, NotificationEvent, NotificationFilter,
+    NotificationService, NotificationServiceError, PlaylistEventPayload, PlaylistSongEventPayload,
+    Publisher, PublisherError, ScanCompletedPayload, ScanFailedPayload, ScanProgressPayload,
+    SongEventPayload,
 };
 
 // Re-export database connection
