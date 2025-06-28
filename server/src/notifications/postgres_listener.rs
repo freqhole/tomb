@@ -326,10 +326,7 @@ impl PostgresNotificationListener {
         }
 
         // Execute test notification function in database
-        let query = "SELECT test_notification($1, $2)";
-        sqlx::query(query)
-            .bind(channel)
-            .bind(&payload)
+        sqlx::query!("SELECT test_notification($1, $2)", channel, payload)
             .execute(self.db.pool())
             .await?;
 

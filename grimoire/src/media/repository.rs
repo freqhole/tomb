@@ -50,65 +50,61 @@ impl MediaBlobRepository {
         let media_blob = create_blob.into_media_blob();
         let data_clone = media_blob.data.clone();
 
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r#"
             INSERT INTO media_blobs (id, data, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING id, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at
-            "#
+            "#,
+            media_blob.id,
+            media_blob.data,
+            media_blob.sha256,
+            media_blob.size,
+            media_blob.mime,
+            media_blob.source_client_id,
+            media_blob.local_path,
+            media_blob.metadata,
+            media_blob.created_at,
+            media_blob.updated_at
         )
-        .bind(media_blob.id)
-        .bind(media_blob.data)
-        .bind(media_blob.sha256)
-        .bind(media_blob.size)
-        .bind(media_blob.mime)
-        .bind(media_blob.source_client_id)
-        .bind(media_blob.local_path)
-        .bind(media_blob.metadata)
-        .bind(media_blob.created_at)
-        .bind(media_blob.updated_at)
         .fetch_one(&self.pool)
         .await?;
 
         Ok(MediaBlob {
-            id: row.get("id"),
+            id: row.id,
             data: data_clone, // Include data in response for create
-            sha256: row.get("sha256"),
-            size: row.get("size"),
-            mime: row.get("mime"),
-            source_client_id: row.get("source_client_id"),
-            local_path: row.get("local_path"),
-            metadata: row
-                .get::<Option<serde_json::Value>, _>("metadata")
-                .unwrap_or_else(|| serde_json::json!({})),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
+            sha256: row.sha256,
+            size: row.size,
+            mime: row.mime,
+            source_client_id: row.source_client_id,
+            local_path: row.local_path,
+            metadata: row.metadata.unwrap_or_else(|| serde_json::json!({})),
+            created_at: row.created_at.unwrap(),
+            updated_at: row.updated_at.unwrap(),
         })
     }
 
     /// Find a media blob by ID
     pub async fn find_by_id(&self, id: Uuid) -> Result<MediaBlob, MediaRepositoryError> {
-        let row = sqlx::query(
-            "SELECT id, data, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at FROM media_blobs WHERE id = $1"
+        let row = sqlx::query!(
+            "SELECT id, data, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at FROM media_blobs WHERE id = $1",
+            id
         )
-        .bind(id)
         .fetch_optional(&self.pool)
         .await?;
 
         match row {
             Some(row) => Ok(MediaBlob {
-                id: row.get("id"),
-                data: row.get("data"),
-                sha256: row.get("sha256"),
-                size: row.get("size"),
-                mime: row.get("mime"),
-                source_client_id: row.get("source_client_id"),
-                local_path: row.get("local_path"),
-                metadata: row
-                    .get::<Option<serde_json::Value>, _>("metadata")
-                    .unwrap_or_else(|| serde_json::json!({})),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
+                id: row.id,
+                data: row.data,
+                sha256: row.sha256,
+                size: row.size,
+                mime: row.mime,
+                source_client_id: row.source_client_id,
+                local_path: row.local_path,
+                metadata: row.metadata.unwrap_or_else(|| serde_json::json!({})),
+                created_at: row.created_at.unwrap(),
+                updated_at: row.updated_at.unwrap(),
             }),
             None => Err(MediaRepositoryError::NotFound(id)),
         }
@@ -119,27 +115,25 @@ impl MediaBlobRepository {
         &self,
         id: Uuid,
     ) -> Result<MediaBlob, MediaRepositoryError> {
-        let row = sqlx::query(
-            "SELECT id, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at FROM media_blobs WHERE id = $1"
+        let row = sqlx::query!(
+            "SELECT id, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at FROM media_blobs WHERE id = $1",
+            id
         )
-        .bind(id)
         .fetch_optional(&self.pool)
         .await?;
 
         match row {
             Some(row) => Ok(MediaBlob {
-                id: row.get("id"),
+                id: row.id,
                 data: None,
-                sha256: row.get("sha256"),
-                size: row.get("size"),
-                mime: row.get("mime"),
-                source_client_id: row.get("source_client_id"),
-                local_path: row.get("local_path"),
-                metadata: row
-                    .get::<Option<serde_json::Value>, _>("metadata")
-                    .unwrap_or_else(|| serde_json::json!({})),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
+                sha256: row.sha256,
+                size: row.size,
+                mime: row.mime,
+                source_client_id: row.source_client_id,
+                local_path: row.local_path,
+                metadata: row.metadata.unwrap_or_else(|| serde_json::json!({})),
+                created_at: row.created_at.unwrap(),
+                updated_at: row.updated_at.unwrap(),
             }),
             None => Err(MediaRepositoryError::NotFound(id)),
         }
@@ -147,27 +141,25 @@ impl MediaBlobRepository {
 
     /// Find a media blob by SHA256 hash
     pub async fn find_by_sha256(&self, sha256: &str) -> Result<MediaBlob, MediaRepositoryError> {
-        let row = sqlx::query(
-            "SELECT id, data, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at FROM media_blobs WHERE sha256 = $1"
+        let row = sqlx::query!(
+            "SELECT id, data, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at FROM media_blobs WHERE sha256 = $1",
+            sha256
         )
-        .bind(sha256)
         .fetch_optional(&self.pool)
         .await?;
 
         match row {
             Some(row) => Ok(MediaBlob {
-                id: row.get("id"),
-                data: row.get("data"),
-                sha256: row.get("sha256"),
-                size: row.get("size"),
-                mime: row.get("mime"),
-                source_client_id: row.get("source_client_id"),
-                local_path: row.get("local_path"),
-                metadata: row
-                    .get::<Option<serde_json::Value>, _>("metadata")
-                    .unwrap_or_else(|| serde_json::json!({})),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
+                id: row.id,
+                data: row.data,
+                sha256: row.sha256,
+                size: row.size,
+                mime: row.mime,
+                source_client_id: row.source_client_id,
+                local_path: row.local_path,
+                metadata: row.metadata.unwrap_or_else(|| serde_json::json!({})),
+                created_at: row.created_at.unwrap(),
+                updated_at: row.updated_at.unwrap(),
             }),
             None => Err(MediaRepositoryError::NotFoundBySha256(sha256.to_string())),
         }
@@ -482,12 +474,14 @@ impl MediaBlobRepository {
 
     /// Check if a media blob exists by SHA256
     pub async fn exists_by_sha256(&self, sha256: &str) -> Result<bool, MediaRepositoryError> {
-        let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM media_blobs WHERE sha256 = $1)")
-            .bind(sha256)
-            .fetch_one(&self.pool)
-            .await?;
+        let row = sqlx::query!(
+            "SELECT EXISTS(SELECT 1 FROM media_blobs WHERE sha256 = $1)",
+            sha256
+        )
+        .fetch_one(&self.pool)
+        .await?;
 
-        Ok(row.get::<bool, _>(0))
+        Ok(row.exists.unwrap_or(false))
     }
 
     /// Update metadata for a media blob
@@ -498,29 +492,27 @@ impl MediaBlobRepository {
     ) -> Result<MediaBlob, MediaRepositoryError> {
         let updated_at = OffsetDateTime::now_utc();
 
-        let row = sqlx::query(
-            "UPDATE media_blobs SET metadata = $1, updated_at = $2 WHERE id = $3 RETURNING id, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at"
+        let row = sqlx::query!(
+            "UPDATE media_blobs SET metadata = $1, updated_at = $2 WHERE id = $3 RETURNING id, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at",
+            metadata,
+            updated_at,
+            id
         )
-        .bind(metadata)
-        .bind(updated_at)
-        .bind(id)
         .fetch_optional(&self.pool)
         .await?;
 
         match row {
             Some(row) => Ok(MediaBlob {
-                id: row.get("id"),
+                id: row.id,
                 data: None, // Don't include binary data in update response
-                sha256: row.get("sha256"),
-                size: row.get("size"),
-                mime: row.get("mime"),
-                source_client_id: row.get("source_client_id"),
-                local_path: row.get("local_path"),
-                metadata: row
-                    .get::<Option<serde_json::Value>, _>("metadata")
-                    .unwrap_or_else(|| serde_json::json!({})),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
+                sha256: row.sha256,
+                size: row.size,
+                mime: row.mime,
+                source_client_id: row.source_client_id,
+                local_path: row.local_path,
+                metadata: row.metadata.unwrap_or_else(|| serde_json::json!({})),
+                created_at: row.created_at.unwrap(),
+                updated_at: row.updated_at.unwrap(),
             }),
             None => Err(MediaRepositoryError::NotFound(id)),
         }
@@ -528,8 +520,7 @@ impl MediaBlobRepository {
 
     /// Delete a media blob by ID
     pub async fn delete(&self, id: Uuid) -> Result<(), MediaRepositoryError> {
-        let result = sqlx::query("DELETE FROM media_blobs WHERE id = $1")
-            .bind(id)
+        let result = sqlx::query!("DELETE FROM media_blobs WHERE id = $1", id)
             .execute(&self.pool)
             .await?;
 
@@ -542,7 +533,7 @@ impl MediaBlobRepository {
 
     /// Get media blob statistics
     pub async fn get_stats(&self) -> Result<MediaBlobStats, MediaRepositoryError> {
-        let stats_row = sqlx::query(
+        let stats_row = sqlx::query!(
             r#"
             SELECT
                 COUNT(*) as total_count,
@@ -554,7 +545,7 @@ impl MediaBlobRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        let mime_rows = sqlx::query(
+        let mime_rows = sqlx::query!(
             r#"
             SELECT mime as mime_type, COUNT(*) as count
             FROM media_blobs
@@ -568,15 +559,15 @@ impl MediaBlobRepository {
         let mime_type_distribution = mime_rows
             .into_iter()
             .map(|row| MimeTypeCount {
-                mime_type: row.get("mime_type"),
-                count: row.get("count"),
+                mime_type: row.mime_type,
+                count: row.count.unwrap_or(0),
             })
             .collect();
 
         Ok(MediaBlobStats {
-            total_count: stats_row.get("total_count"),
-            total_size: Some(stats_row.get("total_size")),
-            unique_sha256_count: stats_row.get("unique_sha256_count"),
+            total_count: stats_row.total_count.unwrap_or(0),
+            total_size: stats_row.total_size,
+            unique_sha256_count: stats_row.unique_sha256_count.unwrap_or(0),
             mime_type_distribution,
         })
     }

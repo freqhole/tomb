@@ -181,46 +181,42 @@ impl NotificationCommands {
     ) -> Result<(), Box<dyn std::error::Error>> {
         println!("🔍 Checking notification system health...\n");
 
-        // Test database connection
-        let db_status = match sqlx::query("SELECT 1").execute(db.pool()).await {
-            Ok(_) => "✅ Connected",
-            Err(e) => {
-                println!("❌ Database connection failed: {}", e);
-                return Err(e.into());
+        // Use the service layer for database health checks
+        let health_status = NotificationService::database_health_check(db).await?;
+
+        // Report database connection status
+        if health_status.connection_status {
+            println!("Database: ✅ Connected");
+        } else {
+            println!("Database: ❌ Connection failed");
+            if let Some(error) = &health_status.connection_error {
+                println!("  Error: {}", error);
             }
-        };
-        println!("Database: {}", db_status);
+        }
 
-        // Test PostgreSQL LISTEN capability
-        let listen_status = match sqlx::query("LISTEN test_channel").execute(db.pool()).await {
-            Ok(_) => {
-                // Unlisten to clean up
-                let _ = sqlx::query("UNLISTEN test_channel")
-                    .execute(db.pool())
-                    .await;
-                "✅ LISTEN/NOTIFY supported"
+        // Report LISTEN/NOTIFY status
+        if health_status.listen_notify_status {
+            println!("PostgreSQL NOTIFY/LISTEN: ✅ LISTEN/NOTIFY supported");
+        } else {
+            println!("PostgreSQL NOTIFY/LISTEN: ❌ LISTEN/NOTIFY not available");
+            if let Some(error) = &health_status.listen_notify_error {
+                println!("  Error: {}", error);
             }
-            Err(_) => "❌ LISTEN/NOTIFY not available",
-        };
-        println!("PostgreSQL NOTIFY/LISTEN: {}", listen_status);
+        }
 
-        // Check if notification triggers exist
-        let trigger_query = r#"
-            SELECT COUNT(*) as count
-            FROM information_schema.triggers
-            WHERE trigger_name LIKE 'trigger_notify_%'
-        "#;
-        let trigger_count: i64 = sqlx::query_scalar(trigger_query)
-            .fetch_one(db.pool())
-            .await
-            .unwrap_or(0);
-
-        let trigger_status = if trigger_count > 0 {
-            format!("✅ {} notification triggers installed", trigger_count)
+        // Report trigger status
+        let trigger_status = if health_status.trigger_count > 0 {
+            format!(
+                "✅ {} notification triggers installed",
+                health_status.trigger_count
+            )
         } else {
             "⚠️  No notification triggers found".to_string()
         };
         println!("Database triggers: {}", trigger_status);
+        if let Some(error) = &health_status.trigger_error {
+            println!("  Error: {}", error);
+        }
 
         // Test notification service creation
         let config = NotificationConfig::default();
@@ -339,13 +335,8 @@ impl NotificationCommands {
             serde_json::to_string_pretty(&test_payload)?
         );
 
-        // Use the test_notification function we created in the migration
-        let query = "SELECT test_notification($1, $2)";
-        sqlx::query(query)
-            .bind(channel)
-            .bind(&test_payload)
-            .execute(db.pool())
-            .await?;
+        // Use the service layer for test notifications
+        NotificationService::send_test_notification(db, channel, test_payload).await?;
 
         println!("\n✅ PostgreSQL NOTIFY sent successfully!");
         println!(

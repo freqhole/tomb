@@ -1,0 +1,79 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO media_blobs (id, data, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n            RETURNING id, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "sha256",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "mime",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "source_client_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "local_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "33be55413e5e16a02922509267b0a4c24db42a8d8b9c1ced86c4dc5d281c49b6"
+}

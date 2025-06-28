@@ -3,6 +3,7 @@
 //! This module contains the main NotificationService that orchestrates event publishing,
 //! subscription management, and notification delivery across different channels.
 
+use crate::database::DatabaseConnection;
 use crate::notifications::{
     config::NotificationConfig,
     models::{
@@ -12,6 +13,8 @@ use crate::notifications::{
     publisher::{Publisher, PublisherError},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sqlx;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
@@ -282,6 +285,71 @@ impl NotificationService {
         Ok(health_status)
     }
 
+    /// Comprehensive database health check for notifications system
+    pub async fn database_health_check(
+        db: &DatabaseConnection,
+    ) -> NotificationServiceResult<DatabaseHealthStatus> {
+        let mut health = DatabaseHealthStatus::default();
+
+        // Test basic database connection
+        match sqlx::query("SELECT 1").execute(db.pool()).await {
+            Ok(_) => health.connection_status = true,
+            Err(e) => {
+                health.connection_status = false;
+                health.connection_error = Some(e.to_string());
+            }
+        }
+
+        // Test PostgreSQL LISTEN/NOTIFY capability
+        match sqlx::query("LISTEN test_channel").execute(db.pool()).await {
+            Ok(_) => {
+                health.listen_notify_status = true;
+                // Clean up the test channel
+                let _ = sqlx::query("UNLISTEN test_channel")
+                    .execute(db.pool())
+                    .await;
+            }
+            Err(e) => {
+                health.listen_notify_status = false;
+                health.listen_notify_error = Some(e.to_string());
+            }
+        }
+
+        // Check notification triggers
+        match sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*) as count
+            FROM information_schema.triggers
+            WHERE trigger_name LIKE 'trigger_notify_%'
+            "#,
+        )
+        .fetch_one(db.pool())
+        .await
+        {
+            Ok(count) => health.trigger_count = count,
+            Err(e) => {
+                health.trigger_count = 0;
+                health.trigger_error = Some(e.to_string());
+            }
+        }
+
+        Ok(health)
+    }
+
+    /// Send a test notification using the database test_notification function
+    pub async fn send_test_notification(
+        db: &DatabaseConnection,
+        channel: &str,
+        payload: Value,
+    ) -> NotificationServiceResult<()> {
+        sqlx::query!("SELECT test_notification($1, $2)", channel, payload)
+            .execute(db.pool())
+            .await
+            .map_err(|e| NotificationServiceError::Internal(e.to_string()))?;
+
+        Ok(())
+    }
+
     /// Deliver event to all subscribers
     async fn deliver_to_subscribers(
         &self,
@@ -460,6 +528,30 @@ impl RateLimiter {
         }
 
         true
+    }
+}
+
+/// Database health status for notifications
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatabaseHealthStatus {
+    pub connection_status: bool,
+    pub connection_error: Option<String>,
+    pub listen_notify_status: bool,
+    pub listen_notify_error: Option<String>,
+    pub trigger_count: i64,
+    pub trigger_error: Option<String>,
+}
+
+impl Default for DatabaseHealthStatus {
+    fn default() -> Self {
+        Self {
+            connection_status: false,
+            connection_error: None,
+            listen_notify_status: false,
+            listen_notify_error: None,
+            trigger_count: 0,
+            trigger_error: None,
+        }
     }
 }
 

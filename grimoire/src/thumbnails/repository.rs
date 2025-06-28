@@ -53,7 +53,7 @@ impl<'a> ThumbnailRepository<'a> {
         // Store only extensible metadata as JSONB (no core job data)
         let metadata = serde_json::json!({});
 
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO thumbnail_jobs (
                 id, media_blob_id, job_type, status, priority,
@@ -62,21 +62,21 @@ impl<'a> ThumbnailRepository<'a> {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             "#,
+            job.id,
+            job.media_blob_id,
+            job.job_type.to_string(),
+            status,
+            priority,
+            target_width,
+            target_height,
+            job.scheduled_at,
+            job.retry_count,
+            job.max_retries,
+            job.error_message.clone(),
+            metadata,
+            job.created_at,
+            job.updated_at
         )
-        .bind(job.id)
-        .bind(job.media_blob_id)
-        .bind(job.job_type.to_string())
-        .bind(status)
-        .bind(priority)
-        .bind(target_width)
-        .bind(target_height)
-        .bind(job.scheduled_at)
-        .bind(job.retry_count)
-        .bind(job.max_retries)
-        .bind(job.error_message.clone())
-        .bind(metadata)
-        .bind(job.created_at)
-        .bind(job.updated_at)
         .execute(self.db.pool())
         .await?;
 
