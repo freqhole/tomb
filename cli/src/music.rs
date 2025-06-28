@@ -17,7 +17,7 @@ use grimoire::{AppConfig, DatabaseConnection};
 use image::io::Reader as ImageReader;
 use inquire::{
     ui::{Color, RenderConfig, StyleSheet, Styled},
-    Select,
+    Select, Text,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -2256,38 +2256,49 @@ impl MusicCommands {
                     .to_string()
             };
 
-            let selection = Select::new(&prompt_text, options.clone())
+            let mut playlist_options = vec!["⚙️ Reorder Playlist Songs".to_string()];
+            playlist_options.extend(options.clone());
+
+            let selection = Select::new(&prompt_text, playlist_options)
                 .with_help_message("↑↓ to navigate, Enter to select, Esc to go back")
                 .with_render_config(render_config.clone())
                 .prompt();
 
-            let selected_index = match selection {
-                Ok(selected_option) => options
-                    .iter()
-                    .position(|option| option == &selected_option)
-                    .unwrap_or(0),
+            match selection {
+                Ok(selected_option) => {
+                    if selected_option.contains("Reorder Playlist Songs") {
+                        // Handle playlist reordering
+                        self.handle_playlist_reorder_menu(service).await?;
+                    } else {
+                        // Handle regular playlist selection - need to adjust index since reorder is first
+                        let selected_index = options
+                            .iter()
+                            .position(|option| option == &selected_option)
+                            .unwrap_or(0);
+
+                        let selected_playlist = &summaries[selected_index];
+                        println!(
+                            "{}",
+                            format!("🎵 Selected: {}", selected_playlist.title)
+                                .bright_cyan()
+                                .bold()
+                        );
+
+                        // Call the direct play method
+                        self.handle_direct_play(service, selected_playlist.id.to_string(), shuffle)
+                            .await?;
+
+                        // After playlist finishes, continue loop to show selection again
+                        println!("\n🔄 Returning to playlist selection...\n");
+                    }
+                }
                 Err(inquire::InquireError::OperationCanceled) => {
                     return Err("cancelled".into()); // Signal to go back to main menu
                 }
                 Err(e) => {
                     return Err(e.into());
                 }
-            };
-
-            let selected_playlist = &summaries[selected_index];
-            println!(
-                "{}",
-                format!("🎵 Selected: {}", selected_playlist.title)
-                    .bright_cyan()
-                    .bold()
-            );
-
-            // Call the direct play method
-            self.handle_direct_play(service, selected_playlist.id.to_string(), shuffle)
-                .await?;
-
-            // After playlist finishes, continue loop to show selection again
-            println!("\n🔄 Returning to playlist selection...\n");
+            }
         }
     }
 
@@ -2353,19 +2364,16 @@ impl MusicCommands {
 
                     let selected_song = &songs_result[selected_index];
 
-                    println!(
-                        "{}",
-                        format!("🎵 Selected: {}", selected_song.title)
-                            .bright_cyan()
-                            .bold()
-                    );
-
-                    // Play the single song
-                    self.handle_single_song_play(service, selected_song, shuffle)
+                    // Show action menu for selected song
+                    let action_result = self
+                        .handle_song_action_menu(service, selected_song, shuffle)
                         .await?;
 
-                    // After song finishes, continue loop to show selection again
-                    println!("\n🔄 Returning to song selection...\n");
+                    if action_result {
+                        // Song was played, show return message
+                        println!("\n🔄 Returning to song selection...\n");
+                    }
+                    // If song was added to playlist, just continue the loop
                 }
                 Err(inquire::InquireError::OperationCanceled) => {
                     return Err("cancelled".into()); // Signal to go back to main menu
@@ -2497,19 +2505,464 @@ impl MusicCommands {
         Ok(())
     }
 
+    async fn handle_song_action_menu(
+        &self,
+        service: &MusicService<'_>,
+        song: &grimoire::music::Song,
+        shuffle: bool,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        // Configure custom theme
+        let render_config = RenderConfig::default()
+            .with_highlighted_option_prefix(Styled::new("🎵 ").with_fg(Color::LightMagenta))
+            .with_selected_option(Some(StyleSheet::new().with_fg(Color::LightMagenta)));
+
+        let action_options = vec!["🎵 Play Song".to_string(), "📋 Add to Playlist".to_string()];
+
+        println!(
+            "{}",
+            format!("🎶 Selected: {}", song.title).bright_cyan().bold()
+        );
+
+        let action_selection = Select::new("Choose action:", action_options)
+            .with_help_message("↑↓ to navigate, Enter to select, Esc to go back")
+            .with_render_config(render_config)
+            .prompt();
+
+        match action_selection {
+            Ok(selected_action) if selected_action.contains("Play Song") => {
+                // Play the song
+                self.handle_single_song_play(service, song, shuffle).await?;
+                Ok(true) // Indicate song was played
+            }
+            Ok(selected_action) if selected_action.contains("Add to Playlist") => {
+                // Show playlist selection for adding
+                self.handle_add_song_to_playlist_menu(service, song).await?;
+                Ok(false) // Indicate song was added to playlist, not played
+            }
+            Ok(_) => Ok(false),
+            Err(inquire::InquireError::OperationCanceled) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    async fn handle_add_song_to_playlist_menu(
+        &self,
+        service: &MusicService<'_>,
+        song: &grimoire::music::Song,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Configure custom theme
+        let render_config = RenderConfig::default()
+            .with_highlighted_option_prefix(Styled::new("🎵 ").with_fg(Color::LightMagenta))
+            .with_selected_option(Some(StyleSheet::new().with_fg(Color::LightMagenta)));
+
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service =
+            PlaylistService::new(MusicRepository::new(service.db().pool().clone()));
+
+        // Get all playlists
+        let playlists = repository.get_playlist_summaries(Some(100)).await?;
+
+        let mut playlist_options = vec!["➕ Create New Playlist".to_string()];
+
+        if !playlists.is_empty() {
+            let existing_playlists: Vec<String> = playlists
+                .iter()
+                .map(|p| format!("📋 {} ({} songs)", p.title, p.song_count))
+                .collect();
+            playlist_options.extend(existing_playlists);
+        }
+
+        let playlist_selection = Select::new(
+            &format!("Add '{}' to which playlist?", song.title),
+            playlist_options.clone(),
+        )
+        .with_help_message("↑↓ to navigate, Enter to select, Esc to cancel")
+        .with_render_config(render_config)
+        .prompt();
+
+        match playlist_selection {
+            Ok(selected_option) => {
+                if selected_option.contains("Create New Playlist") {
+                    // Handle creating new playlist
+                    self.handle_create_new_playlist_and_add_song(service, song)
+                        .await?;
+                } else {
+                    // Handle adding to existing playlist
+                    let selected_index = playlists
+                        .iter()
+                        .position(|p| {
+                            let playlist_option =
+                                format!("📋 {} ({} songs)", p.title, p.song_count);
+                            playlist_option == selected_option
+                        })
+                        .unwrap_or(0);
+
+                    let selected_playlist = &playlists[selected_index];
+
+                    // Add song to playlist
+                    match playlist_service
+                        .add_songs_to_playlist(
+                            selected_playlist.id,
+                            vec![song.id],
+                            Some("music-cli".to_string()),
+                        )
+                        .await
+                    {
+                        Ok(_) => {
+                            println!(
+                                "{}",
+                                format!(
+                                    "✅ Added '{}' to playlist '{}'",
+                                    song.title, selected_playlist.title
+                                )
+                                .bright_green()
+                            );
+                        }
+                        Err(e) => {
+                            println!("❌ Failed to add song to playlist: {}", e);
+                        }
+                    }
+                }
+            }
+            Err(inquire::InquireError::OperationCanceled) => {
+                println!("🚫 Cancelled adding to playlist");
+            }
+            Err(e) => {
+                println!("❌ Error: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_create_new_playlist_and_add_song(
+        &self,
+        service: &MusicService<'_>,
+        song: &grimoire::music::Song,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Configure custom theme
+        let render_config = RenderConfig::default()
+            .with_highlighted_option_prefix(Styled::new("🎵 ").with_fg(Color::LightMagenta))
+            .with_selected_option(Some(StyleSheet::new().with_fg(Color::LightMagenta)));
+
+        // Prompt for playlist name
+        let playlist_name = Text::new(&format!("Enter name for new playlist:"))
+            .with_help_message("Type playlist name, Enter to confirm, Esc to cancel")
+            .prompt();
+
+        let name = match playlist_name {
+            Ok(name) => {
+                if name.trim().is_empty() {
+                    println!("❌ Playlist name cannot be empty");
+                    return Ok(());
+                }
+                name.trim().to_string()
+            }
+            Err(inquire::InquireError::OperationCanceled) => {
+                println!("🚫 Cancelled creating playlist");
+                return Ok(());
+            }
+            Err(e) => {
+                println!("❌ Error: {}", e);
+                return Ok(());
+            }
+        };
+
+        // Prompt for playlist description (optional)
+        let playlist_description = Text::new("Enter description (optional):")
+            .with_help_message("Type description or leave empty, Enter to confirm, Esc to skip")
+            .prompt();
+
+        let description = match playlist_description {
+            Ok(desc) => {
+                if desc.trim().is_empty() {
+                    None
+                } else {
+                    Some(desc.trim().to_string())
+                }
+            }
+            Err(inquire::InquireError::OperationCanceled) => None, // Skip description
+            Err(_) => None,                                        // Skip description on error
+        };
+
+        // Create the playlist
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        let create_playlist = CreatePlaylist {
+            title: name.clone(),
+            description,
+            is_public: Some(false),
+            is_collaborative: Some(false),
+            client_id: Some("music-cli".to_string()),
+            metadata: Some(serde_json::json!({})),
+        };
+
+        match playlist_service.create_playlist(create_playlist).await {
+            Ok(new_playlist) => {
+                println!(
+                    "{}",
+                    format!("✅ Created playlist: {}", new_playlist.title).bright_green()
+                );
+
+                // Add the song to the new playlist
+                match playlist_service
+                    .add_songs_to_playlist(
+                        new_playlist.id,
+                        vec![song.id],
+                        Some("music-cli".to_string()),
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        println!(
+                            "{}",
+                            format!(
+                                "✅ Added '{}' to new playlist '{}'",
+                                song.title, new_playlist.title
+                            )
+                            .bright_green()
+                        );
+                    }
+                    Err(e) => {
+                        println!("❌ Failed to add song to new playlist: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                println!("❌ Failed to create playlist: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_playlist_reorder_menu(
+        &self,
+        service: &MusicService<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Configure custom theme
+        let render_config = RenderConfig::default()
+            .with_highlighted_option_prefix(Styled::new("🎵 ").with_fg(Color::LightMagenta))
+            .with_selected_option(Some(StyleSheet::new().with_fg(Color::LightMagenta)));
+
+        let repository = MusicRepository::new(service.db().pool().clone());
+
+        // Get all playlists
+        let playlists = repository.get_playlist_summaries(Some(100)).await?;
+
+        if playlists.is_empty() {
+            println!("📭 No playlists found.");
+            return Ok(());
+        }
+
+        let playlist_options: Vec<String> = playlists
+            .iter()
+            .map(|p| format!("📋 {} ({} songs)", p.title, p.song_count))
+            .collect();
+
+        let playlist_selection =
+            Select::new("Select playlist to reorder:", playlist_options.clone())
+                .with_help_message("↑↓ to navigate, Enter to select, Esc to go back")
+                .with_render_config(render_config.clone())
+                .prompt();
+
+        match playlist_selection {
+            Ok(selected_option) => {
+                let selected_index = playlist_options
+                    .iter()
+                    .position(|option| option == &selected_option)
+                    .unwrap_or(0);
+
+                let selected_playlist = &playlists[selected_index];
+
+                // Get playlist songs
+                let songs = repository
+                    .get_playlist_songs_with_media(selected_playlist.id)
+                    .await?;
+
+                if songs.len() < 2 {
+                    println!("⚠️ Playlist needs at least 2 songs to reorder.");
+                    return Ok(());
+                }
+
+                self.handle_song_reorder_interface(service, selected_playlist, songs)
+                    .await?;
+            }
+            Err(inquire::InquireError::OperationCanceled) => {
+                // Just return, user cancelled
+            }
+            Err(e) => {
+                println!("❌ Error: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_song_reorder_interface(
+        &self,
+        service: &MusicService<'_>,
+        playlist: &grimoire::music::PlaylistSummary,
+        mut songs: Vec<grimoire::music::PlaylistSongWithMedia>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let render_config = RenderConfig::default()
+            .with_highlighted_option_prefix(Styled::new("🎵 ").with_fg(Color::LightMagenta))
+            .with_selected_option(Some(StyleSheet::new().with_fg(Color::LightMagenta)));
+
+        loop {
+            // Show current order
+            println!("\n🎵 Current order for '{}':", playlist.title);
+            for (i, song) in songs.iter().enumerate() {
+                println!("  {}. {}", i + 1, song.display_title());
+            }
+
+            // Create options for moving songs
+            let mut reorder_options: Vec<String> = songs
+                .iter()
+                .enumerate()
+                .map(|(i, song)| format!("🔄 Move #{}: {}", i + 1, song.display_title()))
+                .collect();
+
+            reorder_options.push("✅ Save Changes".to_string());
+            reorder_options.push("🚫 Cancel".to_string());
+
+            let selection = Select::new("Select song to move or save changes:", reorder_options)
+                .with_help_message("↑↓ to navigate, Enter to select")
+                .with_render_config(render_config.clone())
+                .prompt();
+
+            match selection {
+                Ok(selected) if selected.contains("Save Changes") => {
+                    // Apply the new order to database
+                    self.save_playlist_order(service, playlist, &songs).await?;
+                    println!("✅ Playlist order saved!");
+                    break;
+                }
+                Ok(selected) if selected.contains("Cancel") => {
+                    println!("🚫 Changes cancelled");
+                    break;
+                }
+                Ok(selected) if selected.contains("Move #") => {
+                    // Extract song index and handle moving
+                    if let Some(song_index) = selected
+                        .split("Move #")
+                        .nth(1)
+                        .and_then(|s| s.chars().next())
+                        .and_then(|c| c.to_digit(10))
+                        .map(|d| d as usize - 1)
+                    {
+                        if song_index < songs.len() {
+                            self.move_song_in_list(&mut songs, song_index).await?;
+                        }
+                    }
+                }
+                Ok(_) => continue,
+                Err(inquire::InquireError::OperationCanceled) => {
+                    println!("🚫 Reordering cancelled");
+                    break;
+                }
+                Err(e) => {
+                    println!("❌ Error: {}", e);
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn move_song_in_list(
+        &self,
+        songs: &mut Vec<grimoire::music::PlaylistSongWithMedia>,
+        song_index: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let render_config = RenderConfig::default()
+            .with_highlighted_option_prefix(Styled::new("🎵 ").with_fg(Color::LightMagenta))
+            .with_selected_option(Some(StyleSheet::new().with_fg(Color::LightMagenta)));
+
+        let song_title = &songs[song_index].display_title();
+        println!("\n🔄 Moving: {}", song_title);
+
+        // Create position options
+        let position_options: Vec<String> = (1..=songs.len())
+            .map(|i| {
+                if i - 1 == song_index {
+                    format!("{}. {} (current)", i, songs[i - 1].display_title())
+                } else {
+                    format!("{}. {}", i, songs[i - 1].display_title())
+                }
+            })
+            .collect();
+
+        let position_selection = Select::new(
+            &format!("Move '{}' to which position?", song_title),
+            position_options,
+        )
+        .with_help_message("↑↓ to navigate, Enter to select, Esc to cancel")
+        .with_render_config(render_config)
+        .prompt();
+
+        match position_selection {
+            Ok(selected) => {
+                if let Some(new_position) = selected
+                    .split('.')
+                    .next()
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .map(|p| p - 1)
+                {
+                    if new_position != song_index && new_position < songs.len() {
+                        // Move the song to new position
+                        let song = songs.remove(song_index);
+                        songs.insert(new_position, song);
+                        println!("✅ Moved to position {}", new_position + 1);
+                    }
+                }
+            }
+            Err(inquire::InquireError::OperationCanceled) => {
+                // User cancelled, do nothing
+            }
+            Err(e) => {
+                println!("❌ Error: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn save_playlist_order(
+        &self,
+        service: &MusicService<'_>,
+        playlist: &grimoire::music::PlaylistSummary,
+        songs: &[grimoire::music::PlaylistSongWithMedia],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Use the safe reorder function that handles trigger conflicts
+        let song_ids: Vec<uuid::Uuid> = songs.iter().map(|s| s.song_id).collect();
+
+        // Call the SQL function that safely handles reordering
+        sqlx::query!(
+            "SELECT reorder_playlist_positions($1, $2)",
+            playlist.id,
+            &song_ids[..]
+        )
+        .execute(service.db().pool())
+        .await?;
+
+        println!("✅ Playlist order saved successfully!");
+        Ok(())
+    }
+
     fn show_freqhole_banner(&self) {
         let banner = r#"
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                                                                              ║
-║  ███████╗██████╗ ███████╗ ██████╗ ██╗  ██╗ ██████╗ ██╗     ███████╗        ║
-║  ██╔════╝██╔══██╗██╔════╝██╔═══██╗██║  ██║██╔═══██╗██║     ██╔════╝        ║
-║  █████╗  ██████╔╝█████╗  ██║   ██║███████║██║   ██║██║     █████╗          ║
-║  ██╔══╝  ██╔══██╗██╔══╝  ██║▄▄ ██║██╔══██║██║   ██║██║     ██╔══╝          ║
-║  ██║     ██║  ██║███████╗╚██████╔╝██║  ██║╚██████╔╝███████╗███████╗        ║
-║  ╚═╝     ╚═╝  ╚═╝╚══════╝ ╚══▀▀═╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚══════╝        ║
+║  ███████╗██████╗ ███████╗ ██████╗ ██╗  ██╗ ██████╗ ██╗     ███████╗          ║
+║  ██╔════╝██╔══██╗██╔════╝██╔═══██╗██║  ██║██╔═══██╗██║     ██╔════╝          ║
+║  █████╗  ██████╔╝█████╗  ██║   ██║███████║██║   ██║██║     █████╗            ║
+║  ██╔══╝  ██╔══██╗██╔══╝  ██║▄▄ ██║██╔══██║██║   ██║██║     ██╔══╝            ║
+║  ██║     ██║  ██║███████╗╚██████╔╝██║  ██║╚██████╔╝███████╗███████╗          ║
+║  ╚═╝     ╚═╝  ╚═╝╚══════╝ ╚══▀▀═╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚══════╝          ║
 ║                                                                              ║
-║                        🎵 MUSIC PLAYER SUPREME 🎵                          ║
-║                              ～ v i b e s ～                                ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 "#;
 
@@ -2517,7 +2970,7 @@ impl MusicCommands {
         println!(
             "{}",
             "🌈✨ Welcome to the audio dimension ✨🌈"
-                .bright_cyan()
+                .bright_magenta()
                 .italic()
         );
         println!();
