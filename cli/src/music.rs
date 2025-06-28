@@ -148,6 +148,23 @@ pub enum MusicCommands {
         songs: String,
     },
 
+    /// Add songs to playlist by title (creates if not found)
+    AddToPlaylistByTitle {
+        /// Playlist title to find or create
+        title: String,
+
+        /// Song IDs to add (comma-separated)
+        songs: String,
+
+        /// Description for new playlist (if created)
+        #[arg(long, short)]
+        description: Option<String>,
+
+        /// Make new playlist public (if created)
+        #[arg(long, short)]
+        public: bool,
+    },
+
     /// Remove songs from a playlist
     RemoveFromPlaylist {
         /// Playlist title (or ID if exact match not found)
@@ -323,6 +340,21 @@ impl MusicCommands {
             Self::AddToPlaylist { playlist, songs } => {
                 self.handle_add_to_playlist(&service, playlist.clone(), songs.clone())
                     .await
+            }
+            Self::AddToPlaylistByTitle {
+                title,
+                songs,
+                description,
+                public,
+            } => {
+                self.handle_add_to_playlist_by_title(
+                    &service,
+                    title.clone(),
+                    songs.clone(),
+                    description.clone(),
+                    *public,
+                )
+                .await
             }
             Self::RemoveFromPlaylist { playlist, songs } => {
                 self.handle_remove_from_playlist(&service, playlist.clone(), songs.clone())
@@ -1215,6 +1247,156 @@ impl MusicCommands {
                 println!("❌ Failed to add songs to playlist: {}", e);
             }
         }
+
+        Ok(())
+    }
+
+    /// Handle adding songs to playlist by title (creates if not found)
+    async fn handle_add_to_playlist_by_title(
+        &self,
+        service: &MusicService<'_>,
+        title: String,
+        songs_input: String,
+        description: Option<String>,
+        public: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = MusicRepository::new(service.db().pool().clone());
+        let playlist_service = PlaylistService::new(repository);
+
+        // Parse song IDs
+        let song_ids = match playlist_service.parse_song_ids(&songs_input) {
+            Ok(ids) => ids,
+            Err(e) => {
+                println!("❌ Error parsing song IDs: {}", e);
+                return Ok(());
+            }
+        };
+
+        // Find playlists by exact title match
+        let repository = playlist_service.repository();
+        let existing_playlists = match repository.find_playlists_by_title(&title, true).await {
+            Ok(playlists) => playlists,
+            Err(e) => {
+                println!("❌ Error searching for playlists: {}", e);
+                return Ok(());
+            }
+        };
+
+        let playlist = match existing_playlists.len() {
+            0 => {
+                // No playlist found - create new one
+                println!(
+                    "📋 No playlist found with title '{}', creating new playlist...",
+                    title
+                );
+
+                let create_params = grimoire::music::models::CreatePlaylist {
+                    title: title.clone(),
+                    description,
+                    client_id: Some("cli".to_string()),
+                    is_public: Some(public),
+                    is_collaborative: Some(false),
+                    metadata: None,
+                };
+
+                match repository.create_playlist(create_params).await {
+                    Ok(playlist) => {
+                        println!("✅ Created new playlist: {}", playlist.title);
+                        playlist
+                    }
+                    Err(e) => {
+                        println!("❌ Failed to create playlist: {}", e);
+                        return Ok(());
+                    }
+                }
+            }
+            1 => {
+                // Exactly one playlist found
+                let playlist = existing_playlists.into_iter().next().unwrap();
+                println!("📋 Found existing playlist: {}", playlist.title);
+                playlist
+            }
+            _ => {
+                // Multiple playlists found
+                println!(
+                    "❌ Multiple playlists found with title '{}'. Please be more specific:",
+                    title
+                );
+                for playlist in existing_playlists {
+                    println!("  - {} (ID: {})", playlist.title, playlist.id);
+                }
+                return Ok(());
+            }
+        };
+
+        // Add songs to the playlist individually
+        println!("📋 Adding songs to playlist: {}", playlist.title);
+
+        // Get current max position to determine where to start adding
+        let current_songs = match repository.get_playlist_songs(playlist.id).await {
+            Ok(songs) => songs,
+            Err(_) => Vec::new(),
+        };
+
+        let mut next_position = current_songs.len() as i32 + 1;
+        let mut added_count = 0;
+        let mut skipped_count = 0;
+
+        for song_id in song_ids {
+            // Check if song exists
+            match repository.get_song(song_id).await {
+                Ok(_) => {
+                    // Song exists, check if already in playlist
+                    match repository.is_song_in_playlist(playlist.id, song_id).await {
+                        Ok(true) => {
+                            println!("  ⚠️  Song {} already in playlist, skipping", song_id);
+                            skipped_count += 1;
+                        }
+                        Ok(false) => {
+                            // Add song to playlist
+                            match repository
+                                .add_song_at_position(
+                                    playlist.id,
+                                    song_id,
+                                    next_position,
+                                    Some("cli".to_string()),
+                                )
+                                .await
+                            {
+                                Ok(playlist_song) => {
+                                    println!(
+                                        "  ➕ Added song {} at position {}",
+                                        song_id, playlist_song.position
+                                    );
+                                    added_count += 1;
+                                    next_position += 1;
+                                }
+                                Err(e) => {
+                                    println!("  ❌ Failed to add song {}: {}", song_id, e);
+                                    skipped_count += 1;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!(
+                                "  ❌ Error checking if song {} is in playlist: {}",
+                                song_id, e
+                            );
+                            skipped_count += 1;
+                        }
+                    }
+                }
+                Err(_) => {
+                    println!("  ❌ Song {} not found, skipping", song_id);
+                    skipped_count += 1;
+                }
+            }
+        }
+
+        println!(
+            "✅ Added {} songs, skipped {} songs",
+            added_count, skipped_count
+        );
 
         Ok(())
     }
