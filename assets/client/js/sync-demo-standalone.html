@@ -70,6 +70,21 @@
 </head>
 <body>
   <div class="container">
+    <div class="header">
+      <h1>🔄 Media Blob Sync System - End-to-End Component Testing</h1>
+      <p>Sync Demo - Media Blob Sync System</p>
+    </div>
+
+    <div class="instructions">
+      <h3>🚀 Getting Started</h3>
+      <ul>
+        <li>Make sure your API server is running on <code>http://localhost:8080</code></li>
+        <li>Components will auto-connect and show real sync status</li>
+        <li>Try starting a sync operation to see live progress updates</li>
+        <li>Note: Polling has been removed in favor of WebSocket notifications</li>
+      </ul>
+    </div>
+
     <sync-demo api-base-url="http://localhost:8080" client-id="standalone-demo" auto-connect="true"></sync-demo>
   </div>
 
