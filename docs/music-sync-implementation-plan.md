@@ -2,7 +2,7 @@
 
 ## Task Checklist - Phase Overview
 
-- [ ] **Phase 1**: Core Infrastructure Enhancement (Tasks 1.1-1.3)
+- [x] **Phase 1**: Core Infrastructure Enhancement (Tasks 1.1-1.3) - 1.1 ✅
 - [ ] **Phase 2**: Music File Processing Engine (Tasks 2.1-2.4)
 - [ ] **Phase 3**: CLI Music Scanner (Tasks 3.1-3.3)
 - [ ] **Phase 4**: WebSocket-Enhanced Sync (Tasks 4.1-4.4)
@@ -36,7 +36,7 @@
 
 ### Phase 1: Core Infrastructure Enhancement
 
-#### ✅ Task 1.1: Enhanced Media Type Detection
+#### ✅ Task 1.1: Enhanced Media Type Detection - COMPLETED ✅
 
 **Standalone Task - No Dependencies**
 
@@ -49,9 +49,9 @@
   - Reuse existing `max_blob_file_size` and `max_fs_file_size` from config
   - **Clean up file_walker.rs**: Remove JSON file I/O, checkpoint files, OUTPUT_FILE usage
 - **Acceptance Criteria**:
-  - [ ] Extend existing media config (no new top-level sections)
-  - [ ] MIME type utilities ready
-  - [ ] Remove hardcoded file extensions from file_walker.rs
+  - [x] Extend existing media config (no new top-level sections)
+  - [x] MIME type utilities ready
+  - [x] Remove hardcoded file extensions from file_walker.rs
 
 #### ✅ Task 1.2: Music Job System Setup
 
@@ -465,7 +465,7 @@ Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 
 ## Quick Task Reference
 
-**Ready to start**: 1.1, 1.3, 2.2
+**Ready to start**: 1.3, 2.2
 **After DB migration**: 1.2, 2.3, 2.4
 **After Phase 2**: 3.1, 3.2, 3.3
 **After WebSocket setup**: 4.1, 4.2

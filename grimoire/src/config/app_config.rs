@@ -163,6 +163,9 @@ pub struct MediaConfig {
     /// Maximum size for files stored on filesystem (in bytes)
     #[serde(default = "default_max_fs_file_size")]
     pub max_fs_file_size: u64,
+    /// Supported audio file formats for music scanning
+    #[serde(default = "default_supported_audio_formats")]
+    pub supported_audio_formats: Vec<String>,
     /// Thumbnail generation configuration
     #[serde(default)]
     pub thumbnails: ThumbnailConfig,
@@ -491,6 +494,16 @@ fn default_max_fs_file_size() -> u64 {
     1024 * 1024 * 1024 // 1GB
 }
 
+fn default_supported_audio_formats() -> Vec<String> {
+    vec![
+        "mp3".to_string(),
+        "ogg".to_string(),
+        "wav".to_string(),
+        "flac".to_string(),
+        "m4a".to_string(),
+    ]
+}
+
 fn default_session_same_site() -> String {
     "strict".to_string()
 }
@@ -679,6 +692,7 @@ impl AppConfig {
             media: MediaConfig {
                 max_blob_file_size: default_max_blob_file_size(),
                 max_fs_file_size: default_max_fs_file_size(),
+                supported_audio_formats: default_supported_audio_formats(),
                 thumbnails: ThumbnailConfig::default(),
             },
             notifications: crate::notifications::NotificationConfig::default(),
@@ -912,6 +926,7 @@ impl Default for AppConfig {
             media: MediaConfig {
                 max_blob_file_size: default_max_blob_file_size(),
                 max_fs_file_size: default_max_fs_file_size(),
+                supported_audio_formats: default_supported_audio_formats(),
                 thumbnails: ThumbnailConfig::default(),
             },
             notifications: crate::notifications::NotificationConfig::default(),

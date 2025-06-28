@@ -11,6 +11,7 @@ pub mod analytics;
 pub mod auth;
 pub mod config;
 pub mod database;
+pub mod filesys;
 pub mod media;
 pub mod notifications;
 pub mod thumbnails;
@@ -41,9 +42,9 @@ pub use wordlist::{
 // Re-export media types
 pub use media::{
     ClientSyncState, CreateMediaBlob, FullSyncRequest, MediaBlob, MediaBlobCursor, MediaBlobQuery,
-    MediaBlobRepository, MediaBlobService, MediaBlobStats, PaginatedResult, PaginationDirection,
-    SyncAcknowledgment, SyncCapabilities, SyncPriority, SyncRecommendations, SyncRequest,
-    SyncResponse, SyncStatus, SyncStatusResponse,
+    MediaBlobRepository, MediaBlobService, MediaBlobStats, MediaTypeDetector, MediaTypeError,
+    PaginatedResult, PaginationDirection, StorageStrategy, SyncAcknowledgment, SyncCapabilities,
+    SyncPriority, SyncRecommendations, SyncRequest, SyncResponse, SyncStatus, SyncStatusResponse,
 };
 
 // Re-export thumbnails types

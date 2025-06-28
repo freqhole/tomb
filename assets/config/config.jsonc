@@ -73,7 +73,9 @@
     // Maximum file size for blobs stored in database (10MB default)
     "max_blob_file_size": 10485760,
     // Maximum file size for files stored on filesystem (1GB default)
-    "max_fs_file_size": 1073741824
+    "max_fs_file_size": 1073741824,
+    // Supported audio file formats for music scanning
+    "supported_audio_formats": ["mp3", "ogg", "wav", "flac", "m4a"]
   },
   "notifications": {
     "channels": {},

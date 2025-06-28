@@ -55,6 +55,7 @@ pub mod models;
 pub mod repository;
 pub mod service;
 pub mod sync;
+pub mod types;
 
 pub use models::{
     CreateMediaBlob, CursorError, MediaBlob, MediaBlobCursor, MediaBlobQuery, PaginatedResult,
@@ -66,13 +67,14 @@ pub use sync::{
     ClientSyncState, FullSyncRequest, SyncAcknowledgment, SyncCapabilities, SyncError, SyncRequest,
     SyncResponse, SyncStatus, SyncStatusResponse,
 };
+pub use types::{MediaTypeDetector, MediaTypeError, StorageStrategy};
 
 /// Re-exports for convenience
 pub mod prelude {
     pub use super::{
         CreateMediaBlob, MediaBlob, MediaBlobCursor, MediaBlobQuery, MediaBlobRepository,
-        MediaBlobService, PaginatedResult, PaginationDirection, SyncRequest, SyncResponse,
-        SyncStatusResponse,
+        MediaBlobService, MediaTypeDetector, PaginatedResult, PaginationDirection, StorageStrategy,
+        SyncRequest, SyncResponse, SyncStatusResponse,
     };
 }
 
