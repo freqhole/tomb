@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, data, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at FROM media_blobs WHERE id = $1",
+  "query": "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at FROM media_blobs WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -40,16 +40,26 @@
       },
       {
         "ordinal": 7,
+        "name": "parent_blob_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "blob_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
         "name": "metadata",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -68,9 +78,11 @@
       true,
       true,
       true,
+      false,
+      true,
       true,
       true
     ]
   },
-  "hash": "0b914f9a41cf2fb79aac303c7dc82cf1375158af03f441769eb98a00070bd92a"
+  "hash": "e28bde8bfbd06834cdcaedb76c4cf914b7d62d757327887ef4456b17dbf27bc5"
 }

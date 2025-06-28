@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, data, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at FROM media_blobs WHERE sha256 = $1",
+  "query": "UPDATE media_blobs SET metadata = $1, updated_at = $2 WHERE id = $3 RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -10,67 +10,75 @@
       },
       {
         "ordinal": 1,
-        "name": "data",
-        "type_info": "Bytea"
-      },
-      {
-        "ordinal": 2,
         "name": "sha256",
         "type_info": "Text"
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "size",
         "type_info": "Int8"
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "mime",
         "type_info": "Text"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "source_client_id",
         "type_info": "Text"
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "local_path",
         "type_info": "Text"
       },
       {
+        "ordinal": 6,
+        "name": "parent_blob_id",
+        "type_info": "Uuid"
+      },
+      {
         "ordinal": 7,
+        "name": "blob_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
         "name": "metadata",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Jsonb",
+        "Timestamptz",
+        "Uuid"
       ]
     },
     "nullable": [
       false,
-      true,
       false,
       true,
       true,
       true,
       true,
+      true,
+      false,
       true,
       true,
       true
     ]
   },
-  "hash": "f2882a8fd363e7f0effb8e8153753c671ee192703a32d7f9848be4402a21090c"
+  "hash": "35ee27d87ac24b896c01e80951dff9679d56414ccb2e351faf6887db2bd8253e"
 }

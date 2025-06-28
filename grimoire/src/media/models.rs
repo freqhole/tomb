@@ -111,6 +111,9 @@ pub struct MediaBlob {
     #[serde(serialize_with = "serialize_source_client_id")]
     pub source_client_id: Option<String>,
     pub local_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_blob_id: Option<Uuid>,
+    pub blob_type: String,
     #[serde(default)]
     pub metadata: serde_json::Value,
     #[serde(with = "time::serde::rfc3339")]
@@ -168,6 +171,9 @@ pub struct CreateMediaBlob {
     pub mime: Option<String>,
     pub source_client_id: Option<String>,
     pub local_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_blob_id: Option<Uuid>,
+    pub blob_type: Option<String>,
     #[serde(default)]
     pub metadata: serde_json::Value,
 }
@@ -184,6 +190,8 @@ impl CreateMediaBlob {
             mime: self.mime,
             source_client_id: self.source_client_id,
             local_path: self.local_path,
+            parent_blob_id: self.parent_blob_id,
+            blob_type: self.blob_type.unwrap_or_else(|| "original".to_string()),
             metadata: self.metadata,
             created_at: now,
             updated_at: now,

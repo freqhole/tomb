@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, title, artist, album\n            FROM songs\n            ORDER BY created_at DESC\n            LIMIT 5\n            ",
+  "query": "\n            SELECT id, title, artist, album, thumbnail_blob_id\n            FROM songs\n            ORDER BY created_at DESC\n            LIMIT 5\n            ",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "ordinal": 3,
         "name": "album",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "thumbnail_blob_id",
+        "type_info": "Uuid"
       }
     ],
     "parameters": {
@@ -31,8 +36,9 @@
       false,
       false,
       true,
+      true,
       true
     ]
   },
-  "hash": "dc84479a495e7e83803f770af2fb74388a26964f2f990336a69a57dfb1fa7e7f"
+  "hash": "dd6f9ab75f55b2ac39321199abb203b81d0cae022467cb37b9f2effb6a16fba4"
 }

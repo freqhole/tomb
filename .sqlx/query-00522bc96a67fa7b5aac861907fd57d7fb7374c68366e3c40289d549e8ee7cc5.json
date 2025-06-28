@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO media_blobs (id, data, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n            RETURNING id, sha256, size, mime, source_client_id, local_path, metadata, created_at, updated_at\n            ",
+  "query": "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at FROM media_blobs WHERE sha256 = $1",
   "describe": {
     "columns": [
       {
@@ -10,70 +10,79 @@
       },
       {
         "ordinal": 1,
+        "name": "data",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
         "name": "sha256",
         "type_info": "Text"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "size",
         "type_info": "Int8"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "mime",
         "type_info": "Text"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "source_client_id",
         "type_info": "Text"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "local_path",
         "type_info": "Text"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
+        "name": "parent_blob_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "blob_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
         "name": "metadata",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 7,
+        "ordinal": 10,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 8,
+        "ordinal": 11,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Bytea",
-        "Text",
-        "Int8",
-        "Text",
-        "Text",
-        "Text",
-        "Jsonb",
-        "Timestamptz",
-        "Timestamptz"
+        "Text"
       ]
     },
     "nullable": [
       false,
+      true,
       false,
       true,
       true,
       true,
       true,
+      true,
+      false,
       true,
       true,
       true
     ]
   },
-  "hash": "33be55413e5e16a02922509267b0a4c24db42a8d8b9c1ced86c4dc5d281c49b6"
+  "hash": "00522bc96a67fa7b5aac861907fd57d7fb7374c68366e3c40289d549e8ee7cc5"
 }

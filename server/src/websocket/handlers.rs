@@ -444,6 +444,8 @@ async fn handle_message(
                 mime: blob.mime,
                 source_client_id: blob.source_client_id,
                 local_path: blob.local_path,
+                parent_blob_id: None, // This is an original file, not a thumbnail
+                blob_type: Some("original".to_string()),
                 metadata: blob.metadata,
             };
 

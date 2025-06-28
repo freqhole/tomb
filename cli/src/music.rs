@@ -599,6 +599,8 @@ impl MusicCommands {
             mime: Some(mime_type.clone()),
             source_client_id: Some("music-cli".to_string()),
             local_path: Some(file_path.to_string_lossy().to_string()),
+            parent_blob_id: None, // This is an original audio file, not a thumbnail
+            blob_type: Some("original".to_string()),
             metadata: serde_json::json!({
                 "audio_metadata": audio_metadata,
                 "scan_source": "cli",
@@ -624,9 +626,10 @@ impl MusicCommands {
                     mime: Some(extracted_image.format.content_type().to_string()),
                     source_client_id: Some("music-cli-thumbnail".to_string()),
                     local_path: None,
+                    parent_blob_id: Some(media_blob.id),
+                    blob_type: Some("thumbnail".to_string()),
                     metadata: serde_json::json!({
                         "thumbnail_source": "embedded_album_art",
-                        "parent_media_blob_id": media_blob.id,
                         "extracted_from": file_path.to_string_lossy(),
                         "image_format": format!("{:?}", extracted_image.format),
                         "dimensions": extracted_image.dimensions

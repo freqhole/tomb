@@ -181,6 +181,8 @@ pub async fn upload_large_file(
         mime: upload_request.infer_mime_type(),
         source_client_id: Some(format!("admin_upload_{}", user.user().id)),
         local_path: Some(relative_path.clone()),
+        parent_blob_id: None, // This is an original file, not a thumbnail
+        blob_type: Some("original".to_string()),
         metadata: upload_request.metadata,
     };
 
