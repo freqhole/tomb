@@ -62,7 +62,8 @@
   "static_files": {
     "public_directory": "assets/public",
     "private_directory": "assets/private",
-    "assets_directory": "assets"
+    "assets_directory": "assets",
+    "upload_directory": "assets/private/uploads"
   },
   "storage": {
     "analytics": "postgres",

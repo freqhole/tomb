@@ -527,7 +527,7 @@ fn default_assets_dir() -> String {
     "assets".to_string()
 }
 fn default_upload_dir() -> String {
-    "uploads".to_string()
+    "assets/private/uploads".to_string()
 }
 
 // Thumbnail configuration defaults

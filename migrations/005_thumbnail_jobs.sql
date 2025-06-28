@@ -188,15 +188,55 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Function to check if a job exists for a given media blob and job type
+-- Checks both active jobs AND existing thumbnails to prevent duplicates
 CREATE OR REPLACE FUNCTION job_exists_for_blob(blob_id UUID, job_type_param VARCHAR)
 RETURNS BOOLEAN AS $$
 BEGIN
-    RETURN EXISTS(
+    -- First check if there are active jobs for this blob+type
+    IF EXISTS(
         SELECT 1 FROM thumbnail_jobs
         WHERE media_blob_id = blob_id
         AND job_type = job_type_param
-        AND status IN ('pending', 'in_progress', 'completed')
-    );
+        AND status IN ('pending', 'in_progress')
+    ) THEN
+        RETURN TRUE;
+    END IF;
+
+    -- Then check if thumbnails already exist for this blob+type
+    -- Map job types to blob types for thumbnail existence check
+    CASE job_type_param
+        WHEN 'image_thumbnail' THEN
+            RETURN EXISTS(
+                SELECT 1 FROM media_blobs
+                WHERE parent_blob_id = blob_id
+                AND blob_type = 'thumbnail'
+            );
+        WHEN 'video_thumbnail' THEN
+            RETURN EXISTS(
+                SELECT 1 FROM media_blobs
+                WHERE parent_blob_id = blob_id
+                AND blob_type = 'thumbnail'
+            );
+        WHEN 'video_preview' THEN
+            RETURN EXISTS(
+                SELECT 1 FROM media_blobs
+                WHERE parent_blob_id = blob_id
+                AND blob_type = 'preview'
+            );
+        WHEN 'audio_waveform' THEN
+            RETURN EXISTS(
+                SELECT 1 FROM media_blobs
+                WHERE parent_blob_id = blob_id
+                AND blob_type = 'waveform'
+            );
+        ELSE
+            -- Unknown job type, check for any thumbnail
+            RETURN EXISTS(
+                SELECT 1 FROM media_blobs
+                WHERE parent_blob_id = blob_id
+                AND blob_type IN ('thumbnail', 'preview', 'waveform')
+            );
+    END CASE;
 END;
 $$ LANGUAGE plpgsql;
 

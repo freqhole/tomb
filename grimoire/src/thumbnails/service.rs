@@ -370,12 +370,20 @@ impl<'a> ThumbnailService<'a> {
         media_info: &MediaBlobInfo,
     ) -> Result<String, ThumbnailError> {
         if media_info.is_large_file() {
-            // File is stored on disk, validate it exists
-            let path = media_info.local_path.as_ref().unwrap();
-            if !Path::new(path).exists() {
-                return Err(ThumbnailError::FileNotFound(path.clone()));
+            // File is stored on disk, construct full path from relative database path
+            let relative_path = media_info.local_path.as_ref().unwrap();
+            // Database stores relative paths like "private/uploads/filename"
+            // We need to prepend "assets/" to get the full path
+            let full_path = if relative_path.starts_with("assets/") {
+                relative_path.clone()
+            } else {
+                format!("assets/{}", relative_path)
+            };
+
+            if !Path::new(&full_path).exists() {
+                return Err(ThumbnailError::FileNotFound(full_path));
             }
-            Ok(path.clone())
+            Ok(full_path)
         } else if media_info.is_small_file() {
             // File is stored in database, create temporary file
             let data = media_info.data.as_ref().unwrap();

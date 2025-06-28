@@ -93,10 +93,13 @@ impl<'a> ThumbnailRepository<'a> {
     }
 
     /// Get a thumbnail job by ID
+    /// Get a single job by ID
     pub async fn get_job(&self, job_id: Uuid) -> Result<Option<ThumbnailJob>, ThumbnailError> {
         let row = sqlx::query!(
             r#"
-            SELECT id, metadata, status, job_type, scheduled_at, retry_count, created_at, updated_at
+            SELECT id, media_blob_id, job_type, status, target_width, target_height,
+                   retry_count, max_retries, error_message, worker_id, metadata,
+                   created_at, updated_at, scheduled_at, started_at, completed_at
             FROM thumbnail_jobs
             WHERE id = $1
             "#,
@@ -106,8 +109,45 @@ impl<'a> ThumbnailRepository<'a> {
         .await?;
 
         if let Some(row) = row {
-            // For now, try to deserialize from metadata, but could be enhanced to use columns
-            let job: ThumbnailJob = serde_json::from_value(row.metadata.unwrap_or_default())?;
+            // Parse status from string to enum
+            let status = match row.status.as_str() {
+                "pending" => ThumbnailJobStatus::Pending,
+                "in_progress" => ThumbnailJobStatus::InProgress,
+                "completed" => ThumbnailJobStatus::Completed,
+                "failed" => ThumbnailJobStatus::Failed,
+                "failed_permanently" => ThumbnailJobStatus::FailedPermanently,
+                "cancelled" => ThumbnailJobStatus::Cancelled,
+                _ => ThumbnailJobStatus::Pending, // Default fallback
+            };
+
+            // Construct ThumbnailJob from columns
+            let job = ThumbnailJob {
+                id: row.id,
+                media_blob_id: row.media_blob_id,
+                job_type: ThumbnailJobType::from_str(&row.job_type)?,
+                target_dimensions: if let (Some(width), Some(height)) =
+                    (row.target_width, row.target_height)
+                {
+                    Some(ThumbnailDimensions {
+                        width: width as u32,
+                        height: height as u32,
+                        crop_strategy: CropStrategy::Fit,
+                        maintain_aspect_ratio: true,
+                    })
+                } else {
+                    None
+                },
+                status,
+                priority: ThumbnailJobPriority::Normal, // Default priority for now
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+                scheduled_at: row.scheduled_at,
+                retry_count: row.retry_count,
+                max_retries: row.max_retries,
+                error_message: row.error_message,
+                worker_id: row.worker_id,
+                metadata: row.metadata,
+            };
             Ok(Some(job))
         } else {
             Ok(None)
@@ -457,18 +497,11 @@ impl<'a> ThumbnailRepository<'a> {
         status: ThumbnailJobStatus,
         limit: i32,
     ) -> Result<Vec<ThumbnailJob>, ThumbnailError> {
-        let _state = match status {
-            ThumbnailJobStatus::Pending => "new",
-            ThumbnailJobStatus::InProgress => "in_progress",
-            ThumbnailJobStatus::Completed => "finished",
-            ThumbnailJobStatus::Failed => "failed",
-            ThumbnailJobStatus::FailedPermanently => "failed",
-            ThumbnailJobStatus::Cancelled => "failed",
-        };
-
         let rows = sqlx::query!(
             r#"
-            SELECT id, metadata, status, job_type, scheduled_at, retry_count, created_at, updated_at
+            SELECT id, media_blob_id, job_type, status, target_width, target_height,
+                   retry_count, max_retries, error_message, worker_id, metadata,
+                   created_at, updated_at, scheduled_at, started_at, completed_at
             FROM thumbnail_jobs
             WHERE status = $1
             AND (job_type LIKE '%thumbnail%' OR job_type LIKE '%waveform%')
@@ -483,7 +516,34 @@ impl<'a> ThumbnailRepository<'a> {
 
         let mut jobs = Vec::new();
         for row in rows {
-            let job: ThumbnailJob = serde_json::from_value(row.metadata.unwrap_or_default())?;
+            // Construct ThumbnailJob from columns instead of metadata
+            let job = ThumbnailJob {
+                id: row.id,
+                media_blob_id: row.media_blob_id,
+                job_type: ThumbnailJobType::from_str(&row.job_type)?,
+                target_dimensions: if let (Some(width), Some(height)) =
+                    (row.target_width, row.target_height)
+                {
+                    Some(ThumbnailDimensions {
+                        width: width as u32,
+                        height: height as u32,
+                        crop_strategy: CropStrategy::Fit,
+                        maintain_aspect_ratio: true,
+                    })
+                } else {
+                    None
+                },
+                status: status.clone(),
+                priority: ThumbnailJobPriority::Normal, // Default priority for now
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+                scheduled_at: row.scheduled_at,
+                retry_count: row.retry_count,
+                max_retries: row.max_retries,
+                error_message: row.error_message,
+                worker_id: row.worker_id,
+                metadata: row.metadata,
+            };
             jobs.push(job);
         }
 
