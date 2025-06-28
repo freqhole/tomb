@@ -361,6 +361,7 @@ async fn handle_message(
             let query = MediaBlobQuery {
                 limit: limit.map(|l| l as i64),
                 offset: offset.map(|o| o as i64),
+                only_originals: Some(true),
                 ..Default::default()
             };
 

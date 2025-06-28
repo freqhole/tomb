@@ -245,6 +245,12 @@ impl MediaBlobRepository {
             sql.push_str(&format!(" AND created_at < ${}", param_count));
         }
 
+        if let Some(only_originals) = query.only_originals {
+            if only_originals {
+                sql.push_str(" AND parent_blob_id IS NULL");
+            }
+        }
+
         // Add ordering and limit
         match direction {
             PaginationDirection::Forward => {
@@ -282,6 +288,7 @@ impl MediaBlobRepository {
         if let Some(created_before) = query.created_before {
             sqlx_query = sqlx_query.bind(created_before);
         }
+        // Note: only_originals doesn't need binding as it's just a NULL check
 
         sqlx_query = sqlx_query.bind(fetch_limit);
 
@@ -397,6 +404,14 @@ impl MediaBlobRepository {
             count_sql.push_str(&condition);
         }
 
+        if let Some(only_originals) = query.only_originals {
+            if only_originals {
+                let condition = " AND parent_blob_id IS NULL";
+                sql.push_str(condition);
+                count_sql.push_str(condition);
+            }
+        }
+
         // Add ordering and pagination to main query
         sql.push_str(" ORDER BY created_at DESC, id DESC");
         param_count += 1;
@@ -421,6 +436,7 @@ impl MediaBlobRepository {
         if let Some(created_before) = query.created_before {
             count_query = count_query.bind(created_before);
         }
+        // Note: only_originals doesn't need binding as it's just a NULL check
 
         let total_count: i64 = count_query.fetch_one(&self.pool).await?.get(0);
 
@@ -441,6 +457,7 @@ impl MediaBlobRepository {
         if let Some(created_before) = query.created_before {
             main_query = main_query.bind(created_before);
         }
+        // Note: only_originals doesn't need binding as it's just a NULL check
         main_query = main_query.bind(limit).bind(offset);
 
         let rows = main_query.fetch_all(&self.pool).await?;

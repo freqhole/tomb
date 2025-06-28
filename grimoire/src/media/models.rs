@@ -28,6 +28,7 @@ pub struct MediaBlobQuery {
     pub mime_pattern: Option<String>,
     pub created_after: Option<OffsetDateTime>,
     pub created_before: Option<OffsetDateTime>,
+    pub only_originals: Option<bool>,
 }
 
 /// Direction for cursor-based pagination

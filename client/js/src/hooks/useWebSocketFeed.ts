@@ -85,17 +85,10 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
     autoRefresh = false,
   } = config;
 
-  // Helper function to check if a blob is a thumbnail
+  // Helper function to check if a blob is a thumbnail (for real-time notifications only)
   const isThumbnailBlob = (item: MediaBlob): boolean => {
     // Check if this blob has a parent (indicating it's derived from another blob)
-    if (item.parent_blob_id) {
-      log(
-        `🔍 Filtering derived blob: ${item.id.slice(0, 8)} (type: ${item.blob_type}, parent: ${item.parent_blob_id.slice(0, 8)})`
-      );
-      return true;
-    }
-
-    return false;
+    return !!item.parent_blob_id;
   };
 
   const [client, setClient] = createSignal<WebSocketClient | null>(null);
@@ -132,9 +125,9 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
   };
 
   const addFeedItem = (item: MediaBlob) => {
-    // Filter out thumbnail blobs
+    // Filter out thumbnail blobs from real-time notifications
     if (isThumbnailBlob(item)) {
-      log("Filtered out thumbnail blob:", item.id);
+      log("Filtered out thumbnail blob from real-time notification:", item.id);
       return;
     }
 
@@ -300,27 +293,12 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
       const isLoadingMore = state.isLoadingMore;
       const targetPage = state.targetPage;
 
-      // Filter out thumbnail blobs from the loaded data
-      const filteredBlobs = data.blobs.filter((blob) => {
-        const isThumb = isThumbnailBlob(blob);
-        if (isThumb) {
-          log(
-            `🖼️ Filtering thumbnail: ${blob.id.slice(0, 8)} (type: ${blob.blob_type}, parent: ${blob.parent_blob_id?.slice(0, 8) || "none"})`
-          );
-        }
-        return !isThumb;
-      });
-      log(
-        "✅ Filtered out",
-        data.blobs.length - filteredBlobs.length,
-        "thumbnail blobs, kept",
-        filteredBlobs.length,
-        "parent blobs"
-      );
+      // Server-side filtering ensures only original blobs are returned
+      log("✅ Loaded", data.blobs.length, "original media blobs");
 
       const newItems = isLoadingMore
-        ? [...state.items, ...filteredBlobs]
-        : filteredBlobs;
+        ? [...state.items, ...data.blobs]
+        : data.blobs;
 
       // Determine the correct page number
       let newPage: number;
