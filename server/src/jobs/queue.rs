@@ -167,6 +167,9 @@ impl ThumbnailJobQueue {
                             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                         }
                     }
+
+                    // Add small delay between job polls to prevent hammering the database
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
             });
 

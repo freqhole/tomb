@@ -28,6 +28,8 @@ pub enum ThumbnailCommands {
     Debug(DebugArgs),
     /// Bulk generate thumbnails for existing media blobs
     BulkGenerate(BulkGenerateArgs),
+    /// Clean up duplicate thumbnails
+    CleanupDuplicates(CleanupDuplicatesArgs),
 }
 
 /// Arguments for validating thumbnail tools
@@ -208,6 +210,26 @@ pub struct BulkGenerateArgs {
     pub dry_run: bool,
 }
 
+/// Arguments for cleaning up duplicate thumbnails
+#[derive(Debug, Clone, Args)]
+pub struct CleanupDuplicatesArgs {
+    /// Configuration file path
+    #[arg(short, long, default_value = "assets/config/config.jsonc")]
+    pub config: PathBuf,
+
+    /// Dry run - don't actually delete duplicates
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Keep strategy: 'first' (oldest) or 'last' (newest)
+    #[arg(long, default_value = "first")]
+    pub keep: String,
+
+    /// Show detailed information about what will be deleted
+    #[arg(short, long)]
+    pub verbose: bool,
+}
+
 /// Execute thumbnail-related commands
 pub async fn execute_thumbnail_command(
     command: ThumbnailCommands,
@@ -223,6 +245,7 @@ pub async fn execute_thumbnail_command(
         ThumbnailCommands::Maintenance(args) => run_maintenance(args).await,
         ThumbnailCommands::Debug(args) => debug_jobs(args).await,
         ThumbnailCommands::BulkGenerate(args) => bulk_generate_thumbnails(args).await,
+        ThumbnailCommands::CleanupDuplicates(args) => cleanup_duplicate_thumbnails(args).await,
     }
 }
 
@@ -790,7 +813,7 @@ async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
 
         // Query raw database record
         let row = sqlx::query!(
-                "SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at FROM thumbnail_jobs WHERE id = $1",
+                "SELECT id, metadata, status, job_type, scheduled_at, retry_count, created_at, updated_at FROM thumbnail_jobs WHERE id = $1",
                 job_id
             )
             .fetch_optional(db.pool())
@@ -799,9 +822,9 @@ async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(row) = row {
             println!("Raw Database Record:");
             println!("  ID: {}", row.id);
-            println!("  State: {}", row.state);
-            println!("  Task Type: {}", row.task_type);
-            println!("  Retries: {}", row.retries);
+            println!("  Status: {}", row.status);
+            println!("  Job Type: {}", row.job_type);
+            println!("  Retry Count: {}", row.retry_count);
             println!("  Created: {}", row.created_at);
             println!("  Metadata JSON:");
 
@@ -809,7 +832,9 @@ async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
                 println!("{}", serde_json::to_string_pretty(&row.metadata)?);
             } else {
                 // Try to deserialize as ThumbnailJob
-                match serde_json::from_value::<grimoire::ThumbnailJob>(row.metadata.clone()) {
+                match serde_json::from_value::<grimoire::ThumbnailJob>(
+                    row.metadata.clone().unwrap_or_default(),
+                ) {
                     Ok(job) => {
                         println!("  ✅ Successfully deserialized as ThumbnailJob:");
                         println!("    Media Blob ID: {}", job.media_blob_id);
@@ -829,7 +854,7 @@ async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         // Show general database state
         let recent_jobs = sqlx::query!(
-                "SELECT id, metadata, state, task_type, created_at FROM thumbnail_jobs ORDER BY created_at DESC LIMIT 5"
+                "SELECT id, metadata, status, job_type, created_at FROM thumbnail_jobs ORDER BY created_at DESC LIMIT 10"
             )
             .fetch_all(db.pool())
             .await?;
@@ -837,12 +862,14 @@ async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
         println!("Recent 5 Jobs:");
         for row in recent_jobs {
             println!(
-                "  ID: {} | State: {} | Type: {} | Created: {}",
-                row.id, row.state, row.task_type, row.created_at
+                "  ID: {} | Status: {} | Type: {} | Created: {}",
+                row.id, row.status, row.job_type, row.created_at
             );
 
             // Try to extract media_blob_id from metadata
-            if let Ok(metadata) = serde_json::from_value::<serde_json::Value>(row.metadata) {
+            if let Ok(metadata) =
+                serde_json::from_value::<serde_json::Value>(row.metadata.unwrap_or_default())
+            {
                 if let Some(media_blob_id) = metadata.get("media_blob_id") {
                     println!("    Media Blob ID: {}", media_blob_id);
                 } else {
@@ -955,6 +982,134 @@ async fn bulk_generate_thumbnails(
     println!("  ✅ Successful: {}", successful);
     println!("  ❌ Failed: {}", failed);
     println!("  📝 Total: {}", successful + failed);
+
+    Ok(())
+}
+
+/// Clean up duplicate thumbnails for media blobs
+async fn cleanup_duplicate_thumbnails(
+    args: CleanupDuplicatesArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = AppConfig::from_file(&args.config)?;
+
+    // Connect to database
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = grimoire::DatabaseConnection::new(pool);
+
+    println!("🧹 Thumbnail Duplicate Cleanup");
+    println!("{}", "=".repeat(80));
+
+    // Validate keep strategy
+    let keep_strategy = match args.keep.as_str() {
+        "first" | "oldest" => grimoire::thumbnails::KeepStrategy::First,
+        "last" | "newest" => grimoire::thumbnails::KeepStrategy::Last,
+        _ => return Err("Invalid keep strategy. Use 'first' or 'last'".into()),
+    };
+
+    println!(
+        "Strategy: Keep {} thumbnail per blob type",
+        match keep_strategy {
+            grimoire::thumbnails::KeepStrategy::First => "first",
+            grimoire::thumbnails::KeepStrategy::Last => "last",
+        }
+    );
+
+    let service = grimoire::ThumbnailService::new_with_defaults(&db);
+
+    // Find duplicate thumbnails
+    // get_pending_jobs
+    // service.get_pending_jobs(limit)
+    let duplicate_groups = service.find_duplicate_thumbnails().await?;
+
+    if duplicate_groups.is_empty() {
+        println!("✅ No duplicate thumbnails found!");
+        return Ok(());
+    }
+
+    println!(
+        "Found {} groups with duplicate thumbnails:",
+        duplicate_groups.len()
+    );
+
+    let mut total_to_delete = 0;
+
+    for group in &duplicate_groups {
+        println!(
+            "  📁 Blob {} ({}): {} duplicates",
+            group
+                .parent_blob_id
+                .to_string()
+                .chars()
+                .take(8)
+                .collect::<String>(),
+            group.blob_type,
+            group.duplicate_count
+        );
+
+        if args.verbose {
+            for id in &group.thumbnail_ids {
+                println!("    - {}", id);
+            }
+        }
+
+        // Calculate how many will be deleted based on strategy
+        let will_delete = group.duplicate_count - 1; // Keep one, delete the rest
+        total_to_delete += will_delete;
+
+        if args.verbose {
+            println!("    → Will delete {} thumbnails", will_delete);
+        }
+    }
+
+    println!();
+    println!("📊 Summary:");
+    println!("  Total duplicate groups: {}", duplicate_groups.len());
+    println!("  Total thumbnails to delete: {}", total_to_delete);
+
+    if args.dry_run {
+        println!("🔍 DRY RUN - No deletions performed");
+        println!("Run without --dry-run to actually delete duplicates");
+        return Ok(());
+    }
+
+    if total_to_delete == 0 {
+        println!("✅ Nothing to delete!");
+        return Ok(());
+    }
+
+    // Confirm deletion
+    print!(
+        "⚠️  Are you sure you want to delete {} thumbnails? (y/N): ",
+        total_to_delete
+    );
+    use std::io::{self, Write};
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+
+    if !input.trim().to_lowercase().starts_with('y') {
+        println!("❌ Deletion cancelled");
+        return Ok(());
+    }
+
+    // Perform cleanup using the service
+    println!("🗑️  Deleting duplicate thumbnails...");
+    let cleanup_result = service.cleanup_duplicate_thumbnails(keep_strategy).await?;
+
+    println!();
+    println!(
+        "✅ Successfully processed {} groups and deleted {} duplicate thumbnails",
+        cleanup_result.groups_processed, cleanup_result.thumbnails_deleted
+    );
+
+    // Verify cleanup was complete
+    let remaining_duplicates = service.find_duplicate_thumbnails().await?;
+    if remaining_duplicates.is_empty() {
+        println!("🎉 All duplicate thumbnails cleaned up!");
+    } else {
+        println!("⚠️  {} duplicate groups remain", remaining_duplicates.len());
+    }
 
     Ok(())
 }

@@ -61,22 +61,8 @@ impl ThumbnailJobProcessor {
             "Starting thumbnail generation job"
         );
 
-        // Update job status to in progress
-        if let Err(e) = service
-            .update_job_status(
-                job.id,
-                ThumbnailJobStatus::InProgress,
-                None,
-                Some(self.worker_id.clone()),
-            )
-            .await
-        {
-            tracing::warn!(
-                job_id = %job.id,
-                error = %e,
-                "Failed to update job status to in progress"
-            );
-        }
+        // Job is already marked as in_progress when claimed from the queue
+        // No need to update status again here
 
         // Generate the thumbnail
         match service.generate_thumbnail(job).await {

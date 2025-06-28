@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                AVG(jel.duration_ms)::FLOAT as avg_processing_time_ms,\n                COUNT(jel.id) as total_executions\n            FROM thumbnail_jobs tj\n            LEFT JOIN job_execution_log jel ON tj.id = jel.job_id\n            WHERE jel.completed_at IS NOT NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "avg_processing_time_ms",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 1,
+        "name": "total_executions",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "0a481389d23eb5bb3eed0f3e2d59dffeb9d0413be3418743c2b905488100b744"
+}

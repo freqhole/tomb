@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, media_blob_id, job_type, target_width, target_height, retry_count, max_retries, metadata, created_at, scheduled_at\n            FROM claim_thumbnail_jobs($1, $2)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "media_blob_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "job_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "target_width",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "target_height",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "retry_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "max_retries",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "scheduled_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "87d9c22ffe0231ddfba63553bca9234e9a7f45e1d7b6e9ee90d22d8f6a45942a"
+}

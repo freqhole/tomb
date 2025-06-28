@@ -1,10 +1,12 @@
 use super::models::{
-    MediaBlobInfo, ThumbnailError, ThumbnailJob, ThumbnailJobMetrics, ThumbnailJobPriority,
-    ThumbnailJobStatus, ThumbnailJobType, ThumbnailResult,
+    CropStrategy, MediaBlobInfo, ThumbnailDimensions, ThumbnailError, ThumbnailJob,
+    ThumbnailJobMetrics, ThumbnailJobPriority, ThumbnailJobStatus, ThumbnailJobType,
+    ThumbnailResult,
 };
 use crate::DatabaseConnection;
 
 use sha2::{Digest, Sha256};
+use sqlx::Row;
 use std::fs::File;
 use std::io::Read;
 use time::OffsetDateTime;
@@ -23,16 +25,13 @@ impl<'a> ThumbnailRepository<'a> {
 
     /// Create a new thumbnail job in the job queue
     pub async fn enqueue_job(&self, job: &ThumbnailJob) -> Result<(), ThumbnailError> {
-        // Insert into thumbnail_jobs table for job queue processing
-        let metadata = serde_json::to_value(job)?;
-
         // Map ThumbnailJobStatus to the status column
         let status = match job.status {
             ThumbnailJobStatus::Pending => "pending",
-            ThumbnailJobStatus::InProgress => "processing",
+            ThumbnailJobStatus::InProgress => "in_progress",
             ThumbnailJobStatus::Completed => "completed",
             ThumbnailJobStatus::Failed => "failed",
-            ThumbnailJobStatus::FailedPermanently => "failed",
+            ThumbnailJobStatus::FailedPermanently => "failed_permanently",
             ThumbnailJobStatus::Cancelled => "cancelled",
         };
 
@@ -45,36 +44,48 @@ impl<'a> ThumbnailRepository<'a> {
         };
 
         // Extract dimensions if available
-        let (width, height) = if let Some(ref dims) = job.target_dimensions {
+        let (target_width, target_height) = if let Some(ref dims) = job.target_dimensions {
             (Some(dims.width as i32), Some(dims.height as i32))
         } else {
             (None, None)
         };
 
+        // Store any additional metadata as JSONB for extensibility
+        let metadata = if let Some(ref error_msg) = job.error_message {
+            serde_json::json!({
+                "error_message": error_msg,
+                "original_job": serde_json::to_value(job)?
+            })
+        } else {
+            serde_json::json!({
+                "original_job": serde_json::to_value(job)?
+            })
+        };
+
         sqlx::query(
             r#"
             INSERT INTO thumbnail_jobs (
-                id, media_blob_id, status, priority, width, height,
-                metadata, state, task_type, scheduled_at, retries,
-                created_at, updated_at, error_message
+                id, media_blob_id, job_type, status, priority,
+                target_width, target_height, scheduled_at, retry_count,
+                max_retries, error_message, metadata, created_at, updated_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             "#,
         )
         .bind(job.id)
         .bind(job.media_blob_id)
+        .bind(job.job_type.to_string())
         .bind(status)
         .bind(priority)
-        .bind(width)
-        .bind(height)
-        .bind(metadata)
-        .bind("new")
-        .bind(job.job_type.to_string())
+        .bind(target_width)
+        .bind(target_height)
         .bind(job.scheduled_at)
         .bind(job.retry_count)
+        .bind(job.max_retries)
+        .bind(job.error_message.clone())
+        .bind(metadata)
         .bind(job.created_at)
         .bind(job.updated_at)
-        .bind(job.error_message.clone())
         .execute(self.db.pool())
         .await?;
 
@@ -85,9 +96,9 @@ impl<'a> ThumbnailRepository<'a> {
     pub async fn get_job(&self, job_id: Uuid) -> Result<Option<ThumbnailJob>, ThumbnailError> {
         let row = sqlx::query!(
             r#"
-            SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at
+            SELECT id, metadata, status, job_type, scheduled_at, retry_count, created_at, updated_at
             FROM thumbnail_jobs
-            WHERE id = $1 AND task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%'
+            WHERE id = $1
             "#,
             job_id
         )
@@ -95,7 +106,8 @@ impl<'a> ThumbnailRepository<'a> {
         .await?;
 
         if let Some(row) = row {
-            let job: ThumbnailJob = serde_json::from_value(row.metadata)?;
+            // For now, try to deserialize from metadata, but could be enhanced to use columns
+            let job: ThumbnailJob = serde_json::from_value(row.metadata.unwrap_or_default())?;
             Ok(Some(job))
         } else {
             Ok(None)
@@ -113,29 +125,31 @@ impl<'a> ThumbnailRepository<'a> {
         // First get the current job to update the metadata
         if let Some(mut job) = self.get_job(job_id).await? {
             job.status = status.clone();
-            job.error_message = error_message;
-            job.worker_id = worker_id;
+            job.error_message = error_message.clone();
+            job.worker_id = worker_id.clone();
             job.updated_at = OffsetDateTime::now_utc();
 
             let metadata = serde_json::to_value(job)?;
-            let state = match status {
-                ThumbnailJobStatus::Pending => "new",
-                ThumbnailJobStatus::InProgress => "running",
-                ThumbnailJobStatus::Completed => "finished",
+            let status_str = match status {
+                ThumbnailJobStatus::Pending => "pending",
+                ThumbnailJobStatus::InProgress => "in_progress",
+                ThumbnailJobStatus::Completed => "completed",
                 ThumbnailJobStatus::Failed => "failed",
-                ThumbnailJobStatus::FailedPermanently => "failed",
+                ThumbnailJobStatus::FailedPermanently => "failed_permanently",
                 ThumbnailJobStatus::Cancelled => "cancelled",
             };
 
             sqlx::query!(
                 r#"
                 UPDATE thumbnail_jobs
-                SET metadata = $1, state = $2, updated_at = $3
-                WHERE id = $4
+                SET metadata = $1, status = $2, updated_at = $3, error_message = $4, worker_id = $5
+                WHERE id = $6
                 "#,
                 metadata,
-                state,
-                OffsetDateTime::now_utc(),
+                status_str,
+                time::OffsetDateTime::now_utc(),
+                error_message,
+                worker_id,
                 job_id
             )
             .execute(self.db.pool())
@@ -145,26 +159,51 @@ impl<'a> ThumbnailRepository<'a> {
         Ok(())
     }
 
-    /// Get pending jobs ready for processing
+    /// Get pending jobs ready for processing using atomic claiming
     pub async fn get_pending_jobs(&self, limit: i32) -> Result<Vec<ThumbnailJob>, ThumbnailError> {
+        // Generate a worker ID for atomic claiming
+        let worker_id = format!("worker_{}", uuid::Uuid::new_v4());
+
         let rows = sqlx::query!(
             r#"
-            SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at
-            FROM thumbnail_jobs
-            WHERE state = 'new' OR state = 'retried'
-            AND (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')
-            AND scheduled_at <= NOW()
-            ORDER BY scheduled_at ASC
-            LIMIT $1
+            SELECT id, media_blob_id, job_type, target_width, target_height, retry_count, max_retries, metadata, created_at, scheduled_at
+            FROM claim_thumbnail_jobs($1, $2)
             "#,
-            limit as i64
+            worker_id,
+            limit
         )
         .fetch_all(self.db.pool())
         .await?;
 
         let mut jobs = Vec::new();
         for row in rows {
-            let job: ThumbnailJob = serde_json::from_value(row.metadata)?;
+            let job = ThumbnailJob {
+                id: row.id.unwrap(),
+                media_blob_id: row.media_blob_id.unwrap(),
+                job_type: ThumbnailJobType::from_str(&row.job_type.unwrap())?,
+                target_dimensions: if let (Some(width), Some(height)) =
+                    (row.target_width, row.target_height)
+                {
+                    Some(ThumbnailDimensions {
+                        width: width as u32,
+                        height: height as u32,
+                        crop_strategy: CropStrategy::Fit,
+                        maintain_aspect_ratio: true,
+                    })
+                } else {
+                    None
+                },
+                status: ThumbnailJobStatus::InProgress, // Already claimed as in_progress
+                priority: ThumbnailJobPriority::Normal, // Will be enhanced in future
+                created_at: row.created_at.unwrap(),
+                updated_at: time::OffsetDateTime::now_utc(),
+                scheduled_at: row.scheduled_at.unwrap(),
+                retry_count: row.retry_count.unwrap(),
+                max_retries: row.max_retries.unwrap(),
+                error_message: None,
+                worker_id: Some(worker_id.clone()),
+                metadata: row.metadata,
+            };
             jobs.push(job);
         }
 
@@ -300,15 +339,10 @@ impl<'a> ThumbnailRepository<'a> {
     ) -> Result<bool, ThumbnailError> {
         let exists = sqlx::query_scalar!(
             r#"
-            SELECT EXISTS(
-                SELECT 1 FROM thumbnail_jobs
-                WHERE task_type = $1
-                AND state IN ('new', 'in_progress', 'retried', 'finished')
-                AND media_blob_id = $2
-            )
+            SELECT job_exists_for_blob($1, $2)
             "#,
-            job_type.to_string(),
-            blob_id
+            blob_id,
+            job_type.to_string()
         )
         .fetch_one(self.db.pool())
         .await?;
@@ -323,12 +357,12 @@ impl<'a> ThumbnailRepository<'a> {
             r#"
             SELECT
                 COUNT(*) as total_jobs,
-                COUNT(CASE WHEN state = 'new' OR state = 'retried' THEN 1 END) as pending_jobs,
-                COUNT(CASE WHEN state = 'in_progress' THEN 1 END) as in_progress_jobs,
-                COUNT(CASE WHEN state = 'finished' THEN 1 END) as completed_jobs,
-                COUNT(CASE WHEN state = 'failed' THEN 1 END) as failed_jobs
+                COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_jobs,
+                COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress_jobs,
+                COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_jobs,
+                COUNT(CASE WHEN status = 'failed' OR status = 'failed_permanently' THEN 1 END) as failed_jobs
             FROM thumbnail_jobs
-            WHERE task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%'
+            WHERE job_type LIKE '%thumbnail%' OR job_type LIKE '%waveform%'
             "#
         )
         .fetch_one(self.db.pool())
@@ -338,12 +372,11 @@ impl<'a> ThumbnailRepository<'a> {
         let perf_row = sqlx::query!(
             r#"
             SELECT
-                AVG(jel.duration_ms)::FLOAT as avg_processing_time,
-                (COUNT(*) FILTER (WHERE jel.success = true) * 100.0 / COUNT(*))::FLOAT as success_rate
-            FROM thumbnail_jobs ft
-            LEFT JOIN job_execution_log jel ON ft.id = jel.task_id
-            WHERE (ft.task_type LIKE '%thumbnail%' OR ft.task_type LIKE '%waveform%')
-            AND jel.completed_at IS NOT NULL
+                AVG(jel.duration_ms)::FLOAT as avg_processing_time_ms,
+                COUNT(jel.id) as total_executions
+            FROM thumbnail_jobs tj
+            LEFT JOIN job_execution_log jel ON tj.id = jel.job_id
+            WHERE jel.completed_at IS NOT NULL
             "#
         )
         .fetch_one(self.db.pool())
@@ -355,8 +388,8 @@ impl<'a> ThumbnailRepository<'a> {
             in_progress_jobs: summary_row.in_progress_jobs.unwrap_or(0),
             completed_jobs: summary_row.completed_jobs.unwrap_or(0),
             failed_jobs: summary_row.failed_jobs.unwrap_or(0),
-            average_processing_time_ms: perf_row.avg_processing_time.unwrap_or(0.0),
-            success_rate: perf_row.success_rate.unwrap_or(0.0),
+            average_processing_time_ms: perf_row.avg_processing_time_ms.unwrap_or(0.0),
+            success_rate: 0.0, // Will be calculated from total_executions if needed
             jobs_by_type: Vec::new(), // TODO: Implement detailed type metrics
         })
     }
@@ -369,8 +402,8 @@ impl<'a> ThumbnailRepository<'a> {
         let result = sqlx::query!(
             r#"
             DELETE FROM thumbnail_jobs
-            WHERE (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')
-            AND state IN ('finished', 'failed')
+            WHERE (job_type LIKE '%thumbnail%' OR job_type LIKE '%waveform%')
+            AND status IN ('completed', 'failed_permanently', 'cancelled')
             AND updated_at < $1
             "#,
             older_than
@@ -387,13 +420,16 @@ impl<'a> ThumbnailRepository<'a> {
             r#"
             UPDATE thumbnail_jobs
             SET
-                state = 'retried',
-                retries = retries + 1,
+                status = 'pending',
+                retry_count = retry_count + 1,
                 scheduled_at = NOW(),
-                updated_at = NOW()
-            WHERE (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')
-            AND state = 'failed'
-            AND retries < $1
+                updated_at = NOW(),
+                worker_id = NULL,
+                started_at = NULL,
+                error_message = NULL
+            WHERE (job_type LIKE '%thumbnail%' OR job_type LIKE '%waveform%')
+            AND status = 'failed'
+            AND retry_count < $1
             "#,
             max_retries
         )
@@ -409,7 +445,7 @@ impl<'a> ThumbnailRepository<'a> {
         status: ThumbnailJobStatus,
         limit: i32,
     ) -> Result<Vec<ThumbnailJob>, ThumbnailError> {
-        let state = match status {
+        let _state = match status {
             ThumbnailJobStatus::Pending => "new",
             ThumbnailJobStatus::InProgress => "in_progress",
             ThumbnailJobStatus::Completed => "finished",
@@ -420,14 +456,14 @@ impl<'a> ThumbnailRepository<'a> {
 
         let rows = sqlx::query!(
             r#"
-            SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at
+            SELECT id, metadata, status, job_type, scheduled_at, retry_count, created_at, updated_at
             FROM thumbnail_jobs
-            WHERE state = $1
-            AND (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')
-            ORDER BY updated_at DESC
+            WHERE status = $1
+            AND (job_type LIKE '%thumbnail%' OR job_type LIKE '%waveform%')
+            ORDER BY scheduled_at ASC
             LIMIT $2
             "#,
-            state,
+            status.to_string(),
             limit as i64
         )
         .fetch_all(self.db.pool())
@@ -435,7 +471,7 @@ impl<'a> ThumbnailRepository<'a> {
 
         let mut jobs = Vec::new();
         for row in rows {
-            let job: ThumbnailJob = serde_json::from_value(row.metadata)?;
+            let job: ThumbnailJob = serde_json::from_value(row.metadata.unwrap_or_default())?;
             jobs.push(job);
         }
 
@@ -457,4 +493,71 @@ impl<'a> ThumbnailRepository<'a> {
 
         Ok(())
     }
+
+    /// Find duplicate thumbnails grouped by parent blob and type
+    pub async fn find_duplicate_thumbnails(
+        &self,
+    ) -> Result<Vec<DuplicateGroupRow>, ThumbnailError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                parent_blob_id,
+                blob_type,
+                COUNT(*) as duplicate_count,
+                ARRAY_AGG(id ORDER BY created_at ASC) as thumbnail_ids
+            FROM media_blobs
+            WHERE blob_type IN ('thumbnail', 'preview', 'waveform')
+            AND parent_blob_id IS NOT NULL
+            GROUP BY parent_blob_id, blob_type
+            HAVING COUNT(*) > 1
+            ORDER BY duplicate_count DESC
+            "#,
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let mut duplicate_groups = Vec::new();
+        for row in rows {
+            let parent_blob_id: Option<Uuid> = row.get("parent_blob_id");
+            let blob_type: String = row.get("blob_type");
+            let duplicate_count: Option<i64> = row.get("duplicate_count");
+            let thumbnail_ids: Option<Vec<Uuid>> = row.get("thumbnail_ids");
+
+            if let (Some(parent_blob_id), Some(duplicate_count), Some(thumbnail_ids)) =
+                (parent_blob_id, duplicate_count, thumbnail_ids)
+            {
+                duplicate_groups.push(DuplicateGroupRow {
+                    parent_blob_id,
+                    blob_type,
+                    duplicate_count: duplicate_count as usize,
+                    thumbnail_ids,
+                });
+            }
+        }
+
+        Ok(duplicate_groups)
+    }
+
+    /// Delete thumbnails by their IDs
+    pub async fn delete_thumbnails_by_ids(&self, ids: &[Uuid]) -> Result<u64, ThumbnailError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let delete_result = sqlx::query("DELETE FROM media_blobs WHERE id = ANY($1)")
+            .bind(ids)
+            .execute(self.db.pool())
+            .await?;
+
+        Ok(delete_result.rows_affected())
+    }
+}
+
+/// Raw data from duplicate thumbnails query
+#[derive(Debug)]
+pub struct DuplicateGroupRow {
+    pub parent_blob_id: Uuid,
+    pub blob_type: String,
+    pub duplicate_count: usize,
+    pub thumbnail_ids: Vec<Uuid>,
 }

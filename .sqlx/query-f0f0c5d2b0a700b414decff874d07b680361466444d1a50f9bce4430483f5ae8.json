@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, metadata, state, task_type, scheduled_at, retries, created_at, updated_at\n            FROM thumbnail_jobs\n            WHERE state = $1\n            AND (task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%')\n            ORDER BY updated_at DESC\n            LIMIT $2\n            ",
+  "query": "\n            SELECT id, metadata, status, job_type, scheduled_at, retry_count, created_at, updated_at\n            FROM thumbnail_jobs\n            WHERE id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -15,12 +15,12 @@
       },
       {
         "ordinal": 2,
-        "name": "state",
+        "name": "status",
         "type_info": "Varchar"
       },
       {
         "ordinal": 3,
-        "name": "task_type",
+        "name": "job_type",
         "type_info": "Varchar"
       },
       {
@@ -30,7 +30,7 @@
       },
       {
         "ordinal": 5,
-        "name": "retries",
+        "name": "retry_count",
         "type_info": "Int4"
       },
       {
@@ -46,13 +46,12 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
       false,
-      false,
+      true,
       false,
       false,
       false,
@@ -61,5 +60,5 @@
       false
     ]
   },
-  "hash": "fa56450d597a1172b2b527f255f1d27268439a237b2b2e16eab69b13c2851e5e"
+  "hash": "f0f0c5d2b0a700b414decff874d07b680361466444d1a50f9bce4430483f5ae8"
 }

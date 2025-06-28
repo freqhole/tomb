@@ -14,4 +14,4 @@ pub use models::{
     ThumbnailJobType, ThumbnailResult, ThumbnailTimeouts,
 };
 pub use repository::ThumbnailRepository;
-pub use service::ThumbnailService;
+pub use service::{CleanupResult, DuplicateGroup, KeepStrategy, ThumbnailService};

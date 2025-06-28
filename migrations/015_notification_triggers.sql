@@ -102,11 +102,12 @@ BEGIN
             'event_type', event_type,
             'job_id', NEW.id,
             'media_blob_id', NEW.media_blob_id,
+            'job_type', NEW.job_type,
             'status', NEW.status,
             'priority', NEW.priority,
             'dimensions', jsonb_build_object(
-                'width', NEW.width,
-                'height', NEW.height
+                'width', NEW.target_width,
+                'height', NEW.target_height
             ),
             'created_at', NEW.created_at
         );
@@ -118,7 +119,7 @@ BEGIN
                     event_type := 'thumbnail_job.completed';
                 WHEN 'failed' THEN
                     event_type := 'thumbnail_job.failed';
-                WHEN 'processing' THEN
+                WHEN 'in_progress' THEN
                     event_type := 'thumbnail_job.started';
                 ELSE
                     event_type := 'thumbnail_job.updated';
@@ -131,11 +132,12 @@ BEGIN
             'event_type', event_type,
             'job_id', NEW.id,
             'media_blob_id', NEW.media_blob_id,
+            'job_type', NEW.job_type,
             'status', NEW.status,
             'priority', NEW.priority,
             'dimensions', jsonb_build_object(
-                'width', NEW.width,
-                'height', NEW.height
+                'width', NEW.target_width,
+                'height', NEW.target_height
             ),
             'updated_at', NEW.updated_at,
             'processing_time_ms', CASE

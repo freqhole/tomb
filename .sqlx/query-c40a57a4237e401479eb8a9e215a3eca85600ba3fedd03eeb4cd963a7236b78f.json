@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, metadata, state, task_type, created_at FROM thumbnail_jobs ORDER BY created_at DESC LIMIT 5",
+  "query": "SELECT id, metadata, status, job_type, created_at FROM thumbnail_jobs ORDER BY created_at DESC LIMIT 10",
   "describe": {
     "columns": [
       {
@@ -15,12 +15,12 @@
       },
       {
         "ordinal": 2,
-        "name": "state",
+        "name": "status",
         "type_info": "Varchar"
       },
       {
         "ordinal": 3,
-        "name": "task_type",
+        "name": "job_type",
         "type_info": "Varchar"
       },
       {
@@ -34,11 +34,11 @@
     },
     "nullable": [
       false,
-      false,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "1a7a9bc4a1fadcbc52db4ff14a16ec88730b6314fbec4b300fbb84d0c2172781"
+  "hash": "c40a57a4237e401479eb8a9e215a3eca85600ba3fedd03eeb4cd963a7236b78f"
 }

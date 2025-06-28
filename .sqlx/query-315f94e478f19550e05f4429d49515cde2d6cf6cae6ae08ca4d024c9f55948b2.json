@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE thumbnail_jobs\n                SET metadata = $1, status = $2, updated_at = $3, error_message = $4, worker_id = $5\n                WHERE id = $6\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Varchar",
+        "Timestamptz",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "315f94e478f19550e05f4429d49515cde2d6cf6cae6ae08ca4d024c9f55948b2"
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                COUNT(*) as total_jobs,\n                COUNT(CASE WHEN state = 'new' OR state = 'retried' THEN 1 END) as pending_jobs,\n                COUNT(CASE WHEN state = 'in_progress' THEN 1 END) as in_progress_jobs,\n                COUNT(CASE WHEN state = 'finished' THEN 1 END) as completed_jobs,\n                COUNT(CASE WHEN state = 'failed' THEN 1 END) as failed_jobs\n            FROM thumbnail_jobs\n            WHERE task_type LIKE '%thumbnail%' OR task_type LIKE '%waveform%'\n            ",
+  "query": "\n            SELECT\n                COUNT(*) as total_jobs,\n                COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_jobs,\n                COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress_jobs,\n                COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_jobs,\n                COUNT(CASE WHEN status = 'failed' OR status = 'failed_permanently' THEN 1 END) as failed_jobs\n            FROM thumbnail_jobs\n            WHERE job_type LIKE '%thumbnail%' OR job_type LIKE '%waveform%'\n            ",
   "describe": {
     "columns": [
       {
@@ -40,5 +40,5 @@
       null
     ]
   },
-  "hash": "8ceb85be025e3b133cee92f1728cf3aeb3fbf40582f2cd55038dd6bc1fd5547e"
+  "hash": "5deec6d6e6869a733a2a480c96ce9670e36c36d82d4cd0dae0b5d49c00084a72"
 }

@@ -8,7 +8,7 @@ use super::models::{
     ThumbnailJob, ThumbnailJobMetrics, ThumbnailJobPriority, ThumbnailJobStatus, ThumbnailJobType,
     ThumbnailResult,
 };
-use super::repository::ThumbnailRepository;
+use super::repository::{DuplicateGroupRow, ThumbnailRepository};
 use crate::DatabaseConnection;
 
 use std::path::Path;
@@ -727,6 +727,66 @@ impl<'a> ThumbnailService<'a> {
             })?
             .to_string())
     }
+
+    /// Find duplicate thumbnails grouped by parent blob and type
+    pub async fn find_duplicate_thumbnails(&self) -> Result<Vec<DuplicateGroup>, ThumbnailError> {
+        let duplicate_rows: Vec<DuplicateGroupRow> = self.repo.find_duplicate_thumbnails().await?;
+
+        let duplicate_groups = duplicate_rows
+            .into_iter()
+            .map(|row| DuplicateGroup {
+                parent_blob_id: row.parent_blob_id,
+                blob_type: row.blob_type,
+                duplicate_count: row.duplicate_count,
+                thumbnail_ids: row.thumbnail_ids,
+            })
+            .collect();
+
+        Ok(duplicate_groups)
+    }
+
+    /// Delete duplicate thumbnails, keeping either the first (oldest) or last (newest)
+    pub async fn cleanup_duplicate_thumbnails(
+        &self,
+        keep_strategy: KeepStrategy,
+    ) -> Result<CleanupResult, ThumbnailError> {
+        let duplicate_groups = self.find_duplicate_thumbnails().await?;
+
+        if duplicate_groups.is_empty() {
+            return Ok(CleanupResult {
+                groups_processed: 0,
+                thumbnails_deleted: 0,
+            });
+        }
+
+        let mut total_deleted = 0;
+        let groups_count = duplicate_groups.len();
+
+        for group in duplicate_groups {
+            let ids_to_delete: Vec<Uuid> = match keep_strategy {
+                KeepStrategy::First => {
+                    // Keep the first (oldest), delete the rest
+                    group.thumbnail_ids.into_iter().skip(1).collect()
+                }
+                KeepStrategy::Last => {
+                    // Keep the last (newest), delete all but the last
+                    let mut ids = group.thumbnail_ids;
+                    ids.pop(); // Remove the last one to keep it
+                    ids
+                }
+            };
+
+            if !ids_to_delete.is_empty() {
+                let deleted_count = self.repo.delete_thumbnails_by_ids(&ids_to_delete).await?;
+                total_deleted += deleted_count as usize;
+            }
+        }
+
+        Ok(CleanupResult {
+            groups_processed: groups_count,
+            thumbnails_deleted: total_deleted,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1027,4 +1087,29 @@ mod tests {
                 .to_string())
         }
     }
+}
+
+/// Strategy for which duplicate to keep
+#[derive(Debug, Clone, Copy)]
+pub enum KeepStrategy {
+    /// Keep the first (oldest) thumbnail
+    First,
+    /// Keep the last (newest) thumbnail
+    Last,
+}
+
+/// Information about a group of duplicate thumbnails
+#[derive(Debug)]
+pub struct DuplicateGroup {
+    pub parent_blob_id: Uuid,
+    pub blob_type: String,
+    pub duplicate_count: usize,
+    pub thumbnail_ids: Vec<Uuid>,
+}
+
+/// Result of duplicate cleanup operation
+#[derive(Debug)]
+pub struct CleanupResult {
+    pub groups_processed: usize,
+    pub thumbnails_deleted: usize,
 }
