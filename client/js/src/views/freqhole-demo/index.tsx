@@ -19,7 +19,7 @@ export interface FreqholeDemoProps {
 }
 
 const STORAGE_KEY = "freqhole-demo-state";
-const DEFAULT_PANEL_WIDTH = 400;
+const DEFAULT_PANEL_WIDTH = 300;
 
 // Load state from localStorage
 function loadState(): Partial<GridState> {
@@ -414,11 +414,14 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     <div
       style={`
         height: 100vh;
+        width: 100vw;
         background: #1a1a1a;
         color: #e0e0e0;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         display: flex;
         overflow: hidden;
+        position: relative;
+        max-width: 100%;
       `}
     >
       {/* Browse Panel */}
@@ -435,7 +438,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       />
 
       {/* Main Content */}
-      <div style="flex: 1; position: relative;">
+      <div style="flex: 1; position: relative; overflow: hidden; min-width: 200px;">
         <InfiniteDataGrid
           data={sortedData()}
           columns={visibleColumns()}
@@ -582,6 +585,10 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         body.resizing {
           cursor: col-resize;
           user-select: none;
+        }
+
+        * {
+          box-sizing: border-box;
         }
       `}</style>
     </div>

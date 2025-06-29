@@ -34,6 +34,7 @@ export function BrowsePanel(props: BrowsePanelProps) {
         transition: margin-left 0.3s ease;
         position: relative;
         flex-shrink: 0;
+        ${!props.isOpen ? `margin-left: -${resize.width()}px;` : ""}
       `}
     >
       <Show when={props.isOpen}>
@@ -87,10 +88,6 @@ export function BrowsePanel(props: BrowsePanelProps) {
       />
 
       <style>{`
-        .browse-panel.collapsed {
-          margin-left: -${resize.width()}px;
-        }
-
         .browse-panel.resizing {
           pointer-events: auto;
         }

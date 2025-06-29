@@ -86,6 +86,7 @@ export function FilterPanel(props: FilterPanelProps) {
         transition: margin-right 0.3s ease;
         position: relative;
         flex-shrink: 0;
+        ${!props.isOpen ? `margin-right: -${resize.width()}px;` : ""}
       `}
     >
       <Show when={props.isOpen}>
@@ -623,10 +624,6 @@ export function FilterPanel(props: FilterPanelProps) {
       />
 
       <style>{`
-        .filter-panel.collapsed {
-          margin-right: -${resize.width()}px;
-        }
-
         .filter-panel.resizing {
           pointer-events: auto;
         }

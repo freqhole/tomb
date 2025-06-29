@@ -11,10 +11,13 @@ export function useResize(props: UseResizeProps) {
   const [width, setWidth] = createSignal(props.initialWidth);
   const [isDragging, setIsDragging] = createSignal(false);
 
-  const minWidth = props.minWidth || 300;
-  const maxWidth = props.maxWidth || 800;
+  const minWidth = props.minWidth || 250;
+  const maxWidth = props.maxWidth || 600;
 
-  const handleMouseDown = (e: MouseEvent, direction: "left" | "right" = "right") => {
+  const handleMouseDown = (
+    e: MouseEvent,
+    direction: "left" | "right" = "right"
+  ) => {
     e.preventDefault();
     setIsDragging(true);
     document.body.classList.add("resizing");
@@ -27,9 +30,10 @@ export function useResize(props: UseResizeProps) {
 
       // For right-side panels (filter panel), dragging left increases width
       // For left-side panels (browse panel), dragging right increases width
-      const newWidth = direction === "right"
-        ? Math.max(minWidth, Math.min(maxWidth, startWidth - deltaX))
-        : Math.max(minWidth, Math.min(maxWidth, startWidth + deltaX));
+      const newWidth =
+        direction === "right"
+          ? Math.max(minWidth, Math.min(maxWidth, startWidth - deltaX))
+          : Math.max(minWidth, Math.min(maxWidth, startWidth + deltaX));
 
       setWidth(newWidth);
       props.onWidthChange?.(newWidth);
