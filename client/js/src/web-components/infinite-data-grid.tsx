@@ -67,7 +67,7 @@ interface GridState {
 }
 
 const STORAGE_KEY = "mediablob-grid-state";
-const DEFAULT_FILTER_PANEL_WIDTH = 350;
+const DEFAULT_FILTER_PANEL_WIDTH = 400;
 
 // Load state from localStorage
 function loadGridState(): Partial<GridState> {
@@ -1073,10 +1073,8 @@ function MediaBlobDataGrid() {
     const startWidth = filterPanelWidth();
 
     const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = Math.max(
-        300,
-        Math.min(600, startWidth - (e.clientX - startX))
-      );
+      const deltaX = e.clientX - startX;
+      const newWidth = Math.max(300, Math.min(800, startWidth - deltaX));
       setFilterPanelWidth(newWidth);
     };
 
@@ -1102,10 +1100,8 @@ function MediaBlobDataGrid() {
     const startWidth = browsePanelWidth();
 
     const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = Math.max(
-        300,
-        Math.min(600, startWidth + e.clientX - startX)
-      );
+      const deltaX = e.clientX - startX;
+      const newWidth = Math.max(300, Math.min(800, startWidth + deltaX));
       setBrowsePanelWidth(newWidth);
     };
 
@@ -1243,7 +1239,6 @@ function MediaBlobDataGrid() {
 
 
         .browse-panel {
-          width: ${browsePanelWidth()}px;
           background: #2a2a2a;
           border-right: 1px solid #3a3a3a;
           padding: 20px;
@@ -1300,7 +1295,6 @@ function MediaBlobDataGrid() {
         }
 
         .filter-panel {
-          width: ${filterPanelWidth()}px;
           background: #2a2a2a;
           border-left: 1px solid #3a3a3a;
           padding: 20px;
@@ -1812,6 +1806,7 @@ function MediaBlobDataGrid() {
         class={`browse-panel ${!isBrowsePanelOpen() ? "collapsed" : ""} ${
           isDraggingBrowse() ? "resizing" : ""
         }`}
+        style={`width: ${browsePanelWidth()}px;`}
       >
         <Show when={isBrowsePanelOpen()}>
           <button class="panel-close-button" onClick={toggleBrowsePanel}>
@@ -1959,6 +1954,7 @@ function MediaBlobDataGrid() {
         class={`filter-panel ${!isFilterPanelOpen() ? "collapsed" : ""} ${
           isDragging() ? "resizing" : ""
         }`}
+        style={`width: ${filterPanelWidth()}px;`}
       >
         <Show when={isFilterPanelOpen()}>
           <button class="panel-close-button" onClick={toggleFilterPanel}>
