@@ -33,6 +33,9 @@ import "./sync-progress";
 import "./sync-controls";
 import "./sync-demo";
 import "./blob-viewer";
+import "./infinite-data-grid";
+import "./generic-infinite-grid";
+import "./product-data-grid-demo";
 
 // Component registration confirmation
 const REGISTERED_COMPONENTS = [
@@ -51,6 +54,9 @@ const REGISTERED_COMPONENTS = [
   "sync-controls",
   "sync-demo",
   "blob-viewer",
+  "infinite-data-grid",
+  "generic-infinite-grid",
+  "product-data-grid-demo",
 ] as const;
 
 export { REGISTERED_COMPONENTS };
@@ -191,6 +197,26 @@ declare global {
         enableDownload?: boolean;
         autoLoad?: boolean;
       };
+
+      "infinite-data-grid": {
+        rowCount?: number;
+        enableSorting?: boolean;
+        enableFiltering?: boolean;
+        theme?: "light" | "dark";
+        className?: string;
+      };
+
+      "generic-infinite-grid": {
+        data?: string;
+        columns?: string;
+        "row-height"?: string;
+        "header-height"?: string;
+        theme?: "light" | "dark";
+      };
+
+      "product-data-grid-demo": {
+        className?: string;
+      };
     }
   }
 }
@@ -243,4 +269,7 @@ console.log("🧩 Web Components Library loaded - Available components:", [
   "sync-controls",
   "sync-demo",
   "blob-viewer",
+  "infinite-data-grid",
+  "generic-infinite-grid",
+  "product-data-grid-demo",
 ]);

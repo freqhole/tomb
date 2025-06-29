@@ -1,6 +1,6 @@
-//! Sync API handlers for media blob synchronization
+//! Sync API handlers for media blob, song, and playlist synchronization
 //!
-//! This module provides HTTP endpoints for efficient media blob synchronization
+//! This module provides HTTP endpoints for efficient synchronization
 //! between clients and server using cursor-based pagination and timestamp filtering.
 
 use crate::auth::AuthenticatedUser;
@@ -9,6 +9,7 @@ use axum::{
     extract::{Extension, Query},
     Json,
 };
+use grimoire::music::MusicRepository;
 use grimoire::{
     DatabaseConnection, FullSyncRequest, MediaBlobService, SyncAcknowledgment, SyncRequest,
     SyncResponse, SyncStatusResponse,
@@ -66,6 +67,51 @@ pub struct SyncRecommendationsResponse {
     pub estimated_duration_seconds: i64,
     pub priority: String,
     pub items_to_sync: i64,
+}
+
+/// Query parameters for song sync
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SongSyncQuery {
+    /// Last sync timestamp in RFC3339 format
+    pub last_sync_time: Option<String>,
+    /// Pagination cursor for continuing sync
+    pub cursor: Option<String>,
+    /// Number of items per batch
+    pub page_size: Option<i64>,
+    /// Filter by artist
+    pub artist: Option<String>,
+    /// Filter by album
+    pub album: Option<String>,
+    /// Only sync favorites
+    pub favorites_only: Option<bool>,
+}
+
+/// Query parameters for playlist sync
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PlaylistSyncQuery {
+    /// Last sync timestamp in RFC3339 format
+    pub last_sync_time: Option<String>,
+    /// Pagination cursor for continuing sync
+    pub cursor: Option<String>,
+    /// Number of items per batch
+    pub page_size: Option<i64>,
+    /// Only sync public playlists
+    pub public_only: Option<bool>,
+    /// Filter by client ID
+    pub client_id: Option<String>,
+}
+
+/// Query parameters for playlist songs sync
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PlaylistSongSyncQuery {
+    /// Playlist ID to sync songs for
+    pub playlist_id: String,
+    /// Last sync timestamp in RFC3339 format
+    pub last_sync_time: Option<String>,
+    /// Pagination cursor for continuing sync
+    pub cursor: Option<String>,
+    /// Number of items per batch
+    pub page_size: Option<i64>,
 }
 
 /// Incremental sync endpoint - GET /api/sync/media
@@ -362,5 +408,170 @@ pub async fn check_sync_needed(
         "needs_sync": needs_sync,
         "last_checked": OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
         "client_id": user.user().id.to_string()
+    })))
+}
+
+/// Song incremental sync endpoint - GET /api/sync/songs
+pub async fn incremental_song_sync(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(params): Query<SongSyncQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!(
+        "Song sync requested by user: {} (client: {})",
+        user.user().username,
+        user.user().id
+    );
+
+    // Parse last sync time
+    let last_sync_time = if let Some(time_str) = params.last_sync_time {
+        Some(
+            OffsetDateTime::parse(&time_str, &time::format_description::well_known::Rfc3339)
+                .map_err(|e| {
+                    AppError::BadRequest(format!("Invalid last_sync_time format: {}", e))
+                })?,
+        )
+    } else {
+        None
+    };
+
+    let music_repo = MusicRepository::new(db.pool().clone());
+    let songs = music_repo
+        .query_songs(grimoire::music::SongQuery {
+            limit: params.page_size.map(|l| l as i64),
+            offset: Some(0), // TODO: implement cursor-based pagination
+            artist: params.artist,
+            album: params.album,
+            favorites_only: params.favorites_only,
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch songs: {}", e);
+            AppError::InternalServerError("Sync operation failed".to_string())
+        })?;
+
+    info!(
+        "Song sync completed for user: {} - {} items",
+        user.user().username,
+        songs.len()
+    );
+
+    Ok(Json(serde_json::json!({
+        "songs": songs,
+        "total_count": songs.len(),
+        "has_more": false,
+        "next_cursor": null
+    })))
+}
+
+/// Playlist incremental sync endpoint - GET /api/sync/playlists
+pub async fn incremental_playlist_sync(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(params): Query<PlaylistSyncQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!(
+        "Playlist sync requested by user: {} (client: {})",
+        user.user().username,
+        user.user().id
+    );
+
+    // Parse last sync time
+    let last_sync_time = if let Some(time_str) = params.last_sync_time {
+        Some(
+            OffsetDateTime::parse(&time_str, &time::format_description::well_known::Rfc3339)
+                .map_err(|e| {
+                    AppError::BadRequest(format!("Invalid last_sync_time format: {}", e))
+                })?,
+        )
+    } else {
+        None
+    };
+
+    let music_repo = MusicRepository::new(db.pool().clone());
+    let playlists = music_repo
+        .query_playlists(grimoire::music::PlaylistQuery {
+            limit: params.page_size.map(|l| l as i64),
+            offset: Some(0), // TODO: implement cursor-based pagination
+            public_only: params.public_only,
+            client_id: params.client_id,
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch playlists: {}", e);
+            AppError::InternalServerError("Sync operation failed".to_string())
+        })?;
+
+    info!(
+        "Playlist sync completed for user: {} - {} items",
+        user.user().username,
+        playlists.len()
+    );
+
+    Ok(Json(serde_json::json!({
+        "playlists": playlists,
+        "total_count": playlists.len(),
+        "has_more": false,
+        "next_cursor": null
+    })))
+}
+
+/// Playlist songs sync endpoint - GET /api/sync/playlist-songs
+pub async fn incremental_playlist_song_sync(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(params): Query<PlaylistSongSyncQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!(
+        "Playlist songs sync requested by user: {} for playlist: {}",
+        user.user().username,
+        params.playlist_id
+    );
+
+    // Parse playlist ID
+    let playlist_id = uuid::Uuid::parse_str(&params.playlist_id)
+        .map_err(|e| AppError::BadRequest(format!("Invalid playlist_id format: {}", e)))?;
+
+    // Parse last sync time
+    let last_sync_time = if let Some(time_str) = params.last_sync_time {
+        Some(
+            OffsetDateTime::parse(&time_str, &time::format_description::well_known::Rfc3339)
+                .map_err(|e| {
+                    AppError::BadRequest(format!("Invalid last_sync_time format: {}", e))
+                })?,
+        )
+    } else {
+        None
+    };
+
+    // Get playlist songs as simple PlaylistSong entities (not detailed with song info)
+    let playlist_songs = sqlx::query_as::<_, grimoire::music::PlaylistSong>(
+        "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
+         FROM playlist_songs
+         WHERE playlist_id = $1
+         ORDER BY position",
+    )
+    .bind(playlist_id)
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| {
+        error!("Failed to fetch playlist songs: {}", e);
+        AppError::InternalServerError("Sync operation failed".to_string())
+    })?;
+
+    info!(
+        "Playlist songs sync completed for user: {} - {} items",
+        user.user().username,
+        playlist_songs.len()
+    );
+
+    Ok(Json(serde_json::json!({
+        "playlist_id": params.playlist_id,
+        "playlist_songs": playlist_songs,
+        "total_count": playlist_songs.len(),
+        "has_more": false,
+        "next_cursor": null
     })))
 }

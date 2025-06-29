@@ -5,7 +5,12 @@
 //! These schemas mirror the Rust server-side types to maintain consistency.
 
 import { z } from "zod";
-import { MediaBlobSchema } from "../lib/websocket-types.js";
+import {
+  MediaBlobSchema,
+  SongSchema,
+  PlaylistSchema,
+  PlaylistSongSchema,
+} from "../lib/websocket-types.js";
 import {
   SyncStatusSchema,
   ConflictResolution,
@@ -48,9 +53,9 @@ export const SyncPaginationMetadataSchema = z.object({
   /** Whether there are more items to sync */
   has_more: z.boolean(),
   /** Cursor for the next batch of sync items */
-  next_cursor: z.string().optional(),
+  next_cursor: z.string().nullable().optional(),
   /** Estimated progress (0.0 to 1.0) if calculable */
-  progress: z.number().min(0).max(1).optional(),
+  progress: z.number().min(0).max(1).nullable().optional(),
   /** Suggested delay before next sync request (in seconds) */
   suggested_delay: PositiveIntSchema.optional(),
 });
@@ -72,10 +77,126 @@ export const SyncResponseSchema = z.object({
   /** Whether this is a full sync (true) or incremental (false) */
   is_full_sync: z.boolean(),
   /** Total number of items available for sync (if known) */
-  total_items: NonNegativeIntSchema.optional(),
+  total_items: NonNegativeIntSchema.nullable().optional(),
 });
 
 export type SyncResponse = z.infer<typeof SyncResponseSchema>;
+
+/**
+ * Song sync request parameters
+ */
+export const SongSyncRequestSchema = z.object({
+  /** Last sync timestamp - only get items modified after this time */
+  last_sync_time: DateTimeSchema.optional(),
+  /** Pagination cursor for continuing a large sync operation */
+  cursor: z.string().optional(),
+  /** Maximum number of items to return in this sync batch */
+  page_size: PositiveIntSchema.max(1000).default(50),
+  /** Client ID for tracking sync state per client */
+  client_id: UuidSchema,
+  /** Filter by artist */
+  artist: z.string().optional(),
+  /** Filter by album */
+  album: z.string().optional(),
+  /** Only include favorites */
+  favorites_only: z.boolean().optional(),
+});
+
+export type SongSyncRequest = z.infer<typeof SongSyncRequestSchema>;
+
+/**
+ * Song sync response containing incremental updates
+ */
+export const SongSyncResponseSchema = z.object({
+  /** Songs that have been added or modified since last sync */
+  items: z.array(SongSchema),
+  /** Pagination metadata for continuing the sync */
+  pagination: SyncPaginationMetadataSchema,
+  /** Server timestamp when this sync response was generated */
+  sync_timestamp: DateTimeSchema,
+  /** Whether this is a full sync (true) or incremental (false) */
+  is_full_sync: z.boolean(),
+  /** Total number of items available for sync (if known) */
+  total_items: NonNegativeIntSchema.nullable().optional(),
+});
+
+export type SongSyncResponse = z.infer<typeof SongSyncResponseSchema>;
+
+/**
+ * Playlist sync request parameters
+ */
+export const PlaylistSyncRequestSchema = z.object({
+  /** Last sync timestamp - only get items modified after this time */
+  last_sync_time: DateTimeSchema.optional(),
+  /** Pagination cursor for continuing a large sync operation */
+  cursor: z.string().optional(),
+  /** Maximum number of items to return in this sync batch */
+  page_size: PositiveIntSchema.max(1000).default(50),
+  /** Client ID for tracking sync state per client */
+  client_id: UuidSchema,
+  /** Only include public playlists */
+  public_only: z.boolean().optional(),
+});
+
+export type PlaylistSyncRequest = z.infer<typeof PlaylistSyncRequestSchema>;
+
+/**
+ * Playlist sync response containing incremental updates
+ */
+export const PlaylistSyncResponseSchema = z.object({
+  /** Playlists that have been added or modified since last sync */
+  items: z.array(PlaylistSchema),
+  /** Pagination metadata for continuing the sync */
+  pagination: SyncPaginationMetadataSchema,
+  /** Server timestamp when this sync response was generated */
+  sync_timestamp: DateTimeSchema,
+  /** Whether this is a full sync (true) or incremental (false) */
+  is_full_sync: z.boolean(),
+  /** Total number of items available for sync (if known) */
+  total_items: NonNegativeIntSchema.nullable().optional(),
+});
+
+export type PlaylistSyncResponse = z.infer<typeof PlaylistSyncResponseSchema>;
+
+/**
+ * PlaylistSong sync request parameters
+ */
+export const PlaylistSongSyncRequestSchema = z.object({
+  /** Last sync timestamp - only get items modified after this time */
+  last_sync_time: DateTimeSchema.optional(),
+  /** Pagination cursor for continuing a large sync operation */
+  cursor: z.string().optional(),
+  /** Maximum number of items to return in this sync batch */
+  page_size: PositiveIntSchema.max(1000).default(50),
+  /** Client ID for tracking sync state per client */
+  client_id: UuidSchema,
+  /** Filter by playlist ID */
+  playlist_id: UuidSchema.optional(),
+});
+
+export type PlaylistSongSyncRequest = z.infer<
+  typeof PlaylistSongSyncRequestSchema
+>;
+
+/**
+ * PlaylistSong sync response containing incremental updates
+ */
+export const PlaylistSongSyncResponseSchema = z.object({
+  /** PlaylistSongs that have been added or modified since last sync */
+  items: z.array(PlaylistSongSchema),
+  /** Pagination metadata for continuing the sync */
+  pagination: SyncPaginationMetadataSchema,
+  /** Server timestamp when this sync response was generated */
+  sync_timestamp: DateTimeSchema,
+  /** Whether this is a full sync (true) or incremental (false) */
+  is_full_sync: z.boolean(),
+  /** Total number of items available for sync (if known) */
+  total_items: NonNegativeIntSchema.nullable().optional(),
+});
+
+export type PlaylistSongSyncResponse = z.infer<
+  typeof PlaylistSongSyncResponseSchema
+>;
 
 /**
  * Synchronization status - re-export from constants
@@ -95,7 +216,7 @@ export const ClientSyncStateSchema = z.object({
   /** Current sync status */
   status: SyncStatusSchema,
   /** Last sync cursor position (for resuming interrupted syncs) */
-  last_cursor: z.string().optional(),
+  last_cursor: z.string().nullable().optional(),
   /** Timestamp when this state was last updated */
   updated_at: DateTimeSchema,
 });
@@ -151,7 +272,7 @@ export const SyncStatusResponseSchema = z.object({
   /** Total items available for sync */
   total_items: NonNegativeIntSchema,
   /** Last modification time in the system */
-  last_modification: DateTimeSchema.optional(),
+  last_modification: DateTimeSchema.nullable().optional(),
   /** Server sync capabilities */
   capabilities: SyncCapabilitiesSchema,
 });
@@ -185,11 +306,11 @@ export const SyncProgressSchema = z.object({
   /** Items synced in current session */
   items_synced: NonNegativeIntSchema,
   /** Total items to sync (if known) */
-  total_items: NonNegativeIntSchema.optional(),
+  total_items: NonNegativeIntSchema.nullable().optional(),
   /** Progress percentage (0-100) */
-  progress: z.number().min(0).max(100).optional(),
+  progress: z.number().min(0).max(100).nullable().optional(),
   /** Current sync cursor */
-  current_cursor: z.string().optional(),
+  current_cursor: z.string().nullable().optional(),
   /** Estimated time remaining in seconds */
   estimated_remaining_seconds: PositiveIntSchema.optional(),
   /** Current batch being processed */
@@ -226,8 +347,10 @@ export type SyncError = z.infer<typeof SyncErrorSchema>;
 export const SyncConflictSchema = z.object({
   /** Unique identifier for this conflict */
   id: UuidSchema,
-  /** ID of the media blob in conflict */
-  media_blob_id: UuidSchema,
+  /** ID of the item in conflict */
+  item_id: UuidSchema,
+  /** Type of item in conflict */
+  item_type: z.enum(["media_blob", "song", "playlist", "playlist_song"]),
   /** Type of conflict */
   type: z.enum([
     SyncConflictType.Version,
@@ -235,9 +358,19 @@ export const SyncConflictSchema = z.object({
     SyncConflictType.Metadata,
   ]),
   /** Local version of the item */
-  local_version: MediaBlobSchema,
+  local_version: z.union([
+    MediaBlobSchema,
+    SongSchema,
+    PlaylistSchema,
+    PlaylistSongSchema,
+  ]),
   /** Server version of the item */
-  server_version: MediaBlobSchema,
+  server_version: z.union([
+    MediaBlobSchema,
+    SongSchema,
+    PlaylistSchema,
+    PlaylistSongSchema,
+  ]),
   /** Timestamp when conflict was detected */
   detected_at: DateTimeSchema,
   /** Whether conflict has been resolved */
@@ -362,6 +495,18 @@ export const safeParseSyncStatus = (data: unknown) => {
 
 export const safeParseSyncRecommendations = (data: unknown) => {
   return SyncRecommendationsResponseSchema.safeParse(data);
+};
+
+export const safeParseSongSyncResponse = (data: unknown) => {
+  return SongSyncResponseSchema.safeParse(data);
+};
+
+export const safeParsePlaylistSyncResponse = (data: unknown) => {
+  return PlaylistSyncResponseSchema.safeParse(data);
+};
+
+export const safeParsePlaylistSongSyncResponse = (data: unknown) => {
+  return PlaylistSongSyncResponseSchema.safeParse(data);
 };
 
 /**

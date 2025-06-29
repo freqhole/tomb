@@ -49,8 +49,10 @@ pub mod handlers;
 pub mod integration_tests;
 
 pub use handlers::{
-    acknowledge_sync, check_sync_needed, full_sync, incremental_sync, sync_recommendations,
-    sync_status, FullSyncQuery, IncrementalSyncQuery, SyncAckRequest, SyncRecommendationsResponse,
+    acknowledge_sync, check_sync_needed, full_sync, incremental_playlist_song_sync,
+    incremental_playlist_sync, incremental_song_sync, incremental_sync, sync_recommendations,
+    sync_status, FullSyncQuery, IncrementalSyncQuery, PlaylistSongSyncQuery, PlaylistSyncQuery,
+    SongSyncQuery, SyncAckRequest, SyncRecommendationsResponse,
 };
 
 use axum::{
@@ -67,6 +69,12 @@ pub fn create_sync_routes() -> Router {
         .route("/api/sync/media", get(incremental_sync))
         .route("/api/sync/media/full", get(full_sync))
         .route("/api/sync/media/acknowledge", post(acknowledge_sync))
+        .route("/api/sync/songs", get(incremental_song_sync))
+        .route("/api/sync/playlists", get(incremental_playlist_sync))
+        .route(
+            "/api/sync/playlist-songs",
+            get(incremental_playlist_song_sync),
+        )
         .route("/api/sync/status", get(sync_status))
         .route("/api/sync/recommendations", get(sync_recommendations))
         .route("/api/sync/check", get(check_sync_needed))

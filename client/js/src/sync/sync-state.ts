@@ -185,7 +185,7 @@ export class PersistentSyncState {
       new Date(state.last_sync_time),
       state.total_items_synced,
       state.status,
-      state.last_cursor,
+      state.last_cursor || undefined,
       new Date(state.updated_at)
     );
   }

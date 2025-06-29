@@ -104,6 +104,44 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
       "Note: Polling has been removed in favor of WebSocket notifications",
     ],
   },
+
+  "infinite-data-grid": {
+    name: "infinite-data-grid",
+    title: "Employee Data Grid Demo",
+    description: "🚀 Employee Data Grid with Filtering & Sorting",
+    element: "infinite-data-grid",
+    attributes: {},
+    instructions: [
+      "Click column headers to sort data",
+      "Use filter toggle to show/hide side panel",
+      "Search by name, filter by department/status",
+      "Scroll through 10,000 employee rows with virtual scrolling",
+      "Built with reusable GenericInfiniteGrid component",
+    ],
+    styles: `
+      body { margin: 0; padding: 0; overflow: hidden; }
+      .container { max-width: none; margin: 0; }
+    `,
+  },
+
+  "product-data-grid-demo": {
+    name: "product-data-grid-demo",
+    title: "Product Catalog Grid Demo",
+    description: "🛍️ Product Catalog with Generic Infinite Grid",
+    element: "product-data-grid-demo",
+    attributes: {},
+    instructions: [
+      "Example of GenericInfiniteGrid with different data type",
+      "Click column headers to sort products",
+      "Custom renderers for price, stock, and ratings",
+      "Scroll through 5,000 product rows smoothly",
+      "Shows reusability of the grid component",
+    ],
+    styles: `
+      body { margin: 0; padding: 0; overflow: hidden; }
+      .container { max-width: none; margin: 0; }
+    `,
+  },
 };
 
 function generateHtmlTemplate(
@@ -175,6 +213,8 @@ function generateStandaloneFiles(): import("vite").Plugin {
           "websocket-demo.js": "websocket-demo",
           "websocket-feed-demo.js": "websocket-feed-demo",
           "sync-demo.js": "sync-demo",
+          "infinite-data-grid.js": "infinite-data-grid",
+          "product-data-grid-demo.js": "product-data-grid-demo",
         };
 
         const templateKey = nameMapping[chunk.fileName];
@@ -236,6 +276,9 @@ export default defineConfig({
         "websocket-demo": "./src/web-components/websocket-demo.tsx",
         "websocket-feed-demo": "./src/web-components/websocket-feed-demo.tsx",
         "sync-demo": "./src/web-components/sync-demo.tsx",
+        "infinite-data-grid": "./src/web-components/infinite-data-grid.tsx",
+        "product-data-grid-demo":
+          "./src/web-components/product-data-grid-demo.tsx",
         "all-components": "./src/web-components/index.tsx",
       },
       output: {
@@ -246,6 +289,8 @@ export default defineConfig({
             "websocket-demo": "websocket-demo.js",
             "websocket-feed-demo": "websocket-feed-demo.js",
             "sync-demo": "sync-demo.js",
+            "infinite-data-grid": "infinite-data-grid.js",
+            "product-data-grid-demo": "product-data-grid-demo.js",
             "all-components": "all-components.js",
           };
           return nameMap[chunkInfo.name] || "[name].js";

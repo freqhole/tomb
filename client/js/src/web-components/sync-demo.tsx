@@ -11,10 +11,14 @@ import { createSignal, onMount, onCleanup, Show, For } from "solid-js";
 import { ApiClient } from "../lib/api-client.js";
 import {
   createSyncManager,
+  MusicSyncManager,
+  createMusicSyncManager,
   SyncStatus,
   SyncEventType,
   type SyncManager,
   type SyncStatus as SyncStatusType,
+  type MusicSyncProgress,
+  type MusicSyncStats,
 } from "../sync/index.js";
 import SyncStatusComponent from "./sync-status.js";
 import SyncProgressComponent from "./sync-progress.js";
@@ -25,11 +29,17 @@ export interface SyncDemoProps {
   clientId?: string;
   autoConnect?: boolean;
   className?: string;
+  enableMusicSync?: boolean;
 }
 
 function SyncDemoComponent(props: SyncDemoProps) {
   const [syncManager, setSyncManager] = createSignal<SyncManager | null>(null);
+  const [musicSyncManager, setMusicSyncManager] =
+    createSignal<MusicSyncManager | null>(null);
   const [status, setStatus] = createSignal<SyncStatusType>(SyncStatus.Never);
+  const [musicStatus, setMusicStatus] = createSignal<SyncStatusType>(
+    SyncStatus.Never
+  );
   const [progress, setProgress] = createSignal<number>(0);
   const [itemsSynced, setItemsSynced] = createSignal<number>(0);
   const [totalItems, setTotalItems] = createSignal<number>(0);
@@ -39,6 +49,9 @@ function SyncDemoComponent(props: SyncDemoProps) {
   const [isConnected, setIsConnected] = createSignal<boolean>(false);
   const [error, setError] = createSignal<string | null>(null);
   const [logs, setLogs] = createSignal<string[]>([]);
+  const [musicStats, setMusicStats] = createSignal<MusicSyncStats | null>(null);
+  const [musicProgress, setMusicProgress] =
+    createSignal<MusicSyncProgress | null>(null);
   // Note: Auto-sync polling has been replaced by WebSocket notifications
   // See websocket-feed-demo.tsx for real-time feed updates
 
@@ -57,7 +70,7 @@ function SyncDemoComponent(props: SyncDemoProps) {
 
       const manager = createSyncManager(
         apiClient,
-        props.clientId || `demo-client-${Date.now()}`,
+        props.clientId || crypto.randomUUID(),
         {
           defaultPageSize: 10,
           includeBinaryData: false,
@@ -138,6 +151,69 @@ function SyncDemoComponent(props: SyncDemoProps) {
       setIsConnected(true);
       setStatus(SyncStatus.Complete);
       addLog("Sync manager initialized");
+
+      // Initialize music sync manager if enabled
+      if (props.enableMusicSync !== false) {
+        try {
+          const musicManager = createMusicSyncManager({
+            apiBaseUrl: props.apiBaseUrl || "http://localhost:8080",
+            authToken: "demo-token",
+            clientId: props.clientId || crypto.randomUUID(),
+            batchSize: 25,
+            maxStorageSize: 100 * 1024 * 1024, // 100MB
+            syncBinaryData: true,
+            musicOptions: {
+              enableBackgroundSync: false,
+              autoSyncInterval: 60000,
+            },
+          });
+
+          // Set up music sync event listeners
+          musicManager.on("initialized", () => {
+            addLog("Music sync manager initialized");
+          });
+
+          musicManager.on("status_changed", (data) => {
+            setMusicStatus(data.status);
+            addLog(`Music sync status: ${data.status}`);
+          });
+
+          musicManager.on("progress", (data) => {
+            setMusicProgress(data.progress);
+          });
+
+          musicManager.on("sync_completed", (data) => {
+            addLog(
+              `Music sync completed - ${data.stats.totalSongs} songs, ${data.stats.totalPlaylists} playlists`
+            );
+            setMusicStats(data.stats);
+          });
+
+          musicManager.on("songs_synced", (data) => {
+            addLog(`Synced ${data.songs.length} songs`);
+          });
+
+          musicManager.on("playlists_synced", (data) => {
+            addLog(`Synced ${data.playlists.length} playlists`);
+          });
+
+          musicManager.on("error", (data) => {
+            addLog(`Music sync error: ${data.error.message || data.error}`);
+          });
+
+          await musicManager.initialize();
+          setMusicSyncManager(musicManager);
+          addLog("Music sync manager ready");
+
+          // Update stats
+          const stats = await musicManager.getStats();
+          setMusicStats(stats);
+        } catch (err) {
+          addLog(
+            `Music sync initialization failed: ${err instanceof Error ? err.message : "Unknown error"}`
+          );
+        }
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       setError(errorMessage);
@@ -217,6 +293,62 @@ function SyncDemoComponent(props: SyncDemoProps) {
     }
   };
 
+  const handleMusicSyncAll = async () => {
+    const manager = musicSyncManager();
+    if (!manager) return;
+
+    try {
+      setError(null);
+      addLog("Starting full music sync...");
+      await manager.syncAll();
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Music sync failed";
+      setError(errorMessage);
+      addLog(`Music sync error: ${errorMessage}`);
+    }
+  };
+
+  const handleMusicSyncSongs = async () => {
+    const manager = musicSyncManager();
+    if (!manager) return;
+
+    try {
+      addLog("Starting songs sync...");
+      await manager.syncSongs();
+    } catch (err) {
+      addLog(
+        `Songs sync error: ${err instanceof Error ? err.message : "Unknown error"}`
+      );
+    }
+  };
+
+  const handleMusicSyncPlaylists = async () => {
+    const manager = musicSyncManager();
+    if (!manager) return;
+
+    try {
+      addLog("Starting playlists sync...");
+      await manager.syncPlaylists();
+    } catch (err) {
+      addLog(
+        `Playlists sync error: ${err instanceof Error ? err.message : "Unknown error"}`
+      );
+    }
+  };
+
+  const updateMusicStats = async () => {
+    const manager = musicSyncManager();
+    if (!manager) return;
+
+    try {
+      const stats = await manager.getStats();
+      setMusicStats(stats);
+    } catch (err) {
+      // Silently fail stats updates
+    }
+  };
+
   const clearLogs = () => {
     setLogs([]);
   };
@@ -229,8 +361,14 @@ function SyncDemoComponent(props: SyncDemoProps) {
 
   onCleanup(async () => {
     const manager = syncManager();
+    const musicManager = musicSyncManager();
+
     if (manager) {
       await manager.cleanup();
+    }
+
+    if (musicManager) {
+      await musicManager.destroy();
     }
   });
 
@@ -375,20 +513,265 @@ function SyncDemoComponent(props: SyncDemoProps) {
         />
       </Show>
 
-      {/* Controls */}
+      {/* Media Blob Sync Controls */}
       <Show when={syncManager()}>
-        <SyncControlsComponent
-          status={status()}
-          disabled={!isConnected()}
-          showForceSync={true}
-          showPauseResume={true}
-          compact={false}
-          onStartSync={handleStartSync}
-          onStopSync={handleStopSync}
-          onPauseSync={handlePauseSync}
-          onResumeSync={handleResumeSync}
-          onForceSync={handleForceSync}
-        />
+        <div>
+          <h3
+            style={{
+              margin: "0 0 12px 0",
+              "font-size": "16px",
+              color: "#374151",
+            }}
+          >
+            📁 Media Blob Sync
+          </h3>
+          <SyncControlsComponent
+            status={status()}
+            disabled={!isConnected()}
+            showForceSync={true}
+            showPauseResume={true}
+            compact={false}
+            onStartSync={handleStartSync}
+            onStopSync={handleStopSync}
+            onPauseSync={handlePauseSync}
+            onResumeSync={handleResumeSync}
+            onForceSync={handleForceSync}
+          />
+        </div>
+      </Show>
+
+      {/* Music Sync Section */}
+      <Show when={musicSyncManager()}>
+        <div
+          style={{
+            padding: "16px",
+            "border-radius": "8px",
+            "background-color": "#f8fafc",
+            border: "1px solid #e2e8f0",
+          }}
+        >
+          <h3
+            style={{
+              margin: "0 0 12px 0",
+              "font-size": "16px",
+              color: "#374151",
+            }}
+          >
+            🎵 Music Sync
+          </h3>
+
+          {/* Music Progress */}
+          <Show when={musicProgress()}>
+            <div style={{ "margin-bottom": "12px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  "justify-content": "space-between",
+                  "align-items": "center",
+                  "margin-bottom": "4px",
+                }}
+              >
+                <span style={{ "font-size": "12px", color: "#6b7280" }}>
+                  Phase:{" "}
+                  {musicProgress()
+                    ?.currentPhase.replace("_", " ")
+                    .toUpperCase()}
+                </span>
+                <span style={{ "font-size": "12px", color: "#6b7280" }}>
+                  {musicProgress()?.overallProgress
+                    ? Math.round(musicProgress()!.overallProgress!)
+                    : 0}
+                  %
+                </span>
+              </div>
+              <div
+                style={{
+                  width: "100%",
+                  height: "6px",
+                  "background-color": "#e2e8f0",
+                  "border-radius": "3px",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    height: "100%",
+                    "background-color": "#3b82f6",
+                    width: `${musicProgress()?.overallProgress || 0}%`,
+                    transition: "width 0.3s ease",
+                  }}
+                />
+              </div>
+            </div>
+          </Show>
+
+          {/* Music Stats */}
+          <Show when={musicStats()}>
+            <div
+              style={{
+                display: "grid",
+                "grid-template-columns": "repeat(auto-fit, minmax(80px, 1fr))",
+                gap: "8px",
+                "margin-bottom": "12px",
+              }}
+            >
+              <div
+                style={{
+                  "text-align": "center",
+                  padding: "8px",
+                  "background-color": "#ffffff",
+                  "border-radius": "4px",
+                }}
+              >
+                <div
+                  style={{
+                    "font-size": "18px",
+                    "font-weight": "bold",
+                    color: "#3b82f6",
+                  }}
+                >
+                  {musicStats()?.totalSongs || 0}
+                </div>
+                <div style={{ "font-size": "10px", color: "#6b7280" }}>
+                  Songs
+                </div>
+              </div>
+              <div
+                style={{
+                  "text-align": "center",
+                  padding: "8px",
+                  "background-color": "#ffffff",
+                  "border-radius": "4px",
+                }}
+              >
+                <div
+                  style={{
+                    "font-size": "18px",
+                    "font-weight": "bold",
+                    color: "#10b981",
+                  }}
+                >
+                  {musicStats()?.totalPlaylists || 0}
+                </div>
+                <div style={{ "font-size": "10px", color: "#6b7280" }}>
+                  Playlists
+                </div>
+              </div>
+              <div
+                style={{
+                  "text-align": "center",
+                  padding: "8px",
+                  "background-color": "#ffffff",
+                  "border-radius": "4px",
+                }}
+              >
+                <div
+                  style={{
+                    "font-size": "18px",
+                    "font-weight": "bold",
+                    color: "#f59e0b",
+                  }}
+                >
+                  {musicStats()?.healthScore || 0}%
+                </div>
+                <div style={{ "font-size": "10px", color: "#6b7280" }}>
+                  Health
+                </div>
+              </div>
+            </div>
+          </Show>
+
+          {/* Music Sync Controls */}
+          <div
+            style={{
+              display: "flex",
+              gap: "8px",
+              "flex-wrap": "wrap",
+            }}
+          >
+            <button
+              onClick={handleMusicSyncAll}
+              disabled={
+                !isConnected() || musicStatus() === SyncStatus.InProgress
+              }
+              style={{
+                padding: "8px 12px",
+                "border-radius": "6px",
+                border: "1px solid #3b82f6",
+                "background-color": "#3b82f6",
+                color: "#ffffff",
+                "font-size": "12px",
+                "font-weight": "500",
+                cursor:
+                  musicStatus() === SyncStatus.InProgress
+                    ? "not-allowed"
+                    : "pointer",
+                opacity: musicStatus() === SyncStatus.InProgress ? 0.6 : 1,
+              }}
+            >
+              Sync All Music
+            </button>
+            <button
+              onClick={handleMusicSyncSongs}
+              disabled={
+                !isConnected() || musicStatus() === SyncStatus.InProgress
+              }
+              style={{
+                padding: "8px 12px",
+                "border-radius": "6px",
+                border: "1px solid #10b981",
+                "background-color": "#10b981",
+                color: "#ffffff",
+                "font-size": "12px",
+                "font-weight": "500",
+                cursor:
+                  musicStatus() === SyncStatus.InProgress
+                    ? "not-allowed"
+                    : "pointer",
+                opacity: musicStatus() === SyncStatus.InProgress ? 0.6 : 1,
+              }}
+            >
+              Sync Songs
+            </button>
+            <button
+              onClick={handleMusicSyncPlaylists}
+              disabled={
+                !isConnected() || musicStatus() === SyncStatus.InProgress
+              }
+              style={{
+                padding: "8px 12px",
+                "border-radius": "6px",
+                border: "1px solid #f59e0b",
+                "background-color": "#f59e0b",
+                color: "#ffffff",
+                "font-size": "12px",
+                "font-weight": "500",
+                cursor:
+                  musicStatus() === SyncStatus.InProgress
+                    ? "not-allowed"
+                    : "pointer",
+                opacity: musicStatus() === SyncStatus.InProgress ? 0.6 : 1,
+              }}
+            >
+              Sync Playlists
+            </button>
+            <button
+              onClick={updateMusicStats}
+              style={{
+                padding: "8px 12px",
+                "border-radius": "6px",
+                border: "1px solid #6b7280",
+                "background-color": "#ffffff",
+                color: "#6b7280",
+                "font-size": "12px",
+                "font-weight": "500",
+                cursor: "pointer",
+              }}
+            >
+              Refresh Stats
+            </button>
+          </div>
+        </div>
       </Show>
 
       {/* Activity Logs */}
@@ -442,9 +825,10 @@ customElement(
   "sync-demo",
   {
     apiBaseUrl: "http://localhost:8080",
-    clientId: undefined,
+    clientId: crypto.randomUUID(),
     autoConnect: true,
     className: "",
+    enableMusicSync: true,
   },
   SyncDemoComponent
 );

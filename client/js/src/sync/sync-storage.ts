@@ -5,12 +5,65 @@
 //! resolution, and efficient data retrieval for sync operations.
 
 import { SyncConflict, SyncError } from "./sync-state.js";
-import type { MediaBlob } from "../lib/websocket-types.js";
+import type {
+  MediaBlob,
+  Song,
+  Playlist,
+  PlaylistSong,
+} from "../lib/websocket-types.js";
 
 /**
  * Local storage entry for a media blob
  */
 export interface StoredMediaBlob extends MediaBlob {
+  /** Local storage timestamp */
+  stored_at: string; // ISO 8601 timestamp
+  /** Whether this item has been synced to server */
+  synced: boolean;
+  /** Whether this item was modified locally */
+  locally_modified: boolean;
+  /** Hash of the item for change detection */
+  content_hash: string;
+  /** Storage size in bytes */
+  storage_size: number;
+}
+
+/**
+ * Local storage entry for a song
+ */
+export interface StoredSong extends Song {
+  /** Local storage timestamp */
+  stored_at: string; // ISO 8601 timestamp
+  /** Whether this item has been synced to server */
+  synced: boolean;
+  /** Whether this item was modified locally */
+  locally_modified: boolean;
+  /** Hash of the item for change detection */
+  content_hash: string;
+  /** Storage size in bytes */
+  storage_size: number;
+}
+
+/**
+ * Local storage entry for a playlist
+ */
+export interface StoredPlaylist extends Playlist {
+  /** Local storage timestamp */
+  stored_at: string; // ISO 8601 timestamp
+  /** Whether this item has been synced to server */
+  synced: boolean;
+  /** Whether this item was modified locally */
+  locally_modified: boolean;
+  /** Hash of the item for change detection */
+  content_hash: string;
+  /** Storage size in bytes */
+  storage_size: number;
+}
+
+/**
+ * Local storage entry for a playlist song
+ */
+export interface StoredPlaylistSong extends PlaylistSong {
   /** Local storage timestamp */
   stored_at: string; // ISO 8601 timestamp
   /** Whether this item has been synced to server */
@@ -59,7 +112,28 @@ export interface OfflineOperation {
 export type OperationData =
   | { type: "create"; blob: MediaBlob; metadata?: Record<string, unknown> }
   | { type: "update"; changes: Partial<MediaBlob>; version?: string }
-  | { type: "delete"; reason?: string; backup?: boolean };
+  | { type: "delete"; reason?: string; backup?: boolean }
+  | { type: "create_song"; song: Song; metadata?: Record<string, unknown> }
+  | { type: "update_song"; changes: Partial<Song>; version?: string }
+  | { type: "delete_song"; reason?: string; backup?: boolean }
+  | {
+      type: "create_playlist";
+      playlist: Playlist;
+      metadata?: Record<string, unknown>;
+    }
+  | { type: "update_playlist"; changes: Partial<Playlist>; version?: string }
+  | { type: "delete_playlist"; reason?: string; backup?: boolean }
+  | {
+      type: "create_playlist_song";
+      playlistSong: PlaylistSong;
+      metadata?: Record<string, unknown>;
+    }
+  | {
+      type: "update_playlist_song";
+      changes: Partial<PlaylistSong>;
+      version?: string;
+    }
+  | { type: "delete_playlist_song"; reason?: string; backup?: boolean };
 
 /**
  * Storage statistics
@@ -79,6 +153,15 @@ export interface StorageStats {
   conflicts: number;
   /** Last cleanup timestamp */
   last_cleanup?: string; // ISO 8601 timestamp
+  /** Music-specific stats */
+  music_stats: {
+    /** Total songs stored */
+    total_songs: number;
+    /** Total playlists stored */
+    total_playlists: number;
+    /** Total playlist songs stored */
+    total_playlist_songs: number;
+  };
 }
 
 /**
@@ -93,8 +176,6 @@ export interface StorageConfig {
   max_storage_size: number;
   /** Maximum age for cached items in days */
   max_cache_age_days: number;
-  /** Whether to store binary data locally */
-  store_binary_data: boolean;
   /** Cleanup interval in milliseconds */
   cleanup_interval_ms: number;
 }
@@ -131,10 +212,9 @@ export class SyncStorageManager {
   constructor(config: Partial<StorageConfig> = {}) {
     this.config = {
       database_name: "webauthn_sync_storage",
-      version: 1,
+      version: 4, // Updated to remove binary_data store
       max_storage_size: 100 * 1024 * 1024, // 100MB default
       max_cache_age_days: 30,
-      store_binary_data: true,
       cleanup_interval_ms: 60 * 60 * 1000, // 1 hour
       ...config,
     };
@@ -177,12 +257,54 @@ export class SyncStorageManager {
     // Media blobs store
     if (!db.objectStoreNames.contains("media_blobs")) {
       const mediaStore = db.createObjectStore("media_blobs", { keyPath: "id" });
-      mediaStore.createIndex("sha256", "sha256", { unique: true });
+      mediaStore.createIndex("sha256", "sha256", { unique: false });
       mediaStore.createIndex("synced", "synced");
       mediaStore.createIndex("locally_modified", "locally_modified");
       mediaStore.createIndex("created_at", "created_at");
       mediaStore.createIndex("mime", "mime");
       mediaStore.createIndex("stored_at", "stored_at");
+    }
+
+    // Songs store
+    if (!db.objectStoreNames.contains("songs")) {
+      const songsStore = db.createObjectStore("songs", { keyPath: "id" });
+      songsStore.createIndex("media_blob_id", "media_blob_id");
+      songsStore.createIndex("title", "title");
+      songsStore.createIndex("artist", "artist");
+      songsStore.createIndex("album", "album");
+      songsStore.createIndex("synced", "synced");
+      songsStore.createIndex("locally_modified", "locally_modified");
+      songsStore.createIndex("created_at", "created_at");
+      songsStore.createIndex("stored_at", "stored_at");
+      songsStore.createIndex("is_favorite", "is_favorite");
+    }
+
+    // Playlists store
+    if (!db.objectStoreNames.contains("playlists")) {
+      const playlistsStore = db.createObjectStore("playlists", {
+        keyPath: "id",
+      });
+      playlistsStore.createIndex("title", "title");
+      playlistsStore.createIndex("client_id", "client_id");
+      playlistsStore.createIndex("is_public", "is_public");
+      playlistsStore.createIndex("synced", "synced");
+      playlistsStore.createIndex("locally_modified", "locally_modified");
+      playlistsStore.createIndex("created_at", "created_at");
+      playlistsStore.createIndex("stored_at", "stored_at");
+    }
+
+    // Playlist songs store
+    if (!db.objectStoreNames.contains("playlist_songs")) {
+      const playlistSongsStore = db.createObjectStore("playlist_songs", {
+        keyPath: "id",
+      });
+      playlistSongsStore.createIndex("playlist_id", "playlist_id");
+      playlistSongsStore.createIndex("song_id", "song_id");
+      playlistSongsStore.createIndex("position", "position");
+      playlistSongsStore.createIndex("synced", "synced");
+      playlistSongsStore.createIndex("locally_modified", "locally_modified");
+      playlistSongsStore.createIndex("created_at", "created_at");
+      playlistSongsStore.createIndex("stored_at", "stored_at");
     }
 
     // Offline operations store
@@ -201,7 +323,8 @@ export class SyncStorageManager {
       const conflictsStore = db.createObjectStore("conflicts", {
         keyPath: "id",
       });
-      conflictsStore.createIndex("media_blob_id", "media_blob_id");
+      conflictsStore.createIndex("item_id", "item_id");
+      conflictsStore.createIndex("item_type", "item_type");
       conflictsStore.createIndex("resolved", "resolved");
       conflictsStore.createIndex("detected_at", "detected_at");
     }
@@ -385,6 +508,278 @@ export class SyncStorageManager {
   }
 
   /**
+   * Store a song
+   */
+  async storeSong(
+    song: Song,
+    synced: boolean = false,
+    locallyModified: boolean = false
+  ): Promise<void> {
+    await this.ensureInitialized();
+
+    const storedSong: StoredSong = {
+      ...song,
+      stored_at: new Date().toISOString(),
+      synced,
+      locally_modified: locallyModified,
+      content_hash: await this.calculateContentHash(song),
+      storage_size: this.calculateStorageSize(song),
+    };
+
+    await this.performTransaction("songs", "readwrite", (store) => {
+      return store.put(storedSong);
+    });
+  }
+
+  /**
+   * Retrieve a song by ID
+   */
+  async getSong(id: string): Promise<StoredSong | null> {
+    await this.ensureInitialized();
+
+    return this.performTransaction("songs", "readonly", async (store) => {
+      const song = await this.requestToPromise(store.get(id));
+      return song || null;
+    });
+  }
+
+  /**
+   * Query songs with filters
+   */
+  async querySongs(options: StorageQueryOptions = {}): Promise<StoredSong[]> {
+    await this.ensureInitialized();
+
+    return this.performTransaction("songs", "readonly", (store) => {
+      const results: StoredSong[] = [];
+      const cursor = store.openCursor();
+      let count = 0;
+      let skipped = 0;
+
+      return new Promise<StoredSong[]>((resolve, reject) => {
+        cursor.onsuccess = () => {
+          const cursorResult = cursor.result;
+          if (!cursorResult) {
+            resolve(results);
+            return;
+          }
+
+          const song = cursorResult.value as StoredSong;
+
+          // Apply filters
+          if (this.matchesSongFilters(song, options)) {
+            // Apply offset
+            if (options.offset && skipped < options.offset) {
+              skipped++;
+            } else {
+              // Apply limit
+              if (!options.limit || count < options.limit) {
+                results.push(song);
+                count++;
+              } else {
+                resolve(results);
+                return;
+              }
+            }
+          }
+
+          cursorResult.continue();
+        };
+
+        cursor.onerror = () => reject(cursor.error);
+      });
+    });
+  }
+
+  /**
+   * Store a playlist
+   */
+  async storePlaylist(
+    playlist: Playlist,
+    synced: boolean = false,
+    locallyModified: boolean = false
+  ): Promise<void> {
+    await this.ensureInitialized();
+
+    const storedPlaylist: StoredPlaylist = {
+      ...playlist,
+      stored_at: new Date().toISOString(),
+      synced,
+      locally_modified: locallyModified,
+      content_hash: await this.calculateContentHash(playlist),
+      storage_size: this.calculateStorageSize(playlist),
+    };
+
+    await this.performTransaction("playlists", "readwrite", (store) => {
+      return store.put(storedPlaylist);
+    });
+  }
+
+  /**
+   * Retrieve a playlist by ID
+   */
+  async getPlaylist(id: string): Promise<StoredPlaylist | null> {
+    await this.ensureInitialized();
+
+    return this.performTransaction("playlists", "readonly", async (store) => {
+      const playlist = await this.requestToPromise(store.get(id));
+      return playlist || null;
+    });
+  }
+
+  /**
+   * Query playlists with filters
+   */
+  async queryPlaylists(
+    options: StorageQueryOptions = {}
+  ): Promise<StoredPlaylist[]> {
+    await this.ensureInitialized();
+
+    return this.performTransaction("playlists", "readonly", (store) => {
+      const results: StoredPlaylist[] = [];
+      const cursor = store.openCursor();
+      let count = 0;
+      let skipped = 0;
+
+      return new Promise<StoredPlaylist[]>((resolve, reject) => {
+        cursor.onsuccess = () => {
+          const cursorResult = cursor.result;
+          if (!cursorResult) {
+            resolve(results);
+            return;
+          }
+
+          const playlist = cursorResult.value as StoredPlaylist;
+
+          // Apply filters
+          if (this.matchesPlaylistFilters(playlist, options)) {
+            // Apply offset
+            if (options.offset && skipped < options.offset) {
+              skipped++;
+            } else {
+              // Apply limit
+              if (!options.limit || count < options.limit) {
+                results.push(playlist);
+                count++;
+              } else {
+                resolve(results);
+                return;
+              }
+            }
+          }
+
+          cursorResult.continue();
+        };
+
+        cursor.onerror = () => reject(cursor.error);
+      });
+    });
+  }
+
+  /**
+   * Store a playlist song
+   */
+  async storePlaylistSong(
+    playlistSong: PlaylistSong,
+    synced: boolean = false,
+    locallyModified: boolean = false
+  ): Promise<void> {
+    await this.ensureInitialized();
+
+    const storedPlaylistSong: StoredPlaylistSong = {
+      ...playlistSong,
+      stored_at: new Date().toISOString(),
+      synced,
+      locally_modified: locallyModified,
+      content_hash: await this.calculateContentHash(playlistSong),
+      storage_size: this.calculateStorageSize(playlistSong),
+    };
+
+    await this.performTransaction("playlist_songs", "readwrite", (store) => {
+      return store.put(storedPlaylistSong);
+    });
+  }
+
+  /**
+   * Retrieve playlist songs by playlist ID
+   */
+  async getPlaylistSongs(playlistId: string): Promise<StoredPlaylistSong[]> {
+    await this.ensureInitialized();
+
+    return this.performTransaction("playlist_songs", "readonly", (store) => {
+      const results: StoredPlaylistSong[] = [];
+      const index = store.index("playlist_id");
+      const cursor = index.openCursor(playlistId);
+
+      return new Promise<StoredPlaylistSong[]>((resolve, reject) => {
+        cursor.onsuccess = () => {
+          const cursorResult = cursor.result;
+          if (!cursorResult) {
+            resolve(results);
+            return;
+          }
+
+          results.push(cursorResult.value as StoredPlaylistSong);
+          cursorResult.continue();
+        };
+
+        cursor.onerror = () => reject(cursor.error);
+      });
+    });
+  }
+
+  /**
+   * Mark song as synced
+   */
+  async markSongAsSynced(id: string): Promise<void> {
+    await this.ensureInitialized();
+
+    return this.performTransaction("songs", "readwrite", async (store) => {
+      const song = await this.requestToPromise(store.get(id));
+      if (song) {
+        song.synced = true;
+        song.locally_modified = false;
+        await this.requestToPromise(store.put(song));
+      }
+    });
+  }
+
+  /**
+   * Mark playlist as synced
+   */
+  async markPlaylistAsSynced(id: string): Promise<void> {
+    await this.ensureInitialized();
+
+    return this.performTransaction("playlists", "readwrite", async (store) => {
+      const playlist = await this.requestToPromise(store.get(id));
+      if (playlist) {
+        playlist.synced = true;
+        playlist.locally_modified = false;
+        await this.requestToPromise(store.put(playlist));
+      }
+    });
+  }
+
+  /**
+   * Mark playlist song as synced
+   */
+  async markPlaylistSongAsSynced(id: string): Promise<void> {
+    await this.ensureInitialized();
+
+    return this.performTransaction(
+      "playlist_songs",
+      "readwrite",
+      async (store) => {
+        const playlistSong = await this.requestToPromise(store.get(id));
+        if (playlistSong) {
+          playlistSong.synced = true;
+          playlistSong.locally_modified = false;
+          await this.requestToPromise(store.put(playlistSong));
+        }
+      }
+    );
+  }
+
+  /**
    * Queue an offline operation
    */
   async queueOfflineOperation(
@@ -557,16 +952,19 @@ export class SyncStorageManager {
   async getStorageStats(): Promise<StorageStats> {
     await this.ensureInitialized();
 
-    const [mediaStats, operationsCount, conflictsCount] = await Promise.all([
-      this.getMediaBlobStats(),
-      this.getOperationsCount(),
-      this.getConflictsCount(),
-    ]);
+    const [mediaStats, musicStats, operationsCount, conflictsCount] =
+      await Promise.all([
+        this.getMediaBlobStats(),
+        this.getMusicStats(),
+        this.getOperationsCount(),
+        this.getConflictsCount(),
+      ]);
 
     return {
       ...mediaStats,
       pending_operations: operationsCount,
       conflicts: conflictsCount,
+      music_stats: musicStats,
     };
   }
 
@@ -721,6 +1119,36 @@ export class SyncStorageManager {
     return true;
   }
 
+  private matchesSongFilters(
+    song: StoredSong,
+    options: StorageQueryOptions
+  ): boolean {
+    if (options.unsynced_only && song.synced) {
+      return false;
+    }
+
+    if (options.locally_modified_only && !song.locally_modified) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private matchesPlaylistFilters(
+    playlist: StoredPlaylist,
+    options: StorageQueryOptions
+  ): boolean {
+    if (options.unsynced_only && playlist.synced) {
+      return false;
+    }
+
+    if (options.locally_modified_only && !playlist.locally_modified) {
+      return false;
+    }
+
+    return true;
+  }
+
   private createDateRange(
     after?: Date,
     before?: Date
@@ -735,15 +1163,53 @@ export class SyncStorageManager {
     return undefined;
   }
 
-  private async calculateContentHash(blob: MediaBlob): Promise<string> {
+  private async calculateContentHash(
+    item: MediaBlob | Song | Playlist | PlaylistSong
+  ): Promise<string> {
     // Simple hash based on key properties
-    const content = JSON.stringify({
-      sha256: blob.sha256,
-      size: blob.size,
-      mime: blob.mime,
-      metadata: blob.metadata,
-      updated_at: blob.updated_at,
-    });
+    let content: string;
+
+    if ("sha256" in item) {
+      // MediaBlob
+      content = JSON.stringify({
+        sha256: item.sha256,
+        size: item.size,
+        mime: item.mime,
+        metadata: item.metadata,
+        updated_at: item.updated_at,
+      });
+    } else if ("media_blob_id" in item && "title" in item) {
+      // Song
+      content = JSON.stringify({
+        id: item.id,
+        title: item.title,
+        artist: item.artist,
+        album: item.album,
+        metadata: item.metadata,
+        updated_at: item.updated_at,
+        version: item.version,
+      });
+    } else if ("title" in item && !("media_blob_id" in item)) {
+      // Playlist
+      content = JSON.stringify({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        metadata: item.metadata,
+        updated_at: item.updated_at,
+        version: item.version,
+      });
+    } else {
+      // PlaylistSong
+      content = JSON.stringify({
+        id: item.id,
+        playlist_id: (item as PlaylistSong).playlist_id,
+        song_id: (item as PlaylistSong).song_id,
+        position: (item as PlaylistSong).position,
+        metadata: item.metadata,
+        created_at: item.created_at,
+      });
+    }
 
     const encoder = new TextEncoder();
     const data = encoder.encode(content);
@@ -752,15 +1218,17 @@ export class SyncStorageManager {
     return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   }
 
-  private calculateStorageSize(blob: MediaBlob): number {
+  private calculateStorageSize(
+    item: MediaBlob | Song | Playlist | PlaylistSong
+  ): number {
     let size = 0;
 
     // Estimate size of all properties
-    size += JSON.stringify(blob).length * 2; // UTF-16 encoding
+    size += JSON.stringify(item).length * 2; // UTF-16 encoding
 
-    // Add binary data size if present
-    if (blob.data) {
-      size += blob.data.length;
+    // Add binary data size if present (for MediaBlob)
+    if ("data" in item && item.data) {
+      size += item.data.length;
     }
 
     return size;
@@ -802,6 +1270,11 @@ export class SyncStorageManager {
               unsynced_items: unsyncedItems,
               locally_modified_items: locallyModifiedItems,
               total_size: totalSize,
+              music_stats: {
+                total_songs: 0,
+                total_playlists: 0,
+                total_playlist_songs: 0,
+              },
             });
           }
         };
@@ -843,6 +1316,51 @@ export class SyncStorageManager {
             resolve(count);
           }
         };
+
+        request.onerror = () => reject(request.error);
+      });
+    });
+  }
+
+  private async getMusicStats() {
+    const [songStats, playlistStats, playlistSongStats] = await Promise.all([
+      this.getSongStats(),
+      this.getPlaylistStats(),
+      this.getPlaylistSongStats(),
+    ]);
+
+    return {
+      total_songs: songStats.total,
+      total_playlists: playlistStats.total,
+      total_playlist_songs: playlistSongStats.total,
+    };
+  }
+
+  private async getSongStats(): Promise<{ total: number }> {
+    return this.performTransaction("songs", "readonly", (store) => {
+      return new Promise<{ total: number }>((resolve, reject) => {
+        const request = store.count();
+        request.onsuccess = () => resolve({ total: request.result });
+        request.onerror = () => reject(request.error);
+      });
+    });
+  }
+
+  private async getPlaylistStats(): Promise<{ total: number }> {
+    return this.performTransaction("playlists", "readonly", (store) => {
+      return new Promise<{ total: number }>((resolve, reject) => {
+        const request = store.count();
+        request.onsuccess = () => resolve({ total: request.result });
+        request.onerror = () => reject(request.error);
+      });
+    });
+  }
+
+  private async getPlaylistSongStats(): Promise<{ total: number }> {
+    return this.performTransaction("playlist_songs", "readonly", (store) => {
+      return new Promise<{ total: number }>((resolve, reject) => {
+        const request = store.count();
+        request.onsuccess = () => resolve({ total: request.result });
         request.onerror = () => reject(request.error);
       });
     });

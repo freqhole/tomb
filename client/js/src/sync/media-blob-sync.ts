@@ -523,7 +523,7 @@ export class MediaBlobSync extends EventTarget {
 /**
  * Event map for type-safe event handling
  */
-interface SyncEventMap {
+export interface SyncEventMap {
   initialized: (event: CustomEvent) => void;
   "sync-started": (event: CustomEvent) => void;
   "sync-completed": (event: CustomEvent) => void;

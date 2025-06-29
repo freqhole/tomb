@@ -112,10 +112,9 @@ export class SyncManager {
     // Initialize storage if enabled
     if (config.storage.enabled) {
       this.storage = new SyncStorageManager({
-        database_name: `webauthn_sync_${config.clientId}`,
+        database_name: "webauthn_sync_storage",
         max_storage_size: config.storage.maxSize,
         max_cache_age_days: config.storage.maxCacheAge,
-        store_binary_data: config.includeBinaryData,
       });
     }
 
@@ -427,7 +426,7 @@ export class SyncManager {
       await this.processSyncResponse(response, true);
 
       hasMore = response.pagination.has_more;
-      cursor = response.pagination.next_cursor;
+      cursor = response.pagination.next_cursor || undefined;
 
       // Update persistent state with validated timestamp
       const syncTimestamp = new Date(response.sync_timestamp);
@@ -492,7 +491,7 @@ export class SyncManager {
       await this.processSyncResponse(response, false);
 
       hasMore = response.pagination.has_more;
-      cursor = response.pagination.next_cursor;
+      cursor = response.pagination.next_cursor || undefined;
 
       // Update persistent state with validated timestamp
       const syncTimestamp = new Date(response.sync_timestamp);
@@ -656,7 +655,8 @@ export class SyncManager {
 
         return {
           id: crypto.randomUUID(),
-          media_blob_id: server.id,
+          item_id: server.id,
+          item_type: "media_blob",
           type: "version",
           local_version: localAsMediaBlob,
           server_version: server,

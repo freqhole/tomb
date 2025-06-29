@@ -76,7 +76,6 @@ export {
 } from "./sync-events.js";
 export type {
   SyncEvent,
-  SyncEventListener,
   BaseSyncEvent,
   SyncStartedEvent,
   SyncProgressEvent,
@@ -95,7 +94,6 @@ export type {
 // Storage management
 export { SyncStorageManager } from "./sync-storage.js";
 export type {
-  StoredMediaBlob,
   OfflineOperation,
   StorageStats,
   StorageConfig,
@@ -105,5 +103,108 @@ export type {
 // Schema validation utilities
 export * from "./sync-schemas.js";
 
-// Re-export MediaBlob from correct location
-export type { MediaBlob } from "../lib/websocket-types.js";
+// Media blob sync
+export {
+  MediaBlobSync,
+  createMediaBlobSync,
+  isSyncSupported,
+  getDefaultSyncConfig,
+  validateMediaBlobSyncConfig,
+} from "./media-blob-sync.js";
+export type {
+  MediaBlobSyncConfig,
+  MediaBlobSyncProgressEvent,
+  MediaBlobSyncConflictEvent,
+  MediaBlobSyncErrorEvent,
+  MediaBlobSyncItemsEvent,
+  MediaBlobSyncConnectionEvent,
+  SyncEventListener as MediaBlobSyncEventListener,
+} from "./media-blob-sync.js";
+
+// Song sync
+export {
+  SongSync,
+  createSongSync,
+  isSongSyncSupported,
+  getDefaultSongSyncConfig,
+  validateSongSyncConfig,
+} from "./song-sync.js";
+export type {
+  SongSyncConfig,
+  SongSyncProgressEvent,
+  SongSyncConflictEvent,
+  SongSyncErrorEvent,
+  SongSyncItemsEvent,
+  SongSyncConnectionEvent,
+  SongSyncEventListener,
+  SongSyncEventMap,
+} from "./song-sync.js";
+
+// Playlist sync
+export {
+  PlaylistSync,
+  createPlaylistSync,
+  isPlaylistSyncSupported,
+  getDefaultPlaylistSyncConfig,
+  validatePlaylistSyncConfig,
+} from "./playlist-sync.js";
+export type {
+  PlaylistSyncConfig,
+  PlaylistSyncProgressEvent,
+  PlaylistSyncConflictEvent,
+  PlaylistSyncErrorEvent,
+  PlaylistSyncItemsEvent,
+  PlaylistSyncConnectionEvent,
+  PlaylistSyncEventListener,
+  PlaylistSyncEventMap,
+} from "./playlist-sync.js";
+
+// Playlist song sync
+export {
+  PlaylistSongSync,
+  createPlaylistSongSync,
+  isPlaylistSongSyncSupported,
+  getDefaultPlaylistSongSyncConfig,
+  validatePlaylistSongSyncConfig,
+} from "./playlist-song-sync.js";
+export type {
+  PlaylistSongSyncConfig,
+  PlaylistSongSyncProgressEvent,
+  PlaylistSongSyncConflictEvent,
+  PlaylistSongSyncErrorEvent,
+  PlaylistSongSyncItemsEvent,
+  PlaylistSongSyncConnectionEvent,
+  PlaylistSongSyncEventListener,
+  PlaylistSongSyncEventMap,
+} from "./playlist-song-sync.js";
+
+// Unified music sync manager
+export {
+  MusicSyncManager,
+  createMusicSyncManager,
+  isMusicSyncSupported,
+  getDefaultMusicSyncConfig,
+} from "./music-sync-manager.js";
+export type {
+  MusicSyncManagerConfig,
+  MusicSyncProgress,
+  MusicSyncStats,
+  MusicSyncEventListener,
+  MusicSyncManagerEventMap,
+} from "./music-sync-manager.js";
+
+// Re-export base types from websocket types
+export type {
+  MediaBlob,
+  Song,
+  Playlist,
+  PlaylistSong,
+} from "../lib/websocket-types.js";
+
+// Re-export storage types from sync storage
+export type {
+  StoredMediaBlob,
+  StoredSong,
+  StoredPlaylist,
+  StoredPlaylistSong,
+} from "./sync-storage.js";

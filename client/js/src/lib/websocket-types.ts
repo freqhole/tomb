@@ -49,6 +49,73 @@ export const MediaBlobSchema = z.object({
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
 
 /**
+ * Song data structure matching the server-side Song
+ */
+export const SongSchema = z.object({
+  id: UuidSchema,
+  media_blob_id: UuidSchema,
+  thumbnail_blob_id: UuidSchema.optional(),
+  waveform_blob_id: UuidSchema.optional(),
+  title: z.string(),
+  artist: z.string().optional(),
+  album: z.string().optional(),
+  album_artist: z.string().optional(),
+  track_number: z.number().int().optional(),
+  disc_number: z.number().int().optional(),
+  duration: z.string().optional(), // PgInterval as ISO duration string
+  genre: z.string().optional(),
+  year: z.number().int().optional(),
+  bpm: z.number().int().optional(),
+  key_signature: z.string().optional(),
+  rating: z.number().int().optional(),
+  is_favorite: z.boolean().default(false),
+  tags: z.array(z.string()).default([]),
+  metadata: z.record(z.any()).default({}),
+  deleted_at: DateTimeSchema.optional(),
+  deleted_by: UuidSchema.optional(),
+  created_at: DateTimeSchema,
+  updated_at: DateTimeSchema,
+  version: z.number().int(),
+});
+
+export type Song = z.infer<typeof SongSchema>;
+
+/**
+ * Playlist data structure matching the server-side Playlist
+ */
+export const PlaylistSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  description: z.string().optional(),
+  client_id: z.string().optional(),
+  is_public: z.boolean().default(false),
+  is_collaborative: z.boolean().default(false),
+  metadata: z.record(z.any()).default({}),
+  deleted_at: DateTimeSchema.optional(),
+  deleted_by: UuidSchema.optional(),
+  created_at: DateTimeSchema,
+  updated_at: DateTimeSchema,
+  version: z.number().int(),
+});
+
+export type Playlist = z.infer<typeof PlaylistSchema>;
+
+/**
+ * PlaylistSong data structure matching the server-side PlaylistSong
+ */
+export const PlaylistSongSchema = z.object({
+  id: UuidSchema,
+  playlist_id: UuidSchema,
+  song_id: UuidSchema,
+  position: z.number().int(),
+  created_at: DateTimeSchema,
+  added_by_client_id: z.string().optional(),
+  metadata: z.record(z.any()).default({}),
+});
+
+export type PlaylistSong = z.infer<typeof PlaylistSongSchema>;
+
+/**
  * Messages sent from client to server
  */
 export const WebSocketMessageSchema = z.discriminatedUnion("type", [
@@ -101,6 +168,46 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("GetThumbnails"),
     data: z.object({
       media_blob_id: UuidSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal("GetSongs"),
+    data: z
+      .object({
+        limit: z.number().int().positive().optional(),
+        offset: z.number().int().min(0).optional(),
+        artist: z.string().optional(),
+        album: z.string().optional(),
+        favorites_only: z.boolean().optional(),
+      })
+      .optional(),
+  }),
+  z.object({
+    type: z.literal("GetSong"),
+    data: z.object({
+      id: UuidSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal("GetPlaylists"),
+    data: z
+      .object({
+        limit: z.number().int().positive().optional(),
+        offset: z.number().int().min(0).optional(),
+        public_only: z.boolean().optional(),
+      })
+      .optional(),
+  }),
+  z.object({
+    type: z.literal("GetPlaylist"),
+    data: z.object({
+      id: UuidSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal("GetPlaylistSongs"),
+    data: z.object({
+      playlist_id: UuidSchema,
     }),
   }),
 ]);
@@ -195,6 +302,39 @@ export const WebSocketResponseSchema = z.discriminatedUnion("type", [
       thumbnails: z.array(MediaBlobSchema),
     }),
   }),
+  z.object({
+    type: z.literal("Songs"),
+    data: z.object({
+      songs: z.array(SongSchema),
+      total_count: z.number().int().min(0),
+    }),
+  }),
+  z.object({
+    type: z.literal("Song"),
+    data: z.object({
+      song: SongSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal("Playlists"),
+    data: z.object({
+      playlists: z.array(PlaylistSchema),
+      total_count: z.number().int().min(0),
+    }),
+  }),
+  z.object({
+    type: z.literal("Playlist"),
+    data: z.object({
+      playlist: PlaylistSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal("PlaylistSongs"),
+    data: z.object({
+      playlist_id: UuidSchema,
+      songs: z.array(PlaylistSongSchema),
+    }),
+  }),
 ]);
 
 export type WebSocketResponse = z.infer<typeof WebSocketResponseSchema>;
@@ -257,6 +397,41 @@ export const createMessage = {
     type: "GetThumbnails",
     data: { media_blob_id: mediaBlobId },
   }),
+
+  getSongs: (options?: {
+    limit?: number;
+    offset?: number;
+    artist?: string;
+    album?: string;
+    favorites_only?: boolean;
+  }): WebSocketMessage => ({
+    type: "GetSongs",
+    data: options,
+  }),
+
+  getSong: (id: string): WebSocketMessage => ({
+    type: "GetSong",
+    data: { id },
+  }),
+
+  getPlaylists: (options?: {
+    limit?: number;
+    offset?: number;
+    public_only?: boolean;
+  }): WebSocketMessage => ({
+    type: "GetPlaylists",
+    data: options,
+  }),
+
+  getPlaylist: (id: string): WebSocketMessage => ({
+    type: "GetPlaylist",
+    data: { id },
+  }),
+
+  getPlaylistSongs: (playlistId: string): WebSocketMessage => ({
+    type: "GetPlaylistSongs",
+    data: { playlist_id: playlistId },
+  }),
 };
 
 /**
@@ -295,6 +470,36 @@ export const isMediaBlobsMessage = (
   response: WebSocketResponse
 ): response is Extract<WebSocketResponse, { type: "MediaBlobs" }> => {
   return response.type === "MediaBlobs";
+};
+
+export const isSongsMessage = (
+  response: WebSocketResponse
+): response is Extract<WebSocketResponse, { type: "Songs" }> => {
+  return response.type === "Songs";
+};
+
+export const isSongMessage = (
+  response: WebSocketResponse
+): response is Extract<WebSocketResponse, { type: "Song" }> => {
+  return response.type === "Song";
+};
+
+export const isPlaylistsMessage = (
+  response: WebSocketResponse
+): response is Extract<WebSocketResponse, { type: "Playlists" }> => {
+  return response.type === "Playlists";
+};
+
+export const isPlaylistMessage = (
+  response: WebSocketResponse
+): response is Extract<WebSocketResponse, { type: "Playlist" }> => {
+  return response.type === "Playlist";
+};
+
+export const isPlaylistSongsMessage = (
+  response: WebSocketResponse
+): response is Extract<WebSocketResponse, { type: "PlaylistSongs" }> => {
+  return response.type === "PlaylistSongs";
 };
 
 export const isErrorMessage = (

@@ -12,9 +12,12 @@ import { z } from "zod";
  */
 export const SyncStatus = {
   Never: "Never",
+  Idle: "Idle",
   InProgress: "InProgress",
+  Syncing: "Syncing",
   Complete: "Complete",
   Failed: "Failed",
+  Error: "Error",
   Paused: "Paused",
 } as const;
 
@@ -28,9 +31,12 @@ export type SyncStatus = (typeof SyncStatus)[keyof typeof SyncStatus];
  */
 export const SyncStatusSchema = z.enum([
   SyncStatus.Never,
+  SyncStatus.Idle,
   SyncStatus.InProgress,
+  SyncStatus.Syncing,
   SyncStatus.Complete,
   SyncStatus.Failed,
+  SyncStatus.Error,
   SyncStatus.Paused,
 ]);
 
@@ -126,7 +132,7 @@ export type ConnectionState =
  * Check if a sync status indicates an active operation
  */
 export function isActiveSyncStatus(status: SyncStatus): boolean {
-  return status === SyncStatus.InProgress;
+  return status === SyncStatus.InProgress || status === SyncStatus.Syncing;
 }
 
 /**
@@ -140,21 +146,21 @@ export function isCompletedSyncStatus(status: SyncStatus): boolean {
  * Check if a sync status indicates an error state
  */
 export function isErrorSyncStatus(status: SyncStatus): boolean {
-  return status === SyncStatus.Failed;
+  return status === SyncStatus.Failed || status === SyncStatus.Error;
 }
 
 /**
  * Check if a sync status allows starting a new sync
  */
 export function canStartSync(status: SyncStatus): boolean {
-  return status !== SyncStatus.InProgress;
+  return status !== SyncStatus.InProgress && status !== SyncStatus.Syncing;
 }
 
 /**
  * Check if a sync can be paused
  */
 export function canPauseSync(status: SyncStatus): boolean {
-  return status === SyncStatus.InProgress;
+  return status === SyncStatus.InProgress || status === SyncStatus.Syncing;
 }
 
 /**
@@ -171,12 +177,18 @@ export function getSyncStatusDisplayText(status: SyncStatus): string {
   switch (status) {
     case SyncStatus.Never:
       return "Not synced";
+    case SyncStatus.Idle:
+      return "Ready";
     case SyncStatus.InProgress:
+      return "Syncing...";
+    case SyncStatus.Syncing:
       return "Syncing...";
     case SyncStatus.Complete:
       return "Up to date";
     case SyncStatus.Failed:
       return "Sync failed";
+    case SyncStatus.Error:
+      return "Error";
     case SyncStatus.Paused:
       return "Sync paused";
     default:
@@ -191,12 +203,18 @@ export function getSyncStatusClassName(status: SyncStatus): string {
   switch (status) {
     case SyncStatus.Never:
       return "sync-status-never";
+    case SyncStatus.Idle:
+      return "sync-status-idle";
     case SyncStatus.InProgress:
       return "sync-status-in-progress";
+    case SyncStatus.Syncing:
+      return "sync-status-syncing";
     case SyncStatus.Complete:
       return "sync-status-complete";
     case SyncStatus.Failed:
       return "sync-status-failed";
+    case SyncStatus.Error:
+      return "sync-status-error";
     case SyncStatus.Paused:
       return "sync-status-paused";
     default:

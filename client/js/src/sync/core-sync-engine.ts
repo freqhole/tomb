@@ -121,10 +121,9 @@ export class CoreSyncEngine {
       // Initialize storage if enabled
       if (this.config.enableStorage) {
         this.storage = new SyncStorageManager({
-          database_name: `media_sync_${this.config.clientId}`,
+          database_name: "webauthn_sync_storage",
           max_storage_size: this.config.maxStorageSize,
           max_cache_age_days: this.config.maxCacheAge,
-          store_binary_data: this.config.includeBinaryData,
         });
         await this.storage.initialize();
       }
@@ -358,7 +357,7 @@ export class CoreSyncEngine {
       await this.processSyncBatch(syncData, totalSynced);
 
       totalSynced += syncData.items.length;
-      cursor = syncData.pagination.next_cursor;
+      cursor = syncData.pagination.next_cursor || undefined;
 
       // Update persistent state
       this.persistentState.updateAfterSync(
@@ -422,7 +421,7 @@ export class CoreSyncEngine {
       await this.processSyncBatch(syncData, totalSynced);
 
       totalSynced += syncData.items.length;
-      cursor = syncData.pagination.next_cursor;
+      cursor = syncData.pagination.next_cursor || undefined;
 
       // Update persistent state
       this.persistentState.updateAfterSync(
@@ -538,7 +537,8 @@ export class CoreSyncEngine {
     if (serverTime.getTime() !== localTime.getTime()) {
       return {
         id: crypto.randomUUID(),
-        media_blob_id: serverItem.id,
+        item_id: serverItem.id,
+        item_type: "media_blob",
         type: "version",
         local_version: localItem,
         server_version: serverItem,
