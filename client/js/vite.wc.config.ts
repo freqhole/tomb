@@ -124,6 +124,29 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
     `,
   },
 
+  "freqhole-demo": {
+    name: "freqhole-demo",
+    title: "Freqhole Demo - MediaBlob Data Grid",
+    description: "🔍 MediaBlob Data Grid with Panels and WebSocket Feed",
+    element: "freqhole-demo",
+    attributes: {
+      "ws-url": "ws://localhost:8080/ws",
+      "api-base-url": "http://localhost:8080",
+      "auto-connect": "true",
+    },
+    instructions: [
+      "Make sure your server is running on <code>localhost:8080</code>",
+      "Browse panel (left) for name search",
+      "Filter panel (right) with controls - test resizing!",
+      "Real-time WebSocket updates for media blobs",
+      "Modular architecture with reusable components",
+    ],
+    styles: `
+      body { margin: 0; padding: 0; overflow: hidden; }
+      .container { max-width: none; margin: 0; }
+    `,
+  },
+
   "product-data-grid-demo": {
     name: "product-data-grid-demo",
     title: "Product Catalog Grid Demo",
@@ -215,6 +238,7 @@ function generateStandaloneFiles(): import("vite").Plugin {
           "sync-demo.js": "sync-demo",
           "infinite-data-grid.js": "infinite-data-grid",
           "product-data-grid-demo.js": "product-data-grid-demo",
+          "freqhole-demo.js": "freqhole-demo",
         };
 
         const templateKey = nameMapping[chunk.fileName];
@@ -279,6 +303,7 @@ export default defineConfig({
         "infinite-data-grid": "./src/web-components/infinite-data-grid.tsx",
         "product-data-grid-demo":
           "./src/web-components/product-data-grid-demo.tsx",
+        "freqhole-demo": "./src/web-components/freqhole-demo.tsx",
         "all-components": "./src/web-components/index.tsx",
       },
       output: {
@@ -291,6 +316,7 @@ export default defineConfig({
             "sync-demo": "sync-demo.js",
             "infinite-data-grid": "infinite-data-grid.js",
             "product-data-grid-demo": "product-data-grid-demo.js",
+            "freqhole-demo": "freqhole-demo.js",
             "all-components": "all-components.js",
           };
           return nameMap[chunkInfo.name] || "[name].js";
