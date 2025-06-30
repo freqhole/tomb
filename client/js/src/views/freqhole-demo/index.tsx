@@ -26,6 +26,7 @@ import { PopupPreview } from "./components/PopupPreview";
 import { ActionMenu } from "./components/ActionMenu";
 import { BulkActionMenu } from "./components/BulkActionMenu";
 import { DragSelectionOverlay } from "./components/DragSelectionOverlay";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { useKeyboardNavigation } from "./hooks/useKeyboardNavigation";
 import { useViewModes } from "./hooks/useViewModes";
 import { getDisplayFilename } from "../../lib/media-utils";
@@ -151,6 +152,15 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     position: { x: number; y: number };
   } | null>(null);
 
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = createSignal<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    items?: MediaBlob[];
+    onConfirm: () => void;
+  } | null>(null);
+
   // View modes
   const viewModes = useViewModes((initialState.viewMode as any) || "default");
 
@@ -178,12 +188,22 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       }
     },
     onDelete: (items) => {
-      // TODO: Implement bulk delete with confirmation
-      addLog(`🗑️ Delete requested for ${items.length} items via keyboard`);
-      console.log(
-        "Delete requested via keyboard:",
-        items.map((i) => i.id)
-      );
+      setConfirmDialog({
+        isOpen: true,
+        title: "Delete Files",
+        message: `Delete ${items.length} selected file${items.length !== 1 ? "s" : ""}?`,
+        items: items,
+        onConfirm: () => {
+          // TODO: Implement actual delete API call
+          addLog(`🗑️ Deleted ${items.length} items via keyboard`);
+          console.log(
+            "Deleted via keyboard:",
+            items.map((i) => i.id)
+          );
+          selection.clearSelection();
+          setConfirmDialog(null);
+        },
+      });
     },
     isTextInputFocused: () => {
       const target = document.activeElement as HTMLElement;
@@ -217,8 +237,20 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       saveState({ selectedItems });
     },
     onDelete: (selectedItems) => {
-      console.log("Delete requested for", selectedItems.size, "items");
-      // TODO: Implement delete with confirmation
+      const items = sortedData().filter((item) => selectedItems.has(item.id));
+      setConfirmDialog({
+        isOpen: true,
+        title: "Delete Selected Files",
+        message: `Delete ${items.length} selected file${items.length !== 1 ? "s" : ""}?`,
+        items: items,
+        onConfirm: () => {
+          // TODO: Implement actual delete API call
+          addLog(`🗑️ Deleted ${items.length} selected items`);
+          console.log("Deleted selected items:", Array.from(selectedItems));
+          selection.clearSelection();
+          setConfirmDialog(null);
+        },
+      });
     },
     saveToStorage: (_selectedItems) => {
       // Already handled by onSelectionChange
@@ -349,9 +381,18 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   };
 
   const handleDeleteItem = (item: MediaBlob) => {
-    // TODO: Implement delete with confirmation
-    addLog(`🗑️ Delete requested for: ${getDisplayFilename(item)}`);
-    console.log("Delete requested for:", item.id);
+    setConfirmDialog({
+      isOpen: true,
+      title: "Delete File",
+      message: `Are you sure you want to delete this file? This action cannot be undone.`,
+      items: [item],
+      onConfirm: () => {
+        // TODO: Implement actual delete API call
+        addLog(`🗑️ Deleted: ${getDisplayFilename(item)}`);
+        console.log("Deleted item:", item.id);
+        setConfirmDialog(null);
+      },
+    });
   };
 
   const handleBulkMoreClick = (event: MouseEvent) => {
@@ -397,9 +438,19 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       selectedItems.includes(item.id)
     );
 
-    // TODO: Add confirmation dialog
-    addLog(`🗑️ Bulk delete requested for ${items.length} items`);
-    console.log("Bulk delete requested for:", selectedItems);
+    setConfirmDialog({
+      isOpen: true,
+      title: "Delete Multiple Files",
+      message: `Are you sure you want to delete ${items.length} files?`,
+      items: items,
+      onConfirm: () => {
+        // TODO: Implement actual bulk delete API call
+        addLog(`🗑️ Bulk deleted ${items.length} items`);
+        console.log("Bulk deleted items:", selectedItems);
+        selection.clearSelection();
+        setConfirmDialog(null);
+      },
+    });
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
@@ -1050,6 +1101,16 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         onDownloadAll={handleBulkDownload}
         onDeleteAll={handleBulkDelete}
         onClearSelection={selection.clearSelection}
+      />
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog()?.isOpen || false}
+        title={confirmDialog()?.title || ""}
+        message={confirmDialog()?.message || ""}
+        items={confirmDialog()?.items}
+        onConfirm={confirmDialog()?.onConfirm || (() => {})}
+        onCancel={() => setConfirmDialog(null)}
       />
 
       {/* Drag Selection Overlay */}
