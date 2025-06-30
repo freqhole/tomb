@@ -135,12 +135,45 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
     return items;
   });
 
+  // Calculate actual visible range (what user sees on screen)
+  const actualVisibleStartRow = createMemo(() => {
+    if (props.data.length === 0) return 0;
+    const container = containerRef();
+    if (!container) return 1;
+    return Math.floor(scrollTop() / rowHeight) + 1; // +1 for 1-based indexing
+  });
+
+  const actualVisibleEndRow = createMemo(() => {
+    if (props.data.length === 0) return 0;
+    const container = containerRef();
+    if (!container) return Math.min(1, props.data.length);
+
+    const viewportHeight = containerHeight() - headerHeight;
+    const rowsInViewport = Math.floor(viewportHeight / rowHeight);
+    const endRow = Math.floor(scrollTop() / rowHeight) + rowsInViewport;
+    return Math.min(endRow, props.data.length);
+  });
+
+  const totalRows = createMemo(() => props.data.length);
+
   const totalHeight = createMemo(() => props.data.length * rowHeight);
 
   // Event handlers
   const handleScroll = (e: Event) => {
     const target = e.target as HTMLDivElement;
     setScrollTop(target.scrollTop);
+
+    // Infinite scroll detection
+    if (props.onLoadMore && props.hasMore && !props.isLoadingMore) {
+      const scrollHeight = target.scrollHeight;
+      const scrollTop = target.scrollTop;
+      const clientHeight = target.clientHeight;
+
+      // Trigger load more when within 200px of bottom
+      if (scrollHeight - scrollTop - clientHeight < 200) {
+        props.onLoadMore();
+      }
+    }
   };
 
   const handleSort = (field: string) => {
@@ -300,6 +333,34 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
         </Show>
       </div>
 
+      {/* Pagination Status */}
+      <Show when={props.showPaginationStatus !== false}>
+        <div
+          class="grid-stats"
+          style={`
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #ffffff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            border: 1px solid ${DARK_THEME.colors.border};
+            backdrop-filter: blur(10px);
+            pointer-events: none;
+            z-index: 100;
+          `}
+        >
+          Showing rows {actualVisibleStartRow()}-{actualVisibleEndRow()} of{" "}
+          {totalRows()}
+          <Show when={props.isLoadingMore}>
+            <span style="margin-left: 8px; color: #ff00ff;">Loading...</span>
+          </Show>
+        </div>
+      </Show>
+
       <style>{`
         .grid-row:hover:not(.selected) {
           background: ${DARK_THEME.colors.hover};
@@ -343,6 +404,14 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
 
         body.drag-selecting * {
           user-select: none;
+        }
+
+        .grid-stats {
+          transition: opacity 0.2s ease;
+        }
+
+        .grid-stats:hover {
+          opacity: 0.7;
         }
       `}</style>
     </div>

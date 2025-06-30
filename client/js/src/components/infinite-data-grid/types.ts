@@ -52,6 +52,10 @@ export interface GridProps<T = any> {
   isDragSelecting?: boolean;
   getItemId?: (item: T) => string;
   className?: string;
+  showPaginationStatus?: boolean;
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
 }
 
 export interface VirtualizedRowProps<T = any> {

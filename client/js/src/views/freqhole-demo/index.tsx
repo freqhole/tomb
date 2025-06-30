@@ -67,6 +67,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     debug: initialState.debug ?? false,
     autoConnect: props.autoConnect,
     autoRefresh: initialState.autoRefresh ?? true,
+    pageSize: 50,
   });
 
   // State
@@ -617,6 +618,10 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           onRowDoubleClick={handleRowDoubleClick}
           onRowMouseDown={selection.handleRowMouseDown}
           isDragSelecting={selection.isDragSelecting()}
+          showPaginationStatus={true}
+          onLoadMore={() => feed.actions.loadMore()}
+          hasMore={feed.state().hasMore}
+          isLoadingMore={feed.state().isLoadingMore}
         />
       </div>
 
