@@ -4,7 +4,7 @@ export interface SelectionToolbarProps {
   selectedCount: number;
   onDownload?: () => void;
   onClear?: () => void;
-  onMore?: () => void;
+  onMore?: (event: MouseEvent) => void;
   className?: string;
 }
 
@@ -66,7 +66,7 @@ export function SelectionToolbar(props: SelectionToolbarProps) {
         <Show when={props.onMore}>
           <button
             class="toolbar-button secondary"
-            onClick={props.onMore}
+            onClick={(e) => props.onMore?.(e)}
             style={`
               background: #333333;
               color: #ffffff;

@@ -23,6 +23,8 @@ import { InfiniteDataGrid } from "../../components/infinite-data-grid";
 import type { GridColumn } from "../../components/infinite-data-grid/types";
 import { Thumbnail } from "./components/Thumbnail";
 import { PopupPreview } from "./components/PopupPreview";
+import { ActionMenu } from "./components/ActionMenu";
+import { BulkActionMenu } from "./components/BulkActionMenu";
 import { getDisplayFilename } from "../../lib/media-utils";
 import { formatBytes } from "../../lib/format-utils";
 import { useWebSocketFeed } from "../../hooks/useWebSocketFeed";
@@ -135,6 +137,19 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     isOpen: boolean;
   } | null>(null);
 
+  // Action menu state
+  const [actionMenu, setActionMenu] = createSignal<{
+    item: MediaBlob;
+    isOpen: boolean;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  // Bulk action menu state
+  const [bulkActionMenu, setBulkActionMenu] = createSignal<{
+    isOpen: boolean;
+    position: { x: number; y: number };
+  } | null>(null);
+
   // Real WebSocket state from feed
   const connectionStatus = () => feed.state().connectionStatus;
   const hasPendingUpdates = () => feed.state().hasPendingUpdates;
@@ -185,8 +200,156 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     addLog(`🖼️ Opened preview for: ${getDisplayFilename(item)}`);
   };
 
+  const handleRowContextMenu = (
+    item: MediaBlob,
+    _index: number,
+    event: MouseEvent
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const position = {
+      x: event.clientX,
+      y: event.clientY,
+    };
+
+    const selectedCount = selection.selectedItems().size;
+
+    if (selectedCount > 1) {
+      // Show bulk action menu when multiple items selected
+      setBulkActionMenu({
+        isOpen: true,
+        position,
+      });
+      addLog(`🖱️ Bulk context menu opened for ${selectedCount} items`);
+    } else {
+      // Show individual action menu for single item
+      setActionMenu({
+        item,
+        isOpen: true,
+        position,
+      });
+      addLog(`🖱️ Context menu opened for: ${getDisplayFilename(item)}`);
+    }
+  };
+
   const closePopupPreview = () => {
     setPopupPreview(null);
+  };
+
+  const closeActionMenu = () => {
+    setActionMenu(null);
+  };
+
+  const closeBulkActionMenu = () => {
+    setBulkActionMenu(null);
+  };
+
+  const handleActionMenuClick = (item: MediaBlob, event: MouseEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const currentMenu = actionMenu();
+    if (currentMenu && currentMenu.item.id === item.id) {
+      // Close if clicking same item
+      closeActionMenu();
+      addLog(`⋯ Action menu closed for: ${getDisplayFilename(item)}`);
+    } else {
+      // Open menu at button position
+      const rect = (event.target as HTMLElement).getBoundingClientRect();
+      const position = {
+        x: rect.right - 120, // Offset to the left of button
+        y: rect.bottom + 4,
+      };
+
+      setActionMenu({
+        item,
+        isOpen: true,
+        position,
+      });
+      addLog(`⋯ Action menu opened for: ${getDisplayFilename(item)}`);
+    }
+  };
+
+  const handleDownload = async (item: MediaBlob) => {
+    try {
+      const filename = getDisplayFilename(item);
+      const link = document.createElement("a");
+      link.href = `/api/blobs/${item.id}`;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      addLog(`📥 Downloaded: ${filename}`);
+    } catch (error) {
+      console.error("Download failed:", error);
+      addLog(`❌ Download failed: ${error}`);
+    }
+  };
+
+  const handleCopyUrl = async (item: MediaBlob) => {
+    try {
+      const url = `${window.location.origin}/api/blobs/${item.id}`;
+      await navigator.clipboard.writeText(url);
+      addLog(`🔗 Copied URL for: ${getDisplayFilename(item)}`);
+    } catch (error) {
+      console.error("Copy URL failed:", error);
+      addLog(`❌ Copy URL failed: ${error}`);
+    }
+  };
+
+  const handleDeleteItem = (item: MediaBlob) => {
+    // TODO: Implement delete with confirmation
+    addLog(`🗑️ Delete requested for: ${getDisplayFilename(item)}`);
+    console.log("Delete requested for:", item.id);
+  };
+
+  const handleBulkMoreClick = (event: MouseEvent) => {
+    const currentMenu = bulkActionMenu();
+    if (currentMenu?.isOpen) {
+      // Close if already open
+      closeBulkActionMenu();
+    } else {
+      // Position menu above the More button
+      const rect = (event.target as HTMLElement).getBoundingClientRect();
+      const position = {
+        x: rect.left + rect.width / 2 - 100, // Center horizontally
+        y: rect.top - 10, // Position above button
+      };
+
+      setBulkActionMenu({
+        isOpen: true,
+        position,
+      });
+    }
+  };
+
+  const handleBulkDownload = async () => {
+    const selectedItems = Array.from(selection.selectedItems());
+    const items = sortedData().filter((item) =>
+      selectedItems.includes(item.id)
+    );
+
+    addLog(`📥 Starting bulk download of ${items.length} items...`);
+
+    for (const item of items) {
+      await handleDownload(item);
+      // Small delay to prevent overwhelming the browser
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    addLog(`✅ Bulk download completed: ${items.length} items`);
+  };
+
+  const handleBulkDelete = () => {
+    const selectedItems = Array.from(selection.selectedItems());
+    const items = sortedData().filter((item) =>
+      selectedItems.includes(item.id)
+    );
+
+    // TODO: Add confirmation dialog
+    addLog(`🗑️ Bulk delete requested for ${items.length} items`);
+    console.log("Bulk delete requested for:", selectedItems);
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
@@ -207,9 +370,13 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       }
       // If in text input, let the browser handle Ctrl+A naturally
     } else if (event.key === "Escape") {
-      // Close popup preview on Escape
+      // Close popups/menus on Escape
       if (popupPreview()?.isOpen) {
         closePopupPreview();
+      } else if (actionMenu()?.isOpen) {
+        closeActionMenu();
+      } else if (bulkActionMenu()?.isOpen) {
+        closeBulkActionMenu();
       } else {
         // Delegate to selection hook
         selection.handleKeyDown(event);
@@ -466,18 +633,22 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         render: (item) => (
           <button
             style={`
-              background: #ff00ff;
-              border: none;
-              color: #000000;
+              background: #3a3a3a;
+              border: 1px solid #4a4a4a;
+              color: #e0e0e0;
               padding: 4px 8px;
               border-radius: 4px;
               cursor: pointer;
               font-size: 12px;
-              font-weight: 600;
+              transition: all 0.2s;
             `}
-            onClick={() =>
-              window.open(`${props.apiBaseUrl}/api/blobs/${item.id}`, "_blank")
-            }
+            onMouseEnter={(e) => {
+              (e.target as HTMLElement).style.background = "#4a4a4a";
+            }}
+            onMouseLeave={(e) => {
+              (e.target as HTMLElement).style.background = "#3a3a3a";
+            }}
+            onClick={(e) => handleActionMenuClick(item as MediaBlob, e)}
           >
             ⋯
           </button>
@@ -626,10 +797,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           // TODO: Implement bulk download
         }}
         onClear={selection.clearSelection}
-        onMore={() => {
-          console.log("Show bulk actions menu");
-          // TODO: Implement bulk actions menu
-        }}
+        onMore={handleBulkMoreClick}
       />
 
       {/* Main Content */}
@@ -649,6 +817,9 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           onRowClick={handleRowClick}
           onRowDoubleClick={handleRowDoubleClick}
           onRowMouseDown={selection.handleRowMouseDown}
+          onContextMenu={(item, index, event) =>
+            handleRowContextMenu(item as MediaBlob, index, event)
+          }
           isDragSelecting={selection.isDragSelecting()}
           showPaginationStatus={true}
           onLoadMore={() => feed.actions.loadMore()}
@@ -795,6 +966,29 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         item={popupPreview()?.item || null}
         isOpen={popupPreview()?.isOpen || false}
         onClose={closePopupPreview}
+      />
+
+      {/* Action Menu */}
+      <ActionMenu
+        item={actionMenu()?.item || null}
+        isOpen={actionMenu()?.isOpen || false}
+        position={actionMenu()?.position || { x: 0, y: 0 }}
+        onClose={closeActionMenu}
+        onDownload={handleDownload}
+        onPreview={(item) => setPopupPreview({ item, isOpen: true })}
+        onDelete={handleDeleteItem}
+        onCopyUrl={handleCopyUrl}
+      />
+
+      {/* Bulk Action Menu */}
+      <BulkActionMenu
+        selectedCount={selection.selectedItems().size}
+        isOpen={bulkActionMenu()?.isOpen || false}
+        position={bulkActionMenu()?.position || { x: 0, y: 0 }}
+        onClose={closeBulkActionMenu}
+        onDownloadAll={handleBulkDownload}
+        onDeleteAll={handleBulkDelete}
+        onClearSelection={selection.clearSelection}
       />
     </div>
   );
