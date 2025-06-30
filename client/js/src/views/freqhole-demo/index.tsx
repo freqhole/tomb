@@ -179,9 +179,22 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
+    // Check if user is focused in a text input - don't interfere with normal text editing
+    const target = event.target as HTMLElement;
+    const isTextInput =
+      target &&
+      (target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable ||
+        target.getAttribute("contenteditable") === "true");
+
     if (event.key === "a" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      selection.selectAll(sortedData());
+      // Only prevent default and select all if NOT in a text input
+      if (!isTextInput) {
+        event.preventDefault();
+        selection.selectAll(sortedData());
+      }
+      // If in text input, let the browser handle Ctrl+A naturally
     } else {
       // Delegate to selection hook
       selection.handleKeyDown(event);

@@ -162,15 +162,30 @@ export function useSelection(options: UseSelectionOptions = {}): SelectionHook {
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
+    // Check if user is focused in a text input - don't interfere with normal text editing
+    const target = event.target as HTMLElement;
+    const isTextInput =
+      target &&
+      (target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable ||
+        target.getAttribute("contenteditable") === "true");
+
     if (event.key === "Escape") {
       clearSelection();
     } else if (event.key === "a" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      // Note: selectAll requires items array - handle in component
+      // Only prevent default if NOT in a text input
+      if (!isTextInput) {
+        event.preventDefault();
+        // Note: selectAll requires items array - handle in component
+      }
+      // If in text input, let the browser handle Ctrl+A naturally
     } else if (event.key === "Delete" || event.key === "Backspace") {
-      if (selectedItems().size > 0) {
+      // Only delete items if NOT in a text input and we have selected items
+      if (!isTextInput && selectedItems().size > 0) {
         options.onDelete?.(selectedItems());
       }
+      // If in text input, let the browser handle Delete/Backspace naturally
     }
   };
 
