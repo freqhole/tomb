@@ -6,8 +6,8 @@ import {
   For,
   Show,
 } from "solid-js";
-import type { GridProps, GridColumn, GridTheme } from "./types";
-import { THEMES, DEFAULT_DARK_THEME } from "./types";
+import type { GridProps, GridColumn } from "./types";
+import { DARK_THEME } from "./types";
 import { useInfiniteGrid } from "./hooks/useInfiniteGrid";
 
 interface VirtualizedRowProps<T> {
@@ -20,7 +20,7 @@ interface VirtualizedRowProps<T> {
   onRowMouseDown?: (item: T, index: number, event: MouseEvent) => void;
   onRowMount?: (item: T) => void;
   onContextMenu?: (item: T, index: number, event: MouseEvent) => void;
-  theme: GridTheme;
+
   rowHeight: number;
 }
 
@@ -41,8 +41,8 @@ function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
         height: ${props.rowHeight}px;
         display: flex;
         align-items: center;
-        border-bottom: 1px solid ${props.theme.colors.border};
-        background: ${props.isSelected ? props.theme.colors.selected : "transparent"};
+        border-bottom: 1px solid ${DARK_THEME.colors.border};
+        background: ${props.isSelected ? DARK_THEME.colors.selected : "transparent"};
         transition: background-color 0.15s ease;
       `}
       onClick={(e) => props.onRowClick?.(props.item, props.index, e)}
@@ -87,18 +87,6 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
     initialSort: props.sortField
       ? { field: props.sortField, direction: props.sortDirection || "asc" }
       : undefined,
-  });
-
-  // Theme
-  const theme = createMemo((): GridTheme => {
-    if (typeof props.theme === "string") {
-      const themeFromName = THEMES[props.theme];
-      return themeFromName ? themeFromName : DEFAULT_DARK_THEME;
-    }
-    if (props.theme) {
-      return props.theme;
-    }
-    return DEFAULT_DARK_THEME;
   });
 
   // Virtualization calculations
@@ -200,8 +188,8 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
         height: 100%;
         display: flex;
         flex-direction: column;
-        background: ${theme().colors.background};
-        color: ${theme().colors.text};
+        background: ${DARK_THEME.colors.background};
+        color: ${DARK_THEME.colors.text};
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       `}
     >
@@ -212,8 +200,8 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
           height: ${headerHeight}px;
           display: flex;
           align-items: center;
-          background: ${theme().colors.header};
-          border-bottom: 2px solid ${theme().colors.border};
+          background: ${DARK_THEME.colors.header};
+          border-bottom: 2px solid ${DARK_THEME.colors.border};
           font-weight: 600;
           position: sticky;
           top: 0;
@@ -275,7 +263,6 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
                     onRowMouseDown={props.onRowMouseDown}
                     onRowMount={props.onRowMount}
                     onContextMenu={props.onContextMenu}
-                    theme={theme()}
                     rowHeight={rowHeight}
                   />
                 )}
@@ -309,7 +296,6 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
                     onRowMouseDown={props.onRowMouseDown}
                     onRowMount={props.onRowMount}
                     onContextMenu={props.onContextMenu}
-                    theme={theme()}
                     rowHeight={rowHeight}
                   />
                 </div>
@@ -321,7 +307,7 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
 
       <style>{`
         .grid-row:hover {
-          background: ${theme().colors.hover} !important;
+          background: ${DARK_THEME.colors.hover} !important;
         }
 
         .grid-header-cell.sortable:hover {
@@ -333,16 +319,16 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
         }
 
         .grid-body::-webkit-scrollbar-track {
-          background: ${theme().colors.background};
+          background: ${DARK_THEME.colors.background};
         }
 
         .grid-body::-webkit-scrollbar-thumb {
-          background: ${theme().colors.border};
+          background: ${DARK_THEME.colors.border};
           border-radius: 4px;
         }
 
         .grid-body::-webkit-scrollbar-thumb:hover {
-          background: ${theme().colors.text};
+          background: ${DARK_THEME.colors.text};
         }
       `}</style>
     </div>

@@ -11,7 +11,13 @@ export interface MediaBlob {
   updated_at: string;
 }
 
-export type SortField = "id" | "mime" | "blob_type" | "size" | "created_at" | "updated_at";
+export type SortField =
+  | "id"
+  | "mime"
+  | "blob_type"
+  | "size"
+  | "created_at"
+  | "updated_at";
 export type SortDirection = "asc" | "desc";
 
 export interface SortConfig {
@@ -90,6 +96,7 @@ export interface ResizeHandleProps {
   onMouseDown: (e: MouseEvent) => void;
   position: "left" | "right";
   className?: string;
+  panelName?: string;
 }
 
 export interface PanelProps {

@@ -1,4 +1,4 @@
-import { createSignal, createMemo, onMount, Show } from "solid-js";
+import { createSignal, createMemo, onMount } from "solid-js";
 import type {
   MediaBlob,
   FilterConfig,
@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { BrowsePanel } from "./BrowsePanel";
 import { FilterPanel } from "./FilterPanel";
+import { EdgeToggleButton } from "./EdgeToggleButton";
 import { InfiniteDataGrid } from "../../components/infinite-data-grid";
 import type { GridColumn } from "../../components/infinite-data-grid/types";
 
@@ -414,14 +415,11 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     <div
       style={`
         height: 100vh;
-        width: 100vw;
-        background: #1a1a1a;
-        color: #e0e0e0;
+        background: #000000;
+        color: #ffffff;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         display: flex;
         overflow: hidden;
-        position: relative;
-        max-width: 100%;
       `}
     >
       {/* Browse Panel */}
@@ -438,7 +436,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       />
 
       {/* Main Content */}
-      <div style="flex: 1; position: relative; overflow: hidden; min-width: 200px;">
+      <div style="flex: 1; position: relative; overflow: hidden; min-width: 0;">
         <InfiniteDataGrid
           data={sortedData()}
           columns={visibleColumns()}
@@ -449,57 +447,24 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
             viewMode() === "compact" ? 40 : viewMode() === "detailed" ? 80 : 60
           }
           headerHeight={60}
-          theme="dark"
           getItemId={(item) => item.id}
         />
-
-        {/* Toolbar */}
-        <div
-          style={`
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            z-index: 10;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-          `}
-        >
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <Show when={!isBrowsePanelOpen()}>
-              <button
-                onClick={toggleBrowsePanel}
-                style={`
-                  background: #ff00ff;
-                  border: 1px solid #ff00ff;
-                  color: #000000;
-                  padding: 8px 16px;
-                  border-radius: 4px;
-                  cursor: pointer;
-                  font-size: 14px;
-                `}
-              >
-                Show Browse →
-              </button>
-            </Show>
-
-            <button
-              onClick={toggleFilterPanel}
-              style={`
-                background: #ff00ff;
-                border: 1px solid #ff00ff;
-                color: #000000;
-                padding: 8px 16px;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 14px;
-              `}
-            >
-              {isFilterPanelOpen() ? "← Hide Controls" : "Show Controls →"}
-            </button>
-          </div>
-        </div>
       </div>
+
+      {/* Edge Toggle Buttons */}
+      <EdgeToggleButton
+        isVisible={!isBrowsePanelOpen()}
+        position="left"
+        panelName="Browse"
+        onClick={toggleBrowsePanel}
+      />
+
+      <EdgeToggleButton
+        isVisible={!isFilterPanelOpen()}
+        position="right"
+        panelName="Controls"
+        onClick={toggleFilterPanel}
+      />
 
       {/* Filter Panel */}
       <FilterPanel
@@ -585,10 +550,6 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         body.resizing {
           cursor: col-resize;
           user-select: none;
-        }
-
-        * {
-          box-sizing: border-box;
         }
       `}</style>
     </div>

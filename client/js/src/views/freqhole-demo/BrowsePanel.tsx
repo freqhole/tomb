@@ -1,4 +1,3 @@
-import { Show } from "solid-js";
 import type { FilterConfig } from "./types";
 import { ResizeHandle } from "./ResizeHandle";
 import { useResize } from "./hooks/useResize";
@@ -15,9 +14,11 @@ export interface BrowsePanelProps {
 export function BrowsePanel(props: BrowsePanelProps) {
   const resize = useResize({
     initialWidth: props.initialWidth,
-    minWidth: 300,
-    maxWidth: 800,
+    minWidth: 250,
+    maxWidth: 600,
+    closeThreshold: 100,
     onWidthChange: props.onWidthChange,
+    onClose: props.onTogglePanel,
   });
 
   return (
@@ -26,60 +27,82 @@ export function BrowsePanel(props: BrowsePanelProps) {
         resize.isDragging() ? "resizing" : ""
       }`}
       style={`
-        width: ${resize.width()}px;
-        background: #2a2a2a;
-        border-right: 1px solid #3a3a3a;
-        padding: 20px;
-        overflow-y: auto;
-        transition: margin-left 0.3s ease;
-        position: relative;
+        width: ${props.isOpen ? resize.width() + "px" : "0"};
         flex-shrink: 0;
-        ${!props.isOpen ? `margin-left: -${resize.width()}px;` : ""}
+        background: #1a1a1a;
+        border-right: 1px solid #3a3a3a;
+        padding: ${props.isOpen ? "20px" : "0"};
+        overflow: hidden;
+        transition: width 0.3s ease, padding 0.3s ease;
+        position: relative;
+        min-width: 0;
       `}
     >
-      <Show when={props.isOpen}>
+      {/* Sticky Header Bar */}
+      <div
+        style={`
+          position: sticky;
+          top: 0;
+          background: #1a1a1a;
+          border-bottom: 1px solid #3a3a3a;
+          padding: 8px 16px;
+          margin: -20px -20px 20px -20px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          z-index: 10;
+        `}
+      >
+        <h3 style="margin: 0; font-size: 14px; color: #ffffff; font-weight: 600;">
+          Browse
+        </h3>
         <button
-          class="panel-close-button"
           onClick={props.onTogglePanel}
+          title="Close panel"
           style={`
-            position: absolute;
-            top: 10px;
-            right: 10px;
             background: transparent;
             border: none;
             color: #888;
             cursor: pointer;
-            font-size: 14px;
-            padding: 4px 8px;
+            font-size: 16px;
+            padding: 4px;
             border-radius: 4px;
-            transition: background-color 0.2s;
+            transition: all 0.2s;
+            line-height: 1;
           `}
         >
-          ← Hide Browse
+          ×
         </button>
-      </Show>
-
-      <div class="filter-section" style="margin-bottom: 24px;">
-        <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #e0e0e0;">
-          🔍 Name Search
-        </h3>
-        <input
-          class="filter-input"
-          type="text"
-          placeholder="Search by filename..."
-          value={props.filterConfig.name}
-          onInput={(e) => props.onFilterChange("name", e.currentTarget.value)}
-          style={`
-            width: 100%;
-            padding: 8px;
-            background: #1a1a1a;
-            border: 1px solid #3a3a3a;
-            border-radius: 4px;
-            color: #e0e0e0;
-            font-size: 14px;
-          `}
-        />
       </div>
+
+      {props.isOpen && (
+        <div
+          class="filter-section"
+          style="margin-bottom: 24px; overflow-y: auto; min-width: 0;"
+        >
+          <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
+            🔍 Name Search
+          </h3>
+          <input
+            class="filter-input"
+            type="text"
+            placeholder="Search by filename..."
+            value={props.filterConfig.name}
+            onInput={(e) => props.onFilterChange("name", e.currentTarget.value)}
+            style={`
+              width: 100%;
+              padding: 8px;
+              background: #000000;
+              border: 1px solid #3a3a3a;
+              border-radius: 4px;
+              color: #ffffff;
+              font-size: 14px;
+              box-sizing: border-box;
+              min-width: 0;
+            `}
+          />
+        </div>
+      )}
 
       <ResizeHandle
         position="right"
@@ -88,17 +111,43 @@ export function BrowsePanel(props: BrowsePanelProps) {
       />
 
       <style>{`
-        .browse-panel.resizing {
-          pointer-events: auto;
-        }
-
         .filter-input:focus {
           outline: none;
-          border-color: #0070f3;
+          border-color: #ff00ff;
         }
 
-        .panel-close-button:hover {
-          background: rgba(255, 255, 255, 0.1);
+        .browse-panel button[title="Close panel"]:hover {
+          background: rgba(255, 255, 255, 0.1) !important;
+          color: #ff4444 !important;
+        }
+
+        /* Global resizing behavior */
+        body.resizing {
+          cursor: col-resize !important;
+          user-select: none !important;
+        }
+
+        body.resizing * {
+          cursor: col-resize !important;
+          user-select: none !important;
+        }
+
+        /* Prevent overflow in panel content */
+        .browse-panel,
+        .filter-panel {
+          overflow-x: hidden;
+        }
+
+        .browse-panel *,
+        .filter-panel * {
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        /* Smooth transitions for panel operations */
+        .browse-panel.resizing,
+        .filter-panel.resizing {
+          transition: none !important;
         }
       `}</style>
     </div>

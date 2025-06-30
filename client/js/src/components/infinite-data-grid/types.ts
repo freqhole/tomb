@@ -39,7 +39,6 @@ export interface GridProps<T = any> {
   columns: GridColumn<T>[];
   rowHeight?: number;
   headerHeight?: number;
-  theme?: string | GridTheme;
   virtualizeThreshold?: number;
   onSort?: (field: string, direction: SortDirection) => void;
   onRowClick?: (item: T, index: number, event: MouseEvent) => void;
@@ -68,31 +67,16 @@ export interface VirtualizedRowProps<T = any> {
   onContextMenu?: (item: T, index: number, event: MouseEvent) => void;
 }
 
-const DEFAULT_DARK_THEME: GridTheme = {
+const DARK_THEME: GridTheme = {
   name: "dark",
   colors: {
-    background: "#1a1a1a",
-    text: "#e0e0e0",
+    background: "#000000",
+    text: "#ffffff",
     border: "#3a3a3a",
-    header: "#2a2a2a",
+    header: "#1a1a1a",
     hover: "#2a2a2a",
-    selected: "#0070f3",
+    selected: "#ff00ff",
   },
 };
 
-const THEMES: Record<string, GridTheme> = {
-  dark: DEFAULT_DARK_THEME,
-  light: {
-    name: "light",
-    colors: {
-      background: "#ffffff",
-      text: "#333333",
-      border: "#e0e0e0",
-      header: "#f5f5f5",
-      hover: "#f5f5f5",
-      selected: "#0070f3",
-    },
-  },
-};
-
-export { THEMES, DEFAULT_DARK_THEME };
+export { DARK_THEME };
