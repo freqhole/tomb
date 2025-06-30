@@ -89,6 +89,19 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
       : undefined,
   });
 
+  // Event handlers - delegate to parent handlers
+  const handleRowClick = (item: T, index: number, event: MouseEvent) => {
+    props.onRowClick?.(item, index, event);
+  };
+
+  const handleRowDoubleClick = (item: T, index: number, event: MouseEvent) => {
+    props.onRowDoubleClick?.(item, index, event);
+  };
+
+  const handleRowMouseDown = (item: T, index: number, event: MouseEvent) => {
+    props.onRowMouseDown?.(item, index, event);
+  };
+
   // Virtualization calculations
   const shouldVirtualize = createMemo(
     () => props.data.length > virtualizeThreshold
@@ -136,31 +149,6 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
       const config = grid.sortConfig();
       props.onSort(config.field, config.direction);
     }
-  };
-
-  const handleRowClick = (item: T, index: number, event: MouseEvent) => {
-    const itemId = grid.getItemId(item);
-
-    if (event.ctrlKey || event.metaKey) {
-      grid.toggleSelection(itemId);
-    } else if (event.shiftKey && grid.selectedItems().size > 0) {
-      // Find last selected item and select range
-      const data = props.data;
-      const lastSelectedId = Array.from(grid.selectedItems()).pop();
-      if (lastSelectedId) {
-        const lastIndex = data.findIndex(
-          (item) => grid.getItemId(item) === lastSelectedId
-        );
-        if (lastIndex !== -1) {
-          grid.selectRange(lastIndex, index);
-        }
-      }
-    } else {
-      grid.clearSelection();
-      grid.toggleSelection(itemId);
-    }
-
-    props.onRowClick?.(item, index, event);
   };
 
   // Resize observer
@@ -257,10 +245,14 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
                     item={item}
                     index={index()}
                     columns={props.columns}
-                    isSelected={grid.isSelected(grid.getItemId(item))}
+                    isSelected={
+                      props.selectedItems?.has(
+                        props.getItemId?.(item) || (item as any).id
+                      ) || false
+                    }
                     onRowClick={handleRowClick}
-                    onRowDoubleClick={props.onRowDoubleClick}
-                    onRowMouseDown={props.onRowMouseDown}
+                    onRowDoubleClick={handleRowDoubleClick}
+                    onRowMouseDown={handleRowMouseDown}
                     onRowMount={props.onRowMount}
                     onContextMenu={props.onContextMenu}
                     rowHeight={rowHeight}
@@ -288,12 +280,15 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
                     item={virtualItem.item!}
                     index={virtualItem.index}
                     columns={props.columns}
-                    isSelected={grid.isSelected(
-                      grid.getItemId(virtualItem.item!)
-                    )}
+                    isSelected={
+                      props.selectedItems?.has(
+                        props.getItemId?.(virtualItem.item!) ||
+                          (virtualItem.item! as any).id
+                      ) || false
+                    }
                     onRowClick={handleRowClick}
-                    onRowDoubleClick={props.onRowDoubleClick}
-                    onRowMouseDown={props.onRowMouseDown}
+                    onRowDoubleClick={handleRowDoubleClick}
+                    onRowMouseDown={handleRowMouseDown}
                     onRowMount={props.onRowMount}
                     onContextMenu={props.onContextMenu}
                     rowHeight={rowHeight}
@@ -329,6 +324,16 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
 
         .grid-body::-webkit-scrollbar-thumb:hover {
           background: ${DARK_THEME.colors.text};
+        }
+
+        /* Drag selection styling */
+        body.drag-selecting {
+          user-select: none;
+          cursor: crosshair;
+        }
+
+        body.drag-selecting * {
+          user-select: none;
         }
       `}</style>
     </div>

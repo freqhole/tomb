@@ -11,24 +11,54 @@ This document tracks all the advanced features from the original `infinite-data-
 - [x] Basic browse panel with name search
 - [x] CSS conflicts resolved (flex-basis → width)
 - [x] Form element overflow prevention
+- [x] **Multi-select system (FULLY COMPLETE)**
+- [x] **Selection toolbar component (MODULAR)**
+- [x] **Clean selection hook architecture**
+
+## 🎯 Immediate UX Improvements (Next Priority)
+
+### Selection Toolbar Improvements
+
+- [ ] **Move selection toolbar to bottom** - Move from top center to bottom center of page
+- [ ] **Multi-select only** - Only show toolbar when 2+ items selected (not for single selection)
+- [ ] **Replace "Clear" with "×"** - Use consistent close button instead of "Clear" text button
+- [ ] **Improve positioning** - Bottom placement for better workflow
+
+### Text Selection UX Issues
+
+- [ ] **Prevent text selection on Shift+click** - Simple `event.preventDefault()` on shift+click to avoid unwanted text selection
+- [ ] **Prevent text selection on click handlers** - Add `user-select: none` to action buttons/clickable areas (optional, low priority)
+
+### Visual/Styling Improvements
+
+- [ ] **Fix selected row hover styles** - Currently hover style overrides selected style, making selected rows look unselected on hover
+- [ ] **Improve selection visual hierarchy** - Ensure selected state is always visible even during hover/focus states
+
+### Architecture Cleanup (High Priority)
+
+- [ ] **Extract domain logic to lib/** - Move MediaBlob-specific functions out of components
+- [ ] **Create `lib/media-utils.ts`** - Pure functions for `getDisplayFilename`, `getFileTypeIcon`, etc.
+- [ ] **Create `lib/format-utils.ts`** - Generic formatting functions (`formatBytes`, etc.)
+- [ ] **No SolidJS in lib/** - Keep lib/ functions framework-agnostic
+- [ ] **Import lib functions** - Update components to import from lib instead of inline functions
 
 ## 🚧 Missing Core Features
 
 ### 1. Multi-Select System
 
-- [ ] **Shift+Click range selection** - Select from last clicked to current
-- [ ] **Ctrl/Cmd+Click toggle selection** - Add/remove individual items
-- [ ] **Drag selection box** - Visual rectangle selection with mouse drag
-- [ ] **Select All (Ctrl/Cmd+A)** - Keyboard shortcut to select all visible items
-- [ ] **Selection persistence** - Save/restore selected items in localStorage
-- [ ] **Selection counter** - Show "X items selected" in UI
-- [ ] **Bulk action buttons** - Download, More (...) actions for selected items
-- [ ] **Clear selection** - Button and Escape key to clear selection
+- [x] **Shift+Click range selection** - Select from last clicked to current
+- [x] **Ctrl/Cmd+Click toggle selection** - Add/remove individual items
+- [x] **Drag selection box** - Visual rectangle selection with mouse drag
+- [x] **Select All (Ctrl/Cmd+A)** - Keyboard shortcut to select all visible items
+- [x] **Selection persistence** - Save/restore selected items in localStorage
+- [x] **Selection counter** - Show "X items selected" in UI
+- [x] **Bulk action buttons** - Download, More (...) actions for selected items
+- [x] **Clear selection** - Button and Escape key to clear selection
 
 ### 2. Advanced Click Handling
 
-- [ ] **Single click actions** - Immediate selection (use native onClick)
-- [ ] **Double-click preview** - Open popup viewer (use native onDblClick)
+- [x] **Single click actions** - Immediate selection (use native onClick)
+- [x] **Double-click preview** - Open popup viewer (use native onDblClick) - _placeholder implemented_
 - [ ] **Right-click context menu** - Show action menu with coordinates
 - [ ] **Context menu auto-selection** - Right-click unselected item selects it first
 
@@ -64,7 +94,15 @@ Current view modes are basic. Original had much more elaborate differences:
 - [ ] **Detailed row layout** - Top/bottom content sections
 - [ ] **Enhanced file info** - More visible metadata
 
-### 6. Advanced Thumbnail System
+### 6. Advanced Column Layout & Data
+
+- [ ] **Move thumbnail to first column** - Thumbnail should be leftmost column for better visual hierarchy
+- [ ] **Hide ID column by default** - ID column should be hidden initially (still available in column settings)
+- [ ] **Add blob name column** - Dedicated column for file/blob name using `getDisplayFilename()` logic
+- [ ] **Smart column ordering** - Logical order: thumbnail, name, type, mime, size, dates, actions
+- [ ] **Column visibility presets** - Default vs detailed vs compact column sets
+
+### 7. Advanced Thumbnail System
 
 **Note**: Leverage existing media blob library infrastructure where possible
 
@@ -77,7 +115,7 @@ Current view modes are basic. Original had much more elaborate differences:
 - [ ] **Data URL creation** - Use existing `createDataUrl(thumbnail.data, mimeType)` helper
 - [ ] **Lazy loading** - Integrate with existing `loading="lazy"` img attributes
 
-### 7. Action Menu System (⋯ Button)
+### 8. Action Menu System (⋯ Button)
 
 - [ ] **Per-row action button** - Three dots (⋯) button in actions column
 - [ ] **Context-sensitive menu** - Different options based on file type
@@ -89,7 +127,7 @@ Current view modes are basic. Original had much more elaborate differences:
 - [ ] **Add to Playlist action** - Add media items to playlists
 - [ ] **Bulk action menu** - Special "More" button for multiple selections with smart positioning
 
-### 8. Preview Popup System
+### 9. Preview Popup System
 
 - [ ] **Media preview modal** - Full-screen preview for images/videos
 - [ ] **Popup positioning** - Center on screen with backdrop
@@ -97,7 +135,7 @@ Current view modes are basic. Original had much more elaborate differences:
 - [ ] **Popup close controls** - X button, Escape key, backdrop click
 - [ ] **Keyboard navigation** - Arrow keys to navigate between items
 
-### 9. Enhanced Column System
+### 10. Enhanced Column System
 
 - [ ] **Column visibility toggles** - Show/hide specific columns
 - [ ] **Column settings panel** - Expandable settings section
@@ -108,7 +146,7 @@ Current view modes are basic. Original had much more elaborate differences:
   - Checks `metadata.originalName`, `metadata.filename`, `metadata.original_filename`
   - Falls back to `item.filename`, `local_path` basename, or SHA256 snippet
 
-### 10. Advanced Filtering
+### 11. Advanced Filtering
 
 Current filtering is basic. Missing:
 
@@ -119,17 +157,17 @@ Current filtering is basic. Missing:
 - [ ] **Advanced filter combinations** - AND/OR logic
 - [ ] **Filter presets** - Save common filter combinations
 
-### 11. Keyboard Shortcuts
+### 12. Keyboard Shortcuts
 
-- [ ] **Escape** - Clear selection, close menus, close popup
-- [ ] **Ctrl/Cmd+A** - Select all visible items
+- [x] **Escape** - Clear selection, close menus, close popup
+- [x] **Ctrl/Cmd+A** - Select all visible items
 - [ ] **Arrow keys** - Navigate through items
 - [ ] **Enter** - Open preview for selected item
-- [ ] **Delete** - Delete selected items (with confirmation)
+- [x] **Delete** - Delete selected items (with confirmation) - _placeholder implemented_
 - [ ] **Space** - Toggle selection of focused item
 - [ ] **Delete key** - Delete selected items with confirmation
 
-### 12. Data Integration Features
+### 13. Data Integration Features
 
 - [ ] **WebSocket live updates** - Real-time data refresh
 - [ ] **Pending updates indicator** - Show when new data available
@@ -141,7 +179,7 @@ Current filtering is basic. Missing:
 - [ ] **Blob type filtering** - Filter by original/thumbnail/waveform/preview types
 - [ ] **Connection status styling** - Color-coded WebSocket status (connected=magenta, disconnected=gray)
 
-### 13. State Management
+### 14. State Management
 
 **Note**: Use IndexedDB instead of localStorage for better performance and storage limits
 
@@ -154,7 +192,7 @@ Current filtering is basic. Missing:
 - [ ] **Schema versioning** - Follow existing database version increment pattern (currently v4)
 - [ ] **State compression** - Optimize storage for large selection sets and filter combinations
 
-### 14. UI Polish & Interactions
+### 15. UI Polish & Interactions
 
 - [ ] **Smooth animations** - Panel transitions, hover effects
 - [ ] **Loading states** - Spinners, progress indicators
@@ -170,8 +208,8 @@ Current filtering is basic. Missing:
 
 ### Phase 1: Core Interactions (High Priority)
 
-1. Multi-select system (Shift+Click, Ctrl+Click, drag selection box)
-2. Enhanced click handling (single/double-click, context menu)
+1. ✅ Multi-select system (Shift+Click, Ctrl+Click, drag selection box) - **COMPLETED**
+2. 🚧 Enhanced click handling (single/double-click, context menu) - **IN PROGRESS**
 3. Header sorting with triple-click cycle
 4. Action menu system (⋯ button with smart positioning and context-sensitive actions)
 
@@ -190,28 +228,130 @@ Current filtering is basic. Missing:
 12. IndexedDB state management migration
 13. Copy URL and playlist integration features
 
-## 📝 Implementation Notes
+## 📝 Implementation Notes & Architectural Principles
 
-- **Current Architecture**: The modular FreqholeDemo with BrowsePanel + FilterPanel + InfiniteDataGrid is solid
-- **Keep Modularity**: Add features without breaking the clean component separation
-- **Generic Components**: Enhance the base InfiniteDataGrid to support all these features generically
+### **🏗️ Keep It Clean, Lean, and Modular**
+
+- **Single Responsibility**: Each component should have one clear purpose
+- **Extract Components**: Create new files/components rather than growing existing ones
+- **Composition over Props**: Use hooks and context instead of passing many props
+- **Reusable Patterns**: Build generic components that can be used across features
+
+### **🔧 Refactoring Priorities**
+
+- **Central App State**: Create shared state management with hooks
+- **Component Extraction**: Break down large components into focused modules
+- **Hook-Based Architecture**: Use custom hooks for state and behavior
+- **Props Reduction**: Minimize prop drilling with context and state hooks
+
+### **🎯 Current Architecture Guidelines**
+
+- **Modular Foundation**: FreqholeDemo with BrowsePanel + FilterPanel + InfiniteDataGrid is solid
+- **Component Extraction**: Create separate components for:
+  - Multi-select system (`useSelection` hook + `SelectionToolbar` component)
+  - Action menus (`ActionMenu` + `BulkActionsMenu` components)
+  - Preview system (`PreviewModal` component)
+  - Thumbnail management (`ThumbnailCell` component)
+- **State Management**:
+  - Central app state with hooks (instead of prop drilling)
+  - Shared selection state across components
+  - Centralized filter/sort state management
+
+### **🛠️ Technical Standards**
+
 - **Simple Dark Theme**: Keep the clean dark theme with black, white, and magenta core colors
 - **Leverage Existing Infrastructure**:
   - Thumbnail system: `getThumbnails()`, `createDataUrl()`, auto-request patterns
   - Name resolution: `getDisplayFilename()` with metadata priority fallback
   - File type detection: `getFileTypeIcon()` and MIME category helpers
 - **IndexedDB for State**: Use existing `SyncStorageManager` patterns instead of localStorage
-- **State Management**: Consider using a more sophisticated state management pattern for complex interactions
 - **WebSocket Integration**: Leverage existing `useWebSocketFeed` hook with auto-refresh and connection management
-- **Bulk Actions**: Implement toolbar with smart menu positioning for multi-select operations
+
+### **📦 Suggested New Components/Hooks**
+
+- ✅ `hooks/useSelection.ts` - Multi-select behavior (COMPLETE)
+- ✅ `components/SelectionToolbar.tsx` - Bulk actions UI (COMPLETE)
+- 🚧 `hooks/useFreqholeState.ts` - Central state management (DRAFT READY)
+- 🔄 `hooks/useActionMenu.ts` - Context menu management (NEXT)
+- 🔄 `components/ActionMenu.tsx` - Context menu component (NEXT)
+- 🔄 `components/PreviewModal.tsx` - Media preview popup (NEXT)
+- 🔄 `components/ThumbnailCell.tsx` - Thumbnail display with loading states (NEXT)
+- 🔄 `components/BulkActionsMenu.tsx` - Multi-select dropdown menu (NEXT)
+- 🔄 `lib/media-utils.ts` - Domain-specific MediaBlob utilities (HIGH PRIORITY)
+- 🔄 `lib/format-utils.ts` - Generic formatting utilities (HIGH PRIORITY)
+
+## ✅ Refactoring Progress & Next Steps
+
+### **🎉 What We Just Accomplished:**
+
+- **Clean Selection System**: Extracted multi-select into reusable `useSelection` hook
+- **Modular Toolbar**: Created `SelectionToolbar` component with clean props interface
+- **Reduced Component Size**: FreqholeDemo is now more focused and manageable
+- **Hook-Based Architecture**: Demonstrated clean separation with selection logic
+- **Type Safety**: Proper TypeScript interfaces throughout
+- **Storage Integration**: Selection state auto-saves to localStorage
+
+### **🚀 Immediate Benefits:**
+
+- **Reusable**: `useSelection` and `SelectionToolbar` can be used in other components
+- **Testable**: Selection logic is isolated and easy to unit test
+- **Maintainable**: Clear separation of concerns
+- **Extensible**: Easy to add new selection features
+
+### **🔄 Next Refactoring Steps:**
+
+1. **Fix Selection Toolbar UX** - Bottom positioning, multi-select threshold, × button
+2. **Fix Selected Row Hover Styles** - Ensure selected state remains visible on hover
+3. **Column Layout Improvements** - Move thumbnail first, hide ID by default, add name column
+4. **Extract Domain Logic to lib/** - Move MediaBlob utilities out of components
+5. **Simple Text Selection Fix** - Just prevent text selection on Shift+click (minimal approach)
+6. **Extract Action Menu System** - Right-click context menus + bulk actions
+7. **Create Preview Modal** - Media preview popup component
+8. **Migrate to Central State Hook** - Use `useFreqholeState` to reduce props
+9. **Extract Filter Logic** - Move complex filtering to dedicated hook
 
 ## 🔄 Migration Strategy
 
-1. **Enhance Generic Grid First** - Add multi-select, sorting to base component
-2. **Extend Panel Components** - Add advanced filters to panels
-3. **Integrate Features Gradually** - Test each feature independently
-4. **Maintain Backward Compatibility** - Don't break existing simple use cases
-5. **Add Progressive Enhancement** - Features should gracefully degrade if not supported
+### Phase A: Refactor for Modularity (Current Priority)
+
+1. ✅ **Extract Selection System** - `useSelection` hook + `SelectionToolbar` component COMPLETE
+2. 🚧 **Create Central State** - Implement `useFreqholeState` hook to reduce prop drilling (STARTED)
+3. 🔄 **Component Extraction** - Break down large components into focused modules (ONGOING)
+4. 🔄 **Hook-Based Architecture** - Replace prop chains with context and hooks (ONGOING)
+
+### **Phase A.1: UX Polish (Immediate)**
+
+1. 🔄 **Selection Toolbar UX** - Bottom positioning, multi-select threshold, × close button
+2. 🔄 **Simple Text Selection Fix** - Just prevent Shift+click text selection (minimal)
+3. 🔄 **Domain Logic Extraction** - Move MediaBlob utilities to `lib/` modules
+
+### **Phase A.2: Architecture Cleanup**
+
+4. 🔄 **Lib Organization** - Framework-agnostic utility functions in `lib/`
+5. 🔄 **Component Simplification** - Remove inline domain logic from components
+
+### **Phase B: Feature Implementation**
+
+1. **Enhanced Click Handling** - Right-click menus, preview popups
+2. **Advanced Grid Features** - Triple-click sorting, column management
+3. **Visual Enhancements** - Themes, view modes, thumbnails
+4. **Data Integration** - WebSocket feeds, IndexedDB state
+
+### **Phase C: Polish & Performance**
+
+1. **Optimize Rendering** - Virtualization, memoization
+2. **Accessibility** - Keyboard navigation, screen readers
+3. **Mobile Support** - Touch interactions, responsive design
+4. **Testing & Documentation** - Component tests, usage examples
+
+### **🎯 Implementation Guidelines**
+
+- **Test Each Feature Independently** - Isolated component development
+- **Maintain Backward Compatibility** - Don't break existing simple use cases
+- **Progressive Enhancement** - Features should gracefully degrade if not supported
+- **Clean Interfaces** - Well-defined props and hook contracts
+- **Domain Separation** - Keep framework-specific code in components, pure logic in lib/
+- **UX First** - Address text selection conflicts and toolbar positioning issues
 
 ---
 

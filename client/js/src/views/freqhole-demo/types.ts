@@ -9,6 +9,9 @@ export interface MediaBlob {
   local_path?: string;
   created_at: string;
   updated_at: string;
+  filename?: string;
+  sha256?: string;
+  metadata?: any;
 }
 
 export type SortField =
@@ -63,6 +66,7 @@ export interface GridState {
   debug: boolean;
   viewMode: GridViewMode;
   columnVisibility: ColumnVisibility;
+  selectedItems: Set<string>;
 }
 
 export interface PopupViewerState {

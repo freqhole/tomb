@@ -1,4 +1,4 @@
-import { createSignal, createMemo, onMount } from "solid-js";
+import { createSignal, createMemo, onMount, onCleanup, Show } from "solid-js";
 import type {
   MediaBlob,
   FilterConfig,
@@ -10,6 +10,8 @@ import type {
 import { BrowsePanel } from "./BrowsePanel";
 import { FilterPanel } from "./FilterPanel";
 import { EdgeToggleButton } from "./EdgeToggleButton";
+import { SelectionToolbar } from "./components/SelectionToolbar";
+import { useSelection } from "./hooks/useSelection";
 import { InfiniteDataGrid } from "../../components/infinite-data-grid";
 import type { GridColumn } from "../../components/infinite-data-grid/types";
 
@@ -108,6 +110,91 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   const [connectionStatus, setConnectionStatus] = createSignal("Disconnected");
   const [hasPendingUpdates, setHasPendingUpdates] = createSignal(false);
   const [lastUpdated, setLastUpdated] = createSignal<Date | null>(null);
+
+  // Selection hook with storage integration
+  const selection = useSelection({
+    onSelectionChange: (selectedItems) => {
+      // Auto-save selection changes
+      saveState({ selectedItems });
+    },
+    onDelete: (selectedItems) => {
+      console.log("Delete requested for", selectedItems.size, "items");
+      // TODO: Implement delete with confirmation
+    },
+    saveToStorage: (_selectedItems) => {
+      // Already handled by onSelectionChange
+    },
+    initialSelection: new Set(
+      initialState.selectedItems ? Array.from(initialState.selectedItems) : []
+    ),
+  });
+
+  // Enhanced event handlers that work with the data
+  const handleRowClick = (
+    item: MediaBlob,
+    index: number,
+    event: MouseEvent
+  ) => {
+    if (event.shiftKey && selection.lastSelectedIndex() >= 0) {
+      // Handle range selection with access to sorted data
+      selection.selectRange(selection.lastSelectedIndex(), index, sortedData());
+    } else {
+      // Delegate to selection hook
+      selection.handleRowClick(item, index, event);
+    }
+  };
+
+  const handleRowDoubleClick = (item: MediaBlob) => {
+    // TODO: Open preview popup
+    console.log("Double-clicked:", item.id);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "a" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      selection.selectAll(sortedData());
+    } else {
+      // Delegate to selection hook
+      selection.handleKeyDown(event);
+    }
+  };
+
+  // Enhanced drag selection with proper item calculation
+  const handleMouseMove = (event: MouseEvent) => {
+    if (selection.isDragSelecting() && selection.dragStart()) {
+      selection.setDragEnd({
+        x: event.clientX,
+        y: event.clientY,
+        endIndex: -1,
+      });
+
+      // Calculate which items are in the selection rectangle
+      const start = selection.dragStart()!;
+      const currentIndex = Math.floor((event.clientY - start.y) / 60); // Rough row height
+      if (currentIndex !== start.startIndex) {
+        const startIdx = Math.min(
+          start.startIndex,
+          start.startIndex + currentIndex
+        );
+        const endIdx = Math.max(
+          start.startIndex,
+          start.startIndex + currentIndex
+        );
+        selection.selectRange(startIdx, endIdx, sortedData());
+      }
+    }
+  };
+
+  // Setup enhanced event listeners
+  onMount(() => {
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("keydown", handleKeyDown);
+  });
+
+  onCleanup(() => {
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("keydown", handleKeyDown);
+  });
 
   // Computed values
   const filteredData = createMemo(() => {
@@ -300,19 +387,20 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         render: (item) => (
           <button
             style={`
-              background: #0070f3;
+              background: #ff00ff;
               border: none;
-              color: white;
+              color: #000000;
               padding: 4px 8px;
               border-radius: 4px;
               cursor: pointer;
               font-size: 12px;
+              font-weight: 600;
             `}
             onClick={() =>
               window.open(`${props.apiBaseUrl}/api/blobs/${item.id}`, "_blank")
             }
           >
-            View
+            ⋯
           </button>
         ),
       });
@@ -435,6 +523,24 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         initialWidth={browsePanelWidth()}
       />
 
+      {/* Selection Toolbar - Clean modular component */}
+      <SelectionToolbar
+        selectedCount={selection.selectedItems().size}
+        onDownload={() => {
+          console.log(
+            "Bulk download:",
+            selection.selectedItems().size,
+            "items"
+          );
+          // TODO: Implement bulk download
+        }}
+        onClear={selection.clearSelection}
+        onMore={() => {
+          console.log("Show bulk actions menu");
+          // TODO: Implement bulk actions menu
+        }}
+      />
+
       {/* Main Content */}
       <div style="flex: 1; position: relative; overflow: hidden; min-width: 0;">
         <InfiniteDataGrid
@@ -448,6 +554,11 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           }
           headerHeight={60}
           getItemId={(item) => item.id}
+          selectedItems={selection.selectedItems()}
+          onRowClick={handleRowClick}
+          onRowDoubleClick={handleRowDoubleClick}
+          onRowMouseDown={selection.handleRowMouseDown}
+          isDragSelecting={selection.isDragSelecting()}
         />
       </div>
 
@@ -465,6 +576,37 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         panelName="Controls"
         onClick={toggleFilterPanel}
       />
+
+      {/* Drag Selection Box */}
+      <Show
+        when={
+          selection.isDragSelecting() &&
+          selection.dragStart() &&
+          selection.dragEnd()
+        }
+      >
+        <div
+          style={(() => {
+            const start = selection.dragStart()!;
+            const end = selection.dragEnd()!;
+            const left = Math.min(start.x, end.x);
+            const top = Math.min(start.y, end.y);
+            const width = Math.abs(end.x - start.x);
+            const height = Math.abs(end.y - start.y);
+            return `
+              position: fixed;
+              left: ${left}px;
+              top: ${top}px;
+              width: ${width}px;
+              height: ${height}px;
+              border: 2px dashed #ff00ff;
+              background: rgba(255, 0, 255, 0.1);
+              pointer-events: none;
+              z-index: 1000;
+            `;
+          })()}
+        />
+      </Show>
 
       {/* Filter Panel */}
       <FilterPanel
@@ -551,6 +693,16 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           cursor: col-resize;
           user-select: none;
         }
+
+        body.drag-selecting {
+          user-select: none;
+          cursor: crosshair;
+        }
+
+        body.drag-selecting * {
+          user-select: none;
+          cursor: crosshair;
+        }
       `}</style>
     </div>
   );
@@ -558,11 +710,29 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
 // Helper functions
 function getDisplayFilename(item: MediaBlob): string {
-  if (item.local_path) {
-    const parts = item.local_path.split(/[/\\]/);
-    return parts[parts.length - 1] || item.id;
+  if (item.metadata && typeof item.metadata === "object") {
+    const meta = item.metadata as any;
+    if (
+      meta.originalName ||
+      meta.filename ||
+      meta.original_filename ||
+      meta.file_name ||
+      meta.name
+    ) {
+      return (
+        meta.originalName ||
+        meta.filename ||
+        meta.original_filename ||
+        meta.file_name ||
+        meta.name
+      );
+    }
   }
-  return item.id;
+  return (
+    item.filename ||
+    item.local_path?.split("/").pop() ||
+    `${item.sha256?.slice(0, 8) || item.id.slice(0, 8)}...${item.sha256?.slice(-4) || item.id.slice(-4)}`
+  );
 }
 
 function formatFileSize(bytes: number): string {
