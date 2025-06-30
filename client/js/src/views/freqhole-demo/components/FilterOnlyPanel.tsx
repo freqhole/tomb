@@ -43,7 +43,7 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
         background: #1a1a1a;
         border-right: 1px solid #3a3a3a;
         padding: ${props.isOpen ? "20px" : "0"};
-        overflow: hidden;
+        overflow-x: hidden;
         transition: width 0.3s ease, padding 0.3s ease;
         position: relative;
         min-width: 0;
@@ -191,7 +191,7 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
                   )
                 }
                 style={`
-                  flex: 1;
+                  max-width: 33%;
                   padding: 6px;
                   background: #000000;
                   border: 1px solid #3a3a3a;
@@ -212,7 +212,7 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
                   )
                 }
                 style={`
-                  flex: 1;
+                  max-width: 33%;
                   padding: 6px;
                   background: #000000;
                   border: 1px solid #3a3a3a;

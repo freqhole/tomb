@@ -49,6 +49,8 @@ export interface GridState {
   filterConfig: FilterConfig;
   isFilterPanelOpen: boolean;
   filterPanelWidth: number;
+  isSettingsPanelOpen: boolean;
+  settingsPanelWidth: number;
   isBrowsePanelOpen: boolean;
   browsePanelWidth: number;
   wsUrl: string;

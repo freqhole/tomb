@@ -8,14 +8,15 @@ import {
 } from "solid-js";
 import type {
   FilterConfig,
-  GridViewMode,
   ColumnVisibility,
   GridState,
   SortField,
 } from "./types";
 import type { MediaBlob } from "../../lib/websocket-types";
 import { BrowsePanel } from "./BrowsePanel";
-import { FilterPanel } from "./FilterPanel";
+
+import { FilterOnlyPanel } from "./components/FilterOnlyPanel";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { EdgeToggleButton } from "./EdgeToggleButton";
 import { SelectionToolbar } from "./components/SelectionToolbar";
 import { useSelection } from "./hooks/useSelection";
@@ -122,6 +123,9 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   );
   const [filterPanelWidth, setFilterPanelWidth] = createSignal(
     initialState.filterPanelWidth || DEFAULT_PANEL_WIDTH
+  );
+  const [settingsPanelWidth, setSettingsPanelWidth] = createSignal(
+    initialState.settingsPanelWidth || DEFAULT_PANEL_WIDTH
   );
 
   const [wsUrl, setWsUrl] = createSignal(props.wsUrl);
@@ -855,11 +859,6 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     saveState({ sortConfig: { field: field as SortField, direction } });
   };
 
-  const handleViewModeChange = (mode: GridViewMode) => {
-    viewModes.setViewMode(mode as any);
-    saveState({ viewMode: mode });
-  };
-
   const toggleColumnVisibility = (column: keyof ColumnVisibility) => {
     setColumnVisibility((prev) => {
       const updated = { ...prev, [column]: !prev[column] };
@@ -880,6 +879,14 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     setIsFilterPanelOpen((prev) => {
       const newValue = !prev;
       saveState({ isFilterPanelOpen: newValue });
+      return newValue;
+    });
+  };
+
+  const toggleSettingsPanel = () => {
+    setIsSettingsPanelOpen((prev) => {
+      const newValue = !prev;
+      saveState({ isSettingsPanelOpen: newValue });
       return newValue;
     });
   };
@@ -999,12 +1006,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         onClick={toggleBrowsePanel}
       />
 
-      <EdgeToggleButton
-        isVisible={!isFilterPanelOpen()}
-        position="right"
-        panelName="Controls"
-        onClick={toggleFilterPanel}
-      />
+      {/* Controls button removed - now handled by Actions header menu */}
 
       {/* Drag Selection Box */}
       <Show
@@ -1037,12 +1039,28 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         />
       </Show>
 
-      {/* Filter Panel */}
-      <FilterPanel
+      {/* Filter Only Panel */}
+      <FilterOnlyPanel
         isOpen={isFilterPanelOpen()}
         filterConfig={filterConfig()}
-        viewMode={viewModes.viewMode()}
         columnVisibility={columnVisibility()}
+        onTogglePanel={toggleFilterPanel}
+        onFilterChange={updateFilter}
+        onColumnToggle={toggleColumnVisibility}
+        onWidthChange={(width) => {
+          setFilterPanelWidth(width);
+          saveState({ filterPanelWidth: width });
+        }}
+        initialWidth={filterPanelWidth()}
+        mimeCategories={mimeCategories()}
+        blobTypeCategories={blobTypes()}
+        totalCount={feed.state().items.length}
+        filteredCount={filteredData().length}
+      />
+
+      {/* Settings Panel */}
+      <SettingsPanel
+        isOpen={isSettingsPanelOpen()}
         wsUrl={wsUrl()}
         autoConnect={autoConnect()}
         autoRefresh={autoRefresh()}
@@ -1052,15 +1070,9 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         pendingUpdatesCount={feed.state().pendingUpdates.length}
         filteredCount={filteredData().length}
         totalCount={feed.state().items.length}
-        sortConfig={sortConfig()}
         lastUpdated={lastUpdated()}
-        mimeCategories={mimeCategories()}
-        blobTypes={blobTypes()}
         logs={logs()}
-        onTogglePanel={toggleFilterPanel}
-        onFilterChange={updateFilter}
-        onViewModeChange={handleViewModeChange}
-        onColumnToggle={toggleColumnVisibility}
+        onTogglePanel={toggleSettingsPanel}
         onWsUrlChange={setWsUrl}
         onConnect={() => {
           feed.actions.connect();
@@ -1101,10 +1113,10 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           }
         }}
         onWidthChange={(width) => {
-          setFilterPanelWidth(width);
-          saveState({ filterPanelWidth: width });
+          setSettingsPanelWidth(width);
+          saveState({ settingsPanelWidth: width });
         }}
-        initialWidth={filterPanelWidth()}
+        initialWidth={settingsPanelWidth()}
       />
 
       <style>{`
