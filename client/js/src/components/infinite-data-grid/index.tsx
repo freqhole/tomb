@@ -95,6 +95,7 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
     initialSort: props.sortField
       ? { field: props.sortField, direction: props.sortDirection || "asc" }
       : undefined,
+    defaultSort: props.defaultSort,
   });
 
   // Event handlers - delegate to parent handlers
@@ -240,7 +241,11 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
         <For each={props.columns}>
           {(column) => (
             <div
-              class={`grid-header-cell ${column.sortable ? "sortable" : ""}`}
+              class={`grid-header-cell ${column.sortable ? "sortable" : ""} ${
+                column.sortable && grid.sortConfig().field === column.key
+                  ? "active-sort"
+                  : ""
+              }`}
               style={`
                 flex: ${column.width ? "0 0 " + column.width + "px" : "1"};
                 padding: 8px 12px;
@@ -248,17 +253,82 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
                 user-select: none;
                 display: flex;
                 align-items: center;
-                gap: 8px;
+                justify-content: space-between;
+                transition: all 0.15s ease;
+                border-radius: 4px;
+                margin: 4px 2px;
+                position: relative;
+                opacity: ${grid.isSorting() && grid.sortConfig().field === column.key ? "0.7" : "1"};
               `}
-              onClick={() => column.sortable && handleSort(column.key)}
+              onClick={() =>
+                column.sortable && !grid.isSorting() && handleSort(column.key)
+              }
             >
-              <span>{column.title}</span>
+              <span style="font-weight: 500;">{column.title}</span>
               <Show
-                when={column.sortable && grid.sortConfig().field === column.key}
+                when={
+                  grid.isSorting() && grid.sortConfig().field === column.key
+                }
               >
-                <span style="font-size: 12px;">
-                  {grid.sortConfig().direction === "asc" ? "↑" : "↓"}
-                </span>
+                <div
+                  style={`
+                    position: absolute;
+                    right: 40px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    color: #00ff88;
+                    font-size: 12px;
+                    animation: spin 1s linear infinite;
+                  `}
+                >
+                  ⟳
+                </div>
+              </Show>
+              <Show when={column.sortable}>
+                <div
+                  class="sort-indicator"
+                  style={`
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 1px;
+                    opacity: ${grid.sortConfig().field === column.key ? "1" : "0.4"};
+                    transition: opacity 0.15s ease;
+                  `}
+                >
+                  <div
+                    class="sort-arrow sort-arrow-up"
+                    style={`
+                      width: 0;
+                      height: 0;
+                      border-left: 4px solid transparent;
+                      border-right: 4px solid transparent;
+                      border-bottom: 5px solid ${
+                        grid.sortConfig().field === column.key &&
+                        grid.sortConfig().direction === "asc"
+                          ? "#ff00ff"
+                          : "#666"
+                      };
+                      transition: border-bottom-color 0.15s ease;
+                    `}
+                  ></div>
+                  <div
+                    class="sort-arrow sort-arrow-down"
+                    style={`
+                      width: 0;
+                      height: 0;
+                      border-left: 4px solid transparent;
+                      border-right: 4px solid transparent;
+                      border-top: 5px solid ${
+                        grid.sortConfig().field === column.key &&
+                        grid.sortConfig().direction === "desc"
+                          ? "#ff00ff"
+                          : "#666"
+                      };
+                      transition: border-top-color 0.15s ease;
+                    `}
+                  ></div>
+                </div>
               </Show>
             </div>
           )}
@@ -396,7 +466,27 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
         }
 
         .grid-header-cell.sortable:hover {
-          background: rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.08);
+          transform: translateY(-1px);
+        }
+
+        .grid-header-cell.sortable:active {
+          transform: translateY(0px);
+          background: rgba(255, 255, 255, 0.12);
+        }
+
+        .grid-header-cell.active-sort {
+          background: rgba(255, 0, 255, 0.1);
+          border: 1px solid rgba(255, 0, 255, 0.3);
+        }
+
+        .grid-header-cell.sortable:hover .sort-indicator {
+          opacity: 0.8 !important;
+        }
+
+        @keyframes spin {
+          from { transform: translateY(-50%) rotate(0deg); }
+          to { transform: translateY(-50%) rotate(360deg); }
         }
 
         .grid-body::-webkit-scrollbar {

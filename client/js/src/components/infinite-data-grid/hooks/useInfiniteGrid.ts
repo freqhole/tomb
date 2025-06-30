@@ -1,19 +1,121 @@
 import { createSignal, createMemo } from "solid-js";
 import type { SortConfig, SortDirection } from "../types";
+import { getDisplayFilename } from "../../../lib/media-utils";
+
+// Enhanced sorting utilities
+const compareValues = (a: any, b: any, field: string): number => {
+  // Handle null/undefined values
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+
+  const aValue = a[field];
+  const bValue = b[field];
+
+  if (aValue == null && bValue == null) return 0;
+  if (aValue == null) return 1;
+  if (bValue == null) return -1;
+
+  // Special handling for dynamic name field
+  if (field === "name") {
+    const aName = getDisplayFilename(a as any);
+    const bName = getDisplayFilename(b as any);
+    return aName.localeCompare(bName, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  }
+
+  // Date comparison
+  if (
+    field.includes("_at") ||
+    field.includes("date") ||
+    field.includes("time")
+  ) {
+    const aDate = new Date(aValue);
+    const bDate = new Date(bValue);
+    if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
+      return aDate.getTime() - bDate.getTime();
+    }
+  }
+
+  // Numeric comparison
+  const aNum = Number(aValue);
+  const bNum = Number(bValue);
+  if (
+    !isNaN(aNum) &&
+    !isNaN(bNum) &&
+    typeof aValue === "number" &&
+    typeof bValue === "number"
+  ) {
+    return aNum - bNum;
+  }
+
+  // Size comparison (handles byte strings like "1.2 MB")
+  if (
+    field === "size" &&
+    typeof aValue === "string" &&
+    typeof bValue === "string"
+  ) {
+    const aSizeBytes = parseSizeString(aValue);
+    const bSizeBytes = parseSizeString(bValue);
+    if (aSizeBytes !== null && bSizeBytes !== null) {
+      return aSizeBytes - bSizeBytes;
+    }
+  }
+
+  // String comparison (case-insensitive)
+  const aStr = String(aValue).toLowerCase();
+  const bStr = String(bValue).toLowerCase();
+
+  // Natural sort for strings with numbers (e.g., "file1.jpg" vs "file10.jpg")
+  if (field === "name" || field.includes("filename")) {
+    return aStr.localeCompare(bStr, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  }
+
+  return aStr.localeCompare(bStr);
+};
+
+const parseSizeString = (sizeStr: string): number | null => {
+  const match = sizeStr.match(/^([\d.]+)\s*(B|KB|MB|GB|TB)?$/i);
+  if (!match || !match[1]) return null;
+
+  const value = parseFloat(match[1]);
+  const unit = (match[2] || "B").toUpperCase();
+
+  const multipliers: { [key: string]: number } = {
+    B: 1,
+    KB: 1024,
+    MB: 1024 * 1024,
+    GB: 1024 * 1024 * 1024,
+    TB: 1024 * 1024 * 1024 * 1024,
+  };
+
+  return value * (multipliers[unit] || 1);
+};
 
 export function useInfiniteGrid<T = any>(props: {
   data: T[];
   getItemId?: (item: T) => string;
   initialSort?: { field: string; direction: SortDirection };
+  defaultSort?: { field: string; direction: SortDirection };
 }) {
   // State
+  const defaultSortConfig = props.defaultSort || {
+    field: "created_at",
+    direction: "desc",
+  };
   const [sortConfig, setSortConfig] = createSignal<SortConfig>(
-    props.initialSort || { field: "id", direction: "asc" }
+    props.initialSort || defaultSortConfig
   );
   const [selectedItems, setSelectedItems] = createSignal<Set<string>>(
     new Set()
   );
   const [isDragSelecting, setIsDragSelecting] = createSignal(false);
+  const [isSorting, setIsSorting] = createSignal(false);
 
   // Default ID getter
   const getItemId = props.getItemId || ((item: any) => item.id || String(item));
@@ -23,18 +125,15 @@ export function useInfiniteGrid<T = any>(props: {
     const config = sortConfig();
     const data = [...props.data];
 
+    // Show sorting indicator for large datasets
+    if (data.length > 1000) {
+      setIsSorting(true);
+      // Use setTimeout to allow UI to update before heavy computation
+      setTimeout(() => setIsSorting(false), 100);
+    }
+
     return data.sort((a, b) => {
-      const aValue = (a as any)[config.field];
-      const bValue = (b as any)[config.field];
-
-      let comparison = 0;
-
-      if (aValue < bValue) {
-        comparison = -1;
-      } else if (aValue > bValue) {
-        comparison = 1;
-      }
-
+      const comparison = compareValues(a, b, config.field);
       return config.direction === "desc" ? comparison * -1 : comparison;
     });
   });
@@ -42,10 +141,34 @@ export function useInfiniteGrid<T = any>(props: {
   // Actions
   const handleSort = (field: string) => {
     const current = sortConfig();
-    const newDirection: SortDirection =
-      current.field === field && current.direction === "asc" ? "desc" : "asc";
 
-    setSortConfig({ field, direction: newDirection });
+    if (current.field === field) {
+      // Special handling for default sort field
+      if (field === defaultSortConfig.field) {
+        // For default field, just toggle between asc/desc
+        const newDirection = current.direction === "asc" ? "desc" : "asc";
+        setSortConfig({ field, direction: newDirection });
+      } else {
+        // Triple-click cycling for non-default fields: asc -> desc -> default
+        if (current.direction === "asc") {
+          setSortConfig({ field, direction: "desc" });
+        } else if (current.direction === "desc") {
+          // Reset to default sort
+          setSortConfig(defaultSortConfig);
+        } else {
+          setSortConfig({ field, direction: "asc" });
+        }
+      }
+    } else {
+      // New field: start with appropriate direction
+      const newDirection =
+        field.includes("_at") ||
+        field.includes("date") ||
+        field.includes("time")
+          ? "desc"
+          : "asc";
+      setSortConfig({ field, direction: newDirection });
+    }
   };
 
   const toggleSelection = (itemId: string) => {
@@ -91,6 +214,7 @@ export function useInfiniteGrid<T = any>(props: {
     sortConfig,
     selectedItems,
     isDragSelecting,
+    isSorting,
 
     // Computed
     sortedData,

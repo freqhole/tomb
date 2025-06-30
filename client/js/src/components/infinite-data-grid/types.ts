@@ -48,6 +48,7 @@ export interface GridProps<T = any> {
   onContextMenu?: (item: T, index: number, event: MouseEvent) => void;
   sortField?: string;
   sortDirection?: SortDirection;
+  defaultSort?: { field: string; direction: SortDirection };
   selectedItems?: Set<string>;
   isDragSelecting?: boolean;
   getItemId?: (item: T) => string;

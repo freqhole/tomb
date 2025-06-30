@@ -2,6 +2,7 @@ import { createSignal, Show, For } from "solid-js";
 import type { FilterConfig, GridViewMode, ColumnVisibility } from "./types";
 import { ResizeHandle } from "./ResizeHandle";
 import { useResize } from "./hooks/useResize";
+import { ColumnManager } from "./components/ColumnManager";
 
 export interface FilterPanelProps {
   isOpen: boolean;
@@ -50,20 +51,6 @@ export function FilterPanel(props: FilterPanelProps) {
     onWidthChange: props.onWidthChange,
     onClose: props.onTogglePanel,
   });
-
-  const allColumns = [
-    { key: "id", title: "ID" },
-    { key: "thumbnail", title: "Thumbnail" },
-    { key: "name", title: "Name" },
-    { key: "mime", title: "MIME" },
-    { key: "blob_type", title: "Type" },
-    { key: "size", title: "Size" },
-    { key: "parent_blob_id", title: "Parent" },
-    { key: "local_path", title: "Path" },
-    { key: "created_at", title: "Created" },
-    { key: "updated_at", title: "Updated" },
-    { key: "actions", title: "Actions" },
-  ];
 
   const getConnectionStatusStyle = (status: string) => {
     const statusColors: Record<string, string> = {
@@ -519,55 +506,66 @@ export function FilterPanel(props: FilterPanelProps) {
               class={`toggle-button ${showColumnSettings() ? "active" : ""}`}
               onClick={() => setShowColumnSettings(!showColumnSettings())}
               style={`
-            margin-bottom: 8px;
+            margin-bottom: 12px;
             width: 100%;
-            padding: 8px;
+            padding: 10px;
             background: ${showColumnSettings() ? "#ff00ff" : "#333333"};
             box-sizing: border-box;
             min-width: 0;
             border: 1px solid ${showColumnSettings() ? "#ff00ff" : "#666666"};
             color: ${showColumnSettings() ? "#000000" : "#ffffff"};
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
-            transition: all 0.2s;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
           `}
             >
-              {showColumnSettings() ? "Hide" : "Show"} Column Settings
+              <span>
+                {showColumnSettings() ? "Hide" : "Show"} Column Settings
+              </span>
             </button>
             <div
               class={`column-settings ${!showColumnSettings() ? "collapsed" : ""}`}
               style={`
-            max-height: ${showColumnSettings() ? "400px" : "0"};
+            max-height: ${showColumnSettings() ? "600px" : "0"};
             overflow: hidden;
             transition: max-height 0.3s ease;
+            margin-bottom: ${showColumnSettings() ? "16px" : "0"};
           `}
             >
-              <For each={allColumns}>
-                {(column) => (
-                  <div style="margin-bottom: 24px; min-width: 0;">
-                    <label style="display: flex; align-items: center; cursor: pointer;">
-                      <input
-                        type="checkbox"
-                        checked={
-                          props.columnVisibility[
-                            column.key as keyof ColumnVisibility
-                          ]
-                        }
-                        onChange={() =>
-                          props.onColumnToggle(
-                            column.key as keyof ColumnVisibility
-                          )
-                        }
-                        style="margin-right: 8px;"
-                      />
-                      <span style="font-size: 14px; color: #e0e0e0;">
-                        {column.title}
-                      </span>
-                    </label>
-                  </div>
-                )}
-              </For>
+              <ColumnManager
+                columnVisibility={props.columnVisibility}
+                onColumnToggle={props.onColumnToggle}
+                onResetToDefaults={() => {
+                  // Reset to recommended columns
+                  const defaults = {
+                    id: false,
+                    thumbnail: true,
+                    name: true,
+                    mime: true,
+                    blob_type: false,
+                    size: true,
+                    parent_blob_id: false,
+                    local_path: false,
+                    created_at: true,
+                    updated_at: false,
+                    actions: true,
+                  };
+                  Object.entries(defaults).forEach(([key, value]) => {
+                    if (
+                      props.columnVisibility[key as keyof ColumnVisibility] !==
+                      value
+                    ) {
+                      props.onColumnToggle(key as keyof ColumnVisibility);
+                    }
+                  });
+                }}
+              />
             </div>
           </div>
 
