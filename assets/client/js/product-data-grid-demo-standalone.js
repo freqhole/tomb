@@ -1,4 +1,4 @@
-import{r as S,f as y,c as u,k as w,t as c,i as n,b as f,e as P,s as b}from"./web-xBr4R5eT.js";import{G as _}from"./generic-infinite-grid-DtuMfZQv.js";var G=c('<code style="font-size:12px;background:#333;padding:2px 4px;border-radius:3px;">'),M=c("<span style=color:#10b981;font-weight:600;>$"),k=c("<span>"),C=c("<span><span style=margin-left:4px;font-size:12px;color:#888;>"),v=c(`<div class=product-data-grid-demo><style>
+import{r as S,f as y,c as u,k as w,t as c,i as n,b as f,e as P,s as b}from"./web-2xXXrb5V.js";import{G as _}from"./generic-infinite-grid-CrWI89bp.js";var G=c('<code style="font-size:12px;background:#333;padding:2px 4px;border-radius:3px;">'),M=c("<span style=color:#10b981;font-weight:600;>$"),k=c("<span>"),C=c("<span><span style=margin-left:4px;font-size:12px;color:#888;>"),v=c(`<div class=product-data-grid-demo><style>
         .product-data-grid-demo {
           height: 100vh;
           background: #1a1a1a;
