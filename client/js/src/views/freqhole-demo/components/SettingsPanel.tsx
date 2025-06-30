@@ -96,11 +96,12 @@ export function SettingsPanel() {
         flex-shrink: 0;
         background: #1a1a1a;
         border-left: 1px solid #3a3a3a;
-        padding: ${state.isSettingsPanelOpen() ? "20px" : "0"};
         overflow-x: hidden;
-        transition: width 0.3s ease, padding 0.3s ease;
+        transition: width 0.3s ease;
         position: relative;
-        min-width: 0;
+        display: ${state.isSettingsPanelOpen() ? "flex" : "none"};
+        flex-direction: column;
+        height: 100%;
         order: 3;
       `}
     >
@@ -111,12 +112,13 @@ export function SettingsPanel() {
           top: 0;
           background: #1a1a1a;
           border-bottom: 1px solid #3a3a3a;
-          padding: 8px 16px;
-          margin: -20px -20px 20px -20px;
+          height: 60px;
+          padding: 0 20px;
           display: flex;
           justify-content: space-between;
           align-items: center;
           z-index: 10;
+          flex-shrink: 0;
         `}
       >
         <h3 style="margin: 0; font-size: 14px; color: #ffffff; font-weight: 600;">
@@ -128,21 +130,20 @@ export function SettingsPanel() {
           style={`
             background: transparent;
             border: none;
-            color: #888;
+            color: #888888;
+            font-size: 18px;
             cursor: pointer;
-            font-size: 16px;
             padding: 4px;
-            border-radius: 4px;
+            border-radius: 3px;
             transition: all 0.2s;
-            line-height: 1;
           `}
         >
-          ×
+          ✕
         </button>
       </div>
 
       {state.isSettingsPanelOpen() && (
-        <div style="overflow-y: auto; min-width: 0;">
+        <div style="height: 100%; overflow-y: auto; flex: 1; padding: 20px;">
           {/* WebSocket Settings */}
           <div class="settings-section" style="margin-bottom: 24px;">
             <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">

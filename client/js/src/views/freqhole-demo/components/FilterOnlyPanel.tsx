@@ -65,11 +65,12 @@ export function FilterOnlyPanel() {
         flex-shrink: 0;
         background: #1a1a1a;
         border-right: 1px solid #3a3a3a;
-        padding: ${state.isFilterPanelOpen() ? "20px" : "0"};
         overflow-x: hidden;
-        transition: width 0.3s ease, padding 0.3s ease;
+        transition: width 0.3s ease;
         position: relative;
-        min-width: 0;
+        display: ${state.isFilterPanelOpen() ? "flex" : "none"};
+        flex-direction: column;
+        height: 100%;
       `}
     >
       {/* Sticky Header Bar */}
@@ -79,53 +80,54 @@ export function FilterOnlyPanel() {
           top: 0;
           background: #1a1a1a;
           border-bottom: 1px solid #3a3a3a;
-          padding: 8px 16px;
-          margin: -20px -20px 20px -20px;
+          height: 60px;
+          padding: 0 20px;
           display: flex;
           justify-content: space-between;
           align-items: center;
           z-index: 10;
+          flex-shrink: 0;
         `}
       >
-        <h3 style="margin: 0; font-size: 14px; color: #ffffff; font-weight: 600;">
+        <h2 style="margin: 0; font-size: 18px; color: #ffffff; font-weight: 600;">
           🔍 Filters & Columns
-        </h3>
+        </h2>
         <button
           onClick={() => state.toggleFilterPanel()}
           title="Close panel"
           style={`
             background: transparent;
             border: none;
-            color: #888;
+            color: #888888;
+            font-size: 18px;
             cursor: pointer;
-            font-size: 16px;
             padding: 4px;
-            border-radius: 4px;
+            border-radius: 3px;
             transition: all 0.2s;
-            line-height: 1;
           `}
         >
-          ×
+          ✕
         </button>
       </div>
 
       {state.isFilterPanelOpen() && (
-        <div style="overflow-y: auto; min-width: 0;">
-          {/* Name Search */}
-          <div
-            class="filter-section"
-            style="margin-bottom: 24px; overflow-y: auto; min-width: 0;"
-          >
-            <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
-              📄 Name Search
-            </h3>
-            <input
-              class="filter-input"
-              type="text"
-              placeholder="Search by filename..."
-              value={state.filterConfig().name}
-              onInput={(e) => updateFilter("name", e.currentTarget.value)}
-              style={`
+        <div style="height: 100%; overflow-y: auto; flex: 1; padding: 20px;">
+          <div style="overflow-y: auto; min-width: 0;">
+            {/* Name Search */}
+            <div
+              class="filter-section"
+              style="margin-bottom: 24px; overflow-y: auto; min-width: 0;"
+            >
+              <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
+                📄 Name Search
+              </h3>
+              <input
+                class="filter-input"
+                type="text"
+                placeholder="Search by filename..."
+                value={state.filterConfig().name}
+                onInput={(e) => updateFilter("name", e.currentTarget.value)}
+                style={`
                 width: 100%;
                 padding: 8px;
                 background: #000000;
@@ -136,18 +138,18 @@ export function FilterOnlyPanel() {
                 box-sizing: border-box;
                 min-width: 0;
               `}
-            />
-          </div>
+              />
+            </div>
 
-          {/* MIME Type Filter */}
-          <div class="filter-section" style="margin-bottom: 24px;">
-            <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
-              🎭 Content Type
-            </h3>
-            <select
-              value={state.filterConfig().mime}
-              onChange={(e) => updateFilter("mime", e.currentTarget.value)}
-              style={`
+            {/* MIME Type Filter */}
+            <div class="filter-section" style="margin-bottom: 24px;">
+              <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
+                🎭 Content Type
+              </h3>
+              <select
+                value={state.filterConfig().mime}
+                onChange={(e) => updateFilter("mime", e.currentTarget.value)}
+                style={`
                 width: 100%;
                 padding: 8px;
                 background: #000000;
@@ -157,23 +159,25 @@ export function FilterOnlyPanel() {
                 font-size: 14px;
                 box-sizing: border-box;
               `}
-            >
-              <option value="">All Types</option>
-              <For each={availableMimeCategories()}>
-                {(category) => <option value={category}>{category}</option>}
-              </For>
-            </select>
-          </div>
+              >
+                <option value="">All Types</option>
+                <For each={availableMimeCategories()}>
+                  {(category) => <option value={category}>{category}</option>}
+                </For>
+              </select>
+            </div>
 
-          {/* Blob Type Filter */}
-          <div class="filter-section" style="margin-bottom: 24px;">
-            <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
-              🏷️ Blob Type
-            </h3>
-            <select
-              value={state.filterConfig().blobType}
-              onChange={(e) => updateFilter("blobType", e.currentTarget.value)}
-              style={`
+            {/* Blob Type Filter */}
+            <div class="filter-section" style="margin-bottom: 24px;">
+              <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
+                🏷️ Blob Type
+              </h3>
+              <select
+                value={state.filterConfig().blobType}
+                onChange={(e) =>
+                  updateFilter("blobType", e.currentTarget.value)
+                }
+                style={`
                 width: 100%;
                 padding: 8px;
                 background: #000000;
@@ -183,28 +187,31 @@ export function FilterOnlyPanel() {
                 font-size: 14px;
                 box-sizing: border-box;
               `}
-            >
-              <option value="">All Blob Types</option>
-              <For each={availableBlobTypes()}>
-                {(category) => <option value={category}>{category}</option>}
-              </For>
-            </select>
-          </div>
+              >
+                <option value="">All Blob Types</option>
+                <For each={availableBlobTypes()}>
+                  {(category) => <option value={category}>{category}</option>}
+                </For>
+              </select>
+            </div>
 
-          {/* File Size Range */}
-          <div class="filter-section" style="margin-bottom: 24px;">
-            <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
-              📏 File Size
-            </h3>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <input
-                type="number"
-                placeholder="Min"
-                value={state.filterConfig().minSize || ""}
-                onInput={(e) =>
-                  updateFilter("minSize", parseInt(e.currentTarget.value) || 0)
-                }
-                style={`
+            {/* File Size Range */}
+            <div class="filter-section" style="margin-bottom: 24px;">
+              <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
+                📏 File Size
+              </h3>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input
+                  type="number"
+                  placeholder="Min"
+                  value={state.filterConfig().minSize || ""}
+                  onInput={(e) =>
+                    updateFilter(
+                      "minSize",
+                      parseInt(e.currentTarget.value) || 0
+                    )
+                  }
+                  style={`
                   max-width: 33%;
                   padding: 6px;
                   background: #000000;
@@ -214,16 +221,19 @@ export function FilterOnlyPanel() {
                   font-size: 12px;
                   box-sizing: border-box;
                 `}
-              />
-              <span style="color: #888; font-size: 12px;">to</span>
-              <input
-                type="number"
-                placeholder="Max"
-                value={state.filterConfig().maxSize || ""}
-                onInput={(e) =>
-                  updateFilter("maxSize", parseInt(e.currentTarget.value) || 0)
-                }
-                style={`
+                />
+                <span style="color: #888; font-size: 12px;">to</span>
+                <input
+                  type="number"
+                  placeholder="Max"
+                  value={state.filterConfig().maxSize || ""}
+                  onInput={(e) =>
+                    updateFilter(
+                      "maxSize",
+                      parseInt(e.currentTarget.value) || 0
+                    )
+                  }
+                  style={`
                   max-width: 33%;
                   padding: 6px;
                   background: #000000;
@@ -233,23 +243,23 @@ export function FilterOnlyPanel() {
                   font-size: 12px;
                   box-sizing: border-box;
                 `}
-              />
-              <span style="color: #888; font-size: 12px;">bytes</span>
+                />
+                <span style="color: #888; font-size: 12px;">bytes</span>
+              </div>
             </div>
-          </div>
 
-          {/* Quick size filters */}
-          <div class="filter-section" style="margin-bottom: 24px;">
-            <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #888;">
-              Quick Size Filters
-            </h4>
-            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-              <button
-                onClick={() => {
-                  updateFilter("minSize", 0);
-                  updateFilter("maxSize", 1024 * 1024); // 1MB
-                }}
-                style={`
+            {/* Quick size filters */}
+            <div class="filter-section" style="margin-bottom: 24px;">
+              <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #888;">
+                Quick Size Filters
+              </h4>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                <button
+                  onClick={() => {
+                    updateFilter("minSize", 0);
+                    updateFilter("maxSize", 1024 * 1024); // 1MB
+                  }}
+                  style={`
                   padding: 4px 8px;
                   background: #333;
                   border: 1px solid #555;
@@ -259,15 +269,15 @@ export function FilterOnlyPanel() {
                   cursor: pointer;
                   transition: all 0.2s;
                 `}
-              >
-                &lt; 1MB
-              </button>
-              <button
-                onClick={() => {
-                  updateFilter("minSize", 1024 * 1024);
-                  updateFilter("maxSize", 10 * 1024 * 1024); // 10MB
-                }}
-                style={`
+                >
+                  &lt; 1MB
+                </button>
+                <button
+                  onClick={() => {
+                    updateFilter("minSize", 1024 * 1024);
+                    updateFilter("maxSize", 10 * 1024 * 1024); // 10MB
+                  }}
+                  style={`
                   padding: 4px 8px;
                   background: #333;
                   border: 1px solid #555;
@@ -277,15 +287,15 @@ export function FilterOnlyPanel() {
                   cursor: pointer;
                   transition: all 0.2s;
                 `}
-              >
-                1-10MB
-              </button>
-              <button
-                onClick={() => {
-                  updateFilter("minSize", 10 * 1024 * 1024); // 10MB+
-                  updateFilter("maxSize", 0);
-                }}
-                style={`
+                >
+                  1-10MB
+                </button>
+                <button
+                  onClick={() => {
+                    updateFilter("minSize", 10 * 1024 * 1024); // 10MB+
+                    updateFilter("maxSize", 0);
+                  }}
+                  style={`
                   padding: 4px 8px;
                   background: #333;
                   border: 1px solid #555;
@@ -295,21 +305,21 @@ export function FilterOnlyPanel() {
                   cursor: pointer;
                   transition: all 0.2s;
                 `}
-              >
-                &gt; 10MB
-              </button>
+                >
+                  &gt; 10MB
+                </button>
+              </div>
             </div>
-          </div>
 
-          {/* Column Visibility Toggle */}
-          <div class="filter-section" style="margin-bottom: 24px;">
-            <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
-              👁️ Column Visibility
-            </h3>
-            <button
-              onClick={() => setShowColumnSettings(!showColumnSettings())}
-              class="toggle-button"
-              style={`
+            {/* Column Visibility Toggle */}
+            <div class="filter-section" style="margin-bottom: 24px;">
+              <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
+                👁️ Column Visibility
+              </h3>
+              <button
+                onClick={() => setShowColumnSettings(!showColumnSettings())}
+                class="toggle-button"
+                style={`
                 width: 100%;
                 padding: 8px 12px;
                 background: #333333;
@@ -323,39 +333,39 @@ export function FilterOnlyPanel() {
                 justify-content: space-between;
                 align-items: center;
               `}
-            >
-              <span>Manage Columns</span>
-              <span style="transform: rotate(90deg); font-size: 12px;">
-                {showColumnSettings() ? "▼" : "▶"}
-              </span>
-            </button>
-            {showColumnSettings() && (
-              <div style="margin-top: 12px;">
-                <ColumnManager
-                  columnVisibility={state.columnVisibility()}
-                  onColumnToggle={toggleColumnVisibility}
-                  responsiveColumnVisibility={responsiveColumns.responsiveColumnVisibility()}
-                  hiddenColumns={responsiveColumns.getHiddenColumns()}
-                  breakpointInfo={responsiveColumns.getBreakpointInfo()}
-                />
-              </div>
-            )}
-          </div>
+              >
+                <span>Manage Columns</span>
+                <span style="transform: rotate(90deg); font-size: 12px;">
+                  {showColumnSettings() ? "▼" : "▶"}
+                </span>
+              </button>
+              {showColumnSettings() && (
+                <div style="margin-top: 12px;">
+                  <ColumnManager
+                    columnVisibility={state.columnVisibility()}
+                    onColumnToggle={toggleColumnVisibility}
+                    responsiveColumnVisibility={responsiveColumns.responsiveColumnVisibility()}
+                    hiddenColumns={responsiveColumns.getHiddenColumns()}
+                    breakpointInfo={responsiveColumns.getBreakpointInfo()}
+                  />
+                </div>
+              )}
+            </div>
 
-          {/* Reset Filters */}
-          <div class="filter-section" style="margin-bottom: 24px;">
-            <button
-              onClick={() => {
-                // Reset all filters to default values
-                updateFilter("name", "");
-                updateFilter("mime", "");
-                updateFilter("blobType", "");
-                updateFilter("minSize", 0);
-                updateFilter("maxSize", 100000000);
-                updateFilter("hasParent", "all");
-                updateFilter("hasLocalPath", "all");
-              }}
-              style={`
+            {/* Reset Filters */}
+            <div class="filter-section" style="margin-bottom: 24px;">
+              <button
+                onClick={() => {
+                  // Reset all filters to default values
+                  updateFilter("name", "");
+                  updateFilter("mime", "");
+                  updateFilter("blobType", "");
+                  updateFilter("minSize", 0);
+                  updateFilter("maxSize", 100000000);
+                  updateFilter("hasParent", "all");
+                  updateFilter("hasLocalPath", "all");
+                }}
+                style={`
                 width: 100%;
                 padding: 12px;
                 background: #444444;
@@ -371,41 +381,42 @@ export function FilterOnlyPanel() {
                 gap: 8px;
                 font-weight: 600;
               `}
-              onMouseEnter={(e) => {
-                (e.target as HTMLElement).style.background = "#555555";
-                (e.target as HTMLElement).style.borderColor = "#777777";
-              }}
-              onMouseLeave={(e) => {
-                (e.target as HTMLElement).style.background = "#444444";
-                (e.target as HTMLElement).style.borderColor = "#666666";
-              }}
-            >
-              <span>Reset All Filters</span>
-            </button>
-          </div>
+                onMouseEnter={(e) => {
+                  (e.target as HTMLElement).style.background = "#555555";
+                  (e.target as HTMLElement).style.borderColor = "#777777";
+                }}
+                onMouseLeave={(e) => {
+                  (e.target as HTMLElement).style.background = "#444444";
+                  (e.target as HTMLElement).style.borderColor = "#666666";
+                }}
+              >
+                <span>Reset All Filters</span>
+              </button>
+            </div>
 
-          {/* Results Summary */}
-          <div
-            class="filter-section"
-            style="margin-bottom: 24px; padding: 12px; background: #252525; border-radius: 6px; border: 1px solid #444;"
-          >
-            <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #888;">
-              📊 Results
-            </h4>
-            <p style="margin: 0; font-size: 14px; color: #ffffff;">
-              Showing{" "}
-              <span style="color: #00ff00; font-weight: 600;">
-                {data.filteredData().length}
-              </span>{" "}
-              of <span style="color: #888;">{feed.state().items.length}</span>{" "}
-              total files
-              {data.filteredData().length < feed.state().items.length && (
-                <span style="color: #ff9900;">
-                  {feed.state().items.length - data.filteredData().length} files
-                  filtered out
-                </span>
-              )}
-            </p>
+            {/* Results Summary */}
+            <div
+              class="filter-section"
+              style="margin-bottom: 24px; padding: 12px; background: #252525; border-radius: 6px; border: 1px solid #444;"
+            >
+              <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #888;">
+                📊 Results
+              </h4>
+              <p style="margin: 0; font-size: 14px; color: #ffffff;">
+                Showing{" "}
+                <span style="color: #00ff00; font-weight: 600;">
+                  {data.filteredData().length}
+                </span>{" "}
+                of <span style="color: #888;">{feed.state().items.length}</span>{" "}
+                total files
+                {data.filteredData().length < feed.state().items.length && (
+                  <span style="color: #ff9900;">
+                    {feed.state().items.length - data.filteredData().length}{" "}
+                    files filtered out
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
         </div>
       )}

@@ -30,11 +30,12 @@ export function BrowsePanel() {
         flex-shrink: 0;
         background: #1a1a1a;
         border-right: 1px solid #3a3a3a;
-        padding: ${state.isBrowsePanelOpen() ? "20px" : "0"};
-        overflow: hidden;
-        transition: width 0.3s ease, padding 0.3s ease;
+        overflow-x: hidden;
+        transition: width 0.3s ease;
         position: relative;
-        min-width: 0;
+        display: ${state.isBrowsePanelOpen() ? "flex" : "none"};
+        flex-direction: column;
+        height: 100%;
       `}
     >
       {/* Sticky Header Bar */}
@@ -44,51 +45,52 @@ export function BrowsePanel() {
           top: 0;
           background: #1a1a1a;
           border-bottom: 1px solid #3a3a3a;
-          padding: 8px 16px;
-          margin: -20px -20px 20px -20px;
+          height: 60px;
+          padding: 0 20px;
           display: flex;
           justify-content: space-between;
           align-items: center;
           z-index: 10;
+          flex-shrink: 0;
         `}
       >
-        <h3 style="margin: 0; font-size: 14px; color: #ffffff; font-weight: 600;">
-          📁 Browse
-        </h3>
+        <h2 style="margin: 0; font-size: 18px; color: #ffffff; font-weight: 600;">
+          📂 Browse
+        </h2>
         <button
           onClick={() => state.toggleBrowsePanel()}
           title="Close panel"
           style={`
             background: transparent;
             border: none;
-            color: #888;
+            color: #888888;
+            font-size: 18px;
             cursor: pointer;
-            font-size: 16px;
             padding: 4px;
-            border-radius: 4px;
+            border-radius: 3px;
             transition: all 0.2s;
-            line-height: 1;
           `}
         >
-          ×
+          ✕
         </button>
       </div>
 
       {state.isBrowsePanelOpen() && (
-        <div
-          class="filter-section"
-          style="margin-bottom: 24px; overflow-y: auto; min-width: 0;"
-        >
-          <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
-            🔍 Quick Search
-          </h3>
-          <input
-            class="filter-input"
-            type="text"
-            placeholder="Search by filename..."
-            value={state.filterConfig().name}
-            onInput={(e) => updateFilter("name", e.currentTarget.value)}
-            style={`
+        <div style="height: 100%; overflow-y: auto; flex: 1; padding: 20px;">
+          <div
+            class="filter-section"
+            style="margin-bottom: 24px; overflow-y: auto; min-width: 0;"
+          >
+            <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
+              🔍 Quick Search
+            </h3>
+            <input
+              class="filter-input"
+              type="text"
+              placeholder="Search by filename..."
+              value={state.filterConfig().name}
+              onInput={(e) => updateFilter("name", e.currentTarget.value)}
+              style={`
               width: 100%;
               padding: 8px;
               background: #000000;
@@ -99,7 +101,8 @@ export function BrowsePanel() {
               box-sizing: border-box;
               min-width: 0;
             `}
-          />
+            />
+          </div>
         </div>
       )}
 

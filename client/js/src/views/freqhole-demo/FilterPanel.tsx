@@ -86,7 +86,8 @@ export function FilterPanel(props: FilterPanelProps) {
           top: 0;
           background: #1a1a1a;
           border-bottom: 1px solid #3a3a3a;
-          padding: 8px 16px;
+          height: 60px;
+          padding: 0 16px;
           margin: -20px -20px 20px -20px;
           display: flex;
           justify-content: space-between;
