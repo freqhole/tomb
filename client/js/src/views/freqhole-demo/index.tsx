@@ -502,13 +502,55 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     const data = [...filteredData()];
 
     return data.sort((a, b) => {
+      // Special handling for dynamic name field
+      if (config.field === "name") {
+        const aName = getDisplayFilename(a);
+        const bName = getDisplayFilename(b);
+        const comparison = aName.localeCompare(bName, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+        return config.direction === "desc" ? comparison * -1 : comparison;
+      }
+
+      // Date comparison
+      if (
+        config.field.includes("_at") ||
+        config.field.includes("date") ||
+        config.field.includes("time")
+      ) {
+        const aDate = new Date((a as any)[config.field]);
+        const bDate = new Date((b as any)[config.field]);
+        if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
+          const comparison = aDate.getTime() - bDate.getTime();
+          return config.direction === "desc" ? comparison * -1 : comparison;
+        }
+      }
+
+      // Numeric comparison
       const aValue = (a as any)[config.field];
       const bValue = (b as any)[config.field];
 
-      let comparison = 0;
-      if (aValue < bValue) comparison = -1;
-      else if (aValue > bValue) comparison = 1;
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return config.direction === "desc" ? -1 : 1;
+      if (bValue == null) return config.direction === "desc" ? 1 : -1;
 
+      const aNum = Number(aValue);
+      const bNum = Number(bValue);
+      if (
+        !isNaN(aNum) &&
+        !isNaN(bNum) &&
+        typeof aValue === "number" &&
+        typeof bValue === "number"
+      ) {
+        const comparison = aNum - bNum;
+        return config.direction === "desc" ? comparison * -1 : comparison;
+      }
+
+      // String comparison (case-insensitive)
+      const aStr = String(aValue).toLowerCase();
+      const bStr = String(bValue).toLowerCase();
+      const comparison = aStr.localeCompare(bStr);
       return config.direction === "desc" ? comparison * -1 : comparison;
     });
   });
@@ -826,6 +868,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           onSort={handleSort}
           sortField={sortConfig().field}
           sortDirection={sortConfig().direction as "asc" | "desc"}
+          defaultSort={{ field: "created_at", direction: "desc" }}
           rowHeight={viewModes.getRowHeight()}
           headerHeight={60}
           getItemId={(item) => item.id}
