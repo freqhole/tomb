@@ -37,8 +37,8 @@ export function DragSelectionOverlay() {
               top: ${rect().top}px;
               width: ${rect().width}px;
               height: ${rect().height}px;
-              background: rgba(0, 112, 243, 0.15);
-              border: 2px solid #0070f3;
+              background: rgba(255, 0, 255, 0.1);
+              border: 2px dashed chartreuse;
               border-radius: 3px;
               pointer-events: none;
               z-index: 999;
@@ -55,7 +55,7 @@ export function DragSelectionOverlay() {
               top: ${rect().top - 4}px;
               width: 8px;
               height: 8px;
-              background: #0070f3;
+              background: #ff00ff;
               border: 2px solid #ffffff;
               border-radius: 50%;
               pointer-events: none;
@@ -72,7 +72,7 @@ export function DragSelectionOverlay() {
               top: ${rect().top + rect().height - 4}px;
               width: 8px;
               height: 8px;
-              background: #0070f3;
+              background: chartreuse;
               border: 2px solid #ffffff;
               border-radius: 50%;
               pointer-events: none;
@@ -80,30 +80,6 @@ export function DragSelectionOverlay() {
               box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
             `}
           />
-
-          {/* Selection info tooltip */}
-          <Show when={rect().width > 50 && rect().height > 20}>
-            <div
-              class="drag-selection-tooltip"
-              style={`
-                position: fixed;
-                left: ${rect().left + rect().width / 2 - 40}px;
-                top: ${rect().top + rect().height / 2 - 12}px;
-                background: rgba(0, 0, 0, 0.8);
-                color: #ffffff;
-                padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
-                pointer-events: none;
-                z-index: 1001;
-                white-space: nowrap;
-                backdrop-filter: blur(4px);
-              `}
-            >
-              Selecting...
-            </div>
-          </Show>
         </>
       )}
     </Show>

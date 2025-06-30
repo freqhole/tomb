@@ -47,6 +47,7 @@ export interface GridProps<T = any> {
   onRowMouseDown?: (item: T, index: number, event: MouseEvent) => void;
   onRowMount?: (item: T) => void;
   onContextMenu?: (item: T, index: number, event: MouseEvent) => void;
+  onDragSelection?: (selectedIds: Set<string>) => void;
   sortField?: string;
   sortDirection?: SortDirection;
   defaultSort?: { field: string; direction: SortDirection };
@@ -73,6 +74,9 @@ export interface VirtualizedRowProps<T = any> {
   onRowMouseDown?: (item: T, index: number, event: MouseEvent) => void;
   onRowMount?: (item: T) => void;
   onContextMenu?: (item: T, index: number, event: MouseEvent) => void;
+  rowHeight: number;
+  focusedIndex?: number;
+  showFocusIndicator?: boolean;
 }
 
 const DARK_THEME: GridTheme = {

@@ -388,7 +388,10 @@ export function FreqholeDataGrid(props: FreqholeDataGridProps) {
       onContextMenu={(item, index, event) =>
         handleRowContextMenu(item as MediaBlob, index, event)
       }
-      isDragSelecting={selection.isDragSelecting()}
+      onDragSelection={(selectedIds) => {
+        selection.setSelectedItems(selectedIds);
+        addLog(`📦 Selected ${selectedIds.size} items via drag`);
+      }}
       showPaginationStatus={true}
       onLoadMore={() => feed.actions.loadMore()}
       hasMore={feed.state().hasMore}

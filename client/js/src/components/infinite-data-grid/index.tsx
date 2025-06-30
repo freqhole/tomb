@@ -20,7 +20,6 @@ interface VirtualizedRowProps<T> {
   onRowMouseDown?: (item: T, index: number, event: MouseEvent) => void;
   onRowMount?: (item: T) => void;
   onContextMenu?: (item: T, index: number, event: MouseEvent) => void;
-
   rowHeight: number;
   focusedIndex?: number;
   showFocusIndicator?: boolean;
@@ -95,6 +94,19 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
   const headerHeight = props.headerHeight || 60;
   const virtualizeThreshold = props.virtualizeThreshold || 100;
 
+  // Drag selection state
+  const [isDragSelecting, setIsDragSelecting] = createSignal(false);
+  const [dragStart, setDragStart] = createSignal<{
+    x: number;
+    y: number;
+    startIndex: number;
+  } | null>(null);
+  const [, setDragEnd] = createSignal<{
+    x: number;
+    y: number;
+    endIndex: number;
+  } | null>(null);
+
   // Calculate minimum width needed for all columns
   const minContentWidth = createMemo(() => {
     return props.columns.reduce((total, column) => {
@@ -121,6 +133,21 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
   };
 
   const handleRowMouseDown = (item: T, index: number, event: MouseEvent) => {
+    // Handle drag selection start
+    if (
+      event.button === 0 &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
+      setDragStart({
+        x: event.clientX,
+        y: event.clientY,
+        startIndex: index,
+      });
+    }
+
     props.onRowMouseDown?.(item, index, event);
   };
 
@@ -180,6 +207,69 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
 
   const totalHeight = createMemo(() => props.data.length * rowHeight);
 
+  // Calculate which row index is at given mouse coordinates
+  const calculateRowFromPosition = (_x: number, y: number): number => {
+    const container = containerRef();
+    if (!container) return -1;
+
+    const gridRect = container.getBoundingClientRect();
+    const relativeY = y - gridRect.top + container.scrollTop;
+
+    // Subtract header height and calculate row index
+    const adjustedY = relativeY - headerHeight;
+    if (adjustedY < 0) return -1;
+
+    const rowIndex = Math.floor(adjustedY / rowHeight);
+    return Math.max(0, Math.min(props.data.length - 1, rowIndex));
+  };
+
+  // Mouse move handler for drag selection
+  const handleMouseMove = (event: MouseEvent) => {
+    const start = dragStart();
+
+    // Start drag selection if we've moved enough
+    if (start && !isDragSelecting()) {
+      const distance = Math.sqrt(
+        Math.pow(event.clientX - start.x, 2) +
+          Math.pow(event.clientY - start.y, 2)
+      );
+      if (distance > 5) {
+        setIsDragSelecting(true);
+      }
+    }
+
+    // Update drag selection
+    if (isDragSelecting() && start) {
+      const endIndex = calculateRowFromPosition(event.clientX, event.clientY);
+
+      setDragEnd({
+        x: event.clientX,
+        y: event.clientY,
+        endIndex: endIndex,
+      });
+
+      // Perform selection if we have a valid end index and getItemId function
+      if (endIndex >= 0 && props.getItemId && props.onDragSelection) {
+        const startIdx = Math.min(start.startIndex, endIndex);
+        const endIdx = Math.max(start.startIndex, endIndex);
+        const rangeItems = props.data.slice(startIdx, endIdx + 1);
+        const rangeIds = new Set(
+          rangeItems.map((item) => props.getItemId!(item))
+        );
+        props.onDragSelection(rangeIds);
+      }
+    }
+  };
+
+  // Mouse up handler to end drag selection
+  const handleMouseUp = () => {
+    if (isDragSelecting()) {
+      setIsDragSelecting(false);
+      setDragStart(null);
+      setDragEnd(null);
+    }
+  };
+
   // Event handlers
   const handleScroll = (e: Event) => {
     const target = e.target as HTMLDivElement;
@@ -208,6 +298,17 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
     }
   };
 
+  // Setup global mouse event listeners for drag selection
+  onMount(() => {
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    onCleanup(() => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    });
+  });
+
   // Resize observer
   onMount(() => {
     const container = containerRef();
@@ -228,7 +329,7 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
 
   return (
     <div
-      class={`infinite-data-grid ${props.className || ""}`}
+      class={`infinite-data-grid ${props.className || ""} ${isDragSelecting() ? "drag-selecting" : ""}`}
       style={`
         height: 100%;
         display: flex;
@@ -543,6 +644,15 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
         }
 
         body.drag-selecting * {
+          user-select: none;
+        }
+
+        .infinite-data-grid.drag-selecting {
+          user-select: none;
+          cursor: crosshair;
+        }
+
+        .infinite-data-grid.drag-selecting * {
           user-select: none;
         }
 

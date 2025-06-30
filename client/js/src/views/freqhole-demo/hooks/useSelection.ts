@@ -197,17 +197,14 @@ export function useSelection(options: UseSelectionOptions = {}): SelectionHook {
     }
   };
 
-  // Mouse move handler for drag selection
+  // Mouse move handler for drag selection (simplified - grid handles the actual selection)
   const handleMouseMove = (event: MouseEvent) => {
     if (isDragSelecting() && dragStart()) {
       setDragEnd({
         x: event.clientX,
         y: event.clientY,
-        endIndex: -1, // Will be calculated based on position
+        endIndex: -1, // Grid will calculate this
       });
-
-      // Note: Actual selection calculation will be done in the component
-      // that has access to the items array and grid layout
     }
   };
 
