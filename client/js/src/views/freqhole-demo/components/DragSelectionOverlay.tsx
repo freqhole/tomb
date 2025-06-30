@@ -1,19 +1,20 @@
 import { Show, createMemo } from "solid-js";
+import { useFreqholeSelectionContext } from "../context/FreqholeStateContext";
 
-export interface DragSelectionOverlayProps {
-  isDragSelecting: boolean;
-  dragStart: { x: number; y: number; startIndex: number } | null;
-  dragEnd: { x: number; y: number; endIndex: number } | null;
-}
+export function DragSelectionOverlay() {
+  const selection = useFreqholeSelectionContext();
 
-export function DragSelectionOverlay(props: DragSelectionOverlayProps) {
   const selectionRectangle = createMemo(() => {
-    if (!props.isDragSelecting || !props.dragStart || !props.dragEnd) {
+    if (
+      !selection.isDragSelecting() ||
+      !selection.dragStart() ||
+      !selection.dragEnd()
+    ) {
       return null;
     }
 
-    const start = props.dragStart;
-    const end = props.dragEnd;
+    const start = selection.dragStart()!;
+    const end = selection.dragEnd()!;
 
     const left = Math.min(start.x, end.x);
     const top = Math.min(start.y, end.y);
@@ -24,7 +25,7 @@ export function DragSelectionOverlay(props: DragSelectionOverlayProps) {
   });
 
   return (
-    <Show when={props.isDragSelecting && selectionRectangle()}>
+    <Show when={selection.isDragSelecting() && selectionRectangle()}>
       {(rect) => (
         <>
           {/* Main selection rectangle */}

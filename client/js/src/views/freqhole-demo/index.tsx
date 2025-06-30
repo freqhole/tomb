@@ -1,5 +1,5 @@
-import { createSignal, createMemo, onMount, onCleanup, Show } from "solid-js";
-import type { FilterConfig, ColumnVisibility } from "./types";
+import { createSignal, createMemo, onMount, onCleanup } from "solid-js";
+import type { FilterConfig } from "./types";
 import type { MediaBlob } from "../../lib/websocket-types";
 import { BrowsePanel } from "./BrowsePanel";
 
@@ -7,7 +7,6 @@ import { FilterOnlyPanel } from "./components/FilterOnlyPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { EdgeToggleButton } from "./EdgeToggleButton";
 import { SelectionToolbar } from "./components/SelectionToolbar";
-import { useSelection } from "./hooks/useSelection";
 import { InfiniteDataGrid } from "../../components/infinite-data-grid";
 import type { GridColumn } from "../../components/infinite-data-grid/types";
 import { Thumbnail } from "./components/Thumbnail";
@@ -23,7 +22,7 @@ import { useResponsiveColumns } from "./hooks/useResponsiveColumns";
 import { useFreqholeData } from "./hooks/useFreqholeData";
 import {
   FreqholeStateProvider,
-  useFreqholeStateContext,
+  useFreqholeAppContext,
 } from "./context/FreqholeStateContext";
 
 import { getDisplayFilename } from "../../lib/media-utils";
@@ -46,8 +45,8 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 }
 
 function FreqholeDemoContent(props: { apiBaseUrl: string }) {
-  // Get state from context instead of creating new instance
-  const state = useFreqholeStateContext();
+  // Get state and selection from context instead of creating new instances
+  const { state, selection } = useFreqholeAppContext();
 
   // View modes (keeping existing integration)
   const initialState = state.loadState();
@@ -58,17 +57,16 @@ function FreqholeDemoContent(props: { apiBaseUrl: string }) {
     baseColumnVisibility: () => state.columnVisibility(),
   });
 
-  // WebSocket feed integration
+  // Set up feed and data hooks (these should match what's in context)
   const feed = useWebSocketFeed({
     wsUrl: state.wsUrl(),
     channels: ["MediaBlobs"] as NotificationChannel[],
-    debug: initialState.debug ?? false,
+    debug: state.debug(),
     autoConnect: state.autoConnect(),
-    autoRefresh: initialState.autoRefresh ?? true,
+    autoRefresh: state.autoRefresh() ?? true,
     pageSize: 50,
   });
 
-  // Data processing hook - filtering and sorting (reactive items)
   const data = useFreqholeData({
     items: () => feed.state().items,
     filterConfig: state.filterConfig,
@@ -132,46 +130,7 @@ function FreqholeDemoContent(props: { apiBaseUrl: string }) {
     onLog: addLog,
   });
 
-  // Real WebSocket state from feed
-  const connectionStatus = () => feed.state().connectionStatus;
-  const hasPendingUpdates = () => feed.state().hasPendingUpdates;
-  const lastUpdated = () => feed.state().lastUpdated;
-
   // Track thumbnail requests to avoid duplicates (using existing hook state)
-
-  // Selection hook with storage integration
-  const selection = useSelection({
-    onSelectionChange: (selectedItems) => {
-      // Auto-save selection changes
-      state.saveState({ selectedItems });
-    },
-    onDelete: (selectedItems) => {
-      const items = data
-        .sortedData()
-        .filter((item) => selectedItems.has(item.id));
-      state.setConfirmDialog({
-        isOpen: true,
-        title: "Delete Selected Files",
-        message: `Delete ${items.length} selected file${items.length !== 1 ? "s" : ""}?`,
-        items: items,
-        onConfirm: () => {
-          // TODO: Implement actual delete API call
-          addLog(`🗑️ Deleted ${items.length} selected items`);
-          console.log("Deleted selected items:", Array.from(selectedItems));
-          selection.clearSelection();
-          state.setConfirmDialog(null);
-        },
-      });
-    },
-    saveToStorage: (_selectedItems) => {
-      // Already handled by onSelectionChange
-    },
-    initialSelection: new Set(
-      initialState.selectedItems
-        ? Array.from(initialState.selectedItems || [])
-        : []
-    ),
-  });
 
   // Enhanced event handlers that work with the data
   const handleRowClick = (
@@ -336,10 +295,6 @@ function FreqholeDemoContent(props: { apiBaseUrl: string }) {
       addLog(`🖼️ Requesting thumbnails for ${itemId.slice(0, 8)}`);
     }
   };
-
-  // Derived data from the processing hook
-  const availableMimeCategories = createMemo(() => data.mimeCategories());
-  const availableBlobTypes = createMemo(() => data.blobTypes());
 
   const visibleColumns = createMemo((): GridColumn<MediaBlob>[] => {
     const vis = responsiveColumns.responsiveColumnVisibility();
@@ -561,22 +516,6 @@ function FreqholeDemoContent(props: { apiBaseUrl: string }) {
     state.handleSort(field, direction);
   };
 
-  const toggleColumnVisibility = (column: keyof ColumnVisibility) => {
-    state.toggleColumn(column);
-  };
-
-  const toggleBrowsePanel = () => {
-    state.toggleBrowsePanel();
-  };
-
-  const toggleFilterPanel = () => {
-    state.toggleFilterPanel();
-  };
-
-  const toggleSettingsPanel = () => {
-    state.toggleSettingsPanel();
-  };
-
   // Reactive effects for feed state monitoring - COMMENTED OUT DUE TO INFINITE RECURSION
   // createEffect(() => {
   //   const items = feed.state().items;
@@ -631,7 +570,7 @@ function FreqholeDemoContent(props: { apiBaseUrl: string }) {
       <BrowsePanel
         isOpen={state.isBrowsePanelOpen()}
         filterConfig={state.filterConfig()}
-        onTogglePanel={toggleBrowsePanel}
+        onTogglePanel={() => state.toggleBrowsePanel()}
         onFilterChange={updateFilter}
         onWidthChange={(width) => {
           state.setBrowsePanelWidth(width);
@@ -684,128 +623,15 @@ function FreqholeDemoContent(props: { apiBaseUrl: string }) {
       </div>
 
       {/* Edge Toggle Buttons */}
-      <EdgeToggleButton
-        isVisible={!state.isBrowsePanelOpen()}
-        position="left"
-        panelName="Browse"
-        onClick={toggleBrowsePanel}
-      />
+      <EdgeToggleButton />
 
       {/* Controls button removed - now handled by Actions header menu */}
 
-      {/* Drag Selection Box */}
-      <Show
-        when={
-          selection.isDragSelecting() &&
-          selection.dragStart() &&
-          selection.dragEnd()
-        }
-      >
-        <div
-          style={(() => {
-            const start = selection.dragStart()!;
-            const end = selection.dragEnd()!;
-            const left = Math.min(start.x, end.x);
-            const top = Math.min(start.y, end.y);
-            const width = Math.abs(end.x - start.x);
-            const height = Math.abs(end.y - start.y);
-            return `
-              position: fixed;
-              left: ${left}px;
-              top: ${top}px;
-              width: ${width}px;
-              height: ${height}px;
-              border: 2px dashed #ff00ff;
-              background: rgba(255, 0, 255, 0.1);
-              pointer-events: none;
-              z-index: 1000;
-            `;
-          })()}
-        />
-      </Show>
-
       {/* Filter Only Panel */}
-      <FilterOnlyPanel
-        isOpen={state.isFilterPanelOpen()}
-        filterConfig={state.filterConfig()}
-        columnVisibility={state.columnVisibility()}
-        onTogglePanel={toggleFilterPanel}
-        onFilterChange={updateFilter}
-        onColumnToggle={toggleColumnVisibility}
-        onWidthChange={(width) => {
-          state.setFilterPanelWidth(width);
-        }}
-        initialWidth={state.filterPanelWidth()}
-        mimeCategories={availableMimeCategories()}
-        blobTypeCategories={availableBlobTypes()}
-        totalCount={feed.state().items.length}
-        filteredCount={data.filteredData().length}
-        // Responsive columns info
-        responsiveColumnVisibility={responsiveColumns.responsiveColumnVisibility()}
-        hiddenColumns={responsiveColumns.getHiddenColumns()}
-        breakpointInfo={responsiveColumns.getBreakpointInfo()}
-        screenWidth={responsiveColumns.screenWidth()}
-      />
+      <FilterOnlyPanel />
 
       {/* Settings Panel */}
-      <SettingsPanel
-        isOpen={state.isSettingsPanelOpen()}
-        wsUrl={state.wsUrl()}
-        autoConnect={state.autoConnect()}
-        autoRefresh={state.autoRefresh()}
-        debug={state.debug()}
-        connectionStatus={connectionStatus()}
-        hasPendingUpdates={hasPendingUpdates()}
-        pendingUpdatesCount={feed.state().pendingUpdates.length}
-        filteredCount={data.filteredData().length}
-        totalCount={feed.state().items.length}
-        lastUpdated={lastUpdated()}
-        logs={state.logs()}
-        onTogglePanel={toggleSettingsPanel}
-        onWsUrlChange={state.setWsUrl}
-        onConnect={() => {
-          feed.actions.connect();
-          addLog("🔌 Connecting to WebSocket...");
-        }}
-        onDisconnect={() => {
-          feed.actions.disconnect();
-          addLog("🔌 Disconnecting from WebSocket...");
-        }}
-        onRefresh={() => {
-          addLog("🔄 Refreshing data...");
-          feed.actions.refresh();
-        }}
-        onApplyPendingUpdates={() => {
-          feed.actions.applyPendingUpdates();
-          addLog("✅ Applied pending updates");
-        }}
-        onToggleAutoConnect={() => {
-          state.setAutoConnect(!state.autoConnect());
-          addLog(`🔧 Auto-connect: ${state.autoConnect() ? "ON" : "OFF"}`);
-        }}
-        onToggleAutoRefresh={() => {
-          state.setAutoRefresh(!state.autoRefresh());
-          addLog(`🔧 Auto-refresh: ${state.autoRefresh() ? "ON" : "OFF"}`);
-        }}
-        onToggleDebug={() => {
-          state.setDebug(!state.debug());
-          addLog(`🐛 Debug: ${state.debug() ? "ON" : "OFF"}`);
-        }}
-        onReset={() => {
-          if (
-            confirm(
-              "Reset all settings and data? This will clear all stored preferences."
-            )
-          ) {
-            localStorage.removeItem("freqhole-demo-state");
-            location.reload();
-          }
-        }}
-        onWidthChange={(width) => {
-          state.setSettingsPanelWidth(width);
-        }}
-        initialWidth={state.settingsPanelWidth()}
-      />
+      <SettingsPanel />
 
       <style>{`
         body.resizing {
@@ -840,11 +666,7 @@ function FreqholeDemoContent(props: { apiBaseUrl: string }) {
       <HeaderActionMenu />
 
       {/* Drag Selection Overlay */}
-      <DragSelectionOverlay
-        isDragSelecting={selection.isDragSelecting()}
-        dragStart={selection.dragStart()}
-        dragEnd={selection.dragEnd()}
-      />
+      <DragSelectionOverlay />
     </div>
   );
 }

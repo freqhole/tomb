@@ -1,33 +1,34 @@
 import { Show, createSignal } from "solid-js";
+import { useFreqholeStateContext } from "./context/FreqholeStateContext";
 
-export interface EdgeToggleButtonProps {
-  isVisible: boolean;
-  position: "left" | "right";
-  panelName: string;
-  onClick: () => void;
-}
-
-export function EdgeToggleButton(props: EdgeToggleButtonProps) {
+export function EdgeToggleButton() {
+  const state = useFreqholeStateContext();
   const [isHovered, setIsHovered] = createSignal(false);
 
+  // Component shows Browse panel toggle button on the left side
+  const isVisible = () => !state.isBrowsePanelOpen();
+  const position = "left";
+  const panelName = "Browse";
+  const onClick = () => state.toggleBrowsePanel();
+
   return (
-    <Show when={props.isVisible}>
+    <Show when={isVisible()}>
       <div
-        class={`edge-toggle-button edge-toggle-${props.position}`}
-        onClick={props.onClick}
+        class={`edge-toggle-button edge-toggle-${position}`}
+        onClick={onClick}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        title={`Show ${props.panelName} panel`}
+        title={`Show ${panelName} panel`}
         style={`
           position: fixed;
           top: 50%;
-          ${props.position}: 0;
+          ${position}: 0;
           transform: translateY(-50%);
           width: 24px;
           height: 80px;
           background: #2a2a2a;
           border: 1px solid #3a3a3a;
-          border-radius: ${props.position === "left" ? "0 8px 8px 0" : "8px 0 0 8px"};
+          border-radius: ${position === "left" ? "0 8px 8px 0" : "8px 0 0 8px"};
           cursor: pointer;
           z-index: 1000;
           display: flex;
@@ -55,7 +56,7 @@ export function EdgeToggleButton(props: EdgeToggleButtonProps) {
             color: #ff00ff;
           `}
         >
-          {props.position === "left" ? "→" : "←"}
+          {position === "left" ? "→" : "←"}
         </div>
 
         {/* Panel name - vertical text */}
@@ -70,7 +71,7 @@ export function EdgeToggleButton(props: EdgeToggleButtonProps) {
             line-height: 1.2;
           `}
         >
-          {props.panelName}
+          {panelName}
         </div>
 
         <style>{`

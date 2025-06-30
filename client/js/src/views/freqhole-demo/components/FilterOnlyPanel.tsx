@@ -1,53 +1,72 @@
 /* @jsxImportSource solid-js */
-import { createSignal, For } from "solid-js";
+import { createSignal, For, createMemo } from "solid-js";
 import type { FilterConfig, ColumnVisibility } from "../types";
 import { ResizeHandle } from "../ResizeHandle";
 import { useResize } from "../hooks/useResize";
 import { ColumnManager } from "./ColumnManager";
+import { useFreqholeStateContext } from "../context/FreqholeStateContext";
+import { useWebSocketFeed } from "../../../hooks/useWebSocketFeed";
+import { useFreqholeData } from "../hooks/useFreqholeData";
+import { useResponsiveColumns } from "../hooks/useResponsiveColumns";
+import type { NotificationChannel } from "../../../lib/websocket-types";
 
-export interface FilterOnlyPanelProps {
-  isOpen: boolean;
-  filterConfig: FilterConfig;
-  columnVisibility: ColumnVisibility;
-  onTogglePanel: () => void;
-  onFilterChange: (key: keyof FilterConfig, value: any) => void;
-  onColumnToggle: (column: keyof ColumnVisibility) => void;
-  onWidthChange: (width: number) => void;
-  initialWidth: number;
-  mimeCategories: string[];
-  blobTypeCategories: string[];
-  totalCount: number;
-  filteredCount: number;
-  // Responsive columns info
-  responsiveColumnVisibility?: ColumnVisibility;
-  hiddenColumns?: string[];
-  breakpointInfo?: { name: string; size: string };
-  screenWidth?: number;
-}
-
-export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
+export function FilterOnlyPanel() {
+  const state = useFreqholeStateContext();
   const [showColumnSettings, setShowColumnSettings] = createSignal(false);
 
+  // Set up the same hooks that the main component uses
+  const feed = useWebSocketFeed({
+    wsUrl: state.wsUrl(),
+    channels: ["MediaBlobs"] as NotificationChannel[],
+    debug: state.debug(),
+    autoConnect: state.autoConnect(),
+    autoRefresh: state.autoRefresh() ?? true,
+    pageSize: 50,
+  });
+
+  const data = useFreqholeData({
+    items: () => feed.state().items,
+    filterConfig: state.filterConfig,
+    sortConfig: state.sortConfig,
+  });
+
+  const responsiveColumns = useResponsiveColumns({
+    baseColumnVisibility: () => state.columnVisibility(),
+  });
+
+  // Computed values from hooks
+  const availableMimeCategories = createMemo(() => data.mimeCategories());
+  const availableBlobTypes = createMemo(() => data.blobTypes());
+
+  // Event handlers that work with context
+  const updateFilter = (key: keyof FilterConfig, value: any) => {
+    state.updateFilter(key, value);
+  };
+
+  const toggleColumnVisibility = (column: keyof ColumnVisibility) => {
+    state.toggleColumn(column);
+  };
+
   const resize = useResize({
-    initialWidth: props.initialWidth,
+    initialWidth: state.filterPanelWidth(),
     minWidth: 250,
     maxWidth: 600,
     closeThreshold: 100,
-    onWidthChange: props.onWidthChange,
-    onClose: props.onTogglePanel,
+    onWidthChange: (width) => state.setFilterPanelWidth(width),
+    onClose: () => state.toggleFilterPanel(),
   });
 
   return (
     <div
-      class={`filter-panel ${!props.isOpen ? "collapsed" : ""} ${
+      class={`filter-panel ${!state.isFilterPanelOpen() ? "collapsed" : ""} ${
         resize.isDragging() ? "resizing" : ""
       }`}
       style={`
-        width: ${props.isOpen ? resize.width() + "px" : "0"};
+        width: ${state.isFilterPanelOpen() ? resize.width() + "px" : "0"};
         flex-shrink: 0;
         background: #1a1a1a;
         border-right: 1px solid #3a3a3a;
-        padding: ${props.isOpen ? "20px" : "0"};
+        padding: ${state.isFilterPanelOpen() ? "20px" : "0"};
         overflow-x: hidden;
         transition: width 0.3s ease, padding 0.3s ease;
         position: relative;
@@ -73,7 +92,7 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
           🔍 Filters & Columns
         </h3>
         <button
-          onClick={props.onTogglePanel}
+          onClick={() => state.toggleFilterPanel()}
           title="Close panel"
           style={`
             background: transparent;
@@ -91,7 +110,7 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
         </button>
       </div>
 
-      {props.isOpen && (
+      {state.isFilterPanelOpen() && (
         <div style="overflow-y: auto; min-width: 0;">
           {/* Name Search */}
           <div
@@ -105,10 +124,8 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
               class="filter-input"
               type="text"
               placeholder="Search by filename..."
-              value={props.filterConfig.name}
-              onInput={(e) =>
-                props.onFilterChange("name", e.currentTarget.value)
-              }
+              value={state.filterConfig().name}
+              onInput={(e) => updateFilter("name", e.currentTarget.value)}
               style={`
                 width: 100%;
                 padding: 8px;
@@ -129,10 +146,8 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
               🎭 Content Type
             </h3>
             <select
-              value={props.filterConfig.mime}
-              onChange={(e) =>
-                props.onFilterChange("mime", e.currentTarget.value)
-              }
+              value={state.filterConfig().mime}
+              onChange={(e) => updateFilter("mime", e.currentTarget.value)}
               style={`
                 width: 100%;
                 padding: 8px;
@@ -145,7 +160,7 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
               `}
             >
               <option value="">All Types</option>
-              <For each={props.mimeCategories}>
+              <For each={availableMimeCategories()}>
                 {(category) => <option value={category}>{category}</option>}
               </For>
             </select>
@@ -157,10 +172,8 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
               🏷️ Blob Type
             </h3>
             <select
-              value={props.filterConfig.blobType}
-              onChange={(e) =>
-                props.onFilterChange("blobType", e.currentTarget.value)
-              }
+              value={state.filterConfig().blobType}
+              onChange={(e) => updateFilter("blobType", e.currentTarget.value)}
               style={`
                 width: 100%;
                 padding: 8px;
@@ -173,7 +186,7 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
               `}
             >
               <option value="">All Blob Types</option>
-              <For each={props.blobTypeCategories}>
+              <For each={availableBlobTypes()}>
                 {(category) => <option value={category}>{category}</option>}
               </For>
             </select>
@@ -188,12 +201,9 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
               <input
                 type="number"
                 placeholder="Min"
-                value={props.filterConfig.minSize || ""}
+                value={state.filterConfig().minSize || ""}
                 onInput={(e) =>
-                  props.onFilterChange(
-                    "minSize",
-                    parseInt(e.currentTarget.value) || 0
-                  )
+                  updateFilter("minSize", parseInt(e.currentTarget.value) || 0)
                 }
                 style={`
                   max-width: 33%;
@@ -203,18 +213,16 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
                   border-radius: 4px;
                   color: #ffffff;
                   font-size: 12px;
+                  box-sizing: border-box;
                 `}
               />
               <span style="color: #888; font-size: 12px;">to</span>
               <input
                 type="number"
                 placeholder="Max"
-                value={props.filterConfig.maxSize || ""}
+                value={state.filterConfig().maxSize || ""}
                 onInput={(e) =>
-                  props.onFilterChange(
-                    "maxSize",
-                    parseInt(e.currentTarget.value) || 100000000
-                  )
+                  updateFilter("maxSize", parseInt(e.currentTarget.value) || 0)
                 }
                 style={`
                   max-width: 33%;
@@ -224,131 +232,136 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
                   border-radius: 4px;
                   color: #ffffff;
                   font-size: 12px;
+                  box-sizing: border-box;
                 `}
               />
-            </div>
-            <div style="font-size: 11px; color: #666; margin-top: 4px;">
-              Size in bytes
+              <span style="color: #888; font-size: 12px;">bytes</span>
             </div>
           </div>
 
-          {/* Column Settings */}
+          {/* Quick size filters */}
           <div class="filter-section" style="margin-bottom: 24px;">
+            <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #888;">
+              Quick Size Filters
+            </h4>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              <button
+                onClick={() => {
+                  updateFilter("minSize", 0);
+                  updateFilter("maxSize", 1024 * 1024); // 1MB
+                }}
+                style={`
+                  padding: 4px 8px;
+                  background: #333;
+                  border: 1px solid #555;
+                  border-radius: 4px;
+                  color: #fff;
+                  font-size: 11px;
+                  cursor: pointer;
+                  transition: all 0.2s;
+                `}
+              >
+                &lt; 1MB
+              </button>
+              <button
+                onClick={() => {
+                  updateFilter("minSize", 1024 * 1024);
+                  updateFilter("maxSize", 10 * 1024 * 1024); // 10MB
+                }}
+                style={`
+                  padding: 4px 8px;
+                  background: #333;
+                  border: 1px solid #555;
+                  border-radius: 4px;
+                  color: #fff;
+                  font-size: 11px;
+                  cursor: pointer;
+                  transition: all 0.2s;
+                `}
+              >
+                1-10MB
+              </button>
+              <button
+                onClick={() => {
+                  updateFilter("minSize", 10 * 1024 * 1024); // 10MB+
+                  updateFilter("maxSize", 0);
+                }}
+                style={`
+                  padding: 4px 8px;
+                  background: #333;
+                  border: 1px solid #555;
+                  border-radius: 4px;
+                  color: #fff;
+                  font-size: 11px;
+                  cursor: pointer;
+                  transition: all 0.2s;
+                `}
+              >
+                &gt; 10MB
+              </button>
+            </div>
+          </div>
+
+          {/* Column Visibility Toggle */}
+          <div class="filter-section" style="margin-bottom: 24px;">
+            <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
+              👁️ Column Visibility
+            </h3>
             <button
-              class={`toggle-button ${showColumnSettings() ? "active" : ""}`}
               onClick={() => setShowColumnSettings(!showColumnSettings())}
+              class="toggle-button"
               style={`
-                margin-bottom: 12px;
                 width: 100%;
-                padding: 10px;
-                background: ${showColumnSettings() ? "#ff00ff" : "#333333"};
-                box-sizing: border-box;
-                min-width: 0;
-                border: 1px solid ${showColumnSettings() ? "#ff00ff" : "#666666"};
-                color: ${showColumnSettings() ? "#000000" : "#ffffff"};
-                border-radius: 6px;
-                cursor: pointer;
+                padding: 8px 12px;
+                background: #333333;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                color: #ffffff;
                 font-size: 14px;
-                font-weight: 600;
-                transition: all 0.2s ease;
+                cursor: pointer;
+                transition: all 0.2s;
                 display: flex;
+                justify-content: space-between;
                 align-items: center;
-                justify-content: center;
-                gap: 8px;
               `}
             >
-              <span>
-                {showColumnSettings() ? "Hide" : "Show"} Column Settings
+              <span>Manage Columns</span>
+              <span style="transform: rotate(90deg); font-size: 12px;">
+                {showColumnSettings() ? "▼" : "▶"}
               </span>
             </button>
-            <div
-              class={`column-settings ${!showColumnSettings() ? "collapsed" : ""}`}
-              style={`
-                max-height: ${showColumnSettings() ? "600px" : "0"};
-                overflow: hidden;
-                transition: max-height 0.3s ease;
-                margin-bottom: ${showColumnSettings() ? "16px" : "0"};
-              `}
-            >
-              <ColumnManager
-                columnVisibility={props.columnVisibility}
-                onColumnToggle={props.onColumnToggle}
-                responsiveColumnVisibility={props.responsiveColumnVisibility}
-                hiddenColumns={props.hiddenColumns}
-                breakpointInfo={props.breakpointInfo}
-                onResetToDefaults={() => {
-                  const defaults = {
-                    id: false,
-                    thumbnail: true,
-                    name: true,
-                    mime: true,
-                    blob_type: false,
-                    size: true,
-                    parent_blob_id: false,
-                    local_path: false,
-                    created_at: true,
-                    updated_at: false,
-                    actions: true,
-                  };
-                  Object.entries(defaults).forEach(([key, value]) => {
-                    if (
-                      props.columnVisibility[key as keyof ColumnVisibility] !==
-                      value
-                    ) {
-                      props.onColumnToggle(key as keyof ColumnVisibility);
-                    }
-                  });
-                }}
-              />
-            </div>
+            {showColumnSettings() && (
+              <div style="margin-top: 12px;">
+                <ColumnManager
+                  columnVisibility={state.columnVisibility()}
+                  onColumnToggle={toggleColumnVisibility}
+                  responsiveColumnVisibility={responsiveColumns.responsiveColumnVisibility()}
+                  hiddenColumns={responsiveColumns.getHiddenColumns()}
+                  breakpointInfo={responsiveColumns.getBreakpointInfo()}
+                />
+              </div>
+            )}
           </div>
 
-          {/* Responsive Info */}
-          {props.breakpointInfo && (
-            <div class="filter-section" style="margin-bottom: 24px;">
-              <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #e0e0e0;">
-                Responsive Layout
-              </h3>
-              <div style="font-size: 12px; color: #888; line-height: 1.4;">
-                <div>
-                  Screen:{" "}
-                  <span style="color: #e0e0e0;">
-                    {props.screenWidth}px ({props.breakpointInfo.name})
-                  </span>
-                </div>
-                {props.hiddenColumns && props.hiddenColumns.length > 0 && (
-                  <div style="margin-top: 8px;">
-                    <div style="color: #ff9900; margin-bottom: 4px;">
-                      Hidden columns: {props.hiddenColumns.length}
-                    </div>
-                    <div style="font-size: 11px; color: #666;">
-                      {props.hiddenColumns.join(", ")}
-                    </div>
-                    <div style="font-size: 11px; color: #666; margin-top: 4px;">
-                      Hidden on mobile screens (tablet+ shows all columns)
-                    </div>
-                  </div>
-                )}
-                {(!props.hiddenColumns || props.hiddenColumns.length === 0) && (
-                  <div style="color: #00ff00; margin-top: 4px; font-size: 11px;">
-                    All enabled columns visible
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Filter Summary */}
-          <div class="filter-section" style="margin-bottom: 24px;">
-            <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #e0e0e0;">
-              Filter Results
-            </h3>
-            <p style="font-size: 12px; color: #888; margin: 0; line-height: 1.4;">
-              Showing: {props.filteredCount} of {props.totalCount} files
-              <br />
-              {props.filteredCount !== props.totalCount && (
+          {/* Results Summary */}
+          <div
+            class="filter-section"
+            style="margin-bottom: 24px; padding: 12px; background: #252525; border-radius: 6px; border: 1px solid #444;"
+          >
+            <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #888;">
+              📊 Results
+            </h4>
+            <p style="margin: 0; font-size: 14px; color: #ffffff;">
+              Showing{" "}
+              <span style="color: #00ff00; font-weight: 600;">
+                {data.filteredData().length}
+              </span>{" "}
+              of <span style="color: #888;">{feed.state().items.length}</span>{" "}
+              total files
+              {data.filteredData().length < feed.state().items.length && (
                 <span style="color: #ff9900;">
-                  {props.totalCount - props.filteredCount} files filtered out
+                  {feed.state().items.length - data.filteredData().length} files
+                  filtered out
                 </span>
               )}
             </p>
@@ -387,6 +400,12 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
           filter: brightness(1.1);
         }
 
+        /* Quick filter buttons hover effects */
+        .filter-section button:hover {
+          background: #444 !important;
+          border-color: #666 !important;
+        }
+
         /* Global resizing behavior */
         body.resizing {
           cursor: col-resize !important;
@@ -397,24 +416,7 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
           cursor: col-resize !important;
           user-select: none !important;
         }
-
-        /* Prevent overflow in panel content */
-        .filter-panel {
-          overflow-x: hidden;
-        }
-
-        .filter-panel * {
-          max-width: 100%;
-          box-sizing: border-box;
-        }
-
-        /* Smooth transitions for panel operations */
-        .filter-panel.resizing {
-          transition: none !important;
-        }
       `}</style>
     </div>
   );
 }
-
-export default FilterOnlyPanel;
