@@ -1,0 +1,2 @@
+function s(t,n){const r=new Uint8Array(t),a=new Blob([r],{type:n});return URL.createObjectURL(a)}function i(t){return t?t.startsWith("image/")?"🖼️":t.startsWith("video/")?"🎥":t.startsWith("audio/")?"🎵":t.includes("pdf")?"📕":t.includes("text")?"📝":t.includes("zip")||t.includes("archive")?"📦":t.includes("json")||t.includes("xml")?"📊":"📄":"📄"}function u(t){return t.metadata?.thumbnails||[]}function c(t){return t.metadata?.has_thumbnails===!0||u(t).length>0}export{u as a,s as c,i as g,c as h};
+//# sourceMappingURL=thumbnail-utils-C7vAeAeX.js.map
