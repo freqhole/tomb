@@ -8,6 +8,7 @@ import type {
   ColumnVisibility,
   GridState,
 } from "../types";
+import { getDisplayFilename } from "../../../lib/media-utils";
 
 const STORAGE_KEY = "freqhole-demo-state";
 const DEFAULT_PANEL_WIDTH = 300;
@@ -116,8 +117,9 @@ export function useFreqholeState(): FreqholeStateHook {
 
   const [columnVisibility, setColumnVisibility] =
     createSignal<ColumnVisibility>({
-      id: true,
+      id: false,
       thumbnail: true,
+      name: true,
       mime: true,
       blob_type: true,
       size: true,
@@ -361,37 +363,7 @@ export function useFreqholeState(): FreqholeStateHook {
   };
 }
 
-// Helper functions (these should be moved to a utils file eventually)
-function getDisplayFilename(item: MediaBlob): string {
-  // Check metadata for original filename first
-  if (item.metadata && typeof item.metadata === "object") {
-    const meta = item.metadata as any;
-    if (
-      meta.originalName ||
-      meta.filename ||
-      meta.original_filename ||
-      meta.file_name ||
-      meta.name
-    ) {
-      return (
-        meta.originalName ||
-        meta.filename ||
-        meta.original_filename ||
-        meta.file_name ||
-        meta.name
-      );
-    }
-  }
-
-  // Fallback to existing logic
-  return (
-    item.filename ||
-    item.local_path?.split("/").pop() ||
-    `${item.sha256?.slice(0, 8) || item.id.slice(0, 8)}...${
-      item.sha256?.slice(-4) || item.id.slice(-4)
-    }`
-  );
-}
+// Helper functions (these have been moved to lib/media-utils.ts)
 
 function getMimeCategory(mimeType: string): string {
   if (!mimeType) return "unknown";

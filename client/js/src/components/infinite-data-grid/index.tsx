@@ -36,14 +36,14 @@ function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
   return (
     <div
       ref={rowRef}
-      class="grid-row"
+      class={`grid-row ${props.isSelected ? "selected" : ""}`}
       style={`
         height: ${props.rowHeight}px;
         display: flex;
         align-items: center;
         border-bottom: 1px solid ${DARK_THEME.colors.border};
         background: ${props.isSelected ? DARK_THEME.colors.selected : "transparent"};
-        transition: background-color 0.15s ease;
+        transition: background-color 0.15s ease, filter 0.15s ease;
       `}
       onClick={(e) => props.onRowClick?.(props.item, props.index, e)}
       onDblClick={(e) => props.onRowDoubleClick?.(props.item, props.index, e)}
@@ -301,8 +301,17 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
       </div>
 
       <style>{`
-        .grid-row:hover {
-          background: ${DARK_THEME.colors.hover} !important;
+        .grid-row:hover:not(.selected) {
+          background: ${DARK_THEME.colors.hover};
+        }
+
+        .grid-row.selected {
+          background: ${DARK_THEME.colors.selected} !important;
+        }
+
+        .grid-row.selected:hover {
+          background: ${DARK_THEME.colors.selected} !important;
+          filter: brightness(1.1);
         }
 
         .grid-header-cell.sortable:hover {

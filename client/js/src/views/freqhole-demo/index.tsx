@@ -14,6 +14,11 @@ import { SelectionToolbar } from "./components/SelectionToolbar";
 import { useSelection } from "./hooks/useSelection";
 import { InfiniteDataGrid } from "../../components/infinite-data-grid";
 import type { GridColumn } from "../../components/infinite-data-grid/types";
+import {
+  getDisplayFilename,
+  getThumbnailFallbackIcon,
+} from "../../lib/media-utils";
+import { formatBytes } from "../../lib/format-utils";
 
 export interface FreqholeDemoProps {
   wsUrl: string;
@@ -73,8 +78,9 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
   const [columnVisibility, setColumnVisibility] =
     createSignal<ColumnVisibility>({
-      id: true,
+      id: false,
       thumbnail: true,
+      name: true,
       mime: true,
       blob_type: true,
       size: true,
@@ -136,6 +142,8 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     event: MouseEvent
   ) => {
     if (event.shiftKey && selection.lastSelectedIndex() >= 0) {
+      // Prevent unwanted text selection on Shift+click
+      event.preventDefault();
       // Handle range selection with access to sorted data
       selection.selectRange(selection.lastSelectedIndex(), index, sortedData());
     } else {
@@ -263,20 +271,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     const vis = columnVisibility();
     const columns: GridColumn<MediaBlob>[] = [];
 
-    if (vis.id) {
-      columns.push({
-        key: "id",
-        title: "ID",
-        width: 200,
-        sortable: true,
-        render: (item) => (
-          <span style="font-family: monospace; font-size: 12px;">
-            {item.id}
-          </span>
-        ),
-      });
-    }
-
+    // Thumbnail column (first)
     if (vis.thumbnail) {
       columns.push({
         key: "thumbnail",
@@ -296,18 +291,38 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
               font-size: 12px;
             `}
           >
-            {item.mime?.startsWith("image/")
-              ? "🖼️"
-              : item.mime?.startsWith("video/")
-                ? "🎥"
-                : item.mime?.startsWith("audio/")
-                  ? "🎵"
-                  : "📄"}
+            {getThumbnailFallbackIcon(item.mime)}
           </div>
         ),
       });
     }
 
+    // Name column (second)
+    if (vis.name) {
+      columns.push({
+        key: "name",
+        title: "Name",
+        width: 250,
+        sortable: true,
+        render: (item) => (
+          <span style="font-weight: 500;" title={getDisplayFilename(item)}>
+            {getDisplayFilename(item)}
+          </span>
+        ),
+      });
+    }
+
+    // Type column (third)
+    if (vis.blob_type) {
+      columns.push({
+        key: "blob_type",
+        title: "Type",
+        width: 100,
+        sortable: true,
+      });
+    }
+
+    // MIME Type column (fourth)
     if (vis.mime) {
       columns.push({
         key: "mime",
@@ -318,12 +333,18 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       });
     }
 
-    if (vis.blob_type) {
+    // ID column (hidden by default, but available)
+    if (vis.id) {
       columns.push({
-        key: "blob_type",
-        title: "Type",
-        width: 100,
+        key: "id",
+        title: "ID",
+        width: 200,
         sortable: true,
+        render: (item) => (
+          <span style="font-family: monospace; font-size: 12px;">
+            {item.id}
+          </span>
+        ),
       });
     }
 
@@ -333,7 +354,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         title: "Size",
         width: 100,
         sortable: true,
-        render: (item) => <span>{formatFileSize(item.size)}</span>,
+        render: (item) => <span>{formatBytes(item.size)}</span>,
       });
     }
 
@@ -708,40 +729,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   );
 }
 
-// Helper functions
-function getDisplayFilename(item: MediaBlob): string {
-  if (item.metadata && typeof item.metadata === "object") {
-    const meta = item.metadata as any;
-    if (
-      meta.originalName ||
-      meta.filename ||
-      meta.original_filename ||
-      meta.file_name ||
-      meta.name
-    ) {
-      return (
-        meta.originalName ||
-        meta.filename ||
-        meta.original_filename ||
-        meta.file_name ||
-        meta.name
-      );
-    }
-  }
-  return (
-    item.filename ||
-    item.local_path?.split("/").pop() ||
-    `${item.sha256?.slice(0, 8) || item.id.slice(0, 8)}...${item.sha256?.slice(-4) || item.id.slice(-4)}`
-  );
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-}
+// Helper functions moved to lib/media-utils.ts and lib/format-utils.ts
 
 function generateMockData(): MediaBlob[] {
   const mimeTypes = [

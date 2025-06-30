@@ -8,14 +8,11 @@
 /* @jsxImportSource solid-js */
 import { Show, createMemo, createSignal, onMount } from "solid-js";
 import type { MediaBlob } from "../../lib/websocket-types.js";
-import { BlobClient } from "../../lib/index.js";
-
-// Helper function to convert binary data to data URL
-const createDataUrl = (data: number[], mimeType: string): string => {
-  const uint8Array = new Uint8Array(data);
-  const blob = new Blob([uint8Array], { type: mimeType });
-  return URL.createObjectURL(blob);
-};
+import { BlobClient } from "../../lib/blob-client.js";
+import {
+  getThumbnailFallbackIcon,
+  createDataUrl,
+} from "../../lib/media-utils.js";
 
 // Extended interface for display properties
 export interface DisplayMediaBlob extends MediaBlob {
@@ -78,16 +75,6 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
     }
   };
 
-  const getFileTypeIcon = (mimeType?: string): string => {
-    if (!mimeType) return "📎";
-    if (mimeType.startsWith("image/")) return "🖼️";
-    if (mimeType.startsWith("video/")) return "🎥";
-    if (mimeType.startsWith("audio/")) return "🎵";
-    if (mimeType.startsWith("text/")) return "📝";
-    if (mimeType.includes("pdf")) return "📄";
-    return "📎";
-  };
-
   const previewUrl = createMemo(() => {
     const mimeType = props.item.mime_type || props.item.mime || "";
     if (!props.showPreview || !mimeType.startsWith("image/")) {
@@ -101,12 +88,12 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
     return `/api/media-blobs/${props.item.id}/download`;
   });
 
-  // Thumbnail helpers
+  // Thumbnail helpers for DisplayMediaBlob
   const thumbnails = createMemo(() => {
     return (props.item.metadata?.thumbnails as MediaBlob[]) || [];
   });
 
-  const hasThumbnails = createMemo(() => {
+  const itemHasThumbnails = createMemo(() => {
     return (
       props.item.metadata?.has_thumbnails === true || thumbnails().length > 0
     );
@@ -170,46 +157,47 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
     }
   };
 
+  const itemDisplayFilename = createMemo(() => {
+    // Extract display filename from DisplayMediaBlob
+    const item = props.item;
+    if (item.metadata && typeof item.metadata === "object") {
+      const meta = item.metadata as any;
+      if (
+        meta.originalName ||
+        meta.filename ||
+        meta.original_filename ||
+        meta.file_name ||
+        meta.name
+      ) {
+        return (
+          meta.originalName ||
+          meta.filename ||
+          meta.original_filename ||
+          meta.file_name ||
+          meta.name
+        );
+      }
+    }
+    return (
+      item.filename ||
+      item.local_path?.split("/").pop() ||
+      `${item.sha256?.slice(0, 8) || item.id.slice(0, 8)}...${item.sha256?.slice(-4) || item.id.slice(-4)}`
+    );
+  });
+
   const thumbnailPreviewUrl = createMemo(() => {
-    const thumbs = thumbnails();
     const mimeType = props.item.mime_type || props.item.mime || "";
     console.log(
-      `[MediaBlobFeedItem] Thumbnails for ${props.item.id.slice(0, 8)} (${mimeType}):`,
-      {
-        count: thumbs.length,
-        hasMetadata: !!props.item.metadata,
-        metadata: props.item.metadata,
-        thumbnails: thumbs.map((t) => ({
-          id: t.id.slice(0, 8),
-          type: t.blob_type,
-          mime: t.mime,
-        })),
-      }
+      `[MediaBlobFeedItem] Getting thumbnail for ${props.item.id.slice(0, 8)} (${mimeType})`
     );
 
+    const thumbs = thumbnails();
     if (thumbs.length > 0 && thumbs[0]) {
       const thumbnail = thumbs[0];
-      console.log(`[MediaBlobFeedItem] First thumbnail:`, {
-        id: thumbnail.id,
-        hasData: !!thumbnail.data,
-        dataLength: thumbnail.data?.length || 0,
-        mime: thumbnail.mime,
-        keys: Object.keys(thumbnail),
-      });
-
-      // Check if we have binary data for the thumbnail
       if (thumbnail.data && thumbnail.data.length > 0) {
         const mimeType = thumbnail.mime || "image/webp";
-        const dataUrl = createDataUrl(thumbnail.data, mimeType);
-        console.log(
-          `[MediaBlobFeedItem] Using data URL for thumbnail ${thumbnail.id.slice(0, 8)}`
-        );
-        return dataUrl;
+        return createDataUrl(thumbnail.data, mimeType);
       }
-      // Fallback to HTTP endpoint if no binary data
-      console.log(
-        `[MediaBlobFeedItem] No binary data, using API endpoint for thumbnail ${thumbnail.id.slice(0, 8)}`
-      );
       return `/api/media-blobs/${thumbnail.id}/download`;
     }
     return null;
@@ -223,14 +211,14 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
 
     // Always try to get thumbnails if we don't have them yet
     // The backend will determine if thumbnails can be generated for this file type
-    if (shouldShowThumbnails() && !hasThumbnails() && !alreadyRequested) {
+    if (shouldShowThumbnails() && !itemHasThumbnails() && !alreadyRequested) {
       if (props.onGetThumbnails) {
         setShowThumbnailPlaceholder(true);
         props.onGetThumbnails(props.item.id);
 
         // Hide placeholder after 10 seconds if no thumbnails received
         setTimeout(() => {
-          if (!hasThumbnails()) {
+          if (!itemHasThumbnails()) {
             setShowThumbnailPlaceholder(false);
           }
         }, 10000);
@@ -333,7 +321,7 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
                       <span
                         style={{ "font-size": isCompact() ? "16px" : "20px" }}
                       >
-                        {getFileTypeIcon(props.item.mime_type)}
+                        {getThumbnailFallbackIcon(props.item.mime_type)}
                       </span>
                     }
                   >
@@ -374,7 +362,7 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
           >
             <img
               src={thumbnailPreviewUrl()!}
-              alt={`Thumbnail for ${getDisplayFilename()}`}
+              alt={`Thumbnail for ${itemDisplayFilename()}`}
               style={{
                 width: "100%",
                 height: "100%",
@@ -385,7 +373,7 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
           </Show>
 
           {/* Thumbnail indicator */}
-          <Show when={hasThumbnails() && !isCompact()}>
+          <Show when={itemHasThumbnails() && !isCompact()}>
             <div
               style={{
                 position: "absolute",
@@ -404,7 +392,7 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
           {/* Thumbnail loading indicator */}
           <Show
             when={
-              showThumbnailPlaceholder() && !hasThumbnails() && !isCompact()
+              showThumbnailPlaceholder() && !itemHasThumbnails() && !isCompact()
             }
           >
             <div
@@ -466,7 +454,7 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
                 }}
                 title={getDisplayFilename()}
               >
-                {getDisplayFilename()}
+                {itemDisplayFilename()}
               </div>
 
               {/* Metadata */}

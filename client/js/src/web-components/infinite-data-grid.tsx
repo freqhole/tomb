@@ -91,12 +91,14 @@ function saveGridState(state: Partial<GridState>) {
   }
 }
 
-// Helper function to convert binary data to data URL
-const createDataUrl = (data: number[], mimeType: string): string => {
-  const uint8Array = new Uint8Array(data);
-  const blob = new Blob([uint8Array], { type: mimeType });
-  return URL.createObjectURL(blob);
-};
+// Import utilities from lib instead of inline implementation
+import {
+  getThumbnails,
+  hasThumbnails,
+  getThumbnailPreviewUrl,
+  getThumbnailFallbackIcon,
+  createDataUrl,
+} from "../lib/thumbnail-utils";
 
 // Helper function to get display filename like MediaBlobFeedItem
 function getDisplayFilename(item: MediaBlob): string {
@@ -326,38 +328,9 @@ function MediaBlobDataGrid() {
     });
   });
 
-  // Thumbnail helpers
-  const getThumbnails = (item: MediaBlob): MediaBlob[] => {
-    return (item.metadata?.thumbnails as MediaBlob[]) || [];
-  };
-
-  const hasThumbnails = (item: MediaBlob): boolean => {
-    return (
-      item.metadata?.has_thumbnails === true || getThumbnails(item).length > 0
-    );
-  };
-
+  // Thumbnail helpers using lib utilities
   const getThumbnailUrl = (item: MediaBlob): string | null => {
-    const thumbs = getThumbnails(item);
-    if (thumbs.length > 0 && thumbs[0]) {
-      const thumbnail = thumbs[0];
-      if (thumbnail.data && thumbnail.data.length > 0) {
-        const mimeType = thumbnail.mime || "image/webp";
-        return createDataUrl(thumbnail.data, mimeType);
-      }
-      return `/api/media-blobs/${thumbnail.id}/download`;
-    }
-    return null;
-  };
-
-  const getFileTypeIcon = (mimeType?: string): string => {
-    if (!mimeType) return "📎";
-    if (mimeType.startsWith("image/")) return "🖼️";
-    if (mimeType.startsWith("video/")) return "🎥";
-    if (mimeType.startsWith("audio/")) return "🎵";
-    if (mimeType.startsWith("text/")) return "📝";
-    if (mimeType.includes("pdf")) return "📄";
-    return "📎";
+    return getThumbnailPreviewUrl(item, "");
   };
 
   const handleViewModeChange = (mode: GridViewMode) => {
@@ -647,7 +620,7 @@ function MediaBlobDataGrid() {
                   when={showThumbnailPlaceholder().has(item.id)}
                   fallback={
                     <span style="font-size: 16px;">
-                      {getFileTypeIcon(item.mime)}
+                      {getThumbnailFallbackIcon(item.mime)}
                     </span>
                   }
                 >

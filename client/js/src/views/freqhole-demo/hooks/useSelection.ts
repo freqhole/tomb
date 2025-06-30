@@ -123,6 +123,8 @@ export function useSelection(options: UseSelectionOptions = {}): SelectionHook {
       toggleSelection(itemId);
       setLastSelectedIndex(index);
     } else if (event.shiftKey && lastSelectedIndex() >= 0) {
+      // Prevent unwanted text selection on Shift+click
+      event.preventDefault();
       // Range selection with Shift
       // const startIndex = Math.min(lastSelectedIndex(), index);
       // const endIndex = Math.max(lastSelectedIndex(), index);

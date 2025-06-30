@@ -43,6 +43,7 @@ export type GridViewMode = "compact" | "default" | "detailed";
 export interface ColumnVisibility {
   id: boolean;
   thumbnail: boolean;
+  name: boolean;
   mime: boolean;
   blob_type: boolean;
   size: boolean;

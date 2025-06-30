@@ -10,12 +10,12 @@ export interface SelectionToolbarProps {
 
 export function SelectionToolbar(props: SelectionToolbarProps) {
   return (
-    <Show when={props.selectedCount > 0}>
+    <Show when={props.selectedCount > 1}>
       <div
         class={`selection-toolbar ${props.className || ""}`}
         style={`
           position: fixed;
-          top: 20px;
+          bottom: 20px;
           left: 50%;
           transform: translateX(-50%);
           background: #1a1a1a;
@@ -38,7 +38,8 @@ export function SelectionToolbar(props: SelectionToolbarProps) {
             font-size: 14px;
           `}
         >
-          {props.selectedCount} item{props.selectedCount === 1 ? "" : "s"} selected
+          {props.selectedCount} item{props.selectedCount === 1 ? "" : "s"}{" "}
+          selected
         </span>
 
         <Show when={props.onDownload}>
@@ -55,6 +56,7 @@ export function SelectionToolbar(props: SelectionToolbarProps) {
               font-size: 12px;
               font-weight: 600;
               transition: all 0.2s ease;
+              user-select: none;
             `}
           >
             📥 Download
@@ -74,6 +76,7 @@ export function SelectionToolbar(props: SelectionToolbarProps) {
               cursor: pointer;
               font-size: 12px;
               transition: all 0.2s ease;
+              user-select: none;
             `}
           >
             ⋯ More
@@ -84,18 +87,24 @@ export function SelectionToolbar(props: SelectionToolbarProps) {
           <button
             class="toolbar-button clear"
             onClick={props.onClear}
+            title="Clear selection"
             style={`
               background: transparent;
               color: #888888;
               border: 1px solid #555555;
-              padding: 6px 12px;
+              padding: 6px 8px;
               border-radius: 4px;
               cursor: pointer;
-              font-size: 12px;
+              font-size: 16px;
+              line-height: 1;
               transition: all 0.2s ease;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              user-select: none;
             `}
           >
-            Clear
+            ×
           </button>
         </Show>
 
