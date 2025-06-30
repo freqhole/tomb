@@ -1,8 +1,9 @@
 // Generic types for the infinite data grid component
+import type { JSX } from "solid-js";
 
 export interface GridColumn<T = any> {
   key: string;
-  title: string;
+  title: string | JSX.Element;
   width?: number;
   sortable?: boolean;
   render?: (item: T, index: number) => any;

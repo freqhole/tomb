@@ -264,7 +264,13 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
                 column.sortable && !grid.isSorting() && handleSort(column.key)
               }
             >
-              <span style="font-weight: 500;">{column.title}</span>
+              <div style="font-weight: 500; flex: 1;">
+                {typeof column.title === "string" ? (
+                  <span>{column.title}</span>
+                ) : (
+                  column.title
+                )}
+              </div>
               <Show
                 when={
                   grid.isSorting() && grid.sortConfig().field === column.key

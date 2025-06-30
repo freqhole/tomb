@@ -27,6 +27,7 @@ import { ActionMenu } from "./components/ActionMenu";
 import { BulkActionMenu } from "./components/BulkActionMenu";
 import { DragSelectionOverlay } from "./components/DragSelectionOverlay";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { HeaderActionMenu } from "./components/HeaderActionMenu";
 import { useKeyboardNavigation } from "./hooks/useKeyboardNavigation";
 import { useViewModes } from "./hooks/useViewModes";
 import { getDisplayFilename } from "../../lib/media-utils";
@@ -113,18 +114,14 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       ...(initialState.columnVisibility || {}),
     });
 
-  const [isFilterPanelOpen, setIsFilterPanelOpen] = createSignal(
-    initialState.isFilterPanelOpen ?? true
-  );
-  const [filterPanelWidth, setFilterPanelWidth] = createSignal(
-    initialState.filterPanelWidth || DEFAULT_PANEL_WIDTH
-  );
-
   const [isBrowsePanelOpen, setIsBrowsePanelOpen] = createSignal(
     initialState.isBrowsePanelOpen ?? true
   );
   const [browsePanelWidth, setBrowsePanelWidth] = createSignal(
     initialState.browsePanelWidth || DEFAULT_PANEL_WIDTH
+  );
+  const [filterPanelWidth, setFilterPanelWidth] = createSignal(
+    initialState.filterPanelWidth || DEFAULT_PANEL_WIDTH
   );
 
   const [wsUrl, setWsUrl] = createSignal(props.wsUrl);
@@ -160,6 +157,16 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     items?: MediaBlob[];
     onConfirm: () => void;
   } | null>(null);
+
+  // Header action menu state
+  const [headerActionMenu, setHeaderActionMenu] = createSignal<{
+    isOpen: boolean;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  // Panel controls state
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = createSignal(false);
+  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = createSignal(false);
 
   // View modes
   const viewModes = useViewModes((initialState.viewMode as any) || "default");
@@ -325,6 +332,22 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
   const closeBulkActionMenu = () => {
     setBulkActionMenu(null);
+  };
+
+  const closeHeaderActionMenu = () => {
+    setHeaderActionMenu(null);
+  };
+
+  const handleHeaderFilterPanel = () => {
+    setIsFilterPanelOpen(!isFilterPanelOpen());
+  };
+
+  const handleHeaderSettingsPanel = () => {
+    setIsSettingsPanelOpen(!isSettingsPanelOpen());
+  };
+
+  const handleHeaderViewModeChange = () => {
+    viewModes.cycleViewMode();
   };
 
   const handleActionMenuClick = (item: MediaBlob, event: MouseEvent) => {
@@ -623,7 +646,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     if (vis.thumbnail) {
       columns.push({
         key: "thumbnail",
-        title: "📷",
+        title: "",
         width: 60,
         render: (item) => (
           <Thumbnail
@@ -744,7 +767,35 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     if (vis.actions) {
       columns.push({
         key: "actions",
-        title: "Actions",
+        title: (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              setHeaderActionMenu({
+                isOpen: !headerActionMenu()?.isOpen,
+                position: {
+                  x: rect.left + rect.width / 2,
+                  y: rect.bottom + 5,
+                },
+              });
+            }}
+            title="Controls"
+            style={`
+              background: ${headerActionMenu()?.isOpen ? "#ff00ff" : "#333"};
+              border: 1px solid ${headerActionMenu()?.isOpen ? "#ff00ff" : "#555"};
+              color: ${headerActionMenu()?.isOpen ? "#000" : "#fff"};
+              padding: 4px 8px;
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 12px;
+              transition: all 0.15s ease;
+            `}
+          >
+            ⋯
+          </button>
+        ),
+        sortable: false,
         width: 100,
         render: (item) => (
           <button
@@ -1111,6 +1162,19 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         items={confirmDialog()?.items}
         onConfirm={confirmDialog()?.onConfirm || (() => {})}
         onCancel={() => setConfirmDialog(null)}
+      />
+
+      {/* Header Action Menu */}
+      <HeaderActionMenu
+        isOpen={headerActionMenu()?.isOpen || false}
+        position={headerActionMenu()?.position || { x: 0, y: 0 }}
+        onClose={closeHeaderActionMenu}
+        onFilterPanel={handleHeaderFilterPanel}
+        onSettingsPanel={handleHeaderSettingsPanel}
+        onCycleViewMode={handleHeaderViewModeChange}
+        currentViewMode={viewModes.viewMode()}
+        isFilterPanelOpen={isFilterPanelOpen()}
+        isSettingsPanelOpen={isSettingsPanelOpen()}
       />
 
       {/* Drag Selection Overlay */}

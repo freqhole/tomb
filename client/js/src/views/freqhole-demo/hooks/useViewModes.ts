@@ -14,6 +14,7 @@ export interface ViewModeConfig {
 export interface UseViewModesReturn {
   viewMode: () => ViewMode;
   setViewMode: (mode: ViewMode) => void;
+  cycleViewMode: () => void;
   getViewModeConfig: () => ViewModeConfig;
   getRowHeight: () => number;
 }
@@ -45,16 +46,29 @@ const VIEW_MODE_CONFIGS: Record<ViewMode, ViewModeConfig> = {
   },
 };
 
-export function useViewModes(initialMode: ViewMode = "default"): UseViewModesReturn {
+export function useViewModes(
+  initialMode: ViewMode = "default"
+): UseViewModesReturn {
   const [viewMode, setViewMode] = createSignal<ViewMode>(initialMode);
 
   const getViewModeConfig = () => VIEW_MODE_CONFIGS[viewMode()];
 
   const getRowHeight = () => getViewModeConfig().rowHeight;
 
+  const cycleViewMode = () => {
+    const modes: ViewMode[] = ["compact", "default", "detailed"];
+    const currentIndex = modes.indexOf(viewMode());
+    const nextIndex = (currentIndex + 1) % modes.length;
+    const nextMode = modes[nextIndex];
+    if (nextMode) {
+      setViewMode(nextMode);
+    }
+  };
+
   return {
     viewMode,
     setViewMode,
+    cycleViewMode,
     getViewModeConfig,
     getRowHeight,
   };

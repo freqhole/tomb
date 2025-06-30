@@ -67,6 +67,20 @@ _These features exist in the web-components infinite-data-grid and should be por
 
 ## 🎯 Immediate UX Improvements (Next Priority)
 
+### **🎛️ Actions Header Enhancement (IN PROGRESS)**
+
+- [x] **Replace "Actions" text with control buttons** - ✅ DONE: Added 3 small buttons to Actions column header
+- [x] **🔍 Filter button** - ✅ DONE: Opens filter panel (Content Type, column settings)
+- [x] **👁️ View mode button** - ✅ DONE: Cycles through compact → default → detailed view modes
+- [x] **⚙️ Settings button** - ✅ DONE: Opens settings panel (WebSocket, debug, etc.)
+- [x] **Enhanced JSX title support** - ✅ DONE: Updated GridColumn type to support `JSX.Element` titles
+- [x] **cycleViewMode functionality** - ✅ DONE: Added method to useViewModes hook
+- [ ] **Create SettingsPanel component** - For WebSocket, debug, data info, reset controls
+- [ ] **Create focused FilterPanel** - Only filters and column settings (no WebSocket stuff)
+- [ ] **Update main FreqholeDemo integration** - Wire up new panels to header buttons
+- [ ] **Remove old panel toggle** - Remove "Show Controls panel" button since it's now in Actions header
+- [ ] **Split existing FilterPanel** - Separate filter concerns from settings concerns
+
 ### Selection Toolbar Improvements
 
 - [ ] **Move selection toolbar to bottom** - Move from top center to bottom center of page
