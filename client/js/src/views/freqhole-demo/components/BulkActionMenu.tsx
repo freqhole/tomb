@@ -1,16 +1,9 @@
-import { Show, createSignal, onMount, onCleanup } from "solid-js";
+/* @jsxImportSource solid-js */
+import { Show, createSignal, onCleanup, createEffect } from "solid-js";
+import { useFreqholeStateContext } from "../context/FreqholeStateContext";
 
-export interface BulkActionMenuProps {
-  selectedCount: number;
-  isOpen: boolean;
-  onClose: () => void;
-  onDownloadAll?: () => void;
-  onDeleteAll?: () => void;
-  onClearSelection?: () => void;
-  position: { x: number; y: number };
-}
-
-export function BulkActionMenu(props: BulkActionMenuProps) {
+export function BulkActionMenu() {
+  const state = useFreqholeStateContext();
   let menuRef: HTMLDivElement | undefined;
   const [adjustedPosition, setAdjustedPosition] = createSignal({ x: 0, y: 0 });
 
@@ -18,16 +11,15 @@ export function BulkActionMenu(props: BulkActionMenuProps) {
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      props.onClose();
+      state.setBulkActionMenu(null);
     }
   };
 
   const handleGlobalClick = (event: MouseEvent) => {
-    // Close menu if clicking outside
     if (menuRef && !menuRef.contains(event.target as Node)) {
       event.preventDefault();
       event.stopPropagation();
-      props.onClose();
+      state.setBulkActionMenu(null);
     }
   };
 
@@ -35,105 +27,82 @@ export function BulkActionMenu(props: BulkActionMenuProps) {
     if (!menuRef) return;
 
     const menuWidth = 200;
-    const menuHeight = 180;
-    const { x, y } = props.position;
+    const menuHeight = 140;
+    const position = state.bulkActionMenu()?.position;
+    if (!position) return;
 
-    // Calculate optimal position with viewport edge detection
+    const { x, y } = position;
+
     let adjustedX = x;
     let adjustedY = y;
 
-    // Adjust horizontal position if menu would go off screen
-    if (x + menuWidth > window.innerWidth) {
-      adjustedX = window.innerWidth - menuWidth - 8;
-    }
-    if (adjustedX < 8) {
-      adjustedX = 8;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // Adjust horizontal position if menu would overflow
+    if (x + menuWidth > viewportWidth) {
+      adjustedX = Math.max(10, viewportWidth - menuWidth - 10);
     }
 
-    // Adjust vertical position if menu would go off screen
-    if (y + menuHeight > window.innerHeight) {
-      adjustedY = y - menuHeight - 4;
-    }
-    if (adjustedY < 8) {
-      adjustedY = 8;
+    // Adjust vertical position if menu would overflow
+    if (y + menuHeight > viewportHeight) {
+      adjustedY = Math.max(10, y - menuHeight);
     }
 
     setAdjustedPosition({ x: adjustedX, y: adjustedY });
   };
 
-  onMount(() => {
-    if (props.isOpen) {
+  // Handle position calculation when menu opens
+  createEffect(() => {
+    if (state.bulkActionMenu()?.isOpen) {
       document.addEventListener("keydown", handleKeyDown, true);
-      document.addEventListener("click", handleGlobalClick, true);
-      // Calculate position after mount
+      document.addEventListener("mousedown", handleGlobalClick, true);
       setTimeout(calculatePosition, 0);
+    } else {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("mousedown", handleGlobalClick, true);
     }
   });
 
   onCleanup(() => {
     document.removeEventListener("keydown", handleKeyDown, true);
-    document.removeEventListener("click", handleGlobalClick, true);
+    document.removeEventListener("mousedown", handleGlobalClick, true);
   });
 
-  // Update event listeners when menu state changes
-  const updateEventListeners = () => {
-    if (props.isOpen) {
-      document.addEventListener("keydown", handleKeyDown, true);
-      document.addEventListener("click", handleGlobalClick, true);
-      calculatePosition();
-    } else {
-      document.removeEventListener("keydown", handleKeyDown, true);
-      document.removeEventListener("click", handleGlobalClick, true);
-    }
-  };
-
-  // Watch for prop changes
-  onMount(() => {
-    const checkProps = () => {
-      updateEventListeners();
-      requestAnimationFrame(checkProps);
-    };
-    checkProps();
-  });
-
-  const handleDownloadAll = () => {
-    if (props.onDownloadAll) {
-      props.onDownloadAll();
-    }
-    props.onClose();
+  const handleDownloadAll = async () => {
+    // TODO: Get selected items from context and implement bulk download
+    console.log("🗑️ Bulk download requested");
+    state.setBulkActionMenu(null);
   };
 
   const handleDeleteAll = () => {
-    if (props.onDeleteAll) {
-      props.onDeleteAll();
-    }
-    props.onClose();
+    // TODO: Get selected items from context and show confirm dialog
+    console.log("🗑️ Bulk delete requested");
+    state.setBulkActionMenu(null);
   };
 
   const handleClearSelection = () => {
-    if (props.onClearSelection) {
-      props.onClearSelection();
-    }
-    props.onClose();
+    // TODO: Clear selection from context
+    console.log("🔄 Clear selection requested");
+    state.setBulkActionMenu(null);
   };
 
   return (
-    <Show when={props.isOpen && props.selectedCount > 0}>
+    <Show when={state.bulkActionMenu()?.isOpen}>
       <div
         ref={menuRef}
-        class="bulk-action-menu"
         style={`
           position: fixed;
-          top: ${adjustedPosition().y}px;
           left: ${adjustedPosition().x}px;
-          background: #2a2a2a;
-          border: 1px solid #444444;
-          border-radius: 6px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+          top: ${adjustedPosition().y}px;
+          background: #1a1a1a;
+          border: 1px solid #3a3a3a;
+          border-radius: 8px;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
           z-index: 1000;
           min-width: 200px;
           overflow: hidden;
-          backdrop-filter: blur(10px);
+          animation: slideIn 0.15s ease-out;
         `}
         onClick={(e) => e.stopPropagation()}
       >
@@ -150,18 +119,14 @@ export function BulkActionMenu(props: BulkActionMenuProps) {
             gap: 6px;
           `}
         >
-          <span>📦</span>
-          <span>
-            {props.selectedCount} item{props.selectedCount === 1 ? "" : "s"}{" "}
-            selected
-          </span>
+          <span>⚡</span>
+          <span>Bulk Actions ({0} selected)</span>
         </div>
 
         {/* Menu Items */}
         <div style="padding: 4px 0;">
           {/* Download All */}
           <button
-            class="bulk-action-menu-item"
             onClick={handleDownloadAll}
             style={`
               width: 100%;
@@ -185,75 +150,11 @@ export function BulkActionMenu(props: BulkActionMenuProps) {
             }}
           >
             <span>📥</span>
-            <span>Download All ({props.selectedCount})</span>
+            <span>Download All</span>
           </button>
-
-          {/* Export as ZIP */}
-          <button
-            class="bulk-action-menu-item"
-            onClick={() => {
-              // TODO: Implement ZIP export
-              console.log("Export as ZIP not implemented yet");
-              props.onClose();
-            }}
-            style={`
-              width: 100%;
-              padding: 8px 12px;
-              background: transparent;
-              border: none;
-              color: #888888;
-              text-align: left;
-              cursor: not-allowed;
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              font-size: 13px;
-              transition: background 0.15s;
-            `}
-          >
-            <span>🗜️</span>
-            <span>Export as ZIP (Soon)</span>
-          </button>
-
-          {/* Add to Playlist */}
-          <button
-            class="bulk-action-menu-item"
-            onClick={() => {
-              // TODO: Implement playlist functionality
-              console.log("Add to playlist not implemented yet");
-              props.onClose();
-            }}
-            style={`
-              width: 100%;
-              padding: 8px 12px;
-              background: transparent;
-              border: none;
-              color: #888888;
-              text-align: left;
-              cursor: not-allowed;
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              font-size: 13px;
-              transition: background 0.15s;
-            `}
-          >
-            <span>🎵</span>
-            <span>Add to Playlist (Soon)</span>
-          </button>
-
-          {/* Separator */}
-          <div
-            style={`
-              height: 1px;
-              background: #444444;
-              margin: 4px 8px;
-            `}
-          />
 
           {/* Clear Selection */}
           <button
-            class="bulk-action-menu-item"
             onClick={handleClearSelection}
             style={`
               width: 100%;
@@ -276,13 +177,15 @@ export function BulkActionMenu(props: BulkActionMenuProps) {
               (e.target as HTMLElement).style.background = "transparent";
             }}
           >
-            <span>✖️</span>
+            <span>🔄</span>
             <span>Clear Selection</span>
           </button>
 
+          {/* Divider */}
+          <div style="height: 1px; background: #444; margin: 4px 0;"></div>
+
           {/* Delete All */}
           <button
-            class="bulk-action-menu-item"
             onClick={handleDeleteAll}
             style={`
               width: 100%;
@@ -299,17 +202,29 @@ export function BulkActionMenu(props: BulkActionMenuProps) {
               transition: background 0.15s;
             `}
             onMouseEnter={(e) => {
-              (e.target as HTMLElement).style.background =
-                "rgba(239, 68, 68, 0.1)";
+              (e.target as HTMLElement).style.background = "#2a1a1a";
             }}
             onMouseLeave={(e) => {
               (e.target as HTMLElement).style.background = "transparent";
             }}
           >
             <span>🗑️</span>
-            <span>Delete All ({props.selectedCount})</span>
+            <span>Delete All</span>
           </button>
         </div>
+
+        <style>{`
+          @keyframes slideIn {
+            from {
+              opacity: 0;
+              transform: scale(0.95) translateY(-8px);
+            }
+            to {
+              opacity: 1;
+              transform: scale(1) translateY(0);
+            }
+          }
+        `}</style>
       </div>
     </Show>
   );

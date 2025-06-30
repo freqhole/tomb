@@ -1,22 +1,17 @@
+/* @jsxImportSource solid-js */
 import { Show, onMount, onCleanup } from "solid-js";
-import type { MediaBlob } from "../../../lib/websocket-types";
 import { getDisplayFilename } from "../../../lib/media-utils";
 import { formatBytes } from "../../../lib/format-utils";
+import { useFreqholeStateContext } from "../context/FreqholeStateContext";
 
-export interface PopupPreviewProps {
-  item: MediaBlob | null;
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-export function PopupPreview(props: PopupPreviewProps) {
+export function PopupPreview() {
+  const state = useFreqholeStateContext();
   let overlayRef: HTMLDivElement | undefined;
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      event.stopPropagation();
-      props.onClose();
+      state.setPopupPreview(null);
     }
   };
 
@@ -25,14 +20,14 @@ export function PopupPreview(props: PopupPreviewProps) {
     if (event.target === overlayRef) {
       event.preventDefault();
       event.stopPropagation();
-      props.onClose();
+      state.setPopupPreview(null);
     }
   };
 
   onMount(() => {
-    if (props.isOpen) {
-      document.addEventListener("keydown", handleKeyDown, true);
-      // Prevent body scroll when popup is open
+    if (state.popupPreview()?.isOpen) {
+      document.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("click", handleOverlayClick);
       document.body.style.overflow = "hidden";
     }
   });
@@ -45,11 +40,13 @@ export function PopupPreview(props: PopupPreviewProps) {
 
   // Update event listeners when popup state changes
   const updateEventListeners = () => {
-    if (props.isOpen) {
+    if (state.popupPreview()?.isOpen) {
       document.addEventListener("keydown", handleKeyDown, true);
+      document.addEventListener("click", handleOverlayClick, true);
       document.body.style.overflow = "hidden";
     } else {
       document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("click", handleOverlayClick, true);
       document.body.style.overflow = "";
     }
   };
@@ -64,7 +61,7 @@ export function PopupPreview(props: PopupPreviewProps) {
   });
 
   return (
-    <Show when={props.isOpen && props.item}>
+    <Show when={state.popupPreview()?.isOpen && state.popupPreview()?.item}>
       <div
         ref={overlayRef}
         class="popup-overlay"
@@ -100,7 +97,7 @@ export function PopupPreview(props: PopupPreviewProps) {
           {/* Close Button */}
           <button
             class="popup-close"
-            onClick={props.onClose}
+            onClick={() => state.setPopupPreview(null)}
             style={`
               position: absolute;
               top: 12px;
@@ -130,7 +127,7 @@ export function PopupPreview(props: PopupPreviewProps) {
             ×
           </button>
 
-          <Show when={props.item}>
+          <Show when={state.popupPreview()?.item}>
             {(item) => {
               const mimeType = item().mime || "";
               const isImage = mimeType.startsWith("image/");

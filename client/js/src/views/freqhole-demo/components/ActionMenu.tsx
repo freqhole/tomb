@@ -1,19 +1,11 @@
-import { Show, createSignal, onMount, onCleanup } from "solid-js";
+/* @jsxImportSource solid-js */
+import { Show, createSignal, onCleanup, createEffect } from "solid-js";
 import type { MediaBlob } from "../../../lib/websocket-types";
 import { getDisplayFilename } from "../../../lib/media-utils";
+import { useFreqholeStateContext } from "../context/FreqholeStateContext";
 
-export interface ActionMenuProps {
-  item: MediaBlob | null;
-  isOpen: boolean;
-  onClose: () => void;
-  onDownload?: (item: MediaBlob) => void;
-  onPreview?: (item: MediaBlob) => void;
-  onDelete?: (item: MediaBlob) => void;
-  onCopyUrl?: (item: MediaBlob) => void;
-  position: { x: number; y: number };
-}
-
-export function ActionMenu(props: ActionMenuProps) {
+export function ActionMenu() {
+  const state = useFreqholeStateContext();
   let menuRef: HTMLDivElement | undefined;
   const [adjustedPosition, setAdjustedPosition] = createSignal({ x: 0, y: 0 });
 
@@ -21,16 +13,15 @@ export function ActionMenu(props: ActionMenuProps) {
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      props.onClose();
+      state.setActionMenu(null);
     }
   };
 
   const handleGlobalClick = (event: MouseEvent) => {
-    // Close menu if clicking outside
     if (menuRef && !menuRef.contains(event.target as Node)) {
       event.preventDefault();
       event.stopPropagation();
-      props.onClose();
+      state.setActionMenu(null);
     }
   };
 
@@ -39,125 +30,138 @@ export function ActionMenu(props: ActionMenuProps) {
 
     const menuWidth = 180;
     const menuHeight = 160;
-    const { x, y } = props.position;
+    const position = state.actionMenu()?.position;
+    if (!position) return;
+
+    const { x, y } = position;
 
     // Calculate optimal position with viewport edge detection
     let adjustedX = x;
     let adjustedY = y;
 
-    // Adjust horizontal position if menu would go off screen
-    if (x + menuWidth > window.innerWidth) {
-      adjustedX = window.innerWidth - menuWidth - 8;
-    }
-    if (adjustedX < 8) {
-      adjustedX = 8;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // Adjust horizontal position if menu would overflow
+    if (x + menuWidth > viewportWidth) {
+      adjustedX = Math.max(10, viewportWidth - menuWidth - 10);
     }
 
-    // Adjust vertical position if menu would go off screen
-    if (y + menuHeight > window.innerHeight) {
-      adjustedY = y - menuHeight - 4;
-    }
-    if (adjustedY < 8) {
-      adjustedY = 8;
+    // Adjust vertical position if menu would overflow
+    if (y + menuHeight > viewportHeight) {
+      adjustedY = Math.max(10, y - menuHeight);
     }
 
     setAdjustedPosition({ x: adjustedX, y: adjustedY });
   };
 
-  onMount(() => {
-    if (props.isOpen) {
+  // Handle position calculation when menu opens
+  createEffect(() => {
+    if (state.actionMenu()?.isOpen) {
       document.addEventListener("keydown", handleKeyDown, true);
-      document.addEventListener("click", handleGlobalClick, true);
-      // Calculate position after mount
+      document.addEventListener("mousedown", handleGlobalClick, true);
+      // Calculate position after effect runs
       setTimeout(calculatePosition, 0);
+    } else {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("mousedown", handleGlobalClick, true);
     }
   });
 
   onCleanup(() => {
     document.removeEventListener("keydown", handleKeyDown, true);
-    document.removeEventListener("click", handleGlobalClick, true);
+    document.removeEventListener("mousedown", handleGlobalClick, true);
   });
 
-  // Update event listeners when menu state changes
-  const updateEventListeners = () => {
-    if (props.isOpen) {
-      document.addEventListener("keydown", handleKeyDown, true);
-      document.addEventListener("click", handleGlobalClick, true);
-      calculatePosition();
-    } else {
-      document.removeEventListener("keydown", handleKeyDown, true);
-      document.removeEventListener("click", handleGlobalClick, true);
-    }
-  };
+  const handleDownload = async () => {
+    const item = state.actionMenu()?.item;
+    if (!item) return;
 
-  // Watch for prop changes
-  onMount(() => {
-    const checkProps = () => {
-      updateEventListeners();
-      requestAnimationFrame(checkProps);
-    };
-    checkProps();
-  });
-
-  const handleDownload = () => {
-    if (props.item && props.onDownload) {
-      props.onDownload(props.item);
+    try {
+      const filename = getDisplayFilename(item);
+      const link = document.createElement("a");
+      link.href = `/api/blobs/${item.id}`;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      console.log(`📥 Downloaded: ${filename}`);
+    } catch (error) {
+      console.error("Download failed:", error);
     }
-    props.onClose();
+    state.setActionMenu(null);
   };
 
   const handlePreview = () => {
-    if (props.item && props.onPreview) {
-      props.onPreview(props.item);
-    }
-    props.onClose();
+    const item = state.actionMenu()?.item;
+    if (!item) return;
+
+    state.setPopupPreview({ item, isOpen: true });
+    state.setActionMenu(null);
   };
 
   const handleDelete = () => {
-    if (props.item && props.onDelete) {
-      props.onDelete(props.item);
-    }
-    props.onClose();
+    const item = state.actionMenu()?.item;
+    if (!item) return;
+
+    state.setConfirmDialog({
+      isOpen: true,
+      title: "Delete File",
+      message: `Are you sure you want to delete this file? This action cannot be undone.`,
+      items: [item],
+      onConfirm: () => {
+        // TODO: Implement actual delete API call
+        console.log(`🗑️ Deleted: ${getDisplayFilename(item)}`);
+        state.setConfirmDialog(null);
+      },
+    });
+    state.setActionMenu(null);
   };
 
-  const handleCopyUrl = () => {
-    if (props.item && props.onCopyUrl) {
-      props.onCopyUrl(props.item);
+  const handleCopyUrl = async () => {
+    const item = state.actionMenu()?.item;
+    if (!item) return;
+
+    try {
+      const url = `${window.location.origin}/api/blobs/${item.id}`;
+      await navigator.clipboard.writeText(url);
+      console.log(`🔗 Copied URL for: ${getDisplayFilename(item)}`);
+    } catch (error) {
+      console.error("Copy URL failed:", error);
     }
-    props.onClose();
+    state.setActionMenu(null);
   };
 
-  const getFileTypeIcon = (item: MediaBlob) => {
+  const getFileTypeIcon = (item: MediaBlob): string => {
     const mime = item.mime || "";
     if (mime.startsWith("image/")) return "🖼️";
     if (mime.startsWith("video/")) return "🎥";
     if (mime.startsWith("audio/")) return "🎵";
     if (mime.includes("pdf")) return "📄";
     if (mime.includes("text")) return "📝";
-    return "📎";
+    return "📄";
   };
 
   return (
-    <Show when={props.isOpen && props.item}>
+    <Show when={state.actionMenu()?.isOpen && state.actionMenu()?.item}>
       <div
         ref={menuRef}
-        class="action-menu"
         style={`
           position: fixed;
-          top: ${adjustedPosition().y}px;
           left: ${adjustedPosition().x}px;
-          background: #2a2a2a;
-          border: 1px solid #444444;
-          border-radius: 6px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+          top: ${adjustedPosition().y}px;
+          background: #1a1a1a;
+          border: 1px solid #3a3a3a;
+          border-radius: 8px;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
           z-index: 1000;
           min-width: 180px;
           overflow: hidden;
-          backdrop-filter: blur(10px);
+          animation: slideIn 0.15s ease-out;
         `}
         onClick={(e) => e.stopPropagation()}
       >
-        <Show when={props.item}>
+        <Show when={state.actionMenu()?.item}>
           {(item) => (
             <>
               {/* Menu Header */}
@@ -268,14 +272,8 @@ export function ActionMenu(props: ActionMenuProps) {
                   <span>Copy URL</span>
                 </button>
 
-                {/* Separator */}
-                <div
-                  style={`
-                    height: 1px;
-                    background: #444444;
-                    margin: 4px 8px;
-                  `}
-                />
+                {/* Divider */}
+                <div style="height: 1px; background: #444; margin: 4px 0;"></div>
 
                 {/* Delete */}
                 <button
@@ -296,8 +294,7 @@ export function ActionMenu(props: ActionMenuProps) {
                     transition: background 0.15s;
                   `}
                   onMouseEnter={(e) => {
-                    (e.target as HTMLElement).style.background =
-                      "rgba(239, 68, 68, 0.1)";
+                    (e.target as HTMLElement).style.background = "#2a1a1a";
                   }}
                   onMouseLeave={(e) => {
                     (e.target as HTMLElement).style.background = "transparent";
@@ -310,6 +307,27 @@ export function ActionMenu(props: ActionMenuProps) {
             </>
           )}
         </Show>
+
+        <style>{`
+          @keyframes slideIn {
+            from {
+              opacity: 0;
+              transform: scale(0.95) translateY(-8px);
+            }
+            to {
+              opacity: 1;
+              transform: scale(1) translateY(0);
+            }
+          }
+
+          .action-menu-item:hover {
+            background: #3a3a3a !important;
+          }
+
+          .action-menu-item:active {
+            background: #444 !important;
+          }
+        `}</style>
       </div>
     </Show>
   );

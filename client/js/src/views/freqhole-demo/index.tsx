@@ -20,8 +20,11 @@ import { HeaderActionMenu } from "./components/HeaderActionMenu";
 import { useKeyboardNavigation } from "./hooks/useKeyboardNavigation";
 import { useViewModes } from "./hooks/useViewModes";
 import { useResponsiveColumns } from "./hooks/useResponsiveColumns";
-import { useFreqholeState } from "./hooks/useFreqholeState";
 import { useFreqholeData } from "./hooks/useFreqholeData";
+import {
+  FreqholeStateProvider,
+  useFreqholeStateContext,
+} from "./context/FreqholeStateContext";
 
 import { getDisplayFilename } from "../../lib/media-utils";
 import { formatBytes } from "../../lib/format-utils";
@@ -35,11 +38,16 @@ export interface FreqholeDemoProps {
 }
 
 export function FreqholeDemo(props: FreqholeDemoProps) {
-  // State management hook - all state centralized
-  const state = useFreqholeState({
-    wsUrl: props.wsUrl,
-    autoConnect: props.autoConnect,
-  });
+  return (
+    <FreqholeStateProvider wsUrl={props.wsUrl} autoConnect={props.autoConnect}>
+      <FreqholeDemoContent apiBaseUrl={props.apiBaseUrl} />
+    </FreqholeStateProvider>
+  );
+}
+
+function FreqholeDemoContent(props: { apiBaseUrl: string }) {
+  // Get state from context instead of creating new instance
+  const state = useFreqholeStateContext();
 
   // View modes (keeping existing integration)
   const initialState = state.loadState();
@@ -52,10 +60,10 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
   // WebSocket feed integration
   const feed = useWebSocketFeed({
-    wsUrl: props.wsUrl,
+    wsUrl: state.wsUrl(),
     channels: ["MediaBlobs"] as NotificationChannel[],
     debug: initialState.debug ?? false,
-    autoConnect: props.autoConnect,
+    autoConnect: state.autoConnect(),
     autoRefresh: initialState.autoRefresh ?? true,
     pageSize: 50,
   });
@@ -82,11 +90,11 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     onClearSelection: () => selection.clearSelection(),
     onEscape: () => {
       if (state.popupPreview()?.isOpen) {
-        closePopupPreview();
+        state.setPopupPreview(null);
       } else if (state.actionMenu()?.isOpen) {
-        closeActionMenu();
+        state.setActionMenu(null);
       } else if (state.bulkActionMenu()?.isOpen) {
-        closeBulkActionMenu();
+        state.setBulkActionMenu(null);
       } else {
         selection.clearSelection();
       }
@@ -224,34 +232,6 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     }
   };
 
-  const closePopupPreview = () => {
-    state.setPopupPreview(null);
-  };
-
-  const closeActionMenu = () => {
-    state.setActionMenu(null);
-  };
-
-  const closeBulkActionMenu = () => {
-    state.setBulkActionMenu(null);
-  };
-
-  const closeHeaderActionMenu = () => {
-    state.setHeaderActionMenu(null);
-  };
-
-  const handleHeaderFilterPanel = () => {
-    state.setIsFilterPanelOpen(!state.isFilterPanelOpen());
-  };
-
-  const handleHeaderSettingsPanel = () => {
-    state.setIsSettingsPanelOpen(!state.isSettingsPanelOpen());
-  };
-
-  const handleHeaderViewModeChange = () => {
-    viewModes.cycleViewMode();
-  };
-
   const handleActionMenuClick = (item: MediaBlob, event: MouseEvent) => {
     event.stopPropagation();
     event.preventDefault();
@@ -259,7 +239,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     const currentMenu = state.actionMenu();
     if (currentMenu && currentMenu.item.id === item.id) {
       // Close if clicking same item
-      closeActionMenu();
+      state.setActionMenu(null);
       addLog(`⋯ Action menu closed for: ${getDisplayFilename(item)}`);
     } else {
       // Open menu at button position
@@ -278,53 +258,11 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     }
   };
 
-  const handleDownload = async (item: MediaBlob) => {
-    try {
-      const filename = getDisplayFilename(item);
-      const link = document.createElement("a");
-      link.href = `/api/blobs/${item.id}`;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      addLog(`📥 Downloaded: ${filename}`);
-    } catch (error) {
-      console.error("Download failed:", error);
-      addLog(`❌ Download failed: ${error}`);
-    }
-  };
-
-  const handleCopyUrl = async (item: MediaBlob) => {
-    try {
-      const url = `${window.location.origin}/api/blobs/${item.id}`;
-      await navigator.clipboard.writeText(url);
-      addLog(`🔗 Copied URL for: ${getDisplayFilename(item)}`);
-    } catch (error) {
-      console.error("Copy URL failed:", error);
-      addLog(`❌ Copy URL failed: ${error}`);
-    }
-  };
-
-  const handleDeleteItem = (item: MediaBlob) => {
-    state.setConfirmDialog({
-      isOpen: true,
-      title: "Delete File",
-      message: `Are you sure you want to delete this file? This action cannot be undone.`,
-      items: [item],
-      onConfirm: () => {
-        // TODO: Implement actual delete API call
-        addLog(`🗑️ Deleted: ${getDisplayFilename(item)}`);
-        console.log("Deleted item:", item.id);
-        state.setConfirmDialog(null);
-      },
-    });
-  };
-
   const handleBulkMoreClick = (event: MouseEvent) => {
     const currentMenu = state.bulkActionMenu();
     if (currentMenu?.isOpen) {
       // Close if already open
-      closeBulkActionMenu();
+      state.setBulkActionMenu(null);
     } else {
       // Position menu above the More button
       const rect = (event.target as HTMLElement).getBoundingClientRect();
@@ -338,44 +276,6 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         position,
       });
     }
-  };
-
-  const handleBulkDownload = async () => {
-    const selectedItems = Array.from(selection.selectedItems());
-    const items = data
-      .sortedData()
-      .filter((item) => selectedItems.includes(item.id));
-
-    addLog(`📥 Starting bulk download of ${items.length} items...`);
-
-    for (const item of items) {
-      await handleDownload(item);
-      // Small delay to prevent overwhelming the browser
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-
-    addLog(`✅ Bulk download completed: ${items.length} items`);
-  };
-
-  const handleBulkDelete = () => {
-    const selectedItems = Array.from(selection.selectedItems());
-    const items = data
-      .sortedData()
-      .filter((item) => selectedItems.includes(item.id));
-
-    state.setConfirmDialog({
-      isOpen: true,
-      title: "Delete Multiple Files",
-      message: `Are you sure you want to delete ${items.length} files?`,
-      items: items,
-      onConfirm: () => {
-        // TODO: Implement actual bulk delete API call
-        addLog(`🗑️ Bulk deleted ${items.length} items`);
-        console.log("Bulk deleted items:", selectedItems);
-        selection.clearSelection();
-        state.setConfirmDialog(null);
-      },
-    });
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
@@ -925,57 +825,19 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       `}</style>
 
       {/* Popup Preview */}
-      <PopupPreview
-        item={state.popupPreview()?.item || null}
-        isOpen={state.popupPreview()?.isOpen || false}
-        onClose={closePopupPreview}
-      />
+      <PopupPreview />
 
       {/* Action Menu */}
-      <ActionMenu
-        item={state.actionMenu()?.item || null}
-        isOpen={state.actionMenu()?.isOpen || false}
-        position={state.actionMenu()?.position || { x: 0, y: 0 }}
-        onClose={closeActionMenu}
-        onDownload={handleDownload}
-        onPreview={(item) => state.setPopupPreview({ item, isOpen: true })}
-        onDelete={handleDeleteItem}
-        onCopyUrl={handleCopyUrl}
-      />
+      <ActionMenu />
 
       {/* Bulk Action Menu */}
-      <BulkActionMenu
-        isOpen={state.bulkActionMenu()?.isOpen || false}
-        position={state.bulkActionMenu()?.position || { x: 0, y: 0 }}
-        selectedCount={selection.selectedItems().size}
-        onClose={closeBulkActionMenu}
-        onDownloadAll={handleBulkDownload}
-        onDeleteAll={handleBulkDelete}
-        onClearSelection={selection.clearSelection}
-      />
+      <BulkActionMenu />
 
       {/* Confirm Dialog */}
-      <ConfirmDialog
-        isOpen={state.confirmDialog()?.isOpen || false}
-        title={state.confirmDialog()?.title || ""}
-        message={state.confirmDialog()?.message || ""}
-        items={state.confirmDialog()?.items}
-        onConfirm={state.confirmDialog()?.onConfirm || (() => {})}
-        onCancel={() => state.setConfirmDialog(null)}
-      />
+      <ConfirmDialog />
 
       {/* Header Action Menu */}
-      <HeaderActionMenu
-        isOpen={state.headerActionMenu()?.isOpen || false}
-        position={state.headerActionMenu()?.position || { x: 0, y: 0 }}
-        onClose={closeHeaderActionMenu}
-        onFilterPanel={handleHeaderFilterPanel}
-        onSettingsPanel={handleHeaderSettingsPanel}
-        onCycleViewMode={handleHeaderViewModeChange}
-        currentViewMode={viewModes.viewMode()}
-        isFilterPanelOpen={state.isFilterPanelOpen()}
-        isSettingsPanelOpen={state.isSettingsPanelOpen()}
-      />
+      <HeaderActionMenu />
 
       {/* Drag Selection Overlay */}
       <DragSelectionOverlay

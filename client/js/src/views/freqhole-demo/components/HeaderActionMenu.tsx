@@ -1,19 +1,9 @@
 /* @jsxImportSource solid-js */
 import { Show, onCleanup, createEffect } from "solid-js";
+import { useFreqholeStateContext } from "../context/FreqholeStateContext";
 
-export interface HeaderActionMenuProps {
-  isOpen: boolean;
-  position: { x: number; y: number };
-  onClose: () => void;
-  onFilterPanel: () => void;
-  onSettingsPanel: () => void;
-  onCycleViewMode: () => void;
-  currentViewMode: string;
-  isFilterPanelOpen: boolean;
-  isSettingsPanelOpen: boolean;
-}
-
-export function HeaderActionMenu(props: HeaderActionMenuProps) {
+export function HeaderActionMenu() {
+  const state = useFreqholeStateContext();
   let menuRef: HTMLDivElement | undefined;
 
   // Close on outside click
@@ -21,67 +11,63 @@ export function HeaderActionMenu(props: HeaderActionMenuProps) {
     if (menuRef && !menuRef.contains(e.target as Node)) {
       e.preventDefault();
       e.stopPropagation();
-      props.onClose();
+      state.setHeaderActionMenu(null);
     }
   };
 
   // Close on escape key
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      props.onClose();
+      state.setHeaderActionMenu(null);
     }
   };
 
   // Add/remove listeners whenever isOpen changes
   createEffect(() => {
-    if (props.isOpen) {
-      document.addEventListener("click", handleClickOutside, true);
-      document.addEventListener("keydown", handleKeyDown, true);
+    if (state.headerActionMenu()?.isOpen) {
+      document.addEventListener("mousedown", handleClickOutside, true);
+      document.addEventListener("keydown", handleKeyDown);
     } else {
-      document.removeEventListener("click", handleClickOutside, true);
-      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("mousedown", handleClickOutside, true);
+      document.removeEventListener("keydown", handleKeyDown);
     }
   });
 
   onCleanup(() => {
-    document.removeEventListener("click", handleClickOutside, true);
-    document.removeEventListener("keydown", handleKeyDown, true);
+    document.removeEventListener("mousedown", handleClickOutside, true);
+    document.removeEventListener("keydown", handleKeyDown);
   });
 
   const handleFilterClick = () => {
-    props.onFilterPanel();
-    props.onClose();
+    state.setIsFilterPanelOpen(!state.isFilterPanelOpen());
+    state.setHeaderActionMenu(null);
   };
 
   const handleSettingsClick = () => {
-    props.onSettingsPanel();
-    props.onClose();
+    state.setIsSettingsPanelOpen(!state.isSettingsPanelOpen());
+    state.setHeaderActionMenu(null);
   };
 
   const handleViewModeClick = () => {
-    props.onCycleViewMode();
-    // Don't close menu for view mode cycling
+    // TODO: Add view mode cycling to context
+    state.setHeaderActionMenu(null);
   };
 
   return (
-    <Show when={props.isOpen}>
+    <Show when={state.headerActionMenu()?.isOpen}>
       <div
         ref={menuRef}
-        class="header-action-menu"
         style={`
           position: fixed;
-          top: ${props.position.y}px;
-          left: ${props.position.x}px;
+          left: ${state.headerActionMenu()?.position.x || 0}px;
+          top: ${state.headerActionMenu()?.position.y || 0}px;
           transform: translateX(-50%);
-          background: #1a1a1a;
+          background: #2a2a2a;
           border: 1px solid #3a3a3a;
           border-radius: 8px;
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-          z-index: 1000;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+          z-index: 10000;
           min-width: 200px;
-          overflow: hidden;
           animation: slideIn 0.15s ease-out;
         `}
       >
@@ -108,7 +94,7 @@ export function HeaderActionMenu(props: HeaderActionMenuProps) {
             <div style="flex: 1;">
               <div style="font-weight: 500;">Filters & Columns</div>
             </div>
-            <Show when={props.isFilterPanelOpen}>
+            <Show when={state.isFilterPanelOpen()}>
               <span style="color: #ff00ff; font-size: 12px;">●</span>
             </Show>
           </button>
@@ -135,7 +121,7 @@ export function HeaderActionMenu(props: HeaderActionMenuProps) {
             <div style="flex: 1;">
               <div style="font-weight: 500;">View Mode</div>
               <div style="font-size: 11px; color: #888; margin-top: 2px;">
-                {props.currentViewMode}
+                default
               </div>
             </div>
           </button>
@@ -162,7 +148,7 @@ export function HeaderActionMenu(props: HeaderActionMenuProps) {
             <div style="flex: 1;">
               <div style="font-weight: 500;">Settings</div>
             </div>
-            <Show when={props.isSettingsPanelOpen}>
+            <Show when={state.isSettingsPanelOpen()}>
               <span style="color: #ff00ff; font-size: 12px;">●</span>
             </Show>
           </button>

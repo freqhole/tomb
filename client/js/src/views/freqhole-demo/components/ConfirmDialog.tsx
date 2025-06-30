@@ -1,27 +1,17 @@
 /* @jsxImportSource solid-js */
 import { Show, onMount, onCleanup } from "solid-js";
-import type { MediaBlob } from "../../../lib/websocket-types";
+
 import { getDisplayFilename } from "../../../lib/media-utils";
+import { useFreqholeStateContext } from "../context/FreqholeStateContext";
 
-export interface ConfirmDialogProps {
-  isOpen: boolean;
-  title: string;
-  message: string;
-  confirmText?: string;
-  cancelText?: string;
-  confirmStyle?: "danger" | "primary";
-  items?: MediaBlob[];
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-
-export function ConfirmDialog(props: ConfirmDialogProps) {
+export function ConfirmDialog() {
+  const state = useFreqholeStateContext();
   let dialogRef: HTMLDivElement | undefined;
   let confirmButtonRef: HTMLButtonElement | undefined;
 
   // Focus management
   onMount(() => {
-    if (props.isOpen && confirmButtonRef) {
+    if (state.confirmDialog()?.isOpen && confirmButtonRef) {
       // Focus the confirm button when dialog opens
       setTimeout(() => confirmButtonRef?.focus(), 100);
     }
@@ -29,14 +19,14 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
 
   // Keyboard handling
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (!props.isOpen) return;
+    if (!state.confirmDialog()?.isOpen) return;
 
     if (e.key === "Escape") {
       e.preventDefault();
-      props.onCancel();
+      state.setConfirmDialog(null);
     } else if (e.key === "Enter" && e.ctrlKey) {
       e.preventDefault();
-      props.onConfirm();
+      state.confirmDialog()?.onConfirm?.();
     }
   };
 
@@ -51,16 +41,16 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
   // Click outside to close
   const handleBackdropClick = (e: MouseEvent) => {
     if (e.target === dialogRef) {
-      props.onCancel();
+      state.setConfirmDialog(null);
     }
   };
 
-  const confirmStyle = props.confirmStyle || "danger";
-  const confirmText = props.confirmText || "Delete";
-  const cancelText = props.cancelText || "Cancel";
+  const confirmStyle = "danger";
+  const confirmText = "Confirm";
+  const cancelText = "Cancel";
 
   return (
-    <Show when={props.isOpen}>
+    <Show when={state.confirmDialog()?.isOpen}>
       <div
         ref={dialogRef}
         class="confirm-dialog-backdrop"
@@ -112,7 +102,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
               <span style="font-size: 24px;">
                 {confirmStyle === "danger" ? "⚠️" : "❓"}
               </span>
-              {props.title}
+              {state.confirmDialog()?.title || "Confirm Action"}
             </h2>
           </div>
 
@@ -125,69 +115,80 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
               font-size: 14px;
             `}
           >
-            {props.message}
+            {state.confirmDialog()?.message || "Are you sure?"}
           </div>
 
           {/* Items List (if provided) */}
-          <Show when={props.items && props.items.length > 0}>
+          <Show
+            when={
+              state.confirmDialog()?.items &&
+              (state.confirmDialog()?.items?.length || 0) > 0
+            }
+          >
             <div
               style={`
                 margin-bottom: 20px;
-                background: #0a0a0a;
-                border: 1px solid #2a2a2a;
-                border-radius: 6px;
                 max-height: 200px;
                 overflow-y: auto;
+                border: 1px solid #333;
+                border-radius: 4px;
+                background: #0a0a0a;
               `}
             >
+              {/* Header for items list */}
               <div
                 style={`
                   padding: 8px 12px;
+                  background: #1a1a1a;
+                  border-bottom: 1px solid #333;
                   font-size: 12px;
                   color: #888;
-                  border-bottom: 1px solid #2a2a2a;
                   font-weight: 500;
                 `}
               >
-                {props.items!.length} item{props.items!.length !== 1 ? "s" : ""}{" "}
-                will be deleted:
+                Files to be affected (
+                {state.confirmDialog()?.items?.length || 0}):
               </div>
-              <div style="max-height: 150px; overflow-y: auto;">
-                {props.items!.map((item) => (
-                  <div
+
+              {/* Items */}
+              {state.confirmDialog()?.items?.map((item) => (
+                <div
+                  style={`
+                    padding: 8px 12px;
+                    border-bottom: 1px solid #1a1a1a;
+                    font-size: 13px;
+                    color: #ccc;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                  `}
+                >
+                  <span style="font-size: 16px;">📄</span>
+                  <span
                     style={`
-                      padding: 8px 12px;
-                      border-bottom: 1px solid #1a1a1a;
-                      font-size: 13px;
-                      color: #ccc;
-                      display: flex;
-                      align-items: center;
-                      gap: 8px;
+                      flex: 1;
+                      overflow: hidden;
+                      text-overflow: ellipsis;
+                      white-space: nowrap;
                     `}
                   >
-                    <span style="font-size: 16px;">📄</span>
-                    <span
-                      style={`
-                        flex: 1;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                      `}
-                      title={getDisplayFilename(item)}
-                    >
-                      {getDisplayFilename(item)}
-                    </span>
-                    <span style="font-size: 11px; color: #666;">
-                      {item.mime || "unknown"}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                    {getDisplayFilename(item)}
+                  </span>
+                  <span style="font-size: 11px; color: #666;">
+                    {item.size ? `${Math.round(item.size / 1024)}KB` : ""}
+                  </span>
+                </div>
+              ))}
             </div>
           </Show>
 
           {/* Warning for bulk deletes */}
-          <Show when={props.items && props.items.length > 1}>
+          <Show
+            when={
+              state.confirmDialog()?.items &&
+              (state.confirmDialog()?.items?.length || 0) > 1
+            }
+          >
             <div
               style={`
                 margin-bottom: 20px;
@@ -195,17 +196,18 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
                 background: rgba(239, 68, 68, 0.1);
                 border: 1px solid rgba(239, 68, 68, 0.3);
                 border-radius: 6px;
+                color: #ef4444;
                 font-size: 13px;
-                color: #ff9999;
                 display: flex;
                 align-items: center;
                 gap: 8px;
               `}
             >
-              <span style="font-size: 16px;">⚠️</span>
+              <span style="font-size: 18px;">⚠️</span>
               <span>
-                This action cannot be undone. All {props.items!.length} files
-                will be permanently deleted.
+                This action cannot be undone. All{" "}
+                {state.confirmDialog()?.items?.length || 0} files will be
+                permanently deleted.
               </span>
             </div>
           </Show>
@@ -219,7 +221,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
             `}
           >
             <button
-              onClick={props.onCancel}
+              onClick={() => state.setConfirmDialog(null)}
               style={`
                 padding: 10px 20px;
                 background: #333;
@@ -236,7 +238,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
             </button>
             <button
               ref={confirmButtonRef}
-              onClick={props.onConfirm}
+              onClick={() => state.confirmDialog()?.onConfirm?.()}
               style={`
                 padding: 10px 20px;
                 background: ${confirmStyle === "danger" ? "#ef4444" : "#ff00ff"};
