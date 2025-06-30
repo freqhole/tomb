@@ -362,24 +362,6 @@ export function useWebSocketFeed(config: FeedConfig = {}): WebSocketFeedHook {
         data.thumbnails.length
       );
 
-      // Debug: Log detailed thumbnail data
-      data.thumbnails.forEach((thumbnail, index) => {
-        console.log(
-          `[useWebSocketFeed] Thumbnail ${index} for ${data.media_blob_id.slice(0, 8)}:`,
-          {
-            id: thumbnail.id.slice(0, 8),
-            hasData: !!thumbnail.data,
-            dataLength: thumbnail.data?.length || 0,
-            hasThumbnailData: !!thumbnail.thumbnail_data,
-            thumbnailDataLength: thumbnail.thumbnail_data?.length || 0,
-            mime: thumbnail.mime,
-            blobType: thumbnail.blob_type,
-            size: thumbnail.size,
-            sha256: thumbnail.sha256?.slice(0, 8),
-          }
-        );
-      });
-
       // Update the original blob's metadata to include thumbnail info
       setFeedState((prev) => ({
         ...prev,

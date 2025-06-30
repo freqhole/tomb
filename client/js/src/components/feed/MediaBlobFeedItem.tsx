@@ -6,13 +6,11 @@
  */
 
 /* @jsxImportSource solid-js */
-import { Show, createMemo, createSignal, onMount } from "solid-js";
+import { Show, createMemo, createSignal } from "solid-js";
 import type { MediaBlob } from "../../lib/websocket-types.js";
 import { BlobClient } from "../../lib/blob-client.js";
-import {
-  getThumbnailFallbackIcon,
-  createDataUrl,
-} from "../../lib/media-utils.js";
+import { createDataUrl } from "../../lib/media-utils.js";
+import { useThumbnail } from "../../hooks/useThumbnail.js";
 
 // Extended interface for display properties
 export interface DisplayMediaBlob extends MediaBlob {
@@ -42,8 +40,7 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
   const isDetailed = () => mode() === "detailed";
 
   // Thumbnail state
-  const [showThumbnailPlaceholder, setShowThumbnailPlaceholder] =
-    createSignal(false);
+  const [showThumbnailPlaceholder] = createSignal(false);
 
   // Blob viewer state
   const [expanded, setExpanded] = createSignal(false);
@@ -88,39 +85,15 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
     return `/api/media-blobs/${props.item.id}/download`;
   });
 
-  // Thumbnail helpers for DisplayMediaBlob
-  const thumbnails = createMemo(() => {
-    const thumbs = (props.item.metadata?.thumbnails as MediaBlob[]) || [];
-    console.log(
-      `[MediaBlobFeedItem] Thumbnails for ${props.item.id.slice(0, 8)}:`,
-      {
-        hasThumbnails: thumbs.length > 0,
-        thumbnailCount: thumbs.length,
-        firstThumbnail: thumbs[0]
-          ? {
-              id: thumbs[0].id.slice(0, 8),
-              hasData: !!thumbs[0].data,
-              dataLength: thumbs[0].data?.length || 0,
-              hasThumbnailData: !!thumbs[0].thumbnail_data,
-              thumbnailDataLength: thumbs[0].thumbnail_data?.length || 0,
-              mime: thumbs[0].mime,
-              blobType: thumbs[0].blob_type,
-            }
-          : null,
-      }
-    );
-    return thumbs;
+  // Use shared thumbnail hook
+  const thumbnail = useThumbnail({
+    item: props.item,
+    onRequestThumbnails: props.onGetThumbnails,
+    requestedThumbnails: props.requestedThumbnails,
+    autoRequest: true,
   });
 
-  const itemHasThumbnails = createMemo(() => {
-    return (
-      props.item.metadata?.has_thumbnails === true || thumbnails().length > 0
-    );
-  });
-
-  const shouldShowThumbnails = createMemo(() => {
-    return props.showThumbnails !== false && !isCompact();
-  });
+  const itemHasThumbnails = () => thumbnail.hasThumbnails;
 
   const handleItemClick = () => {
     if (enableInlineViewer()) {
@@ -204,80 +177,9 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
     );
   });
 
-  const thumbnailPreviewUrl = createMemo(() => {
-    const mimeType = props.item.mime_type || props.item.mime || "";
-    console.log(
-      `[MediaBlobFeedItem] Getting thumbnail for ${props.item.id.slice(0, 8)} (${mimeType})`
-    );
+  const thumbnailPreviewUrl = () => thumbnail.url;
 
-    const thumbs = thumbnails();
-    if (thumbs.length > 0 && thumbs[0]) {
-      const thumbnail = thumbs[0];
-      console.log(
-        `[MediaBlobFeedItem] Thumbnail URL generation for ${props.item.id.slice(0, 8)}:`,
-        {
-          thumbnailId: thumbnail.id.slice(0, 8),
-          hasData: !!thumbnail.data,
-          dataLength: thumbnail.data?.length || 0,
-          hasThumbnailData: !!thumbnail.thumbnail_data,
-          thumbnailDataLength: thumbnail.thumbnail_data?.length || 0,
-          mime: thumbnail.mime,
-          willUseData: !!(thumbnail.data && thumbnail.data.length > 0),
-          willUseThumbnailData: !!(
-            thumbnail.thumbnail_data && thumbnail.thumbnail_data.length > 0
-          ),
-        }
-      );
-
-      if (thumbnail.data && thumbnail.data.length > 0) {
-        const mimeType = thumbnail.mime || "image/webp";
-        const url = createDataUrl(thumbnail.data, mimeType);
-        console.log(
-          `[MediaBlobFeedItem] Created data URL from .data: ${url.slice(0, 50)}...`
-        );
-        return url;
-      }
-
-      // Try thumbnail_data if data is empty
-      if (thumbnail.thumbnail_data && thumbnail.thumbnail_data.length > 0) {
-        const mimeType = thumbnail.mime || "image/webp";
-        const url = createDataUrl(thumbnail.thumbnail_data, mimeType);
-        console.log(
-          `[MediaBlobFeedItem] Created data URL from .thumbnail_data: ${url.slice(0, 50)}...`
-        );
-        return url;
-      }
-
-      console.log(
-        `[MediaBlobFeedItem] Falling back to HTTP endpoint: /api/media-blobs/${thumbnail.id}/download`
-      );
-      return `/api/media-blobs/${thumbnail.id}/download`;
-    }
-    return null;
-  });
-
-  // Auto-request thumbnails for supported media types
-  onMount(() => {
-    const alreadyRequested =
-      props.requestedThumbnails?.has(props.item.id) ||
-      props.item.metadata?.thumbnails_requested;
-
-    // Always try to get thumbnails if we don't have them yet
-    // The backend will determine if thumbnails can be generated for this file type
-    if (shouldShowThumbnails() && !itemHasThumbnails() && !alreadyRequested) {
-      if (props.onGetThumbnails) {
-        setShowThumbnailPlaceholder(true);
-        props.onGetThumbnails(props.item.id);
-
-        // Hide placeholder after 10 seconds if no thumbnails received
-        setTimeout(() => {
-          if (!itemHasThumbnails()) {
-            setShowThumbnailPlaceholder(false);
-          }
-        }, 10000);
-      }
-    }
-  });
+  // Thumbnail auto-request is handled by the useThumbnail hook
 
   const itemStyles = () => ({
     display: "flex",
@@ -374,7 +276,7 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
                       <span
                         style={{ "font-size": isCompact() ? "16px" : "20px" }}
                       >
-                        {getThumbnailFallbackIcon(props.item.mime_type)}
+                        {thumbnail.fallbackIcon}
                       </span>
                     }
                   >
@@ -422,6 +324,7 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
                 "object-fit": "cover",
               }}
               loading="lazy"
+              onError={thumbnail.onImageError}
             />
           </Show>
 
@@ -632,70 +535,7 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
             </div>
           </Show>
 
-          {/* Thumbnail Gallery (detailed mode only) */}
-          <Show
-            when={
-              isDetailed() && shouldShowThumbnails() && thumbnails().length > 0
-            }
-          >
-            <div
-              style={{
-                display: "flex",
-                gap: "4px",
-                "margin-top": "8px",
-                "flex-wrap": "wrap",
-              }}
-            >
-              <div
-                style={{
-                  "font-size": "11px",
-                  color: "#64748b",
-                  "margin-bottom": "4px",
-                  width: "100%",
-                }}
-              >
-                Thumbnails ({thumbnails().length}):
-              </div>
-              {thumbnails().map((thumbnail) => {
-                const thumbnailUrl =
-                  thumbnail.data && thumbnail.data.length > 0
-                    ? createDataUrl(
-                        thumbnail.data,
-                        thumbnail.mime || "image/webp"
-                      )
-                    : `/api/media-blobs/${thumbnail.id}/download`;
-
-                return (
-                  <div
-                    style={{
-                      width: "32px",
-                      height: "32px",
-                      "border-radius": "4px",
-                      overflow: "hidden",
-                      border: "1px solid #e2e8f0",
-                      cursor: "pointer",
-                    }}
-                    title={`Thumbnail: ${thumbnail.blob_type || "thumbnail"}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      // Could open thumbnail in modal or full size
-                    }}
-                  >
-                    <img
-                      src={thumbnailUrl}
-                      alt="Thumbnail"
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        "object-fit": "cover",
-                      }}
-                      loading="lazy"
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </Show>
+          {/* Thumbnail Gallery removed for simplicity - use main thumbnail only */}
         </div>
 
         {/* ID (compact mode, right-aligned) */}

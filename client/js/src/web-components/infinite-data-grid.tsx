@@ -95,7 +95,6 @@ function saveGridState(state: Partial<GridState>) {
 import {
   getThumbnails,
   hasThumbnails,
-  getThumbnailPreviewUrl,
   getThumbnailFallbackIcon,
   createDataUrl,
 } from "../lib/thumbnail-utils";
@@ -330,7 +329,17 @@ function MediaBlobDataGrid() {
 
   // Thumbnail helpers using lib utilities
   const getThumbnailUrl = (item: MediaBlob): string | null => {
-    return getThumbnailPreviewUrl(item, "");
+    const thumbs = getThumbnails(item);
+    if (
+      thumbs.length > 0 &&
+      thumbs[0] &&
+      thumbs[0].data &&
+      thumbs[0].data.length > 0
+    ) {
+      const mimeType = thumbs[0].mime || "image/webp";
+      return createDataUrl(thumbs[0].data, mimeType);
+    }
+    return null;
   };
 
   const handleViewModeChange = (mode: GridViewMode) => {

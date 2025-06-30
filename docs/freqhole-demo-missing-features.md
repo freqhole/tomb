@@ -14,6 +14,9 @@ This document tracks all the advanced features from the original `infinite-data-
 - [x] **Multi-select system (FULLY COMPLETE)**
 - [x] **Selection toolbar component (MODULAR)**
 - [x] **Clean selection hook architecture**
+- [x] **🎉 THUMBNAIL SYSTEM FIXED** - Binary data → blob URLs working correctly
+- [x] **Domain logic extraction** - Created `lib/media-utils.ts` and `lib/format-utils.ts`
+- [x] **WebSocket data integration** - Real data from `useWebSocketFeed`, no more mock data
 
 ## 🎯 Immediate UX Improvements (Next Priority)
 
@@ -36,11 +39,35 @@ This document tracks all the advanced features from the original `infinite-data-
 
 ### Architecture Cleanup (High Priority)
 
-- [ ] **Extract domain logic to lib/** - Move MediaBlob-specific functions out of components
-- [ ] **Create `lib/media-utils.ts`** - Pure functions for `getDisplayFilename`, `getFileTypeIcon`, etc.
-- [ ] **Create `lib/format-utils.ts`** - Generic formatting functions (`formatBytes`, etc.)
-- [ ] **No SolidJS in lib/** - Keep lib/ functions framework-agnostic
-- [ ] **Import lib functions** - Update components to import from lib instead of inline functions
+- [x] **Extract domain logic to lib/** - ✅ DONE: Created framework-agnostic utility libraries
+- [x] **Create `lib/media-utils.ts`** - ✅ DONE: Pure functions for `getDisplayFilename`, etc.
+- [x] **Create `lib/format-utils.ts`** - ✅ DONE: Generic formatting functions (`formatBytes`, etc.)
+- [x] **No SolidJS in lib/** - ✅ DONE: All lib/ functions are framework-agnostic
+- [x] **Import lib functions** - ✅ DONE: Components now import from lib/ instead of inline functions
+
+## 🔧 Future-Proofing & Code Quality Improvements
+
+### **🛡️ Prevent Future Component Integration Hell**
+
+- [ ] **Create component integration tests** - Automated tests that verify working examples continue to work
+- [ ] **Standardize data flow patterns** - Document and enforce consistent patterns between working components
+- [ ] **Add prop validation** - TypeScript interfaces to catch data structure mismatches early
+- [ ] **Create component debugging utilities** - Reusable debug logging hooks/components for data flow inspection
+- [ ] **Establish "golden reference" pattern** - When something works, immediately create minimal reproducible example
+
+### **📋 Documentation & Pattern Library**
+
+- [ ] **Document working patterns** - Create guide for "How thumbnails work" based on successful MediaBlobFeedItem
+- [ ] **Component integration checklist** - Step-by-step verification when adapting working patterns to new components
+- [ ] **Data flow diagrams** - Visual documentation of WebSocket → Hook → Component → UI data transformations
+- [ ] **Common pitfalls guide** - Document specific issues encountered (e.g., HTTP endpoints vs blob URLs)
+
+### **🔧 Technical Debt & Architecture**
+
+- [ ] **Unify thumbnail handling** - Create shared thumbnail component/hook used by both working examples
+- [ ] **Consistent error handling** - Standardize how components handle missing data, loading states, errors
+- [ ] **Remove debug logging** - Clean up temporary debug code in MediaBlobFeedItem and useWebSocketFeed
+- [ ] **Type safety improvements** - Stronger typing around MediaBlob.metadata to prevent data access issues
 
 ## 🚧 Missing Core Features
 
@@ -281,6 +308,37 @@ Current filtering is basic. Missing:
 - 🔄 `components/BulkActionsMenu.tsx` - Multi-select dropdown menu (NEXT)
 - 🔄 `lib/media-utils.ts` - Domain-specific MediaBlob utilities (HIGH PRIORITY)
 - 🔄 `lib/format-utils.ts` - Generic formatting utilities (HIGH PRIORITY)
+
+## 🎉 THUMBNAIL DEBUGGING VICTORY & LESSONS LEARNED
+
+### **💪 What We Solved:**
+
+- **Fixed thumbnail display in FreqholeDemo** - Now shows actual thumbnail images instead of fallback icons
+- **Identified the working pattern** - `thumbnail.data` → `createDataUrl()` → blob URLs (not HTTP endpoints)
+- **Discovered server-side behavior** - Some media gets thumbnails with binary data, others get empty responses
+- **Unified component approaches** - FreqholeDemo now uses same pattern as working MediaBlobFeedItem
+
+### **🧭 Debug Journey & Key Discoveries:**
+
+1. **HTTP endpoints DON'T exist** - `/api/media-blobs/{id}/download` returns 404 (as expected)
+2. **Binary data IS the source** - Working thumbnails have `thumbnail.data` arrays with actual image bytes
+3. **Blob URLs work perfectly** - `URL.createObjectURL()` creates `blob:http://localhost:8080/...` URLs
+4. **Server responses vary** - Some items get `count: 2` with data, others get `count: 0` (no thumbnails)
+5. **Both demos use same hook** - `useWebSocketFeed` provides identical data to both components
+
+### **🎯 Critical Debugging Insights:**
+
+- **Console logging was essential** - Without detailed logging, the data flow was invisible
+- **Working examples are gold** - MediaBlobFeedItem showed the correct implementation pattern
+- **Don't assume HTTP endpoints** - The system uses WebSocket binary data, not REST endpoints
+- **Component parity matters** - Small differences in data handling can break functionality completely
+
+### **⚠️ Why This Was So Painful:**
+
+- **Complex system with multiple data paths** - WebSocket → Hook → Component → URL creation
+- **Missing documentation** - No clear guide on how thumbnail data flows through the system
+- **Assumption-driven debugging** - Spent time on HTTP endpoints that don't exist
+- **Component drift** - FreqholeDemo's Thumbnail component diverged from working MediaBlobFeedItem pattern
 
 ## ✅ Refactoring Progress & Next Steps
 

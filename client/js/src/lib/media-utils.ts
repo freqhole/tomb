@@ -35,23 +35,7 @@ export function getDisplayFilename(item: MediaBlob): string {
   );
 }
 
-/**
- * Get an appropriate icon for a file type based on MIME type
- * @deprecated Use getThumbnailFallbackIcon from thumbnail-utils.ts instead
- */
-export function getFileTypeIcon(mimeType?: string): string {
-  if (!mimeType) return "📄";
-
-  if (mimeType.startsWith("image/")) return "🖼️";
-  if (mimeType.startsWith("video/")) return "🎥";
-  if (mimeType.startsWith("audio/")) return "🎵";
-  if (mimeType.startsWith("text/")) return "📝";
-  if (mimeType.includes("pdf")) return "📕";
-  if (mimeType.includes("zip") || mimeType.includes("archive")) return "📦";
-  if (mimeType.includes("json") || mimeType.includes("xml")) return "🔧";
-
-  return "📄";
-}
+// Moved to thumbnail-utils.ts as getThumbnailFallbackIcon
 
 /**
  * Get a human-readable file type category
@@ -102,19 +86,7 @@ export function isAudio(item: MediaBlob): boolean {
   return !!item.mime?.startsWith("audio/");
 }
 
-/**
- * Generate a thumbnail URL for a MediaBlob (placeholder implementation)
- * @deprecated Use getThumbnailUrl from thumbnail-utils.ts instead
- */
-export function getThumbnailUrl(
-  item: MediaBlob,
-  apiBaseUrl: string
-): string | null {
-  if (isDisplayableImage(item)) {
-    return `${apiBaseUrl}/api/blobs/${item.id}/thumbnail`;
-  }
-  return null;
-}
+// Moved to useThumbnail hook
 
 /**
  * Generate a download URL for a MediaBlob
@@ -124,33 +96,13 @@ export function getDownloadUrl(item: MediaBlob, apiBaseUrl: string): string {
 }
 
 /**
- * Extract thumbnails from MediaBlob metadata
- * Re-exported from thumbnail-utils for convenience
+ * Essential thumbnail functions
  */
 export {
   getThumbnails,
   hasThumbnails,
-  supportsThumbnails,
-} from "./thumbnail-utils";
-
-/**
- * Enhanced thumbnail functions - use these instead of deprecated ones above
- */
-export {
-  getThumbnailUrl as getEnhancedThumbnailUrl,
-  getThumbnailPreviewUrl,
-  getAllThumbnailUrls,
-  isDisplayableImage as isEnhancedDisplayableImage,
   getThumbnailFallbackIcon,
   createDataUrl,
-  createTemporaryDataUrl,
-  createPlaceholderThumbnail,
-  createLoadingPlaceholder,
-  createErrorPlaceholder,
-  thumbnailManager,
-  thumbnailCache,
-  ThumbnailManager,
-  ThumbnailCache,
 } from "./thumbnail-utils";
 
 /**
