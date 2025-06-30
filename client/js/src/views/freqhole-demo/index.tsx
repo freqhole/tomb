@@ -22,6 +22,7 @@ import { useSelection } from "./hooks/useSelection";
 import { InfiniteDataGrid } from "../../components/infinite-data-grid";
 import type { GridColumn } from "../../components/infinite-data-grid/types";
 import { Thumbnail } from "./components/Thumbnail";
+import { PopupPreview } from "./components/PopupPreview";
 import { getDisplayFilename } from "../../lib/media-utils";
 import { formatBytes } from "../../lib/format-utils";
 import { useWebSocketFeed } from "../../hooks/useWebSocketFeed";
@@ -128,6 +129,12 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   const [debug, setDebug] = createSignal(false);
   const [logs, setLogs] = createSignal<string[]>([]);
 
+  // Popup preview state
+  const [popupPreview, setPopupPreview] = createSignal<{
+    item: MediaBlob;
+    isOpen: boolean;
+  } | null>(null);
+
   // Real WebSocket state from feed
   const connectionStatus = () => feed.state().connectionStatus;
   const hasPendingUpdates = () => feed.state().hasPendingUpdates;
@@ -174,8 +181,12 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   };
 
   const handleRowDoubleClick = (item: MediaBlob) => {
-    // TODO: Open preview popup
-    console.log("Double-clicked:", item.id);
+    setPopupPreview({ item, isOpen: true });
+    addLog(`🖼️ Opened preview for: ${getDisplayFilename(item)}`);
+  };
+
+  const closePopupPreview = () => {
+    setPopupPreview(null);
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
@@ -195,6 +206,14 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         selection.selectAll(sortedData());
       }
       // If in text input, let the browser handle Ctrl+A naturally
+    } else if (event.key === "Escape") {
+      // Close popup preview on Escape
+      if (popupPreview()?.isOpen) {
+        closePopupPreview();
+      } else {
+        // Delegate to selection hook
+        selection.handleKeyDown(event);
+      }
     } else {
       // Delegate to selection hook
       selection.handleKeyDown(event);
@@ -770,6 +789,13 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           cursor: crosshair;
         }
       `}</style>
+
+      {/* Popup Preview */}
+      <PopupPreview
+        item={popupPreview()?.item || null}
+        isOpen={popupPreview()?.isOpen || false}
+        onClose={closePopupPreview}
+      />
     </div>
   );
 }
