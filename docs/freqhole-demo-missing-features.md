@@ -20,6 +20,46 @@ This document tracks all the advanced features from the original `infinite-data-
 
 ## 🎯 Immediate UX Improvements (Next Priority)
 
+### **🚨 HIGH PRIORITY - Recently Discovered Missing Features**
+
+_These features exist in the web-components infinite-data-grid and should be ported to FreqholeDemo_
+
+- [x] **🎬 Popup/Preview System** - Double-click opens fullscreen preview modal ✅ COMPLETED
+  - [x] **Image preview** - Full-screen image display with zoom capabilities ✅ COMPLETED
+  - [x] **Video preview** - Native video player with controls ✅ COMPLETED
+  - [x] **Audio preview** - Native audio player with controls ✅ COMPLETED
+  - [x] **Metadata display** - Show ID, SHA256, size, created date, parent, local path ✅ COMPLETED
+  - [x] **Smart close controls** - ESC key, click outside backdrop, X button ✅ COMPLETED
+  - [x] **Error handling** - Graceful fallback for broken/unsupported media ✅ COMPLETED
+  - [x] **Responsive sizing** - max-width: 80vw, max-height: 70vh ✅ COMPLETED
+
+- [ ] **⌨️ Enhanced Keyboard Shortcuts** - Professional-grade keyboard navigation
+  - [ ] **Fix Ctrl/Cmd+A text input interference** - Only trigger when NOT focused in text inputs
+  - [ ] **ESC key multi-purpose** - Close menus, clear selection, close popups
+  - [ ] **Delete/Backspace** - Delete selected items with confirmation
+  - [ ] **Arrow keys** - Navigate through items with focus management
+  - [ ] **Enter** - Open preview for focused/selected item
+  - [ ] **Space** - Toggle selection of focused item
+
+- [x] **🎛️ Advanced Action Menu System** - Professional context menus ✅ COMPLETED
+  - [x] **Smart menu positioning** - Auto-adjust to stay within viewport bounds ✅ COMPLETED
+  - [x] **Download functionality** - Individual and bulk download support ✅ COMPLETED
+  - [x] **Context-sensitive options** - Different actions based on file type ✅ COMPLETED
+  - [x] **Right-click context menu** - Same menu triggered by right-click ✅ COMPLETED
+  - [x] **Click outside to close** - Proper menu dismissal behavior ✅ COMPLETED
+  - [x] **ESC key to close** - Keyboard dismissal support ✅ COMPLETED
+  - [ ] **Keyboard accessibility** - Tab navigation, Enter to activate
+
+- [ ] **🎯 Enhanced Selection Features** - Professional multi-select capabilities
+  - [ ] **Improved drag selection** - Visual feedback during drag operations
+  - [ ] **Shift+click range enhancement** - Better visual feedback for ranges
+  - [ ] **Ctrl/Cmd+click refinement** - Smoother toggle selection behavior
+  - [x] **Bulk selection toolbar** - Professional toolbar with selection count ✅ COMPLETED
+  - [x] **Bulk action menu (⋯ More button)** - Download all, delete all, clear selection ✅ COMPLETED
+  - [ ] **Better click/double-click handling** - Prevent interference between actions
+
+## 🎯 Immediate UX Improvements (Next Priority)
+
 ### Selection Toolbar Improvements
 
 - [ ] **Move selection toolbar to bottom** - Move from top center to bottom center of page
@@ -142,25 +182,34 @@ Current view modes are basic. Original had much more elaborate differences:
 - [ ] **Data URL creation** - Use existing `createDataUrl(thumbnail.data, mimeType)` helper
 - [ ] **Lazy loading** - Integrate with existing `loading="lazy"` img attributes
 
-### 8. Action Menu System (⋯ Button)
+### 8. Action Menu System (⋯ Button) - ENHANCED WITH WEB-COMPONENTS FEATURES
 
-- [ ] **Per-row action button** - Three dots (⋯) button in actions column
-- [ ] **Context-sensitive menu** - Different options based on file type
-- [ ] **Menu positioning** - Smart positioning to stay in viewport
-- [ ] **Menu actions** - Download, Preview, Delete, Copy URL, etc.
-- [ ] **Bulk action menu** - Special menu when multiple items selected
-- [ ] **Menu persistence** - Close on outside click, Escape key
-- [ ] **Copy URL action** - Copy download URL to clipboard
-- [ ] **Add to Playlist action** - Add media items to playlists
-- [ ] **Bulk action menu** - Special "More" button for multiple selections with smart positioning
+- [x] **Per-row action button** - Three dots (⋯) button in actions column ✅ COMPLETED
+- [x] **🔧 Smart menu positioning** - Auto-adjust to viewport edges (from web-components) ✅ COMPLETED
+- [x] **📦 Download functionality** - Individual file download (from web-components) ✅ COMPLETED
+- [x] **🎯 Context-sensitive menu** - Different options based on file type ✅ COMPLETED
+- [x] **🖱️ Right-click context menu** - Same menu on right-click ✅ COMPLETED
+- [x] **🖱️ Click outside dismissal** - Proper menu close behavior (from web-components) ✅ COMPLETED
+- [x] **⌨️ ESC key dismissal** - Close menu with Escape key ✅ COMPLETED
+- [x] **📋 Copy URL action** - Copy download URL to clipboard ✅ COMPLETED
+- [x] **📦 Bulk download** - Download multiple selected items ✅ COMPLETED
+- [x] **✖️ Clear selection action** - Clear selection from bulk menu ✅ COMPLETED
+- [ ] **⌨️ Keyboard accessibility** - Tab navigation, Enter activation
+- [ ] **🎵 Add to Playlist action** - Add media items to playlists
+- [ ] **🗑️ Delete confirmation** - Delete with proper confirmation dialog
 
-### 9. Preview Popup System
+### 9. Preview Popup System - ENHANCED WITH WEB-COMPONENTS FEATURES
 
-- [ ] **Media preview modal** - Full-screen preview for images/videos
-- [ ] **Popup positioning** - Center on screen with backdrop
-- [ ] **Media type detection** - Different preview modes per file type
-- [ ] **Popup close controls** - X button, Escape key, backdrop click
-- [ ] **Keyboard navigation** - Arrow keys to navigate between items
+- [x] **🖼️ Image preview modal** - Full-screen image display (from web-components) ✅ COMPLETED
+- [x] **🎥 Video preview modal** - Native video player with controls (from web-components) ✅ COMPLETED
+- [x] **🎵 Audio preview modal** - Native audio player interface (from web-components) ✅ COMPLETED
+- [x] **📊 Metadata display** - ID, SHA256, size, dates, parent, local path (from web-components) ✅ COMPLETED
+- [x] **🎯 Smart close controls** - X button, ESC key, backdrop click (from web-components) ✅ COMPLETED
+- [x] **📱 Responsive sizing** - max-width: 80vw, max-height: 70vh (from web-components) ✅ COMPLETED
+- [x] **🛡️ Error handling** - Graceful fallback for broken media (from web-components) ✅ COMPLETED
+- [ ] **⌨️ Keyboard navigation** - Arrow keys to navigate between items
+- [x] **🖱️ Double-click trigger** - Open preview on double-click (from web-components) ✅ COMPLETED
+- [x] **📎 Unsupported file fallback** - Download link for non-previewable files (from web-components) ✅ COMPLETED
 
 ### 10. Enhanced Column System
 
@@ -184,15 +233,18 @@ Current filtering is basic. Missing:
 - [ ] **Advanced filter combinations** - AND/OR logic
 - [ ] **Filter presets** - Save common filter combinations
 
-### 12. Keyboard Shortcuts
+### 12. Keyboard Shortcuts - ENHANCED WITH WEB-COMPONENTS FEATURES
 
-- [x] **Escape** - Clear selection, close menus, close popup
-- [x] **Ctrl/Cmd+A** - Select all visible items
-- [ ] **Arrow keys** - Navigate through items
-- [ ] **Enter** - Open preview for selected item
-- [x] **Delete** - Delete selected items (with confirmation) - _placeholder implemented_
+- [x] **Escape** - Clear selection, close menus, close popup ✅ WORKING
+- [x] **🚨 CRITICAL: Fix Ctrl/Cmd+A text input interference** - Should NOT trigger when focused in text inputs ✅ FIXED
+- [x] **Ctrl/Cmd+A** - Select all visible items ✅ WORKING (text input interference fixed)
+- [ ] **Arrow keys** - Navigate through items with focus management
+- [ ] **Enter** - Open preview for focused/selected item
+- [x] **Delete/Backspace** - Delete selected items ✅ WORKING (placeholder)
 - [ ] **Space** - Toggle selection of focused item
-- [ ] **Delete key** - Delete selected items with confirmation
+- [ ] **⌨️ Global keyboard handler** - Proper event delegation (from web-components)
+- [ ] **🎯 Focus management** - Visual focus indicators and keyboard navigation
+- [ ] **🛡️ Input field protection** - Don't interfere with form field shortcuts
 
 ### 13. Data Integration Features
 
