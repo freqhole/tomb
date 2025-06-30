@@ -22,6 +22,8 @@ interface VirtualizedRowProps<T> {
   onContextMenu?: (item: T, index: number, event: MouseEvent) => void;
 
   rowHeight: number;
+  focusedIndex?: number;
+  showFocusIndicator?: boolean;
 }
 
 function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
@@ -33,17 +35,23 @@ function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
     }
   });
 
+  const isFocused = () =>
+    props.focusedIndex === props.index && props.showFocusIndicator;
+
   return (
     <div
       ref={rowRef}
-      class={`grid-row ${props.isSelected ? "selected" : ""}`}
+      class={`grid-row ${props.isSelected ? "selected" : ""} ${isFocused() ? "focused" : ""}`}
       style={`
         height: ${props.rowHeight}px;
         display: flex;
         align-items: center;
         border-bottom: 1px solid ${DARK_THEME.colors.border};
         background: ${props.isSelected ? DARK_THEME.colors.selected : "transparent"};
-        transition: background-color 0.15s ease, filter 0.15s ease;
+        transition: background-color 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
+        outline: ${isFocused() ? "2px solid #0070f3" : "none"};
+        outline-offset: -2px;
+        position: relative;
       `}
       onClick={(e) => props.onRowClick?.(props.item, props.index, e)}
       onDblClick={(e) => props.onRowDoubleClick?.(props.item, props.index, e)}
@@ -289,6 +297,8 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
                     onRowMount={props.onRowMount}
                     onContextMenu={props.onContextMenu}
                     rowHeight={rowHeight}
+                    focusedIndex={props.focusedIndex}
+                    showFocusIndicator={props.showFocusIndicator}
                   />
                 )}
               </For>
@@ -325,6 +335,8 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
                     onRowMount={props.onRowMount}
                     onContextMenu={props.onContextMenu}
                     rowHeight={rowHeight}
+                    focusedIndex={props.focusedIndex}
+                    showFocusIndicator={props.showFocusIndicator}
                   />
                 </div>
               )}
@@ -373,6 +385,14 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
         .grid-row.selected:hover {
           background: ${DARK_THEME.colors.selected} !important;
           filter: brightness(1.1);
+        }
+
+        .grid-row.focused {
+          box-shadow: inset 0 0 0 2px #0070f3;
+        }
+
+        .grid-row.focused.selected {
+          box-shadow: inset 0 0 0 2px #0070f3, inset 0 0 0 4px ${DARK_THEME.colors.selected};
         }
 
         .grid-header-cell.sortable:hover {

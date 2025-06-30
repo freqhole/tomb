@@ -25,6 +25,9 @@ import { Thumbnail } from "./components/Thumbnail";
 import { PopupPreview } from "./components/PopupPreview";
 import { ActionMenu } from "./components/ActionMenu";
 import { BulkActionMenu } from "./components/BulkActionMenu";
+import { DragSelectionOverlay } from "./components/DragSelectionOverlay";
+import { useKeyboardNavigation } from "./hooks/useKeyboardNavigation";
+import { useViewModes } from "./hooks/useViewModes";
 import { getDisplayFilename } from "../../lib/media-utils";
 import { formatBytes } from "../../lib/format-utils";
 import { useWebSocketFeed } from "../../hooks/useWebSocketFeed";
@@ -91,9 +94,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     ...(initialState.sortConfig || {}),
   });
 
-  const [viewMode, setViewMode] = createSignal<GridViewMode>(
-    (initialState.viewMode as GridViewMode) || "default"
-  );
+  // View mode is now handled by useViewModes hook
 
   const [columnVisibility, setColumnVisibility] =
     createSignal<ColumnVisibility>({
@@ -149,6 +150,55 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     isOpen: boolean;
     position: { x: number; y: number };
   } | null>(null);
+
+  // View modes
+  const viewModes = useViewModes((initialState.viewMode as any) || "default");
+
+  // Helper functions that will be used by hooks
+  const addLog = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setLogs((prev) => [`${timestamp}: ${message}`, ...prev.slice(0, 49)]);
+  };
+
+  // Keyboard navigation
+  const keyboardNav = useKeyboardNavigation({
+    onPreview: (item) => setPopupPreview({ item, isOpen: true }),
+    onToggleSelection: (item) => selection.toggleSelection(item.id),
+    onSelectAll: (items) => selection.selectAll(items),
+    onClearSelection: () => selection.clearSelection(),
+    onEscape: () => {
+      if (popupPreview()?.isOpen) {
+        closePopupPreview();
+      } else if (actionMenu()?.isOpen) {
+        closeActionMenu();
+      } else if (bulkActionMenu()?.isOpen) {
+        closeBulkActionMenu();
+      } else {
+        selection.clearSelection();
+      }
+    },
+    onDelete: (items) => {
+      // TODO: Implement bulk delete with confirmation
+      addLog(`🗑️ Delete requested for ${items.length} items via keyboard`);
+      console.log(
+        "Delete requested via keyboard:",
+        items.map((i) => i.id)
+      );
+    },
+    isTextInputFocused: () => {
+      const target = document.activeElement as HTMLElement;
+      return (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable ||
+          target.getAttribute("contenteditable") === "true")
+      );
+    },
+    getSelectedItems: () => selection.selectedItems(),
+    getAllItems: () => sortedData(),
+    onLog: addLog,
+  });
 
   // Real WebSocket state from feed
   const connectionStatus = () => feed.state().connectionStatus;
@@ -353,38 +403,11 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
-    // Check if user is focused in a text input - don't interfere with normal text editing
-    const target = event.target as HTMLElement;
-    const isTextInput =
-      target &&
-      (target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable ||
-        target.getAttribute("contenteditable") === "true");
+    // Let keyboard navigation handle most keys
+    keyboardNav.handleKeyDown(event);
 
-    if (event.key === "a" && (event.metaKey || event.ctrlKey)) {
-      // Only prevent default and select all if NOT in a text input
-      if (!isTextInput) {
-        event.preventDefault();
-        selection.selectAll(sortedData());
-      }
-      // If in text input, let the browser handle Ctrl+A naturally
-    } else if (event.key === "Escape") {
-      // Close popups/menus on Escape
-      if (popupPreview()?.isOpen) {
-        closePopupPreview();
-      } else if (actionMenu()?.isOpen) {
-        closeActionMenu();
-      } else if (bulkActionMenu()?.isOpen) {
-        closeBulkActionMenu();
-      } else {
-        // Delegate to selection hook
-        selection.handleKeyDown(event);
-      }
-    } else {
-      // Delegate to selection hook
-      selection.handleKeyDown(event);
-    }
+    // Also delegate to selection hook for any additional handling
+    selection.handleKeyDown(event);
   };
 
   // Enhanced drag selection with proper item calculation
@@ -636,10 +659,10 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
               background: #3a3a3a;
               border: 1px solid #4a4a4a;
               color: #e0e0e0;
-              padding: 4px 8px;
+              padding: ${viewModes.viewMode() === "compact" ? "2px 6px" : "4px 8px"};
               border-radius: 4px;
               cursor: pointer;
-              font-size: 12px;
+              font-size: ${viewModes.viewMode() === "compact" ? "10px" : "12px"};
               transition: all 0.2s;
             `}
             onMouseEnter={(e) => {
@@ -689,7 +712,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   };
 
   const handleViewModeChange = (mode: GridViewMode) => {
-    setViewMode(mode);
+    viewModes.setViewMode(mode as any);
     saveState({ viewMode: mode });
   };
 
@@ -715,11 +738,6 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       saveState({ isFilterPanelOpen: newValue });
       return newValue;
     });
-  };
-
-  const addLog = (message: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setLogs((prev) => [`${timestamp}: ${message}`, ...prev.slice(0, 49)]);
   };
 
   // Reactive effects for feed state monitoring
@@ -808,9 +826,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           onSort={handleSort}
           sortField={sortConfig().field}
           sortDirection={sortConfig().direction as "asc" | "desc"}
-          rowHeight={
-            viewMode() === "compact" ? 40 : viewMode() === "detailed" ? 80 : 60
-          }
+          rowHeight={viewModes.getRowHeight()}
           headerHeight={60}
           getItemId={(item) => item.id}
           selectedItems={selection.selectedItems()}
@@ -825,6 +841,8 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           onLoadMore={() => feed.actions.loadMore()}
           hasMore={feed.state().hasMore}
           isLoadingMore={feed.state().isLoadingMore}
+          focusedIndex={keyboardNav.focusedIndex()}
+          showFocusIndicator={true}
         />
       </div>
 
@@ -878,7 +896,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       <FilterPanel
         isOpen={isFilterPanelOpen()}
         filterConfig={filterConfig()}
-        viewMode={viewMode()}
+        viewMode={viewModes.viewMode()}
         columnVisibility={columnVisibility()}
         wsUrl={wsUrl()}
         autoConnect={autoConnect()}
@@ -989,6 +1007,13 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         onDownloadAll={handleBulkDownload}
         onDeleteAll={handleBulkDelete}
         onClearSelection={selection.clearSelection}
+      />
+
+      {/* Drag Selection Overlay */}
+      <DragSelectionOverlay
+        isDragSelecting={selection.isDragSelecting()}
+        dragStart={selection.dragStart()}
+        dragEnd={selection.dragEnd()}
       />
     </div>
   );

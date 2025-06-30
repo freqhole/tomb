@@ -56,6 +56,8 @@ export interface GridProps<T = any> {
   onLoadMore?: () => void;
   hasMore?: boolean;
   isLoadingMore?: boolean;
+  focusedIndex?: number;
+  showFocusIndicator?: boolean;
 }
 
 export interface VirtualizedRowProps<T = any> {

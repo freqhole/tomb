@@ -116,23 +116,24 @@ export function useSelection(options: UseSelectionOptions = {}): SelectionHook {
     event: MouseEvent
   ) => {
     const itemId = item.id;
-    // const isItemSelected = selectedItems().has(itemId);
 
     if (event.metaKey || event.ctrlKey) {
+      // Prevent text selection on Ctrl/Cmd+click
+      event.preventDefault();
       // Toggle selection with Cmd/Ctrl
       toggleSelection(itemId);
       setLastSelectedIndex(index);
     } else if (event.shiftKey && lastSelectedIndex() >= 0) {
       // Prevent unwanted text selection on Shift+click
       event.preventDefault();
-      // Range selection with Shift
-      // const startIndex = Math.min(lastSelectedIndex(), index);
-      // const endIndex = Math.max(lastSelectedIndex(), index);
-
-      // Note: This requires the items array to be passed in
-      // We'll handle this in the component that uses this hook
+      // Range selection with Shift - will be handled by component with access to items array
       setLastSelectedIndex(index);
     } else {
+      // Prevent text selection on regular click in selection areas
+      if (event.detail > 1) {
+        // Double-click or more - allow component to handle
+        return;
+      }
       // Single selection
       const newSelection = new Set([itemId]);
       setSelectedItems(newSelection);
@@ -145,6 +146,11 @@ export function useSelection(options: UseSelectionOptions = {}): SelectionHook {
     index: number,
     event: MouseEvent
   ) => {
+    // Prevent text selection during drag operations
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+    }
+
     // Only start drag selection if no modifier keys and it's a left click
     if (
       event.button === 0 &&
@@ -152,6 +158,8 @@ export function useSelection(options: UseSelectionOptions = {}): SelectionHook {
       !event.ctrlKey &&
       !event.shiftKey
     ) {
+      // Prevent text selection during drag
+      event.preventDefault();
       setDragStart({
         x: event.clientX,
         y: event.clientY,
@@ -230,8 +238,14 @@ export function useSelection(options: UseSelectionOptions = {}): SelectionHook {
   createEffect(() => {
     if (isDragSelecting()) {
       document.body.classList.add("drag-selecting");
+      // Prevent text selection during drag
+      document.body.style.userSelect = "none";
+      document.body.style.webkitUserSelect = "none";
     } else {
       document.body.classList.remove("drag-selecting");
+      // Restore text selection
+      document.body.style.userSelect = "";
+      document.body.style.webkitUserSelect = "";
     }
   });
 
