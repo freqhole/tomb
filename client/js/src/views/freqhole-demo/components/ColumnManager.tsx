@@ -7,6 +7,10 @@ export interface ColumnManagerProps {
   onColumnToggle: (column: keyof ColumnVisibility) => void;
   onResetToDefaults?: () => void;
   className?: string;
+  // Responsive columns info
+  responsiveColumnVisibility?: ColumnVisibility;
+  hiddenColumns?: string[];
+  breakpointInfo?: { name: string; size: string };
 }
 
 const COLUMNS = [
@@ -27,25 +31,52 @@ export function ColumnManager(props: ColumnManagerProps) {
   return (
     <div class={`column-manager ${props.className || ""}`}>
       <For each={COLUMNS}>
-        {(column) => (
-          <div style="margin-bottom: 16px; min-width: 0;">
-            <label style="display: flex; align-items: center; cursor: pointer;">
-              <input
-                type="checkbox"
-                checked={
-                  props.columnVisibility[column.key as keyof ColumnVisibility]
-                }
-                onChange={() =>
-                  props.onColumnToggle(column.key as keyof ColumnVisibility)
-                }
-                style="margin-right: 8px; accent-color: #ff00ff;"
-              />
-              <span style="font-size: 14px; color: #e0e0e0;">
-                {column.title}
-              </span>
-            </label>
-          </div>
-        )}
+        {(column) => {
+          const columnKey = column.key as keyof ColumnVisibility;
+          const isEnabled = props.columnVisibility[columnKey];
+          const isResponsiveHidden = props.hiddenColumns?.includes(column.key);
+          const isActuallyVisible =
+            props.responsiveColumnVisibility?.[columnKey] ?? isEnabled;
+
+          return (
+            <div style="margin-bottom: 16px; min-width: 0;">
+              <label style="display: flex; align-items: center; cursor: pointer; position: relative;">
+                <input
+                  type="checkbox"
+                  checked={isEnabled}
+                  onChange={() => props.onColumnToggle(columnKey)}
+                  style="margin-right: 8px; accent-color: #ff00ff;"
+                />
+                <span
+                  style={`
+                    font-size: 14px;
+                    color: ${isActuallyVisible ? "#e0e0e0" : "#888"};
+                    ${!isActuallyVisible && isEnabled ? "text-decoration: line-through;" : ""}
+                  `}
+                >
+                  {column.title}
+                </span>
+                {isResponsiveHidden && (
+                  <span
+                    style="
+                      margin-left: 8px;
+                      background: #ff9900;
+                      color: #000;
+                      font-size: 9px;
+                      font-weight: bold;
+                      padding: 2px 4px;
+                      border-radius: 3px;
+                      line-height: 1;
+                    "
+                    title={`Hidden on mobile screens (${props.breakpointInfo?.name || "narrow"})`}
+                  >
+                    📱
+                  </span>
+                )}
+              </label>
+            </div>
+          );
+        }}
       </For>
 
       <Show when={props.onResetToDefaults}>

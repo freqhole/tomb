@@ -18,6 +18,11 @@ export interface FilterOnlyPanelProps {
   blobTypeCategories: string[];
   totalCount: number;
   filteredCount: number;
+  // Responsive columns info
+  responsiveColumnVisibility?: ColumnVisibility;
+  hiddenColumns?: string[];
+  breakpointInfo?: { name: string; size: string };
+  screenWidth?: number;
 }
 
 export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
@@ -268,6 +273,9 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
               <ColumnManager
                 columnVisibility={props.columnVisibility}
                 onColumnToggle={props.onColumnToggle}
+                responsiveColumnVisibility={props.responsiveColumnVisibility}
+                hiddenColumns={props.hiddenColumns}
+                breakpointInfo={props.breakpointInfo}
                 onResetToDefaults={() => {
                   const defaults = {
                     id: false,
@@ -295,10 +303,45 @@ export function FilterOnlyPanel(props: FilterOnlyPanelProps) {
             </div>
           </div>
 
+          {/* Responsive Info */}
+          {props.breakpointInfo && (
+            <div class="filter-section" style="margin-bottom: 24px;">
+              <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #e0e0e0;">
+                Responsive Layout
+              </h3>
+              <div style="font-size: 12px; color: #888; line-height: 1.4;">
+                <div>
+                  Screen:{" "}
+                  <span style="color: #e0e0e0;">
+                    {props.screenWidth}px ({props.breakpointInfo.name})
+                  </span>
+                </div>
+                {props.hiddenColumns && props.hiddenColumns.length > 0 && (
+                  <div style="margin-top: 8px;">
+                    <div style="color: #ff9900; margin-bottom: 4px;">
+                      Hidden columns: {props.hiddenColumns.length}
+                    </div>
+                    <div style="font-size: 11px; color: #666;">
+                      {props.hiddenColumns.join(", ")}
+                    </div>
+                    <div style="font-size: 11px; color: #666; margin-top: 4px;">
+                      Hidden on mobile screens (tablet+ shows all columns)
+                    </div>
+                  </div>
+                )}
+                {(!props.hiddenColumns || props.hiddenColumns.length === 0) && (
+                  <div style="color: #00ff00; margin-top: 4px; font-size: 11px;">
+                    All enabled columns visible
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Filter Summary */}
           <div class="filter-section" style="margin-bottom: 24px;">
             <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #e0e0e0;">
-              📊 Filter Results
+              Filter Results
             </h3>
             <p style="font-size: 12px; color: #888; margin: 0; line-height: 1.4;">
               Showing: {props.filteredCount} of {props.totalCount} files

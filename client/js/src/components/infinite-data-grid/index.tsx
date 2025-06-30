@@ -68,6 +68,12 @@ function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
               overflow: hidden;
               text-overflow: ellipsis;
               white-space: nowrap;
+              position: ${column.className === "sticky-actions-column" ? "sticky" : "relative"};
+              right: ${column.className === "sticky-actions-column" ? "0" : "auto"};
+              background: ${column.className === "sticky-actions-column" ? (props.isSelected ? "#2a1a2a" : DARK_THEME.colors.background) : "transparent"};
+              ${column.className === "sticky-actions-column" ? "border-left: 1px solid " + DARK_THEME.colors.border + ";" : ""}
+              box-shadow: ${column.className === "sticky-actions-column" ? "-2px 0 4px rgba(0, 0, 0, 0.1)" : "none"};
+              z-index: ${column.className === "sticky-actions-column" ? "5" : "1"};
             `}
           >
             {column.render
@@ -88,6 +94,13 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
   const rowHeight = props.rowHeight || 50;
   const headerHeight = props.headerHeight || 60;
   const virtualizeThreshold = props.virtualizeThreshold || 100;
+
+  // Calculate minimum width needed for all columns
+  const minContentWidth = createMemo(() => {
+    return props.columns.reduce((total, column) => {
+      return total + (column.width || 200); // Default 200px for flex columns
+    }, 0);
+  });
 
   const grid = useInfiniteGrid({
     data: props.data,
@@ -172,6 +185,8 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
     const target = e.target as HTMLDivElement;
     setScrollTop(target.scrollTop);
 
+    // No need for manual header sync - they're in the same scroll container now!
+
     // Infinite scroll detection
     if (props.onLoadMore && props.hasMore && !props.isLoadingMore) {
       const scrollHeight = target.scrollHeight;
@@ -223,139 +238,148 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       `}
     >
-      {/* Header */}
-      <div
-        class="grid-header"
-        style={`
-          height: ${headerHeight}px;
-          display: flex;
-          align-items: center;
-          background: ${DARK_THEME.colors.header};
-          border-bottom: 2px solid ${DARK_THEME.colors.border};
-          font-weight: 600;
-          position: sticky;
-          top: 0;
-          z-index: 10;
-        `}
-      >
-        <For each={props.columns}>
-          {(column) => (
-            <div
-              class={`grid-header-cell ${column.sortable ? "sortable" : ""} ${
-                column.sortable && grid.sortConfig().field === column.key
-                  ? "active-sort"
-                  : ""
-              }`}
-              style={`
-                flex: ${column.width ? "0 0 " + column.width + "px" : "1"};
-                padding: 8px 12px;
-                cursor: ${column.sortable ? "pointer" : "default"};
-                user-select: none;
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                transition: all 0.15s ease;
-                border-radius: 4px;
-                margin: 4px 2px;
-                position: relative;
-                opacity: ${grid.isSorting() && grid.sortConfig().field === column.key ? "0.7" : "1"};
-              `}
-              onClick={() =>
-                column.sortable && !grid.isSorting() && handleSort(column.key)
-              }
-            >
-              <div style="font-weight: 500; flex: 1;">
-                {typeof column.title === "string" ? (
-                  <span>{column.title}</span>
-                ) : (
-                  column.title
-                )}
-              </div>
-              <Show
-                when={
-                  grid.isSorting() && grid.sortConfig().field === column.key
-                }
-              >
-                <div
-                  style={`
-                    position: absolute;
-                    right: 40px;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    color: #00ff88;
-                    font-size: 12px;
-                    animation: spin 1s linear infinite;
-                  `}
-                >
-                  ⟳
-                </div>
-              </Show>
-              <Show when={column.sortable}>
-                <div
-                  class="sort-indicator"
-                  style={`
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    gap: 1px;
-                    opacity: ${grid.sortConfig().field === column.key ? "1" : "0.4"};
-                    transition: opacity 0.15s ease;
-                  `}
-                >
-                  <div
-                    class="sort-arrow sort-arrow-up"
-                    style={`
-                      width: 0;
-                      height: 0;
-                      border-left: 4px solid transparent;
-                      border-right: 4px solid transparent;
-                      border-bottom: 5px solid ${
-                        grid.sortConfig().field === column.key &&
-                        grid.sortConfig().direction === "asc"
-                          ? "#ff00ff"
-                          : "#666"
-                      };
-                      transition: border-bottom-color 0.15s ease;
-                    `}
-                  ></div>
-                  <div
-                    class="sort-arrow sort-arrow-down"
-                    style={`
-                      width: 0;
-                      height: 0;
-                      border-left: 4px solid transparent;
-                      border-right: 4px solid transparent;
-                      border-top: 5px solid ${
-                        grid.sortConfig().field === column.key &&
-                        grid.sortConfig().direction === "desc"
-                          ? "#ff00ff"
-                          : "#666"
-                      };
-                      transition: border-top-color 0.15s ease;
-                    `}
-                  ></div>
-                </div>
-              </Show>
-            </div>
-          )}
-        </For>
-      </div>
-
-      {/* Body */}
+      {/* Body - now contains header inside for natural scrolling */}
       <div
         ref={setContainerRef}
         class="grid-body"
         style={`
           flex: 1;
           overflow-y: auto;
+          overflow-x: auto;
           position: relative;
         `}
         onScroll={handleScroll}
       >
+        {/* Header inside scroll container */}
+        <div
+          class="grid-header"
+          style={`
+            height: ${headerHeight}px;
+            display: flex;
+            align-items: center;
+            background: ${DARK_THEME.colors.header};
+            border-bottom: 2px solid ${DARK_THEME.colors.border};
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            min-width: ${minContentWidth()}px;
+          `}
+        >
+          <For each={props.columns}>
+            {(column) => (
+              <div
+                class={`grid-header-cell ${column.sortable ? "sortable" : ""} ${
+                  column.sortable && grid.sortConfig().field === column.key
+                    ? "active-sort"
+                    : ""
+                }`}
+                style={`
+                  flex: ${column.width ? "0 0 " + column.width + "px" : "1"};
+                  padding: 8px 12px;
+                  cursor: ${column.sortable ? "pointer" : "default"};
+                  user-select: none;
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  transition: all 0.15s ease;
+                  border-radius: 4px;
+                  margin: 4px 2px;
+                  position: ${column.className === "sticky-actions-column" ? "sticky" : "relative"};
+                  right: ${column.className === "sticky-actions-column" ? "0" : "auto"};
+                  background: ${column.className === "sticky-actions-column" ? DARK_THEME.colors.header : "transparent"};
+                  ${column.className === "sticky-actions-column" ? "border-left: 1px solid " + DARK_THEME.colors.border + ";" : ""}
+                  box-shadow: ${column.className === "sticky-actions-column" ? "-2px 0 4px rgba(0, 0, 0, 0.2)" : "none"};
+                  z-index: ${column.className === "sticky-actions-column" ? "5" : "1"};
+                  opacity: ${grid.isSorting() && grid.sortConfig().field === column.key ? "0.7" : "1"};
+                `}
+                onClick={() =>
+                  column.sortable && !grid.isSorting() && handleSort(column.key)
+                }
+              >
+                <div style="font-weight: 500; flex: 1;">
+                  {typeof column.title === "string" ? (
+                    <span>{column.title}</span>
+                  ) : (
+                    column.title
+                  )}
+                </div>
+                <Show
+                  when={
+                    grid.isSorting() && grid.sortConfig().field === column.key
+                  }
+                >
+                  <div
+                    style={`
+                      position: absolute;
+                      right: 40px;
+                      top: 50%;
+                      transform: translateY(-50%);
+                      color: #00ff88;
+                      font-size: 12px;
+                      animation: spin 1s linear infinite;
+                    `}
+                  >
+                    ⟳
+                  </div>
+                </Show>
+                <Show when={column.sortable}>
+                  <div
+                    class="sort-indicator"
+                    style={`
+                      display: flex;
+                      flex-direction: column;
+                      align-items: center;
+                      gap: 1px;
+                      opacity: ${grid.sortConfig().field === column.key ? "1" : "0.4"};
+                      transition: opacity 0.15s ease;
+                    `}
+                  >
+                    <div
+                      class="sort-arrow sort-arrow-up"
+                      style={`
+                        width: 0;
+                        height: 0;
+                        border-left: 4px solid transparent;
+                        border-right: 4px solid transparent;
+                        border-bottom: 5px solid ${
+                          grid.sortConfig().field === column.key &&
+                          grid.sortConfig().direction === "asc"
+                            ? "#ff00ff"
+                            : "#666"
+                        };
+                        transition: border-bottom-color 0.15s ease;
+                      `}
+                    ></div>
+                    <div
+                      class="sort-arrow sort-arrow-down"
+                      style={`
+                        width: 0;
+                        height: 0;
+                        border-left: 4px solid transparent;
+                        border-right: 4px solid transparent;
+                        border-top: 5px solid ${
+                          grid.sortConfig().field === column.key &&
+                          grid.sortConfig().direction === "desc"
+                            ? "#ff00ff"
+                            : "#666"
+                        };
+                        transition: border-top-color 0.15s ease;
+                      `}
+                    ></div>
+                  </div>
+                </Show>
+              </div>
+            )}
+          </For>
+        </div>
         <Show
           when={shouldVirtualize()}
           fallback={
-            <div class="grid-content">
+            <div
+              class="grid-content"
+              style={`min-width: ${minContentWidth()}px;`}
+            >
               <For each={props.data}>
                 {(item, index) => (
                   <VirtualizedRow
@@ -383,7 +407,7 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
         >
           <div
             class="grid-content"
-            style={`height: ${totalHeight()}px; position: relative;`}
+            style={`height: ${totalHeight()}px; position: relative; min-width: ${minContentWidth()}px;`}
           >
             <For each={visibleItems()}>
               {(virtualItem) => (

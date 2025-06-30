@@ -31,6 +31,7 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 import { HeaderActionMenu } from "./components/HeaderActionMenu";
 import { useKeyboardNavigation } from "./hooks/useKeyboardNavigation";
 import { useViewModes } from "./hooks/useViewModes";
+import { useResponsiveColumns } from "./hooks/useResponsiveColumns";
 import { getDisplayFilename } from "../../lib/media-utils";
 import { formatBytes } from "../../lib/format-utils";
 import { useWebSocketFeed } from "../../hooks/useWebSocketFeed";
@@ -114,6 +115,11 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       actions: true,
       ...(initialState.columnVisibility || {}),
     });
+
+  // Responsive columns hook for smart column hiding
+  const responsiveColumns = useResponsiveColumns({
+    baseColumnVisibility: columnVisibility,
+  });
 
   const [isBrowsePanelOpen, setIsBrowsePanelOpen] = createSignal(
     initialState.isBrowsePanelOpen ?? true
@@ -643,7 +649,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   };
 
   const visibleColumns = createMemo((): GridColumn<MediaBlob>[] => {
-    const vis = columnVisibility();
+    const vis = responsiveColumns.responsiveColumnVisibility();
     const columns: GridColumn<MediaBlob>[] = [];
 
     // Thumbnail column (first)
@@ -665,12 +671,12 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       });
     }
 
-    // Name column (second)
+    // Name column (second) - flexible width to fill remaining space
     if (vis.name) {
       columns.push({
         key: "name",
         title: "Name",
-        width: 250,
+        // No width specified = flex: 1 (expands to fill remaining space)
         sortable: true,
         render: (item) => (
           <span style="font-weight: 500;" title={getDisplayFilename(item)}>
@@ -794,13 +800,36 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
               cursor: pointer;
               font-size: 12px;
               transition: all 0.15s ease;
+              position: relative;
             `}
           >
             ⋯
+            {responsiveColumns.getHiddenColumns().length > 0 && (
+              <span
+                style="
+                  position: absolute;
+                  top: -2px;
+                  right: -2px;
+                  background: #ff9900;
+                  color: #000;
+                  font-size: 8px;
+                  font-weight: bold;
+                  padding: 1px 3px;
+                  border-radius: 50%;
+                  line-height: 1;
+                  min-width: 12px;
+                  text-align: center;
+                "
+                title={`${responsiveColumns.getHiddenColumns().length} columns hidden on mobile screens`}
+              >
+                {responsiveColumns.getHiddenColumns().length}
+              </span>
+            )}
           </button>
         ),
         sortable: false,
         width: 100,
+        className: "sticky-actions-column",
         render: (item) => (
           <button
             style={`
@@ -970,7 +999,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       />
 
       {/* Main Content */}
-      <div style="flex: 1; position: relative; overflow: hidden; min-width: 0;">
+      <div style="flex: 1; position: relative; overflow-y: hidden; overflow-x: auto; min-width: 0;">
         <InfiniteDataGrid
           data={sortedData() as any}
           columns={visibleColumns()}
@@ -1056,6 +1085,11 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         blobTypeCategories={blobTypes()}
         totalCount={feed.state().items.length}
         filteredCount={filteredData().length}
+        // Responsive columns info
+        responsiveColumnVisibility={responsiveColumns.responsiveColumnVisibility()}
+        hiddenColumns={responsiveColumns.getHiddenColumns()}
+        breakpointInfo={responsiveColumns.getBreakpointInfo()}
+        screenWidth={responsiveColumns.screenWidth()}
       />
 
       {/* Settings Panel */}

@@ -27,7 +27,6 @@ export function EdgeToggleButton(props: EdgeToggleButtonProps) {
           height: 80px;
           background: #2a2a2a;
           border: 1px solid #3a3a3a;
-          ${props.position === "left" ? "border-left: none;" : "border-right: none;"}
           border-radius: ${props.position === "left" ? "0 8px 8px 0" : "8px 0 0 8px"};
           cursor: pointer;
           z-index: 1000;
