@@ -1,4 +1,3 @@
-
 import { Show, onCleanup, createEffect } from "solid-js";
 import { useFreqholeStateContext } from "../context/FreqholeStateContext";
 
@@ -53,6 +52,18 @@ export function HeaderActionMenu() {
     state.setHeaderActionMenu(null);
   };
 
+  const handleResetFilters = () => {
+    // Reset all filters to default values
+    state.updateFilter("name", "");
+    state.updateFilter("mime", "");
+    state.updateFilter("blobType", "");
+    state.updateFilter("minSize", 0);
+    state.updateFilter("maxSize", 100000000);
+    state.updateFilter("hasParent", "all");
+    state.updateFilter("hasLocalPath", "all");
+    state.setHeaderActionMenu(null);
+  };
+
   return (
     <Show when={state.headerActionMenu()?.isOpen}>
       <div
@@ -98,6 +109,33 @@ export function HeaderActionMenu() {
               <span style="color: #ff00ff; font-size: 12px;">●</span>
             </Show>
           </button>
+
+          {/* Reset Filters */}
+          <button
+            class="header-action-menu-item"
+            onClick={handleResetFilters}
+            style={`
+              width: 100%;
+              padding: 10px 16px;
+              background: transparent;
+              border: none;
+              color: #e0e0e0;
+              text-align: left;
+              cursor: pointer;
+              font-size: 13px;
+              display: flex;
+              align-items: center;
+              gap: 12px;
+              transition: all 0.15s ease;
+            `}
+          >
+            <div style="flex: 1;">
+              <div style="font-weight: 500;">Reset Filters</div>
+            </div>
+          </button>
+
+          {/* Divider */}
+          <div style="height: 1px; background: #444; margin: 4px 0;"></div>
 
           {/* View Mode */}
           <button

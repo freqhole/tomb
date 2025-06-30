@@ -100,33 +100,6 @@ export function BrowsePanel() {
               min-width: 0;
             `}
           />
-
-          {/* Quick search tips */}
-          <div style="margin-top: 8px; font-size: 12px; color: #666;">
-            <div style="margin-bottom: 4px;">💡 Quick Tips:</div>
-            <div style="margin-left: 8px; line-height: 1.4;">
-              • Type to search filenames
-              <br />
-              • Use * for wildcards
-              <br />• Case insensitive search
-            </div>
-          </div>
-
-          {/* Search status */}
-          <div style="margin-top: 12px; padding: 8px; background: #252525; border-radius: 4px; border: 1px solid #444;">
-            <div style="font-size: 12px; color: #888;">
-              {state.filterConfig().name ? (
-                <>
-                  <span style="color: #00ff00;">🔍 Searching for:</span>{" "}
-                  <span style="color: #ffffff; font-weight: 600;">
-                    "{state.filterConfig().name}"
-                  </span>
-                </>
-              ) : (
-                <span style="color: #888;">Type to start searching...</span>
-              )}
-            </div>
-          </div>
         </div>
       )}
 

@@ -56,11 +56,14 @@ export function useFreqholeData(props: UseFreqholeDataProps) {
       }
 
       // Size range filter
-      if (
-        item.size &&
-        (item.size < filterConfig.minSize || item.size > filterConfig.maxSize)
-      ) {
-        return false;
+      if (item.size) {
+        if (item.size < filterConfig.minSize) {
+          return false;
+        }
+        // Only apply maxSize filter if it's not 0 (0 means no upper limit)
+        if (filterConfig.maxSize > 0 && item.size > filterConfig.maxSize) {
+          return false;
+        }
       }
 
       // Parent blob filter

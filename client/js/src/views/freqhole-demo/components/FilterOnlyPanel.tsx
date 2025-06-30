@@ -342,6 +342,48 @@ export function FilterOnlyPanel() {
             )}
           </div>
 
+          {/* Reset Filters */}
+          <div class="filter-section" style="margin-bottom: 24px;">
+            <button
+              onClick={() => {
+                // Reset all filters to default values
+                updateFilter("name", "");
+                updateFilter("mime", "");
+                updateFilter("blobType", "");
+                updateFilter("minSize", 0);
+                updateFilter("maxSize", 100000000);
+                updateFilter("hasParent", "all");
+                updateFilter("hasLocalPath", "all");
+              }}
+              style={`
+                width: 100%;
+                padding: 12px;
+                background: #444444;
+                border: 1px solid #666666;
+                border-radius: 6px;
+                color: #ffffff;
+                font-size: 14px;
+                cursor: pointer;
+                transition: all 0.2s;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                font-weight: 600;
+              `}
+              onMouseEnter={(e) => {
+                (e.target as HTMLElement).style.background = "#555555";
+                (e.target as HTMLElement).style.borderColor = "#777777";
+              }}
+              onMouseLeave={(e) => {
+                (e.target as HTMLElement).style.background = "#444444";
+                (e.target as HTMLElement).style.borderColor = "#666666";
+              }}
+            >
+              <span>Reset All Filters</span>
+            </button>
+          </div>
+
           {/* Results Summary */}
           <div
             class="filter-section"
