@@ -14,6 +14,8 @@ export function PopupPreview(props: PopupPreviewProps) {
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
       props.onClose();
     }
   };
@@ -21,20 +23,22 @@ export function PopupPreview(props: PopupPreviewProps) {
   const handleOverlayClick = (event: MouseEvent) => {
     // Close if clicking on the backdrop (not the content)
     if (event.target === overlayRef) {
+      event.preventDefault();
+      event.stopPropagation();
       props.onClose();
     }
   };
 
   onMount(() => {
     if (props.isOpen) {
-      document.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("keydown", handleKeyDown, true);
       // Prevent body scroll when popup is open
       document.body.style.overflow = "hidden";
     }
   });
 
   onCleanup(() => {
-    document.removeEventListener("keydown", handleKeyDown);
+    document.removeEventListener("keydown", handleKeyDown, true);
     // Restore body scroll
     document.body.style.overflow = "";
   });
@@ -42,10 +46,10 @@ export function PopupPreview(props: PopupPreviewProps) {
   // Update event listeners when popup state changes
   const updateEventListeners = () => {
     if (props.isOpen) {
-      document.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("keydown", handleKeyDown, true);
       document.body.style.overflow = "hidden";
     } else {
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
       document.body.style.overflow = "";
     }
   };

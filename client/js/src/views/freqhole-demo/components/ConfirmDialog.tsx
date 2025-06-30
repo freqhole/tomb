@@ -41,11 +41,11 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
   };
 
   onMount(() => {
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
   });
 
   onCleanup(() => {
-    document.removeEventListener("keydown", handleKeyDown);
+    document.removeEventListener("keydown", handleKeyDown, true);
   });
 
   // Click outside to close

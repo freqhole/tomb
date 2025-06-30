@@ -19,6 +19,8 @@ export function HeaderActionMenu(props: HeaderActionMenuProps) {
   // Close on outside click
   const handleClickOutside = (e: MouseEvent) => {
     if (menuRef && !menuRef.contains(e.target as Node)) {
+      e.preventDefault();
+      e.stopPropagation();
       props.onClose();
     }
   };
@@ -26,6 +28,8 @@ export function HeaderActionMenu(props: HeaderActionMenuProps) {
   // Close on escape key
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
       props.onClose();
     }
   };
@@ -33,17 +37,17 @@ export function HeaderActionMenu(props: HeaderActionMenuProps) {
   // Add/remove listeners whenever isOpen changes
   createEffect(() => {
     if (props.isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      document.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("click", handleClickOutside, true);
+      document.addEventListener("keydown", handleKeyDown, true);
     } else {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("click", handleClickOutside, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
     }
   });
 
   onCleanup(() => {
-    document.removeEventListener("mousedown", handleClickOutside);
-    document.removeEventListener("keydown", handleKeyDown);
+    document.removeEventListener("click", handleClickOutside, true);
+    document.removeEventListener("keydown", handleKeyDown, true);
   });
 
   const handleFilterClick = () => {

@@ -16,6 +16,8 @@ export function BulkActionMenu(props: BulkActionMenuProps) {
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
       props.onClose();
     }
   };
@@ -23,6 +25,8 @@ export function BulkActionMenu(props: BulkActionMenuProps) {
   const handleGlobalClick = (event: MouseEvent) => {
     // Close menu if clicking outside
     if (menuRef && !menuRef.contains(event.target as Node)) {
+      event.preventDefault();
+      event.stopPropagation();
       props.onClose();
     }
   };
@@ -59,27 +63,27 @@ export function BulkActionMenu(props: BulkActionMenuProps) {
 
   onMount(() => {
     if (props.isOpen) {
-      document.addEventListener("keydown", handleKeyDown);
-      document.addEventListener("click", handleGlobalClick);
+      document.addEventListener("keydown", handleKeyDown, true);
+      document.addEventListener("click", handleGlobalClick, true);
       // Calculate position after mount
       setTimeout(calculatePosition, 0);
     }
   });
 
   onCleanup(() => {
-    document.removeEventListener("keydown", handleKeyDown);
-    document.removeEventListener("click", handleGlobalClick);
+    document.removeEventListener("keydown", handleKeyDown, true);
+    document.removeEventListener("click", handleGlobalClick, true);
   });
 
   // Update event listeners when menu state changes
   const updateEventListeners = () => {
     if (props.isOpen) {
-      document.addEventListener("keydown", handleKeyDown);
-      document.addEventListener("click", handleGlobalClick);
+      document.addEventListener("keydown", handleKeyDown, true);
+      document.addEventListener("click", handleGlobalClick, true);
       calculatePosition();
     } else {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("click", handleGlobalClick);
+      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("click", handleGlobalClick, true);
     }
   };
 
@@ -147,7 +151,10 @@ export function BulkActionMenu(props: BulkActionMenuProps) {
           `}
         >
           <span>📦</span>
-          <span>{props.selectedCount} item{props.selectedCount === 1 ? "" : "s"} selected</span>
+          <span>
+            {props.selectedCount} item{props.selectedCount === 1 ? "" : "s"}{" "}
+            selected
+          </span>
         </div>
 
         {/* Menu Items */}
@@ -292,7 +299,8 @@ export function BulkActionMenu(props: BulkActionMenuProps) {
               transition: background 0.15s;
             `}
             onMouseEnter={(e) => {
-              (e.target as HTMLElement).style.background = "rgba(239, 68, 68, 0.1)";
+              (e.target as HTMLElement).style.background =
+                "rgba(239, 68, 68, 0.1)";
             }}
             onMouseLeave={(e) => {
               (e.target as HTMLElement).style.background = "transparent";
