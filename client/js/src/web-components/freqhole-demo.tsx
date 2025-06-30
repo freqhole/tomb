@@ -9,7 +9,8 @@ class FreqholeDemoElement extends HTMLElement {
 
     // Get attributes
     const wsUrl = this.getAttribute("ws-url") || "ws://localhost:8080/ws";
-    const apiBaseUrl = this.getAttribute("api-base-url") || "http://localhost:8080";
+    const apiBaseUrl =
+      this.getAttribute("api-base-url") || "http://localhost:8080";
     const autoConnect = this.getAttribute("auto-connect") === "true";
 
     // Render the FreqholeDemo component

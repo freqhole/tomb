@@ -8,7 +8,11 @@ import type {
   GridState,
 } from "../types";
 import type { MediaBlob } from "../../../lib/websocket-types";
-import { getDisplayFilename } from "../../../lib/media-utils";
+
+export interface FreqholeStateProps {
+  wsUrl: string;
+  autoConnect: boolean;
+}
 
 const STORAGE_KEY = "freqhole-demo-state";
 const DEFAULT_PANEL_WIDTH = 300;
@@ -65,6 +69,12 @@ export interface FreqholeStateHook {
   browsePanelWidth: () => number;
   setBrowsePanelWidth: (width: number) => void;
 
+  isSettingsPanelOpen: () => boolean;
+  setIsSettingsPanelOpen: (open: boolean) => void;
+  toggleSettingsPanel: () => void;
+  settingsPanelWidth: () => number;
+  setSettingsPanelWidth: (width: number) => void;
+
   // WebSocket state
   wsUrl: () => string;
   setWsUrl: (url: string) => void;
@@ -75,6 +85,62 @@ export interface FreqholeStateHook {
   debug: () => boolean;
   setDebug: (debug: boolean) => void;
 
+  // UI interaction state
+  popupPreview: () => { item: MediaBlob; isOpen: boolean } | null;
+  setPopupPreview: (
+    preview: { item: MediaBlob; isOpen: boolean } | null
+  ) => void;
+
+  actionMenu: () => {
+    item: MediaBlob;
+    isOpen: boolean;
+    position: { x: number; y: number };
+  } | null;
+  setActionMenu: (
+    menu: {
+      item: MediaBlob;
+      isOpen: boolean;
+      position: { x: number; y: number };
+    } | null
+  ) => void;
+
+  bulkActionMenu: () => {
+    isOpen: boolean;
+    position: { x: number; y: number };
+  } | null;
+  setBulkActionMenu: (
+    menu: { isOpen: boolean; position: { x: number; y: number } } | null
+  ) => void;
+
+  confirmDialog: () => {
+    isOpen: boolean;
+    title: string;
+    message: string;
+    items?: MediaBlob[];
+    onConfirm: () => void;
+  } | null;
+  setConfirmDialog: (
+    dialog: {
+      isOpen: boolean;
+      title: string;
+      message: string;
+      items?: MediaBlob[];
+      onConfirm: () => void;
+    } | null
+  ) => void;
+
+  headerActionMenu: () => {
+    isOpen: boolean;
+    position: { x: number; y: number };
+  } | null;
+  setHeaderActionMenu: (
+    menu: { isOpen: boolean; position: { x: number; y: number } } | null
+  ) => void;
+
+  // Logs
+  logs: () => string[];
+  setLogs: (logs: string[]) => void;
+
   // Mock WebSocket state (for now)
   connectionStatus: () => string;
   setConnectionStatus: (status: string) => void;
@@ -83,12 +149,12 @@ export interface FreqholeStateHook {
   lastUpdated: () => Date | null;
   setLastUpdated: (date: Date | null) => void;
 
-  // Data processing
-  filteredData: (items: MediaBlob[]) => MediaBlob[];
-  sortedData: (items: MediaBlob[]) => MediaBlob[];
+  // Utility functions
+  loadState: () => Partial<GridState>;
+  saveState: (updates: Partial<GridState>) => void;
 }
 
-export function useFreqholeState(): FreqholeStateHook {
+export function useFreqholeState(props: FreqholeStateProps): FreqholeStateHook {
   const initialState = loadState();
 
   // Filter state
@@ -146,17 +212,55 @@ export function useFreqholeState(): FreqholeStateHook {
     initialState.browsePanelWidth || DEFAULT_PANEL_WIDTH
   );
 
-  // WebSocket state
-  const [wsUrl, setWsUrl] = createSignal(
-    initialState.wsUrl || "ws://localhost:8080/ws"
+  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = createSignal(
+    initialState.isSettingsPanelOpen ?? false
   );
+  const [settingsPanelWidth, setSettingsPanelWidth] = createSignal(
+    initialState.settingsPanelWidth || DEFAULT_PANEL_WIDTH
+  );
+
+  // WebSocket state
+  const [wsUrl, setWsUrl] = createSignal(initialState.wsUrl || props.wsUrl);
   const [autoConnect, setAutoConnect] = createSignal(
-    initialState.autoConnect ?? true
+    initialState.autoConnect ?? props.autoConnect
   );
   const [autoRefresh, setAutoRefresh] = createSignal(
     initialState.autoRefresh ?? true
   );
   const [debug, setDebug] = createSignal(initialState.debug ?? false);
+
+  // UI interaction state
+  const [popupPreview, setPopupPreview] = createSignal<{
+    item: MediaBlob;
+    isOpen: boolean;
+  } | null>(null);
+
+  const [actionMenu, setActionMenu] = createSignal<{
+    item: MediaBlob;
+    isOpen: boolean;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  const [bulkActionMenu, setBulkActionMenu] = createSignal<{
+    isOpen: boolean;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  const [confirmDialog, setConfirmDialog] = createSignal<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    items?: MediaBlob[];
+    onConfirm: () => void;
+  } | null>(null);
+
+  const [headerActionMenu, setHeaderActionMenu] = createSignal<{
+    isOpen: boolean;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  // Logs
+  const [logs, setLogs] = createSignal<string[]>([]);
 
   // Mock WebSocket state
   const [connectionStatus, setConnectionStatus] = createSignal("Disconnected");
@@ -202,85 +306,11 @@ export function useFreqholeState(): FreqholeStateHook {
     });
   };
 
-  // Data processing
-  const filteredData = (items: MediaBlob[]): MediaBlob[] => {
-    const config = filterConfig();
-    return items.filter((item) => {
-      // Name filter
-      if (
-        config.name &&
-        !getDisplayFilename(item)
-          .toLowerCase()
-          .includes(config.name.toLowerCase())
-      ) {
-        return false;
-      }
-
-      // MIME filter
-      if (config.mime && getMimeCategory(item.mime || "") !== config.mime) {
-        return false;
-      }
-
-      // Blob type filter
-      if (config.blobType && item.blob_type !== config.blobType) {
-        return false;
-      }
-
-      // Size filter
-      const size = item.size || 0;
-      if (size < config.minSize || size > config.maxSize) {
-        return false;
-      }
-
-      // Parent filter
-      if (config.hasParent !== "all") {
-        const hasParent = !!item.parent_blob_id;
-        if (
-          (config.hasParent === "yes" && !hasParent) ||
-          (config.hasParent === "no" && hasParent)
-        ) {
-          return false;
-        }
-      }
-
-      // Local path filter
-      if (config.hasLocalPath !== "all") {
-        const hasLocalPath = !!item.local_path;
-        if (
-          (config.hasLocalPath === "yes" && !hasLocalPath) ||
-          (config.hasLocalPath === "no" && hasLocalPath)
-        ) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  };
-
-  const sortedData = (items: MediaBlob[]): MediaBlob[] => {
-    const config = sortConfig();
-    const filtered = filteredData(items);
-
-    if (!config.direction) {
-      return filtered;
-    }
-
-    const sorted = [...filtered];
-    return sorted.sort((a, b) => {
-      const aValue = a[config.field] || "";
-      const bValue = b[config.field] || "";
-
-      let comparison = 0;
-      if (typeof aValue === "string" && typeof bValue === "string") {
-        comparison = aValue.localeCompare(bValue);
-      } else if (typeof aValue === "number" && typeof bValue === "number") {
-        comparison = aValue - bValue;
-      } else {
-        comparison = String(aValue).localeCompare(String(bValue));
-      }
-
-      return config.direction === "desc" ? -comparison : comparison;
+  const toggleSettingsPanel = () => {
+    setIsSettingsPanelOpen((prev) => {
+      const newValue = !prev;
+      saveState({ isSettingsPanelOpen: newValue });
+      return newValue;
     });
   };
 
@@ -339,6 +369,18 @@ export function useFreqholeState(): FreqholeStateHook {
       saveState({ browsePanelWidth: width });
     },
 
+    isSettingsPanelOpen,
+    setIsSettingsPanelOpen: (open) => {
+      setIsSettingsPanelOpen(open);
+      saveState({ isSettingsPanelOpen: open });
+    },
+    toggleSettingsPanel,
+    settingsPanelWidth,
+    setSettingsPanelWidth: (width) => {
+      setSettingsPanelWidth(width);
+      saveState({ settingsPanelWidth: width });
+    },
+
     // WebSocket state
     wsUrl,
     setWsUrl,
@@ -349,6 +391,22 @@ export function useFreqholeState(): FreqholeStateHook {
     debug,
     setDebug,
 
+    // UI interaction state
+    popupPreview,
+    setPopupPreview,
+    actionMenu,
+    setActionMenu,
+    bulkActionMenu,
+    setBulkActionMenu,
+    confirmDialog,
+    setConfirmDialog,
+    headerActionMenu,
+    setHeaderActionMenu,
+
+    // Logs
+    logs,
+    setLogs,
+
     // Mock WebSocket state
     connectionStatus,
     setConnectionStatus,
@@ -357,15 +415,8 @@ export function useFreqholeState(): FreqholeStateHook {
     lastUpdated,
     setLastUpdated,
 
-    // Data processing
-    filteredData,
-    sortedData,
+    // Utility functions
+    loadState,
+    saveState,
   };
-}
-
-// Helper functions (these have been moved to lib/media-utils.ts)
-
-function getMimeCategory(mimeType: string): string {
-  if (!mimeType) return "unknown";
-  return mimeType.split("/")[0] || "unknown";
 }

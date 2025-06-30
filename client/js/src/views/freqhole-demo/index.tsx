@@ -1,17 +1,5 @@
-import {
-  createSignal,
-  createMemo,
-  createEffect,
-  onMount,
-  onCleanup,
-  Show,
-} from "solid-js";
-import type {
-  FilterConfig,
-  ColumnVisibility,
-  GridState,
-  SortField,
-} from "./types";
+import { createSignal, createMemo, onMount, onCleanup, Show } from "solid-js";
+import type { FilterConfig, ColumnVisibility } from "./types";
 import type { MediaBlob } from "../../lib/websocket-types";
 import { BrowsePanel } from "./BrowsePanel";
 
@@ -32,6 +20,9 @@ import { HeaderActionMenu } from "./components/HeaderActionMenu";
 import { useKeyboardNavigation } from "./hooks/useKeyboardNavigation";
 import { useViewModes } from "./hooks/useViewModes";
 import { useResponsiveColumns } from "./hooks/useResponsiveColumns";
+import { useFreqholeState } from "./hooks/useFreqholeState";
+import { useFreqholeData } from "./hooks/useFreqholeData";
+
 import { getDisplayFilename } from "../../lib/media-utils";
 import { formatBytes } from "../../lib/format-utils";
 import { useWebSocketFeed } from "../../hooks/useWebSocketFeed";
@@ -43,32 +34,21 @@ export interface FreqholeDemoProps {
   autoConnect: boolean;
 }
 
-const STORAGE_KEY = "freqhole-demo-state";
-const DEFAULT_PANEL_WIDTH = 300;
-
-// Load state from localStorage
-function loadState(): Partial<GridState> {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : {};
-  } catch {
-    return {};
-  }
-}
-
-// Save state to localStorage
-function saveState(updates: Partial<GridState>) {
-  try {
-    const current = loadState();
-    const updated = { ...current, ...updates };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  } catch {
-    // Ignore storage errors
-  }
-}
-
 export function FreqholeDemo(props: FreqholeDemoProps) {
-  const initialState = loadState();
+  // State management hook - all state centralized
+  const state = useFreqholeState({
+    wsUrl: props.wsUrl,
+    autoConnect: props.autoConnect,
+  });
+
+  // View modes (keeping existing integration)
+  const initialState = state.loadState();
+  const viewModes = useViewModes((initialState.viewMode as any) || "default");
+
+  // Responsive columns hook for smart column hiding
+  const responsiveColumns = useResponsiveColumns({
+    baseColumnVisibility: () => state.columnVisibility(),
+  });
 
   // WebSocket feed integration
   const feed = useWebSocketFeed({
@@ -80,132 +60,39 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     pageSize: 50,
   });
 
-  // State
-  const [filterConfig, setFilterConfig] = createSignal<FilterConfig>({
-    name: "",
-    mime: "",
-    blobType: "",
-    minSize: 0,
-    maxSize: 100000000,
-    hasParent: "all",
-    hasLocalPath: "all",
-    ...(initialState.filterConfig || {}),
+  // Data processing hook - filtering and sorting (reactive items)
+  const data = useFreqholeData({
+    items: () => feed.state().items,
+    filterConfig: state.filterConfig,
+    sortConfig: state.sortConfig,
   });
-
-  const [sortConfig, setSortConfig] = createSignal({
-    field: "created_at",
-    direction: "desc",
-    ...(initialState.sortConfig || {}),
-  });
-
-  // View mode is now handled by useViewModes hook
-
-  const [columnVisibility, setColumnVisibility] =
-    createSignal<ColumnVisibility>({
-      id: false,
-      thumbnail: true,
-      name: true,
-      mime: true,
-      blob_type: true,
-      size: true,
-      parent_blob_id: false,
-      local_path: false,
-      created_at: true,
-      updated_at: false,
-      actions: true,
-      ...(initialState.columnVisibility || {}),
-    });
-
-  // Responsive columns hook for smart column hiding
-  const responsiveColumns = useResponsiveColumns({
-    baseColumnVisibility: columnVisibility,
-  });
-
-  const [isBrowsePanelOpen, setIsBrowsePanelOpen] = createSignal(
-    initialState.isBrowsePanelOpen ?? true
-  );
-  const [browsePanelWidth, setBrowsePanelWidth] = createSignal(
-    initialState.browsePanelWidth || DEFAULT_PANEL_WIDTH
-  );
-  const [filterPanelWidth, setFilterPanelWidth] = createSignal(
-    initialState.filterPanelWidth || DEFAULT_PANEL_WIDTH
-  );
-  const [settingsPanelWidth, setSettingsPanelWidth] = createSignal(
-    initialState.settingsPanelWidth || DEFAULT_PANEL_WIDTH
-  );
-
-  const [wsUrl, setWsUrl] = createSignal(props.wsUrl);
-  const [autoConnect, setAutoConnect] = createSignal(props.autoConnect);
-  const [autoRefresh, setAutoRefresh] = createSignal(true);
-  const [debug, setDebug] = createSignal(false);
-  const [logs, setLogs] = createSignal<string[]>([]);
-
-  // Popup preview state
-  const [popupPreview, setPopupPreview] = createSignal<{
-    item: MediaBlob;
-    isOpen: boolean;
-  } | null>(null);
-
-  // Action menu state
-  const [actionMenu, setActionMenu] = createSignal<{
-    item: MediaBlob;
-    isOpen: boolean;
-    position: { x: number; y: number };
-  } | null>(null);
-
-  // Bulk action menu state
-  const [bulkActionMenu, setBulkActionMenu] = createSignal<{
-    isOpen: boolean;
-    position: { x: number; y: number };
-  } | null>(null);
-
-  // Confirm dialog state
-  const [confirmDialog, setConfirmDialog] = createSignal<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    items?: MediaBlob[];
-    onConfirm: () => void;
-  } | null>(null);
-
-  // Header action menu state
-  const [headerActionMenu, setHeaderActionMenu] = createSignal<{
-    isOpen: boolean;
-    position: { x: number; y: number };
-  } | null>(null);
-
-  // Panel controls state
-  const [isFilterPanelOpen, setIsFilterPanelOpen] = createSignal(false);
-  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = createSignal(false);
-
-  // View modes
-  const viewModes = useViewModes((initialState.viewMode as any) || "default");
 
   // Helper functions that will be used by hooks
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString();
-    setLogs((prev) => [`${timestamp}: ${message}`, ...prev.slice(0, 49)]);
+    const currentLogs = state.logs();
+    state.setLogs([`${timestamp}: ${message}`, ...currentLogs.slice(0, 49)]);
   };
 
   // Keyboard navigation
   const keyboardNav = useKeyboardNavigation({
-    onPreview: (item) => setPopupPreview({ item, isOpen: true }),
+    onPreview: (item) => state.setPopupPreview({ item, isOpen: true }),
     onToggleSelection: (item) => selection.toggleSelection(item.id),
     onSelectAll: (items) => selection.selectAll(items),
     onClearSelection: () => selection.clearSelection(),
     onEscape: () => {
-      if (popupPreview()?.isOpen) {
+      if (state.popupPreview()?.isOpen) {
         closePopupPreview();
-      } else if (actionMenu()?.isOpen) {
+      } else if (state.actionMenu()?.isOpen) {
         closeActionMenu();
-      } else if (bulkActionMenu()?.isOpen) {
+      } else if (state.bulkActionMenu()?.isOpen) {
         closeBulkActionMenu();
       } else {
         selection.clearSelection();
       }
     },
     onDelete: (items) => {
-      setConfirmDialog({
+      state.setConfirmDialog({
         isOpen: true,
         title: "Delete Files",
         message: `Delete ${items.length} selected file${items.length !== 1 ? "s" : ""}?`,
@@ -218,7 +105,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
             items.map((i) => i.id)
           );
           selection.clearSelection();
-          setConfirmDialog(null);
+          state.setConfirmDialog(null);
         },
       });
     },
@@ -233,7 +120,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       );
     },
     getSelectedItems: () => selection.selectedItems(),
-    getAllItems: () => sortedData(),
+    getAllItems: () => data.sortedData(),
     onLog: addLog,
   });
 
@@ -242,20 +129,19 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   const hasPendingUpdates = () => feed.state().hasPendingUpdates;
   const lastUpdated = () => feed.state().lastUpdated;
 
-  // Track thumbnail requests to avoid duplicates
-  const [requestedThumbnails, setRequestedThumbnails] = createSignal<
-    Set<string>
-  >(new Set());
+  // Track thumbnail requests to avoid duplicates (using existing hook state)
 
   // Selection hook with storage integration
   const selection = useSelection({
     onSelectionChange: (selectedItems) => {
       // Auto-save selection changes
-      saveState({ selectedItems });
+      state.saveState({ selectedItems });
     },
     onDelete: (selectedItems) => {
-      const items = sortedData().filter((item) => selectedItems.has(item.id));
-      setConfirmDialog({
+      const items = data
+        .sortedData()
+        .filter((item) => selectedItems.has(item.id));
+      state.setConfirmDialog({
         isOpen: true,
         title: "Delete Selected Files",
         message: `Delete ${items.length} selected file${items.length !== 1 ? "s" : ""}?`,
@@ -265,7 +151,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           addLog(`🗑️ Deleted ${items.length} selected items`);
           console.log("Deleted selected items:", Array.from(selectedItems));
           selection.clearSelection();
-          setConfirmDialog(null);
+          state.setConfirmDialog(null);
         },
       });
     },
@@ -273,7 +159,9 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       // Already handled by onSelectionChange
     },
     initialSelection: new Set(
-      initialState.selectedItems ? Array.from(initialState.selectedItems) : []
+      initialState.selectedItems
+        ? Array.from(initialState.selectedItems || [])
+        : []
     ),
   });
 
@@ -287,7 +175,11 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       // Prevent unwanted text selection on Shift+click
       event.preventDefault();
       // Handle range selection with access to sorted data
-      selection.selectRange(selection.lastSelectedIndex(), index, sortedData());
+      selection.selectRange(
+        selection.lastSelectedIndex(),
+        index,
+        data.sortedData()
+      );
     } else {
       // Delegate to selection hook
       selection.handleRowClick(item, index, event);
@@ -295,7 +187,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   };
 
   const handleRowDoubleClick = (item: MediaBlob) => {
-    setPopupPreview({ item, isOpen: true });
+    state.setPopupPreview({ item, isOpen: true });
     addLog(`🖼️ Opened preview for: ${getDisplayFilename(item)}`);
   };
 
@@ -316,14 +208,14 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
     if (selectedCount > 1) {
       // Show bulk action menu when multiple items selected
-      setBulkActionMenu({
+      state.setBulkActionMenu({
         isOpen: true,
         position,
       });
       addLog(`🖱️ Bulk context menu opened for ${selectedCount} items`);
     } else {
       // Show individual action menu for single item
-      setActionMenu({
+      state.setActionMenu({
         item,
         isOpen: true,
         position,
@@ -333,27 +225,27 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   };
 
   const closePopupPreview = () => {
-    setPopupPreview(null);
+    state.setPopupPreview(null);
   };
 
   const closeActionMenu = () => {
-    setActionMenu(null);
+    state.setActionMenu(null);
   };
 
   const closeBulkActionMenu = () => {
-    setBulkActionMenu(null);
+    state.setBulkActionMenu(null);
   };
 
   const closeHeaderActionMenu = () => {
-    setHeaderActionMenu(null);
+    state.setHeaderActionMenu(null);
   };
 
   const handleHeaderFilterPanel = () => {
-    setIsFilterPanelOpen(!isFilterPanelOpen());
+    state.setIsFilterPanelOpen(!state.isFilterPanelOpen());
   };
 
   const handleHeaderSettingsPanel = () => {
-    setIsSettingsPanelOpen(!isSettingsPanelOpen());
+    state.setIsSettingsPanelOpen(!state.isSettingsPanelOpen());
   };
 
   const handleHeaderViewModeChange = () => {
@@ -364,7 +256,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     event.stopPropagation();
     event.preventDefault();
 
-    const currentMenu = actionMenu();
+    const currentMenu = state.actionMenu();
     if (currentMenu && currentMenu.item.id === item.id) {
       // Close if clicking same item
       closeActionMenu();
@@ -377,7 +269,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         y: rect.bottom + 4,
       };
 
-      setActionMenu({
+      state.setActionMenu({
         item,
         isOpen: true,
         position,
@@ -414,7 +306,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   };
 
   const handleDeleteItem = (item: MediaBlob) => {
-    setConfirmDialog({
+    state.setConfirmDialog({
       isOpen: true,
       title: "Delete File",
       message: `Are you sure you want to delete this file? This action cannot be undone.`,
@@ -423,13 +315,13 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         // TODO: Implement actual delete API call
         addLog(`🗑️ Deleted: ${getDisplayFilename(item)}`);
         console.log("Deleted item:", item.id);
-        setConfirmDialog(null);
+        state.setConfirmDialog(null);
       },
     });
   };
 
   const handleBulkMoreClick = (event: MouseEvent) => {
-    const currentMenu = bulkActionMenu();
+    const currentMenu = state.bulkActionMenu();
     if (currentMenu?.isOpen) {
       // Close if already open
       closeBulkActionMenu();
@@ -441,7 +333,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         y: rect.top - 10, // Position above button
       };
 
-      setBulkActionMenu({
+      state.setBulkActionMenu({
         isOpen: true,
         position,
       });
@@ -450,9 +342,9 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
   const handleBulkDownload = async () => {
     const selectedItems = Array.from(selection.selectedItems());
-    const items = sortedData().filter((item) =>
-      selectedItems.includes(item.id)
-    );
+    const items = data
+      .sortedData()
+      .filter((item) => selectedItems.includes(item.id));
 
     addLog(`📥 Starting bulk download of ${items.length} items...`);
 
@@ -467,11 +359,11 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
   const handleBulkDelete = () => {
     const selectedItems = Array.from(selection.selectedItems());
-    const items = sortedData().filter((item) =>
-      selectedItems.includes(item.id)
-    );
+    const items = data
+      .sortedData()
+      .filter((item) => selectedItems.includes(item.id));
 
-    setConfirmDialog({
+    state.setConfirmDialog({
       isOpen: true,
       title: "Delete Multiple Files",
       message: `Are you sure you want to delete ${items.length} files?`,
@@ -481,7 +373,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         addLog(`🗑️ Bulk deleted ${items.length} items`);
         console.log("Bulk deleted items:", selectedItems);
         selection.clearSelection();
-        setConfirmDialog(null);
+        state.setConfirmDialog(null);
       },
     });
   };
@@ -515,7 +407,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           start.startIndex,
           start.startIndex + currentIndex
         );
-        selection.selectRange(startIdx, endIdx, sortedData());
+        selection.selectRange(startIdx, endIdx, data.sortedData());
       }
     }
   };
@@ -531,122 +423,23 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     document.removeEventListener("keydown", handleKeyDown);
   });
 
-  // Computed values
-  const filteredData = createMemo(() => {
-    const config = filterConfig();
-    return feed.state().items.filter((item) => {
-      // Name filter
-      if (
-        config.name &&
-        !getDisplayFilename(item as any)
-          .toLowerCase()
-          .includes(config.name.toLowerCase())
-      ) {
-        return false;
-      }
-
-      // MIME filter
-      if (config.mime && !item.mime?.startsWith(config.mime)) {
-        return false;
-      }
-
-      // Blob type filter
-      if (config.blobType && item.blob_type !== config.blobType) {
-        return false;
-      }
-
-      // Size filter
-      if (
-        (item.size || 0) < config.minSize ||
-        (item.size || 0) > config.maxSize
-      ) {
-        return false;
-      }
-
-      // Has parent filter
-      if (config.hasParent !== "all") {
-        const hasParent = !!item.parent_blob_id;
-        if (config.hasParent === "yes" && !hasParent) return false;
-        if (config.hasParent === "no" && hasParent) return false;
-      }
-
-      // Has local path filter
-      if (config.hasLocalPath !== "all") {
-        const hasLocalPath = !!item.local_path;
-        if (config.hasLocalPath === "yes" && !hasLocalPath) return false;
-        if (config.hasLocalPath === "no" && hasLocalPath) return false;
-      }
-
-      return true;
-    });
-  });
-
-  const sortedData = createMemo(() => {
-    const config = sortConfig();
-    const data = [...filteredData()];
-
-    return data.sort((a, b) => {
-      // Special handling for dynamic name field
-      if (config.field === "name") {
-        const aName = getDisplayFilename(a);
-        const bName = getDisplayFilename(b);
-        const comparison = aName.localeCompare(bName, undefined, {
-          numeric: true,
-          sensitivity: "base",
-        });
-        return config.direction === "desc" ? comparison * -1 : comparison;
-      }
-
-      // Date comparison
-      if (
-        config.field.includes("_at") ||
-        config.field.includes("date") ||
-        config.field.includes("time")
-      ) {
-        const aDate = new Date((a as any)[config.field]);
-        const bDate = new Date((b as any)[config.field]);
-        if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
-          const comparison = aDate.getTime() - bDate.getTime();
-          return config.direction === "desc" ? comparison * -1 : comparison;
-        }
-      }
-
-      // Numeric comparison
-      const aValue = (a as any)[config.field];
-      const bValue = (b as any)[config.field];
-
-      if (aValue == null && bValue == null) return 0;
-      if (aValue == null) return config.direction === "desc" ? -1 : 1;
-      if (bValue == null) return config.direction === "desc" ? 1 : -1;
-
-      const aNum = Number(aValue);
-      const bNum = Number(bValue);
-      if (
-        !isNaN(aNum) &&
-        !isNaN(bNum) &&
-        typeof aValue === "number" &&
-        typeof bValue === "number"
-      ) {
-        const comparison = aNum - bNum;
-        return config.direction === "desc" ? comparison * -1 : comparison;
-      }
-
-      // String comparison (case-insensitive)
-      const aStr = String(aValue).toLowerCase();
-      const bStr = String(bValue).toLowerCase();
-      const comparison = aStr.localeCompare(bStr);
-      return config.direction === "desc" ? comparison * -1 : comparison;
-    });
-  });
+  // Track thumbnail requests to avoid duplicates
+  const [thumbnailRequests, setThumbnailRequests] = createSignal<Set<string>>(
+    new Set()
+  );
 
   // Helper function to request thumbnails
   const requestThumbnails = (itemId: string) => {
-    if (!requestedThumbnails().has(itemId)) {
-      setRequestedThumbnails((prev) => new Set([...prev, itemId]));
+    if (!thumbnailRequests().has(itemId)) {
+      setThumbnailRequests((prev) => new Set([...prev, itemId]));
       feed.actions.getThumbnails(itemId);
       addLog(`🖼️ Requesting thumbnails for ${itemId.slice(0, 8)}`);
     }
   };
+
+  // Derived data from the processing hook
+  const availableMimeCategories = createMemo(() => data.mimeCategories());
+  const availableBlobTypes = createMemo(() => data.blobTypes());
 
   const visibleColumns = createMemo((): GridColumn<MediaBlob>[] => {
     const vis = responsiveColumns.responsiveColumnVisibility();
@@ -664,7 +457,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
             size={40}
             apiBaseUrl={props.apiBaseUrl}
             onRequestThumbnails={requestThumbnails}
-            requestedThumbnails={requestedThumbnails()}
+            requestedThumbnails={thumbnailRequests()}
             showIndicators={true}
           />
         ),
@@ -782,8 +575,8 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
             onClick={(e) => {
               e.stopPropagation();
               const rect = e.currentTarget.getBoundingClientRect();
-              setHeaderActionMenu({
-                isOpen: !headerActionMenu()?.isOpen,
+              state.setHeaderActionMenu({
+                isOpen: !state.headerActionMenu()?.isOpen,
                 position: {
                   x: rect.left + rect.width / 2,
                   y: rect.bottom + 5,
@@ -792,9 +585,9 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
             }}
             title="Controls"
             style={`
-              background: ${headerActionMenu()?.isOpen ? "#ff00ff" : "#333"};
-              border: 1px solid ${headerActionMenu()?.isOpen ? "#ff00ff" : "#555"};
-              color: ${headerActionMenu()?.isOpen ? "#000" : "#fff"};
+              background: ${state.headerActionMenu()?.isOpen ? "#ff00ff" : "#333"};
+              border: 1px solid ${state.headerActionMenu()?.isOpen ? "#ff00ff" : "#555"};
+              color: ${state.headerActionMenu()?.isOpen ? "#000" : "#fff"};
               padding: 4px 8px;
               border-radius: 4px;
               cursor: pointer;
@@ -859,102 +652,66 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     return columns;
   });
 
-  const mimeCategories = createMemo(() => {
-    return [
-      ...new Set(
-        feed
-          .state()
-          .items.map((item) => item.mime?.split("/")[0])
-          .filter(Boolean)
-      ),
-    ].sort() as string[];
-  });
-
-  const blobTypes = createMemo(() => {
-    const unique = [
-      ...new Set(feed.state().items.map((item) => item.blob_type)),
-    ];
-    return unique.sort();
-  });
-
   // Actions
   const updateFilter = (key: keyof FilterConfig, value: any) => {
-    setFilterConfig((prev) => ({ ...prev, [key]: value }));
-    saveState({ filterConfig: { ...filterConfig(), [key]: value } });
+    state.updateFilter(key, value);
   };
 
   const handleSort = (field: string, direction: "asc" | "desc") => {
-    setSortConfig({ field, direction });
-    saveState({ sortConfig: { field: field as SortField, direction } });
+    state.handleSort(field, direction);
   };
 
   const toggleColumnVisibility = (column: keyof ColumnVisibility) => {
-    setColumnVisibility((prev) => {
-      const updated = { ...prev, [column]: !prev[column] };
-      saveState({ columnVisibility: updated });
-      return updated;
-    });
+    state.toggleColumn(column);
   };
 
   const toggleBrowsePanel = () => {
-    setIsBrowsePanelOpen((prev) => {
-      const newValue = !prev;
-      saveState({ isBrowsePanelOpen: newValue });
-      return newValue;
-    });
+    state.toggleBrowsePanel();
   };
 
   const toggleFilterPanel = () => {
-    setIsFilterPanelOpen((prev) => {
-      const newValue = !prev;
-      saveState({ isFilterPanelOpen: newValue });
-      return newValue;
-    });
+    state.toggleFilterPanel();
   };
 
   const toggleSettingsPanel = () => {
-    setIsSettingsPanelOpen((prev) => {
-      const newValue = !prev;
-      saveState({ isSettingsPanelOpen: newValue });
-      return newValue;
-    });
+    state.toggleSettingsPanel();
   };
 
-  // Reactive effects for feed state monitoring
-  createEffect(() => {
-    const items = feed.state().items;
-    if (items.length > 0) {
-      addLog(`📊 Feed updated: ${items.length} items available`);
-    }
-  });
+  // Reactive effects for feed state monitoring - COMMENTED OUT DUE TO INFINITE RECURSION
+  // createEffect(() => {
+  //   const items = feed.state().items;
+  //   if (items.length > 0) {
+  //     addLog(`📦 Loaded ${items.length} items from feed`);
+  //   }
+  // });
 
-  // Monitor thumbnail requests
-  createEffect(() => {
-    const requestedSet = feed.state().requestedThumbnails;
-    if (requestedSet.size > 0) {
-      addLog(`🖼️ Thumbnail requests: ${requestedSet.size} items`);
-    }
-  });
+  // // Monitor thumbnail requests
+  // createEffect(() => {
+  //   const requestedSet = feed.state().requestedThumbnails;
+  //   if (requestedSet.size > 0) {
+  //     addLog(`🖼️ ${requestedSet.size} thumbnails requested`);
+  //   }
+  // });
 
-  createEffect(() => {
-    const status = feed.state().connectionStatus;
-    addLog(`🔌 Connection status: ${status}`);
-  });
+  // createEffect(() => {
+  //   const status = feed.state().connectionStatus;
+  //   addLog(`🔌 Connection status: ${status}`);
+  // });
 
-  createEffect(() => {
-    if (feed.state().hasPendingUpdates) {
-      addLog(
-        `📥 ${feed.state().pendingUpdates.length} pending updates available`
-      );
-    }
-  });
+  // createEffect(() => {
+  //   if (feed.state().hasPendingUpdates) {
+  //     addLog(
+  //       `⏳ ${feed.state().pendingUpdates.length} pending updates available`
+  //     );
+  //   }
+  // });
 
   // Component initialization
   onMount(() => {
     addLog("🚀 FreqholeDemo mounted");
-    addLog(`🔌 WebSocket URL: ${wsUrl()}`);
+    addLog(`🔌 WebSocket URL: ${state.wsUrl()}`);
 
-    if (autoConnect()) {
+    if (state.autoConnect()) {
       addLog("🔌 Auto-connecting to WebSocket...");
     }
   });
@@ -972,15 +729,14 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     >
       {/* Browse Panel */}
       <BrowsePanel
-        isOpen={isBrowsePanelOpen()}
-        filterConfig={filterConfig()}
+        isOpen={state.isBrowsePanelOpen()}
+        filterConfig={state.filterConfig()}
         onTogglePanel={toggleBrowsePanel}
         onFilterChange={updateFilter}
         onWidthChange={(width) => {
-          setBrowsePanelWidth(width);
-          saveState({ browsePanelWidth: width });
+          state.setBrowsePanelWidth(width);
         }}
-        initialWidth={browsePanelWidth()}
+        initialWidth={state.browsePanelWidth()}
       />
 
       {/* Selection Toolbar - Clean modular component */}
@@ -1001,11 +757,11 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       {/* Main Content */}
       <div style="flex: 1; position: relative; overflow-y: hidden; overflow-x: auto; min-width: 0;">
         <InfiniteDataGrid
-          data={sortedData() as any}
+          data={data.sortedData() as any}
           columns={visibleColumns()}
           onSort={handleSort}
-          sortField={sortConfig().field}
-          sortDirection={sortConfig().direction as "asc" | "desc"}
+          sortField={state.sortConfig().field}
+          sortDirection={state.sortConfig().direction as "asc" | "desc"}
           defaultSort={{ field: "created_at", direction: "desc" }}
           rowHeight={viewModes.getRowHeight()}
           headerHeight={60}
@@ -1029,7 +785,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
       {/* Edge Toggle Buttons */}
       <EdgeToggleButton
-        isVisible={!isBrowsePanelOpen()}
+        isVisible={!state.isBrowsePanelOpen()}
         position="left"
         panelName="Browse"
         onClick={toggleBrowsePanel}
@@ -1070,21 +826,20 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
       {/* Filter Only Panel */}
       <FilterOnlyPanel
-        isOpen={isFilterPanelOpen()}
-        filterConfig={filterConfig()}
-        columnVisibility={columnVisibility()}
+        isOpen={state.isFilterPanelOpen()}
+        filterConfig={state.filterConfig()}
+        columnVisibility={state.columnVisibility()}
         onTogglePanel={toggleFilterPanel}
         onFilterChange={updateFilter}
         onColumnToggle={toggleColumnVisibility}
         onWidthChange={(width) => {
-          setFilterPanelWidth(width);
-          saveState({ filterPanelWidth: width });
+          state.setFilterPanelWidth(width);
         }}
-        initialWidth={filterPanelWidth()}
-        mimeCategories={mimeCategories()}
-        blobTypeCategories={blobTypes()}
+        initialWidth={state.filterPanelWidth()}
+        mimeCategories={availableMimeCategories()}
+        blobTypeCategories={availableBlobTypes()}
         totalCount={feed.state().items.length}
-        filteredCount={filteredData().length}
+        filteredCount={data.filteredData().length}
         // Responsive columns info
         responsiveColumnVisibility={responsiveColumns.responsiveColumnVisibility()}
         hiddenColumns={responsiveColumns.getHiddenColumns()}
@@ -1094,20 +849,20 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
       {/* Settings Panel */}
       <SettingsPanel
-        isOpen={isSettingsPanelOpen()}
-        wsUrl={wsUrl()}
-        autoConnect={autoConnect()}
-        autoRefresh={autoRefresh()}
-        debug={debug()}
+        isOpen={state.isSettingsPanelOpen()}
+        wsUrl={state.wsUrl()}
+        autoConnect={state.autoConnect()}
+        autoRefresh={state.autoRefresh()}
+        debug={state.debug()}
         connectionStatus={connectionStatus()}
         hasPendingUpdates={hasPendingUpdates()}
         pendingUpdatesCount={feed.state().pendingUpdates.length}
-        filteredCount={filteredData().length}
+        filteredCount={data.filteredData().length}
         totalCount={feed.state().items.length}
         lastUpdated={lastUpdated()}
-        logs={logs()}
+        logs={state.logs()}
         onTogglePanel={toggleSettingsPanel}
-        onWsUrlChange={setWsUrl}
+        onWsUrlChange={state.setWsUrl}
         onConnect={() => {
           feed.actions.connect();
           addLog("🔌 Connecting to WebSocket...");
@@ -1125,32 +880,31 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
           addLog("✅ Applied pending updates");
         }}
         onToggleAutoConnect={() => {
-          setAutoConnect((prev) => !prev);
-          addLog(`🔧 Auto-connect: ${!autoConnect() ? "ON" : "OFF"}`);
+          state.setAutoConnect(!state.autoConnect());
+          addLog(`🔧 Auto-connect: ${state.autoConnect() ? "ON" : "OFF"}`);
         }}
         onToggleAutoRefresh={() => {
-          setAutoRefresh((prev) => !prev);
-          addLog(`🔧 Auto-refresh: ${!autoRefresh() ? "ON" : "OFF"}`);
+          state.setAutoRefresh(!state.autoRefresh());
+          addLog(`🔧 Auto-refresh: ${state.autoRefresh() ? "ON" : "OFF"}`);
         }}
         onToggleDebug={() => {
-          setDebug((prev) => !prev);
-          addLog(`🐛 Debug: ${!debug() ? "ON" : "OFF"}`);
+          state.setDebug(!state.debug());
+          addLog(`🐛 Debug: ${state.debug() ? "ON" : "OFF"}`);
         }}
         onReset={() => {
           if (
             confirm(
-              "Reset all filters, sort settings, and panel width? This will reload the page."
+              "Reset all settings and data? This will clear all stored preferences."
             )
           ) {
-            localStorage.removeItem(STORAGE_KEY);
-            window.location.reload();
+            localStorage.removeItem("freqhole-demo-state");
+            location.reload();
           }
         }}
         onWidthChange={(width) => {
-          setSettingsPanelWidth(width);
-          saveState({ settingsPanelWidth: width });
+          state.setSettingsPanelWidth(width);
         }}
-        initialWidth={settingsPanelWidth()}
+        initialWidth={state.settingsPanelWidth()}
       />
 
       <style>{`
@@ -1172,28 +926,28 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
       {/* Popup Preview */}
       <PopupPreview
-        item={popupPreview()?.item || null}
-        isOpen={popupPreview()?.isOpen || false}
+        item={state.popupPreview()?.item || null}
+        isOpen={state.popupPreview()?.isOpen || false}
         onClose={closePopupPreview}
       />
 
       {/* Action Menu */}
       <ActionMenu
-        item={actionMenu()?.item || null}
-        isOpen={actionMenu()?.isOpen || false}
-        position={actionMenu()?.position || { x: 0, y: 0 }}
+        item={state.actionMenu()?.item || null}
+        isOpen={state.actionMenu()?.isOpen || false}
+        position={state.actionMenu()?.position || { x: 0, y: 0 }}
         onClose={closeActionMenu}
         onDownload={handleDownload}
-        onPreview={(item) => setPopupPreview({ item, isOpen: true })}
+        onPreview={(item) => state.setPopupPreview({ item, isOpen: true })}
         onDelete={handleDeleteItem}
         onCopyUrl={handleCopyUrl}
       />
 
       {/* Bulk Action Menu */}
       <BulkActionMenu
+        isOpen={state.bulkActionMenu()?.isOpen || false}
+        position={state.bulkActionMenu()?.position || { x: 0, y: 0 }}
         selectedCount={selection.selectedItems().size}
-        isOpen={bulkActionMenu()?.isOpen || false}
-        position={bulkActionMenu()?.position || { x: 0, y: 0 }}
         onClose={closeBulkActionMenu}
         onDownloadAll={handleBulkDownload}
         onDeleteAll={handleBulkDelete}
@@ -1202,25 +956,25 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 
       {/* Confirm Dialog */}
       <ConfirmDialog
-        isOpen={confirmDialog()?.isOpen || false}
-        title={confirmDialog()?.title || ""}
-        message={confirmDialog()?.message || ""}
-        items={confirmDialog()?.items}
-        onConfirm={confirmDialog()?.onConfirm || (() => {})}
-        onCancel={() => setConfirmDialog(null)}
+        isOpen={state.confirmDialog()?.isOpen || false}
+        title={state.confirmDialog()?.title || ""}
+        message={state.confirmDialog()?.message || ""}
+        items={state.confirmDialog()?.items}
+        onConfirm={state.confirmDialog()?.onConfirm || (() => {})}
+        onCancel={() => state.setConfirmDialog(null)}
       />
 
       {/* Header Action Menu */}
       <HeaderActionMenu
-        isOpen={headerActionMenu()?.isOpen || false}
-        position={headerActionMenu()?.position || { x: 0, y: 0 }}
+        isOpen={state.headerActionMenu()?.isOpen || false}
+        position={state.headerActionMenu()?.position || { x: 0, y: 0 }}
         onClose={closeHeaderActionMenu}
         onFilterPanel={handleHeaderFilterPanel}
         onSettingsPanel={handleHeaderSettingsPanel}
         onCycleViewMode={handleHeaderViewModeChange}
         currentViewMode={viewModes.viewMode()}
-        isFilterPanelOpen={isFilterPanelOpen()}
-        isSettingsPanelOpen={isSettingsPanelOpen()}
+        isFilterPanelOpen={state.isFilterPanelOpen()}
+        isSettingsPanelOpen={state.isSettingsPanelOpen()}
       />
 
       {/* Drag Selection Overlay */}
