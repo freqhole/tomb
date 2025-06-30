@@ -1,9 +1,8 @@
-
 import { Show, createSignal, onCleanup, createEffect } from "solid-js";
-import { useFreqholeStateContext } from "../context/FreqholeStateContext";
+import { useFreqholeAppContext } from "../context/FreqholeStateContext";
 
 export function BulkActionMenu() {
-  const state = useFreqholeStateContext();
+  const { state, selection } = useFreqholeAppContext();
   let menuRef: HTMLDivElement | undefined;
   const [adjustedPosition, setAdjustedPosition] = createSignal({ x: 0, y: 0 });
 
@@ -82,8 +81,7 @@ export function BulkActionMenu() {
   };
 
   const handleClearSelection = () => {
-    // TODO: Clear selection from context
-    console.log("🔄 Clear selection requested");
+    selection.clearSelection();
     state.setBulkActionMenu(null);
   };
 
@@ -120,7 +118,7 @@ export function BulkActionMenu() {
           `}
         >
           <span>⚡</span>
-          <span>Bulk Actions ({0} selected)</span>
+          <span>Bulk Actions ({selection.selectedItems().size} selected)</span>
         </div>
 
         {/* Menu Items */}

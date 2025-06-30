@@ -1,4 +1,4 @@
-import { createMemo } from "solid-js";
+import { createMemo, createEffect } from "solid-js";
 import { InfiniteDataGrid } from "../../../components/infinite-data-grid";
 import type { GridColumn } from "../../../components/infinite-data-grid/types";
 import type { MediaBlob } from "../../../lib/websocket-types";
@@ -42,6 +42,34 @@ export function FreqholeDataGrid(props: FreqholeDataGridProps) {
     items: () => feed.state().items,
     filterConfig: state.filterConfig,
     sortConfig: state.sortConfig,
+  });
+
+  // Cancel drag selection when any modal/overlay opens
+  createEffect(() => {
+    const popup = state.popupPreview();
+    const actionMenu = state.actionMenu();
+    const bulkActionMenu = state.bulkActionMenu();
+    const headerActionMenu = state.headerActionMenu();
+    const confirmDialog = state.confirmDialog();
+
+    // Check if any modal/overlay is open
+    const hasModalOpen =
+      popup?.isOpen ||
+      actionMenu?.isOpen ||
+      bulkActionMenu?.isOpen ||
+      headerActionMenu?.isOpen ||
+      confirmDialog?.isOpen;
+
+    if (
+      hasModalOpen &&
+      (selection.isDragSelecting() || selection.dragStart())
+    ) {
+      // Cancel drag selection when any modal opens
+      selection.setIsDragSelecting(false);
+      selection.setDragStart(null);
+      selection.setDragEnd(null);
+      addLog("🚫 Cancelled drag selection due to modal/overlay");
+    }
   });
 
   // Keyboard navigation

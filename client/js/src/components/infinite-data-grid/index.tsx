@@ -129,6 +129,12 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
   };
 
   const handleRowDoubleClick = (item: T, index: number, event: MouseEvent) => {
+    // Cancel any active drag selection when double-clicking
+    if (isDragSelecting()) {
+      setIsDragSelecting(false);
+      setDragStart(null);
+      setDragEnd(null);
+    }
     props.onRowDoubleClick?.(item, index, event);
   };
 
@@ -225,6 +231,20 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
 
   // Mouse move handler for drag selection
   const handleMouseMove = (event: MouseEvent) => {
+    // Check if body has modal-open class or overflow hidden (popup is open)
+    const hasOverflowHidden = document.body.style.overflow === "hidden";
+    const hasModalClass = document.body.classList.contains("modal-open");
+
+    if (hasOverflowHidden || hasModalClass) {
+      // Completely terminate drag selection if modal is open
+      if (isDragSelecting() || dragStart()) {
+        setIsDragSelecting(false);
+        setDragStart(null);
+        setDragEnd(null);
+      }
+      return;
+    }
+
     const start = dragStart();
 
     // Start drag selection if we've moved enough
@@ -267,6 +287,10 @@ export function InfiniteDataGrid<T = any>(props: GridProps<T>) {
       setIsDragSelecting(false);
       setDragStart(null);
       setDragEnd(null);
+    } else {
+      // Clear dragStart even if we weren't actively dragging
+      // to prevent accidental drag selection on subsequent mouse moves
+      setDragStart(null);
     }
   };
 

@@ -12,6 +12,20 @@ This document contains **ONLY** the remaining tasks that still need to be implem
 
 ---
 
+## 🚨 MISSING FUNCTIONALITY (TODO Items from Code)
+
+### **Action System Implementation**
+
+- [ ] **Single item delete API** - Implement actual delete API call in ActionMenu.tsx (currently just console.log)
+- [ ] **Bulk delete functionality** - Wire up bulk delete in BulkActionMenu.tsx with proper confirmation dialog
+- [ ] **Bulk download system** - Implement bulk download functionality in BulkActionMenu.tsx and SelectionToolbar.tsx
+- [ ] **View mode cycling** - Add view mode cycling functionality in HeaderActionMenu.tsx (hook already exists)
+- [ ] **Delete API endpoint** - Backend needs DELETE /api/blobs/{id} for single delete
+- [ ] **Bulk delete API endpoint** - Backend needs DELETE /api/blobs with body containing IDs for bulk delete
+- [ ] **Download API endpoints** - Backend needs GET /api/blobs/{id}/download and bulk download (zip generation)
+
+---
+
 ## 🔧 MISSING CORE FEATURES
 
 ### **1. Multi-Select System**

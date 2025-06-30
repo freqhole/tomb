@@ -1,12 +1,29 @@
-
-import { Show, onMount, onCleanup } from "solid-js";
+import { Show, onMount, onCleanup, createSignal } from "solid-js";
 import { getDisplayFilename } from "../../../lib/media-utils";
 import { formatBytes } from "../../../lib/format-utils";
-import { useFreqholeStateContext } from "../context/FreqholeStateContext";
+import {
+  useFreqholeStateContext,
+  useFreqholeAppContext,
+} from "../context/FreqholeStateContext";
+import { Thumbnail } from "./Thumbnail";
 
 export function PopupPreview() {
   const state = useFreqholeStateContext();
+  const { addLog } = useFreqholeAppContext();
   let overlayRef: HTMLDivElement | undefined;
+
+  // Track thumbnail requests to avoid duplicates
+  const [thumbnailRequests, setThumbnailRequests] = createSignal<Set<string>>(
+    new Set()
+  );
+
+  // Helper function to request thumbnails
+  const requestThumbnails = (itemId: string) => {
+    if (!thumbnailRequests().has(itemId)) {
+      setThumbnailRequests((prev) => new Set([...prev, itemId]));
+      addLog(`🖼️ Requesting thumbnails for ${itemId.slice(0, 8)}`);
+    }
+  };
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
@@ -201,7 +218,15 @@ export function PopupPreview() {
                           padding: 40px;
                         `}
                       >
-                        <div style="font-size: 4rem;">🎵</div>
+                        <Thumbnail
+                          item={item()}
+                          size={200}
+                          apiBaseUrl="/api"
+                          onRequestThumbnails={requestThumbnails}
+                          requestedThumbnails={thumbnailRequests()}
+                          showIndicators={true}
+                          borderRadius="8px"
+                        />
                         <div style="font-size: 18px; font-weight: 600; color: #e0e0e0;">
                           {filename}
                         </div>
