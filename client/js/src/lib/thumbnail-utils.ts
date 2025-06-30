@@ -3,20 +3,7 @@
  * Framework-agnostic functions for thumbnail generation, caching, and display
  */
 
-export interface MediaBlob {
-  id: string;
-  mime?: string;
-  blob_type: string;
-  size: number;
-  parent_id?: string;
-  local_path?: string;
-  created_at: string;
-  updated_at: string;
-  filename?: string;
-  sha256?: string;
-  metadata?: any;
-  data?: number[]; // Binary data as array of bytes
-}
+import type { MediaBlob } from "./websocket-types";
 
 export interface ThumbnailInfo {
   id: string;

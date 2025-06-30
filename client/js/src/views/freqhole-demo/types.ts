@@ -1,18 +1,8 @@
 // MediaBlob-specific types for freqhole demo
+// Note: Using WebSocket MediaBlob type from lib/websocket-types.ts for data compatibility
 
-export interface MediaBlob {
-  id: string;
-  mime?: string;
-  blob_type: string;
-  size: number;
-  parent_id?: string;
-  local_path?: string;
-  created_at: string;
-  updated_at: string;
-  filename?: string;
-  sha256?: string;
-  metadata?: any;
-}
+import type { MediaBlob } from "../../lib/websocket-types";
+export type { MediaBlob };
 
 export type SortField =
   | "id"
@@ -47,7 +37,7 @@ export interface ColumnVisibility {
   mime: boolean;
   blob_type: boolean;
   size: boolean;
-  parent_id: boolean;
+  parent_blob_id: boolean;
   local_path: boolean;
   created_at: boolean;
   updated_at: boolean;

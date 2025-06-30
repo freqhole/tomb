@@ -1,6 +1,5 @@
 import { createSignal } from "solid-js";
 import type {
-  MediaBlob,
   FilterConfig,
   SortConfig,
   SortField,
@@ -8,6 +7,7 @@ import type {
   ColumnVisibility,
   GridState,
 } from "../types";
+import type { MediaBlob } from "../../../lib/websocket-types";
 import { getDisplayFilename } from "../../../lib/media-utils";
 
 const STORAGE_KEY = "freqhole-demo-state";
@@ -123,7 +123,7 @@ export function useFreqholeState(): FreqholeStateHook {
       mime: true,
       blob_type: true,
       size: true,
-      parent_id: false,
+      parent_blob_id: false,
       local_path: false,
       created_at: true,
       updated_at: false,
@@ -234,7 +234,7 @@ export function useFreqholeState(): FreqholeStateHook {
 
       // Parent filter
       if (config.hasParent !== "all") {
-        const hasParent = !!item.parent_id;
+        const hasParent = !!item.parent_blob_id;
         if (
           (config.hasParent === "yes" && !hasParent) ||
           (config.hasParent === "no" && hasParent)

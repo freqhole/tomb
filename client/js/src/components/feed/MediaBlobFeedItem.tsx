@@ -90,7 +90,26 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
 
   // Thumbnail helpers for DisplayMediaBlob
   const thumbnails = createMemo(() => {
-    return (props.item.metadata?.thumbnails as MediaBlob[]) || [];
+    const thumbs = (props.item.metadata?.thumbnails as MediaBlob[]) || [];
+    console.log(
+      `[MediaBlobFeedItem] Thumbnails for ${props.item.id.slice(0, 8)}:`,
+      {
+        hasThumbnails: thumbs.length > 0,
+        thumbnailCount: thumbs.length,
+        firstThumbnail: thumbs[0]
+          ? {
+              id: thumbs[0].id.slice(0, 8),
+              hasData: !!thumbs[0].data,
+              dataLength: thumbs[0].data?.length || 0,
+              hasThumbnailData: !!thumbs[0].thumbnail_data,
+              thumbnailDataLength: thumbs[0].thumbnail_data?.length || 0,
+              mime: thumbs[0].mime,
+              blobType: thumbs[0].blob_type,
+            }
+          : null,
+      }
+    );
+    return thumbs;
   });
 
   const itemHasThumbnails = createMemo(() => {
@@ -194,10 +213,44 @@ export function MediaBlobFeedItemComponent(props: MediaBlobFeedItemProps) {
     const thumbs = thumbnails();
     if (thumbs.length > 0 && thumbs[0]) {
       const thumbnail = thumbs[0];
+      console.log(
+        `[MediaBlobFeedItem] Thumbnail URL generation for ${props.item.id.slice(0, 8)}:`,
+        {
+          thumbnailId: thumbnail.id.slice(0, 8),
+          hasData: !!thumbnail.data,
+          dataLength: thumbnail.data?.length || 0,
+          hasThumbnailData: !!thumbnail.thumbnail_data,
+          thumbnailDataLength: thumbnail.thumbnail_data?.length || 0,
+          mime: thumbnail.mime,
+          willUseData: !!(thumbnail.data && thumbnail.data.length > 0),
+          willUseThumbnailData: !!(
+            thumbnail.thumbnail_data && thumbnail.thumbnail_data.length > 0
+          ),
+        }
+      );
+
       if (thumbnail.data && thumbnail.data.length > 0) {
         const mimeType = thumbnail.mime || "image/webp";
-        return createDataUrl(thumbnail.data, mimeType);
+        const url = createDataUrl(thumbnail.data, mimeType);
+        console.log(
+          `[MediaBlobFeedItem] Created data URL from .data: ${url.slice(0, 50)}...`
+        );
+        return url;
       }
+
+      // Try thumbnail_data if data is empty
+      if (thumbnail.thumbnail_data && thumbnail.thumbnail_data.length > 0) {
+        const mimeType = thumbnail.mime || "image/webp";
+        const url = createDataUrl(thumbnail.thumbnail_data, mimeType);
+        console.log(
+          `[MediaBlobFeedItem] Created data URL from .thumbnail_data: ${url.slice(0, 50)}...`
+        );
+        return url;
+      }
+
+      console.log(
+        `[MediaBlobFeedItem] Falling back to HTTP endpoint: /api/media-blobs/${thumbnail.id}/download`
+      );
       return `/api/media-blobs/${thumbnail.id}/download`;
     }
     return null;

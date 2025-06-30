@@ -3,19 +3,8 @@
  * Framework-agnostic functions for media file handling
  */
 
-export interface MediaBlob {
-  id: string;
-  mime?: string;
-  blob_type: string;
-  size: number;
-  parent_id?: string;
-  local_path?: string;
-  created_at: string;
-  updated_at: string;
-  filename?: string;
-  sha256?: string;
-  metadata?: any;
-}
+import type { MediaBlob } from "./websocket-types";
+export type { MediaBlob };
 
 /**
  * Extract a display-friendly filename from a MediaBlob
@@ -41,7 +30,6 @@ export function getDisplayFilename(item: MediaBlob): string {
     }
   }
   return (
-    item.filename ||
     item.local_path?.split("/").pop() ||
     `${item.sha256?.slice(0, 8) || item.id.slice(0, 8)}...${item.sha256?.slice(-4) || item.id.slice(-4)}`
   );

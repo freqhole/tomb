@@ -54,10 +54,11 @@ export function FilterPanel(props: FilterPanelProps) {
   const allColumns = [
     { key: "id", title: "ID" },
     { key: "thumbnail", title: "Thumbnail" },
+    { key: "name", title: "Name" },
     { key: "mime", title: "MIME" },
     { key: "blob_type", title: "Type" },
     { key: "size", title: "Size" },
-    { key: "parent_id", title: "Parent" },
+    { key: "parent_blob_id", title: "Parent" },
     { key: "local_path", title: "Path" },
     { key: "created_at", title: "Created" },
     { key: "updated_at", title: "Updated" },

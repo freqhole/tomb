@@ -1,12 +1,19 @@
-import { createSignal, createMemo, onMount, onCleanup, Show } from "solid-js";
+import {
+  createSignal,
+  createMemo,
+  createEffect,
+  onMount,
+  onCleanup,
+  Show,
+} from "solid-js";
 import type {
-  MediaBlob,
   FilterConfig,
   GridViewMode,
   ColumnVisibility,
   GridState,
   SortField,
 } from "./types";
+import type { MediaBlob } from "../../lib/websocket-types";
 import { BrowsePanel } from "./BrowsePanel";
 import { FilterPanel } from "./FilterPanel";
 import { EdgeToggleButton } from "./EdgeToggleButton";
@@ -14,11 +21,11 @@ import { SelectionToolbar } from "./components/SelectionToolbar";
 import { useSelection } from "./hooks/useSelection";
 import { InfiniteDataGrid } from "../../components/infinite-data-grid";
 import type { GridColumn } from "../../components/infinite-data-grid/types";
-import {
-  getDisplayFilename,
-  getThumbnailFallbackIcon,
-} from "../../lib/media-utils";
+import { Thumbnail } from "./components/Thumbnail";
+import { getDisplayFilename } from "../../lib/media-utils";
 import { formatBytes } from "../../lib/format-utils";
+import { useWebSocketFeed } from "../../hooks/useWebSocketFeed";
+import type { NotificationChannel } from "../../lib/websocket-types";
 
 export interface FreqholeDemoProps {
   wsUrl: string;
@@ -53,8 +60,16 @@ function saveState(updates: Partial<GridState>) {
 export function FreqholeDemo(props: FreqholeDemoProps) {
   const initialState = loadState();
 
+  // WebSocket feed integration
+  const feed = useWebSocketFeed({
+    wsUrl: props.wsUrl,
+    channels: ["MediaBlobs"] as NotificationChannel[],
+    debug: initialState.debug ?? false,
+    autoConnect: props.autoConnect,
+    autoRefresh: initialState.autoRefresh ?? true,
+  });
+
   // State
-  const [items, setItems] = createSignal<MediaBlob[]>([]);
   const [filterConfig, setFilterConfig] = createSignal<FilterConfig>({
     name: "",
     mime: "",
@@ -84,7 +99,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       mime: true,
       blob_type: true,
       size: true,
-      parent_id: false,
+      parent_blob_id: false,
       local_path: false,
       created_at: true,
       updated_at: false,
@@ -112,10 +127,15 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   const [debug, setDebug] = createSignal(false);
   const [logs, setLogs] = createSignal<string[]>([]);
 
-  // Mock WebSocket state
-  const [connectionStatus, setConnectionStatus] = createSignal("Disconnected");
-  const [hasPendingUpdates, setHasPendingUpdates] = createSignal(false);
-  const [lastUpdated, setLastUpdated] = createSignal<Date | null>(null);
+  // Real WebSocket state from feed
+  const connectionStatus = () => feed.state().connectionStatus;
+  const hasPendingUpdates = () => feed.state().hasPendingUpdates;
+  const lastUpdated = () => feed.state().lastUpdated;
+
+  // Track thumbnail requests to avoid duplicates
+  const [requestedThumbnails, setRequestedThumbnails] = createSignal<
+    Set<string>
+  >(new Set());
 
   // Selection hook with storage integration
   const selection = useSelection({
@@ -207,11 +227,11 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   // Computed values
   const filteredData = createMemo(() => {
     const config = filterConfig();
-    return items().filter((item) => {
+    return feed.state().items.filter((item) => {
       // Name filter
       if (
         config.name &&
-        !getDisplayFilename(item)
+        !getDisplayFilename(item as any)
           .toLowerCase()
           .includes(config.name.toLowerCase())
       ) {
@@ -229,13 +249,16 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       }
 
       // Size filter
-      if (item.size < config.minSize || item.size > config.maxSize) {
+      if (
+        (item.size || 0) < config.minSize ||
+        (item.size || 0) > config.maxSize
+      ) {
         return false;
       }
 
       // Has parent filter
       if (config.hasParent !== "all") {
-        const hasParent = !!item.parent_id;
+        const hasParent = !!item.parent_blob_id;
         if (config.hasParent === "yes" && !hasParent) return false;
         if (config.hasParent === "no" && hasParent) return false;
       }
@@ -267,6 +290,15 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     });
   });
 
+  // Helper function to request thumbnails
+  const requestThumbnails = (itemId: string) => {
+    if (!requestedThumbnails().has(itemId)) {
+      setRequestedThumbnails((prev) => new Set([...prev, itemId]));
+      feed.actions.getThumbnails(itemId);
+      addLog(`🖼️ Requesting thumbnails for ${itemId.slice(0, 8)}`);
+    }
+  };
+
   const visibleColumns = createMemo((): GridColumn<MediaBlob>[] => {
     const vis = columnVisibility();
     const columns: GridColumn<MediaBlob>[] = [];
@@ -278,21 +310,14 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         title: "📷",
         width: 60,
         render: (item) => (
-          <div
-            style={`
-              width: 40px;
-              height: 40px;
-              border-radius: 4px;
-              overflow: hidden;
-              background: #333;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 12px;
-            `}
-          >
-            {getThumbnailFallbackIcon(item.mime)}
-          </div>
+          <Thumbnail
+            item={item}
+            size={40}
+            apiBaseUrl={props.apiBaseUrl}
+            onRequestThumbnails={requestThumbnails}
+            requestedThumbnails={requestedThumbnails()}
+            showIndicators={true}
+          />
         ),
       });
     }
@@ -354,16 +379,16 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         title: "Size",
         width: 100,
         sortable: true,
-        render: (item) => <span>{formatBytes(item.size)}</span>,
+        render: (item) => <span>{formatBytes(item.size || 0)}</span>,
       });
     }
 
-    if (vis.parent_id) {
+    if (vis.parent_blob_id) {
       columns.push({
-        key: "parent_id",
+        key: "parent_blob_id",
         title: "Parent",
         width: 120,
-        render: (item) => <span>{item.parent_id ? "Yes" : "No"}</span>,
+        render: (item) => <span>{item.parent_blob_id ? "Yes" : "No"}</span>,
       });
     }
 
@@ -431,18 +456,20 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
   });
 
   const mimeCategories = createMemo(() => {
-    const unique = [
+    return [
       ...new Set(
-        items()
-          .map((item) => item.mime?.split("/")[0])
+        feed
+          .state()
+          .items.map((item) => item.mime?.split("/")[0])
           .filter(Boolean)
       ),
-    ] as string[];
-    return unique.sort();
+    ].sort() as string[];
   });
 
   const blobTypes = createMemo(() => {
-    const unique = [...new Set(items().map((item) => item.blob_type))];
+    const unique = [
+      ...new Set(feed.state().items.map((item) => item.blob_type)),
+    ];
     return unique.sort();
   });
 
@@ -491,32 +518,42 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
     setLogs((prev) => [`${timestamp}: ${message}`, ...prev.slice(0, 49)]);
   };
 
-  // Mock data loading
-  onMount(async () => {
-    addLog("🚀 FreqholeDemo mounted");
-
-    try {
-      const response = await fetch(`${props.apiBaseUrl}/api/blobs`);
-      if (response.ok) {
-        const data = await response.json();
-        setItems(data);
-        setLastUpdated(new Date());
-        addLog(`📦 Loaded ${data.length} media blobs`);
-      } else {
-        // Fallback to mock data
-        addLog("⚠️ Using mock data (server not available)");
-        setItems(generateMockData());
-        setLastUpdated(new Date());
-      }
-    } catch (error) {
-      addLog("⚠️ Using mock data (server error)");
-      setItems(generateMockData());
-      setLastUpdated(new Date());
+  // Reactive effects for feed state monitoring
+  createEffect(() => {
+    const items = feed.state().items;
+    if (items.length > 0) {
+      addLog(`📊 Feed updated: ${items.length} items available`);
     }
+  });
 
-    if (props.autoConnect) {
-      setConnectionStatus("Connected");
-      addLog("🔌 Auto-connected to WebSocket");
+  // Monitor thumbnail requests
+  createEffect(() => {
+    const requestedSet = feed.state().requestedThumbnails;
+    if (requestedSet.size > 0) {
+      addLog(`🖼️ Thumbnail requests: ${requestedSet.size} items`);
+    }
+  });
+
+  createEffect(() => {
+    const status = feed.state().connectionStatus;
+    addLog(`🔌 Connection status: ${status}`);
+  });
+
+  createEffect(() => {
+    if (feed.state().hasPendingUpdates) {
+      addLog(
+        `📥 ${feed.state().pendingUpdates.length} pending updates available`
+      );
+    }
+  });
+
+  // Component initialization
+  onMount(() => {
+    addLog("🚀 FreqholeDemo mounted");
+    addLog(`🔌 WebSocket URL: ${wsUrl()}`);
+
+    if (autoConnect()) {
+      addLog("🔌 Auto-connecting to WebSocket...");
     }
   });
 
@@ -565,7 +602,7 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
       {/* Main Content */}
       <div style="flex: 1; position: relative; overflow: hidden; min-width: 0;">
         <InfiniteDataGrid
-          data={sortedData()}
+          data={sortedData() as any}
           columns={visibleColumns()}
           onSort={handleSort}
           sortField={sortConfig().field}
@@ -641,9 +678,9 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         debug={debug()}
         connectionStatus={connectionStatus()}
         hasPendingUpdates={hasPendingUpdates()}
-        pendingUpdatesCount={0}
+        pendingUpdatesCount={feed.state().pendingUpdates.length}
         filteredCount={filteredData().length}
-        totalCount={items().length}
+        totalCount={feed.state().items.length}
         sortConfig={sortConfig()}
         lastUpdated={lastUpdated()}
         mimeCategories={mimeCategories()}
@@ -655,30 +692,20 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
         onColumnToggle={toggleColumnVisibility}
         onWsUrlChange={setWsUrl}
         onConnect={() => {
-          setConnectionStatus("Connected");
-          addLog("🔌 Connected to WebSocket");
+          feed.actions.connect();
+          addLog("🔌 Connecting to WebSocket...");
         }}
         onDisconnect={() => {
-          setConnectionStatus("Disconnected");
-          addLog("🔌 Disconnected from WebSocket");
+          feed.actions.disconnect();
+          addLog("🔌 Disconnecting from WebSocket...");
         }}
-        onRefresh={async () => {
+        onRefresh={() => {
           addLog("🔄 Refreshing data...");
-          try {
-            const response = await fetch(`${props.apiBaseUrl}/api/blobs`);
-            if (response.ok) {
-              const data = await response.json();
-              setItems(data);
-              setLastUpdated(new Date());
-              addLog(`📦 Refreshed ${data.length} media blobs`);
-            }
-          } catch (error) {
-            addLog("❌ Refresh failed");
-          }
+          feed.actions.refresh();
         }}
         onApplyPendingUpdates={() => {
-          setHasPendingUpdates(false);
-          addLog("📥 Applied pending updates");
+          feed.actions.applyPendingUpdates();
+          addLog("✅ Applied pending updates");
         }}
         onToggleAutoConnect={() => {
           setAutoConnect((prev) => !prev);
@@ -730,35 +757,6 @@ export function FreqholeDemo(props: FreqholeDemoProps) {
 }
 
 // Helper functions moved to lib/media-utils.ts and lib/format-utils.ts
-
-function generateMockData(): MediaBlob[] {
-  const mimeTypes = [
-    "image/jpeg",
-    "image/png",
-    "video/mp4",
-    "audio/mp3",
-    "text/plain",
-    "application/pdf",
-  ];
-  const blobTypes = ["upload", "thumbnail", "processed", "backup"];
-
-  return Array.from({ length: 1000 }, (_, i) => ({
-    id: `blob-${i + 1}`,
-    mime: mimeTypes[Math.floor(Math.random() * mimeTypes.length)],
-    blob_type: blobTypes[Math.floor(Math.random() * blobTypes.length)],
-    size: Math.floor(Math.random() * 10000000),
-    parent_id:
-      Math.random() > 0.7
-        ? `blob-${Math.floor(Math.random() * i) + 1}`
-        : undefined,
-    local_path: Math.random() > 0.5 ? `/path/to/file-${i + 1}.ext` : undefined,
-    created_at: new Date(
-      Date.now() - Math.random() * 86400000 * 30
-    ).toISOString(),
-    updated_at: new Date(
-      Date.now() - Math.random() * 86400000 * 7
-    ).toISOString(),
-  })) as MediaBlob[];
-}
+// Mock data generation removed - now using real WebSocket feed data
 
 export default FreqholeDemo;
