@@ -1,18 +1,50 @@
 import { Show } from "solid-js";
+import { useFreqholeAppContext } from "../context/FreqholeStateContext";
 
-export interface SelectionToolbarProps {
-  selectedCount: number;
-  onDownload?: () => void;
-  onClear?: () => void;
-  onMore?: (event: MouseEvent) => void;
-  className?: string;
-}
+export function SelectionToolbar() {
+  const { selection, state, addLog } = useFreqholeAppContext();
 
-export function SelectionToolbar(props: SelectionToolbarProps) {
+  const handleDownload = () => {
+    const selectedCount = selection.selectedItems().size;
+    addLog(`📥 Downloading ${selectedCount} selected items`);
+    // TODO: Implement bulk download
+  };
+
+  const handleMore = (event: MouseEvent) => {
+    const currentMenu = state.bulkActionMenu();
+    if (currentMenu?.isOpen) {
+      // Close if already open
+      state.setBulkActionMenu(null);
+    } else {
+      // Position menu above the More button
+      const rect = (event.target as HTMLElement).getBoundingClientRect();
+      const position = {
+        x: rect.left + rect.width / 2 - 100, // Center horizontally
+        y: rect.top - 10, // Position above button
+      };
+
+      state.setBulkActionMenu({
+        isOpen: true,
+        position,
+      });
+
+      const selectedCount = selection.selectedItems().size;
+      addLog(`⋯ Bulk action menu opened for ${selectedCount} items`);
+    }
+  };
+
+  const handleClear = () => {
+    const selectedCount = selection.selectedItems().size;
+    selection.clearSelection();
+    addLog(`🗑️ Cleared selection of ${selectedCount} items`);
+  };
+
+  const selectedCount = () => selection.selectedItems().size;
+
   return (
-    <Show when={props.selectedCount > 1}>
+    <Show when={selectedCount() > 1}>
       <div
-        class={`selection-toolbar ${props.className || ""}`}
+        class="selection-toolbar"
         style={`
           position: fixed;
           bottom: 20px;
@@ -28,6 +60,7 @@ export function SelectionToolbar(props: SelectionToolbarProps) {
           z-index: 100;
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          animation: slideUp 0.3s ease-out;
         `}
       >
         <span
@@ -38,77 +71,83 @@ export function SelectionToolbar(props: SelectionToolbarProps) {
             font-size: 14px;
           `}
         >
-          {props.selectedCount} item{props.selectedCount === 1 ? "" : "s"}{" "}
-          selected
+          {selectedCount()} item{selectedCount() === 1 ? "" : "s"} selected
         </span>
 
-        <Show when={props.onDownload}>
-          <button
-            class="toolbar-button primary"
-            onClick={props.onDownload}
-            style={`
-              background: #ff00ff;
-              color: #000000;
-              border: none;
-              padding: 6px 12px;
-              border-radius: 4px;
-              cursor: pointer;
-              font-size: 12px;
-              font-weight: 600;
-              transition: all 0.2s ease;
-              user-select: none;
-            `}
-          >
-            📥 Download
-          </button>
-        </Show>
+        <button
+          class="toolbar-button primary"
+          onClick={handleDownload}
+          title="Download selected files"
+          style={`
+            background: #ff00ff;
+            color: #000000;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            user-select: none;
+          `}
+        >
+          📥 Download
+        </button>
 
-        <Show when={props.onMore}>
-          <button
-            class="toolbar-button secondary"
-            onClick={(e) => props.onMore?.(e)}
-            style={`
-              background: #333333;
-              color: #ffffff;
-              border: 1px solid #666666;
-              padding: 6px 12px;
-              border-radius: 4px;
-              cursor: pointer;
-              font-size: 12px;
-              transition: all 0.2s ease;
-              user-select: none;
-            `}
-          >
-            ⋯ More
-          </button>
-        </Show>
+        <button
+          class="toolbar-button secondary"
+          onClick={handleMore}
+          title="More actions"
+          style={`
+            background: #333333;
+            color: #ffffff;
+            border: 1px solid #666666;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s ease;
+            user-select: none;
+          `}
+        >
+          ⋯ More
+        </button>
 
-        <Show when={props.onClear}>
-          <button
-            class="toolbar-button clear"
-            onClick={props.onClear}
-            title="Clear selection"
-            style={`
-              background: transparent;
-              color: #888888;
-              border: 1px solid #555555;
-              padding: 6px 8px;
-              border-radius: 4px;
-              cursor: pointer;
-              font-size: 16px;
-              line-height: 1;
-              transition: all 0.2s ease;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              user-select: none;
-            `}
-          >
-            ×
-          </button>
-        </Show>
+        <button
+          class="toolbar-button clear"
+          onClick={handleClear}
+          title="Clear selection"
+          style={`
+            background: transparent;
+            color: #888888;
+            border: 1px solid #555555;
+            padding: 6px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+          `}
+        >
+          ×
+        </button>
 
         <style>{`
+          @keyframes slideUp {
+            from {
+              opacity: 0;
+              transform: translateX(-50%) translateY(20px);
+            }
+            to {
+              opacity: 1;
+              transform: translateX(-50%) translateY(0);
+            }
+          }
+
           .toolbar-button:hover {
             transform: translateY(-1px);
           }
@@ -116,6 +155,7 @@ export function SelectionToolbar(props: SelectionToolbarProps) {
           .toolbar-button.primary:hover {
             background: #ff33ff !important;
             color: #000000 !important;
+            box-shadow: 0 2px 8px rgba(255, 0, 255, 0.3);
           }
 
           .toolbar-button.secondary:hover {
@@ -127,6 +167,10 @@ export function SelectionToolbar(props: SelectionToolbarProps) {
             background: #333333 !important;
             color: #ffffff !important;
             border-color: #777777 !important;
+          }
+
+          .selection-toolbar:hover {
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
           }
         `}</style>
       </div>

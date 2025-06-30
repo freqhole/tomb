@@ -1,4 +1,4 @@
-/* @jsxImportSource solid-js */
+
 import { Show, onCleanup, createEffect } from "solid-js";
 import { useFreqholeStateContext } from "../context/FreqholeStateContext";
 

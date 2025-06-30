@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 import {
   createContext,
   useContext,
@@ -15,10 +14,11 @@ import { useFreqholeData } from "../hooks/useFreqholeData";
 import { useWebSocketFeed } from "../../../hooks/useWebSocketFeed";
 import type { NotificationChannel } from "../../../lib/websocket-types";
 
-// Combined context type that includes both state and selection
+// Combined context type that includes state, selection, and shared data hooks
 export interface FreqholeAppContext {
   state: FreqholeStateHook;
   selection: SelectionHook;
+  addLog: (message: string) => void;
 }
 
 // Create the context
@@ -59,6 +59,11 @@ export const FreqholeStateProvider: ParentComponent<
     const timestamp = new Date().toLocaleTimeString();
     const currentLogs = state.logs();
     state.setLogs([`${timestamp}: ${message}`, ...currentLogs.slice(0, 49)]);
+
+    // Also log to console when debug mode is enabled
+    if (state.debug()) {
+      console.log(`[FreqholeDemo] ${timestamp}: ${message}`);
+    }
   };
 
   // Load initial state for selection
@@ -82,7 +87,6 @@ export const FreqholeStateProvider: ParentComponent<
         onConfirm: () => {
           // TODO: Implement actual delete API call
           addLog(`🗑️ Deleted ${items.length} selected items`);
-          console.log("Deleted selected items:", Array.from(selectedItems));
           selection.clearSelection();
           state.setConfirmDialog(null);
         },
@@ -101,6 +105,7 @@ export const FreqholeStateProvider: ParentComponent<
   const contextValue = createMemo(() => ({
     state,
     selection,
+    addLog,
   }));
 
   return (

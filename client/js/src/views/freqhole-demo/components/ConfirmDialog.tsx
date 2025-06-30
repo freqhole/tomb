@@ -1,4 +1,4 @@
-/* @jsxImportSource solid-js */
+
 import { Show, onMount, onCleanup } from "solid-js";
 
 import { getDisplayFilename } from "../../../lib/media-utils";

@@ -1,14 +1,13 @@
-/* @jsxImportSource solid-js */
 import { Show, For } from "solid-js";
 import { ResizeHandle } from "../ResizeHandle";
 import { useResize } from "../hooks/useResize";
-import { useFreqholeStateContext } from "../context/FreqholeStateContext";
+import { useFreqholeAppContext } from "../context/FreqholeStateContext";
 import { useWebSocketFeed } from "../../../hooks/useWebSocketFeed";
 import { useFreqholeData } from "../hooks/useFreqholeData";
 import type { NotificationChannel } from "../../../lib/websocket-types";
 
 export function SettingsPanel() {
-  const state = useFreqholeStateContext();
+  const { state, addLog } = useFreqholeAppContext();
 
   // Set up the same hooks that the main component uses
   const feed = useWebSocketFeed({
@@ -25,13 +24,6 @@ export function SettingsPanel() {
     filterConfig: state.filterConfig,
     sortConfig: state.sortConfig,
   });
-
-  // Helper function for logging
-  const addLog = (message: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const currentLogs = state.logs();
-    state.setLogs([`${timestamp}: ${message}`, ...currentLogs.slice(0, 49)]);
-  };
 
   // Computed values from feed
   const connectionStatus = () => feed.state().connectionStatus;

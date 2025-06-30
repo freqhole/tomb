@@ -1,4 +1,4 @@
-/* @jsxImportSource solid-js */
+
 import { createMemo } from "solid-js";
 import type { GridColumn } from "../../../components/infinite-data-grid/types";
 import type { MediaBlob } from "../../../lib/websocket-types";

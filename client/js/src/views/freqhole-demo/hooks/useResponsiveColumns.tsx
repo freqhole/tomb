@@ -1,4 +1,4 @@
-/* @jsxImportSource solid-js */
+
 import { createSignal, onMount, onCleanup } from "solid-js";
 import type { ColumnVisibility } from "../types";
 

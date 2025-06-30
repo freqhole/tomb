@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 import { createSignal, For, createMemo } from "solid-js";
 import type { FilterConfig, ColumnVisibility } from "../types";
 import { ResizeHandle } from "../ResizeHandle";

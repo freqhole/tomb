@@ -1,4 +1,4 @@
-/* @jsxImportSource solid-js */
+
 import { Show, createSignal, onCleanup, createEffect } from "solid-js";
 import type { MediaBlob } from "../../../lib/websocket-types";
 import { getDisplayFilename } from "../../../lib/media-utils";

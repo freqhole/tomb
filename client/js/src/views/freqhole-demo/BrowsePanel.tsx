@@ -1,37 +1,36 @@
 import type { FilterConfig } from "./types";
 import { ResizeHandle } from "./ResizeHandle";
 import { useResize } from "./hooks/useResize";
+import { useFreqholeStateContext } from "./context/FreqholeStateContext";
 
-export interface BrowsePanelProps {
-  isOpen: boolean;
-  filterConfig: FilterConfig;
-  onTogglePanel: () => void;
-  onFilterChange: (key: keyof FilterConfig, value: any) => void;
-  onWidthChange: (width: number) => void;
-  initialWidth: number;
-}
+export function BrowsePanel() {
+  const state = useFreqholeStateContext();
 
-export function BrowsePanel(props: BrowsePanelProps) {
+  // Event handler that works with context
+  const updateFilter = (key: keyof FilterConfig, value: any) => {
+    state.updateFilter(key, value);
+  };
+
   const resize = useResize({
-    initialWidth: props.initialWidth,
+    initialWidth: state.browsePanelWidth(),
     minWidth: 250,
     maxWidth: 600,
     closeThreshold: 100,
-    onWidthChange: props.onWidthChange,
-    onClose: props.onTogglePanel,
+    onWidthChange: (width) => state.setBrowsePanelWidth(width),
+    onClose: () => state.toggleBrowsePanel(),
   });
 
   return (
     <div
-      class={`browse-panel ${!props.isOpen ? "collapsed" : ""} ${
+      class={`browse-panel ${!state.isBrowsePanelOpen() ? "collapsed" : ""} ${
         resize.isDragging() ? "resizing" : ""
       }`}
       style={`
-        width: ${props.isOpen ? resize.width() + "px" : "0"};
+        width: ${state.isBrowsePanelOpen() ? resize.width() + "px" : "0"};
         flex-shrink: 0;
         background: #1a1a1a;
         border-right: 1px solid #3a3a3a;
-        padding: ${props.isOpen ? "20px" : "0"};
+        padding: ${state.isBrowsePanelOpen() ? "20px" : "0"};
         overflow: hidden;
         transition: width 0.3s ease, padding 0.3s ease;
         position: relative;
@@ -54,10 +53,10 @@ export function BrowsePanel(props: BrowsePanelProps) {
         `}
       >
         <h3 style="margin: 0; font-size: 14px; color: #ffffff; font-weight: 600;">
-          Browse
+          📁 Browse
         </h3>
         <button
-          onClick={props.onTogglePanel}
+          onClick={() => state.toggleBrowsePanel()}
           title="Close panel"
           style={`
             background: transparent;
@@ -75,20 +74,20 @@ export function BrowsePanel(props: BrowsePanelProps) {
         </button>
       </div>
 
-      {props.isOpen && (
+      {state.isBrowsePanelOpen() && (
         <div
           class="filter-section"
           style="margin-bottom: 24px; overflow-y: auto; min-width: 0;"
         >
           <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
-            🔍 Name Search
+            🔍 Quick Search
           </h3>
           <input
             class="filter-input"
             type="text"
             placeholder="Search by filename..."
-            value={props.filterConfig.name}
-            onInput={(e) => props.onFilterChange("name", e.currentTarget.value)}
+            value={state.filterConfig().name}
+            onInput={(e) => updateFilter("name", e.currentTarget.value)}
             style={`
               width: 100%;
               padding: 8px;
@@ -101,6 +100,33 @@ export function BrowsePanel(props: BrowsePanelProps) {
               min-width: 0;
             `}
           />
+
+          {/* Quick search tips */}
+          <div style="margin-top: 8px; font-size: 12px; color: #666;">
+            <div style="margin-bottom: 4px;">💡 Quick Tips:</div>
+            <div style="margin-left: 8px; line-height: 1.4;">
+              • Type to search filenames
+              <br />
+              • Use * for wildcards
+              <br />• Case insensitive search
+            </div>
+          </div>
+
+          {/* Search status */}
+          <div style="margin-top: 12px; padding: 8px; background: #252525; border-radius: 4px; border: 1px solid #444;">
+            <div style="font-size: 12px; color: #888;">
+              {state.filterConfig().name ? (
+                <>
+                  <span style="color: #00ff00;">🔍 Searching for:</span>{" "}
+                  <span style="color: #ffffff; font-weight: 600;">
+                    "{state.filterConfig().name}"
+                  </span>
+                </>
+              ) : (
+                <span style="color: #888;">Type to start searching...</span>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

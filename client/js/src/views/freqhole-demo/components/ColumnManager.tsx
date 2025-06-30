@@ -1,4 +1,4 @@
-/* @jsxImportSource solid-js */
+
 import { For, Show } from "solid-js";
 import type { ColumnVisibility } from "../types";
 

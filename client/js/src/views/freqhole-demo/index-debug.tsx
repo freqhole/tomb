@@ -1,4 +1,4 @@
-/* @jsxImportSource solid-js */
+
 import { createSignal, createMemo } from "solid-js";
 import type { MediaBlob } from "../../lib/websocket-types";
 import { useFreqholeState } from "./hooks/useFreqholeState";

@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 import { createMemo } from "solid-js";
 import type { FilterConfig } from "../types";
 import type { MediaBlob } from "../../../lib/websocket-types";
@@ -28,9 +27,27 @@ export function useFreqholeData(props: UseFreqholeDataProps) {
         return false;
       }
 
-      // MIME type filter
-      if (filterConfig.mime && item.mime !== filterConfig.mime) {
-        return false;
+      // MIME type filter - support both exact match and prefix match for content types
+      if (filterConfig.mime) {
+        if (!item.mime) {
+          return false;
+        }
+        // If the filter is a content type like "audio", "video", etc., use prefix matching
+        // Otherwise use exact matching
+        const isContentType = !filterConfig.mime.includes("/");
+        if (isContentType) {
+          if (
+            !item.mime
+              .toLowerCase()
+              .startsWith(filterConfig.mime.toLowerCase() + "/")
+          ) {
+            return false;
+          }
+        } else {
+          if (item.mime !== filterConfig.mime) {
+            return false;
+          }
+        }
       }
 
       // Blob type filter
@@ -71,13 +88,45 @@ export function useFreqholeData(props: UseFreqholeDataProps) {
     }
 
     const sorted = [...filtered].sort((a, b) => {
-      let aVal: any = a[sortConfig.field as keyof MediaBlob];
-      let bVal: any = b[sortConfig.field as keyof MediaBlob];
+      let aVal: any;
+      let bVal: any;
+
+      // Special handling for the name field
+      if (sortConfig.field === "name") {
+        aVal = getDisplayFilename(a);
+        bVal = getDisplayFilename(b);
+      } else {
+        aVal = a[sortConfig.field as keyof MediaBlob];
+        bVal = b[sortConfig.field as keyof MediaBlob];
+      }
+
+      // Handle null/undefined values - put them at the end
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return sortConfig.direction === "desc" ? -1 : 1;
+      if (bVal == null) return sortConfig.direction === "desc" ? 1 : -1;
 
       // Handle different data types
       if (aVal instanceof Date && bVal instanceof Date) {
         aVal = aVal.getTime();
         bVal = bVal.getTime();
+      } else if (
+        sortConfig.field === "created_at" ||
+        sortConfig.field === "updated_at"
+      ) {
+        // Handle date strings specifically with robust parsing
+        if (aVal && typeof aVal === "string") {
+          const parsedA = new Date(aVal);
+          aVal = isNaN(parsedA.getTime()) ? 0 : parsedA.getTime();
+        } else {
+          aVal = 0; // Treat null/undefined as earliest date
+        }
+
+        if (bVal && typeof bVal === "string") {
+          const parsedB = new Date(bVal);
+          bVal = isNaN(parsedB.getTime()) ? 0 : parsedB.getTime();
+        } else {
+          bVal = 0; // Treat null/undefined as earliest date
+        }
       } else if (typeof aVal === "string" && typeof bVal === "string") {
         aVal = aVal.toLowerCase();
         bVal = bVal.toLowerCase();
