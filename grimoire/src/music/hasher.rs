@@ -3,7 +3,6 @@
 //! This module provides SHA256 hashing functionality for audio files,
 //! extracted and cleaned up from the original file_walker implementation.
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use thiserror::Error;
@@ -58,7 +57,7 @@ impl FileHasher {
         }
 
         let hash = hasher.finalize();
-        Ok(URL_SAFE_NO_PAD.encode(&hash))
+        Ok(format!("{:x}", hash))
     }
 
     /// Generate SHA256 hash for file content bytes
@@ -66,7 +65,7 @@ impl FileHasher {
         let mut hasher = Sha256::new();
         hasher.update(content);
         let hash = hasher.finalize();
-        URL_SAFE_NO_PAD.encode(&hash)
+        format!("{:x}", hash)
     }
 
     /// Verify that a file matches the expected hash
@@ -155,7 +154,7 @@ pub async fn hash_file_chunk<P: AsRef<Path>>(
     }
 
     let hash = hasher.finalize();
-    Ok(URL_SAFE_NO_PAD.encode(&hash))
+    Ok(format!("{:x}", hash))
 }
 
 #[cfg(test)]

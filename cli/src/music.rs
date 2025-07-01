@@ -10,7 +10,7 @@ use clap::Subcommand;
 use colored::*;
 use console::measure_text_width;
 use grimoire::media::{CreateMediaBlob, MediaBlobRepository, MediaTypeDetector};
-use grimoire::music::{extract_metadata, extract_thumbnail, hash_file, TitleBuilder};
+use grimoire::music::{extract_metadata, extract_thumbnail, hash_bytes, hash_file, TitleBuilder};
 use grimoire::music::{ConsoleScanProgress, MusicService, ScanConfig, ScanProgress, ScannerConfig};
 use grimoire::music::{CreatePlaylist, MusicRepository, PlaylistQuery, PlaylistService, SongQuery};
 use grimoire::{AppConfig, DatabaseConnection};
@@ -957,7 +957,7 @@ impl MusicCommands {
         let thumbnail_blob_id = match extract_thumbnail(file_path).await {
             Ok(Some(extracted_image)) => {
                 // Create thumbnail media blob
-                let thumbnail_hash = format!("{}_thumbnail", file_hash);
+                let thumbnail_hash = hash_bytes(&extracted_image.data);
 
                 let thumbnail_create_blob = CreateMediaBlob {
                     data: Some(extracted_image.data.clone()),

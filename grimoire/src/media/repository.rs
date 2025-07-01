@@ -46,8 +46,7 @@ impl MediaBlobRepository {
         &self,
         create_blob: CreateMediaBlob,
     ) -> Result<MediaBlob, MediaRepositoryError> {
-        let media_blob = create_blob.into_media_blob();
-        let data_clone = media_blob.data.clone();
+        let data_clone = create_blob.data.clone();
 
         let row = sqlx::query!(
             r#"
@@ -55,17 +54,17 @@ impl MediaBlobRepository {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at
             "#,
-            media_blob.data,
-            media_blob.sha256,
-            media_blob.size,
-            media_blob.mime,
-            media_blob.source_client_id,
-            media_blob.local_path,
-            media_blob.parent_blob_id,
-            media_blob.blob_type,
-            media_blob.metadata,
-            media_blob.created_at,
-            media_blob.updated_at
+            create_blob.data,
+            create_blob.sha256,
+            create_blob.size,
+            create_blob.mime,
+            create_blob.source_client_id,
+            create_blob.local_path,
+            create_blob.parent_blob_id,
+            create_blob.blob_type.unwrap_or_else(|| "original".to_string()),
+            create_blob.metadata,
+            OffsetDateTime::now_utc(),
+            OffsetDateTime::now_utc()
         )
         .fetch_one(&self.pool)
         .await?;

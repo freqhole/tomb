@@ -3,7 +3,7 @@
 //! Defines the message format for WebSocket communication between
 //! client and server, with serde for JSON serialization.
 
-use crate::media::MediaBlob;
+use crate::media::{CreateMediaBlob, MediaBlob};
 use grimoire::notifications::{NotificationChannel, NotificationEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -22,7 +22,7 @@ pub enum WebSocketMessage {
         offset: Option<u32>,
     },
     /// Client uploads a new media blob
-    UploadMediaBlob { blob: MediaBlob },
+    UploadMediaBlob { blob: CreateMediaBlob },
     /// Client requests specific media blob by ID
     GetMediaBlob { id: String },
     /// Client requests media blob data by ID
@@ -119,7 +119,6 @@ impl std::fmt::Debug for WebSocketMessage {
                 .finish(),
             WebSocketMessage::UploadMediaBlob { blob } => f
                 .debug_struct("UploadMediaBlob")
-                .field("blob_id", &blob.id)
                 .field("blob_size", &blob.size)
                 .field("blob_mime", &blob.mime)
                 .field("blob_sha256_prefix", &format!("{}...", &blob.sha256[..8]))
@@ -333,13 +332,15 @@ mod tests {
     #[test]
     fn test_media_blob_serialization() {
         let blob = MediaBlob {
-            id: Uuid::new_v4(),
+            id: "abc1234".to_string(),
             data: None,
             sha256: "abc123".to_string(),
             size: Some(1024),
             mime: Some("image/png".to_string()),
             source_client_id: Some("client-1".to_string()),
             local_path: Some("/path/to/file.png".to_string()),
+            parent_blob_id: None,
+            blob_type: "original".to_string(),
             metadata: serde_json::json!({"width": 800, "height": 600}),
             created_at: OffsetDateTime::now_utc(),
             updated_at: OffsetDateTime::now_utc(),

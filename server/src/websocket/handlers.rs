@@ -3,7 +3,7 @@
 //! Provides authenticated WebSocket endpoints that integrate with the existing
 //! auth system and handle real-time communication for media blob sharing.
 
-use crate::media::{CreateMediaBlob, MediaBlobQuery, MediaRepository, MediaService};
+use crate::media::{MediaBlobQuery, MediaRepository, MediaService};
 use crate::websocket::messages::{WebSocketMessage, WebSocketResponse};
 use axum::{
     extract::{ws::WebSocket, WebSocketUpgrade},
@@ -437,17 +437,11 @@ async fn handle_message(
             let repository = MediaRepository::new(db);
             let service = MediaService::new(repository);
 
-            let create_params = CreateMediaBlob {
-                data: blob.data,
-                sha256: blob.sha256,
-                size: blob.size,
-                mime: blob.mime,
-                source_client_id: blob.source_client_id,
-                local_path: blob.local_path,
-                parent_blob_id: None, // This is an original file, not a thumbnail
-                blob_type: Some("original".to_string()),
-                metadata: blob.metadata,
-            };
+            let mut create_params = blob.clone();
+            // Ensure this is marked as an original file, not a thumbnail
+            if create_params.parent_blob_id.is_none() {
+                create_params.blob_type = Some("original".to_string());
+            }
 
             match service.create_blob(create_params, &config.media).await {
                 Ok(created_blob) => {
