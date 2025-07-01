@@ -46,11 +46,7 @@ impl<'a> MediaService<'a> {
     }
 
     /// Get a blob by ID, optionally including data
-    pub async fn get_blob(
-        &self,
-        id: uuid::Uuid,
-        include_data: bool,
-    ) -> Result<MediaBlob, WebauthnError> {
+    pub async fn get_blob(&self, id: &str, include_data: bool) -> Result<MediaBlob, WebauthnError> {
         if include_data {
             self.repository.find_by_id(id).await
         } else {
@@ -80,14 +76,14 @@ impl<'a> MediaService<'a> {
     }
 
     /// Delete a blob by ID
-    pub async fn delete_blob(&self, id: uuid::Uuid) -> Result<bool, WebauthnError> {
+    pub async fn delete_blob(&self, id: &str) -> Result<bool, WebauthnError> {
         self.repository.delete(id).await
     }
 
     /// Update blob metadata
     pub async fn update_metadata(
         &self,
-        id: uuid::Uuid,
+        id: &str,
         metadata: serde_json::Value,
     ) -> Result<MediaBlob, WebauthnError> {
         self.repository.update_metadata(id, metadata).await

@@ -222,7 +222,7 @@ impl<'a> ThumbnailRepository<'a> {
         for row in rows {
             let job = ThumbnailJob {
                 id: row.id.unwrap(),
-                media_blob_id: row.media_blob_id.unwrap(),
+                media_blob_id: row.media_blob_id.unwrap().to_string(),
                 job_type: ThumbnailJobType::from_str(&row.job_type.unwrap())?,
                 target_dimensions: if let (Some(width), Some(height)) =
                     (row.target_width, row.target_height)
@@ -256,7 +256,7 @@ impl<'a> ThumbnailRepository<'a> {
     /// Get media blob information for thumbnail generation
     pub async fn get_media_blob_info(
         &self,
-        blob_id: Uuid,
+        blob_id: &str,
     ) -> Result<Option<MediaBlobInfo>, ThumbnailError> {
         let row = sqlx::query!(
             r#"
@@ -287,9 +287,7 @@ impl<'a> ThumbnailRepository<'a> {
     pub async fn store_thumbnail(
         &self,
         thumbnail: &ThumbnailResult,
-    ) -> Result<Uuid, ThumbnailError> {
-        let thumbnail_id = Uuid::new_v4();
-
+    ) -> Result<String, ThumbnailError> {
         // Calculate SHA256 hash of the thumbnail file
         let sha256_hash = self.calculate_file_hash(&thumbnail.local_path)?;
 
@@ -297,14 +295,14 @@ impl<'a> ThumbnailRepository<'a> {
         let thumbnail_data =
             std::fs::read(&thumbnail.local_path).map_err(|e| ThumbnailError::Io(e))?;
 
-        sqlx::query!(
+        let row = sqlx::query!(
             r#"
             INSERT INTO media_blobs (
-                id, data, parent_blob_id, blob_type, local_path, mime, size, sha256, source_client_id, metadata, created_at, updated_at
+                data, parent_blob_id, blob_type, local_path, mime, size, sha256, source_client_id, metadata, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+            RETURNING id
             "#,
-            thumbnail_id,
             thumbnail_data,
             thumbnail.media_blob_id,
             thumbnail.blob_type,
@@ -315,10 +313,10 @@ impl<'a> ThumbnailRepository<'a> {
             "thumbnail-generator",
             thumbnail.metadata
         )
-        .execute(self.db.pool())
+        .fetch_one(self.db.pool())
         .await?;
 
-        Ok(thumbnail_id)
+        Ok(row.id)
     }
 
     /// Calculate SHA256 hash of a file
@@ -344,7 +342,7 @@ impl<'a> ThumbnailRepository<'a> {
     /// Get existing thumbnails for a media blob
     pub async fn get_thumbnails_for_blob(
         &self,
-        blob_id: Uuid,
+        blob_id: &str,
     ) -> Result<Vec<MediaBlobInfo>, ThumbnailError> {
         let rows = sqlx::query!(
             r#"
@@ -377,7 +375,7 @@ impl<'a> ThumbnailRepository<'a> {
     /// Check if thumbnail generation job already exists for a media blob
     pub async fn job_exists_for_blob(
         &self,
-        blob_id: Uuid,
+        blob_id: &str,
         job_type: &ThumbnailJobType,
     ) -> Result<bool, ThumbnailError> {
         let exists = sqlx::query_scalar!(
@@ -523,7 +521,7 @@ impl<'a> ThumbnailRepository<'a> {
     }
 
     /// Delete a thumbnail blob and its file
-    pub async fn delete_thumbnail(&self, thumbnail_id: Uuid) -> Result<(), ThumbnailError> {
+    pub async fn delete_thumbnail(&self, thumbnail_id: &str) -> Result<(), ThumbnailError> {
         sqlx::query!(
             r#"
             UPDATE media_blobs
@@ -562,10 +560,10 @@ impl<'a> ThumbnailRepository<'a> {
                     row.thumbnail_ids,
                 ) {
                     Some(DuplicateGroupRow {
-                        parent_blob_id,
+                        parent_blob_id: parent_blob_id.to_string(),
                         blob_type,
                         duplicate_count: duplicate_count as usize,
-                        thumbnail_ids,
+                        thumbnail_ids: thumbnail_ids.into_iter().map(|id| id.to_string()).collect(),
                     })
                 } else {
                     None
@@ -577,7 +575,7 @@ impl<'a> ThumbnailRepository<'a> {
     }
 
     /// Delete thumbnails by their IDs
-    pub async fn delete_thumbnails_by_ids(&self, ids: &[Uuid]) -> Result<u64, ThumbnailError> {
+    pub async fn delete_thumbnails_by_ids(&self, ids: &[String]) -> Result<u64, ThumbnailError> {
         if ids.is_empty() {
             return Ok(0);
         }
@@ -636,8 +634,8 @@ pub struct SystemHealthSummary {
 /// Raw data from duplicate thumbnails query
 #[derive(Debug)]
 pub struct DuplicateGroupRow {
-    pub parent_blob_id: Uuid,
+    pub parent_blob_id: String,
     pub blob_type: String,
     pub duplicate_count: usize,
-    pub thumbnail_ids: Vec<Uuid>,
+    pub thumbnail_ids: Vec<String>,
 }

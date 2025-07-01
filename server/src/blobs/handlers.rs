@@ -13,7 +13,6 @@ use axum::{
 use grimoire::{media::MediaBlobService, DatabaseConnection};
 use mime_guess::from_path;
 use tokio::fs;
-use uuid::Uuid;
 
 use crate::{auth::AuthenticatedUser, error::AppError};
 
@@ -23,7 +22,7 @@ use crate::{auth::AuthenticatedUser, error::AppError};
 /// Requires authentication and checks blob permissions.
 ///
 /// # Path Parameters
-/// - `id`: UUID of the blob to retrieve
+/// - `id`: Short hash ID of the blob to retrieve
 ///
 /// # Security
 /// - Requires valid authentication
@@ -38,7 +37,7 @@ use crate::{auth::AuthenticatedUser, error::AppError};
 /// - 500: Internal server error
 pub async fn get_blob(
     Extension(db): Extension<DatabaseConnection>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Response, AppError> {
     tracing::info!(
@@ -53,7 +52,7 @@ pub async fn get_blob(
 
     // Get blob with data
     let blob = media_service
-        .get_media_blob(id)
+        .get_media_blob(&id)
         .await
         .map_err(|e| match e {
             grimoire::media::MediaServiceError::Repository(
@@ -181,7 +180,7 @@ pub async fn get_blob(
 /// without transferring the actual blob data. Useful for checking blob properties.
 ///
 /// # Path Parameters
-/// - `id`: UUID of the blob to get metadata for
+/// - `id`: Short hash ID of the blob to get metadata for
 ///
 /// # Response
 /// - 200: Blob metadata as JSON
@@ -191,7 +190,7 @@ pub async fn get_blob(
 /// - 500: Internal server error
 pub async fn get_blob_metadata(
     Extension(db): Extension<DatabaseConnection>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Response, AppError> {
     tracing::debug!(
@@ -206,7 +205,7 @@ pub async fn get_blob_metadata(
 
     // Get blob without data for efficiency
     let blob = media_service
-        .get_media_blob_metadata(id)
+        .get_media_blob_metadata(&id)
         .await
         .map_err(|e| match e {
             grimoire::media::MediaServiceError::Repository(

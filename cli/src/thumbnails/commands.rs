@@ -540,9 +540,8 @@ async fn list_jobs(args: ListJobsArgs) -> Result<(), Box<dyn std::error::Error>>
 
     // Filter by media blob ID if provided
     let filtered_jobs: Vec<_> = if let Some(media_blob_id_str) = &args.media_blob_id {
-        let media_blob_id = uuid::Uuid::parse_str(media_blob_id_str)?;
         jobs.into_iter()
-            .filter(|job| job.media_blob_id == media_blob_id)
+            .filter(|job| job.media_blob_id == *media_blob_id_str)
             .collect()
     } else {
         jobs
@@ -742,7 +741,12 @@ async fn generate_thumbnails(args: GenerateArgs) -> Result<(), Box<dyn std::erro
         println!("  Priority: {:?}", priority);
 
         match service
-            .enqueue_thumbnail_job(media_blob_id, specific_type, Some(priority), None)
+            .enqueue_thumbnail_job(
+                &media_blob_id.to_string(),
+                specific_type,
+                Some(priority),
+                None,
+            )
             .await
         {
             Ok(job_id) => {
@@ -754,7 +758,10 @@ async fn generate_thumbnails(args: GenerateArgs) -> Result<(), Box<dyn std::erro
         // Auto-enqueue appropriate jobs
         println!("  Auto-detecting job types...");
 
-        match service.auto_enqueue_for_media_blob(media_blob_id).await {
+        match service
+            .auto_enqueue_for_media_blob(&media_blob_id.to_string())
+            .await
+        {
             Ok(job_ids) => {
                 if job_ids.is_empty() {
                     println!("ℹ️  No new thumbnail jobs needed (all thumbnails already exist)");
@@ -1089,7 +1096,10 @@ async fn bulk_generate_thumbnails(
     for (media_blob_id, _mime, _path) in media_blobs {
         print!("Processing {} ... ", media_blob_id);
 
-        match service.auto_enqueue_for_media_blob(media_blob_id).await {
+        match service
+            .auto_enqueue_for_media_blob(&media_blob_id.to_string())
+            .await
+        {
             Ok(job_ids) => {
                 println!("✅ {} jobs enqueued: {:?}", job_ids.len(), job_ids);
                 successful += 1;

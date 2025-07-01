@@ -202,7 +202,7 @@ impl ThumbnailJobQueue {
     /// Enqueue a thumbnail job (delegate to grimoire service)
     pub async fn enqueue_thumbnail_job(
         &self,
-        media_blob_id: Uuid,
+        media_blob_id: &str,
         job_type: grimoire::ThumbnailJobType,
         priority: Option<ThumbnailJobPriority>,
         dimensions: Option<ThumbnailDimensions>,
@@ -226,7 +226,7 @@ impl ThumbnailJobQueue {
     /// Auto-enqueue thumbnail jobs for a media blob
     pub async fn auto_enqueue_for_media_blob(
         &self,
-        media_blob_id: Uuid,
+        media_blob_id: &str,
     ) -> Result<Vec<Uuid>, ThumbnailJobQueueError> {
         let service = ThumbnailService::new(&self.db, self.config.clone());
 

@@ -84,7 +84,6 @@ This demonstrates using Axum as the backend for a WebAuthn authentication system
    ```
 
    This script will:
-
    - Validate your configuration
    - Check database connectivity
    - Run migrations automatically
@@ -338,6 +337,19 @@ The system uses the following tables:
 - `webauthn_credentials`: WebAuthn credentials for each user
 - `tower_sessions`: Session storage
 - `request_analytics`: Request tracking and analytics data
+- `media_blobs`: Media file storage with content-derived short hash IDs
+- `thumbnail_jobs`: Asynchronous thumbnail generation queue
+- `songs`, `playlists`, `photos`, `videos`: Domain-specific media metadata
+
+### Media Blob Architecture
+
+The system uses a unique content-addressable storage approach:
+
+- **Short Hash IDs**: Media blobs use 7-16 character short hash primary keys derived from SHA256
+- **Auto-generation**: Database triggers automatically generate collision-resistant short IDs
+- **Deduplication**: Full SHA256 hashes ensure content deduplication
+- **Flexible Storage**: Binary data can be stored in database or filesystem (via `local_path`)
+- **Relationships**: Parent-child relationships support thumbnails, transcodes, and waveforms
 
 Migrations are automatically run when the server starts (configurable via `database.migrations.auto_run`).
 
@@ -512,7 +524,6 @@ Migrations are automatically run when the server starts (configurable via `datab
 ### Database Issues
 
 1. **Connection Errors**
-
    - Verify PostgreSQL is running
    - Check database settings in `assets/config/config.jsonc`
    - Ensure `DATABASE_PASSWORD` environment variable is set
@@ -536,7 +547,6 @@ Migrations are automatically run when the server starts (configurable via `datab
    ```
 
 2. **Recovery Code Not Working**
-
    - Verify recovery code hasn't expired (default: 24 hours)
    - Ensure code hasn't been used already (single-use)
    - Check user is entering exact original username
@@ -555,7 +565,6 @@ Migrations are automatically run when the server starts (configurable via `datab
 ### WebAuthn Issues
 
 1. **RP ID/Origin Mismatch**
-
    - Check `webauthn.rp_id` matches your domain
    - Ensure `webauthn.rp_origin` is correct and accessible
    - Use `localhost` (not `127.0.0.1`) for development
@@ -592,6 +601,7 @@ cargo run --bin cli analytics analytics --hours 1
 - Sessions are currently stored in memory for simplicity. In production, consider using PostgreSQL-backed sessions by uncommenting the PostgresStore code in `main.rs`
 - The development script (`scripts/start_dev.sh`) provides a convenient way to set up and run the server
 - Database migrations run automatically when the server starts
+- **Media Blobs Refactoring**: The system has been refactored to use content-derived short hash primary keys instead of UUIDs. This provides human-readable URLs, efficient content addressing, and automatic deduplication while maintaining referential integrity.
 
 ## Production Deployment
 

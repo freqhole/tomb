@@ -1,17 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO media_blobs (id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)\n            RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at\n            ",
+  "query": "\n            INSERT INTO media_blobs (data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)\n            RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "id",
-        "type_info": "Uuid"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 1,
         "name": "sha256",
-        "type_info": "Text"
+        "type_info": "Bpchar"
       },
       {
         "ordinal": 2,
@@ -36,7 +36,7 @@
       {
         "ordinal": 6,
         "name": "parent_blob_id",
-        "type_info": "Uuid"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 7,
@@ -61,14 +61,13 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
         "Bytea",
-        "Text",
+        "Bpchar",
         "Int8",
         "Text",
         "Text",
         "Text",
-        "Uuid",
+        "Varchar",
         "Varchar",
         "Jsonb",
         "Timestamptz",
@@ -89,5 +88,5 @@
       true
     ]
   },
-  "hash": "0ecc652bf99ca543ebc9bfb63e8f46c9700780055999be266b227852c2bb2a10"
+  "hash": "67009a17e9789be907d84661e73b17fb649f1544493bacc5c18971ce25e203cf"
 }

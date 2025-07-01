@@ -11,7 +11,7 @@
       {
         "ordinal": 1,
         "name": "media_blob_id",
-        "type_info": "Uuid"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 2,

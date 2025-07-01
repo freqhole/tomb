@@ -49,7 +49,7 @@ impl<'a> ThumbnailService<'a> {
     /// Enqueue a thumbnail generation job for a media blob
     pub async fn enqueue_thumbnail_job(
         &self,
-        media_blob_id: Uuid,
+        media_blob_id: &str,
         job_type: ThumbnailJobType,
         priority: Option<ThumbnailJobPriority>,
         dimensions: Option<ThumbnailDimensions>,
@@ -59,11 +59,12 @@ impl<'a> ThumbnailService<'a> {
         }
 
         // Check if media blob exists and get its info
+        // Get media blob info to validate it exists
         let media_info = self
             .repo
             .get_media_blob_info(media_blob_id)
             .await?
-            .ok_or(ThumbnailError::MediaBlobNotFound(media_blob_id))?;
+            .ok_or(ThumbnailError::MediaBlobNotFound(media_blob_id.to_string()))?;
 
         // Validate that the media type supports the requested job type
         self.validate_media_type_for_job(&media_info.mime_type, &job_type)?;
@@ -82,7 +83,7 @@ impl<'a> ThumbnailService<'a> {
         // Create the job
         let job = ThumbnailJob {
             id: Uuid::new_v4(),
-            media_blob_id,
+            media_blob_id: media_blob_id.to_string(),
             job_type,
             target_dimensions: dimensions.or_else(|| Some(self.config.default_dimensions.clone())),
             status: ThumbnailJobStatus::Pending,
@@ -106,7 +107,7 @@ impl<'a> ThumbnailService<'a> {
     /// Automatically determine and enqueue appropriate thumbnail jobs for a media blob
     pub async fn auto_enqueue_for_media_blob(
         &self,
-        media_blob_id: Uuid,
+        media_blob_id: &str,
     ) -> Result<Vec<Uuid>, ThumbnailError> {
         if !self.config.enabled {
             return Err(ThumbnailError::Disabled);
@@ -117,7 +118,7 @@ impl<'a> ThumbnailService<'a> {
             .repo
             .get_media_blob_info(media_blob_id)
             .await?
-            .ok_or(ThumbnailError::MediaBlobNotFound(media_blob_id))?;
+            .ok_or(ThumbnailError::MediaBlobNotFound(media_blob_id.to_string()))?;
 
         let mut job_ids = Vec::new();
 
@@ -178,9 +179,9 @@ impl<'a> ThumbnailService<'a> {
         // Get media blob info
         let media_info = self
             .repo
-            .get_media_blob_info(job.media_blob_id)
+            .get_media_blob_info(&job.media_blob_id)
             .await?
-            .ok_or(ThumbnailError::MediaBlobNotFound(job.media_blob_id))?;
+            .ok_or(ThumbnailError::MediaBlobNotFound(job.media_blob_id.clone()))?;
 
         // Validate media data is available
         if !media_info.has_data() {
@@ -226,14 +227,14 @@ impl<'a> ThumbnailService<'a> {
     pub async fn store_thumbnail(
         &self,
         thumbnail: &ThumbnailResult,
-    ) -> Result<Uuid, ThumbnailError> {
+    ) -> Result<String, ThumbnailError> {
         self.repo.store_thumbnail(thumbnail).await
     }
 
     /// Get existing thumbnails for a media blob
     pub async fn get_thumbnails_for_blob(
         &self,
-        blob_id: Uuid,
+        blob_id: &str,
     ) -> Result<Vec<MediaBlobInfo>, ThumbnailError> {
         self.repo.get_thumbnails_for_blob(blob_id).await
     }
@@ -533,7 +534,7 @@ impl<'a> ThumbnailService<'a> {
         let metadata = tokio::fs::metadata(&output_path).await?;
 
         Ok(ThumbnailResult {
-            media_blob_id: media_info.id,
+            media_blob_id: media_info.id.clone(),
             local_path: output_path,
             mime_type: format!("image/{}", self.config.formats.image_format),
             size: metadata.len() as i64,
@@ -599,7 +600,7 @@ impl<'a> ThumbnailService<'a> {
         let metadata = tokio::fs::metadata(&output_path).await?;
 
         Ok(ThumbnailResult {
-            media_blob_id: media_info.id,
+            media_blob_id: media_info.id.clone(),
             local_path: output_path,
             mime_type: format!("image/{}", self.config.formats.video_format),
             size: metadata.len() as i64,
@@ -666,7 +667,7 @@ impl<'a> ThumbnailService<'a> {
         let metadata = tokio::fs::metadata(&output_path).await?;
 
         Ok(ThumbnailResult {
-            media_blob_id: media_info.id,
+            media_blob_id: media_info.id.clone(),
             local_path: output_path,
             mime_type: format!("image/{}", self.config.formats.waveform_format),
             size: metadata.len() as i64,
@@ -731,7 +732,7 @@ impl<'a> ThumbnailService<'a> {
         let metadata = tokio::fs::metadata(&output_path).await?;
 
         Ok(ThumbnailResult {
-            media_blob_id: media_info.id,
+            media_blob_id: media_info.id.clone(),
             local_path: output_path,
             mime_type: format!("image/{}", self.config.formats.video_format),
             size: metadata.len() as i64,
@@ -748,7 +749,7 @@ impl<'a> ThumbnailService<'a> {
     /// Create output path for generated thumbnails
     fn create_output_path(
         &self,
-        media_blob_id: &Uuid,
+        media_blob_id: &str,
         thumbnail_type: &str,
         format: &str,
     ) -> Result<String, ThumbnailError> {
@@ -801,7 +802,7 @@ impl<'a> ThumbnailService<'a> {
         let groups_count = duplicate_groups.len();
 
         for group in duplicate_groups {
-            let ids_to_delete: Vec<Uuid> = match keep_strategy {
+            let ids_to_delete: Vec<String> = match keep_strategy {
                 KeepStrategy::First => {
                     // Keep the first (oldest), delete the rest
                     group.thumbnail_ids.into_iter().skip(1).collect()
@@ -1139,10 +1140,10 @@ pub enum KeepStrategy {
 /// Information about a group of duplicate thumbnails
 #[derive(Debug)]
 pub struct DuplicateGroup {
-    pub parent_blob_id: Uuid,
+    pub parent_blob_id: String,
     pub blob_type: String,
     pub duplicate_count: usize,
-    pub thumbnail_ids: Vec<Uuid>,
+    pub thumbnail_ids: Vec<String>,
 }
 
 /// Result of duplicate cleanup operation

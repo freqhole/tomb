@@ -866,7 +866,7 @@ impl MusicCommands {
                 );
 
                 // Show ASCII art for songs with thumbnails
-                if let Some(thumbnail_blob_id) = song.thumbnail_blob_id {
+                if let Some(thumbnail_blob_id) = &song.thumbnail_blob_id {
                     println!("     🖼️  ASCII Art Preview:");
                     if let Some(ascii_art) = self
                         .generate_ascii_art(thumbnail_blob_id, service.db().pool())
@@ -966,7 +966,7 @@ impl MusicCommands {
                     mime: Some(extracted_image.format.content_type().to_string()),
                     source_client_id: Some("music-cli-thumbnail".to_string()),
                     local_path: None,
-                    parent_blob_id: Some(media_blob.id),
+                    parent_blob_id: Some(media_blob.id.clone()),
                     blob_type: Some("thumbnail".to_string()),
                     metadata: serde_json::json!({
                         "thumbnail_source": "embedded_album_art",
@@ -1066,8 +1066,8 @@ impl MusicCommands {
 
         let song_id = repository
             .create_song_with_metadata(
-                media_blob.id,
-                thumbnail_blob_id,
+                &media_blob.id,
+                thumbnail_blob_id.as_deref(),
                 smart_title,
                 artist,
                 album,
@@ -2421,7 +2421,7 @@ impl MusicCommands {
         println!("{}", format!("🎶 {}", song.title).bright_magenta().bold());
 
         // Show ASCII art thumbnail if available
-        if let Some(thumbnail_id) = song.thumbnail_blob_id {
+        if let Some(thumbnail_id) = &song.thumbnail_blob_id {
             if let Some(ascii_art) = self
                 .generate_ascii_art(thumbnail_id, service.db().pool())
                 .await
@@ -2441,7 +2441,7 @@ impl MusicCommands {
         );
 
         // Get media blob to find local path
-        let media_blob_id = song.media_blob_id;
+        let media_blob_id = &song.media_blob_id;
         let media_repository = MediaBlobRepository::new(service.db().pool().clone());
         if let Ok(blob) = media_repository.find_by_id(media_blob_id).await {
             if let Some(file_path) = &blob.local_path {
@@ -2941,7 +2941,7 @@ impl MusicCommands {
 
     async fn generate_ascii_art(
         &self,
-        thumbnail_blob_id: uuid::Uuid,
+        thumbnail_blob_id: &str,
         db_pool: &sqlx::PgPool,
     ) -> Option<String> {
         // Get the thumbnail blob data
@@ -3127,7 +3127,7 @@ impl MusicCommands {
                     Ok(Some(thumbnail_id)) => {
                         println!("   🔍 Debug: Found thumbnail_id: {}", thumbnail_id);
                         if let Some(ascii_art) = self
-                            .generate_ascii_art(thumbnail_id, service.db().pool())
+                            .generate_ascii_art(&thumbnail_id, service.db().pool())
                             .await
                         {
                             println!("   🖼️  Album Art:");

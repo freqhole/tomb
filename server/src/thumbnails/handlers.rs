@@ -25,7 +25,7 @@ use crate::startup::AppState;
 #[derive(Debug, Serialize)]
 pub struct ThumbnailJobResponse {
     pub id: Uuid,
-    pub media_blob_id: Uuid,
+    pub media_blob_id: String,
     pub job_type: String,
     pub status: String,
     pub priority: String,
@@ -61,7 +61,7 @@ pub struct ThumbnailMetricsResponse {
 /// Request for manual thumbnail generation
 #[derive(Debug, Deserialize)]
 pub struct TriggerThumbnailRequest {
-    pub media_blob_id: Uuid,
+    pub media_blob_id: String,
     pub job_type: Option<String>,
     pub priority: Option<String>,
     pub dimensions: Option<ThumbnailDimensionsRequest>,
@@ -81,7 +81,7 @@ pub struct ThumbnailDimensionsRequest {
 pub struct JobListQuery {
     pub status: Option<String>,
     pub limit: Option<i32>,
-    pub media_blob_id: Option<Uuid>,
+    pub media_blob_id: Option<String>,
 }
 
 /// Response for job triggering
@@ -306,7 +306,7 @@ pub async fn trigger_thumbnail_generation(
 
         // Enqueue specific job type
         match queue
-            .enqueue_thumbnail_job(request.media_blob_id, job_type, priority, dimensions)
+            .enqueue_thumbnail_job(&request.media_blob_id, job_type, priority, dimensions)
             .await
         {
             Ok(job_id) => vec![job_id],
@@ -318,7 +318,7 @@ pub async fn trigger_thumbnail_generation(
     } else {
         // Auto-enqueue appropriate jobs for the media blob
         match queue
-            .auto_enqueue_for_media_blob(request.media_blob_id)
+            .auto_enqueue_for_media_blob(&request.media_blob_id)
             .await
         {
             Ok(job_ids) => job_ids,

@@ -143,10 +143,10 @@ CREATE INDEX idx_job_execution_log_worker_id ON job_execution_log(worker_id);
 CREATE INDEX idx_job_execution_log_success ON job_execution_log(success, started_at);
 
 -- Function to atomically claim jobs for processing (prevents race conditions)
-CREATE OR REPLACE FUNCTION claim_thumbnail_jobs(worker_id_param TEXT, limit_param INTEGER DEFAULT 1)
+CREATE OR REPLACE FUNCTION claim_thumbnail_jobs(worker_id_param TEXT, limit_param INTEGER)
 RETURNS TABLE (
     id UUID,
-    media_blob_id UUID,
+    media_blob_id VARCHAR(16),
     job_type VARCHAR,
     target_width INTEGER,
     target_height INTEGER,
@@ -189,7 +189,7 @@ $$ LANGUAGE plpgsql;
 
 -- Function to check if a job exists for a given media blob and job type
 -- Checks both active jobs AND existing thumbnails to prevent duplicates
-CREATE OR REPLACE FUNCTION job_exists_for_blob(blob_id UUID, job_type_param VARCHAR)
+CREATE OR REPLACE FUNCTION job_exists_for_blob(blob_id VARCHAR(16), job_type_param VARCHAR)
 RETURNS BOOLEAN AS $$
 BEGIN
     -- First check if there are active jobs for this blob+type
@@ -366,10 +366,10 @@ $$ LANGUAGE plpgsql;
 -- Function to find duplicate thumbnails efficiently
 CREATE OR REPLACE FUNCTION find_duplicate_thumbnails(limit_results INTEGER DEFAULT 100)
 RETURNS TABLE (
-    parent_blob_id UUID,
+    parent_blob_id VARCHAR(16),
     blob_type VARCHAR,
     duplicate_count BIGINT,
-    thumbnail_ids UUID[]
+    thumbnail_ids VARCHAR(16)[]
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -395,7 +395,7 @@ CREATE OR REPLACE FUNCTION get_jobs_by_status_detailed(
 )
 RETURNS TABLE (
     id UUID,
-    media_blob_id UUID,
+    media_blob_id VARCHAR(16),
     job_type VARCHAR,
     status VARCHAR,
     priority VARCHAR,
@@ -409,9 +409,7 @@ RETURNS TABLE (
     updated_at TIMESTAMPTZ,
     scheduled_at TIMESTAMPTZ,
     started_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ,
-    processing_duration_ms BIGINT,
-    queue_wait_time_ms BIGINT
+    completed_at TIMESTAMPTZ
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -450,14 +448,14 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Function to batch delete thumbnails safely
-CREATE OR REPLACE FUNCTION batch_delete_thumbnails(thumbnail_ids UUID[])
+CREATE OR REPLACE FUNCTION batch_delete_thumbnails(thumbnail_ids VARCHAR(16)[])
 RETURNS TABLE (
     deleted_count INTEGER,
-    deleted_ids UUID[]
+    deleted_ids VARCHAR(16)[]
 ) AS $$
 DECLARE
     deleted_count_var INTEGER;
-    deleted_ids_var UUID[];
+    deleted_ids_var VARCHAR(16)[];
 BEGIN
     -- Verify all IDs exist and are thumbnails before deletion
     SELECT ARRAY_AGG(id) INTO deleted_ids_var
@@ -471,7 +469,7 @@ BEGIN
         GET DIAGNOSTICS deleted_count_var = ROW_COUNT;
     ELSE
         deleted_count_var := 0;
-        deleted_ids_var := ARRAY[]::UUID[];
+        deleted_ids_var := ARRAY[]::VARCHAR(16)[];
     END IF;
 
     RETURN QUERY SELECT deleted_count_var, deleted_ids_var;

@@ -5,14 +5,14 @@
     "columns": [],
     "parameters": {
       "Left": [
-        "Uuid",
+        "Varchar",
         "Bytea",
-        "Uuid",
+        "Varchar",
         "Varchar",
         "Text",
         "Text",
         "Int8",
-        "Text",
+        "Bpchar",
         "Text",
         "Jsonb"
       ]

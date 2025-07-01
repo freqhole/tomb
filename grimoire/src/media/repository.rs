@@ -11,7 +11,6 @@ use sqlx::{PgPool, Row};
 
 use time::OffsetDateTime;
 use tracing::debug;
-use uuid::Uuid;
 
 /// Repository for media blob operations
 #[derive(Clone)]
@@ -25,7 +24,7 @@ pub enum MediaRepositoryError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
     #[error("Media blob not found with id: {0}")]
-    NotFound(Uuid),
+    NotFound(String),
     #[error("Media blob not found with SHA256: {0}")]
     NotFoundBySha256(String),
     #[error("Invalid cursor: {0}")]
@@ -52,11 +51,10 @@ impl MediaBlobRepository {
 
         let row = sqlx::query!(
             r#"
-            INSERT INTO media_blobs (id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            INSERT INTO media_blobs (data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at
             "#,
-            media_blob.id,
             media_blob.data,
             media_blob.sha256,
             media_blob.size,
@@ -89,7 +87,7 @@ impl MediaBlobRepository {
     }
 
     /// Find a media blob by ID
-    pub async fn find_by_id(&self, id: Uuid) -> Result<MediaBlob, MediaRepositoryError> {
+    pub async fn find_by_id(&self, id: &str) -> Result<MediaBlob, MediaRepositoryError> {
         let row = sqlx::query!(
             "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at FROM media_blobs WHERE id = $1",
             id
@@ -112,14 +110,14 @@ impl MediaBlobRepository {
                 created_at: row.created_at.unwrap(),
                 updated_at: row.updated_at.unwrap(),
             }),
-            None => Err(MediaRepositoryError::NotFound(id)),
+            None => Err(MediaRepositoryError::NotFound(id.to_string())),
         }
     }
 
     /// Find a media blob by ID without binary data
     pub async fn find_by_id_without_data(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<MediaBlob, MediaRepositoryError> {
         let row = sqlx::query!(
             "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at FROM media_blobs WHERE id = $1",
@@ -143,7 +141,7 @@ impl MediaBlobRepository {
                 created_at: row.created_at.unwrap(),
                 updated_at: row.updated_at.unwrap(),
             }),
-            None => Err(MediaRepositoryError::NotFound(id)),
+            None => Err(MediaRepositoryError::NotFound(id.to_string())),
         }
     }
 
@@ -279,7 +277,7 @@ impl MediaBlobRepository {
 
         // Bind cursor values
         if let Some(cursor) = &decoded_cursor {
-            sqlx_query = sqlx_query.bind(cursor.created_at).bind(cursor.id);
+            sqlx_query = sqlx_query.bind(cursor.created_at).bind(cursor.id.clone());
         }
 
         // Bind filter values
@@ -518,7 +516,7 @@ impl MediaBlobRepository {
     /// Update metadata for a media blob
     pub async fn update_metadata(
         &self,
-        id: Uuid,
+        id: &str,
         metadata: serde_json::Value,
     ) -> Result<MediaBlob, MediaRepositoryError> {
         let updated_at = OffsetDateTime::now_utc();
@@ -547,18 +545,18 @@ impl MediaBlobRepository {
                 created_at: row.created_at.unwrap(),
                 updated_at: row.updated_at.unwrap(),
             }),
-            None => Err(MediaRepositoryError::NotFound(id)),
+            None => Err(MediaRepositoryError::NotFound(id.to_string())),
         }
     }
 
     /// Delete a media blob by ID
-    pub async fn delete(&self, id: Uuid) -> Result<(), MediaRepositoryError> {
+    pub async fn delete(&self, id: &str) -> Result<(), MediaRepositoryError> {
         let result = sqlx::query!("DELETE FROM media_blobs WHERE id = $1", id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            Err(MediaRepositoryError::NotFound(id))
+            Err(MediaRepositoryError::NotFound(id.to_string()))
         } else {
             Ok(())
         }
@@ -641,7 +639,6 @@ pub struct MimeTypeCount {
 mod tests {
     use super::*;
     use sqlx::PgPool;
-    use uuid::Uuid;
 
     // Helper function for tests that need a database
     #[allow(dead_code)]
@@ -653,9 +650,9 @@ mod tests {
 
     #[test]
     fn test_media_repository_error_display() {
-        let id = Uuid::new_v4();
-        let error = MediaRepositoryError::NotFound(id);
-        assert!(error.to_string().contains(&id.to_string()));
+        let id = "abc1234".to_string();
+        let error = MediaRepositoryError::NotFound(id.clone());
+        assert!(error.to_string().contains(&id));
     }
 
     #[test]

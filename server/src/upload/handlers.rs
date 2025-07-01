@@ -8,7 +8,6 @@ use sha2::{Digest, Sha256};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
 use crate::auth::AuthenticatedUser;
 use crate::error::AppError;
@@ -215,7 +214,7 @@ pub async fn upload_large_file(
         );
 
         let queue = app_state.thumbnail_queue.lock().await;
-        match queue.auto_enqueue_for_media_blob(media_blob.id).await {
+        match queue.auto_enqueue_for_media_blob(&media_blob.id).await {
             Ok(job_ids) => {
                 info!(
                     "Enqueued {} thumbnail job(s) for media blob {}: {:?}",
@@ -250,10 +249,10 @@ pub async fn upload_large_file(
 pub async fn get_upload_info(
     Extension(db): Extension<DatabaseConnection>,
     Extension(_user): Extension<User>,
-    axum::extract::Path(id): axum::extract::Path<Uuid>,
+    axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<MediaBlob>, AppError> {
     let repo = MediaRepository::new(&db);
-    let media_blob = repo.find_by_id(id).await.map_err(|e| {
+    let media_blob = repo.find_by_id(&id).await.map_err(|e| {
         error!("Failed to find media blob {}: {}", id, e);
         AppError::NotFound("Upload not found".to_string())
     })?;
@@ -328,10 +327,10 @@ pub async fn delete_upload(
     Extension(db): Extension<DatabaseConnection>,
     Extension(_config): Extension<AppConfig>,
     Extension(_user): Extension<AuthenticatedUser>,
-    axum::extract::Path(id): axum::extract::Path<Uuid>,
+    axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<StatusCode, AppError> {
     let repo = MediaRepository::new(&db);
-    let media_blob = repo.find_by_id(id).await.map_err(|e| {
+    let media_blob = repo.find_by_id(&id).await.map_err(|e| {
         error!("Failed to find media blob {}: {}", id, e);
         AppError::NotFound("Upload not found".to_string())
     })?;
@@ -349,7 +348,7 @@ pub async fn delete_upload(
     );
 
     // Delete database record
-    repo.delete(id).await.map_err(|e| {
+    repo.delete(&id).await.map_err(|e| {
         error!("Failed to delete media blob record {}: {}", id, e);
         AppError::InternalServerError("Failed to delete media record".to_string())
     })?;

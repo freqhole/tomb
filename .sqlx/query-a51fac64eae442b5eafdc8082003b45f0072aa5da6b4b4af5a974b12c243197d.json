@@ -6,7 +6,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
+        "Varchar",
         "Varchar",
         "Varchar",
         "Varchar",

@@ -16,7 +16,6 @@ use super::sync::{
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::{debug, info, warn};
-use uuid::Uuid;
 
 /// Service for media blob operations
 #[derive(Clone)]
@@ -82,14 +81,14 @@ impl MediaBlobService {
     }
 
     /// Get a media blob by ID
-    pub async fn get_media_blob(&self, id: Uuid) -> Result<MediaBlob, MediaServiceError> {
+    pub async fn get_media_blob(&self, id: &str) -> Result<MediaBlob, MediaServiceError> {
         debug!("Retrieving media blob by ID: {}", id);
         let blob = self.repository.find_by_id(id).await?;
         Ok(blob)
     }
 
     /// Get a media blob by ID without binary data for efficient transmission
-    pub async fn get_media_blob_metadata(&self, id: Uuid) -> Result<MediaBlob, MediaServiceError> {
+    pub async fn get_media_blob_metadata(&self, id: &str) -> Result<MediaBlob, MediaServiceError> {
         debug!("Retrieving media blob metadata by ID: {}", id);
         let blob = self.repository.find_by_id_without_data(id).await?;
         Ok(blob)
@@ -205,22 +204,21 @@ impl MediaBlobService {
     /// Update metadata for a media blob
     pub async fn update_metadata(
         &self,
-        id: Uuid,
+        id: &str,
         metadata: serde_json::Value,
     ) -> Result<MediaBlob, MediaServiceError> {
-        info!("Updating metadata for media blob: {}", id);
+        debug!("Updating metadata for media blob: {}", id);
 
-        // Validate metadata size and structure
+        // Validate metadata
         self.validate_metadata(&metadata)?;
 
         let updated_blob = self.repository.update_metadata(id, metadata).await?;
-
         info!("Successfully updated metadata for media blob: {}", id);
         Ok(updated_blob)
     }
 
     /// Delete a media blob
-    pub async fn delete_media_blob(&self, id: Uuid) -> Result<(), MediaServiceError> {
+    pub async fn delete_media_blob(&self, id: &str) -> Result<(), MediaServiceError> {
         info!("Deleting media blob: {}", id);
 
         self.repository.delete(id).await?;

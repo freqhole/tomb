@@ -392,7 +392,7 @@ async fn handle_message(
             let repository = MediaRepository::new(db);
             let service = MediaService::new(repository);
 
-            match service.get_blob(id, false).await {
+            match service.get_blob(&id, false).await {
                 Ok(blob) => Some(WebSocketResponse::MediaBlob { blob }),
                 Err(e) => {
                     warn!("Media blob not found: {} - {}", id, e);
@@ -409,7 +409,7 @@ async fn handle_message(
             let repository = MediaRepository::new(db);
             let service = MediaService::new(repository);
 
-            match service.get_blob(id, true).await {
+            match service.get_blob(&id, true).await {
                 Ok(blob) => {
                     if let Some(data) = blob.data {
                         Some(WebSocketResponse::MediaBlobData {
@@ -459,7 +459,7 @@ async fn handle_message(
                             let thumbnail_service = ThumbnailService::new_with_defaults(db);
 
                             match thumbnail_service
-                                .auto_enqueue_for_media_blob(created_blob.id)
+                                .auto_enqueue_for_media_blob(&created_blob.id)
                                 .await
                             {
                                 Ok(job_ids) => {
@@ -595,7 +595,7 @@ async fn handle_message(
             let thumbnail_service = ThumbnailService::new_with_defaults(db);
 
             match thumbnail_service
-                .get_thumbnails_for_blob(media_blob_id)
+                .get_thumbnails_for_blob(&media_blob_id)
                 .await
             {
                 Ok(thumbnail_infos) => {
@@ -611,7 +611,7 @@ async fn handle_message(
                     let mut thumbnails = Vec::new();
 
                     for thumbnail_info in thumbnail_infos {
-                        match media_service.get_blob(thumbnail_info.id, true).await {
+                        match media_service.get_blob(&thumbnail_info.id, true).await {
                             Ok(media_blob) => thumbnails.push(media_blob),
                             Err(e) => {
                                 warn!(
@@ -623,7 +623,7 @@ async fn handle_message(
                     }
 
                     Some(WebSocketResponse::Thumbnails {
-                        media_blob_id,
+                        media_blob_id: media_blob_id.clone(),
                         thumbnails,
                     })
                 }

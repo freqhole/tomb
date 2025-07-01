@@ -13,9 +13,9 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Song {
     pub id: Uuid,
-    pub media_blob_id: Uuid,
-    pub thumbnail_blob_id: Option<Uuid>,
-    pub waveform_blob_id: Option<Uuid>,
+    pub media_blob_id: String,
+    pub thumbnail_blob_id: Option<String>,
+    pub waveform_blob_id: Option<String>,
     pub title: String,
     pub artist: Option<String>,
     pub album: Option<String>,
@@ -78,8 +78,8 @@ impl Song {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Playlist {
     pub id: Uuid,
-    pub media_blob_id: Option<Uuid>,
-    pub thumbnail_blob_id: Option<Uuid>,
+    pub media_blob_id: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
     pub title: String,
     pub description: Option<String>,
     pub client_id: Option<String>,
@@ -143,8 +143,8 @@ pub struct PlaylistSongDetail {
 pub struct PlaylistSummary {
     // Playlist fields
     pub id: Uuid,
-    pub media_blob_id: Option<Uuid>,
-    pub thumbnail_blob_id: Option<Uuid>,
+    pub media_blob_id: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
     pub title: String,
     pub description: Option<String>,
     pub client_id: Option<String>,
@@ -206,8 +206,8 @@ impl PlaylistSummary {
     pub fn to_playlist(&self) -> Playlist {
         Playlist {
             id: self.id,
-            media_blob_id: self.media_blob_id,
-            thumbnail_blob_id: self.thumbnail_blob_id,
+            media_blob_id: self.media_blob_id.clone(),
+            thumbnail_blob_id: self.thumbnail_blob_id.clone(),
             title: self.title.clone(),
             description: self.description.clone(),
             client_id: self.client_id.clone(),
@@ -228,8 +228,8 @@ impl PlaylistSummary {
 pub struct PlaylistComplete {
     // Playlist fields
     pub id: Uuid,
-    pub media_blob_id: Option<Uuid>,
-    pub thumbnail_blob_id: Option<Uuid>,
+    pub media_blob_id: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
     pub title: String,
     pub description: Option<String>,
     pub client_id: Option<String>,
@@ -288,8 +288,8 @@ impl PlaylistComplete {
     pub fn to_playlist(&self) -> Playlist {
         Playlist {
             id: self.id,
-            media_blob_id: self.media_blob_id,
-            thumbnail_blob_id: self.thumbnail_blob_id,
+            media_blob_id: self.media_blob_id.clone(),
+            thumbnail_blob_id: self.thumbnail_blob_id.clone(),
             title: self.title.clone(),
             description: self.description.clone(),
             client_id: self.client_id.clone(),
@@ -983,7 +983,7 @@ pub struct RecentSongWithThumbnail {
     pub title: String,
     pub artist: Option<String>,
     pub album: Option<String>,
-    pub thumbnail_blob_id: Option<Uuid>,
+    pub thumbnail_blob_id: Option<String>,
 }
 
 impl RecentSongWithThumbnail {

@@ -25,8 +25,8 @@ pub struct UploadRequest {
 /// Response after successful file upload
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UploadResponse {
-    /// UUID of the created media blob record
-    pub id: uuid::Uuid,
+    /// Short hash ID of the created media blob record
+    pub id: String,
     /// Relative path where the file was stored
     pub local_path: String,
     /// SHA256 hash for verification
@@ -58,7 +58,7 @@ pub enum UploadError {
     /// Database error
     DatabaseError(String),
     /// File already exists with same hash
-    DuplicateFile { existing_id: uuid::Uuid },
+    DuplicateFile { existing_id: String },
 }
 
 impl std::fmt::Display for UploadError {

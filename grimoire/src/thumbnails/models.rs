@@ -6,7 +6,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThumbnailJob {
     pub id: Uuid,
-    pub media_blob_id: Uuid,
+    pub media_blob_id: String,
     pub job_type: ThumbnailJobType,
     pub target_dimensions: Option<ThumbnailDimensions>,
     pub status: ThumbnailJobStatus,
@@ -211,7 +211,7 @@ impl Default for ThumbnailTimeouts {
 /// Media blob information for thumbnail generation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaBlobInfo {
-    pub id: Uuid,
+    pub id: String,
     pub local_path: Option<String>,
     pub data: Option<Vec<u8>>,
     pub mime_type: String,
@@ -239,7 +239,7 @@ impl MediaBlobInfo {
 /// Generated thumbnail information
 #[derive(Debug, Clone)]
 pub struct ThumbnailResult {
-    pub media_blob_id: Uuid,
+    pub media_blob_id: String,
     pub local_path: String,
     pub mime_type: String,
     pub size: i64,
@@ -292,7 +292,7 @@ pub enum ThumbnailError {
     InvalidJobStatus(String),
 
     #[error("Media blob not found: {0}")]
-    MediaBlobNotFound(Uuid),
+    MediaBlobNotFound(String),
 
     #[error("Invalid media type for thumbnail generation: {0}")]
     UnsupportedMediaType(String),

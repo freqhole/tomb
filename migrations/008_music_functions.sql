@@ -215,13 +215,13 @@ RETURNS TABLE (
     disc_number INTEGER,
     duration INTERVAL,
     created_at TIMESTAMPTZ,
-    media_blob_id UUID,
+    media_blob_id VARCHAR(16),
     audio_mime TEXT,
     audio_size BIGINT,
     local_path TEXT,
-    thumbnail_id UUID,
+    thumbnail_id VARCHAR(16),
     thumbnail_mime TEXT,
-    waveform_id UUID,
+    waveform_id VARCHAR(16),
     waveform_mime TEXT
 ) AS $$
 BEGIN
@@ -271,13 +271,13 @@ RETURNS TABLE (
     is_favorite BOOLEAN,
     rating INTEGER,
     created_at TIMESTAMPTZ,
-    media_blob_id UUID,
+    media_blob_id VARCHAR(16),
     audio_mime TEXT,
     audio_size BIGINT,
-    local_path TEXT,
-    thumbnail_id UUID,
+    thumbnail_id VARCHAR(16),
     thumbnail_mime TEXT,
-    waveform_id UUID,
+    thumbnail_size BIGINT,
+    waveform_id VARCHAR(16),
     waveform_mime TEXT
 ) AS $$
 BEGIN
@@ -327,9 +327,9 @@ RETURNS TABLE (
     disc_number INTEGER,
     track_number INTEGER,
     duration INTERVAL,
-    media_blob_id UUID,
-    thumbnail_id UUID,
-    waveform_id UUID
+    media_blob_id VARCHAR(16),
+    thumbnail_id VARCHAR(16),
+    waveform_id VARCHAR(16)
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -400,9 +400,9 @@ RETURNS TABLE (
     year INTEGER,
     rating INTEGER,
     is_favorite BOOLEAN,
-    media_blob_id UUID,
-    thumbnail_id UUID,
-    waveform_id UUID
+    media_blob_id VARCHAR(16),
+    thumbnail_id VARCHAR(16),
+    waveform_id VARCHAR(16)
 ) AS $$
 BEGIN
     RETURN QUERY

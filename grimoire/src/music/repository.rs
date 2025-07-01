@@ -924,8 +924,8 @@ impl MusicRepository {
     }
 
     /// Get thumbnail blob ID for a specific song
-    pub async fn get_song_thumbnail_id(&self, song_id: Uuid) -> Result<Option<Uuid>> {
-        let thumbnail_id = sqlx::query_scalar::<_, Option<Uuid>>(
+    pub async fn get_song_thumbnail_id(&self, song_id: Uuid) -> Result<Option<String>> {
+        let thumbnail_id = sqlx::query_scalar::<_, Option<String>>(
             "SELECT thumbnail_blob_id FROM songs WHERE id = $1",
         )
         .bind(song_id)
@@ -938,8 +938,8 @@ impl MusicRepository {
     /// Create a song record with full metadata (used during scanning)
     pub async fn create_song_with_metadata(
         &self,
-        media_blob_id: Uuid,
-        thumbnail_blob_id: Option<Uuid>,
+        media_blob_id: &str,
+        thumbnail_blob_id: Option<&str>,
         title: String,
         artist: Option<String>,
         album: Option<String>,

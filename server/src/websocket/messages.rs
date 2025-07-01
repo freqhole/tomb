@@ -24,9 +24,9 @@ pub enum WebSocketMessage {
     /// Client uploads a new media blob
     UploadMediaBlob { blob: MediaBlob },
     /// Client requests specific media blob by ID
-    GetMediaBlob { id: Uuid },
+    GetMediaBlob { id: String },
     /// Client requests media blob data by ID
-    GetMediaBlobData { id: Uuid },
+    GetMediaBlobData { id: String },
     /// Client subscribes to notification channel
     SubscribeToNotifications { channel: NotificationChannel },
     /// Client unsubscribes from notification channel
@@ -34,7 +34,7 @@ pub enum WebSocketMessage {
     /// Client requests notification status
     GetNotificationStatus,
     /// Client requests thumbnails for a media blob
-    GetThumbnails { media_blob_id: Uuid },
+    GetThumbnails { media_blob_id: String },
 }
 
 /// Messages sent from server to client
@@ -57,8 +57,9 @@ pub enum WebSocketResponse {
     /// Server sends single media blob
     MediaBlob { blob: MediaBlob },
     /// Server sends media blob data (binary content)
+    /// Server responds with media blob data
     MediaBlobData {
-        id: Uuid,
+        id: String,
         data: Vec<u8>,
         mime: Option<String>,
     },
@@ -90,7 +91,7 @@ pub enum WebSocketResponse {
     },
     /// Server sends thumbnails for a media blob
     Thumbnails {
-        media_blob_id: Uuid,
+        media_blob_id: String,
         thumbnails: Vec<MediaBlob>,
     },
 }

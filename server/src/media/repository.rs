@@ -10,7 +10,6 @@ use grimoire::media::{
 };
 use grimoire::DatabaseConnection;
 use tracing::{debug, error, info};
-use uuid::Uuid;
 
 /// Media repository wrapper that uses grimoire services
 pub struct MediaRepository<'a> {
@@ -101,7 +100,7 @@ impl<'a> MediaRepository<'a> {
     }
 
     /// Find a media blob by ID
-    pub async fn find_by_id(&self, id: Uuid) -> Result<MediaBlob, WebauthnError> {
+    pub async fn find_by_id(&self, id: &str) -> Result<MediaBlob, WebauthnError> {
         debug!("Finding media blob by ID: {}", id);
 
         let blob = self.service.get_media_blob(id).await?;
@@ -118,7 +117,7 @@ impl<'a> MediaRepository<'a> {
 
     /// Find a media blob by ID without data (for efficient responses)
     /// Get a media blob by ID without data field for efficiency
-    pub async fn get_by_id_without_data(&self, id: Uuid) -> Result<MediaBlob, WebauthnError> {
+    pub async fn get_by_id_without_data(&self, id: &str) -> Result<MediaBlob, WebauthnError> {
         debug!("Finding media blob by ID without data: {}", id);
 
         let blob = self.service.get_media_blob_metadata(id).await?;
@@ -156,7 +155,7 @@ impl<'a> MediaRepository<'a> {
     /// Update blob metadata
     pub async fn update_metadata(
         &self,
-        id: Uuid,
+        id: &str,
         metadata: serde_json::Value,
     ) -> Result<MediaBlob, WebauthnError> {
         debug!("Updating metadata for media blob: {}", id);
@@ -166,7 +165,7 @@ impl<'a> MediaRepository<'a> {
     }
 
     /// Delete a media blob by ID
-    pub async fn delete(&self, id: Uuid) -> Result<bool, WebauthnError> {
+    pub async fn delete(&self, id: &str) -> Result<bool, WebauthnError> {
         info!("Deleting media blob: {}", id);
 
         self.service.delete_media_blob(id).await?;
@@ -187,7 +186,7 @@ impl<'a> MediaRepository<'a> {
         let mut deleted_count = 0;
 
         for blob in old_blobs.items {
-            self.service.delete_media_blob(blob.id).await?;
+            self.service.delete_media_blob(&blob.id).await?;
             deleted_count += 1;
         }
 
