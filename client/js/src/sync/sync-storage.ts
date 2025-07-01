@@ -329,6 +329,16 @@ export class SyncStorageManager {
       conflictsStore.createIndex("detected_at", "detected_at");
     }
 
+    // Media blob binary data store
+    if (!db.objectStoreNames.contains("media_blob_data")) {
+      const binaryDataStore = db.createObjectStore("media_blob_data", {
+        keyPath: "id",
+      });
+      binaryDataStore.createIndex("cached_at", "cached_at");
+      binaryDataStore.createIndex("size", "size");
+      binaryDataStore.createIndex("mime", "mime");
+    }
+
     // Metadata store for storage stats and config
     if (!db.objectStoreNames.contains("metadata")) {
       db.createObjectStore("metadata", { keyPath: "key" });
@@ -1364,6 +1374,187 @@ export class SyncStorageManager {
         request.onerror = () => reject(request.error);
       });
     });
+  }
+
+  /**
+   * Store binary data for a media blob
+   */
+  async storeBinaryData(
+    blobId: string,
+    data: Uint8Array,
+    mime: string
+  ): Promise<void> {
+    await this.ensureInitialized();
+
+    const binaryData = {
+      id: blobId,
+      data,
+      mime,
+      size: data.length,
+      cached_at: new Date().toISOString(),
+    };
+
+    await this.performTransaction("media_blob_data", "readwrite", (store) => {
+      return this.requestToPromise(store.put(binaryData));
+    });
+  }
+
+  /**
+   * Get binary data for a media blob
+   */
+  async getBinaryData(blobId: string): Promise<{
+    id: string;
+    data: Uint8Array;
+    mime: string;
+    size: number;
+    cached_at: string;
+  } | null> {
+    await this.ensureInitialized();
+
+    return this.performTransaction("media_blob_data", "readonly", (store) => {
+      return this.requestToPromise(store.get(blobId));
+    });
+  }
+
+  /**
+   * Check if binary data exists for a media blob
+   */
+  async hasBinaryData(blobId: string): Promise<boolean> {
+    const data = await this.getBinaryData(blobId);
+    return data !== null;
+  }
+
+  /**
+   * Delete binary data for a media blob
+   */
+  async deleteBinaryData(blobId: string): Promise<void> {
+    await this.ensureInitialized();
+
+    await this.performTransaction("media_blob_data", "readwrite", (store) => {
+      return this.requestToPromise(store.delete(blobId));
+    });
+  }
+
+  /**
+   * Get all binary data entries
+   */
+  async getAllBinaryData(): Promise<
+    Array<{
+      id: string;
+      data: Uint8Array;
+      mime: string;
+      size: number;
+      cached_at: string;
+    }>
+  > {
+    await this.ensureInitialized();
+
+    return this.performTransaction("media_blob_data", "readonly", (store) => {
+      return new Promise((resolve, reject) => {
+        const results: any[] = [];
+        const request = store.openCursor();
+
+        request.onsuccess = (event: Event) => {
+          const cursor = (event.target as IDBRequest).result;
+          if (cursor) {
+            results.push(cursor.value);
+            cursor.continue();
+          } else {
+            resolve(results);
+          }
+        };
+
+        request.onerror = () => reject(request.error);
+      });
+    });
+  }
+
+  /**
+   * Get binary data statistics
+   */
+  async getBinaryDataStats(): Promise<{
+    totalItems: number;
+    totalSize: number;
+    oldestEntry?: string;
+    newestEntry?: string;
+  }> {
+    await this.ensureInitialized();
+
+    return this.performTransaction("media_blob_data", "readonly", (store) => {
+      return new Promise((resolve, reject) => {
+        let totalItems = 0;
+        let totalSize = 0;
+        let oldestEntry: string | undefined;
+        let newestEntry: string | undefined;
+
+        const request = store.openCursor();
+
+        request.onsuccess = (event: Event) => {
+          const cursor = (event.target as IDBRequest).result;
+          if (cursor) {
+            const data = cursor.value;
+            totalItems++;
+            totalSize += data.size;
+
+            if (!oldestEntry || data.cached_at < oldestEntry) {
+              oldestEntry = data.cached_at;
+            }
+            if (!newestEntry || data.cached_at > newestEntry) {
+              newestEntry = data.cached_at;
+            }
+
+            cursor.continue();
+          } else {
+            resolve({
+              totalItems,
+              totalSize,
+              oldestEntry,
+              newestEntry,
+            });
+          }
+        };
+
+        request.onerror = () => reject(request.error);
+      });
+    });
+  }
+
+  /**
+   * Clean up old binary data entries
+   */
+  async cleanupBinaryData(maxAgeMs: number): Promise<{
+    removed: number;
+    freedBytes: number;
+  }> {
+    await this.ensureInitialized();
+
+    const cutoffDate = new Date(Date.now() - maxAgeMs).toISOString();
+    let removed = 0;
+    let freedBytes = 0;
+
+    await this.performTransaction("media_blob_data", "readwrite", (store) => {
+      return new Promise((resolve, reject) => {
+        const index = store.index("cached_at");
+        const request = index.openCursor(IDBKeyRange.upperBound(cutoffDate));
+
+        request.onsuccess = (event: Event) => {
+          const cursor = (event.target as IDBRequest).result;
+          if (cursor) {
+            const data = cursor.value;
+            cursor.delete();
+            removed++;
+            freedBytes += data.size;
+            cursor.continue();
+          } else {
+            resolve({ removed, freedBytes });
+          }
+        };
+
+        request.onerror = () => reject(request.error);
+      });
+    });
+
+    return { removed, freedBytes };
   }
 
   private startCleanupTimer(): void {

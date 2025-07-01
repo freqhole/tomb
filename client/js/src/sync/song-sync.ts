@@ -389,7 +389,7 @@ export class SongSync extends EventTarget {
   private async processSongsResponse(
     response: SongSyncResponse
   ): Promise<void> {
-    const { songs, total_count } = response;
+    const { items: songs, total_items } = response;
 
     let syncedCount = 0;
     for (const song of songs) {
@@ -402,7 +402,7 @@ export class SongSync extends EventTarget {
           new CustomEvent("songs_synced", {
             detail: {
               songs: [song],
-              total: total_count,
+              total: total_items,
               synced: syncedCount,
             },
           })
@@ -412,7 +412,7 @@ export class SongSync extends EventTarget {
       }
     }
 
-    console.log(`✅ Synced ${syncedCount} songs of ${total_count} total`);
+    console.log(`✅ Synced ${syncedCount} songs of ${total_items} total`);
   }
 
   /**

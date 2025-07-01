@@ -508,7 +508,7 @@ export class PlaylistSync extends EventTarget {
   private async processPlaylistsResponse(
     response: PlaylistSyncResponse
   ): Promise<void> {
-    const { playlists, total_count } = response;
+    const { items: playlists, total_items } = response;
 
     let syncedCount = 0;
     for (const playlist of playlists) {
@@ -521,7 +521,7 @@ export class PlaylistSync extends EventTarget {
           new CustomEvent("playlists_synced", {
             detail: {
               playlists: [playlist],
-              total: total_count,
+              total: total_items,
               synced: syncedCount,
             },
           })
@@ -531,7 +531,7 @@ export class PlaylistSync extends EventTarget {
       }
     }
 
-    console.log(`✅ Synced ${syncedCount} playlists of ${total_count} total`);
+    console.log(`✅ Synced ${syncedCount} playlists of ${total_items} total`);
   }
 
   /**

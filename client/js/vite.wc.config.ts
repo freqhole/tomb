@@ -147,6 +147,25 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
     `,
   },
 
+  "websocket-thumbnail-demo": {
+    name: "websocket-thumbnail-demo",
+    title: "WebSocket Thumbnail Demo",
+    description: "🖼️ WebSocket Thumbnail Binary Data Demo",
+    element: "websocket-thumbnail-demo",
+    attributes: {
+      "ws-url": "ws://localhost:8080/ws",
+      "api-base-url": "http://localhost:8080",
+      title: "WebSocket Thumbnail Demo",
+    },
+    instructions: [
+      "Make sure your server is running on <code>localhost:8080</code>",
+      "This demo shows how thumbnail binary data flows through WebSocket",
+      "Click Connect → Load Blobs → Get Thumbnails to see the pattern",
+      "Only shows media blobs that have thumbnails (small binary data)",
+      "Perfect for understanding the sync system's thumbnail data flow",
+    ],
+  },
+
   "product-data-grid-demo": {
     name: "product-data-grid-demo",
     title: "Product Catalog Grid Demo",
@@ -239,6 +258,7 @@ function generateStandaloneFiles(): import("vite").Plugin {
           "infinite-data-grid.js": "infinite-data-grid",
           "product-data-grid-demo.js": "product-data-grid-demo",
           "freqhole-demo.js": "freqhole-demo",
+          "websocket-thumbnail-demo.js": "websocket-thumbnail-demo",
         };
 
         const templateKey = nameMapping[chunk.fileName];
@@ -304,6 +324,8 @@ export default defineConfig({
         "product-data-grid-demo":
           "./src/web-components/product-data-grid-demo.tsx",
         "freqhole-demo": "./src/web-components/freqhole-demo.tsx",
+        "websocket-thumbnail-demo":
+          "./src/web-components/websocket-thumbnail-demo.tsx",
         "all-components": "./src/web-components/index.tsx",
       },
       output: {
@@ -317,6 +339,7 @@ export default defineConfig({
             "infinite-data-grid": "infinite-data-grid.js",
             "product-data-grid-demo": "product-data-grid-demo.js",
             "freqhole-demo": "freqhole-demo.js",
+            "websocket-thumbnail-demo": "websocket-thumbnail-demo.js",
             "all-components": "all-components.js",
           };
           return nameMap[chunkInfo.name] || "[name].js";

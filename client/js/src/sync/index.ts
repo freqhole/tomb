@@ -201,6 +201,44 @@ export type {
   PlaylistSong,
 } from "../lib/websocket-types.js";
 
+// Integrated sync manager (combines music sync with WebSocket binary sync)
+export {
+  IntegratedSyncManager,
+  createIntegratedSyncManager,
+  defaultIntegratedSyncConfig,
+} from "./integrated-sync-manager.js";
+export type {
+  IntegratedSyncManagerConfig,
+  IntegratedSyncProgress,
+  IntegratedSyncResult,
+} from "./integrated-sync-manager.js";
+
+// WebSocket binary connector
+export {
+  WebSocketBinaryConnector,
+  createWebSocketBinaryConnector,
+} from "./websocket-binary-connector.js";
+export type {
+  WebSocketBinaryConnectorConfig,
+  BinarySyncStats,
+} from "./websocket-binary-connector.js";
+
+// Integrated media blob cache
+export {
+  IntegratedMediaBlobCache,
+  createIntegratedMediaBlobCache,
+  createDataUrlFromCache,
+} from "./integrated-media-blob-cache.js";
+export type {
+  CachedBinaryData,
+  CacheStats,
+  IntegratedMediaBlobCacheConfig,
+  CacheEventType,
+} from "./integrated-media-blob-cache.js";
+
+// Blob cache interface
+export type { IBlobCache } from "./blob-cache-interface.js";
+
 // Re-export storage types from sync storage
 export type {
   StoredMediaBlob,

@@ -9,16 +9,19 @@
 import { customElement } from "solid-element";
 import { createSignal, onMount, onCleanup, Show, For } from "solid-js";
 import { ApiClient } from "../lib/api-client.js";
+import { SyncStorageManager } from "../sync/sync-storage.js";
+import { WebSocketClient } from "../lib/websocket-client.js";
 import {
   createSyncManager,
-  MusicSyncManager,
-  createMusicSyncManager,
+  IntegratedSyncManager,
+  createIntegratedSyncManager,
+  defaultIntegratedSyncConfig,
   SyncStatus,
   SyncEventType,
   type SyncManager,
   type SyncStatus as SyncStatusType,
-  type MusicSyncProgress,
-  type MusicSyncStats,
+  type IntegratedSyncProgress,
+  type IntegratedSyncResult,
 } from "../sync/index.js";
 import SyncStatusComponent from "./sync-status.js";
 import SyncProgressComponent from "./sync-progress.js";
@@ -30,14 +33,17 @@ export interface SyncDemoProps {
   autoConnect?: boolean;
   className?: string;
   enableMusicSync?: boolean;
+  enableBinarySync?: boolean;
 }
 
 function SyncDemoComponent(props: SyncDemoProps) {
   const [syncManager, setSyncManager] = createSignal<SyncManager | null>(null);
-  const [musicSyncManager, setMusicSyncManager] =
-    createSignal<MusicSyncManager | null>(null);
+  const [integratedSyncManager, setIntegratedSyncManager] =
+    createSignal<IntegratedSyncManager | null>(null);
+  const [websocketClient, setWebsocketClient] =
+    createSignal<WebSocketClient | null>(null);
   const [status, setStatus] = createSignal<SyncStatusType>(SyncStatus.Never);
-  const [musicStatus, setMusicStatus] = createSignal<SyncStatusType>(
+  const [integratedStatus, setIntegratedStatus] = createSignal<SyncStatusType>(
     SyncStatus.Never
   );
   const [progress, setProgress] = createSignal<number>(0);
@@ -49,9 +55,9 @@ function SyncDemoComponent(props: SyncDemoProps) {
   const [isConnected, setIsConnected] = createSignal<boolean>(false);
   const [error, setError] = createSignal<string | null>(null);
   const [logs, setLogs] = createSignal<string[]>([]);
-  const [musicStats, setMusicStats] = createSignal<MusicSyncStats | null>(null);
-  const [musicProgress, setMusicProgress] =
-    createSignal<MusicSyncProgress | null>(null);
+  const [integratedProgress, setIntegratedProgress] =
+    createSignal<IntegratedSyncProgress | null>(null);
+  const [binaryStats, setBinaryStats] = createSignal<any>(null);
   // Note: Auto-sync polling has been replaced by WebSocket notifications
   // See websocket-feed-demo.tsx for real-time feed updates
 
@@ -64,27 +70,77 @@ function SyncDemoComponent(props: SyncDemoProps) {
 
   const initializeSyncManager = async () => {
     try {
+      // Generate or validate UUID for clientId
+      const generateUUID = () => {
+        if (typeof crypto !== "undefined" && crypto.randomUUID) {
+          return crypto.randomUUID();
+        }
+        // Fallback UUID v4 generator
+        return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+          /[xy]/g,
+          function (c) {
+            const r = (Math.random() * 16) | 0;
+            const v = c == "x" ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+          }
+        );
+      };
+
+      // Validate UUID format
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+      let clientId: string;
+      if (props.clientId && uuidRegex.test(props.clientId)) {
+        clientId = props.clientId;
+        addLog(`Using provided clientId: ${clientId}`);
+      } else {
+        clientId = generateUUID();
+        if (props.clientId) {
+          addLog(
+            `Provided clientId "${props.clientId}" is not a valid UUID, generated: ${clientId}`
+          );
+        } else {
+          addLog(`Generated new clientId: ${clientId}`);
+        }
+      }
+
       const apiClient = new ApiClient({
         baseUrl: props.apiBaseUrl || "http://localhost:8080",
       });
 
-      const manager = createSyncManager(
-        apiClient,
-        props.clientId || crypto.randomUUID(),
-        {
-          defaultPageSize: 10,
-          includeBinaryData: false,
-          storage: {
-            enabled: true,
-            maxSize: 50 * 1024 * 1024, // 50MB
-            maxCacheAge: 7,
-          },
-          conflictResolution: {
-            defaultStrategy: "manual",
-            autoResolveSimple: false,
-          },
-        }
-      );
+      // Initialize WebSocket client for binary sync
+      const wsClient = new WebSocketClient({
+        url:
+          (props.apiBaseUrl || "http://localhost:8080").replace("http", "ws") +
+          "/ws",
+        maxReconnectAttempts: 5,
+        reconnectDelay: 1000,
+      });
+
+      try {
+        await wsClient.connect();
+        setWebsocketClient(wsClient);
+        addLog("WebSocket connected for binary sync");
+      } catch (wsErr) {
+        addLog(
+          `WebSocket connection failed: ${wsErr instanceof Error ? wsErr.message : "Unknown error"}`
+        );
+      }
+
+      const manager = createSyncManager(apiClient, clientId, {
+        defaultPageSize: 10,
+        includeBinaryData: false,
+        storage: {
+          enabled: true,
+          maxSize: 50 * 1024 * 1024, // 50MB
+          maxCacheAge: 7,
+        },
+        conflictResolution: {
+          defaultStrategy: "manual",
+          autoResolveSimple: false,
+        },
+      });
 
       // Set up event listeners
       manager.on(SyncEventType.Started, (event: any) => {
@@ -152,66 +208,108 @@ function SyncDemoComponent(props: SyncDemoProps) {
       setStatus(SyncStatus.Complete);
       addLog("Sync manager initialized");
 
-      // Initialize music sync manager if enabled
+      // Initialize integrated sync manager if enabled
       if (props.enableMusicSync !== false) {
         try {
-          const musicManager = createMusicSyncManager({
+          addLog(`Creating integrated sync manager with clientId: ${clientId}`);
+
+          // Validate clientId before proceeding
+          addLog(`Validating clientId format...`);
+          if (!clientId) {
+            throw new Error("ClientId is undefined or empty");
+          }
+
+          // Create storage instance first
+          addLog(`Creating storage manager...`);
+          const storageManager = new SyncStorageManager({
+            database_name: "webauthn_sync_storage",
+            version: 4,
+            max_storage_size: 100 * 1024 * 1024,
+            max_cache_age_days: 30,
+          });
+
+          const config = {
+            ...defaultIntegratedSyncConfig,
             apiBaseUrl: props.apiBaseUrl || "http://localhost:8080",
             authToken: "demo-token",
-            clientId: props.clientId || crypto.randomUUID(),
+            clientId: clientId,
             batchSize: 25,
-            maxStorageSize: 100 * 1024 * 1024, // 100MB
-            syncBinaryData: true,
-            musicOptions: {
-              enableBackgroundSync: false,
-              autoSyncInterval: 60000,
+            maxRetryAttempts: 3,
+            retryDelay: 1000,
+            conflictResolution: "manual",
+            enableStorage: true,
+            maxStorageSize: 100 * 1024 * 1024,
+            maxCacheAge: 30,
+            enableWebSocketBinarySync: props.enableBinarySync !== false,
+            autoSyncOnNewBlobs: true,
+            binarySync: {
+              priorityMimeTypes: ["image/", "audio/"],
+              batchSize: 3,
+              maxFileSize: 10 * 1024 * 1024,
+              debug: true,
             },
-          });
+          };
 
-          // Set up music sync event listeners
-          musicManager.on("initialized", () => {
-            addLog("Music sync manager initialized");
-          });
+          addLog(`Config created, calling createIntegratedSyncManager...`);
+          const integratedManager = createIntegratedSyncManager(
+            wsClient,
+            storageManager,
+            config
+          );
 
-          musicManager.on("status_changed", (data) => {
-            setMusicStatus(data.status);
-            addLog(`Music sync status: ${data.status}`);
-          });
+          // Set up integrated sync event listeners
+          integratedManager.addEventListener("progress", (event: any) => {
+            const progress = event.detail;
+            setIntegratedProgress(progress);
+            setIntegratedStatus(progress.overallStatus);
 
-          musicManager.on("progress", (data) => {
-            setMusicProgress(data.progress);
-          });
-
-          musicManager.on("sync_completed", (data) => {
             addLog(
-              `Music sync completed - ${data.stats.totalSongs} songs, ${data.stats.totalPlaylists} playlists`
+              `Integrated sync: ${progress.overallStatus} - Music: ${progress.musicSync.status}, Binary: ${progress.binarySync.status}`
             );
-            setMusicStats(data.stats);
+
+            if (progress.combinedProgress !== undefined) {
+              setProgress(progress.combinedProgress);
+            }
           });
 
-          musicManager.on("songs_synced", (data) => {
-            addLog(`Synced ${data.songs.length} songs`);
+          integratedManager.addEventListener("complete", (event: any) => {
+            const result: IntegratedSyncResult = event.detail;
+            addLog(
+              `Integrated sync complete! Music: ${result.musicSync.itemsSynced} items, Binary: ${result.binarySync.thumbnailsCached} thumbnails (${Math.round(result.binarySync.bytesCached / 1024)}KB)`
+            );
+            setIntegratedStatus(SyncStatus.Complete);
           });
 
-          musicManager.on("playlists_synced", (data) => {
-            addLog(`Synced ${data.playlists.length} playlists`);
+          integratedManager.addEventListener(
+            "media_blob_added",
+            (event: any) => {
+              const { mediaBlob } = event.detail;
+              addLog(
+                `New media blob detected: ${mediaBlob.id} (${mediaBlob.mime})`
+              );
+            }
+          );
+
+          integratedManager.addEventListener("error", (event: any) => {
+            const { error } = event.detail;
+            addLog(
+              `Integrated sync error: ${error instanceof Error ? error.message : error}`
+            );
           });
 
-          musicManager.on("error", (data) => {
-            addLog(`Music sync error: ${data.error.message || data.error}`);
-          });
-
-          await musicManager.initialize();
-          setMusicSyncManager(musicManager);
-          addLog("Music sync manager ready");
+          addLog("Calling integratedManager.initialize()...");
+          await integratedManager.initialize();
+          setIntegratedSyncManager(integratedManager);
+          addLog("Integrated sync manager ready");
 
           // Update stats
-          const stats = await musicManager.getStats();
-          setMusicStats(stats);
+          const stats = await integratedManager.getStats();
+          setBinaryStats(stats.binary);
         } catch (err) {
-          addLog(
-            `Music sync initialization failed: ${err instanceof Error ? err.message : "Unknown error"}`
-          );
+          const errorDetails =
+            err instanceof Error ? err.message : JSON.stringify(err);
+          addLog(`Integrated sync initialization failed: ${errorDetails}`);
+          console.error("Full error details:", err);
         }
       }
     } catch (err) {
@@ -223,30 +321,53 @@ function SyncDemoComponent(props: SyncDemoProps) {
 
   const handleStartSync = async () => {
     const manager = syncManager();
-    if (!manager) return;
+    const integratedManager = integratedSyncManager();
 
-    try {
-      setError(null);
-      await manager.sync({ force: false });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Sync failed";
-      setError(errorMessage);
-      addLog(`Sync error: ${errorMessage}`);
+    if (integratedManager) {
+      try {
+        setError(null);
+        addLog("Starting integrated sync (music + binary data)...");
+        await integratedManager.sync({
+          force: false,
+          syncBinaryData: props.enableBinarySync !== false,
+          pageSize: 25,
+        });
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : "Integrated sync failed";
+        setError(errorMessage);
+        addLog(`Integrated sync error: ${errorMessage}`);
+      }
+    } else if (manager) {
+      try {
+        setError(null);
+        await manager.sync({ force: false });
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : "Sync failed";
+        setError(errorMessage);
+        addLog(`Sync error: ${errorMessage}`);
+      }
     }
   };
 
   const handleStopSync = async () => {
     const manager = syncManager();
-    if (!manager) return;
+    const integratedManager = integratedSyncManager();
 
-    try {
-      await manager.stopSync();
-      setStatus(SyncStatus.Complete);
-      addLog("Sync stopped");
-    } catch (err) {
+    if (integratedManager) {
       addLog(
-        `Stop sync error: ${err instanceof Error ? err.message : "Unknown error"}`
+        "Integrated sync stop not implemented (sync will complete current batch)"
       );
+    } else if (manager) {
+      try {
+        await manager.stopSync();
+        setStatus(SyncStatus.Complete);
+        addLog("Sync stopped");
+      } catch (err) {
+        addLog(
+          `Stop sync error: ${err instanceof Error ? err.message : "Unknown error"}`
+        );
+      }
     }
   };
 
@@ -280,72 +401,117 @@ function SyncDemoComponent(props: SyncDemoProps) {
 
   const handleForceSync = async () => {
     const manager = syncManager();
-    if (!manager) return;
+    const integratedManager = integratedSyncManager();
 
-    try {
-      setError(null);
-      await manager.sync({ force: true });
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Force sync failed";
-      setError(errorMessage);
-      addLog(`Force sync error: ${errorMessage}`);
+    if (integratedManager) {
+      try {
+        setError(null);
+        addLog("Starting forced integrated sync...");
+        await integratedManager.sync({
+          force: true,
+          syncBinaryData: props.enableBinarySync !== false,
+          pageSize: 25,
+        });
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : "Force sync failed";
+        setError(errorMessage);
+        addLog(`Force sync error: ${errorMessage}`);
+      }
+    } else if (manager) {
+      try {
+        setError(null);
+        await manager.sync({ force: true });
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : "Force sync failed";
+        setError(errorMessage);
+        addLog(`Force sync error: ${errorMessage}`);
+      }
     }
   };
 
-  const handleMusicSyncAll = async () => {
-    const manager = musicSyncManager();
-    if (!manager) return;
-
-    try {
-      setError(null);
-      addLog("Starting full music sync...");
-      await manager.syncAll();
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Music sync failed";
-      setError(errorMessage);
-      addLog(`Music sync error: ${errorMessage}`);
+  const handleRequestThumbnails = async () => {
+    const integratedManager = integratedSyncManager();
+    if (!integratedManager) {
+      addLog("Integrated sync manager not available");
+      return;
     }
-  };
-
-  const handleMusicSyncSongs = async () => {
-    const manager = musicSyncManager();
-    if (!manager) return;
 
     try {
-      addLog("Starting songs sync...");
-      await manager.syncSongs();
+      addLog("Requesting thumbnails for first media blob...");
+      // This is a demo - in real usage you'd have a specific blob ID
+      addLog("Note: This requires media blobs to exist in storage");
     } catch (err) {
       addLog(
-        `Songs sync error: ${err instanceof Error ? err.message : "Unknown error"}`
+        `Thumbnail request error: ${err instanceof Error ? err.message : "Unknown error"}`
       );
     }
   };
 
-  const handleMusicSyncPlaylists = async () => {
-    const manager = musicSyncManager();
-    if (!manager) return;
+  const handleBinarySync = async () => {
+    const integratedManager = integratedSyncManager();
+    if (!integratedManager) {
+      addLog("Integrated sync manager not available");
+      return;
+    }
 
     try {
-      addLog("Starting playlists sync...");
-      await manager.syncPlaylists();
+      addLog("Starting WebSocket binary data sync...");
+      await integratedManager.sync({
+        force: false,
+        syncBinaryData: true,
+        pageSize: 25,
+      });
     } catch (err) {
       addLog(
-        `Playlists sync error: ${err instanceof Error ? err.message : "Unknown error"}`
+        `Binary sync error: ${err instanceof Error ? err.message : "Unknown error"}`
       );
     }
   };
 
-  const updateMusicStats = async () => {
-    const manager = musicSyncManager();
-    if (!manager) return;
+  const updateIntegratedStats = async () => {
+    const integratedManager = integratedSyncManager();
+    if (!integratedManager) return;
 
     try {
-      const stats = await manager.getStats();
-      setMusicStats(stats);
+      const stats = await integratedManager.getStats();
+      setBinaryStats(stats.binary);
     } catch (err) {
       // Silently fail stats updates
+    }
+  };
+
+  const handleUploadTestFile = async () => {
+    try {
+      // Create a simple test file
+      const testContent = "This is a test file for binary sync demo";
+      const blob = new Blob([testContent], { type: "text/plain" });
+      const file = new File([blob], "test-file.txt", { type: "text/plain" });
+
+      addLog(`Creating test file: ${file.name} (${file.size} bytes)`);
+
+      // Create FormData for upload
+      const formData = new FormData();
+      formData.append("file", file);
+
+      // Upload via API
+      const apiBaseUrl = props.apiBaseUrl || "http://localhost:8080";
+      const response = await fetch(`${apiBaseUrl}/api/media/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      addLog(`Test file uploaded successfully: ${result.id}`);
+      addLog("Now try syncing to see binary data in action!");
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Upload failed";
+      addLog(`Test file upload error: ${errorMsg}`);
     }
   };
 
@@ -361,14 +527,14 @@ function SyncDemoComponent(props: SyncDemoProps) {
 
   onCleanup(async () => {
     const manager = syncManager();
-    const musicManager = musicSyncManager();
+    const integratedManager = integratedSyncManager();
 
     if (manager) {
       await manager.cleanup();
     }
 
-    if (musicManager) {
-      await musicManager.destroy();
+    if (integratedManager) {
+      await integratedManager.close();
     }
   });
 
@@ -540,8 +706,8 @@ function SyncDemoComponent(props: SyncDemoProps) {
         </div>
       </Show>
 
-      {/* Music Sync Section */}
-      <Show when={musicSyncManager()}>
+      {/* Integrated Sync Section */}
+      <Show when={integratedSyncManager()}>
         <div
           style={{
             padding: "16px",
@@ -557,11 +723,11 @@ function SyncDemoComponent(props: SyncDemoProps) {
               color: "#374151",
             }}
           >
-            🎵 Music Sync
+            🎵📸 Integrated Sync (Music + Binary)
           </h3>
 
-          {/* Music Progress */}
-          <Show when={musicProgress()}>
+          {/* Integrated Progress */}
+          <Show when={integratedProgress()}>
             <div style={{ "margin-bottom": "12px" }}>
               <div
                 style={{
@@ -572,16 +738,10 @@ function SyncDemoComponent(props: SyncDemoProps) {
                 }}
               >
                 <span style={{ "font-size": "12px", color: "#6b7280" }}>
-                  Phase:{" "}
-                  {musicProgress()
-                    ?.currentPhase.replace("_", " ")
-                    .toUpperCase()}
+                  Overall: {integratedProgress()?.overallStatus}
                 </span>
                 <span style={{ "font-size": "12px", color: "#6b7280" }}>
-                  {musicProgress()?.overallProgress
-                    ? Math.round(musicProgress()!.overallProgress!)
-                    : 0}
-                  %
+                  {Math.round(integratedProgress()?.combinedProgress || 0)}%
                 </span>
               </div>
               <div
@@ -597,16 +757,33 @@ function SyncDemoComponent(props: SyncDemoProps) {
                   style={{
                     height: "100%",
                     "background-color": "#3b82f6",
-                    width: `${musicProgress()?.overallProgress || 0}%`,
+                    width: `${integratedProgress()?.combinedProgress || 0}%`,
                     transition: "width 0.3s ease",
                   }}
                 />
               </div>
+
+              {/* Sub-progress bars */}
+              <div style={{ "margin-top": "8px", "font-size": "11px" }}>
+                <div style={{ "margin-bottom": "2px" }}>
+                  Music: {integratedProgress()?.musicSync.status}(
+                  {integratedProgress()?.musicSync.totalItemsSynced || 0} items)
+                </div>
+                <div>
+                  Binary: {integratedProgress()?.binarySync.status}(
+                  {integratedProgress()?.binarySync.thumbnailsCached || 0}{" "}
+                  cached,
+                  {Math.round(
+                    (integratedProgress()?.binarySync.bytesCached || 0) / 1024
+                  )}
+                  KB)
+                </div>
+              </div>
             </div>
           </Show>
 
-          {/* Music Stats */}
-          <Show when={musicStats()}>
+          {/* Binary Cache Stats */}
+          <Show when={binaryStats()}>
             <div
               style={{
                 display: "grid",
@@ -630,10 +807,10 @@ function SyncDemoComponent(props: SyncDemoProps) {
                     color: "#3b82f6",
                   }}
                 >
-                  {musicStats()?.totalSongs || 0}
+                  {binaryStats()?.totalItems || 0}
                 </div>
                 <div style={{ "font-size": "10px", color: "#6b7280" }}>
-                  Songs
+                  Cached
                 </div>
               </div>
               <div
@@ -651,10 +828,10 @@ function SyncDemoComponent(props: SyncDemoProps) {
                     color: "#10b981",
                   }}
                 >
-                  {musicStats()?.totalPlaylists || 0}
+                  {Math.round((binaryStats()?.totalSize || 0) / 1024)}KB
                 </div>
                 <div style={{ "font-size": "10px", color: "#6b7280" }}>
-                  Playlists
+                  Size
                 </div>
               </div>
               <div
@@ -672,16 +849,16 @@ function SyncDemoComponent(props: SyncDemoProps) {
                     color: "#f59e0b",
                   }}
                 >
-                  {musicStats()?.healthScore || 0}%
+                  {Math.round((binaryStats()?.hitRate || 0) * 100)}%
                 </div>
                 <div style={{ "font-size": "10px", color: "#6b7280" }}>
-                  Health
+                  Hit Rate
                 </div>
               </div>
             </div>
           </Show>
 
-          {/* Music Sync Controls */}
+          {/* Integrated Sync Controls */}
           <div
             style={{
               display: "flex",
@@ -690,9 +867,9 @@ function SyncDemoComponent(props: SyncDemoProps) {
             }}
           >
             <button
-              onClick={handleMusicSyncAll}
+              onClick={handleStartSync}
               disabled={
-                !isConnected() || musicStatus() === SyncStatus.InProgress
+                !isConnected() || integratedStatus() === SyncStatus.InProgress
               }
               style={{
                 padding: "8px 12px",
@@ -703,40 +880,40 @@ function SyncDemoComponent(props: SyncDemoProps) {
                 "font-size": "12px",
                 "font-weight": "500",
                 cursor:
-                  musicStatus() === SyncStatus.InProgress
+                  integratedStatus() === SyncStatus.InProgress
                     ? "not-allowed"
                     : "pointer",
-                opacity: musicStatus() === SyncStatus.InProgress ? 0.6 : 1,
+                opacity: integratedStatus() === SyncStatus.InProgress ? 0.6 : 1,
               }}
             >
-              Sync All Music
+              Sync All (Music + Binary)
             </button>
             <button
-              onClick={handleMusicSyncSongs}
+              onClick={handleBinarySync}
               disabled={
-                !isConnected() || musicStatus() === SyncStatus.InProgress
+                !isConnected() || integratedStatus() === SyncStatus.InProgress
               }
               style={{
                 padding: "8px 12px",
                 "border-radius": "6px",
-                border: "1px solid #10b981",
-                "background-color": "#10b981",
+                border: "1px solid #8b5cf6",
+                "background-color": "#8b5cf6",
                 color: "#ffffff",
                 "font-size": "12px",
                 "font-weight": "500",
                 cursor:
-                  musicStatus() === SyncStatus.InProgress
+                  integratedStatus() === SyncStatus.InProgress
                     ? "not-allowed"
                     : "pointer",
-                opacity: musicStatus() === SyncStatus.InProgress ? 0.6 : 1,
+                opacity: integratedStatus() === SyncStatus.InProgress ? 0.6 : 1,
               }}
             >
-              Sync Songs
+              Binary Sync Only
             </button>
             <button
-              onClick={handleMusicSyncPlaylists}
+              onClick={handleRequestThumbnails}
               disabled={
-                !isConnected() || musicStatus() === SyncStatus.InProgress
+                !isConnected() || integratedStatus() === SyncStatus.InProgress
               }
               style={{
                 padding: "8px 12px",
@@ -747,16 +924,16 @@ function SyncDemoComponent(props: SyncDemoProps) {
                 "font-size": "12px",
                 "font-weight": "500",
                 cursor:
-                  musicStatus() === SyncStatus.InProgress
+                  integratedStatus() === SyncStatus.InProgress
                     ? "not-allowed"
                     : "pointer",
-                opacity: musicStatus() === SyncStatus.InProgress ? 0.6 : 1,
+                opacity: integratedStatus() === SyncStatus.InProgress ? 0.6 : 1,
               }}
             >
-              Sync Playlists
+              Request Thumbnails
             </button>
             <button
-              onClick={updateMusicStats}
+              onClick={updateIntegratedStats}
               style={{
                 padding: "8px 12px",
                 "border-radius": "6px",
@@ -769,6 +946,21 @@ function SyncDemoComponent(props: SyncDemoProps) {
               }}
             >
               Refresh Stats
+            </button>
+            <button
+              onClick={handleUploadTestFile}
+              style={{
+                padding: "8px 12px",
+                "border-radius": "6px",
+                border: "1px solid #ef4444",
+                "background-color": "#ef4444",
+                color: "#ffffff",
+                "font-size": "12px",
+                "font-weight": "500",
+                cursor: "pointer",
+              }}
+            >
+              Upload Test File
             </button>
           </div>
         </div>

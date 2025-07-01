@@ -12,6 +12,16 @@ import { MediaBlobSync } from "./media-blob-sync.js";
 import { SyncStorageManager } from "./sync-storage.js";
 import { MusicSyncEventEmitter, MusicSyncEvents } from "./music-sync-events.js";
 import { SyncStatus, ConflictResolution } from "./sync-constants.js";
+import {
+  IntegratedMediaBlobCache,
+  createIntegratedMediaBlobCache,
+} from "./integrated-media-blob-cache.js";
+import {
+  MediaBlobBinarySync,
+  createMediaBlobBinarySync,
+  type BinarySyncResult,
+} from "./media-blob-binary-sync.js";
+import type { WebSocketClient } from "../lib/websocket-client.js";
 import type {
   Song,
   Playlist,
@@ -60,6 +70,12 @@ export interface MusicSyncManagerConfig {
     autoSyncInterval?: number;
     /** Enable background sync */
     enableBackgroundSync?: boolean;
+    /** Enable binary data cache for media blobs */
+    enableBinaryCache?: boolean;
+    /** Maximum binary cache size in bytes (default: 500MB) */
+    maxBinaryCacheSize?: number;
+    /** Priority MIME types for binary sync (default: ["image/", "audio/"]) */
+    priorityBinaryTypes?: string[];
   };
 }
 
@@ -153,6 +169,8 @@ export class MusicSyncManager extends MusicSyncEventEmitter {
   private playlistSync!: PlaylistSync;
   private playlistSongSync!: PlaylistSongSync;
   private mediaBlobSync!: MediaBlobSync;
+  private binaryCache?: IntegratedMediaBlobCache;
+  private binarySync?: MediaBlobBinarySync;
   private isInitialized: boolean = false;
   private currentStatus: SyncStatus = SyncStatus.Idle;
   private syncProgress: MusicSyncProgress;
@@ -189,6 +207,31 @@ export class MusicSyncManager extends MusicSyncEventEmitter {
     try {
       await this.storage.initialize();
 
+      // Initialize binary cache if enabled
+      if (this.config.musicOptions?.enableBinaryCache !== false) {
+        this.binaryCache = createIntegratedMediaBlobCache(
+          this.storage,
+          {
+            maxCacheSize:
+              this.config.musicOptions?.maxBinaryCacheSize || 500 * 1024 * 1024,
+          },
+          this.config.apiBaseUrl
+        );
+        await this.binaryCache.initialize();
+
+        this.binarySync = createMediaBlobBinarySync(
+          this.binaryCache,
+          this.storage,
+          {
+            priorityMimeTypes: this.config.musicOptions
+              ?.priorityBinaryTypes || ["image/", "audio/"],
+            maxConcurrent: 3,
+            batchSize: 5,
+          }
+        );
+      }
+
+      // Initialize sync clients
       await Promise.all([
         this.songSync.initialize(),
         this.playlistSync.initialize(),
@@ -386,6 +429,40 @@ export class MusicSyncManager extends MusicSyncEventEmitter {
   }
 
   /**
+   * Sync binary data for cached media blobs
+   */
+  async syncBinaryData(
+    websocketClient?: WebSocketClient
+  ): Promise<BinarySyncResult> {
+    if (!this.binarySync) {
+      throw new Error(
+        "Binary sync not initialized - enable binary cache in config"
+      );
+    }
+
+    return this.binarySync.syncAllBinaryData(websocketClient);
+  }
+
+  /**
+   * Get blob URL for cached binary data
+   */
+  async getBlobUrl(blobId: string): Promise<string | null> {
+    if (!this.binaryCache) {
+      return null;
+    }
+    return this.binaryCache.getBlobUrl(blobId);
+  }
+
+  /**
+   * Release blob URL to free memory
+   */
+  releaseBlobUrl(blobId: string): void {
+    if (this.binaryCache) {
+      this.binaryCache.releaseBlobUrl(blobId);
+    }
+  }
+
+  /**
    * Get current sync status
    */
   getStatus(): SyncStatus {
@@ -560,13 +637,20 @@ export class MusicSyncManager extends MusicSyncEventEmitter {
   async destroy(): Promise<void> {
     this.stopAutoSync();
 
-    await Promise.all([
+    const promises = [
       this.songSync.destroy(),
       this.playlistSync.destroy(),
       this.playlistSongSync.destroy(),
       this.mediaBlobSync.destroy(),
       this.storage.close(),
-    ]);
+    ];
+
+    // Close binary cache if initialized
+    if (this.binaryCache) {
+      promises.push(this.binaryCache.close());
+    }
+
+    await Promise.all(promises);
 
     this.removeAllListeners();
     this.isInitialized = false;

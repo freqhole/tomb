@@ -24,6 +24,7 @@ import "./websocket-status";
 import "./websocket-demo";
 import "./websocket-feed-manager";
 import "./websocket-feed-demo";
+import "./websocket-thumbnail-demo";
 import "./media-blob-feed-item";
 import "./media-blob-feed-list";
 import "./simple-test";
@@ -45,6 +46,7 @@ const REGISTERED_COMPONENTS = [
   "websocket-demo",
   "websocket-feed-manager",
   "websocket-feed-demo",
+  "websocket-thumbnail-demo",
   "media-blob-feed-item",
   "media-blob-feed-list",
   "simple-test",
@@ -103,6 +105,12 @@ declare global {
         className?: string;
         refreshInterval?: number;
         demoMode?: boolean;
+      };
+
+      "websocket-thumbnail-demo": {
+        wsUrl?: string;
+        apiBaseUrl?: string;
+        title?: string;
       };
 
       "media-blob-feed-item": {
@@ -260,6 +268,7 @@ console.log("🧩 Web Components Library loaded - Available components:", [
   "websocket-demo",
   "websocket-feed-manager",
   "websocket-feed-demo",
+  "websocket-thumbnail-demo",
   "media-blob-feed-item",
   "media-blob-feed-list",
   "simple-test",
