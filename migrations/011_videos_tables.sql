@@ -4,8 +4,8 @@
 -- Create videos table for video domain
 CREATE TABLE videos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    media_blob_id UUID NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
-    thumbnail_blob_id UUID REFERENCES media_blobs(id) ON DELETE SET NULL,
+    media_blob_id VARCHAR(16) NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
+    thumbnail_blob_id VARCHAR(16) REFERENCES media_blobs(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     description TEXT,
     duration INTERVAL,
@@ -92,7 +92,7 @@ CREATE TABLE video_chapters (
     start_time INTERVAL NOT NULL,
     end_time INTERVAL,
     description TEXT,
-    thumbnail_blob_id UUID REFERENCES media_blobs(id) ON DELETE SET NULL,
+    thumbnail_blob_id VARCHAR(16) REFERENCES media_blobs(id) ON DELETE SET NULL,
     chapter_type VARCHAR(20) DEFAULT 'user' CHECK (chapter_type IN ('user', 'auto', 'imported')),
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

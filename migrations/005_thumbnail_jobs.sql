@@ -23,7 +23,7 @@ CREATE TABLE thumbnail_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
     -- Core job identification
-    media_blob_id UUID NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
+    media_blob_id VARCHAR(16) NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
     job_type VARCHAR(50) NOT NULL,
 
     -- Job status and processing
@@ -47,7 +47,7 @@ CREATE TABLE thumbnail_jobs (
 
     -- Deduplication
     job_hash CHAR(64) GENERATED ALWAYS AS (
-        encode(sha256((media_blob_id::text || ':' || job_type)::bytea), 'hex')
+        encode(sha256((media_blob_id || ':' || job_type)::bytea), 'hex')
     ) STORED,
 
     -- Additional metadata (for extensibility)

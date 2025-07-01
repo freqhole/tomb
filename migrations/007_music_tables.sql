@@ -4,9 +4,9 @@
 -- Create songs table for music domain
 CREATE TABLE songs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    media_blob_id UUID NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
-    thumbnail_blob_id UUID REFERENCES media_blobs(id) ON DELETE SET NULL,
-    waveform_blob_id UUID REFERENCES media_blobs(id) ON DELETE SET NULL,
+    media_blob_id VARCHAR(16) NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
+    thumbnail_blob_id VARCHAR(16) REFERENCES media_blobs(id) ON DELETE SET NULL,
+    waveform_blob_id VARCHAR(16) REFERENCES media_blobs(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     artist TEXT,
     album TEXT,
@@ -70,8 +70,8 @@ CREATE INDEX idx_songs_metadata ON songs USING GIN(metadata) WHERE deleted_at IS
 -- Create playlists table
 CREATE TABLE playlists (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    media_blob_id UUID REFERENCES media_blobs(id) ON DELETE SET NULL,
-    thumbnail_blob_id UUID REFERENCES media_blobs(id) ON DELETE SET NULL,
+    media_blob_id VARCHAR(16) REFERENCES media_blobs(id) ON DELETE SET NULL,
+    thumbnail_blob_id VARCHAR(16) REFERENCES media_blobs(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     description TEXT,
     client_id TEXT,

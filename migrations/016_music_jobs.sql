@@ -62,7 +62,7 @@ CREATE TABLE music_jobs (
 
     -- Target entities
     file_path TEXT NOT NULL,
-    media_blob_id UUID REFERENCES media_blobs(id) ON DELETE CASCADE,
+    media_blob_id VARCHAR(16) REFERENCES media_blobs(id) ON DELETE CASCADE,
     song_id UUID REFERENCES songs(id) ON DELETE CASCADE,
 
     -- Job status and processing
@@ -189,7 +189,7 @@ RETURNS TABLE (
     job_type VARCHAR,
     scan_session_id UUID,
     file_path TEXT,
-    media_blob_id UUID,
+    media_blob_id VARCHAR(16),
     song_id UUID,
     parameters JSONB,
     retry_count INTEGER,

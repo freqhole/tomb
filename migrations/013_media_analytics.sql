@@ -4,7 +4,7 @@
 -- Create media_events table for analytics
 CREATE TABLE media_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    media_blob_id UUID NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
+    media_blob_id VARCHAR(16) NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     event_type VARCHAR(50) NOT NULL,
     event_data JSONB DEFAULT '{}',
@@ -153,7 +153,7 @@ CREATE OR REPLACE FUNCTION get_top_media_by_engagement(
     domain_filter TEXT DEFAULT NULL
 )
 RETURNS TABLE (
-    media_blob_id UUID,
+    media_blob_id VARCHAR(16),
     domain_type VARCHAR(20),
     domain_id UUID,
     play_count BIGINT,

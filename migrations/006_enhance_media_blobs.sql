@@ -2,7 +2,7 @@
 -- This migration adds thumbnail relationships, soft deletes, and versioning to the existing media_blobs table
 
 -- Add new columns to existing media_blobs table
-ALTER TABLE media_blobs ADD COLUMN parent_blob_id UUID REFERENCES media_blobs(id);
+ALTER TABLE media_blobs ADD COLUMN parent_blob_id VARCHAR(16) REFERENCES media_blobs(id);
 ALTER TABLE media_blobs ADD COLUMN blob_type VARCHAR(20) NOT NULL DEFAULT 'original';
 ALTER TABLE media_blobs ADD COLUMN version BIGINT NOT NULL DEFAULT txid_current();
 ALTER TABLE media_blobs ADD COLUMN deleted_at TIMESTAMPTZ;

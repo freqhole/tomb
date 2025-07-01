@@ -4,8 +4,8 @@
 -- Create photos table for image domain
 CREATE TABLE photos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    media_blob_id UUID NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
-    thumbnail_blob_id UUID REFERENCES media_blobs(id) ON DELETE SET NULL,
+    media_blob_id VARCHAR(16) NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
+    thumbnail_blob_id VARCHAR(16) REFERENCES media_blobs(id) ON DELETE SET NULL,
     title TEXT,
     caption TEXT,
     alt_text TEXT,

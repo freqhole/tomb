@@ -4,8 +4,8 @@
 -- Create books table for document/ebook domain
 CREATE TABLE books (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    media_blob_id UUID NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
-    thumbnail_blob_id UUID REFERENCES media_blobs(id) ON DELETE SET NULL,
+    media_blob_id VARCHAR(16) NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
+    thumbnail_blob_id VARCHAR(16) REFERENCES media_blobs(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     author TEXT,
     isbn TEXT UNIQUE,
@@ -108,8 +108,8 @@ CREATE TRIGGER update_books_updated_at
 -- Create documents table for user-generated content
 CREATE TABLE documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    media_blob_id UUID NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
-    thumbnail_blob_id UUID REFERENCES media_blobs(id) ON DELETE SET NULL,
+    media_blob_id VARCHAR(16) NOT NULL REFERENCES media_blobs(id) ON DELETE CASCADE,
+    thumbnail_blob_id VARCHAR(16) REFERENCES media_blobs(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     content_type TEXT DEFAULT 'html' CHECK (content_type IN ('html', 'markdown', 'text', 'json')),
     word_count INTEGER CHECK (word_count >= 0),
