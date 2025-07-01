@@ -205,8 +205,8 @@ export class PlaylistSync extends EventTarget {
       await this.processPlaylistsResponse(syncResponse);
 
       // Update last sync time
-      this.lastSyncTime = syncResponse.sync_timestamp;
-      await this.updateLastSyncTime(syncResponse.sync_timestamp);
+      this.lastSyncTime = new Date().toISOString();
+      await this.updateLastSyncTime(this.lastSyncTime);
 
       this.updateStatus(SyncStatus.Complete);
     } catch (error) {
@@ -508,7 +508,7 @@ export class PlaylistSync extends EventTarget {
   private async processPlaylistsResponse(
     response: PlaylistSyncResponse
   ): Promise<void> {
-    const { items: playlists, total_items } = response;
+    const { playlists, total_count } = response;
 
     let syncedCount = 0;
     for (const playlist of playlists) {
@@ -521,9 +521,8 @@ export class PlaylistSync extends EventTarget {
           new CustomEvent("playlists_synced", {
             detail: {
               playlists: [playlist],
-              total: total_items || playlists.length,
+              total: total_count,
               synced: syncedCount,
-              isIncremental: !response.is_full_sync,
             },
           })
         );
@@ -532,9 +531,7 @@ export class PlaylistSync extends EventTarget {
       }
     }
 
-    console.log(
-      `✅ Synced ${syncedCount} playlists (${response.is_full_sync ? "full" : "incremental"} sync)`
-    );
+    console.log(`✅ Synced ${syncedCount} playlists of ${total_count} total`);
   }
 
   /**

@@ -12,7 +12,42 @@ const UuidSchema = z.string().uuid();
 const ShortHashSchema = z
   .string()
   .regex(/^[a-f0-9]{7,16}$/, "Must be a 7-16 character hex hash");
-const DateTimeSchema = z.string().datetime();
+
+/**
+ * Convert Rust serde date array to ISO string
+ * Format: [year, day_of_year, hour, minute, second, nanosecond, offset_hours, offset_minutes, dst]
+ */
+function convertArrayDateToString(dateArray: number[]): string {
+  if (dateArray.length !== 9) {
+    throw new Error(`Invalid date array length: ${dateArray.length}`);
+  }
+
+  const year = dateArray[0]!;
+  const dayOfYear = dateArray[1]!;
+  const hour = dateArray[2]!;
+  const minute = dateArray[3]!;
+  const second = dateArray[4]!;
+  const nanosecond = dateArray[5]!;
+
+  // Create date from year and day of year
+  const date = new Date(year, 0); // January 1st
+  date.setDate(dayOfYear); // Set to the correct day of year
+  date.setHours(hour, minute, second, Math.floor(nanosecond / 1000000));
+
+  return date.toISOString();
+}
+
+const DateTimeSchema = z
+  .union([
+    z.string().datetime(),
+    z.array(z.number()).length(9), // Rust serde array format
+  ])
+  .transform((val) => {
+    if (Array.isArray(val)) {
+      return convertArrayDateToString(val);
+    }
+    return val;
+  });
 
 /**
  * Notification channel enum matching server-side NotificationChannel
@@ -80,25 +115,25 @@ export type CreateMediaBlob = z.infer<typeof CreateMediaBlobSchema>;
 export const SongSchema = z.object({
   id: UuidSchema,
   media_blob_id: ShortHashSchema,
-  thumbnail_blob_id: ShortHashSchema.optional(),
-  waveform_blob_id: ShortHashSchema.optional(),
+  thumbnail_blob_id: ShortHashSchema.nullish(),
+  waveform_blob_id: ShortHashSchema.nullish(),
   title: z.string(),
-  artist: z.string().optional(),
-  album: z.string().optional(),
-  album_artist: z.string().optional(),
-  track_number: z.number().int().optional(),
-  disc_number: z.number().int().optional(),
-  duration: z.string().optional(), // PgInterval as ISO duration string
-  genre: z.string().optional(),
-  year: z.number().int().optional(),
-  bpm: z.number().int().optional(),
-  key_signature: z.string().optional(),
-  rating: z.number().int().optional(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  album_artist: z.string().nullish(),
+  track_number: z.number().int().nullish(),
+  disc_number: z.number().int().nullish(),
+  duration: z.string().nullish(), // PgInterval as ISO duration string
+  genre: z.string().nullish(),
+  year: z.number().int().nullish(),
+  bpm: z.number().int().nullish(),
+  key_signature: z.string().nullish(),
+  rating: z.number().int().nullish(),
   is_favorite: z.boolean().default(false),
   tags: z.array(z.string()).default([]),
   metadata: z.record(z.any()).default({}),
-  deleted_at: DateTimeSchema.optional(),
-  deleted_by: UuidSchema.optional(),
+  deleted_at: DateTimeSchema.nullish(),
+  deleted_by: UuidSchema.nullish(),
   created_at: DateTimeSchema,
   updated_at: DateTimeSchema,
   version: z.number().int(),
@@ -112,13 +147,13 @@ export type Song = z.infer<typeof SongSchema>;
 export const PlaylistSchema = z.object({
   id: UuidSchema,
   title: z.string(),
-  description: z.string().optional(),
-  client_id: z.string().optional(),
+  description: z.string().nullish(),
+  client_id: z.string().nullish(),
   is_public: z.boolean().default(false),
   is_collaborative: z.boolean().default(false),
-  metadata: z.record(z.any()).default({}),
-  deleted_at: DateTimeSchema.optional(),
-  deleted_by: UuidSchema.optional(),
+  metadata: z.record(z.any()).nullish().default({}),
+  deleted_at: DateTimeSchema.nullish(),
+  deleted_by: UuidSchema.nullish(),
   created_at: DateTimeSchema,
   updated_at: DateTimeSchema,
   version: z.number().int(),

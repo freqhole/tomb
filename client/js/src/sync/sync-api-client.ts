@@ -303,12 +303,15 @@ export class SyncApiClient {
       page_size?: number;
     }
   ): Promise<PlaylistSongSyncResponse> {
-    const url = `/api/sync/playlists/${playlistId}/songs`;
+    const url = `/api/sync/playlist-songs`;
 
     try {
       const response =
         await this.apiClient.makeRequest<PlaylistSongSyncResponse>("GET", url, {
-          params: this.sanitizeQuery(query),
+          params: this.sanitizeQuery({
+            ...query,
+            playlist_id: playlistId,
+          }),
         });
 
       const validation = safeParsePlaylistSongSyncResponse(response);

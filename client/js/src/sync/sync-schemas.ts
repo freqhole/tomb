@@ -110,15 +110,13 @@ export type SongSyncRequest = z.infer<typeof SongSyncRequestSchema>;
  */
 export const SongSyncResponseSchema = z.object({
   /** Songs that have been added or modified since last sync */
-  items: z.array(SongSchema),
-  /** Pagination metadata for continuing the sync */
-  pagination: SyncPaginationMetadataSchema,
-  /** Server timestamp when this sync response was generated */
-  sync_timestamp: DateTimeSchema,
-  /** Whether this is a full sync (true) or incremental (false) */
-  is_full_sync: z.boolean(),
-  /** Total number of items available for sync (if known) */
-  total_items: NonNegativeIntSchema.nullable().optional(),
+  songs: z.array(SongSchema),
+  /** Whether there are more items to sync */
+  has_more: z.boolean(),
+  /** Cursor for the next batch of sync items */
+  next_cursor: z.string().nullable(),
+  /** Total number of items available for sync */
+  total_count: NonNegativeIntSchema,
 });
 
 export type SongSyncResponse = z.infer<typeof SongSyncResponseSchema>;
@@ -146,15 +144,13 @@ export type PlaylistSyncRequest = z.infer<typeof PlaylistSyncRequestSchema>;
  */
 export const PlaylistSyncResponseSchema = z.object({
   /** Playlists that have been added or modified since last sync */
-  items: z.array(PlaylistSchema),
-  /** Pagination metadata for continuing the sync */
-  pagination: SyncPaginationMetadataSchema,
-  /** Server timestamp when this sync response was generated */
-  sync_timestamp: DateTimeSchema,
-  /** Whether this is a full sync (true) or incremental (false) */
-  is_full_sync: z.boolean(),
-  /** Total number of items available for sync (if known) */
-  total_items: NonNegativeIntSchema.nullable().optional(),
+  playlists: z.array(PlaylistSchema),
+  /** Whether there are more items to sync */
+  has_more: z.boolean(),
+  /** Cursor for the next batch of sync items */
+  next_cursor: z.string().nullable(),
+  /** Total number of items available for sync */
+  total_count: NonNegativeIntSchema,
 });
 
 export type PlaylistSyncResponse = z.infer<typeof PlaylistSyncResponseSchema>;
@@ -184,15 +180,15 @@ export type PlaylistSongSyncRequest = z.infer<
  */
 export const PlaylistSongSyncResponseSchema = z.object({
   /** PlaylistSongs that have been added or modified since last sync */
-  items: z.array(PlaylistSongSchema),
-  /** Pagination metadata for continuing the sync */
-  pagination: SyncPaginationMetadataSchema,
-  /** Server timestamp when this sync response was generated */
-  sync_timestamp: DateTimeSchema,
-  /** Whether this is a full sync (true) or incremental (false) */
-  is_full_sync: z.boolean(),
-  /** Total number of items available for sync (if known) */
-  total_items: NonNegativeIntSchema.nullable().optional(),
+  playlist_songs: z.array(PlaylistSongSchema),
+  /** Playlist ID these songs belong to */
+  playlist_id: UuidSchema,
+  /** Whether there are more items to sync */
+  has_more: z.boolean(),
+  /** Cursor for the next batch of sync items */
+  next_cursor: z.string().nullable(),
+  /** Total number of items available for sync */
+  total_count: NonNegativeIntSchema,
 });
 
 export type PlaylistSongSyncResponse = z.infer<

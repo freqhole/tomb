@@ -436,20 +436,13 @@ export class PlaylistSongSync extends EventTarget {
    * Process playlist songs response from API sync
    */
   private async processPlaylistSongsResponse(response: {
-    items: PlaylistSong[];
-    pagination: {
-      batch_size: number;
-      has_more: boolean;
-      next_cursor?: string | null;
-      progress?: number | null;
-      suggested_delay?: number;
-    };
-    sync_timestamp: string;
-    is_full_sync: boolean;
-    total_items?: number | null;
+    playlist_songs: PlaylistSong[];
+    playlist_id: string;
+    has_more: boolean;
+    next_cursor: string | null;
+    total_count: number;
   }): Promise<void> {
-    const { items: playlist_songs, total_items } = response;
-    const total_count = total_items || playlist_songs.length;
+    const { playlist_songs, total_count } = response;
 
     let syncedCount = 0;
     for (const playlistSong of playlist_songs) {
