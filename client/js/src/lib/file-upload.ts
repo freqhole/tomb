@@ -24,7 +24,7 @@ export type UploadRequest = z.infer<typeof UploadRequestSchema>;
  * Upload response schema
  */
 export const UploadResponseSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().regex(/^[a-f0-9]{7,16}$/, "Must be a 7-16 character hex hash"),
   local_path: z.string().nullish(),
   sha256: z.string(),
   size: z.number().int().positive(),
@@ -38,7 +38,7 @@ export type UploadResponse = z.infer<typeof UploadResponseSchema>;
  * Upload info schema (for GET endpoints)
  */
 export const UploadInfoSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().regex(/^[a-f0-9]{7,16}$/, "Must be a 7-16 character hex hash"),
   local_path: z.string().nullish(),
   sha256: z.string(),
   size: z.number().int().optional(),

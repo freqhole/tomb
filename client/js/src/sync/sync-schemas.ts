@@ -20,6 +20,7 @@ import {
 
 // Base schemas
 const UuidSchema = z.string().uuid();
+const ItemIdSchema = z.string().min(7); // Can be either UUID or short hash
 const DateTimeSchema = z.string().datetime();
 const PositiveIntSchema = z.number().int().positive();
 const NonNegativeIntSchema = z.number().int().min(0);
@@ -234,7 +235,7 @@ export const SyncAcknowledgmentSchema = z.object({
   /** Number of items successfully synced */
   items_synced: NonNegativeIntSchema,
   /** Any items that failed to sync (by ID) */
-  failed_items: z.array(UuidSchema).default([]),
+  failed_items: z.array(ItemIdSchema).default([]),
   /** Client's current sync state */
   client_sync_state: ClientSyncStateSchema,
 });
@@ -347,8 +348,8 @@ export type SyncError = z.infer<typeof SyncErrorSchema>;
 export const SyncConflictSchema = z.object({
   /** Unique identifier for this conflict */
   id: UuidSchema,
-  /** ID of the item in conflict */
-  item_id: UuidSchema,
+  /** ID of the item in conflict (UUID for songs/playlists, short hash for media blobs) */
+  item_id: ItemIdSchema,
   /** Type of item in conflict */
   item_type: z.enum(["media_blob", "song", "playlist", "playlist_song"]),
   /** Type of conflict */
@@ -441,7 +442,7 @@ export type FullSyncQuery = z.infer<typeof FullSyncQuerySchema>;
 export const SyncAckRequestSchema = z.object({
   sync_timestamp: DateTimeSchema,
   items_synced: NonNegativeIntSchema,
-  failed_items: z.array(UuidSchema).default([]),
+  failed_items: z.array(ItemIdSchema).default([]),
 });
 
 export type SyncAckRequest = z.infer<typeof SyncAckRequestSchema>;

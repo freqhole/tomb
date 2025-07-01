@@ -9,6 +9,9 @@ import { z } from "zod";
 
 // Base schemas
 const UuidSchema = z.string().uuid();
+const ShortHashSchema = z
+  .string()
+  .regex(/^[a-f0-9]{7,16}$/, "Must be a 7-16 character hex hash");
 const DateTimeSchema = z.string().datetime();
 
 /**
@@ -28,7 +31,7 @@ export type NotificationChannel = z.infer<typeof NotificationChannelSchema>;
  * Media blob data structure matching the server-side MediaBlob
  */
 export const MediaBlobSchema = z.object({
-  id: UuidSchema,
+  id: ShortHashSchema,
   data: z.array(z.number()).optional(), // Vec<u8> as number array, often omitted
   sha256: z.string(),
   size: z.number().int().optional(),
@@ -39,7 +42,7 @@ export const MediaBlobSchema = z.object({
   created_at: DateTimeSchema,
   updated_at: DateTimeSchema,
   // Thumbnail support
-  parent_blob_id: UuidSchema.optional(),
+  parent_blob_id: ShortHashSchema.optional(),
   blob_type: z
     .enum(["original", "thumbnail", "waveform", "preview"])
     .default("original"),
@@ -49,13 +52,36 @@ export const MediaBlobSchema = z.object({
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
 
 /**
+ * Media blob data structure for creating new blobs (without server-generated ID)
+ */
+export const CreateMediaBlobSchema = z.object({
+  data: z.array(z.number()).optional(), // Vec<u8> as number array, often omitted
+  sha256: z.string(),
+  size: z.number().int().optional(),
+  mime: z.string().optional(),
+  source_client_id: z.string().optional(),
+  local_path: z.string().nullish(),
+  metadata: z.record(z.any()).default({}), // JSONB as Record<string, any>
+  created_at: DateTimeSchema,
+  updated_at: DateTimeSchema,
+  // Thumbnail support
+  parent_blob_id: ShortHashSchema.optional(),
+  blob_type: z
+    .enum(["original", "thumbnail", "waveform", "preview"])
+    .default("original"),
+  thumbnail_data: z.array(z.number()).optional(), // Thumbnail blob data when available
+});
+
+export type CreateMediaBlob = z.infer<typeof CreateMediaBlobSchema>;
+
+/**
  * Song data structure matching the server-side Song
  */
 export const SongSchema = z.object({
   id: UuidSchema,
-  media_blob_id: UuidSchema,
-  thumbnail_blob_id: UuidSchema.optional(),
-  waveform_blob_id: UuidSchema.optional(),
+  media_blob_id: ShortHashSchema,
+  thumbnail_blob_id: ShortHashSchema.optional(),
+  waveform_blob_id: ShortHashSchema.optional(),
   title: z.string(),
   artist: z.string().optional(),
   album: z.string().optional(),
@@ -134,7 +160,7 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("UploadMediaBlob"),
     data: z.object({
-      blob: MediaBlobSchema,
+      blob: CreateMediaBlobSchema,
     }),
   }),
   z.object({
@@ -167,7 +193,7 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("GetThumbnails"),
     data: z.object({
-      media_blob_id: UuidSchema,
+      media_blob_id: ShortHashSchema,
     }),
   }),
   z.object({
@@ -245,7 +271,7 @@ export const WebSocketResponseSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("MediaBlobData"),
     data: z.object({
-      id: UuidSchema,
+      id: ShortHashSchema,
       data: z.array(z.number()),
       mime: z.string().optional(),
     }),
@@ -298,7 +324,7 @@ export const WebSocketResponseSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("Thumbnails"),
     data: z.object({
-      media_blob_id: UuidSchema,
+      media_blob_id: ShortHashSchema,
       thumbnails: z.array(MediaBlobSchema),
     }),
   }),
@@ -370,7 +396,7 @@ export const createMessage = {
     data: { id },
   }),
 
-  uploadMediaBlob: (blob: MediaBlob): WebSocketMessage => ({
+  uploadMediaBlob: (blob: CreateMediaBlob): WebSocketMessage => ({
     type: "UploadMediaBlob",
     data: { blob },
   }),

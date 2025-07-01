@@ -19,8 +19,9 @@ import {
  */
 const mockMediaBlobs: MediaBlob[] = [
   {
-    id: "blob-1",
-    sha256: "abc123",
+    id: "abc1234",
+    sha256:
+      "abc123def456789abcdef123456789abcdef123456789abcdef123456789abcdef",
     size: 1024,
     mime: "text/plain",
     source_client_id: "demo-client",
@@ -32,8 +33,9 @@ const mockMediaBlobs: MediaBlob[] = [
     data: null,
   },
   {
-    id: "blob-2",
-    sha256: "def456",
+    id: "def5678",
+    sha256:
+      "def456abc789def123abc456def789abc123def456abc789def123abc456def789",
     size: 2048,
     mime: "image/jpeg",
     source_client_id: "demo-client",
@@ -45,8 +47,9 @@ const mockMediaBlobs: MediaBlob[] = [
     data: null,
   },
   {
-    id: "blob-3",
-    sha256: "ghi789",
+    id: "abc9def",
+    sha256:
+      "abc789def012abc345def678abc901def234abc567def890abc123def456abc789",
     size: 512,
     mime: "application/pdf",
     source_client_id: "demo-client",

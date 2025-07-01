@@ -15,7 +15,6 @@ export interface WebSocketUploadFile {
 }
 
 export interface WebSocketProcessedBlob {
-  id: string;
   data: number[];
   sha256: string;
   size: number;
@@ -251,7 +250,6 @@ export class WebSocketFileUploadHandler extends EventTarget {
     const now = new Date().toISOString();
 
     return {
-      id: crypto.randomUUID(),
       data,
       sha256,
       size: file.size,

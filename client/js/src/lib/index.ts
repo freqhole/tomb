@@ -42,6 +42,7 @@ export type {
 // WebSocket message types and schemas
 export {
   MediaBlobSchema,
+  CreateMediaBlobSchema,
   WebSocketMessageSchema,
   WebSocketResponseSchema,
   ConnectionStatus,
@@ -60,6 +61,7 @@ export {
 } from "./websocket-types.js";
 export type {
   MediaBlob,
+  CreateMediaBlob,
   WebSocketMessage,
   WebSocketResponse,
 } from "./websocket-types.js";

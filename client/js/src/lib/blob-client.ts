@@ -11,7 +11,7 @@ import { z } from "zod";
  * Blob metadata schema
  */
 export const BlobMetadataSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().regex(/^[a-f0-9]{7,16}$/, "Must be a 7-16 character hex hash"),
   sha256: z.string(),
   size: z.number().int().optional(),
   mime_type: z.string().optional(),

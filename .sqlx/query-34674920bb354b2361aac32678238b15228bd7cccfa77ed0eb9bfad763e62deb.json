@@ -11,12 +11,12 @@
       {
         "ordinal": 1,
         "name": "deleted_ids",
-        "type_info": "UuidArray"
+        "type_info": "VarcharArray"
       }
     ],
     "parameters": {
       "Left": [
-        "UuidArray"
+        "VarcharArray"
       ]
     },
     "nullable": [
