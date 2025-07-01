@@ -2615,6 +2615,7 @@ impl MusicCommands {
         // Prompt for playlist name
         let playlist_name = Text::new(&format!("Enter name for new playlist:"))
             .with_help_message("Type playlist name, Enter to confirm, Esc to cancel")
+            .with_render_config(render_config)
             .prompt();
 
         let name = match playlist_name {

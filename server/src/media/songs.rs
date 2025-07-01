@@ -150,6 +150,7 @@ impl From<SongQueryParams> for SongQuery {
             tags: None,
             limit: params.limit,
             offset: params.offset,
+            ..Default::default()
         }
     }
 }
@@ -171,6 +172,7 @@ impl From<PlaylistQueryParams> for PlaylistQuery {
             title_search: params.title_search,
             limit: params.limit,
             offset: params.offset,
+            ..Default::default()
         }
     }
 }

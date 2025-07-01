@@ -14,11 +14,17 @@ import type {
   IncrementalSyncQuery,
   FullSyncQuery,
   SyncError,
+  SongSyncResponse,
+  PlaylistSyncResponse,
+  PlaylistSongSyncResponse,
 } from "./sync-schemas.js";
 import {
   safeParseSyncResponse,
   safeParseSyncStatus,
   safeParseSyncRecommendations,
+  safeParseSongSyncResponse,
+  safeParsePlaylistSyncResponse,
+  safeParsePlaylistSongSyncResponse,
   SyncRequestSchema,
   FullSyncRequestSchema,
   SyncAckRequestSchema,
@@ -217,6 +223,110 @@ export class SyncApiClient {
   }
 
   /**
+   * Perform incremental sync for songs
+   */
+  async syncSongs(query: {
+    last_sync_time?: string;
+    page_size?: number;
+    artist?: string;
+    album?: string;
+    favorites_only?: boolean;
+  }): Promise<SongSyncResponse> {
+    const url = "/api/sync/songs";
+
+    try {
+      const response = await this.apiClient.makeRequest<SongSyncResponse>(
+        "GET",
+        url,
+        {
+          params: this.sanitizeQuery(query),
+        }
+      );
+
+      const validation = safeParseSongSyncResponse(response);
+      if (!validation.success) {
+        throw new SyncApiError(
+          "INVALID_RESPONSE",
+          `Invalid song sync response from ${url}`,
+          validation.error
+        );
+      }
+
+      return validation.data;
+    } catch (error) {
+      throw this.handleApiError(error, "sync_songs");
+    }
+  }
+
+  /**
+   * Perform incremental sync for playlists
+   */
+  async syncPlaylists(query: {
+    last_sync_time?: string;
+    page_size?: number;
+    public_only?: boolean;
+    client_id?: string;
+  }): Promise<PlaylistSyncResponse> {
+    const url = "/api/sync/playlists";
+
+    try {
+      const response = await this.apiClient.makeRequest<PlaylistSyncResponse>(
+        "GET",
+        url,
+        {
+          params: this.sanitizeQuery(query),
+        }
+      );
+
+      const validation = safeParsePlaylistSyncResponse(response);
+      if (!validation.success) {
+        throw new SyncApiError(
+          "INVALID_RESPONSE",
+          `Invalid playlist sync response from ${url}`,
+          validation.error
+        );
+      }
+
+      return validation.data;
+    } catch (error) {
+      throw this.handleApiError(error, "sync_playlists");
+    }
+  }
+
+  /**
+   * Perform incremental sync for playlist songs
+   */
+  async syncPlaylistSongs(
+    playlistId: string,
+    query: {
+      last_sync_time?: string;
+      page_size?: number;
+    }
+  ): Promise<PlaylistSongSyncResponse> {
+    const url = `/api/sync/playlists/${playlistId}/songs`;
+
+    try {
+      const response =
+        await this.apiClient.makeRequest<PlaylistSongSyncResponse>("GET", url, {
+          params: this.sanitizeQuery(query),
+        });
+
+      const validation = safeParsePlaylistSongSyncResponse(response);
+      if (!validation.success) {
+        throw new SyncApiError(
+          "INVALID_RESPONSE",
+          `Invalid playlist songs sync response from ${url}`,
+          validation.error
+        );
+      }
+
+      return validation.data;
+    } catch (error) {
+      throw this.handleApiError(error, "sync_playlist_songs");
+    }
+  }
+
+  /**
    * Create sync request from parameters
    */
   createSyncRequest(params: Partial<SyncRequest>): SyncRequest {
@@ -307,13 +417,14 @@ export class SyncApiClient {
  * Sync API specific error class
  */
 export class SyncApiError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-    public override readonly cause?: unknown
-  ) {
+  public readonly code: string;
+  public readonly originalCause?: unknown;
+
+  constructor(code: string, message: string, originalCause?: unknown) {
     super(message);
     this.name = "SyncApiError";
+    this.code = code;
+    this.originalCause = originalCause;
   }
 
   /**
@@ -350,7 +461,7 @@ export class SyncApiError extends Error {
       recoverable: this.isRecoverable(),
       retry_delay: this.getRetryDelay() / 1000, // Convert to seconds
       context: {
-        cause: this.cause,
+        cause: this.originalCause,
       },
     };
   }

@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn test_file_extension() {
-        let mut blob = MediaBlob {
+        let blob = MediaBlob {
             id: "abc1234".to_string(),
             data: None,
             sha256: "a".repeat(64),

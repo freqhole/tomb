@@ -443,6 +443,7 @@ pub async fn incremental_song_sync(
             artist: params.artist,
             album: params.album,
             favorites_only: params.favorites_only,
+            updated_after: last_sync_time,
             ..Default::default()
         })
         .await
@@ -458,10 +459,17 @@ pub async fn incremental_song_sync(
     );
 
     Ok(Json(serde_json::json!({
-        "songs": songs,
-        "total_count": songs.len(),
-        "has_more": false,
-        "next_cursor": null
+        "items": songs,
+        "pagination": {
+            "batch_size": songs.len(),
+            "has_more": false,
+            "next_cursor": null,
+            "progress": null,
+            "suggested_delay": null
+        },
+        "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        "is_full_sync": last_sync_time.is_none(),
+        "total_items": songs.len()
     })))
 }
 
@@ -496,6 +504,7 @@ pub async fn incremental_playlist_sync(
             offset: Some(0), // TODO: implement cursor-based pagination
             public_only: params.public_only,
             client_id: params.client_id,
+            updated_after: last_sync_time,
             ..Default::default()
         })
         .await
@@ -511,10 +520,17 @@ pub async fn incremental_playlist_sync(
     );
 
     Ok(Json(serde_json::json!({
-        "playlists": playlists,
-        "total_count": playlists.len(),
-        "has_more": false,
-        "next_cursor": null
+        "items": playlists,
+        "pagination": {
+            "batch_size": playlists.len(),
+            "has_more": false,
+            "next_cursor": null,
+            "progress": null,
+            "suggested_delay": null
+        },
+        "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        "is_full_sync": last_sync_time.is_none(),
+        "total_items": playlists.len()
     })))
 }
 
@@ -547,13 +563,24 @@ pub async fn incremental_playlist_song_sync(
     };
 
     // Get playlist songs as simple PlaylistSong entities (not detailed with song info)
-    let playlist_songs = sqlx::query_as::<_, grimoire::music::PlaylistSong>(
-        "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
-         FROM playlist_songs
-         WHERE playlist_id = $1
-         ORDER BY position",
-    )
-    .bind(playlist_id)
+    let playlist_songs = if let Some(sync_time) = last_sync_time {
+        sqlx::query_as::<_, grimoire::music::PlaylistSong>(
+            "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
+             FROM playlist_songs
+             WHERE playlist_id = $1 AND created_at > $2
+             ORDER BY position",
+        )
+        .bind(playlist_id)
+        .bind(sync_time)
+    } else {
+        sqlx::query_as::<_, grimoire::music::PlaylistSong>(
+            "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
+             FROM playlist_songs
+             WHERE playlist_id = $1
+             ORDER BY position",
+        )
+        .bind(playlist_id)
+    }
     .fetch_all(db.pool())
     .await
     .map_err(|e| {
@@ -568,10 +595,16 @@ pub async fn incremental_playlist_song_sync(
     );
 
     Ok(Json(serde_json::json!({
-        "playlist_id": params.playlist_id,
-        "playlist_songs": playlist_songs,
-        "total_count": playlist_songs.len(),
-        "has_more": false,
-        "next_cursor": null
+        "items": playlist_songs,
+        "pagination": {
+            "batch_size": playlist_songs.len(),
+            "has_more": false,
+            "next_cursor": null,
+            "progress": null,
+            "suggested_delay": null
+        },
+        "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        "is_full_sync": last_sync_time.is_none(),
+        "total_items": playlist_songs.len()
     })))
 }

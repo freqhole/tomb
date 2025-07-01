@@ -119,6 +119,16 @@ impl MusicRepository {
             sql.push_str(&format!(" AND tags && ${}", bind_count));
         }
 
+        if query.created_after.is_some() {
+            bind_count += 1;
+            sql.push_str(&format!(" AND created_at > ${}", bind_count));
+        }
+
+        if query.updated_after.is_some() {
+            bind_count += 1;
+            sql.push_str(&format!(" AND updated_at > ${}", bind_count));
+        }
+
         sql.push_str(" ORDER BY artist, album, track_number, title");
 
         if query.offset.is_some() {
@@ -153,6 +163,12 @@ impl MusicRepository {
         }
         if let Some(ref tags) = query.tags {
             query_builder = query_builder.bind(tags);
+        }
+        if let Some(created_after) = query.created_after {
+            query_builder = query_builder.bind(created_after);
+        }
+        if let Some(updated_after) = query.updated_after {
+            query_builder = query_builder.bind(updated_after);
         }
         if let Some(offset) = query.offset {
             query_builder = query_builder.bind(offset);
@@ -323,6 +339,16 @@ impl MusicRepository {
             sql.push_str(&format!(" AND p.title ILIKE ${}", bind_count));
         }
 
+        if query.created_after.is_some() {
+            bind_count += 1;
+            sql.push_str(&format!(" AND p.created_at > ${}", bind_count));
+        }
+
+        if query.updated_after.is_some() {
+            bind_count += 1;
+            sql.push_str(&format!(" AND p.updated_at > ${}", bind_count));
+        }
+
         sql.push_str(" GROUP BY p.id ORDER BY p.created_at DESC");
 
         if query.offset.is_some() {
@@ -342,6 +368,12 @@ impl MusicRepository {
         }
         if let Some(ref title_search) = query.title_search {
             query_builder = query_builder.bind(format!("%{}%", title_search));
+        }
+        if let Some(created_after) = query.created_after {
+            query_builder = query_builder.bind(created_after);
+        }
+        if let Some(updated_after) = query.updated_after {
+            query_builder = query_builder.bind(updated_after);
         }
         if let Some(offset) = query.offset {
             query_builder = query_builder.bind(offset);

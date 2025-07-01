@@ -1194,7 +1194,7 @@ export class SyncStorageManager {
       content = JSON.stringify({
         id: item.id,
         title: item.title,
-        description: item.description,
+        description: item.description || null,
         metadata: item.metadata,
         updated_at: item.updated_at,
         version: item.version,

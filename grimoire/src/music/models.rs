@@ -729,6 +729,8 @@ pub struct SongQuery {
     pub tags: Option<Vec<String>>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub created_after: Option<OffsetDateTime>,
+    pub updated_after: Option<OffsetDateTime>,
 }
 
 impl SongQuery {
@@ -767,6 +769,8 @@ pub struct PlaylistQuery {
     pub title_search: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub created_after: Option<OffsetDateTime>,
+    pub updated_after: Option<OffsetDateTime>,
 }
 
 impl PlaylistQuery {

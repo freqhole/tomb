@@ -6,8 +6,15 @@
 //! for song management with additional metadata handling.
 
 import { SyncStorageManager } from "./sync-storage.js";
-import { SyncProgress, SyncError, SyncConflict } from "./sync-schemas.js";
+import {
+  SyncProgress,
+  SyncError,
+  SyncConflict,
+  SongSyncResponse,
+} from "./sync-schemas.js";
 import { SyncStatus, ConflictResolution } from "./sync-constants.js";
+import { SyncApiClient, createSyncApiClient } from "./sync-api-client.js";
+import { ApiClient } from "../lib/api-client.js";
 import type { Song } from "../lib/websocket-types.js";
 
 /**
@@ -95,8 +102,10 @@ export type SongSyncEventListener<T = any> = (event: T) => void;
 export class SongSync extends EventTarget {
   private config: SongSyncConfig;
   private storage: SyncStorageManager;
+  private apiClient: SyncApiClient;
   private isInitialized: boolean = false;
   private currentStatus: SyncStatus = SyncStatus.Idle;
+  private lastSyncTime?: string;
 
   constructor(config: SongSyncConfig, storage?: SyncStorageManager) {
     super();
@@ -112,7 +121,18 @@ export class SongSync extends EventTarget {
         max_cache_age_days: config.maxCacheAge,
       });
 
-    // Simplified initialization without complex dependencies
+    // Initialize API client
+    const baseApiClient = new ApiClient({
+      baseUrl: config.apiBaseUrl,
+      defaultHeaders: {
+        Authorization: `Bearer ${config.authToken}`,
+      },
+    });
+    this.apiClient = createSyncApiClient({
+      apiClient: baseApiClient,
+      timeout: 30000,
+      validateRequests: true,
+    });
 
     this.setupEventForwarding();
   }
@@ -157,6 +177,7 @@ export class SongSync extends EventTarget {
       artist?: string;
       album?: string;
       favoritesOnly?: boolean;
+      forceFullSync?: boolean;
     } = {}
   ): Promise<void> {
     if (!this.isInitialized) {
@@ -168,38 +189,27 @@ export class SongSync extends EventTarget {
     try {
       this.updateStatus(SyncStatus.InProgress);
 
+      // Get last sync time for incremental sync unless forcing full sync
+      const lastSync = options.forceFullSync
+        ? undefined
+        : await this.getLastSyncTime();
+
       // Build query parameters
-      const params = new URLSearchParams();
-      params.set("page_size", (this.config.batchSize || 50).toString());
+      const query = {
+        last_sync_time: lastSync,
+        page_size: this.config.batchSize || 50,
+        artist: options.artist,
+        album: options.album,
+        favorites_only: options.favoritesOnly,
+      };
 
-      if (options.artist) {
-        params.set("artist", options.artist);
-      }
-      if (options.album) {
-        params.set("album", options.album);
-      }
-      if (options.favoritesOnly !== undefined) {
-        params.set("favorites_only", options.favoritesOnly.toString());
-      }
-
-      // Make HTTP request to sync endpoint
-      const response = await fetch(
-        `${this.config.apiBaseUrl}/api/sync/songs?${params}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${this.config.authToken}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const syncResponse = await response.json();
+      // Use the API client for sync
+      const syncResponse = await this.apiClient.syncSongs(query);
       await this.processSongsResponse(syncResponse);
+
+      // Update last sync time
+      this.lastSyncTime = syncResponse.sync_timestamp;
+      await this.updateLastSyncTime(syncResponse.sync_timestamp);
 
       this.updateStatus(SyncStatus.Complete);
     } catch (error) {
@@ -374,13 +384,12 @@ export class SongSync extends EventTarget {
   }
 
   /**
-   * Process songs response from HTTP sync
+   * Process songs response from sync API
    */
-  private async processSongsResponse(response: {
-    songs: Song[];
-    total_count: number;
-  }): Promise<void> {
-    const { songs, total_count } = response;
+  private async processSongsResponse(
+    response: SongSyncResponse
+  ): Promise<void> {
+    const { items: songs, pagination, total_items } = response;
 
     let syncedCount = 0;
     for (const song of songs) {
@@ -391,7 +400,12 @@ export class SongSync extends EventTarget {
         // Emit progress event
         this.dispatchEvent(
           new CustomEvent("songs_synced", {
-            detail: { songs: [song], total: total_count, synced: syncedCount },
+            detail: {
+              songs: [song],
+              total: total_items || pagination.batch_size,
+              synced: syncedCount,
+              isIncremental: !response.is_full_sync,
+            },
           })
         );
       } catch (error) {
@@ -399,7 +413,9 @@ export class SongSync extends EventTarget {
       }
     }
 
-    console.log(`✅ Synced ${syncedCount} songs of ${total_count} total`);
+    console.log(
+      `✅ Synced ${syncedCount} songs (${response.is_full_sync ? "full" : "incremental"} sync)`
+    );
   }
 
   /**
@@ -413,9 +429,15 @@ export class SongSync extends EventTarget {
    * Get last sync timestamp
    */
   private async getLastSyncTime(): Promise<string | undefined> {
-    // This would be stored in the metadata store
-    // For now, return undefined to trigger full sync
-    return undefined;
+    return this.lastSyncTime;
+  }
+
+  /**
+   * Update last sync timestamp
+   */
+  private async updateLastSyncTime(timestamp: string): Promise<void> {
+    this.lastSyncTime = timestamp;
+    // TODO: Persist to storage for cross-session sync state
   }
 
   /**
