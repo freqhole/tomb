@@ -143,6 +143,7 @@ mod tests {
                     "m4a".to_string(),
                 ],
                 thumbnails: Default::default(),
+                playback: Default::default(),
             },
             ..Default::default()
         };

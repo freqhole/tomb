@@ -797,7 +797,7 @@ mod tests {
     fn test_song_display_title() {
         let song = Song {
             id: Uuid::new_v4(),
-            media_blob_id: Uuid::new_v4(),
+            media_blob_id: "abc1234".to_string(),
             thumbnail_blob_id: None,
             waveform_blob_id: None,
             title: "Bohemian Rhapsody".to_string(),
@@ -833,7 +833,7 @@ mod tests {
     fn test_song_display_title_no_artist() {
         let song = Song {
             id: Uuid::new_v4(),
-            media_blob_id: Uuid::new_v4(),
+            media_blob_id: "def5678".to_string(),
             thumbnail_blob_id: None,
             waveform_blob_id: None,
             title: "Untitled".to_string(),

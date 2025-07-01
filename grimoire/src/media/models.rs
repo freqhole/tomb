@@ -402,6 +402,8 @@ mod tests {
             mime: Some("text/plain".to_string()),
             source_client_id: Some("test_client".to_string()),
             local_path: None,
+            parent_blob_id: None,
+            blob_type: Some("original".to_string()),
             metadata: serde_json::json!({"test": true}),
         };
 

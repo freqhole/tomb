@@ -149,7 +149,7 @@ mod tests {
     #[test]
     fn test_file_extension() {
         let mut blob = MediaBlob {
-            id: uuid::Uuid::new_v4(),
+            id: "abc1234".to_string(),
             data: None,
             sha256: "a".repeat(64),
             size: None,
@@ -159,6 +159,8 @@ mod tests {
             metadata: serde_json::Value::Null,
             created_at: time::OffsetDateTime::now_utc(),
             updated_at: time::OffsetDateTime::now_utc(),
+            parent_blob_id: None,
+            blob_type: "original".to_string(),
         };
 
         assert_eq!(blob.file_extension(), Some("png"));
@@ -169,7 +171,7 @@ mod tests {
         use MediaBlobExt;
 
         let blob = MediaBlob {
-            id: uuid::Uuid::new_v4(),
+            id: "def5678".to_string(),
             data: None,
             sha256: "a".repeat(64),
             size: None,
@@ -179,6 +181,8 @@ mod tests {
             metadata: serde_json::Value::Null,
             created_at: time::OffsetDateTime::now_utc(),
             updated_at: time::OffsetDateTime::now_utc(),
+            parent_blob_id: None,
+            blob_type: "original".to_string(),
         };
 
         let url = blob.get_full_url("http://localhost:8080");
@@ -211,6 +215,8 @@ mod tests {
             mime: Some("image/png".to_string()),
             source_client_id: None,
             local_path: None,
+            parent_blob_id: None,
+            blob_type: Some("original".to_string()),
             metadata: serde_json::Value::Null,
         };
         assert!(valid_blob
@@ -225,6 +231,8 @@ mod tests {
             mime: Some("image/png".to_string()),
             source_client_id: None,
             local_path: None,
+            parent_blob_id: None,
+            blob_type: Some("original".to_string()),
             metadata: serde_json::Value::Null,
         };
         assert!(invalid_blob
@@ -235,10 +243,12 @@ mod tests {
         let no_data_blob = CreateMediaBlob {
             data: None,
             sha256: "a".repeat(64),
-            size: Some(3),
+            size: None,
             mime: Some("image/png".to_string()),
             source_client_id: None,
             local_path: None,
+            parent_blob_id: None,
+            blob_type: Some("original".to_string()),
             metadata: serde_json::Value::Null,
         };
         assert!(no_data_blob

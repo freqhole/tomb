@@ -713,7 +713,7 @@ mod tests {
         let input = format!("{}, {}", uuid1, uuid2);
 
         // Test the parsing logic directly
-        let result: Result<Vec<Uuid>, PlaylistServiceError> = input
+        let result: std::result::Result<Vec<Uuid>, PlaylistServiceError> = input
             .split(',')
             .map(|s| {
                 s.trim()
@@ -732,7 +732,7 @@ mod tests {
     fn test_parse_song_ids_invalid() {
         // Test invalid UUID parsing
         let input = "invalid-uuid";
-        let result: Result<Vec<Uuid>, PlaylistServiceError> = input
+        let result: std::result::Result<Vec<Uuid>, PlaylistServiceError> = input
             .split(',')
             .map(|s| {
                 s.trim()

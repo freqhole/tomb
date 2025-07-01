@@ -860,7 +860,7 @@ mod tests {
 
         let song = Song {
             id: Uuid::new_v4(),
-            media_blob_id: Uuid::new_v4(),
+            media_blob_id: "abc1234".to_string(),
             thumbnail_blob_id: None,
             waveform_blob_id: None,
             title: "Test Song".to_string(),

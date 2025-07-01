@@ -355,7 +355,7 @@ mod tests {
     fn test_thumbnail_job_creation() {
         let job = ThumbnailJob {
             id: Uuid::new_v4(),
-            media_blob_id: Uuid::new_v4(),
+            media_blob_id: "abc1234".to_string(),
             job_type: ThumbnailJobType::ImageThumbnail,
             target_dimensions: Some(ThumbnailDimensions::default()),
             status: ThumbnailJobStatus::Pending,
@@ -529,9 +529,9 @@ mod tests {
 
     #[test]
     fn test_media_blob_info_creation() {
-        let blob_id = Uuid::new_v4();
+        let blob_id = "abc1234";
         let media_info = MediaBlobInfo {
-            id: blob_id,
+            id: blob_id.to_string(),
             local_path: Some("/path/to/media.jpg".to_string()),
             data: None,
             mime_type: "image/jpeg".to_string(),
@@ -553,9 +553,9 @@ mod tests {
 
     #[test]
     fn test_media_blob_info_small_file() {
-        let blob_id = Uuid::new_v4();
+        let blob_id = "def5678";
         let media_info = MediaBlobInfo {
-            id: blob_id,
+            id: blob_id.to_string(),
             local_path: None,
             data: Some(vec![1, 2, 3, 4]),
             mime_type: "image/jpeg".to_string(),
@@ -570,9 +570,9 @@ mod tests {
 
     #[test]
     fn test_media_blob_info_large_file() {
-        let blob_id = Uuid::new_v4();
+        let blob_id = "ghi9abc";
         let media_info = MediaBlobInfo {
-            id: blob_id,
+            id: blob_id.to_string(),
             local_path: Some("/path/to/large/file.mp4".to_string()),
             data: None,
             mime_type: "video/mp4".to_string(),
@@ -587,7 +587,7 @@ mod tests {
 
     #[test]
     fn test_thumbnail_result_creation() {
-        let blob_id = Uuid::new_v4();
+        let blob_id = "jkl0def";
         let dimensions = ThumbnailDimensions {
             width: 150,
             height: 150,
@@ -596,7 +596,7 @@ mod tests {
         };
 
         let result = ThumbnailResult {
-            media_blob_id: blob_id,
+            media_blob_id: blob_id.to_string(),
             local_path: "/path/to/thumbnail.webp".to_string(),
             mime_type: "image/webp".to_string(),
             size: 512,
@@ -666,7 +666,7 @@ mod tests {
         // Non-retryable errors
         assert!(!ThumbnailError::Disabled.is_retryable());
         assert!(!ThumbnailError::InvalidJobType("invalid".to_string()).is_retryable());
-        assert!(!ThumbnailError::MediaBlobNotFound(Uuid::new_v4()).is_retryable());
+        assert!(!ThumbnailError::MediaBlobNotFound("abc1234".to_string()).is_retryable());
         assert!(
             !ThumbnailError::UnsupportedMediaType("application/pdf".to_string()).is_retryable()
         );
@@ -690,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_thumbnail_error_display() {
-        let blob_id = Uuid::new_v4();
+        let blob_id = "abc1234";
 
         assert_eq!(
             ThumbnailError::Disabled.to_string(),
@@ -701,7 +701,7 @@ mod tests {
             "Invalid job type: test"
         );
         assert_eq!(
-            ThumbnailError::MediaBlobNotFound(blob_id).to_string(),
+            ThumbnailError::MediaBlobNotFound(blob_id.to_string()).to_string(),
             format!("Media blob not found: {}", blob_id)
         );
         assert_eq!(
@@ -723,7 +723,7 @@ mod tests {
     fn test_thumbnail_job_serialization() {
         let job = ThumbnailJob {
             id: Uuid::new_v4(),
-            media_blob_id: Uuid::new_v4(),
+            media_blob_id: "abc1234".to_string(),
             job_type: ThumbnailJobType::ImageThumbnail,
             target_dimensions: Some(ThumbnailDimensions::default()),
             status: ThumbnailJobStatus::Pending,
