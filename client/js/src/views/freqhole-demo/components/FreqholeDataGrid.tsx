@@ -11,6 +11,7 @@ import { useKeyboardNavigation } from "../hooks/useKeyboardNavigation";
 import { Thumbnail } from "./Thumbnail";
 import { getDisplayFilename } from "../../../lib/media-utils";
 import { formatBytes } from "../../../lib/format-utils";
+import { formatDateWithTooltip } from "../../../lib/date-utils";
 import type { NotificationChannel } from "../../../lib/websocket-types";
 import { createSignal } from "solid-js";
 
@@ -186,6 +187,15 @@ export function FreqholeDataGrid(props: FreqholeDataGridProps) {
   };
 
   const handleSort = (field: string, direction: "asc" | "desc") => {
+    console.log("[Sort Debug] Attempting to sort:", {
+      field,
+      direction,
+      availableColumns: visibleColumns().map((c) => ({
+        key: c.key,
+        sortable: c.sortable,
+      })),
+      currentSort: state.sortConfig(),
+    });
     state.handleSort(field, direction);
   };
 
@@ -298,9 +308,10 @@ export function FreqholeDataGrid(props: FreqholeDataGridProps) {
         title: "Created",
         width: 140,
         sortable: true,
-        render: (item) => (
-          <span>{new Date(item.created_at).toLocaleString()}</span>
-        ),
+        render: (item) => {
+          const dateFormat = formatDateWithTooltip(item.created_at);
+          return <span title={dateFormat.full}>{dateFormat.relative}</span>;
+        },
       });
     }
 
@@ -310,11 +321,13 @@ export function FreqholeDataGrid(props: FreqholeDataGridProps) {
         title: "Updated",
         width: 140,
         sortable: true,
-        render: (item) => (
-          <span>
-            {item.updated_at ? new Date(item.updated_at).toLocaleString() : "—"}
-          </span>
-        ),
+        render: (item) => {
+          if (!item.updated_at) {
+            return <span>—</span>;
+          }
+          const dateFormat = formatDateWithTooltip(item.updated_at);
+          return <span title={dateFormat.full}>{dateFormat.relative}</span>;
+        },
       });
     }
 
