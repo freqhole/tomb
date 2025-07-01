@@ -116,20 +116,9 @@ export function useFreqholeData(props: UseFreqholeDataProps) {
         sortConfig.field === "created_at" ||
         sortConfig.field === "updated_at"
       ) {
-        // Handle date strings specifically with robust parsing
-        if (aVal && typeof aVal === "string") {
-          const parsedA = new Date(aVal);
-          aVal = isNaN(parsedA.getTime()) ? 0 : parsedA.getTime();
-        } else {
-          aVal = 0; // Treat null/undefined as earliest date
-        }
-
-        if (bVal && typeof bVal === "string") {
-          const parsedB = new Date(bVal);
-          bVal = isNaN(parsedB.getTime()) ? 0 : parsedB.getTime();
-        } else {
-          bVal = 0; // Treat null/undefined as earliest date
-        }
+        // Handle date strings - treat nulls as very old dates (epoch)
+        aVal = aVal ? new Date(aVal).getTime() : 0;
+        bVal = bVal ? new Date(bVal).getTime() : 0;
       } else if (typeof aVal === "string" && typeof bVal === "string") {
         aVal = aVal.toLowerCase();
         bVal = bVal.toLowerCase();

@@ -143,21 +143,24 @@ export function useInfiniteGrid<T = any>(props: {
     const current = sortConfig();
 
     if (current.field === field) {
-      // Special handling for default sort field
-      if (field === defaultSortConfig.field) {
-        // For default field, just toggle between asc/desc
-        const newDirection = current.direction === "asc" ? "desc" : "asc";
-        setSortConfig({ field, direction: newDirection });
+      // Determine what the "first" direction should be for this field
+      const firstDirection =
+        field.includes("_at") ||
+        field.includes("date") ||
+        field.includes("time")
+          ? "desc"
+          : "asc";
+      const secondDirection = firstDirection === "desc" ? "asc" : "desc";
+
+      // Triple-click cycling: first -> second -> default
+      if (current.direction === firstDirection) {
+        setSortConfig({ field, direction: secondDirection });
+      } else if (current.direction === secondDirection) {
+        // Reset to default sort (third click)
+        setSortConfig(defaultSortConfig);
       } else {
-        // Triple-click cycling for non-default fields: asc -> desc -> default
-        if (current.direction === "asc") {
-          setSortConfig({ field, direction: "desc" });
-        } else if (current.direction === "desc") {
-          // Reset to default sort
-          setSortConfig(defaultSortConfig);
-        } else {
-          setSortConfig({ field, direction: "asc" });
-        }
+        // Shouldn't happen, but handle gracefully
+        setSortConfig({ field, direction: firstDirection });
       }
     } else {
       // New field: start with appropriate direction

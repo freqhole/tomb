@@ -187,15 +187,6 @@ export function FreqholeDataGrid(props: FreqholeDataGridProps) {
   };
 
   const handleSort = (field: string, direction: "asc" | "desc") => {
-    console.log("[Sort Debug] Attempting to sort:", {
-      field,
-      direction,
-      availableColumns: visibleColumns().map((c) => ({
-        key: c.key,
-        sortable: c.sortable,
-      })),
-      currentSort: state.sortConfig(),
-    });
     state.handleSort(field, direction);
   };
 
