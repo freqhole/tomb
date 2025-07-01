@@ -1,4 +1,4 @@
-import{c as p,g as j,t as d,k as r,i as f,b as H,e as W,m as Y,S as m,d as ke,F as De}from"./web-Bmt1sUg0.js";import{c as be}from"./index-CuXI0cIU.js";import{C as l}from"./websocket-types-VJn5j3Ha.js";import{W as Me}from"./websocket-client-CgCX1cwJ.js";import"./types-DDODKsJP.js";var Ee=d("<span>"),Ue=d("<span class=user-count>(<!> user<!>)"),Be=d(`<div><style>
+import{c as p,g as j,t as d,k as r,i as f,b as H,e as W,m as Y,S as m,d as ke,F as De}from"./web-Bmt1sUg0.js";import{c as be}from"./index-CuXI0cIU.js";import{C as l,W as Me}from"./websocket-client-BIZ3xMI1.js";import"./types-DDODKsJP.js";var Ee=d("<span>"),Ue=d("<span class=user-count>(<!> user<!>)"),Be=d(`<div><style>
         .status-indicator {
           width: 12px;
           height: 12px;
