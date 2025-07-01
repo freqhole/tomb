@@ -1,8 +1,8 @@
 import { Show, onCleanup, createEffect } from "solid-js";
-import { useFreqholeStateContext } from "../context/FreqholeStateContext";
+import { useFreqholeAppContext } from "../context/FreqholeStateContext";
 
 export function HeaderActionMenu() {
-  const state = useFreqholeStateContext();
+  const { state } = useFreqholeAppContext();
   let menuRef: HTMLDivElement | undefined;
 
   // Close on outside click
@@ -47,9 +47,17 @@ export function HeaderActionMenu() {
     state.setHeaderActionMenu(null);
   };
 
-  const handleViewModeClick = () => {
-    // TODO: Add view mode cycling to context
-    state.setHeaderActionMenu(null);
+  const handleViewModeClick = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Cycle through view modes without closing menu
+    const currentMode = state.viewMode();
+    const modes = ["compact", "default", "detailed"] as const;
+    const currentIndex = modes.indexOf(currentMode as any);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    const nextMode = modes[nextIndex]!;
+    state.setViewMode(nextMode);
+    // Don't close the menu
   };
 
   const handleResetFilters = () => {
@@ -159,7 +167,7 @@ export function HeaderActionMenu() {
             <div style="flex: 1;">
               <div style="font-weight: 500;">View Mode</div>
               <div style="font-size: 11px; color: #888; margin-top: 2px;">
-                default
+                {state.viewMode()}
               </div>
             </div>
           </button>
