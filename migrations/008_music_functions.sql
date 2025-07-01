@@ -65,7 +65,7 @@ LEFT JOIN media_blobs mb ON p.media_blob_id = mb.id AND mb.deleted_at IS NULL
 LEFT JOIN media_blobs thumb ON p.thumbnail_blob_id = thumb.id AND thumb.deleted_at IS NULL
 WHERE p.deleted_at IS NULL;
 
--- Function to automatically maintain playlist positions
+-- Function to automatically maintain playlist positions (simplified to avoid infinite loops)
 CREATE OR REPLACE FUNCTION maintain_playlist_positions()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -76,43 +76,12 @@ BEGIN
             INTO NEW."position"
             FROM playlist_songs
             WHERE playlist_id = NEW.playlist_id;
-        ELSE
-            -- Shift existing positions to make room
-            UPDATE playlist_songs
-            SET "position" = "position" + 1
-            WHERE playlist_id = NEW.playlist_id
-            AND "position" >= NEW."position"
-            AND id != NEW.id;
-        END IF;
-        RETURN NEW;
-    END IF;
-
-    IF TG_OP = 'UPDATE' THEN
-        -- If position changed, reorder accordingly
-        IF OLD."position" != NEW."position" THEN
-            -- Moving to later position
-            IF NEW."position" > OLD."position" THEN
-                UPDATE playlist_songs
-                SET "position" = "position" - 1
-                WHERE playlist_id = NEW.playlist_id
-                AND "position" > OLD."position"
-                AND "position" <= NEW."position"
-                AND id != NEW.id;
-            -- Moving to earlier position
-            ELSE
-                UPDATE playlist_songs
-                SET "position" = "position" + 1
-                WHERE playlist_id = NEW.playlist_id
-                AND "position" >= NEW."position"
-                AND "position" < OLD."position"
-                AND id != NEW.id;
-            END IF;
         END IF;
         RETURN NEW;
     END IF;
 
     IF TG_OP = 'DELETE' THEN
-        -- Close gaps in position sequence
+        -- Close gaps in position sequence after deletion
         UPDATE playlist_songs
         SET "position" = "position" - 1
         WHERE playlist_id = OLD.playlist_id
@@ -124,11 +93,53 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create trigger to maintain playlist positions
+-- Create the trigger only for INSERT and DELETE (not UPDATE to avoid recursion)
 CREATE TRIGGER maintain_playlist_positions_trigger
-    BEFORE INSERT OR UPDATE OR DELETE ON playlist_songs
+    BEFORE INSERT OR DELETE ON playlist_songs
     FOR EACH ROW
     EXECUTE FUNCTION maintain_playlist_positions();
+
+-- Create a separate function for handling position reordering safely
+CREATE OR REPLACE FUNCTION reorder_playlist_positions(
+    target_playlist_id UUID,
+    song_ids UUID[]
+)
+RETURNS VOID AS $$
+DECLARE
+    current_song_id UUID;
+    new_position INTEGER;
+BEGIN
+    -- Temporarily disable the trigger
+    ALTER TABLE playlist_songs DISABLE TRIGGER maintain_playlist_positions_trigger;
+
+    -- Update positions for all songs in the provided order
+    FOR i IN 1..array_length(song_ids, 1) LOOP
+        current_song_id := song_ids[i];
+        new_position := i;
+
+        UPDATE playlist_songs
+        SET "position" = new_position
+        WHERE playlist_id = target_playlist_id
+        AND playlist_songs.song_id = current_song_id;
+    END LOOP;
+
+    -- Re-enable the trigger
+    ALTER TABLE playlist_songs ENABLE TRIGGER maintain_playlist_positions_trigger;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Re-enable trigger even if there's an error
+        ALTER TABLE playlist_songs ENABLE TRIGGER maintain_playlist_positions_trigger;
+        RAISE;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Add comments explaining the approach
+COMMENT ON FUNCTION maintain_playlist_positions() IS
+'Simplified trigger that only handles INSERT/DELETE to avoid recursive UPDATE issues';
+
+COMMENT ON FUNCTION reorder_playlist_positions(UUID, UUID[]) IS
+'Safe function for bulk reordering that temporarily disables trigger to avoid conflicts';
 
 -- Create view for playlist with song counts and duration
 CREATE VIEW playlist_summary AS
@@ -207,6 +218,7 @@ RETURNS TABLE (
     media_blob_id UUID,
     audio_mime TEXT,
     audio_size BIGINT,
+    local_path TEXT,
     thumbnail_id UUID,
     thumbnail_mime TEXT,
     waveform_id UUID,
@@ -227,7 +239,8 @@ BEGIN
         s.media_blob_id,
         mb.mime,
         mb.size,
-        s.thumbnail_blob_id,
+        mb.local_path,
+        s.thumbnail_blob_id AS thumbnail_id,
         thumb.mime,
         s.waveform_blob_id,
         wave.mime
@@ -240,6 +253,63 @@ BEGIN
     AND s.deleted_at IS NULL
     AND mb.deleted_at IS NULL
     ORDER BY ps.position;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create function to get individual song with media info for playback
+CREATE OR REPLACE FUNCTION get_song_with_media(song_uuid UUID)
+RETURNS TABLE (
+    song_id UUID,
+    title TEXT,
+    artist TEXT,
+    album TEXT,
+    track_number INTEGER,
+    disc_number INTEGER,
+    duration INTERVAL,
+    genre TEXT,
+    year INTEGER,
+    is_favorite BOOLEAN,
+    rating INTEGER,
+    created_at TIMESTAMPTZ,
+    media_blob_id UUID,
+    audio_mime TEXT,
+    audio_size BIGINT,
+    local_path TEXT,
+    thumbnail_id UUID,
+    thumbnail_mime TEXT,
+    waveform_id UUID,
+    waveform_mime TEXT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        s.id,
+        s.title,
+        s.artist,
+        s.album,
+        s.track_number,
+        s.disc_number,
+        s.duration,
+        s.genre,
+        s.year,
+        s.is_favorite,
+        s.rating,
+        s.created_at,
+        s.media_blob_id,
+        mb.mime,
+        mb.size,
+        mb.local_path,
+        s.thumbnail_blob_id,
+        thumb.mime,
+        s.waveform_blob_id,
+        wave.mime
+    FROM songs s
+    JOIN media_blobs mb ON s.media_blob_id = mb.id
+    LEFT JOIN media_blobs thumb ON s.thumbnail_blob_id = thumb.id
+    LEFT JOIN media_blobs wave ON s.waveform_blob_id = wave.id
+    WHERE s.id = song_uuid
+    AND s.deleted_at IS NULL
+    AND mb.deleted_at IS NULL;
 END;
 $$ LANGUAGE plpgsql;
 
