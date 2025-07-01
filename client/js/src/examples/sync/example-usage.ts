@@ -4,7 +4,7 @@
 //! It shows initialization, basic sync operations, event handling, and cleanup.
 
 import { ApiClient } from "../../lib/api-client.js";
-import { createSyncManager, SyncEventType } from "../../sync/index.js";
+import { createSyncManager, SyncEventType } from "../../sync-legacy/index.js";
 
 /**
  * Simple example showing basic sync usage

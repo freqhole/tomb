@@ -9,7 +9,7 @@ import {
   SyncEventType,
   SyncStatus,
   SyncManager,
-} from "../src/sync/index.js";
+} from "../src/sync-legacy/index.js";
 import { ApiClient } from "../src/lib/api-client.js";
 
 // Mock browser globals for Node.js environment

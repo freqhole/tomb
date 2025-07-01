@@ -9,7 +9,7 @@
 import { customElement } from "solid-element";
 import { createSignal, onMount, onCleanup, Show, For } from "solid-js";
 import { ApiClient } from "../lib/api-client.js";
-import { SyncStorageManager } from "../sync/sync-storage.js";
+import { SyncStorageManager } from "../sync-legacy/sync-storage.js";
 import { WebSocketClient } from "../lib/websocket-client.js";
 import {
   createSyncManager,
@@ -22,7 +22,7 @@ import {
   type SyncStatus as SyncStatusType,
   type IntegratedSyncProgress,
   type IntegratedSyncResult,
-} from "../sync/index.js";
+} from "../sync-legacy/index.js";
 import SyncStatusComponent from "./sync-status.js";
 import SyncProgressComponent from "./sync-progress.js";
 import SyncControlsComponent from "./sync-controls.js";

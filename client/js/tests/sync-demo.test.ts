@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SyncDemo, runSyncDemo } from "../src/examples/sync/demo-example.js";
-import { SyncEventType, SyncStatus } from "../src/sync/index.js";
+import { SyncEventType, SyncStatus } from "../src/sync-legacy/index.js";
 
 // Mock browser globals for Node.js environment
 Object.defineProperty(globalThis, "window", {

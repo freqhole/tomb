@@ -11,12 +11,12 @@ import {
   createSyncEventSystem,
   SyncStartedEvent,
   SyncProgressEvent,
-} from "../src/sync/sync-events.js";
+} from "../src/sync-legacy/sync-events.js";
 import {
   SyncProgress,
   SyncError,
   SyncConflict,
-} from "../src/sync/sync-state.js";
+} from "../src/sync-legacy/sync-state.js";
 
 describe("SyncEventEmitter", () => {
   let emitter: SyncEventEmitter;

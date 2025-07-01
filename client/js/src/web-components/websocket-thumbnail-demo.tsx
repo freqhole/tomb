@@ -11,7 +11,7 @@ import { customElement } from "solid-element";
 import { createSignal, onMount, onCleanup, Show, For } from "solid-js";
 import { WebSocketClient, ConnectionStatus } from "../lib/websocket-client.js";
 import type { MediaBlob } from "../lib/websocket-types.js";
-import { SyncStorageManager } from "../sync/sync-storage.js";
+import { SyncStorageManager } from "../sync-legacy/sync-storage.js";
 
 export interface WebSocketThumbnailDemoProps {
   /** WebSocket URL (default: ws://localhost:8080/ws) */

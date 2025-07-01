@@ -3,9 +3,15 @@
 //! This example shows how to use the media blob binary cache to download
 //! and cache binary data for offline use, separate from the main sync data.
 
-import { createMediaBlobCache, MediaBlobCache } from "../../sync/media-blob-cache.js";
-import { createMediaBlobBinarySync, MediaBlobBinarySync } from "../../sync/media-blob-binary-sync.js";
-import { SyncStorageManager } from "../../sync/sync-storage.js";
+import {
+  createMediaBlobCache,
+  MediaBlobCache,
+} from "../../sync-legacy/media-blob-cache.js";
+import {
+  createMediaBlobBinarySync,
+  MediaBlobBinarySync,
+} from "../../sync-legacy/media-blob-binary-sync.js";
+import { SyncStorageManager } from "../../sync-legacy/sync-storage.js";
 import { WebSocketClient } from "../../lib/websocket-client.js";
 
 /**
@@ -65,7 +71,9 @@ export async function syncAllBinaryDataExample(
     // Set up progress tracking
     binarySync.addEventListener("progress", (event: any) => {
       const progress = event.detail;
-      console.log(`📊 Progress: ${progress.phase} - ${progress.processed}/${progress.total}`);
+      console.log(
+        `📊 Progress: ${progress.phase} - ${progress.processed}/${progress.total}`
+      );
 
       if (progress.currentItem) {
         console.log(`   📦 Processing: ${progress.currentItem}`);
@@ -84,16 +92,17 @@ export async function syncAllBinaryDataExample(
     console.log(`   ✅ Cached: ${result.cached} items`);
     console.log(`   ⏭️ Skipped: ${result.skipped} items`);
     console.log(`   ❌ Failed: ${result.failed} items`);
-    console.log(`   💾 Downloaded: ${(result.bytesDownloaded / 1024 / 1024).toFixed(2)}MB`);
+    console.log(
+      `   💾 Downloaded: ${(result.bytesDownloaded / 1024 / 1024).toFixed(2)}MB`
+    );
     console.log(`   ⏱️ Duration: ${result.duration}ms`);
 
     if (result.errors.length > 0) {
       console.log("❌ Errors encountered:");
-      result.errors.forEach(error => {
+      result.errors.forEach((error) => {
         console.log(`   - ${error.blobId}: ${error.error}`);
       });
     }
-
   } catch (error) {
     console.error("❌ Binary sync failed:", error);
   } finally {
@@ -115,10 +124,13 @@ export async function useCachedBinaryDataExample(): Promise<void> {
     const mediaBlobs = await storage.getAllMediaBlobs();
     console.log(`Found ${mediaBlobs.length} media blobs in storage`);
 
-    for (const blob of mediaBlobs.slice(0, 3)) { // Just first 3 for demo
+    for (const blob of mediaBlobs.slice(0, 3)) {
+      // Just first 3 for demo
       // Check if binary data is cached
       const isCached = await cache.isCached(blob.id);
-      console.log(`📦 ${blob.id} (${blob.mime}): ${isCached ? "✅ Cached" : "❌ Not cached"}`);
+      console.log(
+        `📦 ${blob.id} (${blob.mime}): ${isCached ? "✅ Cached" : "❌ Not cached"}`
+      );
 
       if (isCached) {
         // Get blob URL for displaying/playing
@@ -140,10 +152,11 @@ export async function useCachedBinaryDataExample(): Promise<void> {
     const stats = await cache.getStats();
     console.log("📊 Cache Statistics:");
     console.log(`   📁 Total items: ${stats.totalItems}`);
-    console.log(`   💾 Total size: ${(stats.totalSize / 1024 / 1024).toFixed(2)}MB`);
+    console.log(
+      `   💾 Total size: ${(stats.totalSize / 1024 / 1024).toFixed(2)}MB`
+    );
     console.log(`   🔗 Active blob URLs: ${stats.activeBlobUrls}`);
     console.log(`   🎯 Hit rate: ${(stats.hitRate * 100).toFixed(1)}%`);
-
   } catch (error) {
     console.error("❌ Example failed:", error);
   } finally {
@@ -175,8 +188,9 @@ export async function prioritySyncExample(
 
     console.log("🖼️ Image sync complete!");
     console.log(`   ✅ Cached: ${result.cached} images`);
-    console.log(`   💾 Downloaded: ${(result.bytesDownloaded / 1024 / 1024).toFixed(2)}MB`);
-
+    console.log(
+      `   💾 Downloaded: ${(result.bytesDownloaded / 1024 / 1024).toFixed(2)}MB`
+    );
   } catch (error) {
     console.error("❌ Priority sync failed:", error);
   } finally {
@@ -216,7 +230,9 @@ export async function manualBinaryCacheExample(
           // Get the cached data info
           const cachedData = await cache.getCachedData(blobId);
           if (cachedData) {
-            console.log(`   📊 Size: ${cachedData.size} bytes, MIME: ${cachedData.mime}`);
+            console.log(
+              `   📊 Size: ${cachedData.size} bytes, MIME: ${cachedData.mime}`
+            );
           }
         } else {
           console.log(`   ❌ Failed to cache ${blobId}`);
@@ -229,8 +245,9 @@ export async function manualBinaryCacheExample(
     // Clean up old entries
     console.log("🧹 Running cache cleanup...");
     const cleanup = await cache.cleanup();
-    console.log(`   🗑️ Removed ${cleanup.removed} items, freed ${cleanup.freedBytes} bytes`);
-
+    console.log(
+      `   🗑️ Removed ${cleanup.removed} items, freed ${cleanup.freedBytes} bytes`
+    );
   } catch (error) {
     console.error("❌ Manual cache example failed:", error);
   } finally {
@@ -241,7 +258,9 @@ export async function manualBinaryCacheExample(
 /**
  * Example: Create a simple media player using cached data
  */
-export async function mediaPlayerExample(blobId: string): Promise<HTMLAudioElement | null> {
+export async function mediaPlayerExample(
+  blobId: string
+): Promise<HTMLAudioElement | null> {
   console.log(`🎵 Creating media player for ${blobId}...`);
 
   const cache = createMediaBlobCache();
@@ -268,7 +287,6 @@ export async function mediaPlayerExample(blobId: string): Promise<HTMLAudioEleme
 
     console.log("✅ Audio player created");
     return audio;
-
   } catch (error) {
     console.error("❌ Media player creation failed:", error);
     return null;
@@ -297,7 +315,6 @@ export async function runAllBinaryCacheExamples(
     // await syncAllBinaryDataExample(websocketClient);
 
     console.log("🎉 All binary cache examples completed!");
-
   } catch (error) {
     console.error("❌ Examples failed:", error);
   }

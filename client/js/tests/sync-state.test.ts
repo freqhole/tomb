@@ -9,8 +9,8 @@ import {
   SyncSessionState,
   SyncConflict,
   SyncError,
-} from "../src/sync/sync-state.js";
-import { SyncStatus } from "../src/sync/index.js";
+} from "../src/sync-legacy/sync-state.js";
+import { SyncStatus } from "../src/sync-legacy/index.js";
 
 // Mock browser globals for Node.js environment
 Object.defineProperty(globalThis, "window", {

@@ -128,7 +128,7 @@ export {
 } from "./api-spec.js";
 
 // Sync functionality
-export * from "../sync/index.js";
+export * from "../sync-legacy/index.js";
 
 // Re-export zod for convenience
 export { z } from "zod";

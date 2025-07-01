@@ -8,8 +8,8 @@
 /* @jsxImportSource solid-js */
 import { customElement } from "solid-element";
 import { createSignal, createEffect, Show } from "solid-js";
-import { SyncStatus } from "../sync/index.js";
-import type { SyncStatus as SyncStatusType } from "../sync/index.js";
+import { SyncStatus } from "../sync-legacy/index.js";
+import type { SyncStatus as SyncStatusType } from "../sync-legacy/index.js";
 
 export interface SyncControlsProps {
   status?: SyncStatusType;

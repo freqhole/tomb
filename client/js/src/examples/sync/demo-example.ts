@@ -12,7 +12,7 @@ import {
   createSyncEventSystem,
   MediaBlob,
   SyncProgress,
-} from "../../sync/index.js";
+} from "../../sync-legacy/index.js";
 
 /**
  * Mock sync data for demonstration
