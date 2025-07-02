@@ -80,8 +80,8 @@ export type {
   BackgroundSyncQueueState,
 } from "./service-worker-types.js";
 
-// Phase 3 auto-sync integration
-export { setupPhase3AutoSync } from "./phase3-auto-sync-integration.js";
+// Auto-sync integration
+export { setupAutoSync } from "./auto-sync-integration.js";
 
 // Enums for external use
 export { SyncStatus, SyncEventType } from "./types.js";
@@ -99,7 +99,8 @@ import type {
   AutoSyncConfig,
   StorageConfig,
 } from "./types.js";
-import { setupPhase3AutoSync } from "./phase3-auto-sync-integration.js";
+import { setupAutoSync } from "./auto-sync-integration.js";
+import { enableDebug, disableDebug, configureDebug } from "./debug.js";
 
 /**
  * Default unified sync configuration
@@ -212,38 +213,21 @@ export const UNIFIED_SYNC_VERSION = "1.0.0";
 export const SYNC_FEATURES = {
   AUTO_SYNC: true,
   BINARY_CACHING: true,
-  SERVICE_WORKER: true, // ✅ Phase 2 complete
+  SERVICE_WORKER: true,
   MULTI_DOMAIN: true,
   REAL_TIME_UPDATES: true,
-  SERVICE_WORKER_SYNC: true, // ✅ Phase 2 complete
-  NOTIFICATION_ROUTING: true, // ✅ Phase 3 complete
-  ENHANCED_AUTO_SYNC: true, // ✅ Phase 3 complete
-  USER_NOTIFICATIONS: true, // ✅ Phase 3 complete
-  RESOURCE_AWARENESS: true, // ✅ Phase 3 complete
-  SMART_SCHEDULING: true, // ✅ Phase 3 complete
+  SERVICE_WORKER_SYNC: true,
+  NOTIFICATION_ROUTING: true,
+  ENHANCED_AUTO_SYNC: true,
+  USER_NOTIFICATIONS: true,
+  RESOURCE_AWARENESS: true,
+  SMART_SCHEDULING: true,
 } as const;
 
 /**
- * Phase information
+ * Quick setup function for auto-sync system
  */
-export const SYNC_PHASES = {
-  PHASE_0: "✅ Legacy system preserved",
-  PHASE_1: "✅ Core unified sync infrastructure",
-  PHASE_2: "✅ Service worker background sync",
-  PHASE_3: "✅ Auto-sync & notifications",
-  PHASE_4: "✅ Unified UI demo complete",
-  PHASE_5: "🔄 Multi-domain foundation (next)",
-} as const;
-
-console.log("🚀 Unified Sync System loaded:", UNIFIED_SYNC_VERSION);
-console.log(
-  "📋 Phase 4 Complete: Unified UI demo with auto-sync & notifications"
-);
-
-/**
- * Quick setup function for Phase 3 auto-sync system
- */
-export async function setupPhase3AutoSyncQuick(
+export async function setupUnifiedSyncQuick(
   wsClient: WebSocketClient,
   apiClient: ApiClient,
   options: {
@@ -253,7 +237,7 @@ export async function setupPhase3AutoSyncQuick(
     enableUserNotifications?: boolean;
     enableBackgroundSync?: boolean;
   }
-): Promise<{ syncManager: UnifiedSyncManager; phase3System: any }> {
+): Promise<{ syncManager: UnifiedSyncManager; autoSyncSystem: any }> {
   // Set up basic unified sync
   const syncManager = await setupUnifiedSync(wsClient, apiClient, {
     apiBaseUrl: options.apiBaseUrl,
@@ -261,12 +245,27 @@ export async function setupPhase3AutoSyncQuick(
     authToken: options.authToken,
   });
 
-  // Set up Phase 3 auto-sync system
-  const phase3System = await setupPhase3AutoSync(syncManager, wsClient, {
+  // Set up auto-sync system
+  const autoSyncSystem = await setupAutoSync(syncManager, wsClient, {
     enableUserNotifications: options.enableUserNotifications ?? true,
     enableBackgroundSync: options.enableBackgroundSync ?? true,
     autoStart: true,
   });
 
-  return { syncManager, phase3System };
+  return { syncManager, autoSyncSystem };
 }
+
+/**
+ * Expose debug controls on window for easy toggling
+ */
+if (typeof window !== "undefined") {
+  (window as any).unifiedSyncDebug = {
+    enable: enableDebug,
+    disable: disableDebug,
+    configure: configureDebug,
+  };
+}
+
+// Log system ready message
+console.log("🚀 Unified Sync System loaded:", UNIFIED_SYNC_VERSION);
+console.log("💡 Use window.unifiedSyncDebug.enable() to enable debug logging");

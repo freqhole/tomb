@@ -7,7 +7,7 @@
 import type {
   SyncDomain,
   AutoSyncTrigger,
-  Phase3WebSocketNotification,
+  WebSocketNotification,
   NotificationSyncRule,
 } from "./types.js";
 import type { NotificationChannel } from "../lib/websocket-types.js";
@@ -41,7 +41,7 @@ export interface AutoSyncNotificationConfig {
  * Notification queue entry for batched processing
  */
 interface QueuedNotification {
-  notification: Phase3WebSocketNotification;
+  notification: WebSocketNotification;
   receivedAt: number;
   domain: SyncDomain;
   priority: number;
@@ -140,7 +140,7 @@ export class AutoSyncNotificationRouter {
    * Process incoming notification and route to appropriate sync
    */
   async processNotification(
-    notification: Phase3WebSocketNotification
+    notification: WebSocketNotification
   ): Promise<void> {
     if (!this.isActive || !this.config.enabled) {
       return;
@@ -307,7 +307,7 @@ export class AutoSyncNotificationRouter {
     priority: string;
     timestamp: string;
   }): Promise<void> {
-    const notification: Phase3WebSocketNotification = {
+    const notification: WebSocketNotification = {
       id: data.id,
       channel: data.channel,
       eventType: data.event_type,
@@ -334,9 +334,7 @@ export class AutoSyncNotificationRouter {
   /**
    * Determine target domains for a notification
    */
-  private getTargetDomains(
-    notification: Phase3WebSocketNotification
-  ): SyncDomain[] {
+  private getTargetDomains(notification: WebSocketNotification): SyncDomain[] {
     const domains: SyncDomain[] = [];
 
     // Apply sync rules
@@ -360,7 +358,7 @@ export class AutoSyncNotificationRouter {
    * Check if notification matches a sync rule
    */
   private doesNotificationMatchRule(
-    notification: Phase3WebSocketNotification,
+    notification: WebSocketNotification,
     rule: NotificationSyncRule
   ): boolean {
     // Channel match
@@ -416,7 +414,7 @@ export class AutoSyncNotificationRouter {
    * Calculate priority score for notification
    */
   private calculatePriority(
-    notification: Phase3WebSocketNotification,
+    notification: WebSocketNotification,
     domain: SyncDomain
   ): number {
     let priority = 0;

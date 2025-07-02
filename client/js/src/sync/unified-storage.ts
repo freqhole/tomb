@@ -11,6 +11,7 @@ import type {
   StorageStats,
   StorageConfig,
 } from "./types.js";
+import { debugInfo, debugWarn, debugError } from "./debug.js";
 
 /**
  * IndexedDB-based unified storage implementation
@@ -64,7 +65,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
    * Initialize the storage system
    */
   async initialize(): Promise<void> {
-    console.log(
+    debugInfo(
       `📦 Initializing unified storage: ${this.dbName} v${this.dbVersion}`
     );
 
@@ -77,7 +78,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
 
       request.onsuccess = () => {
         this.db = request.result;
-        console.log("✅ Unified storage initialized");
+        debugInfo("✅ Unified storage initialized");
         resolve();
       };
 
@@ -118,7 +119,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       item_count: await this.countItems(domain),
     });
 
-    console.log(`💾 Stored ${items.length} items for domain: ${domain}`);
+    debugInfo(`💾 Stored ${items.length} items for domain: ${domain}`);
   }
 
   /**
@@ -139,7 +140,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       );
     }
 
-    console.log(`💾 Stored ${items.length} items to table: ${tableName}`);
+    debugInfo(`💾 Stored ${items.length} items to table: ${tableName}`);
   }
 
   private async storeMusicItems(items: any[]): Promise<void> {
@@ -199,7 +200,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       }
     }
 
-    console.log(
+    debugInfo(
       `🎵 Stored music: ${songs.length} songs, ${playlists.length} playlists, ${playlistSongs.length} playlist_songs`
     );
   }
@@ -337,7 +338,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       item_count: 0,
     });
 
-    console.log(`🧹 Cleared all data for domain: ${domain}`);
+    debugInfo(`🧹 Cleared all data for domain: ${domain}`);
   }
 
   /**
@@ -366,7 +367,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       })
     );
 
-    console.log(`📦 Stored binary data: ${blobId} (${data.byteLength} bytes)`);
+    debugInfo(`📦 Stored binary data: ${blobId} (${data.byteLength} bytes)`);
   }
 
   /**
@@ -410,7 +411,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
     const store = transaction.objectStore(storeName);
 
     await this.promisifyRequest(store.delete(blobId));
-    console.log(`🗑️ Deleted binary data: ${blobId}`);
+    debugInfo(`🗑️ Deleted binary data: ${blobId}`);
   }
 
   /**
@@ -503,7 +504,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
   // Private helper methods
 
   private setupDatabase(db: IDBDatabase): void {
-    console.log("🔧 Setting up database schema...");
+    debugInfo("🔧 Setting up database schema...");
 
     // Create all tables matching server schema
     Object.entries(this.DOMAIN_TABLES).forEach(([tableName, storeName]) => {
@@ -547,7 +548,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       db.createObjectStore(this.METADATA_STORE, { keyPath: "domain" });
     }
 
-    console.log("✅ Database schema setup complete");
+    debugInfo("✅ Database schema setup complete");
   }
 
   private async promisifyRequest<T>(request: IDBRequest<T>): Promise<T> {
@@ -653,7 +654,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
    * Completely destroy all data and the database
    */
   async destroyAll(): Promise<void> {
-    console.log("💥 Starting complete database teardown...");
+    debugInfo("💥 Starting complete database teardown...");
 
     // Close the current database connection
     if (this.db) {
@@ -666,12 +667,12 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       const deleteRequest = indexedDB.deleteDatabase(this.dbName);
 
       deleteRequest.onsuccess = () => {
-        console.log("🗑️ Database completely destroyed:", this.dbName);
+        debugInfo("🗑️ Database completely destroyed:", this.dbName);
         resolve();
       };
 
       deleteRequest.onerror = () => {
-        console.error("❌ Failed to destroy database:", deleteRequest.error);
+        debugError("❌ Failed to destroy database:", deleteRequest.error);
         reject(
           new Error(
             `Failed to destroy database: ${deleteRequest.error?.message}`
@@ -680,7 +681,7 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       };
 
       deleteRequest.onblocked = () => {
-        console.warn(
+        debugWarn(
           "⚠️ Database deletion blocked - close all tabs using this database"
         );
         // Continue anyway, the deletion will complete when other connections close

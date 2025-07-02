@@ -26,22 +26,21 @@ import { ApiClient } from "../lib/api-client.js";
 import { WebSocketClient } from "../lib/websocket-client.js";
 import {
   createConfiguredSyncManager,
-  setupPhase3AutoSyncQuick,
+  setupUnifiedSyncQuick,
   SYNC_FEATURES,
-  SYNC_PHASES,
   SyncStatus,
   SyncEventType,
   type UnifiedSyncManager,
   type SyncProgress,
   type SyncStatusMap,
   type SyncProgressMap,
-  type AnySyncEvent,
 } from "../sync/index.js";
+import { enableDebug, disableDebug } from "../sync/debug.js";
 import SyncStatusComponent from "./sync-status.js";
 import SyncProgressComponent from "./sync-progress.js";
 import { WebSocketStatus as WebSocketStatusComponent } from "./websocket-status.js";
 import { ConnectionStatus } from "../lib/websocket-client.js";
-import { setupPhase3AutoSync } from "../sync/phase3-auto-sync-integration.js";
+import { setupPhase3AutoSync } from "../sync/auto-sync-integration.js";
 
 export interface UnifiedSyncDemoProps {
   apiBaseUrl?: string;
@@ -101,6 +100,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
   const [lastSyncTime, setLastSyncTime] = createSignal<Date | null>(null);
   const [imageUrls, setImageUrls] = createSignal<string[]>([]);
   const [binaryDataCount, setBinaryDataCount] = createSignal<number>(0);
+  const [debugEnabled, setDebugEnabled] = createSignal<boolean>(false);
 
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -192,11 +192,10 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         ws.connect();
       }
 
-      // Set up unified sync system with Phase 3 auto-sync
-      // Set up Phase 3 auto-sync system
+      // Set up unified sync system with auto-sync
       addLog("⚙️ Setting up unified sync manager...");
-      const { syncManager: manager, phase3System: p3System } =
-        await setupPhase3AutoSyncQuick(ws, api, {
+      const { syncManager: manager, autoSyncSystem } =
+        await setupUnifiedSyncQuick(ws, api, {
           apiBaseUrl: baseUrl,
           clientId,
           enableUserNotifications: props.enableUserNotifications ?? true,
@@ -204,7 +203,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         });
 
       setSyncManager(manager);
-      setPhase3System(p3System);
+      setPhase3System(autoSyncSystem);
 
       // Set up sync event listeners
       setupSyncEventListeners(manager);
@@ -235,11 +234,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           buttonEnabled: initialized && connected && !syncing,
         });
       });
-
-      // Show current phase status
-      Object.entries(SYNC_PHASES).forEach(([phase, status]) => {
-        addLog(`${phase}: ${status}`);
-      });
+      addLog("✅ Unified Sync System initialized successfully");
     } catch (error) {
       addLog(`❌ Initialization failed: ${error.message}`);
       setConnectionError(error.message);
@@ -281,6 +276,14 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
 
       // Trigger image grid refresh when sync completes
       setBinaryDataCount((prev) => prev + 1);
+
+      // Check for binary data with longer delay if binary sync happened
+      if (event.stats && event.stats.binaryStats?.cached > 0) {
+        addLog(`🖼️ Binary sync completed, checking for images...`);
+        setTimeout(() => {
+          loadImageGrid();
+        }, 2000); // Longer wait for WebSocket binary data to be stored
+      }
     });
 
     manager.on(SyncEventType.SyncFailed, (event) => {
@@ -368,14 +371,21 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
     try {
       addLog("💥 Starting complete database teardown...");
 
-      await manager.destroyAll();
-
-      addLog("🗑️ Database completely destroyed!");
-      addLog("🔄 Reinitializing system...");
-
-      // Reset UI state
+      // Reset UI state first
       setIsInitialized(false);
       setLastSyncTime(null);
+      setImageUrls([]);
+      setBinaryDataCount(0);
+
+      // Destroy the database
+      await manager.destroyAll();
+      addLog("🗑️ Database completely destroyed!");
+
+      // Clear existing sync manager
+      setSyncManager(null);
+      setPhase3System(null);
+
+      addLog("🔄 Reinitializing system...");
 
       // Reinitialize the sync manager
       await initializeSystem();
@@ -383,16 +393,14 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       addLog("✅ System reinitialized successfully!");
     } catch (error) {
       addLog(`❌ Teardown failed: ${error.message}`);
+      console.error("Destroy error:", error);
     }
   };
 
-  // Reactive effect to load image grid when binary data is available
-  createEffect(async () => {
+  // Load image grid when binary data becomes available
+  const loadImageGrid = async () => {
     const manager = syncManager();
-    const initialized = isInitialized();
-    const _ = binaryDataCount(); // Track binary data changes
-
-    if (!manager || !initialized) return;
+    if (!manager || !isInitialized()) return;
 
     try {
       // Get first 100 image blobs
@@ -403,24 +411,64 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         return;
       }
 
-      console.log(
-        `📷 Found ${imageBlobs.length} image blobs, creating URLs...`
+      addLog(
+        `📷 Found ${imageBlobs.length} image blobs, checking binary data...`
       );
 
       const urls: string[] = [];
+      let binaryDataCount = 0;
+
       for (const blob of imageBlobs) {
-        const url = await manager.getBlobUrl(blob.id);
-        if (url) {
-          urls.push(url);
+        // Check if we actually have binary data for this blob
+        try {
+          const hasBinary = await manager.hasBinaryData(blob.id);
+          if (hasBinary) {
+            binaryDataCount++;
+            const url = await manager.getBlobUrl(blob.id);
+            if (url) {
+              urls.push(url);
+            }
+          }
+        } catch (error) {
+          // Skip this blob if there's an error
+          continue;
         }
       }
 
       if (urls.length > 0) {
         setImageUrls(urls);
-        addLog(`🎨 Image grid loaded: ${urls.length} images`);
+        addLog(
+          `🎨 Image grid loaded: ${urls.length} images (${binaryDataCount} with binary data)`
+        );
+      } else if (binaryDataCount === 0 && imageBlobs.length > 0) {
+        addLog(
+          `📷 Found ${imageBlobs.length} image metadata but no binary data yet`
+        );
       }
     } catch (error) {
-      console.error("Failed to load image grid:", error);
+      addLog(`❌ Failed to load image grid: ${error.message}`);
+    }
+  };
+
+  // Reactive effect to trigger image grid loading
+  createEffect(() => {
+    const manager = syncManager();
+    const initialized = isInitialized();
+    const _ = binaryDataCount(); // Track binary data changes
+
+    if (manager && initialized) {
+      // Poll for binary data since WebSocket sync happens async
+      loadImageGrid();
+
+      // Also set up a polling mechanism to check again
+      const pollInterval = setInterval(() => {
+        loadImageGrid();
+      }, 3000); // Check every 3 seconds
+
+      // Clean up after 30 seconds
+      setTimeout(() => {
+        clearInterval(pollInterval);
+      }, 30000);
     }
   });
 
@@ -429,6 +477,19 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
     if (ws && !isConnected()) {
       addLog("🔄 Connecting WebSocket...");
       ws.connect();
+    }
+  };
+
+  const handleToggleDebug = () => {
+    const newState = !debugEnabled();
+    setDebugEnabled(newState);
+
+    if (newState) {
+      enableDebug();
+      addLog("🐛 Debug logging enabled");
+    } else {
+      disableDebug();
+      addLog("🔇 Debug logging disabled");
     }
   };
 
@@ -554,6 +615,14 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
               disabled={!isInitialized()}
             />
             <span>🔄 Auto-Sync on Changes</span>
+          </label>
+          <label class="toggle-control">
+            <input
+              type="checkbox"
+              checked={debugEnabled()}
+              onChange={handleToggleDebug}
+            />
+            <span>🐛 Debug Logging</span>
           </label>
           <Show when={props.enableUserNotifications !== false}>
             <label class="toggle-control">

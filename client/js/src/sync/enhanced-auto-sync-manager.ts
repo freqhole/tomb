@@ -12,7 +12,7 @@ import type {
   AutoSyncStats,
   AutoSyncTriggeredEvent,
   SyncEventListener,
-  Phase3WebSocketNotification,
+  WebSocketNotification,
 } from "./types.js";
 
 import { SyncEventType } from "./types.js";
@@ -245,7 +245,7 @@ export class EnhancedAutoSyncManager {
     trigger: AutoSyncTrigger,
     context?: {
       ruleId?: string;
-      notifications?: Phase3WebSocketNotification[];
+      notifications?: WebSocketNotification[];
       priority?: number;
     }
   ): Promise<void> {
@@ -611,7 +611,7 @@ export class EnhancedAutoSyncManager {
     trigger: AutoSyncTrigger,
     context?: {
       ruleId?: string;
-      notifications?: Phase3WebSocketNotification[];
+      notifications?: WebSocketNotification[];
       priority?: number;
     }
   ): Promise<void> {

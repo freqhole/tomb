@@ -52,6 +52,11 @@ export interface UnifiedSyncManager {
   getMediaBlobs(): Promise<any[]>;
 
   /**
+   * Check if binary data exists for a blob ID
+   */
+  hasBinaryData(blobId: string): Promise<boolean>;
+
+  /**
    * Enable/disable auto-sync based on WebSocket notifications
    */
   enableAutoSync(enabled: boolean): void;
@@ -538,7 +543,7 @@ export type AutoSyncTrigger =
 /**
  * WebSocket notification structure for auto-sync
  */
-export interface Phase3WebSocketNotification {
+export interface WebSocketNotification {
   /** Unique notification ID */
   id: string;
   /** Notification channel */
@@ -549,14 +554,14 @@ export interface Phase3WebSocketNotification {
   payload?: any;
   /** Priority level */
   priority: string;
-  /** Notification timestamp */
+  /** Timestamp */
   timestamp: string;
 }
 
 /**
  * WebSocket notification payload (legacy - kept for backward compatibility)
  */
-export interface WebSocketNotification {
+export interface LegacyWebSocketNotification {
   type: "new_content" | "content_updated" | "content_deleted";
   domain: SyncDomain;
   itemIds: string[];

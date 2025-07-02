@@ -1,13 +1,13 @@
-//! Phase 3: Auto-Sync & Notifications Integration
+//! Auto-Sync & Notifications Integration
 //!
-//! This module integrates all Phase 3 components to provide a complete
+//! This module integrates auto-sync components to provide a complete
 //! auto-sync and notification system. It combines notification routing,
 //! enhanced auto-sync management, user notifications, and service worker
 //! background sync into a cohesive system.
 
 import type { UnifiedSyncManager, SyncDomain } from "./types.js";
-
 import { SyncEventType } from "./types.js";
+import { debugInfo, debugError } from "./debug.js";
 
 import type { WebSocketClient } from "../lib/websocket-client.js";
 import type { ServiceWorkerSyncManager } from "./service-worker-types.js";
@@ -31,9 +31,9 @@ import {
 } from "./user-notification-manager.js";
 
 /**
- * Phase 3 auto-sync system configuration
+ * Auto-sync system configuration
  */
-export interface Phase3AutoSyncConfig {
+interface AutoSyncConfig {
   /** Core auto-sync configuration */
   autoSync: Partial<EnhancedAutoSyncConfig>;
   /** Notification routing configuration */
@@ -115,13 +115,13 @@ export interface Phase3Status {
 }
 
 /**
- * Complete Phase 3 auto-sync system implementation
+ * Complete auto-sync system implementation
  */
-export class Phase3AutoSyncSystem {
+class AutoSyncSystem {
   private syncManager: UnifiedSyncManager;
   private wsClient: WebSocketClient;
   private serviceWorkerSyncManager: ServiceWorkerSyncManager | null;
-  private config: Phase3AutoSyncConfig;
+  private config: AutoSyncConfig;
 
   // Core components
   private autoSyncManager: EnhancedAutoSyncManager | null = null;
@@ -145,7 +145,7 @@ export class Phase3AutoSyncSystem {
   constructor(
     syncManager: UnifiedSyncManager,
     wsClient: WebSocketClient,
-    config: Phase3AutoSyncConfig,
+    config: AutoSyncConfig,
     serviceWorkerSyncManager?: ServiceWorkerSyncManager
   ) {
     this.syncManager = syncManager;
@@ -193,9 +193,9 @@ export class Phase3AutoSyncSystem {
         await this.enable();
       }
 
-      console.log("✅ Phase 3 auto-sync system initialized successfully");
+      debugInfo("✅ Auto-sync system initialized successfully");
     } catch (error) {
-      console.error("❌ Failed to initialize Phase 3 auto-sync system:", error);
+      debugError("❌ Failed to initialize auto-sync system:", error);
       throw error;
     }
   }
@@ -213,7 +213,7 @@ export class Phase3AutoSyncSystem {
       return;
     }
 
-    console.log("🔛 Enabling Phase 3 auto-sync system...");
+    debugInfo("🔛 Enabling auto-sync system...");
 
     try {
       // Enable auto-sync manager
@@ -234,9 +234,9 @@ export class Phase3AutoSyncSystem {
       this.isEnabled = true;
       this.logSystemEvent("system_enabled");
 
-      console.log("✅ Phase 3 auto-sync system enabled");
+      debugInfo("✅ Auto-sync system enabled");
     } catch (error) {
-      console.error("❌ Failed to enable Phase 3 auto-sync system:", error);
+      debugError("❌ Failed to enable auto-sync system:", error);
       throw error;
     }
   }
@@ -250,7 +250,7 @@ export class Phase3AutoSyncSystem {
       return;
     }
 
-    console.log("⏹️ Disabling Phase 3 auto-sync system...");
+    debugInfo("⏹️ Disabling auto-sync system...");
 
     try {
       // Disable auto-sync manager
@@ -271,9 +271,9 @@ export class Phase3AutoSyncSystem {
       this.isEnabled = false;
       this.logSystemEvent("system_disabled");
 
-      console.log("✅ Phase 3 auto-sync system disabled");
+      debugInfo("✅ Auto-sync system disabled");
     } catch (error) {
-      console.error("❌ Failed to disable Phase 3 auto-sync system:", error);
+      debugError("❌ Failed to disable auto-sync system:", error);
       throw error;
     }
   }
@@ -319,7 +319,7 @@ export class Phase3AutoSyncSystem {
   /**
    * Update system configuration
    */
-  async updateConfig(newConfig: Partial<Phase3AutoSyncConfig>): Promise<void> {
+  async updateConfig(newConfig: Partial<AutoSyncConfig>): Promise<void> {
     this.config = { ...this.config, ...newConfig };
 
     // Update component configurations
@@ -486,7 +486,7 @@ export class Phase3AutoSyncSystem {
    * Initialize notification router component
    */
   private async initializeNotificationRouter(): Promise<void> {
-    console.log("📡 Initializing notification router...");
+    debugInfo("📡 Initializing notification router...");
 
     this.notificationRouter = createAutoSyncNotificationRouter(
       this.syncManager,
@@ -494,14 +494,14 @@ export class Phase3AutoSyncSystem {
       this.config.notificationRouting
     );
 
-    console.log("✅ Notification router initialized");
+    debugInfo("✅ Notification router initialized");
   }
 
   /**
    * Initialize enhanced auto-sync manager
    */
   private async initializeAutoSyncManager(): Promise<void> {
-    console.log("🔄 Initializing enhanced auto-sync manager...");
+    debugInfo("🔄 Initializing enhanced auto-sync manager...");
 
     this.autoSyncManager = createEnhancedAutoSyncManager(
       this.syncManager,
@@ -510,14 +510,14 @@ export class Phase3AutoSyncSystem {
       this.notificationRouter || undefined
     );
 
-    console.log("✅ Enhanced auto-sync manager initialized");
+    debugInfo("✅ Enhanced auto-sync manager initialized");
   }
 
   /**
    * Initialize user notification manager
    */
   private async initializeUserNotificationManager(): Promise<void> {
-    console.log("📢 Initializing user notification manager...");
+    debugInfo("📢 Initializing user notification manager...");
 
     this.userNotificationManager = createUserNotificationManager(
       this.syncManager,
@@ -525,14 +525,14 @@ export class Phase3AutoSyncSystem {
       this.serviceWorkerSyncManager || undefined
     );
 
-    console.log("✅ User notification manager initialized");
+    debugInfo("✅ User notification manager initialized");
   }
 
   /**
    * Set up integration between components
    */
   private async setupComponentIntegration(): Promise<void> {
-    console.log("🔗 Setting up component integration...");
+    debugInfo("🔗 Setting up component integration...");
 
     // Connect notification router to auto-sync manager
     if (this.notificationRouter && this.autoSyncManager) {
@@ -546,7 +546,7 @@ export class Phase3AutoSyncSystem {
       // This is handled automatically through the sync manager's event system
     }
 
-    console.log("✅ Component integration complete");
+    debugInfo("✅ Component integration complete");
   }
 
   /**
@@ -555,7 +555,7 @@ export class Phase3AutoSyncSystem {
   private setupSystemMonitoring(): void {
     if (!this.config.advanced.enableAnalytics) return;
 
-    console.log("📊 Setting up system monitoring...");
+    debugInfo("📊 Setting up system monitoring...");
 
     // Monitor sync events
     this.syncManager.on(SyncEventType.AutoSyncTriggered, (event) => {
@@ -574,7 +574,7 @@ export class Phase3AutoSyncSystem {
       // Would set up notification monitoring here
     }
 
-    console.log("✅ System monitoring setup complete");
+    debugInfo("✅ System monitoring setup complete");
   }
 
   /**
@@ -603,22 +603,22 @@ export class Phase3AutoSyncSystem {
   private logSystemEvent(event: string, data?: any): void {
     if (!this.config.integration.debug) return;
 
-    console.log(`📊 [Phase3] ${event}:`, data);
+    console.log(`📊 [AutoSync] ${event}:`, data);
 
     // In a real implementation, this would send to analytics service
   }
 }
 
 /**
- * Create and configure Phase 3 auto-sync system with sensible defaults
+ * Create and configure auto-sync system with sensible defaults
  */
-export function createPhase3AutoSyncSystem(
+export function createAutoSyncSystem(
   syncManager: UnifiedSyncManager,
   wsClient: WebSocketClient,
-  config?: Partial<Phase3AutoSyncConfig>,
+  config?: Partial<AutoSyncConfig>,
   serviceWorkerSyncManager?: ServiceWorkerSyncManager
-): Phase3AutoSyncSystem {
-  const defaultConfig: Phase3AutoSyncConfig = {
+): AutoSyncSystem {
+  const defaultConfig: AutoSyncConfig = {
     autoSync: {
       enabled: true,
       syncOnNewContent: true,
@@ -715,7 +715,7 @@ export function createPhase3AutoSyncSystem(
   };
 
   const finalConfig = { ...defaultConfig, ...config };
-  return new Phase3AutoSyncSystem(
+  return new AutoSyncSystem(
     syncManager,
     wsClient,
     finalConfig,
@@ -724,9 +724,9 @@ export function createPhase3AutoSyncSystem(
 }
 
 /**
- * Quick setup function for Phase 3 auto-sync with minimal configuration
+ * Quick setup function for auto-sync with minimal configuration
  */
-export async function setupPhase3AutoSync(
+export async function setupAutoSync(
   syncManager: UnifiedSyncManager,
   wsClient: WebSocketClient,
   options?: {
@@ -735,8 +735,8 @@ export async function setupPhase3AutoSync(
     enableDebugMode?: boolean;
     autoStart?: boolean;
   }
-): Promise<Phase3AutoSyncSystem> {
-  const config: Partial<Phase3AutoSyncConfig> = {
+): Promise<AutoSyncSystem> {
+  const config: Partial<AutoSyncConfig> = {
     integration: {
       enableNotificationRouter: true,
       enableUserNotifications: options?.enableUserNotifications ?? true,
@@ -746,7 +746,7 @@ export async function setupPhase3AutoSync(
     },
   };
 
-  const system = createPhase3AutoSyncSystem(syncManager, wsClient, config);
+  const system = createAutoSyncSystem(syncManager, wsClient, config);
   await system.initialize();
 
   return system;
@@ -758,10 +758,10 @@ export async function setupPhase3AutoSync(
 export async function createPhase3DemoSetup(
   syncManager: UnifiedSyncManager,
   wsClient: WebSocketClient
-): Promise<Phase3AutoSyncSystem> {
+): Promise<AutoSyncSystem> {
   console.log("🎯 Setting up Phase 3 demo configuration...");
 
-  const demoConfig: Partial<Phase3AutoSyncConfig> = {
+  const demoConfig: Partial<AutoSyncConfig> = {
     integration: {
       enableNotificationRouter: true,
       enableUserNotifications: true,
@@ -800,7 +800,7 @@ export async function createPhase3DemoSetup(
     },
   };
 
-  const system = createPhase3AutoSyncSystem(syncManager, wsClient, demoConfig);
+  const system = createAutoSyncSystem(syncManager, wsClient, demoConfig);
   await system.initialize();
 
   console.log("✅ Phase 3 demo setup complete");

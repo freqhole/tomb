@@ -24,11 +24,11 @@ import type {
   AutoSyncTriggeredEvent,
   // ConnectionChangedEvent,
   DomainConfig,
-  WebSocketNotification,
   UnifiedSyncConfig,
   SyncError,
   BinarySyncStats,
 } from "./types.js";
+import { debugInfo, debugWarn, debugError } from "./debug.js";
 
 import type { UnifiedStorage } from "./unified-storage.js";
 import type { WebSocketClient } from "../lib/websocket-client.js";
@@ -62,8 +62,6 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
   // @ts-ignore - Will be used for auto-sync features in Phase 3
   private autoSyncEnabled = false;
   private autoSyncTimeouts = new Map<SyncDomain, NodeJS.Timeout>();
-  private notificationQueue: WebSocketNotification[] = [];
-  private debounceTimeout?: NodeJS.Timeout;
 
   // Service worker integration
   private serviceWorkerSyncManager: ServiceWorkerSyncManager | null = null;
@@ -100,7 +98,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
    * Initialize the sync manager
    */
   async initialize(): Promise<void> {
-    console.log("🚀 Initializing UnifiedSyncManager...");
+    debugInfo("🚀 Initializing UnifiedSyncManager...");
 
     // Initialize storage
     await this.storage.initialize();
@@ -130,14 +128,14 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       }
     }
 
-    console.log("✅ UnifiedSyncManager initialized");
+    debugInfo("✅ UnifiedSyncManager initialized");
   }
 
   /**
    * Sync all domains
    */
   async syncAll(options: SyncAllOptions = {}): Promise<SyncResult> {
-    console.log("🔄 Starting sync all domains...");
+    debugInfo("🔄 Starting sync all domains...");
 
     const startTime = Date.now();
     const domainsToSync =
@@ -229,7 +227,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
     domain: SyncDomain,
     options: SyncDomainOptions = {}
   ): Promise<SyncResult> {
-    console.log(`🔄 Starting sync for domain: ${domain}`);
+    debugInfo(`🔄 Starting sync for domain: ${domain}`);
 
     if (this.activeSyncs.has(domain)) {
       throw new Error(`Sync already in progress for domain: ${domain}`);
@@ -256,7 +254,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       // Step 2: Binary data sync via WebSocket
       let binaryStats: BinarySyncStats | undefined;
       if (options.includeBinaryData && domain === "music") {
-        console.log("🔄 Starting binary data sync...");
+        debugInfo("🔄 Starting binary data sync...");
         binaryStats = await this.syncBinaryData();
       }
 
@@ -296,7 +294,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       );
       return result;
     } catch (error) {
-      console.error(`❌ Domain ${domain} sync failed:`, error);
+      debugError(`❌ Domain ${domain} sync failed:`, error);
 
       const syncError: SyncError = {
         code: "SYNC_FAILED",
@@ -362,7 +360,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
    * Enable/disable auto-sync
    */
   enableAutoSync(enabled: boolean): void {
-    console.log(`${enabled ? "🔄 Enabling" : "⏸️ Disabling"} auto-sync...`);
+    debugInfo(`${enabled ? "🔄 Enabling" : "⏸️ Disabling"} auto-sync...`);
 
     this.autoSyncEnabled = enabled;
 
@@ -375,11 +373,6 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       // Clear all auto-sync timeouts
       this.autoSyncTimeouts.forEach((timeout) => clearTimeout(timeout));
       this.autoSyncTimeouts.clear();
-
-      if (this.debounceTimeout) {
-        clearTimeout(this.debounceTimeout);
-        this.debounceTimeout = undefined;
-      }
     }
   }
 
@@ -406,16 +399,19 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
    * Completely destroy all data and reset the system
    */
   async destroyAll(): Promise<void> {
-    console.log("💥 Starting complete system teardown...");
+    debugInfo("💥 Starting complete system teardown...");
 
     try {
       // Disable auto-sync first
+      debugInfo("⏸️ Disabling auto-sync...");
       this.enableAutoSync(false);
 
       // Clear all active syncs
+      debugInfo("🛑 Clearing active syncs...");
       this.activeSyncs.clear();
 
       // Reset status and progress
+      debugInfo("🔄 Resetting sync status...");
       this.currentStatus = {
         music: SyncStatus.Never,
         photos: SyncStatus.Never,
@@ -431,9 +427,11 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       };
 
       // Destroy all storage data
+      debugInfo("🗑️ Destroying storage database...");
       await this.storage.destroyAll();
+      debugInfo("✅ Storage database destroyed");
 
-      console.log("🗑️ Complete system teardown successful");
+      debugInfo("🗑️ Complete system teardown successful");
 
       // Emit teardown event
       this.emitEvent({
@@ -449,7 +447,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         },
       });
     } catch (error) {
-      console.error("❌ Failed to destroy system:", error);
+      debugError("❌ Failed to destroy system:", error);
       throw new Error(`System teardown failed: ${error}`);
     }
   }
@@ -466,6 +464,19 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
     } catch (error) {
       console.error("Failed to get media blobs:", error);
       return [];
+    }
+  }
+
+  /**
+   * Check if binary data exists for a blob ID
+   */
+  async hasBinaryData(blobId: string): Promise<boolean> {
+    try {
+      const data = await this.storage.getBinaryData(blobId);
+      return !!data;
+    } catch (error) {
+      debugError("Failed to check binary data:", error);
+      return false;
     }
   }
 
@@ -632,13 +643,13 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
    * Unified music domain sync - handles songs, playlists, and playlist_songs together
    */
   private async syncMusicDomain(options: SyncDomainOptions) {
-    console.log("🎵 Starting unified music domain sync...");
+    debugInfo("🎵 Starting unified music domain sync...");
 
     let totalItemsSynced = 0;
     let totalItems = 0;
 
     // 1. Sync songs first
-    console.log("🎵 Syncing songs...");
+    debugInfo("🎵 Syncing songs...");
     const songsResult = await this.syncMusicDataType("songs", options);
     totalItemsSynced += songsResult.itemsSynced;
     totalItems += songsResult.totalItems;
@@ -691,7 +702,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
     let page = 0;
     const maxPages = 20; // Safety limit to prevent infinite loops
 
-    console.log(`🚀 Starting ${dataType} sync with pageSize: ${pageSize}`);
+    debugInfo(`🚀 Starting ${dataType} sync with pageSize: ${pageSize}`);
 
     while (
       hasMore &&
@@ -710,7 +721,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         }
 
         const url = `${this.config.apiBaseUrl}${endpoint}?${queryParams}`;
-        console.log(
+        debugInfo(
           `🔄 Syncing ${dataType} page ${page}/${maxPages} from: ${url}`
         );
 
@@ -734,14 +745,14 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         const items = data.items || [];
         const pagination = data.pagination || {};
 
-        console.log(`📊 ${dataType} page ${page} response:`, {
+        debugInfo(`📊 ${dataType} page ${page} response:`, {
           itemsCount: items.length,
           hasMore: pagination.has_more || false,
           nextCursor: pagination.next_cursor || null,
         });
 
         if (items.length === 0) {
-          console.log(`📭 No more ${dataType} items, stopping sync`);
+          debugInfo(`📭 No more ${dataType} items, stopping sync`);
           break;
         }
 
@@ -749,7 +760,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         const itemSizeCheck = JSON.stringify(items).length;
         if (itemSizeCheck > 10 * 1024 * 1024) {
           // 10MB limit
-          console.warn(`⚠️ Large ${dataType} response: ${itemSizeCheck} bytes`);
+          debugWarn(`⚠️ Large ${dataType} response: ${itemSizeCheck} bytes`);
         }
 
         // Transform and store items directly to correct table
@@ -761,7 +772,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
                 domainConfig.transforms.fromApi(item)
               );
             } catch (error) {
-              console.error(
+              debugError(
                 `❌ Transform error for ${dataType} item:`,
                 item,
                 error
@@ -771,7 +782,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
           })
           .filter((item: any) => item !== null);
 
-        console.log(
+        debugInfo(
           `🔄 Storing ${transformedItems.length} ${dataType} items to storage`
         );
 
@@ -783,18 +794,16 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         hasMore = pagination.has_more || false;
         cursor = pagination.next_cursor || null;
 
-        console.log(
+        debugInfo(
           `✅ Synced ${dataType} page ${page}: ${items.length} items (total: ${totalItemsSynced})`
         );
       } catch (error) {
-        console.error(`❌ Failed to sync ${dataType} page ${page}:`, error);
+        debugError(`❌ Failed to sync ${dataType} page ${page}:`, error);
         break; // Exit the while loop on error
       }
     }
 
-    console.log(
-      `🎯 Completed ${dataType} sync: ${totalItemsSynced} total items`
-    );
+    debugInfo(`🎯 Completed ${dataType} sync: ${totalItemsSynced} total items`);
     return { itemsSynced: totalItemsSynced, totalItems: totalItemsSynced };
   }
 
@@ -917,7 +926,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
     try {
       // Get all media blobs that need binary data
       const mediaBlobs = await this.storage.getItems("documents"); // media_blobs table is used for documents domain
-      console.log(
+      debugInfo(
         `📦 Found ${mediaBlobs.length} media blobs to check for binary data`
       );
 
@@ -926,11 +935,11 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
           // Skip if we already have binary data cached
           const existingData = await this.storage.getBinaryData(blob.id);
           if (existingData) {
-            console.log(`✅ Skipping ${blob.id} - already cached`);
+            debugInfo(`✅ Skipping ${blob.id} - already cached`);
             continue;
           }
 
-          console.log(`🔄 Requesting binary data for blob ${blob.id}...`);
+          debugInfo(`🔄 Requesting binary data for blob ${blob.id}...`);
 
           // Request binary data via WebSocket
           const binaryData = await this.requestBinaryDataViaWebSocket(blob.id);
@@ -941,20 +950,20 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
 
             itemsSynced++;
             totalBytes += binaryData.byteLength;
-            console.log(
+            debugInfo(
               `✅ Cached binary data for ${blob.id} (${binaryData.byteLength} bytes)`
             );
           }
         } catch (error) {
           const errorMsg = `Failed to sync binary data for ${blob.id}: ${error}`;
-          console.error(errorMsg);
+          debugError(errorMsg);
           errors.push(errorMsg);
         }
       }
 
       const duration = Date.now() - startTime;
       const skipped = mediaBlobs.length - itemsSynced - errors.length;
-      console.log(
+      debugInfo(
         `🎉 Binary sync complete: ${itemsSynced} cached, ${skipped} skipped, ${errors.length} failed, ${totalBytes} bytes in ${duration}ms`
       );
 
@@ -966,7 +975,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       };
     } catch (error) {
       const errorMsg = `Binary sync failed: ${error}`;
-      console.error(errorMsg);
+      debugError(errorMsg);
       throw new Error(errorMsg);
     }
   }
@@ -988,7 +997,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       const binarySocket = new WebSocket(wsUrl);
 
       binarySocket.onopen = () => {
-        console.log(`🔌 Binary WebSocket connected for blob ${blobId}`);
+        debugInfo(`🔌 Binary WebSocket connected for blob ${blobId}`);
 
         // Send GetMediaBlobData request
         const request = {
@@ -997,13 +1006,13 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         };
 
         const requestJson = JSON.stringify(request);
-        console.log(`📤 Sending binary request for ${blobId}:`, requestJson);
+        debugInfo(`📤 Sending binary request for ${blobId}:`, requestJson);
         binarySocket.send(requestJson);
-        console.log(`✅ Binary request sent for ${blobId}`);
+        debugInfo(`✅ Binary request sent for ${blobId}`);
       };
 
       binarySocket.onmessage = (event) => {
-        console.log(`🔍 Binary WebSocket message for ${blobId}:`, {
+        debugInfo(`🔍 Binary WebSocket message for ${blobId}:`, {
           dataType: typeof event.data,
           isArrayBuffer: event.data instanceof ArrayBuffer,
           isBlob: event.data instanceof Blob,
@@ -1020,7 +1029,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
 
         if (event.data instanceof ArrayBuffer) {
           // This is our binary response!
-          console.log(
+          debugInfo(
             `📦 Received ArrayBuffer for ${blobId} (${event.data.byteLength} bytes)`
           );
           clearTimeout(timeout);
@@ -1028,13 +1037,13 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
           resolve(event.data);
         } else if (event.data instanceof Blob) {
           // Handle Blob response - convert to ArrayBuffer
-          console.log(
+          debugInfo(
             `📦 Received Blob for ${blobId} (${event.data.size} bytes), converting to ArrayBuffer...`
           );
           event.data
             .arrayBuffer()
             .then((arrayBuffer) => {
-              console.log(
+              debugInfo(
                 `✅ Converted Blob to ArrayBuffer for ${blobId} (${arrayBuffer.byteLength} bytes)`
               );
               clearTimeout(timeout);
@@ -1042,7 +1051,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
               resolve(arrayBuffer);
             })
             .catch((error) => {
-              console.error(
+              debugError(
                 `❌ Failed to convert Blob to ArrayBuffer for ${blobId}:`,
                 error
               );
@@ -1056,7 +1065,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
           // Handle potential JSON error responses
           try {
             const response = JSON.parse(event.data);
-            console.log(`📝 JSON response for ${blobId}:`, response);
+            debugInfo(`📝 JSON response for ${blobId}:`, response);
             if (response.type === "Error") {
               clearTimeout(timeout);
               binarySocket.close();
@@ -1068,11 +1077,11 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
               response.type === "Welcome" ||
               response.type === "ConnectionStatus"
             ) {
-              console.log(`ℹ️ Ignoring non-data response: ${response.type}`);
+              debugInfo(`ℹ️ Ignoring non-data response: ${response.type}`);
               return;
             }
           } catch (e) {
-            console.log(
+            debugInfo(
               `⚠️ Non-JSON string response for ${blobId}:`,
               event.data.substring(0, 100)
             );
@@ -1081,8 +1090,8 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       };
 
       binarySocket.onerror = (error) => {
-        console.error(`❌ Binary WebSocket error for blob ${blobId}:`, error);
-        console.log(
+        debugError(`❌ Binary WebSocket error for blob ${blobId}:`, error);
+        debugInfo(
           `🔍 WebSocket state: readyState=${binarySocket.readyState}, url=${binarySocket.url}`
         );
         clearTimeout(timeout);
@@ -1090,11 +1099,11 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       };
 
       binarySocket.onclose = (event) => {
-        console.log(
+        debugInfo(
           `🔌 Binary WebSocket closed for blob ${blobId}: code=${event.code}, reason='${event.reason}', wasClean=${event.wasClean}`
         );
         if (event.code !== 1000) {
-          console.warn(
+          debugWarn(
             `⚠️ Binary WebSocket closed unexpectedly for blob ${blobId}: ${event.code} ${event.reason}`
           );
           clearTimeout(timeout);
@@ -1109,72 +1118,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
   }
 
   private setupWebSocketListeners(): void {
-    // TODO: Set up WebSocket listeners for sync notifications
-    // This will be implemented when we add WebSocket notification support
-    console.log("📡 WebSocket listeners ready for sync notifications");
-  }
-
-  // @ts-ignore - Will be used for auto-sync notifications in Phase 3
-  private handleAutoSyncNotification(
-    notification: WebSocketNotification
-  ): void {
-    console.log(`🔔 Auto-sync notification received:`, notification);
-
-    // Add to notification queue
-    this.notificationQueue.push(notification);
-
-    // Debounce multiple notifications
-    if (this.debounceTimeout) {
-      clearTimeout(this.debounceTimeout);
-    }
-
-    this.debounceTimeout = setTimeout(() => {
-      this.processNotificationQueue();
-    }, this.config.autoSync.debounceDelay);
-  }
-
-  private async processNotificationQueue(): Promise<void> {
-    if (this.notificationQueue.length === 0) return;
-
-    console.log(
-      `📥 Processing ${this.notificationQueue.length} sync notifications...`
-    );
-
-    // Group notifications by domain
-    const domainNotifications = new Map<SyncDomain, WebSocketNotification[]>();
-
-    for (const notification of this.notificationQueue) {
-      if (!domainNotifications.has(notification.domain)) {
-        domainNotifications.set(notification.domain, []);
-      }
-      domainNotifications.get(notification.domain)!.push(notification);
-    }
-
-    // Clear the queue
-    this.notificationQueue = [];
-
-    // Trigger sync for each domain with notifications
-    for (const [domain, notifications] of domainNotifications) {
-      if (this.config.autoSync.domains.includes(domain)) {
-        this.emitEvent({
-          type: SyncEventType.AutoSyncTriggered,
-          timestamp: new Date(),
-          domain,
-          trigger: "new_content",
-          itemCount: notifications.reduce(
-            (sum, n) => sum + n.itemIds.length,
-            0
-          ),
-        } as AutoSyncTriggeredEvent);
-
-        // Trigger incremental sync
-        try {
-          await this.syncDomain(domain, { includeBinaryData: true });
-        } catch (error) {
-          console.error(`Auto-sync failed for domain ${domain}:`, error);
-        }
-      }
-    }
+    // WebSocket listeners are now handled by the auto-sync notification router
   }
 
   private setupPeriodicSync(): void {
@@ -1242,7 +1186,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         try {
           listener(event);
         } catch (error) {
-          console.error(`Error in sync event listener:`, error);
+          debugError(`Error in sync event listener:`, error);
         }
       });
     }
