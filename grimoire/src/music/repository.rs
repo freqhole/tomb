@@ -1009,6 +1009,50 @@ impl MusicRepository {
         Ok(song_id)
     }
 
+    /// Create a song record with full metadata including waveform (used during scanning)
+    pub async fn create_song_with_waveform_metadata(
+        &self,
+        media_blob_id: &str,
+        thumbnail_blob_id: Option<&str>,
+        waveform_blob_id: Option<&str>,
+        title: String,
+        artist: Option<String>,
+        album: Option<String>,
+        album_artist: Option<String>,
+        track_number: Option<i32>,
+        disc_number: Option<i32>,
+        genre: Option<String>,
+        year: Option<i32>,
+        metadata: serde_json::Value,
+    ) -> Result<Uuid> {
+        let song_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO songs (
+                media_blob_id, thumbnail_blob_id, waveform_blob_id, title, artist, album, album_artist,
+                track_number, disc_number, genre, year, metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            RETURNING id
+            "#,
+        )
+        .bind(media_blob_id)
+        .bind(thumbnail_blob_id)
+        .bind(waveform_blob_id)
+        .bind(title)
+        .bind(artist)
+        .bind(album)
+        .bind(album_artist)
+        .bind(track_number)
+        .bind(disc_number)
+        .bind(genre)
+        .bind(year)
+        .bind(metadata)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(song_id)
+    }
+
     /// Safely reorder playlist using the SQL function that handles triggers
     pub async fn reorder_playlist_by_function(
         &self,

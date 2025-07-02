@@ -41,6 +41,11 @@ impl MediaBlobRepository {
         Self { pool }
     }
 
+    /// Get access to the underlying database pool
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     /// Create a new media blob
     pub async fn create(
         &self,

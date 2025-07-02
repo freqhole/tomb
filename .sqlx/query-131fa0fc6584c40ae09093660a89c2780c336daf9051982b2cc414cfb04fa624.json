@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM songs s\n                             JOIN media_blobs mb ON s.media_blob_id = mb.id\n                             WHERE s.deleted_at IS NULL\n                             AND mb.local_path IS NOT NULL\n                             AND s.waveform_blob_id IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "131fa0fc6584c40ae09093660a89c2780c336daf9051982b2cc414cfb04fa624"
+}

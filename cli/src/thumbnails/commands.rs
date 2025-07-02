@@ -139,7 +139,7 @@ pub struct GenerateArgs {
 
     /// Media blob ID to generate thumbnails for
     #[arg(long)]
-    pub media_blob_id: Uuid,
+    pub media_blob_id: String,
 
     /// Job type to generate (image_thumbnail, video_thumbnail, audio_waveform, video_preview)
     #[arg(long)]
@@ -741,12 +741,7 @@ async fn generate_thumbnails(args: GenerateArgs) -> Result<(), Box<dyn std::erro
         println!("  Priority: {:?}", priority);
 
         match service
-            .enqueue_thumbnail_job(
-                &media_blob_id.to_string(),
-                specific_type,
-                Some(priority),
-                None,
-            )
+            .enqueue_thumbnail_job(&media_blob_id, specific_type, Some(priority), None)
             .await
         {
             Ok(job_id) => {
@@ -758,10 +753,7 @@ async fn generate_thumbnails(args: GenerateArgs) -> Result<(), Box<dyn std::erro
         // Auto-enqueue appropriate jobs
         println!("  Auto-detecting job types...");
 
-        match service
-            .auto_enqueue_for_media_blob(&media_blob_id.to_string())
-            .await
-        {
+        match service.auto_enqueue_for_media_blob(&media_blob_id).await {
             Ok(job_ids) => {
                 if job_ids.is_empty() {
                     println!("ℹ️  No new thumbnail jobs needed (all thumbnails already exist)");
@@ -923,7 +915,7 @@ async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
                 &row.id.to_string()[0..8],
                 row.status,
                 row.job_type,
-                &row.media_blob_id.to_string()[0..8],
+                &row.media_blob_id[0..8.min(row.media_blob_id.len())],
                 row.retry_count,
                 row.created_at
             );
@@ -1070,7 +1062,7 @@ async fn bulk_generate_thumbnails(
 
     query.push_str(&format!(" ORDER BY created_at DESC LIMIT {}", args.limit));
 
-    let media_blobs = sqlx::query_as::<_, (uuid::Uuid, Option<String>, Option<String>)>(&query)
+    let media_blobs = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(&query)
         .fetch_all(db.pool())
         .await?;
 
@@ -1096,10 +1088,7 @@ async fn bulk_generate_thumbnails(
     for (media_blob_id, _mime, _path) in media_blobs {
         print!("Processing {} ... ", media_blob_id);
 
-        match service
-            .auto_enqueue_for_media_blob(&media_blob_id.to_string())
-            .await
-        {
+        match service.auto_enqueue_for_media_blob(&media_blob_id).await {
             Ok(job_ids) => {
                 println!("✅ {} jobs enqueued: {:?}", job_ids.len(), job_ids);
                 successful += 1;
