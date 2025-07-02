@@ -36,265 +36,16 @@ Make sure your Axum server is running on <code>localhost:8080</code> (API) and W
   </div>
 
   <script type="module">
-import{d as pt,c as C,g as We,o as bt,f as St,t as I,k as S,i as x,S as z,b as K,F as we,e as le,l as Ue}from"./web-Bmt1sUg0.js";import{c as wt}from"./index-CuXI0cIU.js";import{A as vt}from"./api-client-oDSgDTkX.js";import{C as X,W as $t}from"./websocket-client-BIZ3xMI1.js";import{h as kt,g as _t}from"./sync-progress-CeO0DFFv.js";import{W as Dt}from"./websocket-status-B6AILaLV.js";import"./types-DDODKsJP.js";import"./sync-constants-QglVsuEd.js";import"./blob-client-DCiVtQuT.js";//! Unified Sync System - Core Types
-//!
-//! This module defines the foundational types for the new unified sync system.
-//! It supports multiple domains (music, photos, documents, etc.) with a single
-//! consistent interface while maintaining extensibility for future domains.
-var v=(s=>(s.Never="never",s.InProgress="in_progress",s.Complete="complete",s.Failed="failed",s.Paused="paused",s))(v||{}),p=(s=>(s.Started="started",s.Progress="progress",s.DomainCompleted="domain_completed",s.AllCompleted="all_completed",s.Failed="failed",s.Paused="paused",s.Resumed="resumed",s.BinaryProgress="binary_progress",s.AutoSyncTriggered="auto_sync_triggered",s.ConnectionChanged="connection_changed",s))(p||{});//! Debug Logging Utility
-//!
-//! Centralized debug logging for the unified sync system.
-//! All console output should go through this utility.
-const Ct={enabled:!1,timestamps:!0,levels:{info:!0,warn:!0,error:!0,debug:!1}};let L={...Ct};function xt(s){L={...L,...s}}function Oe(){L.enabled=!0}function Fe(){L.enabled=!1}function $e(){return L.timestamps?`[${new Date().toLocaleTimeString()}] `:""}function d(s,...e){L.enabled&&L.levels.info&&console.log(`${$e()}${s}`,...e)}function ve(s,...e){L.enabled&&L.levels.warn&&console.warn(`${$e()}${s}`,...e)}function N(s,...e){L.enabled&&L.levels.error&&console.error(`${$e()}${s}`,...e)}//! Domain Configurations
-//!
-//! This module defines the configuration for different sync domains (music, photos,
-//! documents, videos). Each domain has its own API endpoints, data transforms,
-//! and binary handling rules.
-const It={domain:"music",endpoints:{list:"/api/media/songs",item:"/api/media/songs/{id}",sync:"/api/sync/songs",binary:"/api/blobs/{blob_id}"},defaultOptions:{pageSize:50,includeBinaryData:!0,forceFullSync:!1},binaryConfig:{priorityMimeTypes:["audio/","image/"],maxFileSize:50*1024*1024,batchSize:3},transforms:{fromApi:s=>({id:s.id,name:s.name,artist:s.artist,album:s.album,duration:s.duration,blob_id:s.blob_id,created_at:s.created_at,updated_at:s.updated_at,metadata:s.metadata||{}}),toStorage:s=>({...s,_sync_version:1,_last_modified:new Date().toISOString()}),fromStorage:s=>{const{_sync_version:e,_last_modified:t,_domain:i,_stored_at:n,...o}=s;return o}}},Tt={domain:"photos",endpoints:{list:"/api/photos",item:"/api/photos/{id}",sync:"/api/sync/photos",binary:"/api/blobs/{blob_id}"},defaultOptions:{pageSize:100,includeBinaryData:!0,forceFullSync:!1},binaryConfig:{priorityMimeTypes:["image/jpeg","image/png","image/webp"],maxFileSize:20*1024*1024,batchSize:5},transforms:{fromApi:s=>({id:s.id,title:s.title,description:s.description,width:s.width,height:s.height,blob_id:s.blob_id,thumbnail_blob_id:s.thumbnail_blob_id,created_at:s.created_at,updated_at:s.updated_at,location:s.location,camera_info:s.camera_info,metadata:s.metadata||{}}),toStorage:s=>({...s,_sync_version:1,_last_modified:new Date().toISOString()}),fromStorage:s=>{const{_sync_version:e,_last_modified:t,_domain:i,_stored_at:n,...o}=s;return o}}},Mt={domain:"documents",endpoints:{list:"/api/documents",item:"/api/documents/{id}",sync:"/api/sync/documents",binary:"/api/blobs/{blob_id}"},defaultOptions:{pageSize:25,includeBinaryData:!1,forceFullSync:!1},binaryConfig:{priorityMimeTypes:["application/pdf","text/","application/msword"],maxFileSize:100*1024*1024,batchSize:2},transforms:{fromApi:s=>({id:s.id,title:s.title,content:s.content,author:s.author,mime_type:s.mime_type,file_size:s.file_size,blob_id:s.blob_id,version:s.version,created_at:s.created_at,updated_at:s.updated_at,tags:s.tags||[],metadata:s.metadata||{}}),toStorage:s=>({...s,_sync_version:1,_last_modified:new Date().toISOString()}),fromStorage:s=>{const{_sync_version:e,_last_modified:t,_domain:i,_stored_at:n,...o}=s;return o}}},At={domain:"videos",endpoints:{list:"/api/videos",item:"/api/videos/{id}",sync:"/api/sync/videos",binary:"/api/blobs/{blob_id}"},defaultOptions:{pageSize:20,includeBinaryData:!1,forceFullSync:!1},binaryConfig:{priorityMimeTypes:["video/mp4","video/webm","image/"],maxFileSize:500*1024*1024,batchSize:1},transforms:{fromApi:s=>({id:s.id,title:s.title,description:s.description,duration:s.duration,width:s.width,height:s.height,blob_id:s.blob_id,thumbnail_blob_id:s.thumbnail_blob_id,preview_blob_id:s.preview_blob_id,created_at:s.created_at,updated_at:s.updated_at,quality:s.quality,codec:s.codec,metadata:s.metadata||{}}),toStorage:s=>({...s,_sync_version:1,_last_modified:new Date().toISOString()}),fromStorage:s=>{const{_sync_version:e,_last_modified:t,_domain:i,_stored_at:n,...o}=s;return o}}},Nt={music:It,photos:Tt,documents:Mt,videos:At};function Le(s){return{...Nt}}//! Service Worker Sync Types
-//!
-//! This module defines types and interfaces for service worker background sync
-//! integration with the unified sync system. It provides type-safe interfaces
-//! for background sync registration, event handling, and coordination between
-//! the main thread and service worker.
-var U=(s=>(s.Pending="pending",s.Running="running",s.Completed="completed",s.Failed="failed",s.Cancelled="cancelled",s))(U||{}),A=(s=>(s.RegisterBackgroundSync="register-background-sync",s.CancelBackgroundSync="cancel-background-sync",s.GetSyncStatus="get-sync-status",s.UpdateConfig="update-config",s.SyncStarted="sync-started",s.SyncProgress="sync-progress",s.SyncCompleted="sync-completed",s.SyncFailed="sync-failed",s.SyncCancelled="sync-cancelled",s.StatusUpdate="status-update",s))(A||{});const Et={backgroundSyncEnabled:!0,periodicSyncEnabled:!0,periodicSyncInterval:30,maxBackgroundSyncDuration:5*60*1e3,maxConcurrentOperations:3,backgroundSyncDomains:["music","photos"],defaultRetryConfig:{maxRetries:3,baseDelay:1e3,backoffMultiplier:2,maxDelay:3e4,jitterFactor:.1},networkConfig:{wifiOnly:!1,allowCellular:!0,allowMetered:!1,pauseOnSlowConnection:!0},batteryConfig:{minBatteryLevel:.15,pauseOnLowBattery:!0,pauseWhenNotCharging:!1,reducedFrequencyOnBattery:!0}};//! Service Worker Sync Manager Implementation
-//!
-//! This module provides the main implementation for service worker background sync
-//! integration. It handles background sync registration, coordination between main
-//! thread and service worker, queue management, and resource-aware scheduling.
-class Rt{config;syncManager;serviceWorkerRegistration=null;messageChannel=null;eventListeners=new Map;operationQueue=new Map;capabilities=null;constructor(e,t={}){this.syncManager=e,this.config={...Et,...t}}async initialize(){console.log("🔧 Initializing Service Worker Sync Manager...");try{if(this.capabilities=await this.getCapabilities(),!this.capabilities.serviceWorker){console.warn("⚠️ Service Workers not supported, background sync disabled");return}await this.registerServiceWorker({scriptURL:"/service-worker.js",scope:"/"}),await this.setupMessageChannel(),await this.updateConfig(this.config),this.capabilities.periodicBackgroundSync&&this.config.periodicSyncEnabled&&await this.setupPeriodicSync(),console.log("✅ Service Worker Sync Manager initialized")}catch(e){throw console.error("❌ Failed to initialize Service Worker Sync Manager:",e),e}}async registerBackgroundSync(e){if(!this.capabilities?.backgroundSync)throw new Error("Background sync not supported");if(!this.config.backgroundSyncDomains.includes(e.domain))throw new Error(`Domain ${e.domain} not enabled for background sync`);const t=this.generateOperationId(),i={...e,id:t,status:U.Pending,createdAt:new Date,retryCount:0,maxRetries:e.maxRetries||this.config.defaultRetryConfig.maxRetries,retryDelay:e.retryDelay||this.config.defaultRetryConfig.baseDelay};this.operationQueue.set(t,i);const n={type:A.RegisterBackgroundSync,id:this.generateMessageId(),timestamp:new Date,operation:e};return await this.sendMessageToServiceWorker(n),"sync"in this.serviceWorkerRegistration&&await this.serviceWorkerRegistration.sync.register(`unified-sync-${t}`),console.log(`📝 Registered background sync operation: ${t} (${e.domain})`),t}async cancelBackgroundSync(e){const t=this.operationQueue.get(e);if(!t)throw new Error(`Operation ${e} not found`);t.status=U.Cancelled,this.operationQueue.set(e,t);const i={type:A.CancelBackgroundSync,id:this.generateMessageId(),timestamp:new Date,operationId:e};await this.sendMessageToServiceWorker(i),console.log(`🚫 Cancelled background sync operation: ${e}`)}async getSyncStatus(e){const t={type:A.GetSyncStatus,id:this.generateMessageId(),timestamp:new Date,operationId:e};if(await this.sendMessageToServiceWorker(t),e){const i=this.operationQueue.get(e);return i?[i]:[]}return Array.from(this.operationQueue.values())}async updateConfig(e){this.config={...this.config,...e};const t={type:A.UpdateConfig,id:this.generateMessageId(),timestamp:new Date,config:e};await this.sendMessageToServiceWorker(t),console.log("⚙️ Service worker configuration updated")}async getCapabilities(){const e={serviceWorker:"serviceWorker"in navigator,backgroundSync:!1,periodicBackgroundSync:!1,pushAPI:"PushManager"in window,notifications:"Notification"in window};if(e.serviceWorker)try{const t=await navigator.serviceWorker.getRegistration();e.backgroundSync="sync"in(t||{}),e.periodicBackgroundSync="periodicSync"in(t||{})}catch(t){console.warn("Could not check background sync capabilities:",t)}return e}async getResourceStatus(){const e={network:{online:navigator.onLine,type:"unknown"}};if("connection"in navigator){const t=navigator.connection;e.network={online:navigator.onLine,type:t.type||"unknown",effectiveType:t.effectiveType,downlink:t.downlink,rtt:t.rtt,saveData:t.saveData}}if("getBattery"in navigator)try{const t=await navigator.getBattery();e.battery={level:t.level,charging:t.charging,chargingTime:t.chargingTime,dischargingTime:t.dischargingTime}}catch(t){console.warn("Could not get battery information:",t)}if("memory"in performance){const t=performance.memory;e.memory={usedJSHeapSize:t.usedJSHeapSize,totalJSHeapSize:t.totalJSHeapSize,jsHeapSizeLimit:t.jsHeapSizeLimit}}return e}async getQueueState(){const e=Array.from(this.operationQueue.values()),t=e.filter(w=>w.status===U.Running),i=e.filter(w=>w.status===U.Pending),n=e.filter(w=>w.status===U.Failed),o=e.filter(w=>w.status===U.Completed),r=e.length,a=o.length,c=n.length,g=o.length>0?o.reduce((w,y)=>y.startedAt&&y.completedAt?w+(y.completedAt.getTime()-y.startedAt.getTime()):w,0)/o.length:0,b=r>0?a/(a+c):0;return{operations:e,activeOperations:t,pendingOperations:i,failedOperations:n,stats:{totalOperations:r,completedOperations:a,failedOperations:c,averageCompletionTime:g,successRate:b}}}async registerPeriodicSync(e){if(!this.capabilities?.periodicBackgroundSync)throw new Error("Periodic background sync not supported");if(!("periodicSync"in this.serviceWorkerRegistration))throw new Error("Periodic sync not available on registration");await this.serviceWorkerRegistration.periodicSync.register(e.tag,{minInterval:e.minInterval}),console.log(`⏰ Registered periodic sync: ${e.tag} (${e.minInterval}ms)`)}async unregisterPeriodicSync(e){if(!("periodicSync"in this.serviceWorkerRegistration))throw new Error("Periodic sync not available");await this.serviceWorkerRegistration.periodicSync.unregister(e),console.log(`🚫 Unregistered periodic sync: ${e}`)}addEventListener(e,t){this.eventListeners.has(e)||this.eventListeners.set(e,new Set),this.eventListeners.get(e).add(t)}removeEventListener(e,t){const i=this.eventListeners.get(e);i&&i.delete(t)}async destroy(){console.log("🧹 Destroying Service Worker Sync Manager...");const e=Array.from(this.operationQueue.values()).filter(t=>t.status===U.Pending);for(const t of e)try{await this.cancelBackgroundSync(t.id)}catch(i){console.warn(`Failed to cancel operation ${t.id}:`,i)}this.eventListeners.clear(),this.messageChannel&&(this.messageChannel.port1.close(),this.messageChannel.port2.close(),this.messageChannel=null),console.log("✅ Service Worker Sync Manager destroyed")}async registerServiceWorker(e){if(!("serviceWorker"in navigator))throw new Error("Service Workers not supported");try{this.serviceWorkerRegistration=await navigator.serviceWorker.register(e.scriptURL,{scope:e.scope,updateViaCache:e.updateViaCache,type:e.type}),console.log("✅ Service Worker registered:",this.serviceWorkerRegistration.scope),await navigator.serviceWorker.ready}catch(t){throw console.error("❌ Service Worker registration failed:",t),t}}async setupMessageChannel(){if(!this.serviceWorkerRegistration)throw new Error("Service Worker not registered");this.messageChannel=new MessageChannel,this.messageChannel.port1.onmessage=t=>{this.handleServiceWorkerMessage(t.data)};const e=this.serviceWorkerRegistration.active;e&&e.postMessage({type:"INIT_PORT"},[this.messageChannel.port2]),console.log("📡 Message channel established with service worker")}async setupPeriodicSync(){try{await this.registerPeriodicSync({tag:"unified-sync-periodic",minInterval:this.config.periodicSyncInterval*60*1e3}),console.log("⏰ Periodic sync configured")}catch(e){console.warn("⚠️ Could not set up periodic sync:",e)}}async sendMessageToServiceWorker(e){if(!this.messageChannel)throw new Error("Message channel not established");this.messageChannel.port1.postMessage(e)}handleServiceWorkerMessage(e){console.log("📨 Received message from service worker:",e.type),this.updateOperationFromMessage(e);const t=this.eventListeners.get(e.type);t&&t.forEach(i=>{try{i(e)}catch(n){console.error("Error in service worker message listener:",n)}})}updateOperationFromMessage(e){let t;switch(e.type){case A.SyncStarted:t=e.operationId;break;case A.SyncProgress:t=e.operationId;break;case A.SyncCompleted:t=e.operationId;break;case A.SyncFailed:t=e.operationId;break;case A.SyncCancelled:t=e.operationId;break}if(t){const i=this.operationQueue.get(t);if(i){switch(e.type){case A.SyncStarted:i.status=U.Running,i.startedAt=new Date;break;case A.SyncCompleted:i.status=U.Completed,i.completedAt=new Date,i.result=e.result;break;case A.SyncFailed:i.status=U.Failed,i.error=e.error,i.retryCount=e.retryCount,i.lastAttempt=new Date;break;case A.SyncCancelled:i.status=U.Cancelled;break}this.operationQueue.set(t,i)}}}generateOperationId(){return`sw-sync-${Date.now()}-${Math.random().toString(36).substr(2,9)}`}generateMessageId(){return`msg-${Date.now()}-${Math.random().toString(36).substr(2,9)}`}}function Bt(s,e){return new Rt(s,e)}function Pt(){return"serviceWorker"in navigator&&"ServiceWorkerRegistration"in window&&"sync"in window.ServiceWorkerRegistration.prototype}//! Unified Sync Manager - Core Implementation
-//!
-//! This is the main implementation of the new unified sync system. It provides
-//! a single, clean interface for synchronizing multiple domains (music, photos,
-//! documents, etc.) with automatic WebSocket-based updates and service worker support.
-class zt{storage;wsClient;apiClient;config;domainConfigs;currentStatus;currentProgress;activeSyncs=new Set;eventListeners=new Map;autoSyncEnabled=!1;autoSyncTimeouts=new Map;serviceWorkerSyncManager=null;constructor(e,t,i,n){this.storage=e,this.wsClient=t,this.apiClient=i,this.config=n,this.domainConfigs=Le(),this.currentStatus={music:v.Never,photos:v.Never,documents:v.Never,videos:v.Never},this.currentProgress={music:this.createEmptyProgress(),photos:this.createEmptyProgress(),documents:this.createEmptyProgress(),videos:this.createEmptyProgress()}}async initialize(){if(d("🚀 Initializing UnifiedSyncManager..."),await this.storage.initialize(),this.setupWebSocketListeners(),await this.loadSyncStates(),this.config.autoSync.enabled&&this.enableAutoSync(!0),this.config.serviceWorker?.enabled&&Pt())try{this.serviceWorkerSyncManager=Bt(this,this.config.serviceWorker),await this.serviceWorkerSyncManager.initialize(),console.log("✅ Service Worker sync initialized")}catch(e){console.warn("⚠️ Service Worker sync initialization failed:",e)}d("✅ UnifiedSyncManager initialized")}async syncAll(e={}){d("🔄 Starting sync all domains...");const t=Date.now(),i=e.domains||Object.keys(this.domainConfigs),o=(e.priorityOrder||i).filter(y=>i.includes(y));i.forEach(y=>{o.includes(y)||o.push(y)});const r=[];let a=0;const c=[];this.emitEvent({type:p.Started,timestamp:new Date,domain:o[0],isFullSync:e.forceFullSync||!1});for(const y of o)try{const f={forceFullSync:e.forceFullSync,includeBinaryData:e.includeBinaryData},k=await this.syncDomain(y,f);r.push(k),a+=k.itemsSynced,k.errors.length>0&&c.push(...k.errors)}catch(f){console.error(`❌ Failed to sync domain ${y}:`,f);const k={code:"DOMAIN_SYNC_FAILED",message:`Failed to sync ${y}: ${f instanceof Error?f.message:String(f)}`,details:f};c.push(k)}const g=Date.now()-t,w={domain:"music",status:c.length>0?v.Failed:v.Complete,itemsSynced:a,totalItems:r.reduce((y,f)=>y+f.totalItems,0),duration:g,errors:c,binaryStats:this.aggregateBinaryStats(r)};return this.emitEvent({type:p.AllCompleted,timestamp:new Date,result:w}),console.log(`✅ Sync all completed: ${a} items in ${g}ms`),w}async syncDomain(e,t={}){if(d(`🔄 Starting sync for domain: ${e}`),this.activeSyncs.has(e))throw new Error(`Sync already in progress for domain: ${e}`);this.activeSyncs.add(e),this.updateStatus(e,v.InProgress);const i=Date.now(),n=[];try{this.emitEvent({type:p.Started,timestamp:new Date,domain:e,isFullSync:t.forceFullSync||!1});const o=await this.syncStructuredData(e,t);let r;t.includeBinaryData&&e==="music"&&(d("🔄 Starting binary data sync..."),r=await this.syncBinaryData());const a=Date.now()-i,c={domain:e,status:v.Complete,itemsSynced:o.itemsSynced,totalItems:o.totalItems,duration:a,binaryStats:r,errors:n};return this.updateStatus(e,v.Complete),this.updateProgress(e,{status:v.Complete,progress:100,itemsProcessed:c.itemsSynced,totalItems:c.totalItems,currentBatch:1,totalBatches:1,currentOperation:"Complete"}),this.emitEvent({type:p.DomainCompleted,timestamp:new Date,domain:e,result:c}),console.log(`✅ Domain ${e} sync completed: ${c.itemsSynced} items`),c}catch(o){N(`❌ Domain ${e} sync failed:`,o);const r={code:"SYNC_FAILED",message:o instanceof Error?o.message:String(o),details:o};n.push(r),this.updateStatus(e,v.Failed),this.emitEvent({type:p.Failed,timestamp:new Date,domain:e,error:r});const a=Date.now()-i;return{domain:e,status:v.Failed,itemsSynced:0,totalItems:0,duration:a,errors:n}}finally{this.activeSyncs.delete(e)}}async getBlobUrl(e){try{const t=await this.storage.getBinaryData(e);if(t){const n=(await this.storage.getItems("documents")).find(o=>o.id===e);if(n){const o=new Blob([t],{type:n.mime||"application/octet-stream"});return URL.createObjectURL(o)}}return`${this.config.apiBaseUrl}/blobs/${e}`}catch(t){return console.error(`Failed to get blob URL for ${e}:`,t),null}}enableAutoSync(e){d(`${e?"🔄 Enabling":"⏸️ Disabling"} auto-sync...`),this.autoSyncEnabled=e,e?this.config.autoSync.periodicInterval&&this.setupPeriodicSync():(this.autoSyncTimeouts.forEach(t=>clearTimeout(t)),this.autoSyncTimeouts.clear())}getStatus(){return{...this.currentStatus}}getProgress(){return{music:{...this.currentProgress.music},photos:{...this.currentProgress.photos},documents:{...this.currentProgress.documents},videos:{...this.currentProgress.videos}}}async destroyAll(){d("💥 Starting complete system teardown...");try{d("⏸️ Disabling auto-sync..."),this.enableAutoSync(!1),d("🛑 Clearing active syncs..."),this.activeSyncs.clear(),d("🔄 Resetting sync status..."),this.currentStatus={music:v.Never,photos:v.Never,documents:v.Never,videos:v.Never},this.currentProgress={music:this.createEmptyProgress(),photos:this.createEmptyProgress(),documents:this.createEmptyProgress(),videos:this.createEmptyProgress()},d("🗑️ Destroying storage database..."),await this.storage.destroyAll(),d("✅ Storage database destroyed"),d("🗑️ Complete system teardown successful"),this.emitEvent({type:p.AllCompleted,timestamp:new Date,result:{domain:"music",status:v.Complete,itemsSynced:0,totalItems:0,duration:0,errors:[]}})}catch(e){throw N("❌ Failed to destroy system:",e),new Error(`System teardown failed: ${e}`)}}async getMediaBlobs(){try{return(await this.storage.getItems("documents")).filter(t=>t.mime&&t.mime.startsWith("image/"))}catch(e){return console.error("Failed to get media blobs:",e),[]}}async hasBinaryData(e){try{return!!await this.storage.getBinaryData(e)}catch(t){return N("Failed to check binary data:",t),!1}}on(e,t){this.eventListeners.has(e)||this.eventListeners.set(e,new Set),this.eventListeners.get(e).add(t)}off(e,t){const i=this.eventListeners.get(e);i&&i.delete(t)}async getServiceWorkerSyncManager(){return this.serviceWorkerSyncManager}async destroy(){console.log("🧹 Destroying UnifiedSyncManager..."),this.enableAutoSync(!1),this.serviceWorkerSyncManager&&(await this.serviceWorkerSyncManager.destroy(),this.serviceWorkerSyncManager=null),this.eventListeners.clear(),this.activeSyncs.clear(),console.log("✅ UnifiedSyncManager destroyed")}async syncStructuredData(e,t){const i=this.domainConfigs[e];if(e==="music")return this.syncMusicDomain(t);const n=t.pageSize||i.defaultOptions.pageSize||50;let o=null;t.forceFullSync||(o=null);let r=0,a=0,c=0,g=!0;for(;g&&(!t.maxItems||a<t.maxItems);){r++,console.log(`📄 Syncing ${e} page ${r}...`);const b=new URLSearchParams({page_size:n.toString(),...o&&{cursor:o}}),w=`${this.config.apiBaseUrl}${i.endpoints.sync}?${b}`,y=await fetch(w,{method:"GET",headers:{"Content-Type":"application/json",...this.config.authToken&&{Authorization:`Bearer ${this.config.authToken}`}}});if(!y.ok)throw new Error(`API request failed: ${y.status} ${y.statusText}`);const f=await y.json(),k=f.items||[];if(c=f.total_count||k.length,k.length===0){g=!1;break}const J=k.map(q=>i.transforms.toStorage(i.transforms.fromApi(q)));if(await this.storage.storeItems(e,J),a+=k.length,this.updateProgress(e,{status:v.InProgress,progress:Math.min(100,a/c*100),itemsProcessed:a,totalItems:c,currentBatch:r,totalBatches:Math.ceil(c/n),currentOperation:`Syncing ${e} data`}),this.emitEvent({type:p.Progress,timestamp:new Date,domain:e,progress:this.currentProgress[e]}),o=f.next_cursor,g=!!o&&k.length===n,t.maxItems&&a>=t.maxItems)break}return{itemsSynced:a,totalItems:c}}async syncMusicDomain(e){d("🎵 Starting unified music domain sync...");let t=0,i=0;d("🎵 Syncing songs...");const n=await this.syncMusicDataType("songs",e);t+=n.itemsSynced,i+=n.totalItems,console.log("📋 Syncing playlists...");const o=await this.syncMusicDataType("playlists",e);t+=o.itemsSynced,i+=o.totalItems,console.log("🔗 Syncing playlist songs...");const r=await this.syncMusicDataType("playlist-songs",e);t+=r.itemsSynced,i+=r.totalItems,console.log("📦 Syncing media blobs...");const a=await this.syncMediaBlobs(e);return t+=a.itemsSynced,i+=a.totalItems,console.log(`✅ Unified music sync complete: ${t} total items`),{itemsSynced:t,totalItems:i}}async syncMusicDataType(e,t){const i=Math.min(t.pageSize||50,100),n=e==="songs"?"/api/sync/songs":e==="playlists"?"/api/sync/playlists":"/api/sync/playlist-songs";let o=null,r=0,a=!0,c=0;const g=20;for(d(`🚀 Starting ${e} sync with pageSize: ${i}`);a&&c<g&&(!t.maxItems||r<t.maxItems);){c++;try{const b=new URLSearchParams({page_size:i.toString()});o!==null&&b.set("cursor",o);const w=`${this.config.apiBaseUrl}${n}?${b}`;d(`🔄 Syncing ${e} page ${c}/${g} from: ${w}`);const y=await fetch(w,{method:"GET",headers:{"Content-Type":"application/json",...this.config.authToken&&{Authorization:`Bearer ${this.config.authToken}`}}});if(!y.ok)throw new Error(`Failed to sync ${e}: ${y.status} ${y.statusText}`);const f=await y.json(),k=f.items||[],J=f.pagination||{};if(d(`📊 ${e} page ${c} response:`,{itemsCount:k.length,hasMore:J.has_more||!1,nextCursor:J.next_cursor||null}),k.length===0){d(`📭 No more ${e} items, stopping sync`);break}const q=JSON.stringify(k).length;q>10*1024*1024&&ve(`⚠️ Large ${e} response: ${q} bytes`);const te=this.domainConfigs.music,re=k.map(G=>{try{return te.transforms.toStorage(te.transforms.fromApi(G))}catch(de){return N(`❌ Transform error for ${e} item:`,G,de),null}}).filter(G=>G!==null);d(`🔄 Storing ${re.length} ${e} items to storage`),await this.storeToMusicTable(e,re),r+=k.length,a=J.has_more||!1,o=J.next_cursor||null,d(`✅ Synced ${e} page ${c}: ${k.length} items (total: ${r})`)}catch(b){N(`❌ Failed to sync ${e} page ${c}:`,b);break}}return d(`🎯 Completed ${e} sync: ${r} total items`),{itemsSynced:r,totalItems:r}}async syncMediaBlobs(e){const t=e.pageSize||50,i="/api/sync/media";let n=null,o=0,r=!0,a=0;for(;r&&(!e.maxItems||o<e.maxItems);){a++;const c=new URLSearchParams({page_size:t.toString(),include_data:"false"});n!==null&&c.set("cursor",n);const g=`${this.config.apiBaseUrl}${i}?${c}`;console.log(`🔄 Syncing media_blobs page ${a} from: ${g}`);const b=await fetch(g,{method:"GET",headers:{"Content-Type":"application/json",...this.config.authToken&&{Authorization:`Bearer ${this.config.authToken}`}}});if(!b.ok)throw new Error(`Failed to sync media_blobs: ${b.status} ${b.statusText}`);const w=await b.json(),y=w.items||[],f=w.pagination||{};if(console.log(`📊 media_blobs page ${a} response:`,{itemsCount:y.length,hasMore:f.has_more||!1,nextCursor:f.next_cursor||null}),y.length===0)break;console.log(`🔄 Storing ${y.length} media_blobs items to storage`),await this.storage.storeItemsToTable("media_blobs",y),o+=y.length,r=f.has_more||!1,n=f.next_cursor||null,console.log(`✅ Synced media_blobs page ${a}: ${y.length} items (total: ${o})`)}return console.log(`🎯 Completed media_blobs sync: ${o} total items`),{itemsSynced:o,totalItems:o}}async storeToMusicTable(e,t){const i=e==="songs"?"songs":e==="playlists"?"playlists":"playlist_songs";i==="songs"?await this.storage.storeItemsToTable("songs",t):i==="playlists"?await this.storage.storeItemsToTable("playlists",t):await this.storage.storeItemsToTable("playlist_songs",t)}async syncBinaryData(){const e=Date.now();let t=0,i=0,n=[];try{const o=await this.storage.getItems("documents");d(`📦 Found ${o.length} media blobs to check for binary data`);for(const c of o)try{if(await this.storage.getBinaryData(c.id)){d(`✅ Skipping ${c.id} - already cached`);continue}d(`🔄 Requesting binary data for blob ${c.id}...`);const b=await this.requestBinaryDataViaWebSocket(c.id);b&&(await this.storage.storeBinaryData(c.id,b),t++,i+=b.byteLength,d(`✅ Cached binary data for ${c.id} (${b.byteLength} bytes)`))}catch(g){const b=`Failed to sync binary data for ${c.id}: ${g}`;N(b),n.push(b)}const r=Date.now()-e,a=o.length-t-n.length;return d(`🎉 Binary sync complete: ${t} cached, ${a} skipped, ${n.length} failed, ${i} bytes in ${r}ms`),{cached:t,skipped:a,failed:n.length,bytesDownloaded:i}}catch(o){const r=`Binary sync failed: ${o}`;throw N(r),new Error(r)}}async requestBinaryDataViaWebSocket(e){return new Promise((t,i)=>{const n=setTimeout(()=>{i(new Error(`Timeout waiting for binary data for blob ${e}`))},1e4),o=this.config.websocketUrl||"ws://localhost:3000/ws",r=new WebSocket(o);r.onopen=()=>{d(`🔌 Binary WebSocket connected for blob ${e}`);const c=JSON.stringify({type:"GetMediaBlobData",data:{id:e}});d(`📤 Sending binary request for ${e}:`,c),r.send(c),d(`✅ Binary request sent for ${e}`)},r.onmessage=a=>{if(d(`🔍 Binary WebSocket message for ${e}:`,{dataType:typeof a.data,isArrayBuffer:a.data instanceof ArrayBuffer,isBlob:a.data instanceof Blob,size:a.data.byteLength||a.data.size||a.data.length,data:a.data instanceof ArrayBuffer?"ArrayBuffer":a.data instanceof Blob?"Blob":typeof a.data=="string"?a.data.substring(0,100):"Unknown"}),a.data instanceof ArrayBuffer)d(`📦 Received ArrayBuffer for ${e} (${a.data.byteLength} bytes)`),clearTimeout(n),r.close(),t(a.data);else if(a.data instanceof Blob)d(`📦 Received Blob for ${e} (${a.data.size} bytes), converting to ArrayBuffer...`),a.data.arrayBuffer().then(c=>{d(`✅ Converted Blob to ArrayBuffer for ${e} (${c.byteLength} bytes)`),clearTimeout(n),r.close(),t(c)}).catch(c=>{N(`❌ Failed to convert Blob to ArrayBuffer for ${e}:`,c),clearTimeout(n),r.close(),i(new Error(`Failed to convert Blob to ArrayBuffer: ${c}`))});else if(typeof a.data=="string")try{const c=JSON.parse(a.data);if(d(`📝 JSON response for ${e}:`,c),c.type==="Error"){clearTimeout(n),r.close(),i(new Error(`Server error: ${c.data.message}`));return}if(c.type==="Welcome"||c.type==="ConnectionStatus"){d(`ℹ️ Ignoring non-data response: ${c.type}`);return}}catch{d(`⚠️ Non-JSON string response for ${e}:`,a.data.substring(0,100))}},r.onerror=a=>{N(`❌ Binary WebSocket error for blob ${e}:`,a),d(`🔍 WebSocket state: readyState=${r.readyState}, url=${r.url}`),clearTimeout(n),i(new Error(`WebSocket error for blob ${e}`))},r.onclose=a=>{d(`🔌 Binary WebSocket closed for blob ${e}: code=${a.code}, reason='${a.reason}', wasClean=${a.wasClean}`),a.code!==1e3&&(ve(`⚠️ Binary WebSocket closed unexpectedly for blob ${e}: ${a.code} ${a.reason}`),clearTimeout(n),i(new Error(`WebSocket closed unexpectedly for blob ${e}: ${a.code} ${a.reason}`)))}})}setupWebSocketListeners(){}setupPeriodicSync(){if(!this.config.autoSync.periodicInterval)return;const e=this.config.autoSync.periodicInterval*60*1e3;for(const t of this.config.autoSync.domains){const i=setInterval(async()=>{console.log(`⏰ Periodic sync triggered for ${t}`),this.emitEvent({type:p.AutoSyncTriggered,timestamp:new Date,domain:t,trigger:"periodic"});try{await this.syncDomain(t,{includeBinaryData:!0})}catch(n){console.error(`Periodic sync failed for domain ${t}:`,n)}},e);this.autoSyncTimeouts.set(t,i)}}async loadSyncStates(){const e=await this.storage.getStats();for(const t of Object.keys(this.currentStatus))e.lastSyncTimes[t]&&(this.currentStatus[t]=v.Complete)}updateStatus(e,t){this.currentStatus[e]=t}updateProgress(e,t){this.currentProgress[e]=t}createEmptyProgress(){return{status:v.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0}}emitEvent(e){const t=this.eventListeners.get(e.type);t&&t.forEach(i=>{try{i(e)}catch(n){N("Error in sync event listener:",n)}})}aggregateBinaryStats(e){const t=e.map(i=>i.binaryStats).filter(i=>!!i);if(t.length!==0)return{cached:t.reduce((i,n)=>i+n.cached,0),skipped:t.reduce((i,n)=>i+n.skipped,0),failed:t.reduce((i,n)=>i+n.failed,0),bytesDownloaded:t.reduce((i,n)=>i+n.bytesDownloaded,0)}}}function Wt(s,e,t,i){return new zt(s,e,t,i)}//! Unified Storage Implementation
-//!
-//! This module provides a unified storage interface for the new sync system.
-//! It uses IndexedDB for efficient storage of both structured data and binary content
-//! across multiple domains (music, photos, documents, etc.).
-class Ut{config;db=null;dbName;dbVersion;DOMAIN_TABLES={songs:"songs",playlists:"playlists",playlist_songs:"playlist_songs",media_blobs:"media_blobs",media_blob_data:"media_blob_data"};METADATA_STORE="sync_metadata";getMusicTables(){return["songs","playlists","playlist_songs"]}getDomainTable(e){switch(e){case"music":return"songs";case"photos":case"documents":case"videos":return"media_blobs";default:return"media_blobs"}}constructor(e){this.config=e,this.dbName=e.databaseName,this.dbVersion=e.version}async initialize(){return d(`📦 Initializing unified storage: ${this.dbName} v${this.dbVersion}`),new Promise((e,t)=>{const i=indexedDB.open(this.dbName,this.dbVersion);i.onerror=()=>{t(new Error(`Failed to open database: ${i.error?.message}`))},i.onsuccess=()=>{this.db=i.result,d("✅ Unified storage initialized"),e()},i.onupgradeneeded=n=>{const o=n.target.result;this.setupDatabase(o)}})}async storeItems(e,t){if(!this.db)throw new Error("Storage not initialized");if(e==="music")return this.storeMusicItems(t);const i=this.getDomainTable(e),o=this.db.transaction([i],"readwrite").objectStore(i);for(const r of t)await this.promisifyRequest(o.put({...r,_domain:e,_stored_at:new Date().toISOString()}));await this.updateDomainMetadata(e,{last_sync:new Date().toISOString(),item_count:await this.countItems(e)}),d(`💾 Stored ${t.length} items for domain: ${e}`)}async storeItemsToTable(e,t){if(!this.db)throw new Error("Storage not initialized");const n=this.db.transaction([e],"readwrite").objectStore(e);for(const o of t)await this.promisifyRequest(n.put({...o,_stored_at:new Date().toISOString()}));d(`💾 Stored ${t.length} items to table: ${e}`)}async storeMusicItems(e){if(!this.db)throw new Error("Storage not initialized");const t=e.filter(a=>!a._data_type||a._data_type==="songs"),i=e.filter(a=>a._data_type==="playlists"),n=e.filter(a=>a._data_type==="playlist-songs"),o=this.getMusicTables(),r=this.db.transaction(o,"readwrite");if(t.length>0){const a=r.objectStore("songs");for(const c of t){const{_data_type:g,...b}=c;await this.promisifyRequest(a.put({...b,_stored_at:new Date().toISOString()}))}}if(i.length>0){const a=r.objectStore("playlists");for(const c of i){const{_data_type:g,...b}=c;await this.promisifyRequest(a.put({...b,_stored_at:new Date().toISOString()}))}}if(n.length>0){const a=r.objectStore("playlist_songs");for(const c of n){const{_data_type:g,...b}=c;await this.promisifyRequest(a.put({...b,_stored_at:new Date().toISOString()}))}}d(`🎵 Stored music: ${t.length} songs, ${i.length} playlists, ${n.length} playlist_songs`)}async getItems(e,t={}){if(!this.db)throw new Error("Storage not initialized");if(e==="music")return this.getMusicItems(t);const i=this.getDomainTable(e),r=this.db.transaction([i],"readonly").objectStore(i).getAll(),a=await this.promisifyRequest(r);return this.applyQueryOptions(a,t)}async getMusicItems(e={}){if(!this.db)throw new Error("Storage not initialized");const t=this.getMusicTables(),r=this.db.transaction(t,"readonly").objectStore("songs").getAll(),a=await this.promisifyRequest(r);return this.applyQueryOptions(a,e)}applyQueryOptions(e,t){let i=e;if(t.where&&(i=i.filter(n=>Object.entries(t.where).every(([o,r])=>n[o]===r))),t.sortBy){const n=t.sortBy,o=t.sortOrder||"asc";i.sort((r,a)=>{const c=r[n],g=a[n];return c<g?o==="asc"?-1:1:c>g?o==="asc"?1:-1:0})}if(t.offset||t.limit){const n=t.offset||0,o=t.limit?n+t.limit:void 0;i=i.slice(n,o)}return i}async getItem(e,t){if(!this.db)throw new Error("Storage not initialized");const i=this.getDomainTable(e),r=this.db.transaction([i],"readonly").objectStore(i).get(t);return await this.promisifyRequest(r)||null}async deleteItems(e,t){if(!this.db)throw new Error("Storage not initialized");const i=this.getDomainTable(e),o=this.db.transaction([i],"readwrite").objectStore(i);for(const r of t)await this.promisifyRequest(o.delete(r));await this.updateDomainMetadata(e,{item_count:await this.countItems(e)}),console.log(`🗑️ Deleted ${t.length} items from domain: ${e}`)}async clearDomain(e){if(!this.db)throw new Error("Storage not initialized");const t=this.getDomainTable(e),n=this.db.transaction([t],"readwrite").objectStore(t);await this.promisifyRequest(n.clear()),await this.updateDomainMetadata(e,{last_sync:null,item_count:0}),d(`🧹 Cleared all data for domain: ${e}`)}async storeBinaryData(e,t){if(!this.db)throw new Error("Storage not initialized");if(t.byteLength>this.config.maxSize)throw new Error(`Binary data too large: ${t.byteLength} > ${this.config.maxSize}`);const i=this.DOMAIN_TABLES.media_blob_data,o=this.db.transaction([i],"readwrite").objectStore(i);await this.promisifyRequest(o.put({id:e,data:t,stored_at:new Date().toISOString()})),d(`📦 Stored binary data: ${e} (${t.byteLength} bytes)`)}async getBinaryData(e){if(!this.db)throw new Error("Storage not initialized");const t=this.DOMAIN_TABLES.media_blob_data,o=this.db.transaction([t],"readonly").objectStore(t).get(e),r=await this.promisifyRequest(o);if(!r)return null;const a=new Date(r.stored_at);return Math.floor((Date.now()-a.getTime())/(1e3*60*60*24))>this.config.maxAge?(await this.deleteBinaryData(e),null):r.data}async deleteBinaryData(e){if(!this.db)throw new Error("Storage not initialized");const t=this.DOMAIN_TABLES.media_blob_data,n=this.db.transaction([t],"readwrite").objectStore(t);await this.promisifyRequest(n.delete(e)),d(`🗑️ Deleted binary data: ${e}`)}async getStats(){if(!this.db)throw new Error("Storage not initialized");const e={music:await this.countItems("music"),photos:await this.countItems("photos"),documents:await this.countItems("documents"),videos:await this.countItems("videos")},t=await this.calculateBinarySize(),i={music:await this.getLastSyncTime("music"),photos:await this.getLastSyncTime("photos"),documents:await this.getLastSyncTime("documents"),videos:await this.getLastSyncTime("videos")},n=t+Object.values(e).reduce((o,r)=>o+r,0)*1024;return{itemCounts:e,totalSize:n,binarySize:t,lastSyncTimes:i}}async cleanup(){console.log("🧹 Starting storage cleanup...");const e=this.config.maxAge*24*60*60*1e3,t=Date.now()-e;let i=0,n=0;if(!this.db)throw new Error("Storage not initialized");const o=this.DOMAIN_TABLES.media_blob_data,c=this.db.transaction([o],"readwrite").objectStore(o).openCursor();return new Promise((g,b)=>{c.onsuccess=w=>{const y=w.target.result;if(y){const f=y.value;new Date(f.stored_at).getTime()<t&&(n+=f.data.byteLength,i++,y.delete()),y.continue()}else console.log(`🧹 Cleanup completed: ${i} items, ${n} bytes freed`),g()},c.onerror=()=>{b(new Error(`Cleanup failed: ${c.error?.message}`))}})}setupDatabase(e){d("🔧 Setting up database schema..."),Object.entries(this.DOMAIN_TABLES).forEach(([t,i])=>{if(!e.objectStoreNames.contains(i)){const n=e.createObjectStore(i,{keyPath:"id"});switch(n.createIndex("_stored_at","_stored_at"),t){case"songs":n.createIndex("title","title"),n.createIndex("artist","artist"),n.createIndex("album","album"),n.createIndex("created_at","created_at");break;case"playlists":n.createIndex("title","title"),n.createIndex("created_at","created_at");break;case"playlist_songs":n.createIndex("playlist_id","playlist_id"),n.createIndex("song_id","song_id"),n.createIndex("position","position");break;case"media_blobs":n.createIndex("created_at","created_at"),n.createIndex("mime_type","mime_type"),n.createIndex("sha256","sha256");break}}}),e.objectStoreNames.contains(this.METADATA_STORE)||e.createObjectStore(this.METADATA_STORE,{keyPath:"domain"}),d("✅ Database schema setup complete")}async promisifyRequest(e){return new Promise((t,i)=>{e.onsuccess=()=>t(e.result),e.onerror=()=>i(e.error)})}async countItems(e){if(!this.db)return 0;if(e==="music"){const r=this.getMusicTables(),a=this.db.transaction(r,"readonly");let c=0;for(const g of r){const w=a.objectStore(g).count();c+=await this.promisifyRequest(w)}return c}const t=this.getDomainTable(e),o=this.db.transaction([t],"readonly").objectStore(t).count();return await this.promisifyRequest(o)}async calculateBinarySize(){if(!this.db)return 0;const e=this.DOMAIN_TABLES.media_blob_data,i=this.db.transaction([e],"readonly").objectStore(e);let n=0;const o=i.openCursor();return new Promise((r,a)=>{o.onsuccess=c=>{const g=c.target.result;g?(n+=g.value.data.byteLength,g.continue()):r(n)},o.onerror=()=>{a(new Error(`Failed to calculate binary size: ${o.error?.message}`))}})}async getLastSyncTime(e){const t=await this.getDomainMetadata(e);return t?.last_sync?new Date(t.last_sync):null}async updateDomainMetadata(e,t){if(!this.db)return;const n=this.db.transaction([this.METADATA_STORE],"readwrite").objectStore(this.METADATA_STORE),r={...await this.promisifyRequest(n.get(e))||{domain:e},...t};await this.promisifyRequest(n.put(r))}async getDomainMetadata(e){if(!this.db)return null;const n=this.db.transaction([this.METADATA_STORE],"readonly").objectStore(this.METADATA_STORE).get(e);return await this.promisifyRequest(n)}async destroyAll(){return d("💥 Starting complete database teardown..."),this.db&&(this.db.close(),this.db=null),new Promise((e,t)=>{const i=indexedDB.deleteDatabase(this.dbName);i.onsuccess=()=>{d("🗑️ Database completely destroyed:",this.dbName),e()},i.onerror=()=>{N("❌ Failed to destroy database:",i.error),t(new Error(`Failed to destroy database: ${i.error?.message}`))},i.onblocked=()=>{ve("⚠️ Database deletion blocked - close all tabs using this database")}})}}function Ot(s){return new Ut(s)}//! Auto-Sync Notification Router - Phase 3
-//!
-//! This module handles routing WebSocket notifications to appropriate sync operations.
-//! It provides intelligent notification filtering, domain mapping, and debounced sync
-//! triggering for real-time auto-sync functionality.
-class Ft{syncManager;wsClient;config;isActive=!1;notificationQueue=[];domainDebounceState=new Map;stats={notificationsReceived:0,syncsTriggered:0,lastActivity:0,domainStats:new Map};constructor(e,t,i){this.syncManager=e,this.wsClient=t,this.config=i,this.initializeDomainStates()}async start(){if(this.isActive){console.log("📡 Auto-sync notification router already active");return}console.log("🚀 Starting auto-sync notification router..."),await this.subscribeToChannels(),this.setupWebSocketListeners(),this.isActive=!0,console.log("✅ Auto-sync notification router started")}async stop(){if(!this.isActive){console.log("📡 Auto-sync notification router already stopped");return}console.log("⏹️ Stopping auto-sync notification router..."),this.clearAllDebounceTimeouts(),await this.unsubscribeFromChannels(),this.clearWebSocketListeners(),this.isActive=!1,console.log("✅ Auto-sync notification router stopped")}async processNotification(e){if(!this.isActive||!this.config.enabled)return;this.stats.notificationsReceived++,this.stats.lastActivity=Date.now(),console.log("📬 Processing notification:",{channel:e.channel,eventType:e.eventType,priority:e.priority});const t=this.getTargetDomains(e);if(t.length===0){console.log("⏭️ No target domains for notification, skipping");return}for(const i of t){const n={notification:e,receivedAt:Date.now(),domain:i,priority:this.calculatePriority(e,i)};this.shouldTriggerImmediateSync(n)?await this.triggerImmediateSync(n):this.queueForBatchedSync(n)}}getStats(){return{...this.stats,isActive:this.isActive,queueSize:this.notificationQueue.length,domainStats:Object.fromEntries(this.stats.domainStats)}}updateConfig(e){this.config={...this.config,...e},console.log("⚙️ Auto-sync notification router config updated")}getPendingNotifications(e){return e?this.domainDebounceState.get(e)?.pendingNotifications||[]:this.notificationQueue}async forceSyncForDomain(e){console.log(`🔄 Force syncing domain: ${e}`),this.clearDomainDebounce(e),await this.triggerDomainSync(e,"manual",[])}initializeDomainStates(){const e=["music","photos","documents","videos"];for(const t of e)this.domainDebounceState.set(t,{timeout:null,pendingNotifications:[],lastTrigger:0}),this.stats.domainStats.set(t,{triggers:0,lastSync:0})}async subscribeToChannels(){for(const e of this.config.monitoredChannels)this.wsClient.subscribeToNotifications(e)?console.log(`📡 Subscribed to channel: ${e}`):console.warn(`⚠️ Failed to subscribe to channel: ${e}`)}async unsubscribeFromChannels(){for(const e of this.config.monitoredChannels)this.wsClient.unsubscribeFromNotifications(e)&&console.log(`📡 Unsubscribed from channel: ${e}`)}setupWebSocketListeners(){this.wsClient.on("notification",this.handleWebSocketNotification.bind(this)),this.wsClient.on("statusChange",this.handleConnectionStatusChange.bind(this))}clearWebSocketListeners(){this.wsClient.off("notification"),this.wsClient.off("statusChange")}async handleWebSocketNotification(e){const t={id:e.id,channel:e.channel,eventType:e.event_type,payload:e.payload,priority:e.priority,timestamp:e.timestamp};await this.processNotification(t)}handleConnectionStatusChange(e){console.log(`🔌 WebSocket connection status: ${e}`),e==="connected"&&this.subscribeToChannels()}getTargetDomains(e){const t=[];for(const n of this.config.syncRules)this.doesNotificationMatchRule(e,n)&&t.push(...n.targetDomains);const i=this.getDefaultChannelMapping(e.channel);return i.length>0&&t.length===0&&t.push(...i),[...new Set(t)]}doesNotificationMatchRule(e,t){if(t.channels&&!t.channels.includes(e.channel)||t.eventTypes&&!t.eventTypes.includes(e.eventType)||t.priorities&&!t.priorities.includes(e.priority))return!1;if(t.payloadConditions&&e.payload){for(const[i,n]of Object.entries(t.payloadConditions))if(e.payload[i]!==n)return!1}return!0}getDefaultChannelMapping(e){switch(e){case"MediaBlobs":return["music","photos","videos"];case"ThumbnailJobs":return["photos","videos"];case"UserAuth":return[];case"System":return["music","photos","documents","videos"];case"Analytics":return[];default:return[]}}calculatePriority(e,t){let i=0;switch(e.priority){case"critical":i+=100;break;case"high":i+=75;break;case"medium":i+=50;break;case"low":i+=25;break;default:i+=10}switch(e.channel){case"MediaBlobs":i+=20;break;case"ThumbnailJobs":i+=10;break;case"System":i+=30;break}const n=this.stats.domainStats.get(t);return n&&Date.now()-n.lastSync>3e5&&(i+=15),i}shouldTriggerImmediateSync(e){const{notification:t}=e;return!!(this.config.priorityThresholds.immediate.includes(t.priority)||this.notificationQueue.length>=this.config.maxQueueSize)}async triggerImmediateSync(e){const{domain:t}=e;console.log(`⚡ Triggering immediate sync for domain: ${t}`),this.clearDomainDebounce(t),await this.triggerDomainSync(t,"notification-immediate",[e])}queueForBatchedSync(e){const{domain:t}=e,i=this.domainDebounceState.get(t);if(!i){console.warn(`⚠️ No debounce state for domain: ${t}`);return}i.pendingNotifications.push(e),i.timeout&&clearTimeout(i.timeout),i.timeout=setTimeout(async()=>{await this.triggerBatchedSync(t)},this.config.debounceDelay),console.log(`📦 Queued notification for batched sync: ${t} (${i.pendingNotifications.length} pending)`)}async triggerBatchedSync(e){const t=this.domainDebounceState.get(e);if(!t||t.pendingNotifications.length===0)return;console.log(`📦 Triggering batched sync for domain: ${e} (${t.pendingNotifications.length} notifications)`);const i=[...t.pendingNotifications];t.pendingNotifications=[],t.timeout=null,await this.triggerDomainSync(e,"notification-batched",i)}async triggerDomainSync(e,t,i){const n=this.stats.domainStats.get(e);n&&(n.triggers++,n.lastSync=Date.now()),this.stats.syncsTriggered++;const o=this.domainDebounceState.get(e);o&&(o.lastTrigger=Date.now()),console.log(`🔄 Auto-sync triggered for ${e}:`,{trigger:t,notificationCount:i.length,notificationIds:i.map(r=>r.notification.id)});try{await this.syncManager.syncDomain(e,{includeBinaryData:!0}),console.log(`✅ Auto-sync completed for ${e}`)}catch(r){console.error(`❌ Auto-sync failed for ${e}:`,r)}}clearDomainDebounce(e){const t=this.domainDebounceState.get(e);t?.timeout&&(clearTimeout(t.timeout),t.timeout=null)}clearAllDebounceTimeouts(){for(const[e]of this.domainDebounceState)this.clearDomainDebounce(e)}}function Lt(s,e,t){const n={...{enabled:!0,debounceDelay:5e3,maxQueueSize:50,monitoredChannels:["MediaBlobs","ThumbnailJobs","System"],syncRules:[{id:"media-content-updates",channels:["MediaBlobs"],eventTypes:["content.created","content.updated","content.processed"],targetDomains:["music","photos","videos"],priorities:["high","medium"]},{id:"thumbnail-updates",channels:["ThumbnailJobs"],eventTypes:["thumbnail.completed","thumbnail.batch_completed"],targetDomains:["photos","videos"],priorities:["medium","low"]},{id:"system-updates",channels:["System"],eventTypes:["sync.force_refresh","content.bulk_update"],targetDomains:["music","photos","documents","videos"],priorities:["critical","high"]}],userNotifications:!0,priorityThresholds:{immediate:["critical","high"],batched:["medium","low"]}},...t};return new Ft(s,e,n)}//! Enhanced Auto-Sync Manager - Phase 3
-//!
-//! This module provides advanced auto-sync capabilities with intelligent scheduling,
-//! rule-based triggers, resource awareness, and integration with the service worker
-//! background sync system.
-class qt{syncManager;serviceWorkerSyncManager;notificationRouter;config;isEnabled=!1;scheduledSyncs=new Map;activeRules=new Map;resourceMonitor=null;stats={totalSyncsTriggered:0,ruleBasedTriggers:0,scheduledTriggers:0,notificationTriggers:0,backgroundSyncs:0,failedSyncs:0,lastActivity:new Date,domainStats:new Map,resourceOptimizations:0};eventListeners=new Map;constructor(e,t,i,n){this.syncManager=e,this.config=t,this.serviceWorkerSyncManager=i||null,this.notificationRouter=n||null,this.config.resourceAwareness.enabled&&(this.resourceMonitor=new jt),this.initializeDomainStats(),this.config.customRules.length===0&&(this.config.customRules=this.createDefaultRules())}async enable(){if(this.isEnabled){console.log("🔄 Enhanced auto-sync already enabled");return}console.log("🚀 Enabling enhanced auto-sync..."),this.resourceMonitor&&await this.resourceMonitor.start(),this.setupPeriodicSyncs(),this.installRules(),this.notificationRouter&&await this.setupNotificationIntegration(),this.serviceWorkerSyncManager&&this.config.backgroundSync.enabled&&await this.setupServiceWorkerIntegration(),this.isEnabled=!0,console.log("✅ Enhanced auto-sync enabled")}async disable(){if(!this.isEnabled){console.log("🔄 Enhanced auto-sync already disabled");return}console.log("⏹️ Disabling enhanced auto-sync..."),this.clearAllScheduledSyncs(),this.resourceMonitor&&await this.resourceMonitor.stop(),this.notificationRouter&&await this.notificationRouter.stop(),this.isEnabled=!1,console.log("✅ Enhanced auto-sync disabled")}addRule(e){this.activeRules.set(e.id,e),this.config.customRules.push(e),this.isEnabled&&this.installRule(e),console.log(`📋 Added auto-sync rule: ${e.id}`)}removeRule(e){this.activeRules.delete(e),this.config.customRules=this.config.customRules.filter(i=>i.id!==e);const t=`rule:${e}`;this.scheduledSyncs.has(t)&&(clearTimeout(this.scheduledSyncs.get(t)),this.scheduledSyncs.delete(t)),console.log(`🗑️ Removed auto-sync rule: ${e}`)}async triggerSync(e,t,i){if(!this.isEnabled){console.log("⚠️ Auto-sync disabled, ignoring trigger");return}if(this.resourceMonitor){const n=await this.resourceMonitor.getCurrentState();if(!this.shouldAllowSync(n)){console.log("⚡ Sync blocked by resource constraints"),this.stats.resourceOptimizations++,this.serviceWorkerSyncManager&&this.config.backgroundSync.enabled&&await this.scheduleBackgroundSync(e,t,i);return}}if(this.config.smartScheduling.enabled&&this.isInQuietHours()){console.log("🔕 Sync blocked by quiet hours"),await this.scheduleForLater(e,t,i);return}await this.executeSync(e,t,i)}getStats(){return{...this.stats,domainStats:new Map(this.stats.domainStats)}}updateConfig(e){this.config={...this.config,...e},this.isEnabled&&this.disable().then(()=>this.enable())}on(e,t){this.eventListeners.has(e)||this.eventListeners.set(e,new Set),this.eventListeners.get(e).add(t)}off(e,t){t?this.eventListeners.get(e)?.delete(t):this.eventListeners.delete(e)}getActiveRules(){return Array.from(this.activeRules.values())}async forceSync(e,t){console.log(`🔥 Force sync triggered for ${e}: ${t}`),await this.executeSync(e,"manual",{priority:100})}initializeDomainStats(){const e=["music","photos","documents","videos"];for(const t of e)this.stats.domainStats.set(t,{syncsTriggered:0,lastSync:null,averageInterval:0,failureCount:0})}createDefaultRules(){return[{id:"periodic-all-domains",name:"Periodic Full Sync",domains:["music","photos","documents","videos"],schedule:{type:"periodic",interval:this.config.periodicInterval*60*1e3},conditions:{minBatteryLevel:.3,allowedConnectionTypes:["wifi"],maxMemoryUsage:80},priority:50,enabled:!0},{id:"high-priority-notifications",name:"High Priority Content Updates",domains:["music","photos","videos"],trigger:"notification-immediate",conditions:{notificationPriorities:["critical","high"],minBatteryLevel:.2},priority:90,enabled:!0},{id:"background-low-priority",name:"Background Low Priority Sync",domains:["documents"],schedule:{type:"periodic",interval:36e5},conditions:{preferBackground:!0,minBatteryLevel:.5,allowedConnectionTypes:["wifi"]},priority:20,enabled:!0},{id:"connection-recovery",name:"Connection Recovery Sync",domains:["music","photos","documents","videos"],trigger:"connection-restored",conditions:{minBatteryLevel:.3},priority:70,enabled:!0}]}setupPeriodicSyncs(){for(const e of this.config.customRules)e.schedule&&e.enabled&&this.scheduleRuleExecution(e)}installRules(){for(const e of this.config.customRules)e.enabled&&this.installRule(e)}installRule(e){this.activeRules.set(e.id,e),e.schedule&&this.scheduleRuleExecution(e),console.log(`📋 Installed auto-sync rule: ${e.name}`)}scheduleRuleExecution(e){if(!e.schedule)return;const t=`rule:${e.id}`;this.scheduledSyncs.has(t)&&clearTimeout(this.scheduledSyncs.get(t));let i;switch(e.schedule.type){case"periodic":i=e.schedule.interval||36e5;break;case"daily":i=this.calculateDailyDelay(e.schedule.time||"00:00");break;case"weekly":i=this.calculateWeeklyDelay(e.schedule.dayOfWeek||0,e.schedule.time||"00:00");break;case"cron":i=36e5;break;default:return}const n=setTimeout(async()=>{await this.executeRule(e),e.schedule.type==="periodic"&&this.scheduleRuleExecution(e)},i);this.scheduledSyncs.set(t,n)}async executeRule(e){if(console.log(`📋 Executing auto-sync rule: ${e.name}`),!await this.checkRuleConditions(e)){console.log(`⏭️ Rule conditions not met: ${e.name}`);return}for(const t of e.domains)try{await this.triggerSync(t,"scheduled",{ruleId:e.id,priority:e.priority})}catch(i){console.error(`❌ Rule execution failed for ${t}:`,i)}}async checkRuleConditions(e){if(!e.conditions)return!0;if(this.resourceMonitor){const t=await this.resourceMonitor.getCurrentState();if(e.conditions.minBatteryLevel&&t.battery.level<e.conditions.minBatteryLevel||e.conditions.allowedConnectionTypes&&!e.conditions.allowedConnectionTypes.includes(t.connection.type)||e.conditions.maxMemoryUsage&&t.memory.available>0&&t.memory.used/t.memory.available*100>e.conditions.maxMemoryUsage)return!1}return!0}async setupNotificationIntegration(){this.notificationRouter&&await this.notificationRouter.start()}async setupServiceWorkerIntegration(){this.serviceWorkerSyncManager}async executeSync(e,t,i){try{this.updateSyncStats(e,t),this.emitEvent({type:p.AutoSyncTriggered,domain:e,trigger:t,timestamp:new Date}),this.shouldUseBackgroundSync(t,i)&&this.serviceWorkerSyncManager?(await this.serviceWorkerSyncManager.registerBackgroundSync({type:"background-sync",domain:e,options:{includeBinaryData:!0},priority:i?.priority||50,maxRetries:3,retryDelay:5e3}),this.stats.backgroundSyncs++,console.log(`🔄 Background sync scheduled for ${e}`)):(await this.syncManager.syncDomain(e,{includeBinaryData:!0}),console.log(`✅ Foreground sync completed for ${e}`))}catch(n){this.stats.failedSyncs++;const o=this.stats.domainStats.get(e);throw o&&o.failureCount++,console.error(`❌ Auto-sync failed for ${e}:`,n),n}}shouldUseBackgroundSync(e,t){return!this.config.backgroundSync.enabled||!this.serviceWorkerSyncManager||t?.priority&&t.priority>80?!1:e==="scheduled"?this.config.backgroundSync.prioritizeBackground:!1}updateSyncStats(e,t){switch(this.stats.totalSyncsTriggered++,this.stats.lastActivity=new Date,t){case"scheduled":this.stats.scheduledTriggers++;break;case"notification-immediate":case"notification-batched":this.stats.notificationTriggers++;break;case"manual":this.stats.ruleBasedTriggers++;break}const i=this.stats.domainStats.get(e);if(i){if(i.syncsTriggered++,i.lastSync){const n=Date.now()-i.lastSync.getTime();i.averageInterval=(i.averageInterval+n)/i.syncsTriggered}i.lastSync=new Date}}isInQuietHours(){if(!this.config.smartScheduling.enabled)return!1;const e=new Date,t=e.getHours()*60+e.getMinutes(),i=this.parseTimeString(this.config.smartScheduling.quietHours.start),n=this.parseTimeString(this.config.smartScheduling.quietHours.end);return i<=n?t>=i&&t<=n:t>=i||t<=n}parseTimeString(e){const t=e.split(":"),i=parseInt(t[0]||"0"),n=parseInt(t[1]||"0");return i*60+n}calculateDailyDelay(e){const t=new Date,i=e.split(":"),n=parseInt(i[0]||"0"),o=parseInt(i[1]||"0"),r=new Date(t);return r.setHours(n,o,0,0),r<=t&&r.setDate(r.getDate()+1),r.getTime()-t.getTime()}calculateWeeklyDelay(e,t){const i=new Date,n=t.split(":"),o=parseInt(n[0]||"0"),r=parseInt(n[1]||"0"),a=new Date(i),c=(e-i.getDay()+7)%7;return a.setDate(i.getDate()+c),a.setHours(o,r,0,0),a<=i&&a.setDate(a.getDate()+7),a.getTime()-i.getTime()}async scheduleForLater(e,t,i){const n=this.calculateNextAvailableSlot();setTimeout(async()=>{await this.triggerSync(e,t,i)},n),console.log(`⏰ Sync scheduled for later: ${e} (${n}ms)`)}async scheduleBackgroundSync(e,t,i){this.serviceWorkerSyncManager&&(await this.serviceWorkerSyncManager.registerBackgroundSync({type:"background-sync",domain:e,options:{includeBinaryData:!0},priority:i?.priority||30,maxRetries:3,retryDelay:5e3}),console.log(`🔄 Background sync scheduled for resource-constrained environment: ${e}`))}calculateNextAvailableSlot(){if(this.isInQuietHours()){const e=this.parseTimeString(this.config.smartScheduling.quietHours.end),t=new Date,i=t.getHours()*60+t.getMinutes();let n=e-i;return n<=0&&(n+=24*60),n*60*1e3}return 5*60*1e3}shouldAllowSync(e){const t=this.config.resourceAwareness;return!(e.battery.level<t.batteryThreshold&&!e.battery.charging||!t.connectionTypes.includes(e.connection.type)||e.memory.used/(1024*1024)>t.memoryThreshold)}clearAllScheduledSyncs(){for(const e of this.scheduledSyncs.values())clearTimeout(e);this.scheduledSyncs.clear()}emitEvent(e){const t=this.eventListeners.get(e.type);if(t)for(const i of t)try{i(e)}catch(n){console.error("Error in auto-sync event listener:",n)}}}class jt{batteryManager=null;connectionInfo=null;memoryInfo=null;async start(){if("getBattery"in navigator)try{this.batteryManager=await navigator.getBattery()}catch(e){console.warn("Battery API not available:",e)}this.connectionInfo=navigator.connection||navigator.mozConnection||navigator.webkitConnection,this.memoryInfo=performance.memory}async stop(){}async getCurrentState(){return{battery:{level:this.batteryManager?.level||1,charging:this.batteryManager?.charging||!1},connection:{type:this.connectionInfo?.type||"unknown",effectiveType:this.connectionInfo?.effectiveType||"4g",downlink:this.connectionInfo?.downlink||10},memory:{used:this.memoryInfo?.usedJSHeapSize||0,available:this.memoryInfo?.totalJSHeapSize||100*1024*1024},performance:{cpuUsage:0,isLowPowerMode:!1}}}}function Ht(s,e,t,i){const o={...{enabled:!0,syncOnNewContent:!0,periodicInterval:30,domains:["music","photos"],debounceDelay:5e3,customRules:[],resourceAwareness:{enabled:!0,batteryThreshold:.2,connectionTypes:["wifi","ethernet"],memoryThreshold:100},smartScheduling:{enabled:!0,quietHours:{start:"22:00",end:"07:00"},adaptiveInterval:!0,minInterval:15,maxInterval:120},backgroundSync:{enabled:!0,prioritizeBackground:!0,fallbackToForeground:!0},userPreferences:{respectDataSaver:!0,respectLowPowerMode:!0,maxDailySync:48}},...e};return new qt(s,o,t,i)}//! User Notification Manager - Phase 3
-//!
-//! This module handles user notifications for sync events, providing both
-//! in-app notifications and system push notifications for sync status updates,
-//! new content availability, and sync completion events.
-class Qt{syncManager;serviceWorkerSyncManager;config;isEnabled=!1;inAppNotifications=new Map;debounceTimeouts=new Map;notificationContainer=null;activeNotificationElements=new Map;stats={totalSent:0,inAppSent:0,pushSent:0,byType:{},byDomain:{},interactions:{clicked:0,dismissed:0,actionsTriggered:0},permissions:{push:"default",requested:!1}};constructor(e,t,i){this.syncManager=e,this.config=t,this.serviceWorkerSyncManager=i||null,this.initializeDomainStats()}async initialize(){if(this.isEnabled){console.log("📢 User notification manager already initialized");return}console.log("🚀 Initializing user notification manager..."),this.config.push.enabled&&this.config.push.requestPermission&&await this.requestPushPermission(),this.config.inApp.enabled&&this.setupInAppNotifications(),this.setupSyncEventListeners(),this.serviceWorkerSyncManager&&this.setupServiceWorkerIntegration(),this.isEnabled=!0,console.log("✅ User notification manager initialized")}async shutdown(){this.isEnabled&&(console.log("⏹️ Shutting down user notification manager..."),this.clearAllDebounceTimeouts(),this.clearSyncEventListeners(),this.clearAllInAppNotifications(),this.notificationContainer&&(this.notificationContainer.remove(),this.notificationContainer=null),this.isEnabled=!1,console.log("✅ User notification manager shutdown complete"))}async sendInAppNotification(e){if(!this.config.inApp.enabled||!this.shouldShowNotification(e))return"";const t=this.generateNotificationId(),i={...e,id:t,timestamp:new Date};return this.inAppNotifications.set(t,i),this.displayInAppNotification(i),this.stats.inAppSent++,this.stats.totalSent++,this.updateTypeStats(e.type),e.domain&&this.updateDomainStats(e.domain),this.manageNotificationQueue(),this.playNotificationSound(e.type),this.triggerVibration(e.type),console.log(`📱 In-app notification sent: ${e.title}`),t}async sendPushNotification(e){if(!this.config.push.enabled||!this.hasPushPermission())return!1;if(this.isInQuietHours())return console.log("🔕 Push notification blocked by quiet hours"),!1;try{return this.serviceWorkerSyncManager&&"serviceWorker"in navigator?await(await navigator.serviceWorker.ready).showNotification(e.title,{body:e.body,icon:e.icon||"/icon-192.png",badge:e.badge||"/badge-72.png",tag:e.tag,requireInteraction:e.requireInteraction||!1,data:e.data}):new Notification(e.title,{body:e.body,icon:e.icon||"/icon-192.png",tag:e.tag,requireInteraction:e.requireInteraction||!1,data:e.data}),this.stats.pushSent++,this.stats.totalSent++,console.log(`🔔 Push notification sent: ${e.title}`),!0}catch(t){return console.error("❌ Failed to send push notification:",t),!1}}dismissInAppNotification(e){if(!this.inAppNotifications.get(e))return;const i=this.activeNotificationElements.get(e);i&&(i.remove(),this.activeNotificationElements.delete(e)),this.inAppNotifications.delete(e),this.stats.interactions.dismissed++,console.log(`📱 Dismissed notification: ${e}`)}clearAllInAppNotifications(){for(const e of this.inAppNotifications.keys())this.dismissInAppNotification(e)}getStats(){return{...this.stats,permissions:{push:Notification.permission,requested:this.stats.permissions.requested}}}updateConfig(e){this.config={...this.config,...e},e.inApp&&this.notificationContainer&&this.setupInAppNotifications(),console.log("⚙️ Notification configuration updated")}getActiveNotifications(){return Array.from(this.inAppNotifications.values())}async requestPushPermission(){if(!("Notification"in window))return console.warn("⚠️ Browser doesn't support notifications"),!1;if(Notification.permission==="granted")return!0;if(Notification.permission==="denied")return console.warn("⚠️ Notification permission denied by user"),!1;try{const e=await Notification.requestPermission();return this.stats.permissions.requested=!0,this.stats.permissions.push=e,e==="granted"?(console.log("✅ Push notification permission granted"),!0):(console.log("❌ Push notification permission denied"),!1)}catch(e){return console.error("❌ Error requesting notification permission:",e),!1}}hasPushPermission(){return"Notification"in window&&Notification.permission==="granted"}initializeDomainStats(){const e=["music","photos","documents","videos"];for(const t of e)this.stats.byDomain[t]=0}setupInAppNotifications(){this.notificationContainer&&this.notificationContainer.remove(),this.notificationContainer=document.createElement("div"),this.notificationContainer.id="unified-sync-notifications",this.notificationContainer.className=`notification-container ${this.config.inApp.position}`,this.addNotificationStyles(),document.body.appendChild(this.notificationContainer)}setupSyncEventListeners(){this.syncManager.on(p.AutoSyncTriggered,this.handleAutoSyncTriggered.bind(this)),this.syncManager.on(p.Progress,this.handleSyncProgress.bind(this)),this.syncManager.on(p.AllCompleted,this.handleSyncCompleted.bind(this)),this.syncManager.on(p.DomainCompleted,this.handleDomainCompleted.bind(this)),this.syncManager.on(p.Failed,this.handleSyncFailed.bind(this))}clearSyncEventListeners(){}setupServiceWorkerIntegration(){this.serviceWorkerSyncManager}async handleAutoSyncTriggered(e){if(e.type!==p.AutoSyncTriggered)return;const t=e;await this.sendInAppNotification({type:"info",title:"Auto-sync Started",message:`Syncing ${t.domain} content (${t.trigger})`,domain:t.domain,autoHide:!0,actions:[{id:"view-progress",label:"View Progress",handler:()=>this.showSyncProgress(t.domain)}]})}async handleSyncProgress(e){if(e.type!==p.Progress)return;const t=e,i=`progress-${t.domain}`,n=this.inAppNotifications.get(i);n?(n.progress=t.progress.progress,n.message=`Syncing ${t.domain}: ${t.progress.itemsProcessed}/${t.progress.totalItems} items`,this.updateProgressNotification(n)):this.config.inApp.showProgress&&await this.sendInAppNotification({type:"progress",title:`Syncing ${t.domain}`,message:`${t.progress.itemsProcessed}/${t.progress.totalItems} items`,domain:t.domain,progress:t.progress.progress,autoHide:!1})}async handleSyncCompleted(e){if(e.type!==p.AllCompleted)return;const t=e;await this.sendInAppNotification({type:"success",title:"Sync Complete",message:`Successfully synced ${t.result.itemsSynced} items`,autoHide:!0}),this.config.push.showSyncComplete&&await this.sendPushNotification({title:"Sync Complete",body:`Successfully synced ${t.result.itemsSynced} items`,tag:"sync-complete",requireInteraction:!1})}async handleDomainCompleted(e){const t=e,i=`progress-${t.result.domain}`;this.dismissInAppNotification(i),await this.sendInAppNotification({type:"success",title:`${t.result.domain} Sync Complete`,message:`Synced ${t.result.itemsSynced} items in ${t.result.duration}ms`,domain:t.result.domain,autoHide:!0})}async handleSyncFailed(e){if(e.type!==p.Failed)return;const t=e;await this.sendInAppNotification({type:"error",title:"Sync Failed",message:`Failed to sync ${t.domain}: ${t.error.message}`,domain:t.domain,autoHide:!1,actions:[{id:"retry",label:"Retry",style:"primary",handler:()=>this.retrySyncForDomain(t.domain)},{id:"details",label:"Details",handler:()=>this.showErrorDetails(t.error)}]}),this.config.push.showSyncFailed&&await this.sendPushNotification({title:"Sync Failed",body:`Failed to sync ${t.domain}`,tag:"sync-failed",requireInteraction:!0})}displayInAppNotification(e){if(!this.notificationContainer)return;const t=this.createNotificationElement(e);this.notificationContainer.appendChild(t),this.activeNotificationElements.set(e.id,t),e.autoHide&&this.config.inApp.autoHide&&setTimeout(()=>{this.dismissInAppNotification(e.id)},this.config.inApp.autoHideDelay),requestAnimationFrame(()=>{t.classList.add("show")})}createNotificationElement(e){const t=document.createElement("div");t.className=`notification notification-${e.type}`,t.dataset.id=e.id;const i=`
-      <div class="notification-content">
-        <div class="notification-header">
-          <h4 class="notification-title">${this.escapeHtml(e.title)}</h4>
-          <button class="notification-close" data-action="close">×</button>
-        </div>
-        <p class="notification-message">${this.escapeHtml(e.message)}</p>
-        ${e.progress!==void 0?`
-          <div class="notification-progress">
-            <div class="progress-bar">
-              <div class="progress-fill" style="width: ${e.progress}%"></div>
-            </div>
-            <span class="progress-text">${Math.round(e.progress)}%</span>
-          </div>
-        `:""}
-        ${e.actions?`
-          <div class="notification-actions">
-            ${e.actions.map(n=>`
-              <button class="notification-action ${n.style||"secondary"}" data-action="${n.id}">
-                ${this.escapeHtml(n.label)}
-              </button>
-            `).join("")}
-          </div>
-        `:""}
-      </div>
-    `;return t.innerHTML=i,t.addEventListener("click",n=>{const r=n.target.dataset.action;if(r==="close")this.dismissInAppNotification(e.id),this.stats.interactions.dismissed++;else if(r&&e.actions){const a=e.actions.find(c=>c.id===r);a&&(a.handler(),this.stats.interactions.actionsTriggered++)}else this.stats.interactions.clicked++}),t}updateProgressNotification(e){const t=this.activeNotificationElements.get(e.id);if(!t)return;const i=t.querySelector(".progress-fill"),n=t.querySelector(".progress-text"),o=t.querySelector(".notification-message");i&&e.progress!==void 0&&(i.style.width=`${e.progress}%`),n&&e.progress!==void 0&&(n.textContent=`${Math.round(e.progress)}%`),o&&(o.textContent=e.message)}addNotificationStyles(){if(document.getElementById("unified-sync-notification-styles"))return;const e=document.createElement("style");e.id="unified-sync-notification-styles",e.textContent=`
-      .notification-container {
-        position: fixed;
-        z-index: 10000;
-        max-width: 400px;
-        pointer-events: none;
-      }
-
-      .notification-container.top-right {
-        top: 20px;
-        right: 20px;
-      }
-
-      .notification-container.top-left {
-        top: 20px;
-        left: 20px;
-      }
-
-      .notification-container.bottom-right {
-        bottom: 20px;
-        right: 20px;
-      }
-
-      .notification-container.bottom-left {
-        bottom: 20px;
-        left: 20px;
-      }
-
-      .notification {
-        background: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        margin-bottom: 12px;
-        opacity: 0;
-        transform: translateX(100%);
-        transition: all 0.3s ease;
-        pointer-events: auto;
-        border-left: 4px solid;
-      }
-
-      .notification.show {
-        opacity: 1;
-        transform: translateX(0);
-      }
-
-      .notification-info { border-left-color: #3b82f6; }
-      .notification-success { border-left-color: #10b981; }
-      .notification-warning { border-left-color: #f59e0b; }
-      .notification-error { border-left-color: #ef4444; }
-      .notification-progress { border-left-color: #8b5cf6; }
-
-      .notification-content {
-        padding: 16px;
-      }
-
-      .notification-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: 8px;
-      }
-
-      .notification-title {
-        margin: 0;
-        font-size: 16px;
-        font-weight: 600;
-        color: #111827;
-      }
-
-      .notification-close {
-        background: none;
-        border: none;
-        font-size: 18px;
-        cursor: pointer;
-        color: #6b7280;
-        padding: 0;
-        width: 20px;
-        height: 20px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .notification-close:hover {
-        color: #374151;
-      }
-
-      .notification-message {
-        margin: 0 0 12px 0;
-        color: #4b5563;
-        font-size: 14px;
-        line-height: 1.4;
-      }
-
-      .notification-progress {
-        margin-bottom: 12px;
-      }
-
-      .progress-bar {
-        width: 100%;
-        height: 6px;
-        background: #e5e7eb;
-        border-radius: 3px;
-        overflow: hidden;
-        margin-bottom: 4px;
-      }
-
-      .progress-fill {
-        height: 100%;
-        background: #8b5cf6;
-        transition: width 0.3s ease;
-      }
-
-      .progress-text {
-        font-size: 12px;
-        color: #6b7280;
-      }
-
-      .notification-actions {
-        display: flex;
-        gap: 8px;
-      }
-
-      .notification-action {
-        padding: 6px 12px;
-        border-radius: 4px;
-        font-size: 12px;
-        font-weight: 500;
-        cursor: pointer;
-        border: 1px solid;
-        transition: all 0.2s ease;
-      }
-
-      .notification-action.primary {
-        background: #3b82f6;
-        color: white;
-        border-color: #3b82f6;
-      }
-
-      .notification-action.primary:hover {
-        background: #2563eb;
-        border-color: #2563eb;
-      }
-
-      .notification-action.secondary {
-        background: white;
-        color: #374151;
-        border-color: #d1d5db;
-      }
-
-      .notification-action.secondary:hover {
-        background: #f9fafb;
-        border-color: #9ca3af;
-      }
-
-      .notification-action.danger {
-        background: #ef4444;
-        color: white;
-        border-color: #ef4444;
-      }
-
-      .notification-action.danger:hover {
-        background: #dc2626;
-        border-color: #dc2626;
-      }
-    `,document.head.appendChild(e)}manageNotificationQueue(){const e=Array.from(this.inAppNotifications.values()),t=this.config.inApp.maxNotifications;if(e.length>t){const n=e.sort((o,r)=>o.timestamp.getTime()-r.timestamp.getTime()).slice(0,e.length-t);for(const o of n)this.dismissInAppNotification(o.id)}}shouldShowNotification(e){return!(e.domain&&!this.config.filters.domains.includes(e.domain))}isInQuietHours(){const e=new Date,t=e.getHours()*60+e.getMinutes(),i=this.parseTimeString(this.config.push.quietHours.start),n=this.parseTimeString(this.config.push.quietHours.end);return i<=n?t>=i&&t<=n:t>=i||t<=n}parseTimeString(e){const t=e.split(":"),i=parseInt(t[0]||"0"),n=parseInt(t[1]||"0");return i*60+n}playNotificationSound(e){if(this.config.feedback.enableSounds)try{const t=this.config.feedback.customSounds[e]||this.getDefaultSoundUrl(e);if(t){const i=new Audio(t);i.volume=this.config.feedback.soundVolume,i.play().catch(n=>{console.warn("Failed to play notification sound:",n)})}}catch(t){console.warn("Error playing notification sound:",t)}}triggerVibration(e){if(!(!this.config.feedback.enableVibration||!("vibrate"in navigator)))try{let t;switch(e){case"success":t=[100];break;case"error":t=[100,50,100];break;case"warning":t=[150];break;default:t=[50]}navigator.vibrate(t)}catch(t){console.warn("Error triggering vibration:",t)}}getDefaultSoundUrl(e){return{success:"/sounds/success.mp3",error:"/sounds/error.mp3",warning:"/sounds/warning.mp3",info:"/sounds/info.mp3"}[e]||null}updateTypeStats(e){this.stats.byType[e]=(this.stats.byType[e]||0)+1}updateDomainStats(e){this.stats.byDomain[e]=(this.stats.byDomain[e]||0)+1}generateNotificationId(){return`notif-${Date.now()}-${Math.random().toString(36).substr(2,9)}`}escapeHtml(e){const t=document.createElement("div");return t.textContent=e,t.innerHTML}clearAllDebounceTimeouts(){for(const e of this.debounceTimeouts.values())clearTimeout(e);this.debounceTimeouts.clear()}showSyncProgress(e){console.log(`📊 Showing sync progress for ${e}`)}async retrySyncForDomain(e){console.log(`🔄 Retrying sync for ${e}`);try{await this.syncManager.syncDomain(e)}catch(t){console.error("Retry failed:",t)}}showErrorDetails(e){console.log("📋 Showing error details:",e)}}function Vt(s,e,t){const n={...{inApp:{enabled:!0,position:"top-right",autoHide:!0,autoHideDelay:5e3,showProgress:!0,maxNotifications:5},push:{enabled:!0,requestPermission:!0,showSyncComplete:!0,showSyncFailed:!0,showNewContent:!0,batchNotifications:!0,quietHours:{start:"22:00",end:"07:00"}},filters:{domains:["music","photos","documents","videos"],minPriority:"low",eventTypes:[p.AutoSyncTriggered,p.Progress,p.AllCompleted,p.DomainCompleted,p.Failed],debounceDelay:1e3},feedback:{enableSounds:!1,enableVibration:!0,soundVolume:.5,customSounds:{}}},...e};return new Qt(s,n,t)}//! Auto-Sync & Notifications Integration
-//!
-//! This module integrates auto-sync components to provide a complete
-//! auto-sync and notification system. It combines notification routing,
-//! enhanced auto-sync management, user notifications, and service worker
-//! background sync into a cohesive system.
-class Gt{syncManager;wsClient;serviceWorkerSyncManager;config;autoSyncManager=null;notificationRouter=null;userNotificationManager=null;isInitialized=!1;isEnabled=!1;startTime=null;stats={totalSyncsTriggered:0,totalNotificationsProcessed:0,errorCount:0,lastActivity:new Date};constructor(e,t,i,n){this.syncManager=e,this.wsClient=t,this.config=i,this.serviceWorkerSyncManager=n||null}async initialize(){if(this.isInitialized){console.log("🚀 Phase 3 auto-sync system already initialized");return}console.log("🚀 Initializing Phase 3 auto-sync system..."),this.startTime=new Date;try{this.config.integration.enableNotificationRouter&&await this.initializeNotificationRouter(),await this.initializeAutoSyncManager(),this.config.integration.enableUserNotifications&&await this.initializeUserNotificationManager(),await this.setupComponentIntegration(),this.setupSystemMonitoring(),this.isInitialized=!0,this.config.integration.autoStart&&await this.enable(),d("✅ Auto-sync system initialized successfully")}catch(e){throw N("❌ Failed to initialize auto-sync system:",e),e}}async enable(){if(!this.isInitialized)throw new Error("System must be initialized before enabling");if(this.isEnabled){console.log("🔄 Phase 3 auto-sync system already enabled");return}d("🔛 Enabling auto-sync system...");try{this.autoSyncManager&&await this.autoSyncManager.enable(),this.notificationRouter&&await this.notificationRouter.start(),this.userNotificationManager&&await this.userNotificationManager.initialize(),this.isEnabled=!0,this.logSystemEvent("system_enabled"),d("✅ Auto-sync system enabled")}catch(e){throw N("❌ Failed to enable auto-sync system:",e),e}}async disable(){if(!this.isEnabled){console.log("⏹️ Phase 3 auto-sync system already disabled");return}d("⏹️ Disabling auto-sync system...");try{this.autoSyncManager&&await this.autoSyncManager.disable(),this.notificationRouter&&await this.notificationRouter.stop(),this.userNotificationManager&&await this.userNotificationManager.shutdown(),this.isEnabled=!1,this.logSystemEvent("system_disabled"),d("✅ Auto-sync system disabled")}catch(e){throw N("❌ Failed to disable auto-sync system:",e),e}}getStatus(){const e=this.getCurrentResourceStatus();return{enabled:this.isEnabled,components:{autoSyncManager:!!this.autoSyncManager,notificationRouter:!!this.notificationRouter,userNotifications:!!this.userNotificationManager,serviceWorker:!!this.serviceWorkerSyncManager},resources:e,activeSyncs:this.getActiveSyncs()}}getStats(){return{autoSync:this.autoSyncManager?.getStats()||null,notificationRouter:this.notificationRouter?.getStats()||null,userNotifications:this.userNotificationManager?.getStats()||null,system:{totalSyncsTriggered:this.stats.totalSyncsTriggered,averageResponseTime:0,lastActivity:this.stats.lastActivity,uptime:this.startTime?Date.now()-this.startTime.getTime():0,errorRate:this.stats.errorCount/Math.max(this.stats.totalSyncsTriggered,1)}}}async updateConfig(e){this.config={...this.config,...e},this.autoSyncManager&&e.autoSync&&this.autoSyncManager.updateConfig(e.autoSync),this.notificationRouter&&e.notificationRouting&&this.notificationRouter.updateConfig(e.notificationRouting),this.userNotificationManager&&e.userNotifications&&this.userNotificationManager.updateConfig(e.userNotifications),this.logSystemEvent("config_updated"),console.log("⚙️ Phase 3 auto-sync system configuration updated")}async triggerManualSync(e,t){if(!this.isEnabled)throw new Error("Auto-sync system is disabled");console.log(`🔄 Manual sync triggered for ${e}`),this.autoSyncManager?await this.autoSyncManager.forceSync(e,t?.reason||"manual"):await this.syncManager.syncDomain(e,{includeBinaryData:t?.includeBinaryData??!0}),this.stats.totalSyncsTriggered++,this.stats.lastActivity=new Date}getPendingNotifications(e){return this.notificationRouter?this.notificationRouter.getPendingNotifications(e):[]}addSyncRule(e){if(!this.autoSyncManager)throw new Error("Auto-sync manager not initialized");this.autoSyncManager.addRule(e),this.logSystemEvent("rule_added",{ruleId:e.id})}removeSyncRule(e){if(!this.autoSyncManager)throw new Error("Auto-sync manager not initialized");this.autoSyncManager.removeRule(e),this.logSystemEvent("rule_removed",{ruleId:e})}async sendUserNotification(e){if(!this.userNotificationManager){console.warn("User notification manager not available");return}await this.userNotificationManager.sendInAppNotification(e)}getActiveSyncRules(){return this.autoSyncManager?this.autoSyncManager.getActiveRules():[]}async performHealthCheck(){const e=[],t=[];this.autoSyncManager||e.push("Auto-sync manager not initialized"),this.config.integration.enableNotificationRouter&&!this.notificationRouter&&e.push("Notification router not initialized"),this.config.integration.enableUserNotifications&&!this.userNotificationManager&&e.push("User notification manager not initialized"),this.wsClient.getStatus()!=="connected"&&(e.push("WebSocket connection not active"),t.push("Check network connectivity")),this.config.integration.enableUserNotifications&&(this.userNotificationManager?.hasPushPermission()||t.push("Grant notification permissions for better user experience"));const i=this.getCurrentResourceStatus();return i.battery.level<.2&&!i.battery.charging&&t.push("Low battery detected - auto-sync may be limited"),{healthy:e.length===0,issues:e,recommendations:t}}async initializeNotificationRouter(){d("📡 Initializing notification router..."),this.notificationRouter=Lt(this.syncManager,this.wsClient,this.config.notificationRouting),d("✅ Notification router initialized")}async initializeAutoSyncManager(){d("🔄 Initializing enhanced auto-sync manager..."),this.autoSyncManager=Ht(this.syncManager,this.config.autoSync,this.serviceWorkerSyncManager||void 0,this.notificationRouter||void 0),d("✅ Enhanced auto-sync manager initialized")}async initializeUserNotificationManager(){d("📢 Initializing user notification manager..."),this.userNotificationManager=Vt(this.syncManager,this.config.userNotifications,this.serviceWorkerSyncManager||void 0),d("✅ User notification manager initialized")}async setupComponentIntegration(){d("🔗 Setting up component integration..."),this.notificationRouter&&this.autoSyncManager,this.autoSyncManager&&this.userNotificationManager,d("✅ Component integration complete")}setupSystemMonitoring(){this.config.advanced.enableAnalytics&&(d("📊 Setting up system monitoring..."),this.syncManager.on(p.AutoSyncTriggered,e=>{this.stats.totalSyncsTriggered++,this.stats.lastActivity=new Date,this.logSystemEvent("auto_sync_triggered",{event:e})}),this.syncManager.on(p.Failed,e=>{this.stats.errorCount++,this.logSystemEvent("sync_failed",{event:e})}),this.notificationRouter,d("✅ System monitoring setup complete"))}getCurrentResourceStatus(){return{battery:{level:1,charging:!1},connection:{type:"wifi",quality:"good"},memory:{usage:50,available:100}}}getActiveSyncs(){return[]}logSystemEvent(e,t){this.config.integration.debug&&console.log(`📊 [AutoSync] ${e}:`,t)}}function Jt(s,e,t,i){const o={...{autoSync:{enabled:!0,syncOnNewContent:!0,periodicInterval:30,domains:["music","photos","documents","videos"],debounceDelay:5e3,customRules:[],resourceAwareness:{enabled:!0,batteryThreshold:.2,connectionTypes:["wifi","ethernet"],memoryThreshold:100},smartScheduling:{enabled:!0,quietHours:{start:"22:00",end:"07:00"},adaptiveInterval:!0,minInterval:15,maxInterval:120},backgroundSync:{enabled:!0,prioritizeBackground:!0,fallbackToForeground:!0},userPreferences:{respectDataSaver:!0,respectLowPowerMode:!0,maxDailySync:48}},notificationRouting:{enabled:!0,debounceDelay:5e3,maxQueueSize:50,monitoredChannels:["MediaBlobs","ThumbnailJobs","System"],syncRules:[],userNotifications:!0,priorityThresholds:{immediate:["critical","high"],batched:["medium","low"]}},userNotifications:{inApp:{enabled:!0,position:"top-right",autoHide:!0,autoHideDelay:5e3,showProgress:!0,maxNotifications:5},push:{enabled:!0,requestPermission:!0,showSyncComplete:!0,showSyncFailed:!0,showNewContent:!0,batchNotifications:!0,quietHours:{start:"22:00",end:"07:00"}},filters:{domains:["music","photos","documents","videos"],minPriority:"low",eventTypes:[p.AutoSyncTriggered,p.Progress,p.AllCompleted,p.DomainCompleted,p.Failed],debounceDelay:1e3},feedback:{enableSounds:!1,enableVibration:!0,soundVolume:.5,customSounds:{}}},integration:{enableNotificationRouter:!0,enableUserNotifications:!0,enableServiceWorker:!1,autoStart:!0,debug:!1},advanced:{intelligentScheduling:!0,crossDomainOptimization:!0,predictivePreSync:!1,enableAnalytics:!0}},...t};return new Gt(s,e,o,i)}async function Yt(s,e,t){const i={integration:{enableNotificationRouter:!0,enableUserNotifications:t?.enableUserNotifications??!0,enableServiceWorker:t?.enableBackgroundSync??!0,autoStart:t?.autoStart,debug:t?.enableDebugMode??!1}},n=Jt(s,e,i);return await n.initialize(),n}//! Unified Sync System - Main Exports
-//!
-//! This is the new, clean sync system that replaces the legacy implementation.
-//! It provides a single, unified interface for synchronizing multiple domains
-//! (music, photos, documents, videos) with automatic WebSocket updates,
-//! service worker support, and efficient binary data caching.
-const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*1024*1024,maxAge:30},autoSync:{enabled:!0,syncOnNewContent:!0,periodicInterval:30,domains:["music","photos"],debounceDelay:5e3},defaultSyncOptions:{domains:["music","photos"],forceFullSync:!1,includeBinaryData:!0,priorityOrder:["music","photos","documents","videos"]}};async function Kt(s,e,t){const i={apiBaseUrl:t.apiBaseUrl,websocketUrl:t.websocketUrl,clientId:t.clientId,authToken:t.authToken,domains:Le(),storage:{...ae.storage,...t.storageConfig},autoSync:{...ae.autoSync,domains:t.enabledDomains||ae.autoSync.domains,...t.autoSyncConfig},defaultSyncOptions:{...ae.defaultSyncOptions,domains:t.enabledDomains||ae.defaultSyncOptions.domains}},n=Ot(i.storage);await n.initialize();const o=Wt(n,s,e,i);return await o.initialize(),o}async function Xt(s,e,t){return Kt(s,e,{...t,websocketUrl:t.apiBaseUrl.replace("http","ws")+"/ws"})}const Zt="1.0.0",ei={AUTO_SYNC:!0,BINARY_CACHING:!0,SERVICE_WORKER:!0,MULTI_DOMAIN:!0,REAL_TIME_UPDATES:!0,SERVICE_WORKER_SYNC:!0,NOTIFICATION_ROUTING:!0,ENHANCED_AUTO_SYNC:!0,USER_NOTIFICATIONS:!0,RESOURCE_AWARENESS:!0,SMART_SCHEDULING:!0};async function ti(s,e,t){const i=await Xt(s,e,{apiBaseUrl:t.apiBaseUrl,clientId:t.clientId,authToken:t.authToken}),n=await Yt(i,s,{enableUserNotifications:t.enableUserNotifications??!0,enableBackgroundSync:t.enableBackgroundSync??!0,autoStart:!0});return{syncManager:i,autoSyncSystem:n}}typeof window<"u"&&(window.unifiedSyncDebug={enable:Oe,disable:Fe,configure:xt});console.log("🚀 Unified Sync System loaded:",Zt);console.log("💡 Use window.unifiedSyncDebug.enable() to enable debug logging");var ii=I("<button class=connect-button>"),ni=I("<button class=disconnect-button>Disconnect"),si=I("<div class=connection-buttons>"),oi=I("<label class=toggle-control><input type=checkbox checked disabled><span>🔔 User Notifications"),ai=I("<span>🔄 Syncing..."),ri=I("<div class=last-sync>Last sync: "),ci=I("<div class=stat-item><span class=stat-label>Batches:</span><span class=stat-value>"),li=I("<div class=stat-item><span class=stat-label>Speed:</span><span class=stat-value>"),di=I("<div class=progress-section><h3>📊 Sync Progress</h3><div class=progress-display><div class=progress-stats><div class=stat-item><span class=stat-label>Items:</span><span class=stat-value>"),ui=I("<div class=domain-status><h3>🎵 Domain Status</h3><div class=domain-grid>"),gi=I("<div class=image-grid-section><h3>🖼️ Binary Data Image Grid (<!> images)</h3><div class=image-grid>"),hi=I("<div class=log-empty>No activity yet..."),yi=I(`<div><div class=demo-header><h2>🚀 Unified Sync System Demo</h2><div class=phase-info><span class=phase-badge>Phase 4: Unified UI Demo</span><span class=version-badge>v1.0.0</span></div></div><div class=connection-section><h3>🔗 Connection Status</h3><div class=connection-controls><div class=initialization-status><span></span></div></div></div><div class=feature-toggles><h3>⚙️ Feature Controls</h3><div class=toggle-controls><label class=toggle-control><input type=checkbox><span>🔧 Service Worker Background Sync</span></label><label class=toggle-control><input type=checkbox><span>🔄 Auto-Sync on Changes</span></label><label class=toggle-control><input type=checkbox><span>🐛 Debug Logging</span></label></div></div><div class=sync-controls><h3>🎯 Unified Sync Control</h3><div class=main-controls><button></button><button class=destroy-button title="Completely destroy all IndexedDB data (for testing)">💥 Destroy All Data</button></div></div><div class=activity-log><h3>📋 Activity Log</h3><div class=log-container></div></div><div class=system-info><h3>ℹ️ System Information</h3><div class=info-grid><div class=info-item><span class=info-label>Sync Features:</span><span class=info-value></span></div><div class=info-item><span class=info-label>Client ID:</span><span class=info-value>...</span></div><div class=info-item><span class=info-label>API URL:</span><span class=info-value></span></div></div></div><style jsx>
+import{d as Et,c as g,g as Oe,o as Ut,f as Mt,t as h,k as i,i as f,S,b as T,e as q,m as Tt,F as Fe,l as je}from"./web-Bmt1sUg0.js";import{c as Nt}from"./index-CuXI0cIU.js";import{A as At}from"./api-client-oDSgDTkX.js";import{C as O,W as Wt}from"./websocket-client-BIZ3xMI1.js";import{a as r,S as Lt,b as Ot,s as Ft,e as jt,d as Rt,c as W}from"./sync-status-DMeMG7fP.js";import{W as Gt}from"./websocket-status-B6AILaLV.js";import"./types-DDODKsJP.js";var Vt=h("<button class=connect-button>"),Xt=h("<button class=disconnect-button>Disconnect"),Yt=h("<div class=connection-buttons>"),Kt=h("<label class=toggle-control><input type=checkbox checked disabled><span>🔔 User Notifications"),Qt=h("<span>🔄 Syncing..."),qt=h("<div class=last-sync>Last sync: "),Ht=h("<span class=progress-percentage>%"),Jt=h("<div class=progress-operation>"),Zt=h("<span class=progress-initializing>"),es=h("<span class=progress-items>"),ts=h("<div class=horizontal-progress-container><div class=horizontal-progress-bar><div class=horizontal-progress-fill></div></div><div class=horizontal-progress-text>"),ss=h("<div class=progress-section><h3>📊 Sync Progress"),ns=h("<div class=domain-status><h3>🎵 Music Domain Status</h3><div class=domain-grid><div><div class=domain-name>🎵 music</div><div class=domain-progress><div class=domain-progress-text>/<!> items</div><div class=domain-progress-bar><div class=domain-progress-fill></div></div><div class=domain-progress-percent>%"),os=h("<div class=image-grid-section><h3>🖼️ Binary Data Image Grid (<!> images)</h3><div class=image-grid>"),is=h("<div class=log-empty>No activity yet..."),as=h(`<div><div class=demo-header><h2>🚀 Unified Sync System Demo</h2><div class=phase-info><span class=phase-badge>Phase 4: Unified UI Demo</span><span class=version-badge>v1.0.0</span></div></div><div class=connection-section><h3>🔗 Connection Status</h3><div class=connection-controls><div class=initialization-status><span></span></div></div></div><div class=feature-toggles><h3>⚙️ Feature Controls</h3><div class=toggle-controls><label class=toggle-control><input type=checkbox><span>🔧 Service Worker Background Sync</span></label><label class=toggle-control><input type=checkbox><span>🔄 Auto-Sync on Changes</span></label><label class=toggle-control><input type=checkbox><span>🐛 Debug Logging</span></label></div></div><div class=sync-controls><h3>🎯 Unified Sync Control</h3><div class=main-controls><button></button><button class=destroy-button title="Completely destroy all IndexedDB data (for testing)">💥 Destroy All Data</button></div></div><div class=storage-stats><h3>💾 Storage Usage</h3><div class=storage-display><div class=storage-item><span class=storage-label>Total:</span><span class=storage-value></span></div><div class=storage-breakdown><div class=storage-item><span class=storage-label>Music:</span><span class=storage-value></span></div><div class=storage-item><span class=storage-label>Binary Data:</span><span class=storage-value></span></div></div></div></div><div class=activity-log><h3>📋 Activity Log</h3><div class=log-container></div></div><div class=system-info><h3>ℹ️ System Information</h3><div class=info-grid><div class=info-item><span class=info-label>Sync Features:</span><span class=info-value></span></div><div class=info-item><span class=info-label>Client ID:</span><span class=info-value>...</span></div><div class=info-item><span class=info-label>API URL:</span><span class=info-value></span></div></div></div><style>
         .unified-sync-demo {
           padding: 20px;
           max-width: 800px;
           margin: 0 auto;
           font-family:
             -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          background: black;
+          color: white;
+          border-radius: 12px;
         }
 
         .demo-header {
@@ -303,12 +54,12 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
           align-items: center;
           margin-bottom: 30px;
           padding-bottom: 15px;
-          border-bottom: 2px solid #e0e0e0;
+          border-bottom: 2px solid #333;
         }
 
         .demo-header h2 {
           margin: 0;
-          color: #2c3e50;
+          color: white;
         }
 
         .phase-info {
@@ -341,12 +92,13 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
         .domain-status,
         .image-grid-section,
         .activity-log,
-        .system-info {
+        .system-info,
+        .storage-stats {
           margin-bottom: 25px;
           padding: 15px;
-          border: 1px solid #ddd;
+          border: 1px solid #333;
           border-radius: 8px;
-          background: #f9f9f9;
+          background: #111;
         }
 
         .connection-section h3,
@@ -356,9 +108,10 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
         .domain-status h3,
         .image-grid-section h3,
         .activity-log h3,
-        .system-info h3 {
+        .system-info h3,
+        .storage-stats h3 {
           margin: 0 0 15px 0;
-          color: #34495e;
+          color: white;
           font-size: 16px;
         }
 
@@ -428,25 +181,31 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
           display: flex;
           flex-direction: column;
           gap: 10px;
-          color: black;
         }
 
         .toggle-control {
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 8px;
           cursor: pointer;
+          user-select: none;
+          color: white;
         }
 
         .toggle-control input[type="checkbox"] {
-          margin: 0;
+          cursor: pointer;
+        }
+
+        .toggle-control input[type="checkbox"]:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .main-controls {
           display: flex;
-          flex-direction: column;
           align-items: center;
           gap: 15px;
+          margin-bottom: 15px;
         }
 
         .sync-all-button {
@@ -455,28 +214,29 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
           font-weight: 600;
           border: none;
           border-radius: 8px;
-          background: linear-gradient(135deg, #3498db, #2980b9);
-          color: white;
           cursor: pointer;
           transition: all 0.3s ease;
+          background: #ff00ff;
+          color: black;
           min-width: 200px;
         }
 
         .sync-all-button:hover:not(:disabled) {
-          background: linear-gradient(135deg, #2980b9, #3498db);
+          background: #ff00ff;
           transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+          box-shadow: 0 4px 15px rgba(255, 0, 255, 0.3);
         }
 
         .sync-all-button:disabled {
-          background: #95a5a6;
+          background: #333;
+          color: #666;
           cursor: not-allowed;
           transform: none;
           box-shadow: none;
         }
 
         .sync-all-button.syncing {
-          background: linear-gradient(135deg, #e67e22, #d35400);
+          background: linear-gradient(135deg, #ff00ff, #cc00cc);
           animation: pulse 2s infinite;
         }
 
@@ -491,66 +251,147 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
         }
 
         .last-sync {
-          color: #7f8c8d;
+          color: #ccc;
           font-size: 14px;
+        }
+
+        .loading-indicator {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 16px;
+          background: #f8f9fa;
+          border: 1px solid #e9ecef;
+          border-radius: 8px;
+          font-size: 14px;
+          color: #6c757d;
+        }
+
+        .loading-spinner {
+          width: 20px;
+          height: 20px;
+          border: 2px solid #e9ecef;
+          border-top: 2px solid #007bff;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          0% {
+            transform: rotate(0deg);
+          }
+          100% {
+            transform: rotate(360deg);
+          }
+        }
+
+        .horizontal-progress-container {
+          margin-bottom: 20px;
+          padding: 16px;
+          background: #111;
+          border: 1px solid #333;
+          border-radius: 8px;
+        }
+
+        .horizontal-progress-bar {
+          width: 100%;
+          height: 12px;
+          background: #333;
+          border-radius: 6px;
+          overflow: hidden;
+          position: relative;
+          margin-bottom: 8px;
+        }
+
+        .horizontal-progress-fill {
+          height: 100%;
+          border-radius: 6px;
+          transition: width 0.5s ease;
+          position: relative;
+        }
+
+        .horizontal-progress-fill::after {
+          content: "";
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: linear-gradient(
+            90deg,
+            transparent,
+            rgba(255, 255, 255, 0.3),
+            transparent
+          );
+          animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+          0% {
+            transform: translateX(-100%);
+          }
+          100% {
+            transform: translateX(100%);
+          }
+        }
+
+        .horizontal-progress-text {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 14px;
+          color: white;
+        }
+
+        .progress-percentage {
+          font-weight: 600;
+          color: #ff00ff;
+          font-size: 16px;
+        }
+
+        .progress-items {
+          color: #ccc;
+        }
+
+        .progress-initializing {
+          color: #ff00ff;
+          font-weight: 500;
+        }
+
+        .progress-operation {
+          color: #ccc;
+          font-size: 13px;
+          font-style: italic;
         }
 
         .progress-display {
           display: flex;
           flex-direction: column;
-          gap: 15px;
-        }
-
-        .progress-stats {
-          display: flex;
-          gap: 20px;
-          flex-wrap: wrap;
-        }
-
-        .stat-item {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          padding: 8px 12px;
-          background: white;
-          border-radius: 4px;
-          border: 1px solid #ddd;
-        }
-
-        .stat-label {
-          font-size: 12px;
-          color: #7f8c8d;
-          font-weight: 600;
-        }
-
-        .stat-value {
-          font-size: 14px;
-          color: #2c3e50;
-          font-weight: 500;
+          gap: 12px;
         }
 
         .domain-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
           gap: 15px;
         }
 
         .domain-card {
           padding: 15px;
+          border: 2px solid #333;
           border-radius: 8px;
-          background: white;
-          border: 2px solid #ecf0f1;
-          text-align: center;
+          background: #222;
+          transition: all 0.2s ease;
         }
 
-        .domain-card.completed {
-          border-color: #2ecc71;
-          background: #d5f6e3;
+        .domain-card.complete {
+          border-color: #0f0;
+          background: #001100;
         }
 
-        .domain-card.inprogress {
-          border-color: #f39c12;
-          background: #fef9e7;
+        .domain-card.in_progress {
+          border-color: #ff00ff;
+          background: #330033;
         }
 
         .domain-card.failed {
@@ -560,22 +401,87 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
 
         .domain-name {
           font-weight: 600;
-          margin-bottom: 8px;
-          color: #2c3e50;
+          margin-bottom: 10px;
+          color: white;
         }
 
         .domain-progress {
+          margin-top: 8px;
           font-size: 12px;
-          color: #7f8c8d;
-          margin-top: 5px;
+        }
+
+        .domain-progress-text {
+          color: #ccc;
+          margin-bottom: 4px;
+        }
+
+        .domain-progress-bar {
+          width: 100%;
+          height: 4px;
+          background-color: #444;
+          border-radius: 2px;
+          overflow: hidden;
+          margin-bottom: 4px;
+        }
+
+        .domain-progress-fill {
+          height: 100%;
+          transition: width 0.3s ease;
+          border-radius: 2px;
+        }
+
+        .domain-progress-percent {
+          color: white;
+          font-weight: 500;
+          text-align: center;
+        }
+
+        .storage-display {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .storage-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 12px;
+          background: #222;
+          border-radius: 6px;
+          border: 1px solid #444;
+        }
+
+        .storage-label {
+          font-weight: 500;
+          color: white;
+        }
+
+        .storage-value {
+          font-weight: 600;
+          color: #ff00ff;
+          font-family: "Monaco", "Menlo", monospace;
+          font-size: 13px;
+        }
+
+        .storage-breakdown {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin-top: 8px;
+        }
+
+        .storage-breakdown .storage-item {
+          background: #1a1a1a;
+          border-color: #333;
         }
 
         .log-container {
           max-height: 200px;
           overflow-y: auto;
-          background: white;
-          border: 1px solid #ddd;
+          border: 1px solid #333;
           border-radius: 4px;
+          background: #111;
           padding: 10px;
         }
 
@@ -583,8 +489,8 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
           padding: 4px 0;
           font-family: "Monaco", "Menlo", monospace;
           font-size: 12px;
-          color: #2c3e50;
-          border-bottom: 1px solid #f0f0f0;
+          color: #ccc;
+          border-bottom: 1px solid #333;
         }
 
         .log-entry:last-child {
@@ -592,7 +498,7 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
         }
 
         .log-empty {
-          color: #95a5a6;
+          color: #666;
           font-style: italic;
           text-align: center;
           padding: 20px;
@@ -607,8 +513,9 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
         .info-item {
           display: flex;
           justify-content: space-between;
+          align-items: center;
           padding: 8px 0;
-          border-bottom: 1px solid #e0e0e0;
+          border-bottom: 1px solid #333;
         }
 
         .info-item:last-child {
@@ -621,17 +528,17 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
         }
 
         .info-value {
-          color: #7f8c8d;
           font-family: "Monaco", "Menlo", monospace;
-          font-size: 12px;
+          color: white;
+          font-size: 13px;
         }
 
         .image-grid-section {
           margin-bottom: 25px;
           padding: 20px;
-          background: #f8f9fa;
+          background: #111;
           border-radius: 8px;
-          border: 1px solid #e9ecef;
+          border: 1px solid #333;
         }
 
         .image-grid {
@@ -645,17 +552,30 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
           display: flex;
           justify-content: center;
           align-items: center;
-          background: white;
+          background: black;
+          color: white;
           border-radius: 4px;
           overflow: hidden;
         }
 
-        .image-item img {
-          transition: transform 0.2s ease;
+        .grid-image {
+          width: 100px;
+          height: 100px;
+          object-fit: cover;
+          border: 2px solid #333;
+          border-radius: 6px;
+          transition: all 0.3s ease;
+          background: #222;
         }
 
-        .image-item img:hover {
+        .grid-image:hover {
           transform: scale(1.05);
+          box-shadow: 0 4px 15px rgba(255, 0, 255, 0.3);
+        }
+
+        .grid-image:error {
+          border-color: #f00;
+          background: #330000;
         }
 
         @media (max-width: 600px) {
@@ -682,7 +602,7 @@ const ae={storage:{databaseName:"unified_sync_storage",version:1,maxSize:100*102
             grid-template-columns: 1fr;
           }
         }
-      `),fi=I("<span>🚀 Sync All Domains"),mi=I("<div class=domain-progress>/"),pi=I("<div><div class=domain-name> "),bi=I("<div class=image-item><img>"),Si=I("<div class=log-entry>");function wi(s){const[e,t]=C(null),[i,n]=C(null),[o,r]=C(null),[a,c]=C(null),[g,b]=C(!1),[w,y]=C(X.Disconnected),[f,k]=C(!1),[J,q]=C(null),[te,re]=C({}),[G,de]=C({}),[vi,ue]=C(v.Never),[Y,qe]=C({totalItems:0,completedItems:0,currentBatch:0,totalBatches:0,estimatedTimeRemaining:0,bytesTransferred:0,totalBytes:0,binaryStats:null}),[ge,je]=C(s.enableServiceWorker??!0),[he,He]=C(s.enableAutoSync??!0),[ke,Qe]=C([]),[E,ye]=C(!1),[_e,De]=C(null),[fe,me]=C([]),[Ve,Ce]=C(0),[xe,Ge]=C(!1),m=l=>{const u=new Date().toLocaleTimeString();Qe(_=>[..._.slice(-9),`[${u}] ${l}`])},Je=()=>typeof crypto<"u"&&crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,function(l){const u=Math.random()*16|0;return(l=="x"?u:u&3|8).toString(16)}),Ie=()=>{const l=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;return s.clientId&&l.test(s.clientId)?s.clientId:Je()},Te=async()=>{try{m("🚀 Initializing Unified Sync System...");const l=s.apiBaseUrl||"http://localhost:8080",u=Ie();m(`📋 Client ID: ${u}`),m(`🌐 API Base URL: ${l}`);const _=new vt(l);c(_);const j=l.replace("http","ws").replace("3001","8080")+"/ws",R=new $t({url:j,autoReconnect:!0,reconnectDelay:3e3,debug:!0});r(R);const ee=M=>{y(M),b(M===X.Connected),m(`🔗 WebSocket status: ${M}`),console.log("🐛 WebSocket status change:",{status:M,isConnected:M===X.Connected,isInitialized:f()}),M===X.Connected?(q(null),console.log("🔌 WebSocket connected - forcing UI update")):M===X.Error&&q("WebSocket connection error")};R.on("statusChange",ee),R.on("error",M=>{q(M.message),m(`❌ WebSocket error: ${M.message}`)}),s.autoConnect!==!1&&(m("🔄 Auto-connecting WebSocket..."),R.connect()),m("⚙️ Setting up unified sync manager...");const{syncManager:H,autoSyncSystem:ce}=await ti(R,_,{apiBaseUrl:l,clientId:u,enableUserNotifications:s.enableUserNotifications??!0,enableBackgroundSync:ge()});t(H),n(ce),Ye(H),he()&&(m("🔄 Enabling auto-sync..."),H.enableAutoSync()),k(!0),m("✅ Unified Sync System initialized successfully"),console.log("🐛 State after initialization:",{isInitialized:!0,isConnected:g(),isSyncing:E()}),We(()=>{const M=g(),ie=f(),ne=E();console.log("🔄 Button state check:",{connected:M,initialized:ie,syncing:ne,buttonEnabled:ie&&M&&!ne})}),m("✅ Unified Sync System initialized successfully")}catch(l){m(`❌ Initialization failed: ${l.message}`),q(l.message)}},Ye=l=>{l.on(p.SyncStarted,u=>{m(`🔄 Sync started: ${u.domains?.join(", ")||"all domains"}`),ye(!0),ue(v.InProgress)}),l.on(p.SyncProgress,u=>{re(l.getStatus()),de(l.getProgress()),qe(u.overallProgress),u.domain&&m(`📊 ${u.domain}: ${u.progress.completedItems}/${u.progress.totalItems} items`)}),l.on(p.SyncCompleted,u=>{m(`✅ Sync completed: ${u.domains?.join(", ")||"all domains"}`),ye(!1),De(new Date),ue(v.Completed),u.stats&&m(`📈 Stats: ${u.stats.totalItems} items, ${Math.round(u.stats.totalTime/1e3)}s`),Ce(_=>_+1),u.stats&&u.stats.binaryStats?.cached>0&&(m("🖼️ Binary sync completed, checking for images..."),setTimeout(()=>{pe()},2e3))}),l.on(p.SyncFailed,u=>{m(`❌ Sync failed: ${u.error.message}`),ye(!1),ue(v.Failed)}),l.on(p.AutoSyncTriggered,u=>{m(`🔔 Auto-sync triggered: ${u.reason} (${u.domains?.join(", ")||"all domains"})`)}),l.on(p.ConnectionChanged,u=>{m(`🔗 Connection ${u.connected?"established":"lost"}`)}),l.on(p.BinarySyncProgress,u=>{if(u.stats){const{completed:_,total:j,speed:R}=u.stats;m(`📁 Binary sync: ${_}/${j} files (${Math.round(R/1024)}KB/s)`)}})},Ke=async()=>{const l=e();if(!(!l||E()))try{m("🚀 Starting unified sync for all domains...");const u=await l.syncAll({domains:["music","photos"],includeBinaryData:!0,forceFullSync:!1});m(`✨ Sync completed! Synced domains: ${u.syncedDomains?.join(", ")||"none"}`)}catch(u){m(`❌ Sync failed: ${u.message}`)}},Xe=async()=>{const l=!ge();if(je(l),m(`🔧 Service Worker ${l?"enabled":"disabled"}`),e()&&i()){const _=i();_.setBackgroundSyncEnabled&&await _.setBackgroundSyncEnabled(l)}},Ze=async()=>{const l=!he();He(l);const u=e();u&&(l?(m("🔄 Enabling auto-sync..."),u.enableAutoSync()):m("⏸️ Auto-sync disabled"))},et=async()=>{const l=e();if(!(!l||E()))try{m("💥 Starting complete database teardown..."),k(!1),De(null),me([]),Ce(0),await l.destroyAll(),m("🗑️ Database completely destroyed!"),t(null),n(null),m("🔄 Reinitializing system..."),await Te(),m("✅ System reinitialized successfully!")}catch(u){m(`❌ Teardown failed: ${u.message}`),console.error("Destroy error:",u)}},pe=async()=>{const l=e();if(!(!l||!f()))try{const u=(await l.getMediaBlobs()).slice(0,100);if(u.length===0){me([]);return}m(`📷 Found ${u.length} image blobs, checking binary data...`);const _=[];let j=0;for(const R of u)try{if(await l.hasBinaryData(R.id)){j++;const H=await l.getBlobUrl(R.id);H&&_.push(H)}}catch{continue}_.length>0?(me(_),m(`🎨 Image grid loaded: ${_.length} images (${j} with binary data)`)):j===0&&u.length>0&&m(`📷 Found ${u.length} image metadata but no binary data yet`)}catch(u){m(`❌ Failed to load image grid: ${u.message}`)}};We(()=>{const l=e(),u=f();if(Ve(),l&&u){pe();const _=setInterval(()=>{pe()},3e3);setTimeout(()=>{clearInterval(_)},3e4)}});const tt=()=>{const l=o();l&&!g()&&(m("🔄 Connecting WebSocket..."),l.connect())},it=()=>{const l=!xe();Ge(l),l?(Oe(),m("🐛 Debug logging enabled")):(Fe(),m("🔇 Debug logging disabled"))},nt=()=>{const l=o();l&&g()&&(m("🔌 Disconnecting WebSocket..."),l.disconnect())};bt(()=>{Te()}),St(()=>{const l=o(),u=e();l&&l.disconnect(),u&&u.destroy()});const Z=()=>{const l=Y();return{percentage:l.totalItems>0?Math.round(l.completedItems/l.totalItems*100):0,itemsText:`${l.completedItems}/${l.totalItems} items`,batchText:l.totalBatches>0?`Batch ${l.currentBatch}/${l.totalBatches}`:"",etaText:l.estimatedTimeRemaining>0?`ETA: ${Math.round(l.estimatedTimeRemaining/1e3)}s`:"",speedText:l.binaryStats?.speed?`${Math.round(l.binaryStats.speed/1024)}KB/s`:""}};return(()=>{var l=yi(),u=l.firstChild,_=u.nextSibling,j=_.firstChild,R=j.nextSibling,ee=R.firstChild,H=ee.firstChild,ce=_.nextSibling,M=ce.firstChild,ie=M.nextSibling,ne=ie.firstChild,be=ne.firstChild,Me=ne.nextSibling,Se=Me.firstChild,st=Me.nextSibling,Ae=st.firstChild,Ne=ce.nextSibling,ot=Ne.firstChild,Ee=ot.nextSibling,se=Ee.firstChild,W=se.nextSibling,oe=Ne.nextSibling,at=oe.firstChild,Re=at.nextSibling,rt=oe.nextSibling,ct=rt.firstChild,lt=ct.nextSibling,Be=lt.firstChild,dt=Be.firstChild,ut=dt.nextSibling,Pe=Be.nextSibling,gt=Pe.firstChild,ze=gt.nextSibling,ht=ze.firstChild,yt=Pe.nextSibling,ft=yt.firstChild,mt=ft.nextSibling;return S(R,x(z,{get when(){return o()},get children(){return[x(Dt,{get status(){return w()},showText:!0,compact:!0}),(()=>{var h=si();return S(h,x(z,{get when(){return!g()},get children(){var $=ii();return $.$$click=tt,S($,()=>w()===X.Connecting?"Connecting...":"Connect"),K(()=>$.disabled=w()===X.Connecting),$}}),null),S(h,x(z,{get when(){return g()},get children(){var $=ni();return $.$$click=nt,$}}),null),h})()]}}),ee),S(H,()=>f()?"✅ Initialized":"⏳ Initializing..."),be.addEventListener("change",Xe),Se.addEventListener("change",Ze),Ae.addEventListener("change",it),S(ie,x(z,{get when(){return s.enableUserNotifications!==!1},get children(){return oi()}}),null),se.$$click=()=>{console.log("🐛 Button click - Debug state:",{isInitialized:f(),isConnected:g(),isSyncing:E(),buttonDisabled:!f()||!g()||E()}),Ke()},S(se,x(z,{get when(){return E()},get fallback(){return fi()},get children(){return ai()}})),W.$$click=et,W.style.setProperty("background-color","#dc3545"),W.style.setProperty("color","white"),W.style.setProperty("border","none"),W.style.setProperty("padding","10px 20px"),W.style.setProperty("border-radius","5px"),W.style.setProperty("margin-left","10px"),S(Ee,x(z,{get when(){return _e()},get children(){var h=ri();return h.firstChild,S(h,()=>_e()?.toLocaleTimeString(),null),h}}),null),S(l,x(z,{get when(){return E()||Y().totalItems>0},get children(){var h=di(),$=h.firstChild,Q=$.nextSibling,T=Q.firstChild,V=T.firstChild,B=V.firstChild,O=B.nextSibling;return S(Q,x(kt,{get progress(){return Z().percentage},get itemsSynced(){return Y().completedItems},get totalItems(){return Y().totalItems},get currentBatch(){return Y().currentBatch},get totalBatches(){return Y().totalBatches},get eta(){return Y().estimatedTimeRemaining},showDetails:!0,className:"unified-progress"}),T),S(O,()=>Z().itemsText),S(T,x(z,{get when(){return Z().batchText},get children(){var P=ci(),D=P.firstChild,F=D.nextSibling;return S(F,()=>Z().batchText),P}}),null),S(T,x(z,{get when(){return Z().speedText},get children(){var P=li(),D=P.firstChild,F=D.nextSibling;return S(F,()=>Z().speedText),P}}),null),h}}),oe),S(l,x(z,{get when(){return Object.keys(te()).length>0},get children(){var h=ui(),$=h.firstChild,Q=$.nextSibling;return S(Q,x(we,{get each(){return Object.entries(te())},children:([T,V])=>(()=>{var B=pi(),O=B.firstChild,P=O.firstChild;return S(O,T==="music"?"🎵":T==="photos"?"📸":"📁",P),S(O,T,null),S(B,x(_t,{status:V,compact:!0}),null),S(B,x(z,{get when(){return G()[T]},get children(){var D=mi(),F=D.firstChild;return S(D,()=>G()[T].completedItems,F),S(D,()=>G()[T].totalItems,null),D}}),null),K(()=>le(B,`domain-card ${V.toLowerCase()}`)),B})()})),h}}),oe),S(l,x(z,{get when(){return fe().length>0},get children(){var h=gi(),$=h.firstChild,Q=$.firstChild,T=Q.nextSibling;T.nextSibling;var V=$.nextSibling;return S($,()=>fe().length,T),S(V,x(we,{get each(){return fe()},children:(B,O)=>(()=>{var P=bi(),D=P.firstChild;return D.addEventListener("error",F=>{console.log(`Failed to load image ${O()+1}:`,B),F.target.style.display="none"}),Ue(D,"src",B),D.style.setProperty("width","100px"),D.style.setProperty("height","100px"),D.style.setProperty("object-fit","cover"),D.style.setProperty("border","1px solid #ddd"),D.style.setProperty("border-radius","4px"),K(()=>Ue(D,"alt",`Image ${O()+1}`)),P})()})),h}}),oe),S(Re,x(we,{get each(){return ke().slice().reverse()},children:h=>(()=>{var $=Si();return S($,h),$})()}),null),S(Re,x(z,{get when(){return ke().length===0},get children(){return hi()}}),null),S(ut,()=>Object.entries(ei).filter(([h,$])=>$).map(([h,$])=>h).join(", ")),S(ze,()=>Ie().slice(0,8),ht),S(mt,()=>s.apiBaseUrl||"http://localhost:8080"),K(h=>{var $=`unified-sync-demo ${s.className||""}`,Q=`status-indicator ${f()?"success":"pending"}`,T=!f(),V=!f(),B=`sync-all-button ${E()?"syncing":""}`,O=!f()||!g()||E(),P=!f()||E(),D=!f()||E()?"not-allowed":"pointer",F=!f()||E()?"0.5":"1";return $!==h.e&&le(l,h.e=$),Q!==h.t&&le(H,h.t=Q),T!==h.a&&(be.disabled=h.a=T),V!==h.o&&(Se.disabled=h.o=V),B!==h.i&&le(se,h.i=B),O!==h.n&&(se.disabled=h.n=O),P!==h.s&&(W.disabled=h.s=P),D!==h.h&&((h.h=D)!=null?W.style.setProperty("cursor",D):W.style.removeProperty("cursor")),F!==h.r&&((h.r=F)!=null?W.style.setProperty("opacity",F):W.style.removeProperty("opacity")),h},{e:void 0,t:void 0,a:void 0,o:void 0,i:void 0,n:void 0,s:void 0,h:void 0,r:void 0}),K(()=>be.checked=ge()),K(()=>Se.checked=he()),K(()=>Ae.checked=xe()),l})()}wt("unified-sync-demo",{apiBaseUrl:void 0,clientId:void 0,autoConnect:!0,enableServiceWorker:!0,enableAutoSync:!0,className:"",enableUserNotifications:!0},wi);pt(["click"]);
+      `),rs=h("<span>🚀 Sync All Domains"),ls=h("<div class=image-item><img class=grid-image>"),cs=h("<div class=log-entry>");function ds(B){const[E,ge]=g(null),[ue,me]=g(null),[G,Re]=g(null),[gs,Ge]=g(null),[z,pe]=g(!1),[H,fe]=g(O.Disconnected),[$,he]=g(!1),[us,F]=g(null),[V,J]=g({music:r.Never,photos:r.Never,documents:r.Never,videos:r.Never}),[j,X]=g({music:{status:r.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0},photos:{status:r.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0},documents:{status:r.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0},videos:{status:r.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0}}),[ms,Z]=g(r.Never),[b,Y]=g({status:r.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0,eta:0,currentOperation:"Ready"}),[ee,Ve]=g(B.enableServiceWorker??!0),[te,Xe]=g(B.enableAutoSync??!0),[be,Ye]=g([]),[v,se]=g(!1),[ye,xe]=g(null),[ne,oe]=g([]),[Ke,ve]=g(0),[Se,Qe]=g(!1),[qe,$e]=g("Loading..."),[He,Ce]=g("Loading..."),[Je,we]=g("Loading..."),o=e=>{const t=new Date().toLocaleTimeString();Ye(s=>[...s.slice(-9),`[${t}] ${e}`])},Ze=()=>typeof crypto<"u"&&crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,function(e){const t=Math.random()*16|0;return(e=="x"?t:t&3|8).toString(16)}),_e=()=>{const e=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;return B.clientId&&e.test(B.clientId)?B.clientId:Ze()},ke=async()=>{try{o("🚀 Initializing Unified Sync System...");const e=B.apiBaseUrl||"http://localhost:8080",t=_e();o(`📋 Client ID: ${t}`),o(`🌐 API Base URL: ${e}`);const s=new At({baseUrl:e});Ge(s);const u=e.replace("http","ws").replace("3001","8080")+"/ws",l=new Wt({url:u,autoReconnect:!0,reconnectDelay:3e3,debug:!0});Re(l);const C=a=>{fe(a);const m=a===O.Connected;pe(m),o(`🔗 WebSocket status: ${a}`),console.log("🐛 WebSocket status change:",{status:a,isConnected:m,isInitialized:$()}),m?(F(null),console.log("🔌 WebSocket connected - forcing UI update")):a===O.Error&&F("WebSocket connection error")};l.on("statusChange",C),l.on("error",a=>{F(a.message),o(`❌ WebSocket error: ${a.message}`)}),B.autoConnect!==!1&&(o("🔄 Auto-connecting WebSocket..."),l.connect()),o("⚙️ Setting up unified sync manager...");const{syncManager:p,autoSyncSystem:N}=await Ft(l,s,{apiBaseUrl:e,clientId:t,enableUserNotifications:B.enableUserNotifications??!0,enableBackgroundSync:ee()});ge(p),me(N),et(p),te()&&(o("🔄 Enabling auto-sync..."),p.enableAutoSync(!0));try{const a=await p.getStorageStats();console.log("🐛 Initial storage stats:",a);const m={music:(a.itemCounts?.music||0)>0?r.Complete:r.Never,photos:(a.itemCounts?.photos||0)>0?r.Complete:r.Never,documents:(a.itemCounts?.documents||0)>0?r.Complete:r.Never,videos:(a.itemCounts?.videos||0)>0?r.Complete:r.Never},y={music:{status:m.music,progress:m.music===r.Complete?100:0,itemsProcessed:a.itemCounts?.music||0,totalItems:a.itemCounts?.music||0,currentBatch:1,totalBatches:1},photos:{status:m.photos,progress:m.photos===r.Complete?100:0,itemsProcessed:a.itemCounts?.photos||0,totalItems:a.itemCounts?.photos||0,currentBatch:1,totalBatches:1},documents:{status:m.documents,progress:m.documents===r.Complete?100:0,itemsProcessed:a.itemCounts?.documents||0,totalItems:a.itemCounts?.documents||0,currentBatch:1,totalBatches:1},videos:{status:m.videos,progress:m.videos===r.Complete?100:0,itemsProcessed:a.itemCounts?.videos||0,totalItems:a.itemCounts?.videos||0,currentBatch:1,totalBatches:1}};J(m),X(y),o(`📊 Initialized domain status: ${Object.values(m).filter(_=>_===r.Complete).length} domains with data`)}catch(a){console.warn("Could not initialize domain status:",a),J(p.getStatus()),X(p.getProgress()),o("📊 Using default domain status")}setTimeout(()=>{Be()},2e3),he(!0),o("✅ Unified Sync System initialized successfully");const L=l.getStatus();L===O.Connected&&!z()&&(pe(!0),F(null)),fe(L),console.log("🐛 State after initialization:",{isInitialized:!0,isConnected:z(),isSyncing:v()}),Oe(()=>{const a=z(),m=$(),y=v();console.log("🔄 Button state check:",{connected:a,initialized:m,syncing:y,buttonEnabled:a&&m&&!y})}),o("✅ Unified Sync System initialized successfully")}catch(e){o(`❌ Initialization failed: ${e.message}`),F(e.message)}},et=e=>{e.on(W.Started,t=>{o(`🔄 Sync started: ${t.domain||"all domains"}`),se(!0),Z(r.InProgress)}),e.on(W.Progress,t=>{const s=t,u=e.getStatus(),l=e.getProgress();J(u),X(l),l[s.domain].totalItems>0&&console.log(`📊 ${s.domain}: ${l[s.domain].itemsProcessed}/${l[s.domain].totalItems} (${l[s.domain].progress}%)`);const C=Object.values(l),p=C.reduce((y,_)=>y+_.totalItems,0),N=C.reduce((y,_)=>y+_.itemsProcessed,0),L=C.reduce((y,_)=>y+_.totalBatches,0),a=C.reduce((y,_)=>y+_.currentBatch,0),m=p>0?Math.round(N/p*100):0;Y({status:r.InProgress,progress:m,itemsProcessed:N,totalItems:p,currentBatch:a,totalBatches:L,eta:s.progress.eta,currentOperation:s.progress.currentOperation||`Syncing ${s.domain}`}),s.domain&&o(`📊 ${s.domain}: ${s.progress.itemsProcessed}/${s.progress.totalItems} items (${s.progress.progress}%)`)}),e.on(W.AllCompleted,t=>{const s=t;o(`✅ Sync completed: ${s.domain||"all domains"}`),se(!1),xe(new Date),Z(r.Complete);const u=e.getProgress();X(u),Y({status:r.Complete,progress:100,itemsProcessed:b().itemsProcessed,totalItems:b().totalItems,currentBatch:b().totalBatches,totalBatches:b().totalBatches,eta:0,currentOperation:"Complete"}),s.result&&o(`📈 Stats: ${s.result.itemsSynced} items, ${Math.round(s.result.duration/1e3)}s`),ve(l=>l+1),setTimeout(()=>{Be()},1500),s.result&&s.result.binaryStats&&s.result.binaryStats.cached>0&&(o("🖼️ Binary sync completed, checking for images..."),setTimeout(()=>{ie()},2e3)),setTimeout(()=>{v()||Y({status:r.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0,eta:0,currentOperation:"Ready"})},5e3)}),e.on(W.Failed,t=>{o(`❌ Sync failed: ${t.error.message}`),se(!1),Z(r.Failed)}),e.on(W.AutoSyncTriggered,t=>{const s=t;o(`🔄 Auto-sync triggered for ${s.trigger}: ${s.domain}`)}),e.on(W.ConnectionChanged,t=>{o(`🔗 Connection ${t.isOnline?"established":"lost"}`)}),e.on(W.BinaryProgress,t=>{const s=t;if(s.currentItem&&s.totalItems){const u=s.currentItem,l=s.totalItems;o(`📁 Binary sync: ${u}/${l} files`),Y({status:r.InProgress,progress:s.progress||0,itemsProcessed:u,totalItems:l,currentBatch:u,totalBatches:l,eta:0,currentOperation:`Downloading binary data (${u}/${l})`})}})},Ie=e=>{if(e===0)return"0 B";const t=1024,s=["B","KB","MB","GB"],u=Math.floor(Math.log(e)/Math.log(t));return Math.round(e/Math.pow(t,u)*100)/100+" "+s[u]},Be=async()=>{try{const e=E();if(!e){console.log("🐛 No sync manager available for storage stats");return}console.log("🐛 Calculating storage usage...");const t=await e.getStorageStats();console.log("🐛 Storage stats received:",t);const s={totalSize:t?.totalSize||0,itemCounts:t?.itemCounts||{music:0,photos:0,documents:0,videos:0},binarySize:t?.binarySize||0};console.log("🐛 Safe stats:",s);const u=Ie(s.totalSize),l=s.itemCounts.music,C=l>0?`${l} items`:"No data",p=Ie(s.binarySize);$e(u),Ce(C),we(p),console.log("🐛 Updated storage stats:",{total:u,music:C,binary:p})}catch(e){console.error("Could not calculate storage usage:",e),$e("Error"),Ce("Error"),we("Error")}},tt=async()=>{const e=E();if(!(!e||v()))try{o("🚀 Starting unified sync for all domains...");const t=await e.syncAll({domains:["music","photos"],includeBinaryData:!0,forceFullSync:!1});o(`✨ Sync completed! Domain: ${t.domain}, Items: ${t.itemsSynced}/${t.totalItems}`)}catch(t){o(`❌ Sync failed: ${t.message}`)}},st=async()=>{const e=!ee();if(Ve(e),o(`🔧 Service Worker ${e?"enabled":"disabled"}`),E()&&ue()){const s=ue();s.setBackgroundSyncEnabled&&await s.setBackgroundSyncEnabled(e)}},nt=async()=>{const e=!te();Xe(e);const t=E();t&&(e?(o("🔄 Enabling auto-sync..."),t.enableAutoSync(!0)):(o("⏸️ Disabling auto-sync..."),t.enableAutoSync(!1)))},ot=async()=>{if(!(!E()||v()))try{o("💥 Starting complete database teardown..."),he(!1),xe(null),oe([]),ve(0),await E()?.destroy(),o("🗑️ Database completely destroyed!"),ge(null),me(null),o("🔄 Reinitializing system..."),await ke(),o("✅ System reinitialized successfully!")}catch(t){o(`❌ Teardown failed: ${t.message}`),console.error("Destroy error:",t)}},ie=async()=>{const e=E();if(!(!e||!$()))try{const t=(await e.getMediaBlobs()).slice(0,100);if(t.length===0){oe([]);return}o(`📷 Found ${t.length} image blobs, checking binary data...`);const s=[];let u=0;for(const l of t)try{if(await e.hasBinaryData(l.id)){u++;const p=await e.getBlobUrl(l.id);p&&s.push(p)}}catch{continue}s.length>0?(oe(s),o(`🎨 Image grid loaded: ${s.length} images (${u} with binary data)`)):u===0&&t.length>0&&o(`📷 Found ${t.length} image metadata but no binary data yet`)}catch(t){o(`❌ Failed to load image grid: ${t.message}`)}};Oe(()=>{const e=E(),t=$();if(Ke(),e&&t){ie();const s=setInterval(()=>{ie()},3e3);setTimeout(()=>{clearInterval(s)},3e4)}});const it=()=>{const e=G();e&&!z()&&(o("🔄 Connecting WebSocket..."),e.connect())},at=()=>{const e=!Se();Qe(e),e?(jt(),o("🐛 Debug logging enabled")):(Rt(),o("🔇 Debug logging disabled"))},rt=()=>{const e=G();e&&z()&&(o("🔌 Disconnecting WebSocket..."),e.disconnect())};Ut(()=>{ke()}),Mt(()=>{const e=G(),t=E();e&&e.disconnect(),t&&t.destroy()});const ae=()=>{const e=b();return{percentage:e.progress,itemsText:`${e.itemsProcessed}/${e.totalItems} items`,batchText:e.totalBatches>0?`Batch ${e.currentBatch}/${e.totalBatches}`:"",etaText:e.eta&&e.eta>0?`ETA: ${Math.round(e.eta)}s`:"",speedText:""}};return(()=>{var e=as(),t=e.firstChild,s=t.nextSibling,u=s.firstChild,l=u.nextSibling,C=l.firstChild,p=C.firstChild,N=s.nextSibling,L=N.firstChild,a=L.nextSibling,m=a.firstChild,y=m.firstChild,_=m.nextSibling,re=_.firstChild,lt=_.nextSibling,Pe=lt.firstChild,ze=N.nextSibling,ct=ze.firstChild,De=ct.nextSibling,R=De.firstChild,k=R.nextSibling,le=ze.nextSibling,dt=le.firstChild,gt=dt.nextSibling,Ee=gt.firstChild,ut=Ee.firstChild,mt=ut.nextSibling,pt=Ee.nextSibling,Ue=pt.firstChild,ft=Ue.firstChild,ht=ft.nextSibling,bt=Ue.nextSibling,yt=bt.firstChild,xt=yt.nextSibling,K=le.nextSibling,vt=K.firstChild,Me=vt.nextSibling,St=K.nextSibling,$t=St.firstChild,Ct=$t.nextSibling,Te=Ct.firstChild,wt=Te.firstChild,_t=wt.nextSibling,Ne=Te.nextSibling,kt=Ne.firstChild,Ae=kt.nextSibling,It=Ae.firstChild,Bt=Ne.nextSibling,Pt=Bt.firstChild,zt=Pt.nextSibling;return i(l,f(S,{get when(){return G()},get children(){return[f(Gt,{get status(){return H()},showText:!0,compact:!0}),(()=>{var n=Yt();return i(n,f(S,{get when(){return!z()},get children(){var d=Vt();return d.$$click=it,i(d,()=>H()===O.Connecting?"Connecting...":"Connect"),T(()=>d.disabled=H()===O.Connecting),d}}),null),i(n,f(S,{get when(){return z()},get children(){var d=Xt();return d.$$click=rt,d}}),null),n})()]}}),C),i(p,()=>$()?"✅ Initialized":"⏳ Initializing..."),y.addEventListener("change",st),re.addEventListener("change",nt),Pe.addEventListener("change",at),i(a,f(S,{get when(){return B.enableUserNotifications!==!1},get children(){return Kt()}}),null),R.$$click=()=>{console.log("🐛 Button click - Debug state:",{isInitialized:$(),isConnected:z(),isSyncing:v(),buttonDisabled:!$()||!z()||v()}),tt()},i(R,f(S,{get when(){return v()},get fallback(){return rs()},get children(){return Qt()}})),k.$$click=ot,k.style.setProperty("background-color","#dc3545"),k.style.setProperty("color","white"),k.style.setProperty("border","none"),k.style.setProperty("padding","10px 20px"),k.style.setProperty("border-radius","5px"),k.style.setProperty("margin-left","10px"),i(De,f(S,{get when(){return ye()},get children(){var n=qt();return n.firstChild,i(n,()=>ye()?.toLocaleTimeString(),null),n}}),null),i(e,f(S,{get when(){return v()||b().totalItems>0},get children(){var n=ss();return n.firstChild,i(n,f(S,{get when(){return v()},get children(){var d=ts(),U=d.firstChild,w=U.firstChild,P=U.nextSibling;return i(P,f(S,{get when(){return b().totalItems>0},get children(){var c=Ht(),x=c.firstChild;return i(c,()=>ae().percentage,x),c}}),null),i(P,f(S,{get when(){return b().currentOperation},get children(){var c=Jt();return i(c,()=>b().currentOperation),c}}),null),i(P,f(S,{get when(){return b().totalItems===0},get children(){var c=Zt();return i(c,()=>b().currentOperation||(b().itemsProcessed>0?`Processing... (${b().itemsProcessed} items)`:"Initializing sync...")),c}}),null),i(P,f(S,{get when(){return b().totalItems>0},get children(){var c=es();return i(c,()=>ae().itemsText),c}}),null),T(c=>{var x=`${b().totalItems>0?ae().percentage:Math.min(85,Math.max(10,b().itemsProcessed*.5))}%`,I=b().totalItems>0?"linear-gradient(90deg, #3b82f6, #1d4ed8)":"linear-gradient(90deg, #f59e0b, #d97706)";return x!==c.e&&((c.e=x)!=null?w.style.setProperty("width",x):w.style.removeProperty("width")),I!==c.t&&((c.t=I)!=null?w.style.setProperty("background",I):w.style.removeProperty("background")),c},{e:void 0,t:void 0}),d}}),null),n}}),le),i(mt,qe),i(ht,He),i(xt,Je),i(e,f(S,{get when(){return Tt(()=>!!V().music)()&&j().music},get children(){var n=ns(),d=n.firstChild,U=d.nextSibling,w=U.firstChild,P=w.firstChild,c=P.nextSibling,x=c.firstChild,I=x.firstChild,D=I.nextSibling;D.nextSibling;var M=x.nextSibling,Q=M.firstChild,We=M.nextSibling,Dt=We.firstChild;return i(w,f(Lt,{get status(){return V().music},compact:!0}),c),i(x,()=>j().music.itemsProcessed,I),i(x,()=>j().music.totalItems,D),i(We,()=>Math.round(j().music.progress),Dt),T(A=>{var Le=`domain-card ${V().music.toLowerCase()}`,ce=`${j().music.progress}%`,de=V().music==="in_progress"?"#ff00ff":"#0f0";return Le!==A.e&&q(w,A.e=Le),ce!==A.t&&((A.t=ce)!=null?Q.style.setProperty("width",ce):Q.style.removeProperty("width")),de!==A.a&&((A.a=de)!=null?Q.style.setProperty("background-color",de):Q.style.removeProperty("background-color")),A},{e:void 0,t:void 0,a:void 0}),n}}),K),i(e,f(S,{get when(){return ne().length>0},get children(){var n=os(),d=n.firstChild,U=d.firstChild,w=U.nextSibling;w.nextSibling;var P=d.nextSibling;return i(d,()=>ne().length,w),i(P,f(Fe,{get each(){return ne()},children:(c,x)=>(()=>{var I=ls(),D=I.firstChild;return D.addEventListener("error",M=>{console.log(`Failed to load image ${x()+1}:`,c),M.target.style.display="none"}),je(D,"src",c),T(()=>je(D,"alt",`Image ${x()+1}`)),I})()})),n}}),K),i(Me,f(Fe,{get each(){return be().slice().reverse()},children:n=>(()=>{var d=cs();return i(d,n),d})()}),null),i(Me,f(S,{get when(){return be().length===0},get children(){return is()}}),null),i(_t,()=>Object.entries(Ot).filter(([n,d])=>d).map(([n,d])=>n).join(", ")),i(Ae,()=>_e().slice(0,8),It),i(zt,()=>B.apiBaseUrl||"http://localhost:8080"),T(n=>{var d=`unified-sync-demo ${B.className||""}`,U=`status-indicator ${$()?"success":"pending"}`,w=!$(),P=!$(),c=`sync-all-button ${v()?"syncing pulse":""}`,x=!$()||!z()||v(),I=!$()||v(),D=!$()||v()?"not-allowed":"pointer",M=!$()||v()?"0.5":"1";return d!==n.e&&q(e,n.e=d),U!==n.t&&q(p,n.t=U),w!==n.a&&(y.disabled=n.a=w),P!==n.o&&(re.disabled=n.o=P),c!==n.i&&q(R,n.i=c),x!==n.n&&(R.disabled=n.n=x),I!==n.s&&(k.disabled=n.s=I),D!==n.h&&((n.h=D)!=null?k.style.setProperty("cursor",D):k.style.removeProperty("cursor")),M!==n.r&&((n.r=M)!=null?k.style.setProperty("opacity",M):k.style.removeProperty("opacity")),n},{e:void 0,t:void 0,a:void 0,o:void 0,i:void 0,n:void 0,s:void 0,h:void 0,r:void 0}),T(()=>y.checked=ee()),T(()=>re.checked=te()),T(()=>Pe.checked=Se()),e})()}Nt("unified-sync-demo",{apiBaseUrl:void 0,clientId:void 0,autoConnect:!0,enableServiceWorker:!0,enableAutoSync:!0,className:"",enableUserNotifications:!0},ds);Et(["click"]);
 //# sourceMappingURL=unified-sync-demo.js.map
 
   </script>
