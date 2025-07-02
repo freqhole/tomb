@@ -10,6 +10,15 @@ use serde_json::Value;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+/// Response type that can be either JSON or binary
+#[derive(Clone)]
+pub enum WebSocketResponseType {
+    /// Standard JSON response
+    Json(WebSocketResponse),
+    /// Binary response with optional metadata
+    Binary { data: Vec<u8>, blob_id: String },
+}
+
 /// Messages sent from client to server
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -37,7 +46,7 @@ pub enum WebSocketMessage {
     GetThumbnails { media_blob_id: String },
 }
 
-/// Messages sent from server to client
+/// Messages sent from server to client (JSON only)
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum WebSocketResponse {
@@ -56,8 +65,8 @@ pub enum WebSocketResponse {
     },
     /// Server sends single media blob
     MediaBlob { blob: MediaBlob },
-    /// Server sends media blob data (binary content)
-    /// Server responds with media blob data
+    /// Server sends media blob data (binary content) - DEPRECATED
+    /// Use WebSocketResponseType::Binary instead for actual binary data
     MediaBlobData {
         id: String,
         data: Vec<u8>,
@@ -144,6 +153,56 @@ impl std::fmt::Debug for WebSocketMessage {
                 .debug_struct("GetThumbnails")
                 .field("media_blob_id", media_blob_id)
                 .finish(),
+        }
+    }
+}
+
+impl WebSocketResponseType {
+    /// Create a JSON response
+    pub fn json(response: WebSocketResponse) -> Self {
+        Self::Json(response)
+    }
+
+    /// Create a binary response
+    pub fn binary(data: Vec<u8>, blob_id: String) -> Self {
+        Self::Binary { data, blob_id }
+    }
+
+    /// Check if this is a binary response
+    pub fn is_binary(&self) -> bool {
+        matches!(self, Self::Binary { .. })
+    }
+
+    /// Get binary data if this is a binary response
+    pub fn binary_data(&self) -> Option<&[u8]> {
+        match self {
+            Self::Binary { data, .. } => Some(data),
+            _ => None,
+        }
+    }
+
+    /// Get blob ID if this is a binary response
+    pub fn blob_id(&self) -> Option<&str> {
+        match self {
+            Self::Binary { blob_id, .. } => Some(blob_id),
+            _ => None,
+        }
+    }
+
+    /// Convert to JSON if this is a JSON response
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        match self {
+            Self::Json(response) => response.to_json(),
+            Self::Binary { blob_id, .. } => {
+                // This shouldn't happen in normal flow, but provide fallback
+                Err(serde_json::Error::io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "Cannot serialize binary response for blob {} to JSON",
+                        blob_id
+                    ),
+                )))
+            }
         }
     }
 }

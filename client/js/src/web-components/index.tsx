@@ -33,6 +33,7 @@ import "./sync-status";
 import "./sync-progress";
 import "./sync-controls";
 import "./sync-demo";
+import "./unified-sync-demo";
 import "./blob-viewer";
 import "./infinite-data-grid";
 import "./generic-infinite-grid";
@@ -55,6 +56,7 @@ const REGISTERED_COMPONENTS = [
   "sync-progress",
   "sync-controls",
   "sync-demo",
+  "unified-sync-demo",
   "blob-viewer",
   "infinite-data-grid",
   "generic-infinite-grid",
@@ -196,6 +198,16 @@ declare global {
         className?: string;
       };
 
+      "unified-sync-demo": {
+        apiBaseUrl?: string;
+        clientId?: string;
+        autoConnect?: boolean;
+        enableServiceWorker?: boolean;
+        enableAutoSync?: boolean;
+        className?: string;
+        enableUserNotifications?: boolean;
+      };
+
       "blob-viewer": {
         blobId?: string;
         baseUrl?: string;
@@ -277,6 +289,7 @@ console.log("🧩 Web Components Library loaded - Available components:", [
   "sync-progress",
   "sync-controls",
   "sync-demo",
+  "unified-sync-demo",
   "blob-viewer",
   "infinite-data-grid",
   "generic-infinite-grid",

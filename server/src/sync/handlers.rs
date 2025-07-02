@@ -104,8 +104,8 @@ pub struct PlaylistSyncQuery {
 /// Query parameters for playlist songs sync
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PlaylistSongSyncQuery {
-    /// Playlist ID to sync songs for
-    pub playlist_id: String,
+    /// Optional playlist ID to filter by (if None, sync all playlist songs)
+    pub playlist_id: Option<String>,
     /// Last sync timestamp in RFC3339 format
     pub last_sync_time: Option<String>,
     /// Pagination cursor for continuing sync
@@ -436,10 +436,18 @@ pub async fn incremental_song_sync(
     };
 
     let music_repo = MusicRepository::new(db.pool().clone());
+    let page_size = params.page_size.unwrap_or(50);
+    let offset = params
+        .cursor
+        .as_ref()
+        .and_then(|c| c.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    // Request one extra item to determine if there are more pages
     let songs = music_repo
         .query_songs(grimoire::music::SongQuery {
-            limit: params.page_size.map(|l| l as i64),
-            offset: Some(0), // TODO: implement cursor-based pagination
+            limit: Some(page_size + 1),
+            offset: Some(offset),
             artist: params.artist,
             album: params.album,
             favorites_only: params.favorites_only,
@@ -452,24 +460,40 @@ pub async fn incremental_song_sync(
             AppError::InternalServerError("Sync operation failed".to_string())
         })?;
 
+    // Calculate pagination metadata
+    let has_more = songs.len() > page_size as usize;
+    let actual_songs = if has_more {
+        songs
+            .into_iter()
+            .take(page_size as usize)
+            .collect::<Vec<_>>()
+    } else {
+        songs
+    };
+    let next_cursor = if has_more {
+        Some((offset + page_size).to_string())
+    } else {
+        None
+    };
+
     info!(
         "Song sync completed for user: {} - {} items",
         user.user().username,
-        songs.len()
+        actual_songs.len()
     );
 
     Ok(Json(serde_json::json!({
-        "items": songs,
+        "items": actual_songs,
         "pagination": {
-            "batch_size": songs.len(),
-            "has_more": false,
-            "next_cursor": null,
+            "batch_size": actual_songs.len(),
+            "has_more": has_more,
+            "next_cursor": next_cursor,
             "progress": null,
             "suggested_delay": null
         },
         "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
         "is_full_sync": last_sync_time.is_none(),
-        "total_items": songs.len()
+        "total_items": actual_songs.len()
     })))
 }
 
@@ -498,10 +522,18 @@ pub async fn incremental_playlist_sync(
     };
 
     let music_repo = MusicRepository::new(db.pool().clone());
+    let page_size = params.page_size.unwrap_or(50);
+    let offset = params
+        .cursor
+        .as_ref()
+        .and_then(|c| c.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    // Request one extra item to determine if there are more pages
     let playlists = music_repo
         .query_playlists(grimoire::music::PlaylistQuery {
-            limit: params.page_size.map(|l| l as i64),
-            offset: Some(0), // TODO: implement cursor-based pagination
+            limit: Some(page_size + 1),
+            offset: Some(offset),
             public_only: params.public_only,
             client_id: params.client_id,
             updated_after: last_sync_time,
@@ -519,18 +551,34 @@ pub async fn incremental_playlist_sync(
         playlists.len()
     );
 
+    // Calculate pagination metadata
+    let has_more = playlists.len() > page_size as usize;
+    let actual_playlists = if has_more {
+        playlists
+            .into_iter()
+            .take(page_size as usize)
+            .collect::<Vec<_>>()
+    } else {
+        playlists
+    };
+    let next_cursor = if has_more {
+        Some((offset + page_size).to_string())
+    } else {
+        None
+    };
+
     Ok(Json(serde_json::json!({
-        "items": playlists,
+        "items": actual_playlists,
         "pagination": {
-            "batch_size": playlists.len(),
-            "has_more": false,
-            "next_cursor": null,
+            "batch_size": actual_playlists.len(),
+            "has_more": has_more,
+            "next_cursor": next_cursor,
             "progress": null,
             "suggested_delay": null
         },
         "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
         "is_full_sync": last_sync_time.is_none(),
-        "total_items": playlists.len()
+        "total_items": actual_playlists.len()
     })))
 }
 
@@ -540,15 +588,27 @@ pub async fn incremental_playlist_song_sync(
     Extension(user): Extension<AuthenticatedUser>,
     Query(params): Query<PlaylistSongSyncQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let playlist_filter_msg = if let Some(ref pid) = params.playlist_id {
+        format!(" for playlist: {}", pid)
+    } else {
+        " for all playlists".to_string()
+    };
+
     info!(
-        "Playlist songs sync requested by user: {} for playlist: {}",
+        "Playlist songs sync requested by user: {}{}",
         user.user().username,
-        params.playlist_id
+        playlist_filter_msg
     );
 
-    // Parse playlist ID
-    let playlist_id = uuid::Uuid::parse_str(&params.playlist_id)
-        .map_err(|e| AppError::BadRequest(format!("Invalid playlist_id format: {}", e)))?;
+    // Parse playlist ID if provided
+    let playlist_id = if let Some(pid_str) = &params.playlist_id {
+        Some(
+            uuid::Uuid::parse_str(pid_str)
+                .map_err(|e| AppError::BadRequest(format!("Invalid playlist_id format: {}", e)))?,
+        )
+    } else {
+        None
+    };
 
     // Parse last sync time
     let last_sync_time = if let Some(time_str) = params.last_sync_time {
@@ -562,24 +622,62 @@ pub async fn incremental_playlist_song_sync(
         None
     };
 
+    let page_size = params.page_size.unwrap_or(50);
+    let offset = params
+        .cursor
+        .as_ref()
+        .and_then(|c| c.parse::<i64>().ok())
+        .unwrap_or(0);
+
     // Get playlist songs as simple PlaylistSong entities (not detailed with song info)
+    // Request one extra item to determine if there are more pages
     let playlist_songs = if let Some(sync_time) = last_sync_time {
-        sqlx::query_as::<_, grimoire::music::PlaylistSong>(
-            "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
-             FROM playlist_songs
-             WHERE playlist_id = $1 AND created_at > $2
-             ORDER BY position",
-        )
-        .bind(playlist_id)
-        .bind(sync_time)
+        if let Some(pid) = playlist_id {
+            sqlx::query_as::<_, grimoire::music::PlaylistSong>(
+                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
+                 FROM playlist_songs
+                 WHERE playlist_id = $1 AND created_at > $2
+                 ORDER BY playlist_id, position
+                 LIMIT $3 OFFSET $4",
+            )
+            .bind(pid)
+            .bind(sync_time)
+            .bind(page_size + 1)
+            .bind(offset)
+        } else {
+            sqlx::query_as::<_, grimoire::music::PlaylistSong>(
+                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
+                 FROM playlist_songs
+                 WHERE created_at > $1
+                 ORDER BY playlist_id, position
+                 LIMIT $2 OFFSET $3",
+            )
+            .bind(sync_time)
+            .bind(page_size + 1)
+            .bind(offset)
+        }
     } else {
-        sqlx::query_as::<_, grimoire::music::PlaylistSong>(
-            "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
-             FROM playlist_songs
-             WHERE playlist_id = $1
-             ORDER BY position",
-        )
-        .bind(playlist_id)
+        if let Some(pid) = playlist_id {
+            sqlx::query_as::<_, grimoire::music::PlaylistSong>(
+                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
+                 FROM playlist_songs
+                 WHERE playlist_id = $1
+                 ORDER BY playlist_id, position
+                 LIMIT $2 OFFSET $3",
+            )
+            .bind(pid)
+            .bind(page_size + 1)
+            .bind(offset)
+        } else {
+            sqlx::query_as::<_, grimoire::music::PlaylistSong>(
+                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
+                 FROM playlist_songs
+                 ORDER BY playlist_id, position
+                 LIMIT $1 OFFSET $2",
+            )
+            .bind(page_size + 1)
+            .bind(offset)
+        }
     }
     .fetch_all(db.pool())
     .await
@@ -594,17 +692,33 @@ pub async fn incremental_playlist_song_sync(
         playlist_songs.len()
     );
 
+    // Calculate pagination metadata
+    let has_more = playlist_songs.len() > page_size as usize;
+    let actual_playlist_songs = if has_more {
+        playlist_songs
+            .into_iter()
+            .take(page_size as usize)
+            .collect::<Vec<_>>()
+    } else {
+        playlist_songs
+    };
+    let next_cursor = if has_more {
+        Some((offset + page_size).to_string())
+    } else {
+        None
+    };
+
     Ok(Json(serde_json::json!({
-        "items": playlist_songs,
+        "items": actual_playlist_songs,
         "pagination": {
-            "batch_size": playlist_songs.len(),
-            "has_more": false,
-            "next_cursor": null,
+            "batch_size": actual_playlist_songs.len(),
+            "has_more": has_more,
+            "next_cursor": next_cursor,
             "progress": null,
             "suggested_delay": null
         },
         "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
         "is_full_sync": last_sync_time.is_none(),
-        "total_items": playlist_songs.len()
+        "total_items": actual_playlist_songs.len()
     })))
 }

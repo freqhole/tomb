@@ -166,6 +166,27 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
     ],
   },
 
+  "unified-sync-demo": {
+    name: "unified-sync-demo",
+    title: "Unified Sync System Demo - Phase 4",
+    description: "🚀 Unified Sync System with Auto-Sync & Service Worker",
+    element: "unified-sync-demo",
+    attributes: {
+      "api-base-url": "http://localhost:8080",
+      "auto-connect": "true",
+      "enable-service-worker": "true",
+      "enable-auto-sync": "true",
+      "enable-user-notifications": "true",
+    },
+    instructions: [
+      "Make sure your Axum server is running on <code>localhost:8080</code> (API) and WebSocket on <code>localhost:8080</code>",
+      "Phase 4: Complete unified sync system with single 'Sync All' button",
+      "Features auto-connect, service worker background sync, and real-time notifications",
+      "Uses the new clean sync/ system instead of sync-legacy/",
+      "Toggle service worker and auto-sync features to see the system in action",
+    ],
+  },
+
   "product-data-grid-demo": {
     name: "product-data-grid-demo",
     title: "Product Catalog Grid Demo",
@@ -259,6 +280,7 @@ function generateStandaloneFiles(): import("vite").Plugin {
           "product-data-grid-demo.js": "product-data-grid-demo",
           "freqhole-demo.js": "freqhole-demo",
           "websocket-thumbnail-demo.js": "websocket-thumbnail-demo",
+          "unified-sync-demo.js": "unified-sync-demo",
         };
 
         const templateKey = nameMapping[chunk.fileName];
@@ -307,7 +329,13 @@ function generateStandaloneFiles(): import("vite").Plugin {
 }
 
 export default defineConfig({
-  plugins: [solid(), generateStandaloneFiles()],
+  plugins: [
+    solid({
+      typescript: true,
+      jsx: "preserve",
+    }),
+    generateStandaloneFiles(),
+  ],
   build: {
     outDir: "dist",
     target: "esnext",
@@ -326,6 +354,7 @@ export default defineConfig({
         "freqhole-demo": "./src/web-components/freqhole-demo.tsx",
         "websocket-thumbnail-demo":
           "./src/web-components/websocket-thumbnail-demo.tsx",
+        "unified-sync-demo": "./src/web-components/unified-sync-demo.tsx",
         "all-components": "./src/web-components/index.tsx",
       },
       output: {
@@ -340,6 +369,7 @@ export default defineConfig({
             "product-data-grid-demo": "product-data-grid-demo.js",
             "freqhole-demo": "freqhole-demo.js",
             "websocket-thumbnail-demo": "websocket-thumbnail-demo.js",
+            "unified-sync-demo": "unified-sync-demo.js",
             "all-components": "all-components.js",
           };
           return nameMap[chunkInfo.name] || "[name].js";

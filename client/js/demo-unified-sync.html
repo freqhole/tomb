@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Unified Sync System Demo - Phase 4</title>
+    <style>
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        color: #333;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        overflow: hidden;
+      }
+
+      .header {
+        background: linear-gradient(135deg, #2c3e50, #34495e);
+        color: white;
+        padding: 30px;
+        text-align: center;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 2.5em;
+        font-weight: 300;
+      }
+
+      .header p {
+        margin: 10px 0 0 0;
+        opacity: 0.9;
+        font-size: 1.1em;
+      }
+
+      .demo-section {
+        padding: 20px;
+      }
+
+      .info-panel {
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+
+      .info-panel h3 {
+        margin: 0 0 15px 0;
+        color: #2c3e50;
+        font-size: 1.2em;
+      }
+
+      .info-panel ul {
+        margin: 0;
+        padding-left: 20px;
+      }
+
+      .info-panel li {
+        margin-bottom: 8px;
+        color: #555;
+      }
+
+      .features-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        margin: 20px 0;
+      }
+
+      .feature-card {
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+      }
+
+      .feature-card .icon {
+        font-size: 2em;
+        margin-bottom: 10px;
+      }
+
+      .feature-card h4 {
+        margin: 0 0 10px 0;
+        color: #2c3e50;
+      }
+
+      .feature-card p {
+        margin: 0;
+        color: #666;
+        font-size: 0.9em;
+      }
+
+      .status-bar {
+        background: #e8f5e8;
+        border: 1px solid #c3e6c3;
+        border-radius: 4px;
+        padding: 10px 15px;
+        margin-bottom: 20px;
+        font-weight: 500;
+        color: #2d5a2d;
+      }
+
+      .warning-bar {
+        background: #fff3cd;
+        border: 1px solid #ffeaa7;
+        border-radius: 4px;
+        padding: 10px 15px;
+        margin-bottom: 20px;
+        font-weight: 500;
+        color: #856404;
+      }
+
+      .code-snippet {
+        background: #f1f3f4;
+        border: 1px solid #dadce0;
+        border-radius: 4px;
+        padding: 15px;
+        margin: 15px 0;
+        font-family: "Monaco", "Menlo", monospace;
+        font-size: 14px;
+        overflow-x: auto;
+      }
+
+      .footer {
+        background: #2c3e50;
+        color: white;
+        padding: 20px;
+        text-align: center;
+        font-size: 0.9em;
+      }
+
+      .footer a {
+        color: #3498db;
+        text-decoration: none;
+      }
+
+      .footer a:hover {
+        text-decoration: underline;
+      }
+
+      @media (max-width: 768px) {
+        body {
+          padding: 10px;
+        }
+
+        .header h1 {
+          font-size: 2em;
+        }
+
+        .features-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🚀 Unified Sync System Demo</h1>
+        <p>
+          Phase 4: Complete UI Integration with Auto-Sync & Service Worker
+          Support
+        </p>
+      </div>
+
+      <div class="demo-section">
+        <div class="status-bar">
+          ✅ <strong>Phase 4 Complete:</strong> Unified UI demo showcasing the
+          new sync system architecture
+        </div>
+
+        <div class="info-panel">
+          <h3>🎯 What's New in Phase 4</h3>
+          <ul>
+            <li>
+              <strong>Single "Sync All" Button:</strong> No more domain-specific
+              controls - just one unified sync action
+            </li>
+            <li>
+              <strong>Auto WebSocket Connection:</strong> Automatic connection
+              with visual status indicators
+            </li>
+            <li>
+              <strong>Service Worker Toggle:</strong> Enable/disable background
+              sync capabilities
+            </li>
+            <li>
+              <strong>Auto-Sync Controls:</strong> Toggle automatic sync on
+              content changes
+            </li>
+            <li>
+              <strong>Real-time Progress:</strong> Live progress bars and
+              statistics
+            </li>
+            <li>
+              <strong>Domain Status Overview:</strong> Visual status for each
+              sync domain (music, photos, etc.)
+            </li>
+            <li>
+              <strong>Activity Logging:</strong> Real-time activity feed with
+              timestamps
+            </li>
+          </ul>
+        </div>
+
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="icon">🔗</div>
+            <h4>Auto Connection</h4>
+            <p>
+              Automatic WebSocket connection with reconnection handling and
+              status indicators
+            </p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">🎯</div>
+            <h4>Unified Sync</h4>
+            <p>
+              Single button to sync all domains with intelligent priority
+              ordering
+            </p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">🔧</div>
+            <h4>Service Worker</h4>
+            <p>Background sync capabilities with resource-aware scheduling</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">🔄</div>
+            <h4>Auto-Sync</h4>
+            <p>Automatic synchronization when new content is detected</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">📊</div>
+            <h4>Real-time Progress</h4>
+            <p>Live progress tracking with detailed statistics and ETA</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">🔔</div>
+            <h4>Smart Notifications</h4>
+            <p>Intelligent notification routing and user alerts</p>
+          </div>
+        </div>
+
+        <div class="warning-bar">
+          ⚠️ <strong>Note:</strong> Make sure the Axum server is running on
+          localhost:8080 (API) and WebSocket server on localhost:8080
+        </div>
+
+        <!-- The main demo component -->
+        <unified-sync-demo
+          api-base-url="http://localhost:8080"
+          auto-connect="true"
+          enable-service-worker="true"
+          enable-auto-sync="true"
+          enable-user-notifications="true"
+        >
+        </unified-sync-demo>
+
+        <div class="info-panel">
+          <h3>📝 Implementation Details</h3>
+          <p>
+            This demo uses the new unified sync system (<code>sync/</code>)
+            instead of the legacy system (<code>sync-legacy/</code>). The legacy
+            system remains available for backward compatibility.
+          </p>
+
+          <h4>Key Components:</h4>
+          <div class="code-snippet">
+            // Uses the clean sync system import { createConfiguredSyncManager,
+            setupPhase3AutoSyncQuick } from "../sync/index.js"; // Legacy demos
+            still use sync-legacy/ import { createSyncManager } from
+            "../sync-legacy/index.js";
+          </div>
+
+          <h4>Usage:</h4>
+          <div class="code-snippet">
+            &lt;unified-sync-demo api-base-url="http://localhost:8080"
+            auto-connect="true" enable-service-worker="true"
+            enable-auto-sync="true" enable-user-notifications="true"&gt;
+            &lt;/unified-sync-demo&gt;
+          </div>
+        </div>
+
+        <div class="info-panel">
+          <h3>🔍 Technical Architecture</h3>
+          <ul>
+            <li>
+              <strong>UnifiedSyncManager:</strong> Single manager for all sync
+              domains
+            </li>
+            <li>
+              <strong>Phase 3 Auto-Sync:</strong> Enhanced auto-sync with
+              notification routing
+            </li>
+            <li>
+              <strong>Service Worker Integration:</strong> Background sync with
+              resource awareness
+            </li>
+            <li>
+              <strong>WebSocket Notifications:</strong> Real-time updates using
+              existing channels
+            </li>
+            <li>
+              <strong>Domain Configs:</strong> Configurable sync behavior per
+              domain type
+            </li>
+            <li>
+              <strong>Unified Storage:</strong> Single storage interface for all
+              domains
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p>
+          🚀 <strong>Phase 4 Complete</strong> | Next:
+          <a href="#phase5">Phase 5 - Multi-Domain Foundation</a> |
+          <a href="https://github.com/your-repo">View Source</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- Load the web components library -->
+    <script type="module" src="dist/web-components/index.js"></script>
+
+    <script>
+      // Add some interactive feedback
+      document.addEventListener("DOMContentLoaded", () => {
+        console.log("🚀 Unified Sync Demo Page Loaded");
+        console.log("📋 Phase 4: Unified UI Demo");
+
+        // Listen for custom events from the sync demo
+        const demoElement = document.querySelector("unified-sync-demo");
+        if (demoElement) {
+          // Add event listeners for demo events if needed
+          console.log("✅ Unified Sync Demo element found and ready");
+        }
+      });
+    </script>
+  </body>
+</html>

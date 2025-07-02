@@ -4,7 +4,7 @@
 //! auth system and handle real-time communication for media blob sharing.
 
 use crate::media::{MediaBlobQuery, MediaRepository, MediaService};
-use crate::websocket::messages::{WebSocketMessage, WebSocketResponse};
+use crate::websocket::messages::{WebSocketMessage, WebSocketResponse, WebSocketResponseType};
 use axum::{
     extract::{ws::WebSocket, WebSocketUpgrade},
     response::Response,
@@ -276,13 +276,36 @@ async fn handle_websocket_message(
                     )
                     .await
                     {
-                        if let Ok(response_json) = response.to_json() {
-                            if let Err(e) = socket
-                                .send(axum::extract::ws::Message::Text(response_json.into()))
-                                .await
-                            {
-                                error!("Failed to send response: {}", e);
-                                return Ok(false);
+                        match response {
+                            WebSocketResponseType::Json(json_response) => {
+                                if let Ok(response_json) = json_response.to_json() {
+                                    if let Err(e) = socket
+                                        .send(axum::extract::ws::Message::Text(
+                                            response_json.into(),
+                                        ))
+                                        .await
+                                    {
+                                        error!("Failed to send JSON response: {}", e);
+                                        return Ok(false);
+                                    }
+                                }
+                            }
+                            WebSocketResponseType::Binary { data, blob_id } => {
+                                info!(
+                                    "Sending binary WebSocket frame for blob {} ({} bytes)",
+                                    blob_id,
+                                    data.len()
+                                );
+                                if let Err(e) = socket
+                                    .send(axum::extract::ws::Message::Binary(data.into()))
+                                    .await
+                                {
+                                    error!(
+                                        "Failed to send binary response for blob {}: {}",
+                                        blob_id, e
+                                    );
+                                    return Ok(false);
+                                }
                             }
                         }
                     }
@@ -329,7 +352,7 @@ async fn handle_message(
     config: &AppConfig,
     connection_manager: &ConnectionManager,
     connection_id: &str,
-) -> Option<WebSocketResponse> {
+) -> Option<WebSocketResponseType> {
     match &message {
         WebSocketMessage::UploadMediaBlob { blob } => {
             info!(
@@ -347,7 +370,7 @@ async fn handle_message(
     match message {
         WebSocketMessage::Ping => {
             debug!("Ping received, responding with pong");
-            Some(WebSocketResponse::Pong)
+            Some(WebSocketResponseType::json(WebSocketResponse::Pong))
         }
         WebSocketMessage::GetMediaBlobs { limit, offset } => {
             info!(
@@ -372,14 +395,16 @@ async fn handle_message(
                         .total_count
                         .unwrap_or(blobs_result.items.len() as i64)
                         as u32;
-                    Some(WebSocketResponse::MediaBlobs {
+                    Some(WebSocketResponseType::json(WebSocketResponse::MediaBlobs {
                         blobs: blobs_result.items,
                         total_count,
-                    })
+                    }))
                 }
                 Err(e) => {
                     error!("Failed to fetch media blobs: {}", e);
-                    Some(WebSocketResponse::error("Failed to fetch media blobs"))
+                    Some(WebSocketResponseType::json(WebSocketResponse::error(
+                        "Failed to fetch media blobs",
+                    )))
                 }
             }
         }
@@ -393,10 +418,14 @@ async fn handle_message(
             let service = MediaService::new(repository);
 
             match service.get_blob(&id, false).await {
-                Ok(blob) => Some(WebSocketResponse::MediaBlob { blob }),
+                Ok(blob) => Some(WebSocketResponseType::json(WebSocketResponse::MediaBlob {
+                    blob,
+                })),
                 Err(e) => {
                     warn!("Media blob not found: {} - {}", id, e);
-                    Some(WebSocketResponse::error("Media blob not found"))
+                    Some(WebSocketResponseType::json(WebSocketResponse::error(
+                        "Media blob not found",
+                    )))
                 }
             }
         }
@@ -412,19 +441,25 @@ async fn handle_message(
             match service.get_blob(&id, true).await {
                 Ok(blob) => {
                     if let Some(data) = blob.data {
-                        Some(WebSocketResponse::MediaBlobData {
-                            id: blob.id,
-                            data,
-                            mime: blob.mime,
-                        })
+                        info!(
+                            "Sending binary data for blob {} (size: {} bytes)",
+                            blob.id,
+                            data.len()
+                        );
+                        // Send raw binary data instead of JSON
+                        Some(WebSocketResponseType::binary(data, blob.id))
                     } else {
                         warn!("Media blob {} has no data", id);
-                        Some(WebSocketResponse::error("Media blob has no data"))
+                        Some(WebSocketResponseType::json(WebSocketResponse::error(
+                            "Media blob has no data",
+                        )))
                     }
                 }
                 Err(e) => {
                     warn!("Media blob not found: {} - {}", id, e);
-                    Some(WebSocketResponse::error("Media blob not found"))
+                    Some(WebSocketResponseType::json(WebSocketResponse::error(
+                        "Media blob not found",
+                    )))
                 }
             }
         }
@@ -520,11 +555,15 @@ async fn handle_message(
                         }
                     }
 
-                    Some(WebSocketResponse::MediaBlob { blob: created_blob })
+                    Some(WebSocketResponseType::json(WebSocketResponse::MediaBlob {
+                        blob: created_blob,
+                    }))
                 }
                 Err(e) => {
                     error!("Failed to create media blob: {}", e);
-                    Some(WebSocketResponse::error("Failed to upload media blob"))
+                    Some(WebSocketResponseType::json(WebSocketResponse::error(
+                        "Failed to upload media blob",
+                    )))
                 }
             }
         }
@@ -539,13 +578,17 @@ async fn handle_message(
                     "✅ Successfully subscribed connection {} to channel {:?}",
                     connection_id, channel
                 );
-                Some(WebSocketResponse::notification_subscribed(channel))
+                Some(WebSocketResponseType::json(
+                    WebSocketResponse::notification_subscribed(channel),
+                ))
             } else {
                 warn!(
                     "❌ Failed to subscribe connection {} to channel {:?}",
                     connection_id, channel
                 );
-                Some(WebSocketResponse::error("Failed to subscribe to channel"))
+                Some(WebSocketResponseType::json(WebSocketResponse::error(
+                    "Failed to subscribe to channel",
+                )))
             }
         }
         WebSocketMessage::UnsubscribeFromNotifications { channel } => {
@@ -559,25 +602,29 @@ async fn handle_message(
                     "✅ Successfully unsubscribed connection {} from channel {:?}",
                     connection_id, channel
                 );
-                Some(WebSocketResponse::notification_unsubscribed(channel))
+                Some(WebSocketResponseType::json(
+                    WebSocketResponse::notification_unsubscribed(channel),
+                ))
             } else {
                 warn!(
                     "❌ Failed to unsubscribe connection {} from channel {:?}",
                     connection_id, channel
                 );
-                Some(WebSocketResponse::error(
+                Some(WebSocketResponseType::json(WebSocketResponse::error(
                     "Failed to unsubscribe from channel",
-                ))
+                )))
             }
         }
         WebSocketMessage::GetNotificationStatus => {
             info!("GetNotificationStatus request from user: {:?}", user_id);
 
             let subscribed_channels = connection_manager.get_subscribed_channels(connection_id);
-            Some(WebSocketResponse::notification_status(
-                subscribed_channels,
-                connection_id.to_string(),
-                user_id.is_some(),
+            Some(WebSocketResponseType::json(
+                WebSocketResponse::notification_status(
+                    subscribed_channels,
+                    connection_id.to_string(),
+                    user_id.is_some(),
+                ),
             ))
         }
         WebSocketMessage::GetThumbnails { media_blob_id } => {
@@ -616,14 +663,16 @@ async fn handle_message(
                         }
                     }
 
-                    Some(WebSocketResponse::Thumbnails {
+                    Some(WebSocketResponseType::json(WebSocketResponse::Thumbnails {
                         media_blob_id: media_blob_id.clone(),
                         thumbnails,
-                    })
+                    }))
                 }
                 Err(e) => {
                     warn!("Failed to get thumbnails for blob {}: {}", media_blob_id, e);
-                    Some(WebSocketResponse::error("Failed to get thumbnails"))
+                    Some(WebSocketResponseType::json(WebSocketResponse::error(
+                        "Failed to get thumbnails",
+                    )))
                 }
             }
         }
