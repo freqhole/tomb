@@ -1,10 +1,10 @@
 # Music Sync Implementation Plan
 
-## 🎉 **PHASE 3 COMPLETED!** 🎉
+## 🎉 **PHASE 3 COMPLETED!** 🎉 + Progress UI Enhancement
 
 **Latest Achievement**: Complete CLI Music Scanner with service layer architecture!
 
-### What Just Shipped:
+### What Just Shipped (Updated):
 
 - 🎵 **Full CLI Interface**: `music scan`, `resume`, `status`, `info`, `cancel`, `cleanup`
 - 🏗️ **Service Layer Architecture**: Clean separation CLI → Service → Database
@@ -339,9 +339,37 @@ cargo run --bin cli music resume <session-id>
   - [ ] WebSocket-triggered immediate sync
   - [ ] UI-first rendering strategy
 
-### Phase 5: Advanced Features
+### Phase 5: Advanced Features & UI Enhancements
 
-#### ✅ Task 5.1: Music Library Analytics
+#### ✅ Task 5.1: Progress UI Enhancement - COMPLETED ✅
+
+**Status**: ✅ **COMPLETED** - Modern progress UI with real-time feedback
+
+**What Was Built**:
+
+- **Binary Progress Events**: Real-time progress during WebSocket binary downloads
+- **Unified Progress Bar**: Single horizontal progress bar showing overall sync status
+- **Storage Statistics**: Live display of IndexedDB usage (total, music items, binary data)
+- **Dark Theme**: Black/white/magenta color scheme for professional appearance
+- **Connection State Management**: Robust WebSocket connection handling and status display
+- **Operation Feedback**: Shows current operation ("Downloading binary data (3/15)")
+
+**Technical Implementation**:
+
+- Added `BinarySyncProgressEvent` to track individual binary file downloads
+- Enhanced `unified-sync-manager.ts` with progress event emission during binary sync
+- Improved `unified-sync-demo.tsx` with reactive storage statistics using Solid.js signals
+- Fixed connection state synchronization between WebSocket and UI displays
+- Simplified progress display to single horizontal bar with embedded operation text
+
+**User Experience**:
+
+- Progress flow: "Initializing sync..." → "Processing... (45 items)" → "Downloading binary data (3/15)"
+- Storage stats update immediately: "245 items" and "2.3 MB" for music and binary data
+- Sync button properly enables when WebSocket connects
+- Real-time feedback during the longest operation (binary downloads)
+
+#### ✅ Task 5.2: Music Library Analytics
 
 **Depends on: Phase 3 (populated music data)**
 
@@ -363,7 +391,7 @@ cargo run --bin cli music resume <session-id>
   - [ ] Comprehensive metrics calculation
   - [ ] Human-readable output format
 
-#### ✅ Task 5.2: Music Search and Discovery
+#### ✅ Task 5.3: Music Search and Discovery
 
 **Depends on: Phase 3 (populated music data)**
 
@@ -443,6 +471,37 @@ interface MusicNotification {
 3. Reference audio files via local_path → HTTP API when needed (low priority)
 4. Background sync when idle
 ```
+
+## MediaBlobData Server Issue Context
+
+**ISSUE IDENTIFIED**: The CLI music scanner is storing entire audio files in the database instead of just thumbnails.
+
+**Root Cause**: In `cli/src/music.rs` line 922-938, the `process_audio_file` method reads the entire audio file content and stores it in the `media_blobs.data` column.
+
+**Current Behavior**:
+
+- CLI music scanner loads full audio files (potentially hundreds of MB) into `media_blobs.data`
+- WebSocket handler correctly reads from database (`media_blobs.data` column)
+- Large files are causing database bloat and violating intended architecture
+
+**Expected Behavior**:
+
+- Only store thumbnail/album art data (< 10MB) in `media_blobs.data` column
+- Original audio files should use `local_path` reference only, with `data` column as NULL
+- WebSocket handler should only serve small binary assets (thumbnails, waveforms)
+
+**Fix Required**:
+
+1. **CLI Scanner Fix**: Modify `process_audio_file` to store `data: None` for original audio files
+2. **Database Constraint**: Add 10MB size limit constraint to `media_blobs.data` column
+3. **Keep Thumbnails**: Thumbnail extraction (lines 966-991) should continue storing in database
+
+**Architecture Clarification**:
+
+- `blob_type = 'original'`: Store in filesystem (`local_path`), `data = NULL`
+- `blob_type = 'thumbnail'`: Store in database (`data` column), under 10MB limit
+- `blob_type = 'waveform'`: Store in database (`data` column), under 10MB limit
+- WebSocket binary sync only serves database-stored assets (thumbnails, waveforms)
 
 ## Risk Mitigation
 

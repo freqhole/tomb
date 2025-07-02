@@ -77,11 +77,29 @@ CREATE TRIGGER trigger_media_blobs_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_media_blobs_updated_at();
 
+-- Add size constraint for data column to prevent storing files larger than 10MB
+-- Only applies when data is NOT NULL
+ALTER TABLE media_blobs ADD CONSTRAINT chk_data_size_limit
+    CHECK (data IS NULL OR octet_length(data) <= 10485760);
+
+-- Create a function to check if a bytea value would exceed the limit
+-- This can be used before inserting data to validate size
+CREATE OR REPLACE FUNCTION check_media_blob_data_size(data_blob BYTEA)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN data_blob IS NULL OR octet_length(data_blob) <= 10485760;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Comments for documentation
 COMMENT ON TABLE media_blobs IS 'Stores media file metadata and optionally binary data for WebSocket file sharing';
-COMMENT ON COLUMN media_blobs.data IS 'Optional binary data - may be stored externally and referenced by local_path';
+COMMENT ON COLUMN media_blobs.data IS 'Optional binary data - limited to 10MB. Larger files should use local_path reference instead';
 COMMENT ON COLUMN media_blobs.id IS 'Short hash (7-16 chars) auto-generated from SHA256 for human-readable URLs';
 COMMENT ON COLUMN media_blobs.sha256 IS 'Full SHA256 hash for deduplication and integrity verification';
 COMMENT ON COLUMN media_blobs.source_client_id IS 'Identifier of the client that uploaded this blob';
 COMMENT ON COLUMN media_blobs.local_path IS 'Local filesystem path if data is stored externally';
 COMMENT ON COLUMN media_blobs.metadata IS 'Additional metadata as JSON (dimensions, duration, etc.)';
+COMMENT ON CONSTRAINT chk_data_size_limit ON media_blobs IS
+    'Ensures binary data stored in database does not exceed 10MB. Larger files should use local_path reference instead.';
+COMMENT ON FUNCTION check_media_blob_data_size(BYTEA) IS
+    'Helper function to validate if bytea data is within 10MB limit before database insertion';

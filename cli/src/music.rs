@@ -920,9 +920,9 @@ impl MusicCommands {
         // Check if file already exists by hash
         // TODO: Add duplicate checking once MediaBlobService supports it
 
-        // Read file content
-        let file_content = tokio::fs::read(file_path).await?;
-        let file_size = file_content.len() as i64;
+        // Get file size without reading content (original audio files stored on filesystem only)
+        let file_metadata = std::fs::metadata(file_path)?;
+        let file_size = file_metadata.len() as i64;
 
         // Detect MIME type
         let config = AppConfig::default();
@@ -931,9 +931,9 @@ impl MusicCommands {
             .get_mime_type(file_path)
             .unwrap_or_else(|_| "audio/mpeg".to_string());
 
-        // Create media blob
+        // Create media blob for original audio file (stored on filesystem, not in database)
         let create_blob = CreateMediaBlob {
-            data: Some(file_content),
+            data: None, // Original audio files are stored on filesystem, not in database
             sha256: file_hash.clone(),
             size: Some(file_size),
             mime: Some(mime_type.clone()),
@@ -947,7 +947,8 @@ impl MusicCommands {
                 "filename": file_path
                     .file_name()
                     .and_then(|name| name.to_str())
-                    .map(|s| s.to_string())
+                    .map(|s| s.to_string()),
+                "storage_type": "filesystem"
             }),
         };
 
@@ -1064,10 +1065,18 @@ impl MusicCommands {
             "has_embedded_thumbnail": thumbnail_blob_id.is_some()
         });
 
+        // This will be replaced by the new code above
+        // Generate waveform visualization
+        let waveform_blob_id = self
+            .generate_waveform_for_audio_file(&media_repository, &media_blob.id, file_path)
+            .await?;
+
+        // Update the song creation to include waveform_blob_id
         let song_id = repository
-            .create_song_with_metadata(
+            .create_song_with_waveform_metadata(
                 &media_blob.id,
                 thumbnail_blob_id.as_deref(),
+                waveform_blob_id.as_deref(),
                 smart_title,
                 artist,
                 album,
@@ -1080,21 +1089,20 @@ impl MusicCommands {
             )
             .await?;
 
-        let thumbnail_info = if thumbnail_blob_id.is_some() {
-            " + Thumbnail"
+        let waveform_info = if waveform_blob_id.is_some() {
+            " + Waveform"
         } else {
             ""
         };
 
         println!(
-            "✅ Processed: {} -> Song ID: {} (Media Blob: {}{})",
+            "✅ Processed: {} -> Song ID: {} (Media Blob: {}{}{})",
             file_path.display(),
             song_id,
             media_blob.id,
-            thumbnail_info
+            thumbnail_info,
+            waveform_info
         );
-
-        // TODO: Queue waveform generation job
 
         Ok(())
     }
@@ -3178,6 +3186,286 @@ impl MusicCommands {
         }
 
         println!("✅ Playlist finished");
+        Ok(())
+    }
+
+    async fn generate_waveform_for_audio_file(
+        &self,
+        media_repository: &MediaBlobRepository,
+        audio_blob_id: &str,
+        file_path: &std::path::Path,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        println!("  🌊 Generating waveform visualization...");
+
+        // Load configuration for thumbnail service
+        let config = AppConfig::default();
+        let thumbnail_config = grimoire::config::ConfigService::new().to_thumbnail_config(&config);
+
+        // Create thumbnail service
+        let thumbnail_service =
+            ThumbnailService::new_with_defaults(media_repository.pool().clone());
+
+        // Create a thumbnail job for waveform generation
+        let job = ThumbnailJob {
+            id: Uuid::new_v4(),
+            media_blob_id: audio_blob_id.to_string(),
+            job_type: ThumbnailJobType::AudioWaveform,
+            priority: ThumbnailJobPriority::Low,
+            status: ThumbnailJobStatus::Pending,
+            target_dimensions: Some(ThumbnailDimensions {
+                width: 800,
+                height: 200,
+                maintain_aspect_ratio: false,
+                crop_strategy: "center".to_string(),
+            }),
+            created_at: time::OffsetDateTime::now_utc(),
+            started_at: None,
+            completed_at: None,
+            error_message: None,
+            retry_count: 0,
+            metadata: serde_json::json!({
+                "source": "cli_scan",
+                "audio_file": file_path.to_string_lossy()
+            }),
+        };
+
+        // Generate the waveform thumbnail
+        match thumbnail_service.generate_thumbnail(&job).await {
+            Ok(thumbnail_result) => {
+                // Convert the generated PNG to WebP and store in database
+                let waveform_data = tokio::fs::read(&thumbnail_result.local_path).await?;
+
+                // Convert PNG to WebP for smaller size
+                let webp_data = self.convert_png_to_webp(&waveform_data)?;
+
+                // Create a media blob for the waveform (stored in database)
+                let waveform_hash = hash_bytes(&webp_data);
+                let waveform_create_blob = CreateMediaBlob {
+                    data: Some(webp_data.clone()),
+                    sha256: waveform_hash,
+                    size: Some(webp_data.len() as i64),
+                    mime: Some("image/webp".to_string()),
+                    source_client_id: Some("music-cli-waveform".to_string()),
+                    local_path: None, // Store in database, not filesystem
+                    parent_blob_id: Some(audio_blob_id.to_string()),
+                    blob_type: Some("waveform".to_string()),
+                    metadata: serde_json::json!({
+                        "waveform_source": "ffmpeg_generated",
+                        "original_audio": file_path.to_string_lossy(),
+                        "dimensions": {
+                            "width": thumbnail_result.dimensions.width,
+                            "height": thumbnail_result.dimensions.height
+                        },
+                        "converted_to_webp": true
+                    }),
+                };
+
+                match media_repository.create(waveform_create_blob).await {
+                    Ok(waveform_blob) => {
+                        // Clean up temporary PNG file
+                        let _ = tokio::fs::remove_file(&thumbnail_result.local_path).await;
+
+                        println!(
+                            "  🌊 Generated waveform visualization: {}",
+                            waveform_blob.id
+                        );
+                        Ok(Some(waveform_blob.id))
+                    }
+                    Err(e) => {
+                        eprintln!("  ⚠️  Failed to save waveform: {}", e);
+                        // Clean up temporary PNG file
+                        let _ = tokio::fs::remove_file(&thumbnail_result.local_path).await;
+                        Ok(None)
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("  ⚠️  Failed to generate waveform: {}", e);
+                Ok(None)
+            }
+        }
+    }
+
+    fn convert_png_to_webp(&self, png_data: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        // For now, we'll use the image crate to convert PNG to WebP
+        // This requires adding image and webp dependencies
+        use image::{ImageFormat, ImageReader};
+        use std::io::Cursor;
+
+        let img = ImageReader::new(Cursor::new(png_data))
+            .with_guessed_format()?
+            .decode()?;
+
+        let mut webp_data = Vec::new();
+        let mut cursor = Cursor::new(&mut webp_data);
+
+        img.write_to(&mut cursor, ImageFormat::WebP)?;
+
+        Ok(webp_data)
+    }
+
+    async fn handle_generate_waveforms(
+        &self,
+        service: &MusicService<'_>,
+        limit: u32,
+        force: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🌊 Generating waveform visualizations for songs...");
+
+        let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
+        let media_repository = MediaBlobRepository::new(service.db().pool().clone());
+
+        // Find songs without waveforms (or all songs if force=true)
+        let filter_condition = if force {
+            ""
+        } else {
+            "AND s.waveform_blob_id IS NULL"
+        };
+
+        let songs = sqlx::query!(
+            &format!(
+                "SELECT s.id, s.media_blob_id, s.title, s.artist, mb.local_path
+                 FROM songs s
+                 JOIN media_blobs mb ON s.media_blob_id = mb.id
+                 WHERE s.deleted_at IS NULL
+                 AND mb.local_path IS NOT NULL
+                 {}
+                 LIMIT $1",
+                filter_condition
+            ),
+            limit as i64
+        )
+        .fetch_all(service.db().pool())
+        .await?;
+
+        println!("Found {} songs to process", songs.len());
+
+        let mut processed = 0;
+        let mut generated = 0;
+        let mut errors = 0;
+
+        for song in songs {
+            processed += 1;
+
+            if let Some(local_path) = song.local_path {
+                let file_path = std::path::Path::new(&local_path);
+
+                print!(
+                    "Processing {}/{}: {} - {} ... ",
+                    processed,
+                    limit,
+                    song.artist.unwrap_or_else(|| "Unknown".to_string()),
+                    song.title
+                );
+                std::io::Write::flush(&mut std::io::stdout())?;
+
+                match self
+                    .generate_waveform_for_audio_file(
+                        &media_repository,
+                        &song.media_blob_id,
+                        file_path,
+                    )
+                    .await
+                {
+                    Ok(Some(waveform_blob_id)) => {
+                        // Update the song record with the waveform blob ID
+                        sqlx::query!(
+                            "UPDATE songs SET waveform_blob_id = $1, updated_at = NOW() WHERE id = $2",
+                            waveform_blob_id,
+                            song.id
+                        )
+                        .execute(service.db().pool())
+                        .await?;
+
+                        generated += 1;
+                        println!("✅");
+                    }
+                    Ok(None) => {
+                        errors += 1;
+                        println!("❌");
+                    }
+                    Err(e) => {
+                        errors += 1;
+                        println!("❌ Error: {}", e);
+                    }
+                }
+            }
+        }
+
+        println!("\n📊 Waveform Generation Summary:");
+        println!("   🔍 Songs processed: {}", processed);
+        println!("   🌊 Waveforms generated: {}", generated);
+        println!("   ❌ Errors: {}", errors);
+
+        Ok(())
+    }
+
+    async fn handle_backfill_waveforms(
+        &self,
+        service: &MusicService<'_>,
+        batch_size: u32,
+        force: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🌊 Backfilling waveform visualizations in batches...");
+
+        let mut offset = 0;
+        let mut total_processed = 0;
+        let mut total_generated = 0;
+        let mut total_errors = 0;
+
+        loop {
+            // Process one batch
+            match self
+                .handle_generate_waveforms(service, batch_size, force)
+                .await
+            {
+                Ok(()) => {
+                    total_processed += batch_size;
+                    println!("✅ Completed batch (offset: {})", offset);
+
+                    // Check if there are more songs to process
+                    let filter_condition = if force {
+                        ""
+                    } else {
+                        "AND s.waveform_blob_id IS NULL"
+                    };
+                    let remaining_count = sqlx::query_scalar!(&format!(
+                        "SELECT COUNT(*) FROM songs s
+                             JOIN media_blobs mb ON s.media_blob_id = mb.id
+                             WHERE s.deleted_at IS NULL
+                             AND mb.local_path IS NOT NULL
+                             {}",
+                        filter_condition
+                    ))
+                    .fetch_one(service.db().pool())
+                    .await?;
+
+                    if remaining_count.unwrap_or(0) == 0 {
+                        println!("🎉 All songs processed!");
+                        break;
+                    }
+
+                    // Small delay between batches to avoid overwhelming the system
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                    offset += batch_size;
+                }
+                Err(e) => {
+                    eprintln!("❌ Error processing batch: {}", e);
+                    total_errors += 1;
+
+                    if total_errors > 5 {
+                        eprintln!("Too many batch errors, stopping.");
+                        break;
+                    }
+                }
+            }
+        }
+
+        println!("\n📊 Backfill Complete:");
+        println!("   📦 Total batches processed: {}", offset / batch_size + 1);
+        println!("   🌊 Total waveforms generated: {}", total_generated);
+        println!("   ❌ Total errors: {}", total_errors);
+
         Ok(())
     }
 }
