@@ -34,13 +34,18 @@ import {
   type SyncProgress,
   type SyncStatusMap,
   type SyncProgressMap,
+  type SyncProgressEvent,
+  type SyncCompletedEvent,
+  type SyncFailedEvent,
+  type AutoSyncTriggeredEvent,
+  type ConnectionChangedEvent,
+  type BinarySyncProgressEvent,
 } from "../sync/index.js";
 import { enableDebug, disableDebug } from "../sync/debug.js";
 import SyncStatusComponent from "./sync-status.js";
 import SyncProgressComponent from "./sync-progress.js";
 import { WebSocketStatus as WebSocketStatusComponent } from "./websocket-status.js";
 import { ConnectionStatus } from "../lib/websocket-client.js";
-import { setupPhase3AutoSync } from "../sync/auto-sync-integration.js";
 
 export interface UnifiedSyncDemoProps {
   apiBaseUrl?: string;
@@ -72,18 +77,56 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
   );
 
   // Sync state
-  const [syncStatus, setSyncStatus] = createSignal<SyncStatusMap>({});
-  const [syncProgress, setSyncProgress] = createSignal<SyncProgressMap>({});
+  const [syncStatus, setSyncStatus] = createSignal<SyncStatusMap>({
+    music: SyncStatus.Never,
+    photos: SyncStatus.Never,
+    documents: SyncStatus.Never,
+    videos: SyncStatus.Never,
+  });
+  const [syncProgress, setSyncProgress] = createSignal<SyncProgressMap>({
+    music: {
+      status: SyncStatus.Never,
+      progress: 0,
+      itemsProcessed: 0,
+      totalItems: 0,
+      currentBatch: 0,
+      totalBatches: 0,
+    },
+    photos: {
+      status: SyncStatus.Never,
+      progress: 0,
+      itemsProcessed: 0,
+      totalItems: 0,
+      currentBatch: 0,
+      totalBatches: 0,
+    },
+    documents: {
+      status: SyncStatus.Never,
+      progress: 0,
+      itemsProcessed: 0,
+      totalItems: 0,
+      currentBatch: 0,
+      totalBatches: 0,
+    },
+    videos: {
+      status: SyncStatus.Never,
+      progress: 0,
+      itemsProcessed: 0,
+      totalItems: 0,
+      currentBatch: 0,
+      totalBatches: 0,
+    },
+  });
   const [overallStatus, setOverallStatus] = createSignal(SyncStatus.Never);
   const [overallProgress, setOverallProgress] = createSignal<SyncProgress>({
+    status: SyncStatus.Never,
+    progress: 0,
+    itemsProcessed: 0,
     totalItems: 0,
-    completedItems: 0,
     currentBatch: 0,
     totalBatches: 0,
-    estimatedTimeRemaining: 0,
-    bytesTransferred: 0,
-    totalBytes: 0,
-    binaryStats: null,
+    eta: 0,
+    currentOperation: "Ready",
   });
 
   // Feature toggles
@@ -101,6 +144,11 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
   const [imageUrls, setImageUrls] = createSignal<string[]>([]);
   const [binaryDataCount, setBinaryDataCount] = createSignal<number>(0);
   const [debugEnabled, setDebugEnabled] = createSignal<boolean>(false);
+
+  // Storage usage signals
+  const [totalStorage, setTotalStorage] = createSignal<string>("Loading...");
+  const [musicStorage, setMusicStorage] = createSignal<string>("Loading...");
+  const [binaryStorage, setBinaryStorage] = createSignal<string>("Loading...");
 
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -144,7 +192,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       addLog(`🌐 API Base URL: ${baseUrl}`);
 
       // Create API client
-      const api = new ApiClient(baseUrl);
+      const api = new ApiClient({ baseUrl });
       setApiClient(api);
 
       // Create WebSocket client
@@ -162,23 +210,24 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       // Set up WebSocket event handlers
       const handleStatusChange = (status: ConnectionStatus) => {
         setConnectionStatus(status);
-        setIsConnected(status === ConnectionStatus.Connected);
+        const connected = status === ConnectionStatus.Connected;
+        setIsConnected(connected);
         addLog(`🔗 WebSocket status: ${status}`);
         console.log("🐛 WebSocket status change:", {
           status,
-          isConnected: status === ConnectionStatus.Connected,
+          isConnected: connected,
           isInitialized: isInitialized(),
         });
 
-        if (status === ConnectionStatus.Connected) {
+        if (connected) {
           setConnectionError(null);
-          // Force UI update when connected
           console.log("🔌 WebSocket connected - forcing UI update");
         } else if (status === ConnectionStatus.Error) {
           setConnectionError("WebSocket connection error");
         }
       };
 
+      // Set up event listeners BEFORE connecting
       ws.on("statusChange", handleStatusChange);
 
       ws.on("error", (error) => {
@@ -211,11 +260,100 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       // Enable auto-sync if requested
       if (autoSyncEnabled()) {
         addLog("🔄 Enabling auto-sync...");
-        manager.enableAutoSync();
+        manager.enableAutoSync(true);
       }
+
+      // Initialize domain status from existing storage data
+      try {
+        const storageStats = await manager.getStorageStats();
+        console.log("🐛 Initial storage stats:", storageStats);
+
+        // Set initial status based on existing data
+        const initialStatus: SyncStatusMap = {
+          music:
+            (storageStats.itemCounts?.music || 0) > 0
+              ? SyncStatus.Complete
+              : SyncStatus.Never,
+          photos:
+            (storageStats.itemCounts?.photos || 0) > 0
+              ? SyncStatus.Complete
+              : SyncStatus.Never,
+          documents:
+            (storageStats.itemCounts?.documents || 0) > 0
+              ? SyncStatus.Complete
+              : SyncStatus.Never,
+          videos:
+            (storageStats.itemCounts?.videos || 0) > 0
+              ? SyncStatus.Complete
+              : SyncStatus.Never,
+        };
+
+        const initialProgress: SyncProgressMap = {
+          music: {
+            status: initialStatus.music,
+            progress: initialStatus.music === SyncStatus.Complete ? 100 : 0,
+            itemsProcessed: storageStats.itemCounts?.music || 0,
+            totalItems: storageStats.itemCounts?.music || 0,
+            currentBatch: 1,
+            totalBatches: 1,
+          },
+          photos: {
+            status: initialStatus.photos,
+            progress: initialStatus.photos === SyncStatus.Complete ? 100 : 0,
+            itemsProcessed: storageStats.itemCounts?.photos || 0,
+            totalItems: storageStats.itemCounts?.photos || 0,
+            currentBatch: 1,
+            totalBatches: 1,
+          },
+          documents: {
+            status: initialStatus.documents,
+            progress: initialStatus.documents === SyncStatus.Complete ? 100 : 0,
+            itemsProcessed: storageStats.itemCounts?.documents || 0,
+            totalItems: storageStats.itemCounts?.documents || 0,
+            currentBatch: 1,
+            totalBatches: 1,
+          },
+          videos: {
+            status: initialStatus.videos,
+            progress: initialStatus.videos === SyncStatus.Complete ? 100 : 0,
+            itemsProcessed: storageStats.itemCounts?.videos || 0,
+            totalItems: storageStats.itemCounts?.videos || 0,
+            currentBatch: 1,
+            totalBatches: 1,
+          },
+        };
+
+        setSyncStatus(initialStatus);
+        setSyncProgress(initialProgress);
+        addLog(
+          `📊 Initialized domain status: ${Object.values(initialStatus).filter((s) => s === SyncStatus.Complete).length} domains with data`
+        );
+      } catch (error) {
+        console.warn("Could not initialize domain status:", error);
+        // Fallback to manager's current status
+        setSyncStatus(manager.getStatus());
+        setSyncProgress(manager.getProgress());
+        addLog("📊 Using default domain status");
+      }
+
+      // Calculate initial storage usage
+      setTimeout(() => {
+        calculateStorageUsage();
+      }, 2000);
 
       setIsInitialized(true);
       addLog("✅ Unified Sync System initialized successfully");
+
+      // Final connection state sync
+      const currentWsStatus = ws.getStatus();
+      if (currentWsStatus === ConnectionStatus.Connected && !isConnected()) {
+        setIsConnected(true);
+        setConnectionError(null);
+      }
+
+      // Ensure connectionStatus signal matches actual WebSocket status
+      setConnectionStatus(currentWsStatus);
+
       console.log("🐛 State after initialization:", {
         isInitialized: true,
         isConnected: isConnected(),
@@ -231,9 +369,10 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           connected,
           initialized,
           syncing,
-          buttonEnabled: initialized && connected && !syncing,
+          buttonEnabled: connected && initialized && !syncing,
         });
       });
+
       addLog("✅ Unified Sync System initialized successfully");
     } catch (error) {
       addLog(`❌ Initialization failed: ${error.message}`);
@@ -242,74 +381,237 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
   };
 
   const setupSyncEventListeners = (manager: UnifiedSyncManager) => {
-    manager.on(SyncEventType.SyncStarted, (event) => {
-      addLog(`🔄 Sync started: ${event.domains?.join(", ") || "all domains"}`);
+    manager.on(SyncEventType.Started, (event) => {
+      addLog(`🔄 Sync started: ${event.domain || "all domains"}`);
       setIsSyncing(true);
       setOverallStatus(SyncStatus.InProgress);
     });
 
-    manager.on(SyncEventType.SyncProgress, (event) => {
-      setSyncStatus(manager.getStatus());
-      setSyncProgress(manager.getProgress());
-      setOverallProgress(event.overallProgress);
+    manager.on(SyncEventType.Progress, (event) => {
+      const progressEvent = event as SyncProgressEvent;
 
-      if (event.domain) {
+      // Force immediate UI update with fresh data from manager
+      const freshStatus = manager.getStatus();
+      const freshProgress = manager.getProgress();
+      setSyncStatus(freshStatus);
+      setSyncProgress(freshProgress);
+
+      // Log meaningful progress updates only
+      if (freshProgress[progressEvent.domain].totalItems > 0) {
+        console.log(
+          `📊 ${progressEvent.domain}: ${freshProgress[progressEvent.domain].itemsProcessed}/${freshProgress[progressEvent.domain].totalItems} (${freshProgress[progressEvent.domain].progress}%)`
+        );
+      }
+
+      // Calculate overall progress from all domains
+      const domainProgressValues = Object.values(freshProgress);
+      const totalItems = domainProgressValues.reduce(
+        (sum, p) => sum + p.totalItems,
+        0
+      );
+      const completedItems = domainProgressValues.reduce(
+        (sum, p) => sum + p.itemsProcessed,
+        0
+      );
+      const totalBatches = domainProgressValues.reduce(
+        (sum, p) => sum + p.totalBatches,
+        0
+      );
+      const currentBatch = domainProgressValues.reduce(
+        (sum, p) => sum + p.currentBatch,
+        0
+      );
+
+      const overallPercentage =
+        totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+
+      setOverallProgress({
+        status: SyncStatus.InProgress,
+        progress: overallPercentage,
+        itemsProcessed: completedItems,
+        totalItems: totalItems,
+        currentBatch: currentBatch,
+        totalBatches: totalBatches,
+        eta: progressEvent.progress.eta,
+        currentOperation:
+          progressEvent.progress.currentOperation ||
+          `Syncing ${progressEvent.domain}`,
+      });
+
+      if (progressEvent.domain) {
         addLog(
-          `📊 ${event.domain}: ${event.progress.completedItems}/${event.progress.totalItems} items`
+          `📊 ${progressEvent.domain}: ${progressEvent.progress.itemsProcessed}/${progressEvent.progress.totalItems} items (${progressEvent.progress.progress}%)`
         );
       }
     });
 
-    manager.on(SyncEventType.SyncCompleted, (event) => {
-      addLog(
-        `✅ Sync completed: ${event.domains?.join(", ") || "all domains"}`
-      );
+    manager.on(SyncEventType.AllCompleted, (event) => {
+      const completedEvent = event as SyncCompletedEvent;
+      addLog(`✅ Sync completed: ${completedEvent.domain || "all domains"}`);
       setIsSyncing(false);
       setLastSyncTime(new Date());
-      setOverallStatus(SyncStatus.Completed);
+      setOverallStatus(SyncStatus.Complete);
 
-      if (event.stats) {
+      // Update final progress state
+      const finalProgressMap = manager.getProgress();
+      setSyncProgress(finalProgressMap);
+
+      // Set final overall progress to show 100% completion
+      setOverallProgress({
+        status: SyncStatus.Complete,
+        progress: 100,
+        itemsProcessed: overallProgress().itemsProcessed,
+        totalItems: overallProgress().totalItems,
+        currentBatch: overallProgress().totalBatches,
+        totalBatches: overallProgress().totalBatches,
+        eta: 0,
+        currentOperation: "Complete",
+      });
+
+      if (completedEvent.result) {
         addLog(
-          `📈 Stats: ${event.stats.totalItems} items, ${Math.round(event.stats.totalTime / 1000)}s`
+          `📈 Stats: ${completedEvent.result.itemsSynced} items, ${Math.round(completedEvent.result.duration / 1000)}s`
         );
       }
 
       // Trigger image grid refresh when sync completes
       setBinaryDataCount((prev) => prev + 1);
 
+      // Update storage usage after sync completion
+      setTimeout(() => {
+        calculateStorageUsage();
+      }, 1500);
+
       // Check for binary data with longer delay if binary sync happened
-      if (event.stats && event.stats.binaryStats?.cached > 0) {
+      if (
+        completedEvent.result &&
+        completedEvent.result.binaryStats &&
+        completedEvent.result.binaryStats.cached > 0
+      ) {
         addLog(`🖼️ Binary sync completed, checking for images...`);
         setTimeout(() => {
           loadImageGrid();
         }, 2000); // Longer wait for WebSocket binary data to be stored
       }
+
+      // Auto-hide progress after a few seconds
+      setTimeout(() => {
+        if (!isSyncing()) {
+          setOverallProgress({
+            status: SyncStatus.Never,
+            progress: 0,
+            itemsProcessed: 0,
+            totalItems: 0,
+            currentBatch: 0,
+            totalBatches: 0,
+            eta: 0,
+            currentOperation: "Ready",
+          });
+        }
+      }, 5000);
     });
 
-    manager.on(SyncEventType.SyncFailed, (event) => {
-      addLog(`❌ Sync failed: ${event.error.message}`);
+    manager.on(SyncEventType.Failed, (event) => {
+      const failedEvent = event as SyncFailedEvent;
+      addLog(`❌ Sync failed: ${failedEvent.error.message}`);
       setIsSyncing(false);
       setOverallStatus(SyncStatus.Failed);
     });
 
     manager.on(SyncEventType.AutoSyncTriggered, (event) => {
+      const autoSyncEvent = event as AutoSyncTriggeredEvent;
       addLog(
-        `🔔 Auto-sync triggered: ${event.reason} (${event.domains?.join(", ") || "all domains"})`
+        `🔄 Auto-sync triggered for ${autoSyncEvent.trigger}: ${autoSyncEvent.domain}`
       );
     });
 
     manager.on(SyncEventType.ConnectionChanged, (event) => {
-      addLog(`🔗 Connection ${event.connected ? "established" : "lost"}`);
+      const connectionEvent = event as ConnectionChangedEvent;
+      addLog(
+        `🔗 Connection ${connectionEvent.isOnline ? "established" : "lost"}`
+      );
     });
 
-    manager.on(SyncEventType.BinarySyncProgress, (event) => {
-      if (event.stats) {
-        const { completed, total, speed } = event.stats;
-        addLog(
-          `📁 Binary sync: ${completed}/${total} files (${Math.round(speed / 1024)}KB/s)`
-        );
+    manager.on(SyncEventType.BinaryProgress, (event) => {
+      const binaryEvent = event as BinarySyncProgressEvent;
+      if (binaryEvent.currentItem && binaryEvent.totalItems) {
+        const completed = binaryEvent.currentItem;
+        const total = binaryEvent.totalItems;
+        addLog(`📁 Binary sync: ${completed}/${total} files`);
+
+        // Update overall progress to show binary sync progress
+        setOverallProgress({
+          status: SyncStatus.InProgress,
+          progress: binaryEvent.progress || 0,
+          itemsProcessed: completed,
+          totalItems: total,
+          currentBatch: completed,
+          totalBatches: total,
+          eta: 0,
+          currentOperation: `Downloading binary data (${completed}/${total})`,
+        });
       }
     });
+  };
+
+  // Storage usage calculation
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+  };
+
+  const calculateStorageUsage = async () => {
+    try {
+      const manager = syncManager();
+      if (!manager) {
+        console.log("🐛 No sync manager available for storage stats");
+        return;
+      }
+
+      console.log("🐛 Calculating storage usage...");
+      // Get storage stats from the unified sync manager
+      const stats = await manager.getStorageStats();
+      console.log("🐛 Storage stats received:", stats);
+
+      // Fallback values if stats are empty/null
+      const safeStats = {
+        totalSize: stats?.totalSize || 0,
+        itemCounts: stats?.itemCounts || {
+          music: 0,
+          photos: 0,
+          documents: 0,
+          videos: 0,
+        },
+        binarySize: stats?.binarySize || 0,
+      };
+      console.log("🐛 Safe stats:", safeStats);
+
+      // Update reactive signals instead of DOM manipulation
+      const totalText = formatBytes(safeStats.totalSize);
+      const musicSize = safeStats.itemCounts.music;
+      const musicText = musicSize > 0 ? `${musicSize} items` : "No data";
+      const binaryText = formatBytes(safeStats.binarySize);
+
+      setTotalStorage(totalText);
+      setMusicStorage(musicText);
+      setBinaryStorage(binaryText);
+
+      console.log("🐛 Updated storage stats:", {
+        total: totalText,
+        music: musicText,
+        binary: binaryText,
+      });
+    } catch (error) {
+      console.error("Could not calculate storage usage:", error);
+
+      // Set error state using signals
+      setTotalStorage("Error");
+      setMusicStorage("Error");
+      setBinaryStorage("Error");
+    }
   };
 
   const handleSyncAll = async () => {
@@ -326,7 +628,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       });
 
       addLog(
-        `✨ Sync completed! Synced domains: ${result.syncedDomains?.join(", ") || "none"}`
+        `✨ Sync completed! Domain: ${result.domain}, Items: ${result.itemsSynced}/${result.totalItems}`
       );
     } catch (error) {
       addLog(`❌ Sync failed: ${error.message}`);
@@ -356,10 +658,10 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
     if (manager) {
       if (newValue) {
         addLog("🔄 Enabling auto-sync...");
-        manager.enableAutoSync();
+        manager.enableAutoSync(true);
       } else {
-        addLog("⏸️ Auto-sync disabled");
-        // Note: There's no disable method in the current API
+        addLog("⏸️ Disabling auto-sync...");
+        manager.enableAutoSync(false);
       }
     }
   };
@@ -378,7 +680,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       setBinaryDataCount(0);
 
       // Destroy the database
-      await manager.destroyAll();
+      await syncManager()?.destroy();
       addLog("🗑️ Database completely destroyed!");
 
       // Clear existing sync manager
@@ -523,25 +825,20 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
   // Calculate overall statistics
   const getOverallStats = () => {
     const progress = overallProgress();
-    const percentage =
-      progress.totalItems > 0
-        ? Math.round((progress.completedItems / progress.totalItems) * 100)
-        : 0;
+    const percentage = progress.progress;
 
     return {
       percentage,
-      itemsText: `${progress.completedItems}/${progress.totalItems} items`,
+      itemsText: `${progress.itemsProcessed}/${progress.totalItems} items`,
       batchText:
         progress.totalBatches > 0
           ? `Batch ${progress.currentBatch}/${progress.totalBatches}`
           : "",
       etaText:
-        progress.estimatedTimeRemaining > 0
-          ? `ETA: ${Math.round(progress.estimatedTimeRemaining / 1000)}s`
+        progress.eta && progress.eta > 0
+          ? `ETA: ${Math.round(progress.eta)}s`
           : "",
-      speedText: progress.binaryStats?.speed
-        ? `${Math.round(progress.binaryStats.speed / 1024)}KB/s`
-        : "",
+      speedText: "", // Remove binary stats reference for now
     };
   };
 
@@ -638,7 +935,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         <h3>🎯 Unified Sync Control</h3>
         <div class="main-controls">
           <button
-            class={`sync-all-button ${isSyncing() ? "syncing" : ""}`}
+            class={`sync-all-button ${isSyncing() ? "syncing pulse" : ""}`}
             onClick={() => {
               console.log("🐛 Button click - Debug state:", {
                 isInitialized: isInitialized(),
@@ -691,66 +988,110 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       <Show when={isSyncing() || overallProgress().totalItems > 0}>
         <div class="progress-section">
           <h3>📊 Sync Progress</h3>
-          <div class="progress-display">
-            <SyncProgressComponent
-              progress={getOverallStats().percentage}
-              itemsSynced={overallProgress().completedItems}
-              totalItems={overallProgress().totalItems}
-              currentBatch={overallProgress().currentBatch}
-              totalBatches={overallProgress().totalBatches}
-              eta={overallProgress().estimatedTimeRemaining}
-              showDetails={true}
-              className="unified-progress"
-            />
 
-            <div class="progress-stats">
-              <div class="stat-item">
-                <span class="stat-label">Items:</span>
-                <span class="stat-value">{getOverallStats().itemsText}</span>
+          {/* Horizontal progress bar - always visible when syncing */}
+          <Show when={isSyncing()}>
+            <div class="horizontal-progress-container">
+              <div class="horizontal-progress-bar">
+                <div
+                  class="horizontal-progress-fill"
+                  style={{
+                    width: `${
+                      overallProgress().totalItems > 0
+                        ? getOverallStats().percentage
+                        : Math.min(
+                            85,
+                            Math.max(10, overallProgress().itemsProcessed * 0.5)
+                          )
+                    }%`,
+                    background:
+                      overallProgress().totalItems > 0
+                        ? "linear-gradient(90deg, #3b82f6, #1d4ed8)"
+                        : "linear-gradient(90deg, #f59e0b, #d97706)",
+                  }}
+                />
               </div>
-              <Show when={getOverallStats().batchText}>
-                <div class="stat-item">
-                  <span class="stat-label">Batches:</span>
-                  <span class="stat-value">{getOverallStats().batchText}</span>
-                </div>
-              </Show>
-              <Show when={getOverallStats().speedText}>
-                <div class="stat-item">
-                  <span class="stat-label">Speed:</span>
-                  <span class="stat-value">{getOverallStats().speedText}</span>
-                </div>
-              </Show>
+              <div class="horizontal-progress-text">
+                <Show when={overallProgress().totalItems > 0}>
+                  <span class="progress-percentage">
+                    {getOverallStats().percentage}%
+                  </span>
+                </Show>
+                <Show when={overallProgress().currentOperation}>
+                  <div class="progress-operation">
+                    {overallProgress().currentOperation}
+                  </div>
+                </Show>
+                <Show when={overallProgress().totalItems === 0}>
+                  <span class="progress-initializing">
+                    {overallProgress().currentOperation ||
+                      (overallProgress().itemsProcessed > 0
+                        ? `Processing... (${overallProgress().itemsProcessed} items)`
+                        : "Initializing sync...")}
+                  </span>
+                </Show>
+                <Show when={overallProgress().totalItems > 0}>
+                  <span class="progress-items">
+                    {getOverallStats().itemsText}
+                  </span>
+                </Show>
+              </div>
             </div>
-          </div>
+          </Show>
         </div>
       </Show>
 
-      {/* Domain Status Overview */}
-      <Show when={Object.keys(syncStatus()).length > 0}>
+      {/* Storage Statistics */}
+      <div class="storage-stats">
+        <h3>💾 Storage Usage</h3>
+        <div class="storage-display">
+          <div class="storage-item">
+            <span class="storage-label">Total:</span>
+            <span class="storage-value">{totalStorage()}</span>
+          </div>
+          <div class="storage-breakdown">
+            <div class="storage-item">
+              <span class="storage-label">Music:</span>
+              <span class="storage-value">{musicStorage()}</span>
+            </div>
+            <div class="storage-item">
+              <span class="storage-label">Binary Data:</span>
+              <span class="storage-value">{binaryStorage()}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Domain Status Overview - Only show music domain for now */}
+      <Show when={syncStatus().music && syncProgress().music}>
         <div class="domain-status">
-          <h3>🎵 Domain Status</h3>
+          <h3>🎵 Music Domain Status</h3>
           <div class="domain-grid">
-            <For each={Object.entries(syncStatus())}>
-              {([domain, status]) => (
-                <div class={`domain-card ${status.toLowerCase()}`}>
-                  <div class="domain-name">
-                    {domain === "music"
-                      ? "🎵"
-                      : domain === "photos"
-                        ? "📸"
-                        : "📁"}{" "}
-                    {domain}
-                  </div>
-                  <SyncStatusComponent status={status} compact={true} />
-                  <Show when={syncProgress()[domain]}>
-                    <div class="domain-progress">
-                      {syncProgress()[domain].completedItems}/
-                      {syncProgress()[domain].totalItems}
-                    </div>
-                  </Show>
+            <div class={`domain-card ${syncStatus().music.toLowerCase()}`}>
+              <div class="domain-name">🎵 music</div>
+              <SyncStatusComponent status={syncStatus().music} compact={true} />
+              <div class="domain-progress">
+                <div class="domain-progress-text">
+                  {syncProgress().music.itemsProcessed}/
+                  {syncProgress().music.totalItems} items
                 </div>
-              )}
-            </For>
+                <div class="domain-progress-bar">
+                  <div
+                    class="domain-progress-fill"
+                    style={{
+                      width: `${syncProgress().music.progress}%`,
+                      "background-color":
+                        syncStatus().music === "in_progress"
+                          ? "#ff00ff"
+                          : "#0f0",
+                    }}
+                  />
+                </div>
+                <div class="domain-progress-percent">
+                  {Math.round(syncProgress().music.progress)}%
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </Show>
@@ -766,13 +1107,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
                   <img
                     src={url}
                     alt={`Image ${index() + 1}`}
-                    style={{
-                      width: "100px",
-                      height: "100px",
-                      "object-fit": "cover",
-                      border: "1px solid #ddd",
-                      "border-radius": "4px",
-                    }}
+                    class="grid-image"
                     onError={(e) => {
                       console.log(`Failed to load image ${index() + 1}:`, url);
                       (e.target as HTMLImageElement).style.display = "none";
@@ -824,13 +1159,16 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .unified-sync-demo {
           padding: 20px;
           max-width: 800px;
           margin: 0 auto;
           font-family:
             -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          background: black;
+          color: white;
+          border-radius: 12px;
         }
 
         .demo-header {
@@ -839,12 +1177,12 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           align-items: center;
           margin-bottom: 30px;
           padding-bottom: 15px;
-          border-bottom: 2px solid #e0e0e0;
+          border-bottom: 2px solid #333;
         }
 
         .demo-header h2 {
           margin: 0;
-          color: #2c3e50;
+          color: white;
         }
 
         .phase-info {
@@ -877,12 +1215,13 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         .domain-status,
         .image-grid-section,
         .activity-log,
-        .system-info {
+        .system-info,
+        .storage-stats {
           margin-bottom: 25px;
           padding: 15px;
-          border: 1px solid #ddd;
+          border: 1px solid #333;
           border-radius: 8px;
-          background: #f9f9f9;
+          background: #111;
         }
 
         .connection-section h3,
@@ -892,9 +1231,10 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         .domain-status h3,
         .image-grid-section h3,
         .activity-log h3,
-        .system-info h3 {
+        .system-info h3,
+        .storage-stats h3 {
           margin: 0 0 15px 0;
-          color: #34495e;
+          color: white;
           font-size: 16px;
         }
 
@@ -964,25 +1304,31 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           display: flex;
           flex-direction: column;
           gap: 10px;
-          color: black;
         }
 
         .toggle-control {
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 8px;
           cursor: pointer;
+          user-select: none;
+          color: white;
         }
 
         .toggle-control input[type="checkbox"] {
-          margin: 0;
+          cursor: pointer;
+        }
+
+        .toggle-control input[type="checkbox"]:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .main-controls {
           display: flex;
-          flex-direction: column;
           align-items: center;
           gap: 15px;
+          margin-bottom: 15px;
         }
 
         .sync-all-button {
@@ -991,28 +1337,29 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           font-weight: 600;
           border: none;
           border-radius: 8px;
-          background: linear-gradient(135deg, #3498db, #2980b9);
-          color: white;
           cursor: pointer;
           transition: all 0.3s ease;
+          background: #ff00ff;
+          color: black;
           min-width: 200px;
         }
 
         .sync-all-button:hover:not(:disabled) {
-          background: linear-gradient(135deg, #2980b9, #3498db);
+          background: #ff00ff;
           transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+          box-shadow: 0 4px 15px rgba(255, 0, 255, 0.3);
         }
 
         .sync-all-button:disabled {
-          background: #95a5a6;
+          background: #333;
+          color: #666;
           cursor: not-allowed;
           transform: none;
           box-shadow: none;
         }
 
         .sync-all-button.syncing {
-          background: linear-gradient(135deg, #e67e22, #d35400);
+          background: linear-gradient(135deg, #ff00ff, #cc00cc);
           animation: pulse 2s infinite;
         }
 
@@ -1027,66 +1374,147 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         }
 
         .last-sync {
-          color: #7f8c8d;
+          color: #ccc;
           font-size: 14px;
+        }
+
+        .loading-indicator {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 16px;
+          background: #f8f9fa;
+          border: 1px solid #e9ecef;
+          border-radius: 8px;
+          font-size: 14px;
+          color: #6c757d;
+        }
+
+        .loading-spinner {
+          width: 20px;
+          height: 20px;
+          border: 2px solid #e9ecef;
+          border-top: 2px solid #007bff;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          0% {
+            transform: rotate(0deg);
+          }
+          100% {
+            transform: rotate(360deg);
+          }
+        }
+
+        .horizontal-progress-container {
+          margin-bottom: 20px;
+          padding: 16px;
+          background: #111;
+          border: 1px solid #333;
+          border-radius: 8px;
+        }
+
+        .horizontal-progress-bar {
+          width: 100%;
+          height: 12px;
+          background: #333;
+          border-radius: 6px;
+          overflow: hidden;
+          position: relative;
+          margin-bottom: 8px;
+        }
+
+        .horizontal-progress-fill {
+          height: 100%;
+          border-radius: 6px;
+          transition: width 0.5s ease;
+          position: relative;
+        }
+
+        .horizontal-progress-fill::after {
+          content: "";
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: linear-gradient(
+            90deg,
+            transparent,
+            rgba(255, 255, 255, 0.3),
+            transparent
+          );
+          animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+          0% {
+            transform: translateX(-100%);
+          }
+          100% {
+            transform: translateX(100%);
+          }
+        }
+
+        .horizontal-progress-text {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 14px;
+          color: white;
+        }
+
+        .progress-percentage {
+          font-weight: 600;
+          color: #ff00ff;
+          font-size: 16px;
+        }
+
+        .progress-items {
+          color: #ccc;
+        }
+
+        .progress-initializing {
+          color: #ff00ff;
+          font-weight: 500;
+        }
+
+        .progress-operation {
+          color: #ccc;
+          font-size: 13px;
+          font-style: italic;
         }
 
         .progress-display {
           display: flex;
           flex-direction: column;
-          gap: 15px;
-        }
-
-        .progress-stats {
-          display: flex;
-          gap: 20px;
-          flex-wrap: wrap;
-        }
-
-        .stat-item {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          padding: 8px 12px;
-          background: white;
-          border-radius: 4px;
-          border: 1px solid #ddd;
-        }
-
-        .stat-label {
-          font-size: 12px;
-          color: #7f8c8d;
-          font-weight: 600;
-        }
-
-        .stat-value {
-          font-size: 14px;
-          color: #2c3e50;
-          font-weight: 500;
+          gap: 12px;
         }
 
         .domain-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
           gap: 15px;
         }
 
         .domain-card {
           padding: 15px;
+          border: 2px solid #333;
           border-radius: 8px;
-          background: white;
-          border: 2px solid #ecf0f1;
-          text-align: center;
+          background: #222;
+          transition: all 0.2s ease;
         }
 
-        .domain-card.completed {
-          border-color: #2ecc71;
-          background: #d5f6e3;
+        .domain-card.complete {
+          border-color: #0f0;
+          background: #001100;
         }
 
-        .domain-card.inprogress {
-          border-color: #f39c12;
-          background: #fef9e7;
+        .domain-card.in_progress {
+          border-color: #ff00ff;
+          background: #330033;
         }
 
         .domain-card.failed {
@@ -1096,22 +1524,87 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
 
         .domain-name {
           font-weight: 600;
-          margin-bottom: 8px;
-          color: #2c3e50;
+          margin-bottom: 10px;
+          color: white;
         }
 
         .domain-progress {
+          margin-top: 8px;
           font-size: 12px;
-          color: #7f8c8d;
-          margin-top: 5px;
+        }
+
+        .domain-progress-text {
+          color: #ccc;
+          margin-bottom: 4px;
+        }
+
+        .domain-progress-bar {
+          width: 100%;
+          height: 4px;
+          background-color: #444;
+          border-radius: 2px;
+          overflow: hidden;
+          margin-bottom: 4px;
+        }
+
+        .domain-progress-fill {
+          height: 100%;
+          transition: width 0.3s ease;
+          border-radius: 2px;
+        }
+
+        .domain-progress-percent {
+          color: white;
+          font-weight: 500;
+          text-align: center;
+        }
+
+        .storage-display {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .storage-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 12px;
+          background: #222;
+          border-radius: 6px;
+          border: 1px solid #444;
+        }
+
+        .storage-label {
+          font-weight: 500;
+          color: white;
+        }
+
+        .storage-value {
+          font-weight: 600;
+          color: #ff00ff;
+          font-family: "Monaco", "Menlo", monospace;
+          font-size: 13px;
+        }
+
+        .storage-breakdown {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin-top: 8px;
+        }
+
+        .storage-breakdown .storage-item {
+          background: #1a1a1a;
+          border-color: #333;
         }
 
         .log-container {
           max-height: 200px;
           overflow-y: auto;
-          background: white;
-          border: 1px solid #ddd;
+          border: 1px solid #333;
           border-radius: 4px;
+          background: #111;
           padding: 10px;
         }
 
@@ -1119,8 +1612,8 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           padding: 4px 0;
           font-family: "Monaco", "Menlo", monospace;
           font-size: 12px;
-          color: #2c3e50;
-          border-bottom: 1px solid #f0f0f0;
+          color: #ccc;
+          border-bottom: 1px solid #333;
         }
 
         .log-entry:last-child {
@@ -1128,7 +1621,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         }
 
         .log-empty {
-          color: #95a5a6;
+          color: #666;
           font-style: italic;
           text-align: center;
           padding: 20px;
@@ -1143,8 +1636,9 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         .info-item {
           display: flex;
           justify-content: space-between;
+          align-items: center;
           padding: 8px 0;
-          border-bottom: 1px solid #e0e0e0;
+          border-bottom: 1px solid #333;
         }
 
         .info-item:last-child {
@@ -1157,17 +1651,17 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         }
 
         .info-value {
-          color: #7f8c8d;
           font-family: "Monaco", "Menlo", monospace;
-          font-size: 12px;
+          color: white;
+          font-size: 13px;
         }
 
         .image-grid-section {
           margin-bottom: 25px;
           padding: 20px;
-          background: #f8f9fa;
+          background: #111;
           border-radius: 8px;
-          border: 1px solid #e9ecef;
+          border: 1px solid #333;
         }
 
         .image-grid {
@@ -1181,17 +1675,30 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           display: flex;
           justify-content: center;
           align-items: center;
-          background: white;
+          background: black;
+          color: white;
           border-radius: 4px;
           overflow: hidden;
         }
 
-        .image-item img {
-          transition: transform 0.2s ease;
+        .grid-image {
+          width: 100px;
+          height: 100px;
+          object-fit: cover;
+          border: 2px solid #333;
+          border-radius: 6px;
+          transition: all 0.3s ease;
+          background: #222;
         }
 
-        .image-item img:hover {
+        .grid-image:hover {
           transform: scale(1.05);
+          box-shadow: 0 4px 15px rgba(255, 0, 255, 0.3);
+        }
+
+        .grid-image:error {
+          border-color: #f00;
+          background: #330000;
         }
 
         @media (max-width: 600px) {

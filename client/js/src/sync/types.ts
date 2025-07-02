@@ -72,6 +72,11 @@ export interface UnifiedSyncManager {
   getProgress(): SyncProgressMap;
 
   /**
+   * Get storage statistics
+   */
+  getStorageStats(): Promise<StorageStats>;
+
+  /**
    * Event subscription for sync events
    */
   on(event: SyncEventType, listener: SyncEventListener): void;

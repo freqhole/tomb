@@ -27,13 +27,14 @@ import type {
   UnifiedSyncConfig,
   SyncError,
   BinarySyncStats,
+  BinarySyncProgressEvent,
 } from "./types.js";
 import { debugInfo, debugWarn, debugError } from "./debug.js";
 
 import type { UnifiedStorage } from "./unified-storage.js";
 import type { WebSocketClient } from "../lib/websocket-client.js";
 import type { ApiClient } from "../lib/api-client.js";
-import { createDomainConfigs } from "./domain-configs.js";
+
 import type { ServiceWorkerSyncManager } from "./service-worker-types.js";
 import {
   createServiceWorkerSyncManager,
@@ -76,7 +77,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
     this.wsClient = wsClient;
     this.apiClient = apiClient;
     this.config = config;
-    this.domainConfigs = createDomainConfigs();
+    this.domainConfigs = this.createMinimalDomainConfigs();
 
     // Initialize status tracking
     this.currentStatus = {
@@ -475,13 +476,92 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       const data = await this.storage.getBinaryData(blobId);
       return !!data;
     } catch (error) {
-      debugError("Failed to check binary data:", error);
+      debugError(`Failed to check binary data for ${blobId}:`, error);
       return false;
     }
   }
 
   /**
-   * Subscribe to sync events
+   * Get storage statistics
+   */
+  async getStorageStats(): Promise<any> {
+    try {
+      return await this.storage.getStats();
+    } catch (error) {
+      debugError("Failed to get storage stats:", error);
+      return {
+        itemCounts: { music: 0, photos: 0, documents: 0, videos: 0 },
+        totalSize: 0,
+        binarySize: 0,
+        lastSyncTimes: {
+          music: null,
+          photos: null,
+          documents: null,
+          videos: null,
+        },
+      };
+    }
+  }
+
+  /**
+   * Create minimal domain configs to avoid import issues
+   */
+  private createMinimalDomainConfigs(): Record<SyncDomain, DomainConfig> {
+    const baseConfig = {
+      defaultOptions: {
+        pageSize: 50,
+        includeBinaryData: true,
+        forceFullSync: false,
+      },
+      transforms: {
+        fromApi: (data: any) => data,
+        toStorage: (data: any) => data,
+        fromStorage: (data: any) => data,
+      },
+    };
+
+    return {
+      music: {
+        ...baseConfig,
+        domain: "music" as SyncDomain,
+        endpoints: {
+          list: "/api/songs",
+          item: "/api/songs/{id}",
+          sync: "/api/sync/songs",
+        },
+      },
+      photos: {
+        ...baseConfig,
+        domain: "photos" as SyncDomain,
+        endpoints: {
+          list: "/api/photos",
+          item: "/api/photos/{id}",
+          sync: "/api/sync/photos",
+        },
+      },
+      documents: {
+        ...baseConfig,
+        domain: "documents" as SyncDomain,
+        endpoints: {
+          list: "/api/media_blobs",
+          item: "/api/media_blobs/{id}",
+          sync: "/api/sync/media_blobs",
+        },
+      },
+      videos: {
+        ...baseConfig,
+        domain: "videos" as SyncDomain,
+        endpoints: {
+          list: "/api/videos",
+          item: "/api/videos/{id}",
+          sync: "/api/sync/videos",
+        },
+      },
+    };
+  }
+
+  /**
+   * Initialize WebSocket listeners for real-time updates
    */
   on(event: SyncEventType, listener: SyncEventListener): void {
     if (!this.eventListeners.has(event)) {
@@ -930,16 +1010,38 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         `📦 Found ${mediaBlobs.length} media blobs to check for binary data`
       );
 
+      // Count items that actually need binary data
+      const itemsToSync = [];
       for (const blob of mediaBlobs) {
-        try {
-          // Skip if we already have binary data cached
-          const existingData = await this.storage.getBinaryData(blob.id);
-          if (existingData) {
-            debugInfo(`✅ Skipping ${blob.id} - already cached`);
-            continue;
-          }
+        const existingData = await this.storage.getBinaryData(blob.id);
+        if (!existingData) {
+          itemsToSync.push(blob);
+        }
+      }
 
-          debugInfo(`🔄 Requesting binary data for blob ${blob.id}...`);
+      const totalItemsToSync = itemsToSync.length;
+      debugInfo(`📦 Need to sync ${totalItemsToSync} binary items`);
+
+      for (let i = 0; i < itemsToSync.length; i++) {
+        const blob = itemsToSync[i];
+        try {
+          debugInfo(
+            `🔄 Requesting binary data for blob ${blob.id}... (${i + 1}/${totalItemsToSync})`
+          );
+
+          // Emit binary progress event
+          this.emitEvent({
+            type: SyncEventType.BinaryProgress,
+            timestamp: new Date(),
+            domain: "music", // Binary data is associated with music domain
+            blobId: blob.id,
+            progress:
+              totalItemsToSync > 0
+                ? Math.round(((i + 1) / totalItemsToSync) * 100)
+                : 0,
+            currentItem: i + 1,
+            totalItems: totalItemsToSync,
+          } as BinarySyncProgressEvent);
 
           // Request binary data via WebSocket
           const binaryData = await this.requestBinaryDataViaWebSocket(blob.id);

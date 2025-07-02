@@ -8,8 +8,8 @@
 /* @jsxImportSource solid-js */
 import { customElement } from "solid-element";
 import { createSignal, createEffect, Show } from "solid-js";
-import { SyncStatus } from "../sync-legacy/index.js";
-import type { SyncStatus as SyncStatusType } from "../sync-legacy/index.js";
+import { SyncStatus } from "../sync/index.js";
+import type { SyncStatus as SyncStatusType } from "../sync/index.js";
 
 export interface SyncStatusProps {
   status?: SyncStatusType;
@@ -60,6 +60,8 @@ function SyncStatusComponent(props: SyncStatusProps) {
         return "#f59e0b"; // amber
       case SyncStatus.Failed:
         return "#ef4444"; // red
+      case SyncStatus.Paused:
+        return "#8b5cf6"; // purple
       default:
         return "#94a3b8";
     }
@@ -75,6 +77,8 @@ function SyncStatusComponent(props: SyncStatusProps) {
         return "Syncing...";
       case SyncStatus.Failed:
         return "Sync failed";
+      case SyncStatus.Paused:
+        return "Paused";
       default:
         return "Unknown";
     }
@@ -90,6 +94,8 @@ function SyncStatusComponent(props: SyncStatusProps) {
         return "⟳";
       case SyncStatus.Failed:
         return "⚠";
+      case SyncStatus.Paused:
+        return "⏸";
       default:
         return "○";
     }
