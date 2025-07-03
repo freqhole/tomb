@@ -550,6 +550,56 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
       }
     });
 
+    manager.on(SyncEventType.DomainCompleted, (event) => {
+      const completeEvent = event as SyncCompletedEvent;
+      log("domain sync completed", {
+        domain: completeEvent.domain,
+        itemsSynced: completeEvent.result.itemsSynced,
+      });
+      addLog(
+        `✅ Domain sync completed: ${completeEvent.domain} - ${completeEvent.result.itemsSynced} items`
+      );
+
+      if (completeEvent.domain) {
+        setSyncStatus((prev) => ({
+          ...prev,
+          [completeEvent.domain!]: SyncStatus.Complete,
+        }));
+      }
+
+      setLastSyncTime(new Date());
+
+      // Update music breakdown after domain sync completion
+      const manager = syncManager();
+      if (manager && completeEvent.domain === "music") {
+        manager.getMusicBreakdown().then((breakdown) => {
+          setMusicBreakdown(breakdown);
+          log("updated music breakdown after domain sync", breakdown);
+        });
+      }
+
+      // Refresh UI state for the completed domain
+      setTimeout(() => {
+        const currentManager = syncManager();
+        if (currentManager) {
+          setSyncStatus(currentManager.getStatus());
+          setSyncProgress(currentManager.getProgress());
+        }
+      }, 100);
+
+      // Update storage usage after domain sync completion
+      setTimeout(() => {
+        calculateStorageUsage();
+      }, 1500);
+
+      // Check for binary data if this was a music domain sync
+      if (completeEvent.domain === "music") {
+        setTimeout(() => {
+          loadImageGrid();
+        }, 2000);
+      }
+    });
+
     manager.on(SyncEventType.AllCompleted, (event) => {
       const completeEvent = event as SyncCompletedEvent;
       log("sync completed", {
