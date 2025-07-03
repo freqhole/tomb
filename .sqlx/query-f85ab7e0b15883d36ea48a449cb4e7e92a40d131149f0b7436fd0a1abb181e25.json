@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at FROM media_blobs WHERE id = $1",
+  "query": "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE sha256 = $1",
   "describe": {
     "columns": [
       {
@@ -62,11 +62,16 @@
         "ordinal": 11,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "has_binary_data",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Bpchar"
       ]
     },
     "nullable": [
@@ -81,8 +86,9 @@
       false,
       true,
       true,
-      true
+      true,
+      null
     ]
   },
-  "hash": "e28bde8bfbd06834cdcaedb76c4cf914b7d62d757327887ef4456b17dbf27bc5"
+  "hash": "f85ab7e0b15883d36ea48a449cb4e7e92a40d131149f0b7436fd0a1abb181e25"
 }

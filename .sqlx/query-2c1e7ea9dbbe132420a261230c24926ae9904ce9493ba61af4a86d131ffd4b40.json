@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE media_blobs SET metadata = $1, updated_at = $2 WHERE id = $3 RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at",
+  "query": "\n            INSERT INTO media_blobs (data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)\n            RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data\n            ",
   "describe": {
     "columns": [
       {
@@ -57,13 +57,26 @@
         "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "has_binary_data",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
+        "Bytea",
+        "Bpchar",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Varchar",
+        "Varchar",
         "Jsonb",
         "Timestamptz",
-        "Text"
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -77,8 +90,9 @@
       false,
       true,
       true,
-      true
+      true,
+      null
     ]
   },
-  "hash": "35ee27d87ac24b896c01e80951dff9679d56414ccb2e351faf6887db2bd8253e"
+  "hash": "2c1e7ea9dbbe132420a261230c24926ae9904ce9493ba61af4a86d131ffd4b40"
 }
