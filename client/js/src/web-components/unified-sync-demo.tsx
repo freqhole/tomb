@@ -1,15 +1,13 @@
 /**
- * Unified Sync Demo Web Component - Phase 4
+ * Unified Sync Demo Web Component - Clean Version
  *
- * A complete demo component showcasing the new unified sync system with:
- * - Auto WebSocket connection with status indicator
- * - Single "Sync All" button (no domain-specific buttons)
- * - Progress bars and stats from existing sync-demo
- * - Service worker toggle
- * - Auto-sync enable/disable
- * - Real-time sync notifications using existing Music/MediaBlobs channels
- *
- * Uses the clean sync/ system (not sync-legacy/)
+ * A simplified demo component showcasing the unified sync system with:
+ * - WebSocket connection with status indicator
+ * - Single "Sync All" button
+ * - Clean progress tracking
+ * - Auto-sync toggle
+ * - Minimal activity logging
+ * - No window object exposures or toast notifications
  */
 
 /* @jsxImportSource solid-js */
@@ -25,102 +23,40 @@ import {
 import { ApiClient } from "../lib/api-client.js";
 import { WebSocketClient } from "../lib/websocket-client.js";
 import {
-  createConfiguredSyncManager,
   setupUnifiedSyncQuick,
-  SYNC_FEATURES,
   SyncStatus,
   SyncEventType,
   type UnifiedSyncManager,
-  type SyncProgress,
   type SyncStatusMap,
   type SyncProgressMap,
   type SyncProgressEvent,
   type SyncCompletedEvent,
-  type SyncFailedEvent,
-  type AutoSyncTriggeredEvent,
-  type ConnectionChangedEvent,
-  type BinarySyncProgressEvent,
 } from "../sync/index.js";
-import { enableDebug, disableDebug } from "../sync/debug.js";
-import SyncStatusComponent from "./sync-status.js";
-import SyncProgressComponent from "./sync-progress.js";
 import { WebSocketStatus as WebSocketStatusComponent } from "./websocket-status.js";
 import { ConnectionStatus } from "../lib/websocket-client.js";
 
 export interface UnifiedSyncDemoProps {
   apiBaseUrl?: string;
   clientId?: string;
-  autoConnect?: boolean;
-  enableServiceWorker?: boolean;
   enableAutoSync?: boolean;
+  debug?: boolean;
   className?: string;
-  enableUserNotifications?: boolean;
 }
 
-function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
-  // Core managers
-  const [syncManager, setSyncManager] = createSignal<UnifiedSyncManager | null>(
-    null
+const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
+  // Core system signals
+  const [isInitialized, setIsInitialized] = createSignal(false);
+  const [isConnected, setIsConnected] = createSignal(false);
+  const [isSyncing, setIsSyncing] = createSignal(false);
+  const [connectionStatus, setConnectionStatus] = createSignal(
+    ConnectionStatus.Disconnected
   );
-  const [phase3System, setPhase3System] = createSignal<any>(null);
-  const [websocketClient, setWebsocketClient] =
-    createSignal<WebSocketClient | null>(null);
-  const [apiClient, setApiClient] = createSignal<ApiClient | null>(null);
-  const [lastMusicLibraryUpdate, setLastMusicLibraryUpdate] =
-    createSignal<Date | null>(null);
-
-  // Connection state
-  const [isConnected, setIsConnected] = createSignal<boolean>(false);
-  const [connectionStatus, setConnectionStatus] =
-    createSignal<ConnectionStatus>(ConnectionStatus.Disconnected);
-  const [isInitialized, setIsInitialized] = createSignal<boolean>(false);
   const [connectionError, setConnectionError] = createSignal<string | null>(
     null
   );
 
-  // Sync state
-  const [syncStatus, setSyncStatus] = createSignal<SyncStatusMap>({
-    music: SyncStatus.Never,
-    photos: SyncStatus.Never,
-    documents: SyncStatus.Never,
-    videos: SyncStatus.Never,
-  });
-  const [syncProgress, setSyncProgress] = createSignal<SyncProgressMap>({
-    music: {
-      status: SyncStatus.Never,
-      progress: 0,
-      itemsProcessed: 0,
-      totalItems: 0,
-      currentBatch: 0,
-      totalBatches: 0,
-    },
-    photos: {
-      status: SyncStatus.Never,
-      progress: 0,
-      itemsProcessed: 0,
-      totalItems: 0,
-      currentBatch: 0,
-      totalBatches: 0,
-    },
-    documents: {
-      status: SyncStatus.Never,
-      progress: 0,
-      itemsProcessed: 0,
-      totalItems: 0,
-      currentBatch: 0,
-      totalBatches: 0,
-    },
-    videos: {
-      status: SyncStatus.Never,
-      progress: 0,
-      itemsProcessed: 0,
-      totalItems: 0,
-      currentBatch: 0,
-      totalBatches: 0,
-    },
-  });
-  const [overallStatus, setOverallStatus] = createSignal(SyncStatus.Never);
-  const [overallProgress, setOverallProgress] = createSignal<SyncProgress>({
+  // Progress and overall state
+  const [overallProgress, setOverallProgress] = createSignal({
     status: SyncStatus.Never,
     progress: 0,
     itemsProcessed: 0,
@@ -131,373 +67,331 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
     currentOperation: "Ready",
   });
 
-  // Feature toggles
-  const [serviceWorkerEnabled, setServiceWorkerEnabled] = createSignal(
-    props.enableServiceWorker ?? true
-  );
-  const [autoSyncEnabled, setAutoSyncEnabled] = createSignal(
-    props.enableAutoSync ?? true
-  );
-
-  // UI state
-  const [logs, setLogs] = createSignal<string[]>([]);
-  const [isSyncing, setIsSyncing] = createSignal<boolean>(false);
-  const [lastSyncTime, setLastSyncTime] = createSignal<Date | null>(null);
+  // Image grid for binary data
   const [imageUrls, setImageUrls] = createSignal<string[]>([]);
   const [binaryDataCount, setBinaryDataCount] = createSignal<number>(0);
-  const [debugEnabled, setDebugEnabled] = createSignal<boolean>(false);
 
   // Storage usage signals
   const [totalStorage, setTotalStorage] = createSignal<string>("Loading...");
   const [musicStorage, setMusicStorage] = createSignal<string>("Loading...");
   const [binaryStorage, setBinaryStorage] = createSignal<string>("Loading...");
 
+  // Sync state signals
+  const [syncStatus, setSyncStatus] = createSignal<SyncStatusMap>({
+    music: SyncStatus.Never,
+    photos: SyncStatus.Never,
+    videos: SyncStatus.Never,
+    documents: SyncStatus.Never,
+  });
+  const [syncProgress, setSyncProgress] = createSignal<SyncProgressMap>({
+    music: {
+      status: SyncStatus.Never,
+      progress: 0,
+      itemsProcessed: 0,
+      totalItems: 0,
+      currentBatch: 0,
+      totalBatches: 0,
+      eta: 0,
+    },
+    photos: {
+      status: SyncStatus.Never,
+      progress: 0,
+      itemsProcessed: 0,
+      totalItems: 0,
+      currentBatch: 0,
+      totalBatches: 0,
+      eta: 0,
+    },
+    videos: {
+      status: SyncStatus.Never,
+      progress: 0,
+      itemsProcessed: 0,
+      totalItems: 0,
+      currentBatch: 0,
+      totalBatches: 0,
+      eta: 0,
+    },
+    documents: {
+      status: SyncStatus.Never,
+      progress: 0,
+      itemsProcessed: 0,
+      totalItems: 0,
+      currentBatch: 0,
+      totalBatches: 0,
+      eta: 0,
+    },
+  });
+
+  // UI state signals
+  const [autoSyncEnabled, setAutoSyncEnabled] = createSignal(
+    props?.enableAutoSync ?? true
+  );
+  const [lastSyncTime, setLastSyncTime] = createSignal<Date | null>(null);
+  const [logs, setLogs] = createSignal<string[]>([]);
+
+  // System instances
+  const [websocketClient, setWebsocketClient] =
+    createSignal<WebSocketClient | null>(null);
+  const [syncManager, setSyncManager] = createSignal<UnifiedSyncManager | null>(
+    null
+  );
+  const [autoSyncSystem, setAutoSyncSystem] = createSignal<any>(null);
+
+  // Debug logging
+  const log = (message: string, data?: any) => {
+    if (props?.debug) {
+      console.log(`[UnifiedSyncDemo] ${message}`, data || "");
+    }
+  };
+
+  // UI logging
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString();
-    setLogs((prev) => [...prev.slice(-9), `[${timestamp}] ${message}`]);
+    setLogs((prev) => [...prev.slice(-19), `[${timestamp}] ${message}`]);
   };
 
-  // Generate or validate UUID for clientId
-  const generateUUID = () => {
-    if (typeof crypto !== "undefined" && crypto.randomUUID) {
-      return crypto.randomUUID();
-    }
-    // Fallback UUID v4 generator
-    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
-      /[xy]/g,
-      function (c) {
-        const r = (Math.random() * 16) | 0;
-        const v = c == "x" ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      }
-    );
-  };
-
+  // Generate client ID
   const getClientId = () => {
     const uuidRegex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-    if (props.clientId && uuidRegex.test(props.clientId)) {
+    if (props?.clientId && uuidRegex.test(props.clientId)) {
       return props.clientId;
     }
-    return generateUUID();
+    return crypto.randomUUID();
   };
 
+  // Initialize the unified sync system
   const initializeSystem = async () => {
     try {
+      log("initializing system");
       addLog("🚀 Initializing Unified Sync System...");
 
-      const baseUrl = props.apiBaseUrl || "http://localhost:8080";
+      const baseUrl = props?.apiBaseUrl || "http://localhost:8080";
       const clientId = getClientId();
 
-      addLog(`📋 Client ID: ${clientId}`);
-      addLog(`🌐 API Base URL: ${baseUrl}`);
+      log("created client", { baseUrl, clientId: clientId.slice(0, 8) });
+      addLog(`📋 Client ID: ${clientId.slice(0, 8)}...`);
 
-      // Create API client
+      // Create API client and WebSocket
       const api = new ApiClient({ baseUrl });
-      setApiClient(api);
-
-      // Create WebSocket client
-      const wsUrl =
-        baseUrl.replace("http", "ws").replace("3001", "8080") + "/ws";
       const ws = new WebSocketClient({
-        url: wsUrl,
+        url: baseUrl.replace("http", "ws") + "/ws",
         autoReconnect: true,
-        reconnectDelay: 3000,
-        debug: true,
+        debug: props?.debug || false,
       });
+
       setWebsocketClient(ws);
 
-      // Set up WebSocket connection handlers
-      // Set up WebSocket event handlers
+      // Set up WebSocket event listeners
       const handleStatusChange = (status: ConnectionStatus) => {
+        log("handleStatusChange called", {
+          status,
+          previous: connectionStatus(),
+        });
         setConnectionStatus(status);
         const connected = status === ConnectionStatus.Connected;
         setIsConnected(connected);
-        addLog(`🔗 WebSocket status: ${status}`);
-        console.log("🐛 WebSocket status change:", {
-          status,
-          isConnected: connected,
-          isInitialized: isInitialized(),
-        });
+        log("websocket status change", { status, connected });
+        addLog(`🔗 WebSocket: ${status}`);
 
         if (connected) {
           setConnectionError(null);
-          console.log("🔌 WebSocket connected - forcing UI update");
+          addLog("✅ WebSocket connected successfully");
         } else if (status === ConnectionStatus.Error) {
           setConnectionError("WebSocket connection error");
         }
       };
 
-      // Set up event listeners BEFORE connecting
       ws.on("statusChange", handleStatusChange);
-
-      ws.on("error", (data) => {
-        setConnectionError(data.message);
-        addLog(`❌ WebSocket error: ${data.message}`);
+      ws.on("error", (error) => {
+        log("websocket error", error);
+        addLog(`❌ WebSocket error: ${error.message}`);
+        setConnectionError(error.message);
       });
 
-      // Debug all raw WebSocket messages
-      ws.on("rawMessage", (rawMessage) => {
-        console.log("🔍 Raw WebSocket message:", rawMessage);
-        addLog(
-          `📥 WS Raw: ${typeof rawMessage === "string" ? rawMessage.substring(0, 100) : "[Binary data]"}...`
-        );
-
-        // Don't log binary messages in UI
-        if (
-          typeof rawMessage === "string" &&
-          rawMessage.includes("Notification")
-        ) {
-          addLog(`📥 WS Raw: ${rawMessage.substring(0, 100)}...`);
-        }
-      });
-
-      // Enhanced notification debugging - log ALL notifications received
+      // Set up notification handling
       ws.on("notification", (data) => {
-        console.log("📬 ALL WebSocket notifications received:", {
+        log("received notification", {
           channel: data.channel,
           event_type: data.event_type,
-          payload: data.payload,
-          priority: data.priority,
-          timestamp: data.timestamp,
-          fullData: data,
         });
         addLog(`📬 Notification: ${data.channel}/${data.event_type}`);
 
-        // Check if this matches our song events specifically
+        // Handle music library updates
         if (
           data.channel === "MediaBlobs" &&
           (data.event_type === "song.created" ||
             data.event_type === "song.updated" ||
-            data.event_type === "song.deleted")
+            data.event_type === "song.deleted" ||
+            data.event_type === "music.library.updated")
         ) {
-          console.log("🎵 SONG EVENT notification received:", data);
-          addLog(`🎵 Song event: ${data.event_type}`);
-        }
+          addLog(`🎵 Music event: ${data.event_type}`);
 
-        // Original logic for music library updates
-        if (
-          (data.channel === "MediaBlobs" &&
-            data.event_type === "music.library.updated") ||
-          data.event_type === "scan_completed" ||
-          data.event_type === "song.created"
-        ) {
-          console.log("🎵 Music-related notification received:", data);
-          setLastMusicLibraryUpdate(new Date());
-
-          // Handle different notification types
-          if (
-            data.event_type === "music.library.updated" ||
-            data.event_type === "scan_completed"
-          ) {
-            const songsAdded = data.payload?.songs_added ?? 0;
-            const scanName = data.payload?.scan_name ?? "unknown";
-            addLog(
-              `🎵 Music library updated: ${songsAdded} songs added from scan "${scanName}"`
-            );
-          } else if (data.event_type === "song.created") {
-            addLog(
-              `🎵 New song added: "${data.payload?.title ?? "Unknown"}" by ${data.payload?.artist ?? "Unknown"}`
-            );
-          }
-
-          // Auto-trigger sync if auto-sync is enabled
-          if (autoSyncEnabled() && syncManager()) {
-            addLog(`🔄 Auto-syncing music library after update...`);
-            // We don't need to manually trigger sync since the auto-sync notification router will handle it
-          }
+          // Update last sync time to show activity
+          setLastSyncTime(new Date());
         }
       });
 
-      // Auto-connect if enabled
-      if (props.autoConnect !== false) {
-        addLog("🔄 Auto-connecting WebSocket...");
-        ws.connect();
-      }
-
-      // Set up unified sync system with auto-sync
-      addLog("⚙️ Setting up unified sync manager...");
-      const { syncManager: manager, autoSyncSystem } =
+      // Set up unified sync system
+      log("setting up unified sync system");
+      const { syncManager: manager, autoSyncSystem: autoSystem } =
         await setupUnifiedSyncQuick(ws, api, {
           apiBaseUrl: baseUrl,
           clientId,
-          enableUserNotifications: props.enableUserNotifications ?? true,
-          enableBackgroundSync: serviceWorkerEnabled(),
+          enableUserNotifications: false,
+          enableBackgroundSync: false,
         });
 
-      setSyncManager(manager);
-      setPhase3System(autoSyncSystem);
+      if (!manager) {
+        throw new Error("Failed to create sync manager");
+      }
 
-      // Debug: Check if auto-sync system has notification router
-      console.log("🔍 Auto-sync system status:", {
-        autoSyncSystem,
-        status: autoSyncSystem?.getStatus?.(),
-        stats: autoSyncSystem?.getStats?.(),
-        pendingNotifications: autoSyncSystem?.getPendingNotifications?.(),
-      });
+      if (!autoSystem) {
+        throw new Error("Failed to create auto-sync system");
+      }
+
+      setSyncManager(manager);
+      setAutoSyncSystem(autoSystem);
 
       // Set up sync event listeners
       setupSyncEventListeners(manager);
 
-      // Enable auto-sync if requested
-      if (autoSyncEnabled()) {
-        addLog("🔄 Enabling auto-sync...");
-        manager.enableAutoSync(true);
+      // Auto-connect WebSocket
+      log("auto-connecting websocket");
+      ws.connect();
 
-        // Also enable the auto-sync system
-        if (autoSyncSystem?.enable) {
-          console.log("🔄 Starting auto-sync system...");
-          await autoSyncSystem.enable();
-          addLog("✅ Auto-sync system started");
+      // Wait for connection with timeout
+      const connectTimeout = 10000; // 10 seconds
+      const startTime = Date.now();
+      while (ws.getStatus() !== ConnectionStatus.Connected) {
+        if (Date.now() - startTime > connectTimeout) {
+          throw new Error("WebSocket connection timeout");
         }
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
-      // Initialize domain status from existing storage data
+      // Manually trigger status update to ensure signals are set
+      const finalStatus = ws.getStatus();
+      log("final websocket status after connect", finalStatus);
+      setConnectionStatus(finalStatus);
+      setIsConnected(finalStatus === ConnectionStatus.Connected);
+
+      addLog(`🔗 WebSocket connection established: ${finalStatus}`);
+
+      // Initialize domain status from IDB
       try {
         const storageStats = await manager.getStorageStats();
-        console.log("🐛 Initial storage stats:", storageStats);
+        log("storage stats from IDB", storageStats);
 
-        // Set initial status based on existing data
+        // Get the actual sync status from the manager first
+        const managerStatus = manager.getStatus();
+        const managerProgress = manager.getProgress();
+
+        // For initial load, use manager status but supplement with IDB counts where available
         const initialStatus: SyncStatusMap = {
-          music:
-            (storageStats.itemCounts?.music || 0) > 0
-              ? SyncStatus.Complete
-              : SyncStatus.Never,
-          photos:
-            (storageStats.itemCounts?.photos || 0) > 0
-              ? SyncStatus.Complete
-              : SyncStatus.Never,
-          documents:
-            (storageStats.itemCounts?.documents || 0) > 0
-              ? SyncStatus.Complete
-              : SyncStatus.Never,
-          videos:
-            (storageStats.itemCounts?.videos || 0) > 0
-              ? SyncStatus.Complete
-              : SyncStatus.Never,
+          music: managerStatus.music || SyncStatus.Never,
+          photos: managerStatus.photos || SyncStatus.Never,
+          documents: managerStatus.documents || SyncStatus.Never,
+          videos: managerStatus.videos || SyncStatus.Never,
         };
 
+        // Use manager progress but fix any incorrect counts from IDB stats
         const initialProgress: SyncProgressMap = {
           music: {
             status: initialStatus.music,
-            progress: initialStatus.music === SyncStatus.Complete ? 100 : 0,
-            itemsProcessed: storageStats.itemCounts?.music || 0,
-            totalItems: storageStats.itemCounts?.music || 0,
-            currentBatch: 1,
-            totalBatches: 1,
+            progress: managerProgress.music?.progress || 0,
+            itemsProcessed: managerProgress.music?.itemsProcessed || 0,
+            totalItems: managerProgress.music?.totalItems || 0,
+            currentBatch: managerProgress.music?.currentBatch || 1,
+            totalBatches: managerProgress.music?.totalBatches || 1,
+            eta: 0,
           },
           photos: {
             status: initialStatus.photos,
-            progress: initialStatus.photos === SyncStatus.Complete ? 100 : 0,
-            itemsProcessed: storageStats.itemCounts?.photos || 0,
-            totalItems: storageStats.itemCounts?.photos || 0,
-            currentBatch: 1,
-            totalBatches: 1,
+            progress: managerProgress.photos?.progress || 0,
+            itemsProcessed: managerProgress.photos?.itemsProcessed || 0,
+            totalItems: managerProgress.photos?.totalItems || 0,
+            currentBatch: managerProgress.photos?.currentBatch || 1,
+            totalBatches: managerProgress.photos?.totalBatches || 1,
+            eta: 0,
           },
           documents: {
             status: initialStatus.documents,
-            progress: initialStatus.documents === SyncStatus.Complete ? 100 : 0,
-            itemsProcessed: storageStats.itemCounts?.documents || 0,
-            totalItems: storageStats.itemCounts?.documents || 0,
-            currentBatch: 1,
-            totalBatches: 1,
+            progress: managerProgress.documents?.progress || 0,
+            itemsProcessed: managerProgress.documents?.itemsProcessed || 0,
+            totalItems: managerProgress.documents?.totalItems || 0,
+            currentBatch: managerProgress.documents?.currentBatch || 1,
+            totalBatches: managerProgress.documents?.totalBatches || 1,
+            eta: 0,
           },
           videos: {
             status: initialStatus.videos,
-            progress: initialStatus.videos === SyncStatus.Complete ? 100 : 0,
-            itemsProcessed: storageStats.itemCounts?.videos || 0,
-            totalItems: storageStats.itemCounts?.videos || 0,
-            currentBatch: 1,
-            totalBatches: 1,
+            progress: managerProgress.videos?.progress || 0,
+            itemsProcessed: managerProgress.videos?.itemsProcessed || 0,
+            totalItems: managerProgress.videos?.totalItems || 0,
+            currentBatch: managerProgress.videos?.currentBatch || 1,
+            totalBatches: managerProgress.videos?.totalBatches || 1,
+            eta: 0,
           },
         };
 
         setSyncStatus(initialStatus);
         setSyncProgress(initialProgress);
-        addLog(
-          `📊 Initialized domain status: ${Object.values(initialStatus).filter((s) => s === SyncStatus.Complete).length} domains with data`
-        );
-      } catch (error) {
-        console.warn("Could not initialize domain status:", error);
-        // Fallback to manager's current status
-        setSyncStatus(manager.getStatus());
-        setSyncProgress(manager.getProgress());
-        addLog("📊 Using default domain status");
-      }
+        log("initialized from IDB", {
+          status: initialStatus,
+          itemCounts: storageStats.itemCounts,
+        });
 
-      // Calculate initial storage usage
-      setTimeout(() => {
-        calculateStorageUsage();
-      }, 2000);
+        addLog(
+          `📊 Loaded from IDB: ${Object.values(initialStatus).filter((s) => s === SyncStatus.Complete).length} domains with data`
+        );
+
+        // Calculate initial storage usage
+        setTimeout(() => {
+          calculateStorageUsage();
+        }, 2000);
+
+        // Load image grid if we have data
+        setTimeout(() => {
+          loadImageGrid();
+        }, 1000);
+      } catch (error) {
+        log("failed to get initial status", error);
+        // Use fallback status
+        setSyncStatus({
+          music: SyncStatus.Never,
+          photos: SyncStatus.Never,
+          videos: SyncStatus.Never,
+          documents: SyncStatus.Never,
+        });
+      }
 
       setIsInitialized(true);
-      addLog("✅ Unified Sync System initialized successfully");
-
-      // Expose objects to window for debugging
-      (window as any).websocketClient = ws;
-      (window as any).syncManager = manager;
-      (window as any).autoSyncSystem = autoSyncSystem;
-      (window as any).phase3System = autoSyncSystem;
-      (window as any).isConnected = isConnected();
-
-      // Expose UI signals for debugging and manual refresh
-      (window as any).syncStatus = syncStatus;
-      (window as any).syncProgress = syncProgress;
-      (window as any).lastSyncTime = lastSyncTime;
-      (window as any).refreshUIFromSyncManager = () => {
-        console.log("🔄 Refreshing UI from sync manager...");
-        const freshStatus = manager.getStatus();
-        const freshProgress = manager.getProgress();
-        setSyncStatus(freshStatus);
-        setSyncProgress(freshProgress);
-        setLastSyncTime(new Date());
-        console.log("✅ UI refreshed with:", { freshStatus, freshProgress });
-      };
-
-      addLog("🔧 Debug objects exposed to window");
-
-      // Final connection state sync
-      const currentWsStatus = ws.getStatus();
-      if (currentWsStatus === ConnectionStatus.Connected && !isConnected()) {
-        setIsConnected(true);
-        setConnectionError(null);
-      }
-
-      // Ensure connectionStatus signal matches actual WebSocket status
-      setConnectionStatus(currentWsStatus);
-
-      console.log("🐛 State after initialization:", {
-        isInitialized: true,
-        isConnected: isConnected(),
-        isSyncing: isSyncing(),
-      });
-
-      // Add reactive effect to ensure button state updates when connection changes
-      createEffect(() => {
-        const connected = isConnected();
-        const initialized = isInitialized();
-        const syncing = isSyncing();
-        console.log("🔄 Button state check:", {
-          connected,
-          initialized,
-          syncing,
-          buttonEnabled: connected && initialized && !syncing,
-        });
-      });
-
-      addLog("✅ Unified Sync System initialized successfully");
-    } catch (error) {
+      log("system initialized successfully");
+      addLog("✅ System initialized successfully");
+    } catch (error: any) {
+      log("initialization failed", error);
       addLog(`❌ Initialization failed: ${error.message}`);
       setConnectionError(error.message);
     }
   };
 
+  // Set up sync event listeners
   const setupSyncEventListeners = (manager: UnifiedSyncManager) => {
     manager.on(SyncEventType.Started, (event) => {
+      log("sync started", { domain: event.domain });
       addLog(`🔄 Sync started: ${event.domain || "all domains"}`);
       setIsSyncing(true);
-      setOverallStatus(SyncStatus.InProgress);
+      setOverallProgress({
+        status: SyncStatus.InProgress,
+        progress: 0,
+        itemsProcessed: 0,
+        totalItems: 0,
+        currentBatch: 0,
+        totalBatches: 0,
+        eta: 0,
+        currentOperation: "Starting sync...",
+      });
     });
 
     manager.on(SyncEventType.Progress, (event) => {
@@ -508,13 +402,6 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       const freshProgress = manager.getProgress();
       setSyncStatus(freshStatus);
       setSyncProgress(freshProgress);
-
-      // Log meaningful progress updates only
-      if (freshProgress[progressEvent.domain].totalItems > 0) {
-        console.log(
-          `📊 ${progressEvent.domain}: ${freshProgress[progressEvent.domain].itemsProcessed}/${freshProgress[progressEvent.domain].totalItems} (${freshProgress[progressEvent.domain].progress}%)`
-        );
-      }
 
       // Calculate overall progress from all domains
       const domainProgressValues = Object.values(freshProgress);
@@ -545,13 +432,13 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         totalItems: totalItems,
         currentBatch: currentBatch,
         totalBatches: totalBatches,
-        eta: progressEvent.progress.eta,
+        eta: progressEvent.progress?.eta || 0,
         currentOperation:
-          progressEvent.progress.currentOperation ||
+          progressEvent.progress?.currentOperation ||
           `Syncing ${progressEvent.domain}`,
       });
 
-      if (progressEvent.domain) {
+      if (progressEvent.domain && progressEvent.progress) {
         addLog(
           `📊 ${progressEvent.domain}: ${progressEvent.progress.itemsProcessed}/${progressEvent.progress.totalItems} items (${progressEvent.progress.progress}%)`
         );
@@ -559,23 +446,24 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
     });
 
     manager.on(SyncEventType.AllCompleted, (event) => {
-      const completedEvent = event as SyncCompletedEvent;
-      addLog(`✅ Sync completed: ${completedEvent.domain || "all domains"}`);
+      const completeEvent = event as SyncCompletedEvent;
+      log("sync completed", {
+        domain: completeEvent.domain,
+        itemsSynced: completeEvent.result.itemsSynced,
+      });
+      addLog(
+        `✅ Sync completed: ${completeEvent.domain || "all domains"} - ${completeEvent.result.itemsSynced} items`
+      );
+
+      if (completeEvent.domain) {
+        setSyncStatus((prev) => ({
+          ...prev,
+          [completeEvent.domain!]: SyncStatus.Complete,
+        }));
+      }
+
       setIsSyncing(false);
       setLastSyncTime(new Date());
-      setOverallStatus(SyncStatus.Complete);
-
-      // Force refresh UI state from sync manager after completion
-      const finalStatus = manager.getStatus();
-      const finalProgressMap = manager.getProgress();
-      setSyncStatus(finalStatus);
-      setSyncProgress(finalProgressMap);
-
-      console.log("🔄 UI updated after sync completion:", {
-        finalStatus,
-        finalProgressMap,
-        lastSyncTime: new Date(),
-      });
 
       // Set final overall progress to show 100% completion
       setOverallProgress({
@@ -589,11 +477,11 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         currentOperation: "Complete",
       });
 
-      if (completedEvent.result) {
-        addLog(
-          `📈 Stats: ${completedEvent.result.itemsSynced} items, ${Math.round(completedEvent.result.duration / 1000)}s`
-        );
-      }
+      // Refresh UI state
+      setTimeout(() => {
+        setSyncStatus(manager.getStatus());
+        setSyncProgress(manager.getProgress());
+      }, 100);
 
       // Trigger image grid refresh when sync completes
       setBinaryDataCount((prev) => prev + 1);
@@ -605,9 +493,9 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
 
       // Check for binary data with longer delay if binary sync happened
       if (
-        completedEvent.result &&
-        completedEvent.result.binaryStats &&
-        completedEvent.result.binaryStats.cached > 0
+        completeEvent.result &&
+        completeEvent.result.binaryStats &&
+        completeEvent.result.binaryStats.cached > 0
       ) {
         addLog(`🖼️ Binary sync completed, checking for images...`);
         setTimeout(() => {
@@ -633,32 +521,29 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
     });
 
     manager.on(SyncEventType.Failed, (event) => {
-      const failedEvent = event as SyncFailedEvent;
-      addLog(`❌ Sync failed: ${failedEvent.error.message}`);
+      const failedEvent = event as any;
+      log("sync failed", failedEvent);
+      addLog(
+        `❌ Sync failed: ${failedEvent.error?.message || "Unknown error"}`
+      );
       setIsSyncing(false);
-      setOverallStatus(SyncStatus.Failed);
     });
 
-    manager.on(SyncEventType.AutoSyncTriggered, (event) => {
-      const autoSyncEvent = event as AutoSyncTriggeredEvent;
-      addLog(
-        `🔄 Auto-sync triggered for ${autoSyncEvent.trigger}: ${autoSyncEvent.domain}`
-      );
-    });
-
-    manager.on(SyncEventType.ConnectionChanged, (event) => {
-      const connectionEvent = event as ConnectionChangedEvent;
-      addLog(
-        `🔗 Connection ${connectionEvent.isOnline ? "established" : "lost"}`
-      );
-    });
-
+    // Binary sync progress tracking
     manager.on(SyncEventType.BinaryProgress, (event) => {
-      const binaryEvent = event as BinarySyncProgressEvent;
-      if (binaryEvent.currentItem && binaryEvent.totalItems) {
-        const completed = binaryEvent.currentItem;
-        const total = binaryEvent.totalItems;
-        addLog(`📁 Binary sync: ${completed}/${total} files`);
+      const binaryEvent = event as any;
+      const { currentItem: completed, totalItems: total, domain } = binaryEvent;
+
+      if (domain && total > 0) {
+        setSyncProgress((prev) => ({
+          ...prev,
+          [domain]: {
+            ...prev[domain],
+            itemsProcessed: completed,
+            totalItems: total,
+            currentOperation: `Downloading binary data (${completed}/${total})`,
+          },
+        }));
 
         // Update overall progress to show binary sync progress
         setOverallProgress({
@@ -675,158 +560,13 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
     });
   };
 
-  // Storage usage calculation
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
-  };
-
-  const calculateStorageUsage = async () => {
-    try {
-      const manager = syncManager();
-      if (!manager) {
-        console.log("🐛 No sync manager available for storage stats");
-        return;
-      }
-
-      console.log("🐛 Calculating storage usage...");
-      // Get storage stats from the unified sync manager
-      const stats = await manager.getStorageStats();
-      console.log("🐛 Storage stats received:", stats);
-
-      // Fallback values if stats are empty/null
-      const safeStats = {
-        totalSize: stats?.totalSize || 0,
-        itemCounts: stats?.itemCounts || {
-          music: 0,
-          photos: 0,
-          documents: 0,
-          videos: 0,
-        },
-        binarySize: stats?.binarySize || 0,
-      };
-      console.log("🐛 Safe stats:", safeStats);
-
-      // Update reactive signals instead of DOM manipulation
-      const totalText = formatBytes(safeStats.totalSize);
-      const musicSize = safeStats.itemCounts.music;
-      const musicText = musicSize > 0 ? `${musicSize} items` : "No data";
-      const binaryText = formatBytes(safeStats.binarySize);
-
-      setTotalStorage(totalText);
-      setMusicStorage(musicText);
-      setBinaryStorage(binaryText);
-
-      console.log("🐛 Updated storage stats:", {
-        total: totalText,
-        music: musicText,
-        binary: binaryText,
-      });
-    } catch (error) {
-      console.error("Could not calculate storage usage:", error);
-
-      // Set error state using signals
-      setTotalStorage("Error");
-      setMusicStorage("Error");
-      setBinaryStorage("Error");
-    }
-  };
-
-  const handleSyncAll = async () => {
-    const manager = syncManager();
-    if (!manager || isSyncing()) return;
-
-    try {
-      addLog("🚀 Starting unified sync for all domains...");
-
-      const result = await manager.syncAll({
-        domains: ["music", "photos"], // Start with core domains
-        includeBinaryData: true, // Enable WebSocket binary sync
-        forceFullSync: false,
-      });
-
-      addLog(
-        `✨ Sync completed! Domain: ${result.domain}, Items: ${result.itemsSynced}/${result.totalItems}`
-      );
-    } catch (error) {
-      addLog(`❌ Sync failed: ${error.message}`);
-    }
-  };
-
-  const handleToggleServiceWorker = async () => {
-    const newValue = !serviceWorkerEnabled();
-    setServiceWorkerEnabled(newValue);
-    addLog(`🔧 Service Worker ${newValue ? "enabled" : "disabled"}`);
-
-    const manager = syncManager();
-    if (manager && phase3System()) {
-      // Reinitialize with new service worker setting
-      const p3 = phase3System();
-      if (p3.setBackgroundSyncEnabled) {
-        await p3.setBackgroundSyncEnabled(newValue);
-      }
-    }
-  };
-
-  const handleToggleAutoSync = async () => {
-    const newValue = !autoSyncEnabled();
-    setAutoSyncEnabled(newValue);
-
-    const manager = syncManager();
-    if (manager) {
-      if (newValue) {
-        addLog("🔄 Enabling auto-sync...");
-        manager.enableAutoSync(true);
-      } else {
-        addLog("⏸️ Disabling auto-sync...");
-        manager.enableAutoSync(false);
-      }
-    }
-  };
-
-  const handleDestroyAll = async () => {
-    const manager = syncManager();
-    if (!manager || isSyncing()) return;
-
-    try {
-      addLog("💥 Starting complete database teardown...");
-
-      // Reset UI state first
-      setIsInitialized(false);
-      setLastSyncTime(null);
-      setImageUrls([]);
-      setBinaryDataCount(0);
-
-      // Destroy the database
-      await syncManager()?.destroy();
-      addLog("🗑️ Database completely destroyed!");
-
-      // Clear existing sync manager
-      setSyncManager(null);
-      setPhase3System(null);
-
-      addLog("🔄 Reinitializing system...");
-
-      // Reinitialize the sync manager
-      await initializeSystem();
-
-      addLog("✅ System reinitialized successfully!");
-    } catch (error) {
-      addLog(`❌ Teardown failed: ${error.message}`);
-      console.error("Destroy error:", error);
-    }
-  };
-
   // Load image grid when binary data becomes available
   const loadImageGrid = async () => {
     const manager = syncManager();
     if (!manager || !isInitialized()) return;
 
     try {
-      // Get first 100 image blobs
+      // Get first 100 image blobs for the grid
       const imageBlobs = (await manager.getMediaBlobs()).slice(0, 100);
 
       if (imageBlobs.length === 0) {
@@ -868,10 +608,96 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           `📷 Found ${imageBlobs.length} image metadata but no binary data yet`
         );
       }
-    } catch (error) {
+    } catch (error: any) {
       addLog(`❌ Failed to load image grid: ${error.message}`);
     }
   };
+
+  // Storage usage calculation
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+  };
+
+  const calculateStorageUsage = async () => {
+    try {
+      const manager = syncManager();
+      if (!manager) {
+        log("no sync manager available for storage stats");
+        return;
+      }
+
+      log("calculating storage usage");
+      // Get storage stats from the unified sync manager
+      const stats = await manager.getStorageStats();
+      log("storage stats received", stats);
+
+      // Fallback values if stats are empty/null
+      const safeStats = {
+        totalSize: stats?.totalSize || 0,
+        itemCounts: stats?.itemCounts || {
+          music: 0,
+          photos: 0,
+          documents: 0,
+          videos: 0,
+        },
+        binarySize: stats?.binarySize || 0,
+      };
+
+      // Update reactive signals
+      const totalText = formatBytes(safeStats.totalSize);
+      const musicSize = safeStats.itemCounts.music;
+      const musicText = musicSize > 0 ? `${musicSize} items` : "No data";
+      const binaryText = formatBytes(safeStats.binarySize);
+
+      setTotalStorage(totalText);
+      setMusicStorage(musicText);
+      setBinaryStorage(binaryText);
+
+      log("updated storage stats", {
+        total: totalText,
+        music: musicText,
+        binary: binaryText,
+      });
+    } catch (error) {
+      console.error("Could not calculate storage usage:", error);
+
+      // Set error state using signals
+      setTotalStorage("Error");
+      setMusicStorage("Error");
+      setBinaryStorage("Error");
+    }
+  };
+
+  // Reactive effect to track button state and ensure UI updates
+  createEffect(() => {
+    const connected = isConnected();
+    const initialized = isInitialized();
+    const syncing = isSyncing();
+    const wsStatus = connectionStatus();
+
+    log("button state reactive check", {
+      connected,
+      initialized,
+      syncing,
+      wsStatus,
+      buttonEnabled: connected && !syncing,
+    });
+
+    // Force UI update if there's a mismatch
+    const ws = websocketClient();
+    if (ws) {
+      const actualStatus = ws.getStatus();
+      if (actualStatus !== wsStatus) {
+        log("status mismatch detected, correcting", { actualStatus, wsStatus });
+        setConnectionStatus(actualStatus);
+        setIsConnected(actualStatus === ConnectionStatus.Connected);
+      }
+    }
+  });
 
   // Reactive effect to trigger image grid loading
   createEffect(() => {
@@ -895,206 +721,180 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
     }
   });
 
-  const handleConnect = () => {
-    const ws = websocketClient();
-    if (ws && !isConnected()) {
-      addLog("🔄 Connecting WebSocket...");
-      ws.connect();
+  // Handle sync all
+  const handleSyncAll = async () => {
+    const manager = syncManager();
+    if (!manager || isSyncing()) return;
+
+    try {
+      log("starting sync all");
+      addLog("🔄 Starting sync for all domains...");
+
+      const result = await manager.syncAll({
+        domains: ["music", "photos"], // Start with core domains
+        includeBinaryData: true, // Enable WebSocket binary sync
+        forceFullSync: false,
+      });
+
+      addLog(
+        `✨ Sync completed! Domain: ${result.domain}, Items: ${result.itemsSynced}/${result.totalItems}`
+      );
+    } catch (error: any) {
+      log("sync all failed", error);
+      addLog(`❌ Sync failed: ${error.message}`);
     }
   };
 
-  const handleToggleDebug = () => {
-    const newState = !debugEnabled();
-    setDebugEnabled(newState);
+  // Handle auto-sync toggle
+  const handleToggleAutoSync = async () => {
+    const autoSystem = autoSyncSystem();
+    if (!autoSystem) {
+      addLog("❌ Auto-sync system not available");
+      return;
+    }
 
-    if (newState) {
-      enableDebug();
-      addLog("🐛 Debug logging enabled");
-    } else {
-      disableDebug();
-      addLog("🔇 Debug logging disabled");
+    try {
+      const newEnabled = !autoSyncEnabled();
+      setAutoSyncEnabled(newEnabled);
+
+      if (newEnabled) {
+        if (autoSystem.start) {
+          await autoSystem.start();
+        } else if (autoSystem.enable) {
+          await autoSystem.enable();
+        }
+        log("auto-sync enabled");
+        addLog("🔄 Auto-sync enabled");
+      } else {
+        if (autoSystem.stop) {
+          await autoSystem.stop();
+        } else if (autoSystem.disable) {
+          await autoSystem.disable();
+        }
+        log("auto-sync disabled");
+        addLog("⏸️ Auto-sync disabled");
+      }
+    } catch (error: any) {
+      log("auto-sync toggle failed", error);
+      addLog(`❌ Auto-sync toggle failed: ${error.message}`);
+      // Revert the toggle on error
+      setAutoSyncEnabled(!autoSyncEnabled());
     }
   };
 
-  const handleDisconnect = () => {
-    const ws = websocketClient();
-    if (ws && isConnected()) {
-      addLog("🔌 Disconnecting WebSocket...");
-      ws.disconnect();
-    }
+  // Auto-connect handles connection, no manual connect/disconnect needed
+
+  // Calculate overall progress
+  const getOverallProgress = () => {
+    const progress = syncProgress();
+    const totalItems = Object.values(progress).reduce(
+      (sum, p) => sum + p.totalItems,
+      0
+    );
+    const processedItems = Object.values(progress).reduce(
+      (sum, p) => sum + p.itemsProcessed,
+      0
+    );
+    const percentage =
+      totalItems > 0 ? Math.round((processedItems / totalItems) * 100) : 0;
+
+    return {
+      percentage,
+      processedItems,
+      totalItems,
+      text:
+        totalItems > 0
+          ? `${processedItems}/${totalItems} items (${percentage}%)`
+          : "Ready",
+    };
   };
 
   // Initialize on mount
   onMount(() => {
+    log("component mounted");
     initializeSystem();
   });
 
   // Cleanup on unmount
   onCleanup(() => {
+    log("component unmounting");
     const ws = websocketClient();
-    const manager = syncManager();
-
     if (ws) {
       ws.disconnect();
     }
-
-    if (manager) {
-      manager.destroy();
-    }
   });
 
-  // Calculate overall statistics
-  const getOverallStats = () => {
-    const progress = overallProgress();
-    const percentage = progress.progress;
-
-    return {
-      percentage,
-      itemsText: `${progress.itemsProcessed}/${progress.totalItems} items`,
-      batchText:
-        progress.totalBatches > 0
-          ? `Batch ${progress.currentBatch}/${progress.totalBatches}`
-          : "",
-      etaText:
-        progress.eta && progress.eta > 0
-          ? `ETA: ${Math.round(progress.eta)}s`
-          : "",
-      speedText: "", // Remove binary stats reference for now
-    };
-  };
-
   return (
-    <div class={`unified-sync-demo ${props.className || ""}`}>
+    <div class={`unified-sync-demo ${props?.className || ""}`}>
       <div class="demo-header">
         <h2>🚀 Unified Sync System Demo</h2>
-        <div class="phase-info">
-          <span class="phase-badge">Phase 4: Unified UI Demo</span>
-          <span class="version-badge">v1.0.0</span>
+        <div class="status-badges">
+          <span
+            class={`status-badge ${isInitialized() ? "success" : "pending"}`}
+          >
+            {isInitialized() ? "✅ Ready" : "⏳ Initializing"}
+          </span>
+          <span class={`status-badge ${isConnected() ? "success" : "error"}`}>
+            {isConnected() ? "🔗 Connected" : "🔗 Disconnected"} (
+            {connectionStatus()})
+          </span>
         </div>
       </div>
 
-      {/* Connection Status */}
+      {/* Connection Section */}
       <div class="connection-section">
-        <h3>🔗 Connection Status</h3>
-        <div class="connection-controls">
+        <h3>🔗 Connection</h3>
+        <div class="connection-status">
           <Show when={websocketClient()}>
             <WebSocketStatusComponent
               status={connectionStatus()}
               showText={true}
               compact={true}
             />
-            <div class="connection-buttons">
-              <Show when={!isConnected()}>
-                <button
-                  class="connect-button"
-                  onClick={handleConnect}
-                  disabled={connectionStatus() === ConnectionStatus.Connecting}
-                >
-                  {connectionStatus() === ConnectionStatus.Connecting
-                    ? "Connecting..."
-                    : "Connect"}
-                </button>
-              </Show>
-              <Show when={isConnected()}>
-                <button class="disconnect-button" onClick={handleDisconnect}>
-                  Disconnect
-                </button>
-              </Show>
-            </div>
-          </Show>
-          <div class="initialization-status">
             <span
-              class={`status-indicator ${isInitialized() ? "success" : "pending"}`}
+              class={`connection-text ${isConnected() ? "connected" : "disconnected"}`}
             >
-              {isInitialized() ? "✅ Initialized" : "⏳ Initializing..."}
+              {isConnected() ? "Connected" : "Disconnected"} (Status:{" "}
+              {connectionStatus()})
             </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Feature Toggles */}
-      <div class="feature-toggles">
-        <h3>⚙️ Feature Controls</h3>
-        <div class="toggle-controls">
-          <label class="toggle-control">
-            <input
-              type="checkbox"
-              checked={serviceWorkerEnabled()}
-              onChange={handleToggleServiceWorker}
-              disabled={!isInitialized()}
-            />
-            <span>🔧 Service Worker Background Sync</span>
-          </label>
-          <label class="toggle-control">
-            <input
-              type="checkbox"
-              checked={autoSyncEnabled()}
-              onChange={handleToggleAutoSync}
-              disabled={!isInitialized()}
-            />
-            <span>🔄 Auto-Sync on Changes</span>
-          </label>
-          <label class="toggle-control">
-            <input
-              type="checkbox"
-              checked={debugEnabled()}
-              onChange={handleToggleDebug}
-            />
-            <span>🐛 Debug Logging</span>
-          </label>
-          <Show when={props.enableUserNotifications !== false}>
-            <label class="toggle-control">
-              <input type="checkbox" checked disabled />
-              <span>🔔 User Notifications</span>
-            </label>
           </Show>
         </div>
+        <Show when={connectionError()}>
+          <div class="error-message">❌ {connectionError()}</div>
+        </Show>
       </div>
 
-      {/* Main Sync Controls */}
-      <div class="sync-controls">
-        <h3>🎯 Unified Sync Control</h3>
-        <div class="main-controls">
-          <button
-            class={`sync-all-button ${isSyncing() ? "syncing pulse" : ""}`}
-            onClick={() => {
-              console.log("🐛 Button click - Debug state:", {
-                isInitialized: isInitialized(),
-                isConnected: isConnected(),
-                isSyncing: isSyncing(),
-                buttonDisabled:
-                  !isInitialized() || !isConnected() || isSyncing(),
-              });
-              handleSyncAll();
-            }}
-            disabled={!isInitialized() || !isConnected() || isSyncing()}
-          >
-            <Show
-              when={isSyncing()}
-              fallback={<span>🚀 Sync All Domains</span>}
-            >
-              <span>🔄 Syncing...</span>
-            </Show>
-          </button>
+      {/* Auto-Sync Control */}
+      <div class="autosync-section">
+        <h3>⚙️ Auto-Sync</h3>
+        <label class="toggle-control">
+          <input
+            type="checkbox"
+            checked={autoSyncEnabled()}
+            onChange={handleToggleAutoSync}
+            disabled={!isInitialized()}
+          />
+          <span>Enable real-time auto-sync</span>
+        </label>
+      </div>
 
+      {/* Sync Controls */}
+      <div class="sync-section">
+        <h3>🎯 Sync Control</h3>
+        <div class="sync-controls">
           <button
-            class="destroy-button"
-            onClick={handleDestroyAll}
-            disabled={!isInitialized() || isSyncing()}
-            style={{
-              "background-color": "#dc3545",
-              color: "white",
-              border: "none",
-              padding: "10px 20px",
-              "border-radius": "5px",
-              cursor:
-                !isInitialized() || isSyncing() ? "not-allowed" : "pointer",
-              opacity: !isInitialized() || isSyncing() ? "0.5" : "1",
-              "margin-left": "10px",
-            }}
-            title="Completely destroy all IndexedDB data (for testing)"
+            class={`btn btn-sync ${isSyncing() ? "syncing" : ""}`}
+            onClick={handleSyncAll}
+            disabled={!isConnected() || isSyncing()}
+            title={
+              !isConnected()
+                ? "WebSocket must be connected to sync"
+                : isSyncing()
+                  ? "Sync in progress..."
+                  : "Sync all domains"
+            }
           >
-            💥 Destroy All Data
+            {isSyncing() ? "🔄 Syncing..." : "🚀 Sync All"}
           </button>
 
           <Show when={lastSyncTime()}>
@@ -1102,28 +902,10 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
               Last sync: {lastSyncTime()?.toLocaleTimeString()}
             </div>
           </Show>
-
-          <Show when={lastMusicLibraryUpdate()}>
-            <div class="last-sync music-update">
-              🎵 Last music update:{" "}
-              {lastMusicLibraryUpdate()?.toLocaleTimeString()}
-              <button
-                class="refresh-button"
-                onClick={() => {
-                  if (syncManager()) {
-                    addLog("🔄 Manually refreshing music after update");
-                    syncManager().syncDomain("music", { forceRefresh: true });
-                  }
-                }}
-              >
-                🔄 Refresh Now
-              </button>
-            </div>
-          </Show>
         </div>
       </div>
 
-      {/* Progress Display */}
+      {/* Progress Section */}
       <Show when={isSyncing() || overallProgress().totalItems > 0}>
         <div class="progress-section">
           <h3>📊 Sync Progress</h3>
@@ -1137,7 +919,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
                   style={{
                     width: `${
                       overallProgress().totalItems > 0
-                        ? getOverallStats().percentage
+                        ? overallProgress().progress
                         : Math.min(
                             85,
                             Math.max(10, overallProgress().itemsProcessed * 0.5)
@@ -1145,15 +927,15 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
                     }%`,
                     background:
                       overallProgress().totalItems > 0
-                        ? "linear-gradient(90deg, #3b82f6, #1d4ed8)"
-                        : "linear-gradient(90deg, #f59e0b, #d97706)",
+                        ? "linear-gradient(90deg, magenta, #cc00cc)"
+                        : "linear-gradient(90deg, #ff6600, #cc4400)",
                   }}
                 />
               </div>
               <div class="horizontal-progress-text">
                 <Show when={overallProgress().totalItems > 0}>
                   <span class="progress-percentage">
-                    {getOverallStats().percentage}%
+                    {overallProgress().progress}%
                   </span>
                 </Show>
                 <Show when={overallProgress().currentOperation}>
@@ -1171,12 +953,60 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
                 </Show>
                 <Show when={overallProgress().totalItems > 0}>
                   <span class="progress-items">
-                    {getOverallStats().itemsText}
+                    {overallProgress().itemsProcessed}/
+                    {overallProgress().totalItems} items
                   </span>
                 </Show>
               </div>
             </div>
           </Show>
+        </div>
+      </Show>
+
+      {/* Domain Status */}
+      <div class="domains-section">
+        <h3>📁 Domain Status</h3>
+        <div class="domain-grid">
+          <For each={Object.entries(syncStatus())}>
+            {([domain, status]) => (
+              <div class={`domain-card ${status.toLowerCase()}`}>
+                <div class="domain-name">{domain}</div>
+                <div class="domain-status">{status}</div>
+                <div class="domain-progress">
+                  {
+                    syncProgress()[domain as keyof SyncProgressMap]
+                      .itemsProcessed
+                  }
+                  /{syncProgress()[domain as keyof SyncProgressMap].totalItems}{" "}
+                  items
+                </div>
+              </div>
+            )}
+          </For>
+        </div>
+      </div>
+
+      {/* Image Grid */}
+      <Show when={imageUrls().length > 0}>
+        <div class="image-grid-section">
+          <h3>🖼️ Binary Data Image Grid ({imageUrls().length} images)</h3>
+          <div class="image-grid">
+            <For each={imageUrls()}>
+              {(url, index) => (
+                <div class="image-item">
+                  <img
+                    src={url}
+                    alt={`Image ${index() + 1}`}
+                    class="grid-image"
+                    onError={(e) => {
+                      log(`failed to load image ${index() + 1}`, url);
+                      (e.target as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                </div>
+              )}
+            </For>
+          </div>
         </div>
       </Show>
 
@@ -1201,66 +1031,8 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         </div>
       </div>
 
-      {/* Domain Status Overview - Only show music domain for now */}
-      <Show when={syncStatus().music && syncProgress().music}>
-        <div class="domain-status">
-          <h3>🎵 Music Domain Status</h3>
-          <div class="domain-grid">
-            <div class={`domain-card ${syncStatus().music.toLowerCase()}`}>
-              <div class="domain-name">🎵 music</div>
-              <SyncStatusComponent status={syncStatus().music} compact={true} />
-              <div class="domain-progress">
-                <div class="domain-progress-text">
-                  {syncProgress().music.itemsProcessed}/
-                  {syncProgress().music.totalItems} items
-                </div>
-                <div class="domain-progress-bar">
-                  <div
-                    class="domain-progress-fill"
-                    style={{
-                      width: `${syncProgress().music.progress}%`,
-                      "background-color":
-                        syncStatus().music === "in_progress"
-                          ? "#ff00ff"
-                          : "#0f0",
-                    }}
-                  />
-                </div>
-                <div class="domain-progress-percent">
-                  {Math.round(syncProgress().music.progress)}%
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Show>
-
-      {/* Image Grid */}
-      <Show when={imageUrls().length > 0}>
-        <div class="image-grid-section">
-          <h3>🖼️ Binary Data Image Grid ({imageUrls().length} images)</h3>
-          <div class="image-grid">
-            <For each={imageUrls()}>
-              {(url, index) => (
-                <div class="image-item">
-                  <img
-                    src={url}
-                    alt={`Image ${index() + 1}`}
-                    class="grid-image"
-                    onError={(e) => {
-                      console.log(`Failed to load image ${index() + 1}:`, url);
-                      (e.target as HTMLImageElement).style.display = "none";
-                    }}
-                  />
-                </div>
-              )}
-            </For>
-          </div>
-        </div>
-      </Show>
-
       {/* Activity Log */}
-      <div class="activity-log">
+      <div class="log-section">
         <h3>📋 Activity Log</h3>
         <div class="log-container">
           <For each={logs().slice().reverse()}>
@@ -1272,112 +1044,85 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         </div>
       </div>
 
-      {/* System Information */}
-      <div class="system-info">
-        <h3>ℹ️ System Information</h3>
-        <div class="info-grid">
-          <div class="info-item">
-            <span class="info-label">Sync Features:</span>
-            <span class="info-value">
-              {Object.entries(SYNC_FEATURES)
-                .filter(([_, enabled]) => enabled)
-                .map(([feature, _]) => feature)
-                .join(", ")}
-            </span>
-          </div>
-          <div class="info-item">
-            <span class="info-label">Client ID:</span>
-            <span class="info-value">{getClientId().slice(0, 8)}...</span>
-          </div>
-          <div class="info-item">
-            <span class="info-label">API URL:</span>
-            <span class="info-value">
-              {props.apiBaseUrl || "http://localhost:8080"}
-            </span>
-          </div>
-        </div>
-      </div>
-
       <style>{`
         .unified-sync-demo {
-          padding: 20px;
+          font-family:
+            -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           max-width: 800px;
           margin: 0 auto;
-          font-family:
-            -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          padding: 20px;
           background: black;
           color: white;
-          border-radius: 12px;
+          border-radius: 8px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
         }
 
         .demo-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
+          text-align: center;
           margin-bottom: 30px;
-          padding-bottom: 15px;
-          border-bottom: 2px solid #333;
+          padding-bottom: 20px;
+          border-bottom: 1px solid #333;
         }
 
         .demo-header h2 {
-          margin: 0;
+          margin: 0 0 10px 0;
           color: white;
         }
 
-        .phase-info {
+        .status-badges {
           display: flex;
           gap: 10px;
+          justify-content: center;
+          margin-top: 10px;
         }
 
-        .phase-badge,
-        .version-badge {
-          padding: 4px 8px;
-          border-radius: 4px;
+        .status-badge {
+          padding: 4px 12px;
+          border-radius: 20px;
           font-size: 12px;
-          font-weight: 600;
+          font-weight: 500;
         }
 
-        .phase-badge {
-          background: #3498db;
-          color: white;
+        .status-badge.success {
+          background: #0f5132;
+          color: #d1e7dd;
         }
 
-        .version-badge {
-          background: #2ecc71;
-          color: white;
+        .status-badge.pending {
+          background: #664d03;
+          color: #fff3cd;
+        }
+
+        .status-badge.error {
+          background: #842029;
+          color: #f8d7da;
         }
 
         .connection-section,
-        .feature-toggles,
-        .sync-controls,
+        .autosync-section,
+        .sync-section,
         .progress-section,
-        .domain-status,
-        .image-grid-section,
-        .activity-log,
-        .system-info,
-        .storage-stats {
+        .domains-section,
+        .log-section {
           margin-bottom: 25px;
-          padding: 15px;
-          border: 1px solid #333;
-          border-radius: 8px;
+          padding: 20px;
           background: #111;
+          border-radius: 6px;
+          border: 1px solid #333;
         }
 
         .connection-section h3,
-        .feature-toggles h3,
-        .sync-controls h3,
+        .autosync-section h3,
+        .sync-section h3,
         .progress-section h3,
-        .domain-status h3,
-        .image-grid-section h3,
-        .activity-log h3,
-        .system-info h3,
-        .storage-stats h3 {
+        .domains-section h3,
+        .log-section h3 {
           margin: 0 0 15px 0;
-          color: white;
           font-size: 16px;
+          color: white;
         }
 
-        .connection-controls {
+        .connection-status {
           display: flex;
           align-items: center;
           gap: 15px;
@@ -1388,163 +1133,189 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           gap: 10px;
         }
 
-        .connect-button,
-        .disconnect-button {
-          padding: 6px 12px;
-          border: none;
-          border-radius: 4px;
-          font-size: 12px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .connect-button {
-          background: #3498db;
-          color: white;
-        }
-
-        .connect-button:hover:not(:disabled) {
-          background: #2980b9;
-        }
-
-        .connect-button:disabled {
-          background: #95a5a6;
-          cursor: not-allowed;
-        }
-
-        .disconnect-button {
-          background: #e74c3c;
-          color: white;
-        }
-
-        .disconnect-button:hover {
-          background: #c0392b;
-        }
-
-        .status-indicator {
-          padding: 4px 8px;
-          border-radius: 4px;
-          font-size: 14px;
-          font-weight: 500;
-        }
-
-        .status-indicator.success {
-          background: #d4edda;
-          color: #155724;
-        }
-
-        .status-indicator.pending {
-          background: #fff3cd;
-          color: #856404;
-        }
-
-        .toggle-controls {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
         .toggle-control {
           display: flex;
           align-items: center;
           gap: 8px;
           cursor: pointer;
-          user-select: none;
           color: white;
         }
 
-        .toggle-control input[type="checkbox"] {
-          cursor: pointer;
-        }
-
-        .toggle-control input[type="checkbox"]:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .main-controls {
+        .sync-controls {
           display: flex;
           align-items: center;
-          gap: 15px;
-          margin-bottom: 15px;
+          gap: 20px;
         }
 
-        .sync-all-button {
-          padding: 15px 30px;
-          font-size: 18px;
-          font-weight: 600;
+        .btn {
+          padding: 10px 20px;
           border: none;
-          border-radius: 8px;
+          border-radius: 4px;
+          font-size: 14px;
+          font-weight: 500;
           cursor: pointer;
-          transition: all 0.3s ease;
-          background: #ff00ff;
-          color: black;
-          min-width: 200px;
+          transition: all 0.2s;
         }
 
-        .sync-all-button:hover:not(:disabled) {
-          background: #ff00ff;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 15px rgba(255, 0, 255, 0.3);
-        }
-
-        .sync-all-button:disabled {
-          background: #333;
-          color: #666;
+        .btn:disabled {
+          opacity: 0.6;
           cursor: not-allowed;
-          transform: none;
-          box-shadow: none;
         }
 
-        .sync-all-button.syncing {
-          background: linear-gradient(135deg, #ff00ff, #cc00cc);
+        .btn-primary {
+          background: #007bff;
+          color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+          background: #0056b3;
+        }
+
+        .btn-secondary {
+          background: #6c757d;
+          color: white;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+          background: #545b62;
+        }
+
+        .btn-sync {
+          background: magenta;
+          color: black;
+          position: relative;
+          font-weight: 600;
+        }
+
+        .btn-sync:hover:not(:disabled) {
+          background: #ff40ff;
+        }
+
+        .btn-sync.syncing {
+          background: #cc00cc;
           animation: pulse 2s infinite;
         }
 
         @keyframes pulse {
-          0%,
-          100% {
+          0% {
             opacity: 1;
           }
           50% {
-            opacity: 0.8;
+            opacity: 0.7;
+          }
+          100% {
+            opacity: 1;
           }
         }
 
         .last-sync {
+          font-size: 12px;
           color: #ccc;
+        }
+
+        .progress-bar {
+          width: 100%;
+          height: 8px;
+          background: #333;
+          border-radius: 4px;
+          overflow: hidden;
+          margin-bottom: 10px;
+        }
+
+        .progress-fill {
+          height: 100%;
+          background: magenta;
+          transition: width 0.3s ease;
+        }
+
+        .progress-text {
+          text-align: center;
           font-size: 14px;
+          color: white;
         }
 
-        .loading-indicator {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 16px;
-          background: #f8f9fa;
-          border: 1px solid #e9ecef;
-          border-radius: 8px;
+        .domain-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 15px;
+        }
+
+        .domain-card {
+          padding: 15px;
+          border-radius: 6px;
+          border: 1px solid #333;
+          background: #222;
+        }
+
+        .domain-card.complete {
+          border-color: #0f0;
+          background: #003300;
+        }
+
+        .domain-card.in_progress {
+          border-color: magenta;
+          background: #330033;
+        }
+
+        .domain-card.never {
+          border-color: #666;
+          background: #1a1a1a;
+        }
+
+        .domain-name {
+          font-weight: 600;
+          margin-bottom: 5px;
+          text-transform: capitalize;
+          color: white;
+        }
+
+        .domain-status {
+          font-size: 12px;
+          color: #ccc;
+          margin-bottom: 5px;
+        }
+
+        .domain-progress {
+          font-size: 11px;
+          color: #aaa;
+        }
+
+        .log-container {
+          max-height: 200px;
+          overflow-y: auto;
+          background: #000;
+          border: 1px solid #333;
+          border-radius: 4px;
+          padding: 10px;
+        }
+
+        .log-entry {
+          font-family: "Monaco", "Consolas", monospace;
+          font-size: 12px;
+          padding: 2px 0;
+          border-bottom: 1px solid #333;
+          color: #ccc;
+        }
+
+        .log-entry:last-child {
+          border-bottom: none;
+        }
+
+        .log-empty {
+          text-align: center;
+          color: #666;
+          font-style: italic;
+          padding: 20px;
+        }
+
+        .error-message {
+          margin-top: 10px;
+          padding: 10px;
+          background: #330000;
+          border: 1px solid #660000;
+          border-radius: 4px;
+          color: #ff6666;
           font-size: 14px;
-          color: #6c757d;
-        }
-
-        .loading-spinner {
-          width: 20px;
-          height: 20px;
-          border: 2px solid #e9ecef;
-          border-top: 2px solid #007bff;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-          0% {
-            transform: rotate(0deg);
-          }
-          100% {
-            transform: rotate(360deg);
-          }
         }
 
         .horizontal-progress-container {
@@ -1607,7 +1378,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
 
         .progress-percentage {
           font-weight: 600;
-          color: #ff00ff;
+          color: magenta;
           font-size: 16px;
         }
 
@@ -1616,7 +1387,7 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
         }
 
         .progress-initializing {
-          color: #ff00ff;
+          color: magenta;
           font-weight: 500;
         }
 
@@ -1626,212 +1397,18 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           font-style: italic;
         }
 
-        .last-sync {
-          color: #ccc;
-          font-size: 13px;
-          font-style: italic;
-        }
-
-        .music-update {
-          color: #88c0ff;
-          margin-top: 4px;
-          border-top: 1px solid rgba(255, 255, 255, 0.1);
-          padding-top: 4px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .refresh-button {
-          background: #3b82f6;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          padding: 2px 5px;
-          font-size: 11px;
-          cursor: pointer;
-          margin-left: 8px;
-        }
-
-        .refresh-button:hover {
-          background: #2563eb;
-        }
-
-        .progress-display {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .domain-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 15px;
-        }
-
-        .domain-card {
-          padding: 15px;
-          border: 2px solid #333;
-          border-radius: 8px;
-          background: #222;
-          transition: all 0.2s ease;
-        }
-
-        .domain-card.complete {
-          border-color: #0f0;
-          background: #001100;
-        }
-
-        .domain-card.in_progress {
-          border-color: #ff00ff;
-          background: #330033;
-        }
-
-        .domain-card.failed {
-          border-color: #e74c3c;
-          background: #fadbd8;
-        }
-
-        .domain-name {
-          font-weight: 600;
-          margin-bottom: 10px;
-          color: white;
-        }
-
-        .domain-progress {
-          margin-top: 8px;
-          font-size: 12px;
-        }
-
-        .domain-progress-text {
-          color: #ccc;
-          margin-bottom: 4px;
-        }
-
-        .domain-progress-bar {
-          width: 100%;
-          height: 4px;
-          background-color: #444;
-          border-radius: 2px;
-          overflow: hidden;
-          margin-bottom: 4px;
-        }
-
-        .domain-progress-fill {
-          height: 100%;
-          transition: width 0.3s ease;
-          border-radius: 2px;
-        }
-
-        .domain-progress-percent {
-          color: white;
-          font-weight: 500;
-          text-align: center;
-        }
-
-        .storage-display {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .storage-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 8px 12px;
-          background: #222;
-          border-radius: 6px;
-          border: 1px solid #444;
-        }
-
-        .storage-label {
-          font-weight: 500;
-          color: white;
-        }
-
-        .storage-value {
-          font-weight: 600;
-          color: #ff00ff;
-          font-family: "Monaco", "Menlo", monospace;
-          font-size: 13px;
-        }
-
-        .storage-breakdown {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 8px;
-          margin-top: 8px;
-        }
-
-        .storage-breakdown .storage-item {
-          background: #1a1a1a;
-          border-color: #333;
-        }
-
-        .log-container {
-          max-height: 200px;
-          overflow-y: auto;
-          border: 1px solid #333;
-          border-radius: 4px;
-          background: #111;
-          padding: 10px;
-        }
-
-        .log-entry {
-          padding: 4px 0;
-          font-family: "Monaco", "Menlo", monospace;
-          font-size: 12px;
-          color: #ccc;
-          border-bottom: 1px solid #333;
-        }
-
-        .log-entry:last-child {
-          border-bottom: none;
-        }
-
-        .log-empty {
-          color: #666;
-          font-style: italic;
-          text-align: center;
-          padding: 20px;
-        }
-
-        .info-grid {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .info-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 8px 0;
-          border-bottom: 1px solid #333;
-        }
-
-        .info-item:last-child {
-          border-bottom: none;
-        }
-
-        .info-label {
-          font-weight: 600;
-          color: #34495e;
-        }
-
-        .info-value {
-          font-family: "Monaco", "Menlo", monospace;
-          color: white;
-          font-size: 13px;
-        }
-
         .image-grid-section {
           margin-bottom: 25px;
           padding: 20px;
           background: #111;
-          border-radius: 8px;
+          border-radius: 6px;
           border: 1px solid #333;
+        }
+
+        .image-grid-section h3 {
+          margin: 0 0 15px 0;
+          font-size: 16px;
+          color: white;
         }
 
         .image-grid {
@@ -1866,52 +1443,86 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           box-shadow: 0 4px 15px rgba(255, 0, 255, 0.3);
         }
 
-        .grid-image:error {
-          border-color: #f00;
-          background: #330000;
+        .storage-stats {
+          margin-bottom: 25px;
+          padding: 20px;
+          background: #111;
+          border-radius: 6px;
+          border: 1px solid #333;
         }
 
-        @media (max-width: 600px) {
-          .unified-sync-demo {
-            padding: 15px;
-          }
+        .storage-stats h3 {
+          margin: 0 0 15px 0;
+          font-size: 16px;
+          color: white;
+        }
 
-          .demo-header {
-            flex-direction: column;
-            gap: 10px;
-            text-align: center;
-          }
+        .storage-display {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
 
-          .connection-controls {
-            flex-direction: column;
-            align-items: stretch;
-          }
+        .storage-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 12px;
+          background: #222;
+          border-radius: 6px;
+          border: 1px solid #444;
+        }
 
-          .progress-stats {
-            justify-content: center;
-          }
+        .storage-label {
+          font-weight: 500;
+          color: white;
+        }
 
-          .domain-grid {
-            grid-template-columns: 1fr;
-          }
+        .storage-value {
+          font-weight: 600;
+          color: magenta;
+          font-family: "Monaco", "Menlo", monospace;
+          font-size: 13px;
+        }
+
+        .storage-breakdown {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin-top: 8px;
+        }
+
+        .storage-breakdown .storage-item {
+          background: #1a1a1a;
+          border-color: #333;
+        }
+
+        .connection-text {
+          margin-left: 10px;
+          font-weight: 500;
+          font-size: 14px;
+        }
+
+        .connection-text.connected {
+          color: #0f0;
+        }
+
+        .connection-text.disconnected {
+          color: #f00;
         }
       `}</style>
     </div>
   );
-}
+};
 
-customElement(
+export default customElement(
   "unified-sync-demo",
   {
-    apiBaseUrl: undefined,
-    clientId: undefined,
-    autoConnect: true,
-    enableServiceWorker: true,
+    apiBaseUrl: "",
+    clientId: "",
     enableAutoSync: true,
+    debug: false,
     className: "",
-    enableUserNotifications: true,
   },
   UnifiedSyncDemoComponent
 );
-
-export default UnifiedSyncDemoComponent;

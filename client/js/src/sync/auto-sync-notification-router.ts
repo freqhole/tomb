@@ -35,6 +35,8 @@ export interface AutoSyncNotificationConfig {
     immediate: string[]; // e.g., ['high', 'critical']
     batched: string[]; // e.g., ['medium', 'low']
   };
+  /** Enable debug logging */
+  debug?: boolean;
 }
 
 /**
@@ -105,12 +107,11 @@ export class AutoSyncNotificationRouter {
    */
   async start(): Promise<void> {
     if (this.isActive) {
-      console.log("📡 Auto-sync notification router already active");
+      this.log("already active");
       return;
     }
 
-    console.log("🚀 Starting auto-sync notification router...");
-    console.log("🔧 Router config:", {
+    this.log("starting auto-sync notification router", {
       enabled: this.config.enabled,
       syncRules: this.config.syncRules?.length || 0,
       monitoredChannels: this.config.monitoredChannels,
@@ -123,7 +124,7 @@ export class AutoSyncNotificationRouter {
     this.setupWebSocketListeners();
 
     this.isActive = true;
-    console.log("✅ Auto-sync notification router started");
+    this.log("auto-sync notification router started");
   }
 
   /**
@@ -131,11 +132,11 @@ export class AutoSyncNotificationRouter {
    */
   async stop(): Promise<void> {
     if (!this.isActive) {
-      console.log("📡 Auto-sync notification router already stopped");
+      this.log("already stopped");
       return;
     }
 
-    console.log("⏹️ Stopping auto-sync notification router...");
+    this.log("stopping auto-sync notification router");
 
     // Clear all debounce timeouts
     this.clearAllDebounceTimeouts();
@@ -147,7 +148,7 @@ export class AutoSyncNotificationRouter {
     this.clearWebSocketListeners();
 
     this.isActive = false;
-    console.log("✅ Auto-sync notification router stopped");
+    this.log("auto-sync notification router stopped");
   }
 
   /**
@@ -156,47 +157,27 @@ export class AutoSyncNotificationRouter {
   async processNotification(
     notification: WebSocketNotification
   ): Promise<void> {
-    console.log("📬 AutoSyncNotificationRouter.processNotification called:", {
+    this.log("processNotification called", {
+      channel: notification.channel,
+      eventType: notification.eventType,
       isActive: this.isActive,
       configEnabled: this.config.enabled,
-      notification: {
-        channel: notification.channel,
-        eventType: notification.eventType,
-        priority: notification.priority,
-        payload: notification.payload,
-      },
     });
 
     if (!this.isActive || !this.config.enabled) {
-      console.log("⏭️ Notification router not active or disabled, skipping");
+      this.log("router not active or disabled, skipping");
       return;
     }
 
     this.stats.notificationsReceived++;
     this.stats.lastActivity = Date.now();
 
-    console.log("📬 Processing notification:", {
-      channel: notification.channel,
-      eventType: notification.eventType,
-      priority: notification.priority,
-      payload: notification.payload,
-    });
-
-    // Debug: Log all notifications to help troubleshoot
-    console.log("🔍 ALL NOTIFICATION DEBUG:", {
-      receivedChannel: notification.channel,
-      receivedEventType: notification.eventType,
-      expectedChannels: ["MediaBlobs", "ThumbnailJobs", "System"],
-      expectedSongEvents: ["song.created", "song.updated", "song.deleted"],
-      willProcess: this.getTargetDomains(notification).length > 0,
-    });
-
     // Special handling for music library update notifications
     if (
       notification.channel === "MediaBlobs" &&
       notification.eventType === "music.library.updated"
     ) {
-      console.log("🎵 Music library update detected:", notification.payload);
+      this.log("music library update detected", notification.payload);
       this.stats.musicUpdates++;
     }
 
@@ -204,9 +185,11 @@ export class AutoSyncNotificationRouter {
     const targetDomains = this.getTargetDomains(notification);
 
     if (targetDomains.length === 0) {
-      console.log("⏭️ No target domains for notification, skipping");
+      this.log("no target domains for notification, skipping");
       return;
     }
+
+    this.log("processing notification for domains", { targetDomains });
 
     // Create queued notifications for each target domain
     for (const domain of targetDomains) {
@@ -356,19 +339,12 @@ export class AutoSyncNotificationRouter {
     priority: string;
     timestamp: string;
   }): Promise<void> {
-    console.log(
-      "🔔 AutoSyncNotificationRouter received WebSocket notification:",
-      {
-        id: data.id,
-        channel: data.channel,
-        event_type: data.event_type,
-        payload: data.payload,
-        priority: data.priority,
-        timestamp: data.timestamp,
-        isActive: this.isActive,
-        configEnabled: this.config.enabled,
-      }
-    );
+    this.log("received WebSocket notification", {
+      id: data.id,
+      channel: data.channel,
+      event_type: data.event_type,
+      priority: data.priority,
+    });
 
     // Convert snake_case to camelCase for internal processing
     const notification: WebSocketNotification = {
@@ -598,7 +574,7 @@ export class AutoSyncNotificationRouter {
     const debounceState = this.domainDebounceState.get(domain);
 
     if (!debounceState) {
-      console.warn(`⚠️ No debounce state for domain: ${domain}`);
+      console.warn(`No debounce state for domain: ${domain}`);
       return;
     }
 
@@ -615,9 +591,9 @@ export class AutoSyncNotificationRouter {
       await this.triggerBatchedSync(domain);
     }, this.config.debounceDelay);
 
-    console.log(
-      `📦 Queued notification for batched sync: ${domain} (${debounceState.pendingNotifications.length} pending)`
-    );
+    this.log(`queued notification for batched sync: ${domain}`, {
+      pendingCount: debounceState.pendingNotifications.length,
+    });
   }
 
   /**
@@ -671,7 +647,7 @@ export class AutoSyncNotificationRouter {
     );
 
     if (isMusicLibraryUpdate) {
-      console.log("🎵 Using special options for music library update sync");
+      this.log("using special options for music library update sync");
       syncOptions = {
         ...syncOptions,
         forceRefresh: true,
@@ -687,11 +663,7 @@ export class AutoSyncNotificationRouter {
       debounceState.lastTrigger = Date.now();
     }
 
-    // Emit auto-sync triggered event (simplified for now)
-    // In a full implementation, this would emit through the sync manager's event system
-
-    // Notify sync manager (this would trigger the actual sync)
-    console.log(`🔄 Auto-sync triggered for ${domain}:`, {
+    this.log(`auto-sync triggered for ${domain}`, {
       trigger,
       notificationCount: notifications.length,
       notificationIds: notifications.map((n) => n.notification.id),
@@ -701,23 +673,12 @@ export class AutoSyncNotificationRouter {
       // Trigger the actual sync through the sync manager
       await this.syncManager.syncDomain(domain, syncOptions);
 
-      console.log(
-        `✅ Auto-sync completed for ${domain}`,
-        isMusicLibraryUpdate ? "with music library update options" : ""
+      this.log(
+        `auto-sync completed for ${domain}`,
+        isMusicLibraryUpdate ? { musicLibraryUpdate: true } : {}
       );
-
-      // Trigger UI refresh after auto-sync completion
-      if (
-        typeof window !== "undefined" &&
-        (window as any).refreshUIFromSyncManager
-      ) {
-        console.log(
-          `🔄 Refreshing UI after auto-sync completion for ${domain}`
-        );
-        (window as any).refreshUIFromSyncManager();
-      }
     } catch (error) {
-      console.error(`❌ Auto-sync failed for ${domain}:`, error);
+      console.error(`Auto-sync failed for ${domain}:`, error);
     }
   }
 
@@ -740,6 +701,15 @@ export class AutoSyncNotificationRouter {
       this.clearDomainDebounce(domain);
     }
   }
+
+  /**
+   * Debug logging (toggleable via config)
+   */
+  private log(message: string, data?: any): void {
+    if (this.config.debug) {
+      console.log(`[AutoSyncNotificationRouter] ${message}`, data || "");
+    }
+  }
 }
 
 /**
@@ -755,6 +725,7 @@ export function createAutoSyncNotificationRouter(
     debounceDelay: 5000, // 5 seconds
     maxQueueSize: 50,
     monitoredChannels: ["MediaBlobs", "ThumbnailJobs", "System"],
+    debug: false,
     syncRules: [
       // Music library updates - specific handling for CLI music scan completion
       {

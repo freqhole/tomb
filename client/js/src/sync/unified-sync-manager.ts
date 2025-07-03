@@ -736,18 +736,33 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
 
     // 2. Sync playlists
     console.log("📋 Syncing playlists...");
-    const playlistsResult = await this.syncMusicDataType("playlists", options);
-    totalItemsSynced += playlistsResult.itemsSynced;
-    totalItems += playlistsResult.totalItems;
+    try {
+      const playlistsResult = await this.syncMusicDataType(
+        "playlists",
+        options
+      );
+      console.log("✅ Playlists sync result:", playlistsResult);
+      totalItemsSynced += playlistsResult.itemsSynced;
+      totalItems += playlistsResult.totalItems;
+    } catch (error) {
+      console.error("❌ Playlists sync failed:", error);
+      // Continue with other syncs even if playlists fail
+    }
 
     // 3. Sync playlist_songs relationships
     console.log("🔗 Syncing playlist songs...");
-    const playlistSongsResult = await this.syncMusicDataType(
-      "playlist-songs",
-      options
-    );
-    totalItemsSynced += playlistSongsResult.itemsSynced;
-    totalItems += playlistSongsResult.totalItems;
+    try {
+      const playlistSongsResult = await this.syncMusicDataType(
+        "playlist-songs",
+        options
+      );
+      console.log("✅ Playlist songs sync result:", playlistSongsResult);
+      totalItemsSynced += playlistSongsResult.itemsSynced;
+      totalItems += playlistSongsResult.totalItems;
+    } catch (error) {
+      console.error("❌ Playlist songs sync failed:", error);
+      // Continue with other syncs even if playlist_songs fail
+    }
 
     // 4. Sync media_blobs (the metadata, not binary data)
     console.log("📦 Syncing media blobs...");
