@@ -290,8 +290,14 @@ export class MediaBlobCache extends EventTarget implements IBlobCache {
         data: number[];
         mime?: string;
       } | null>((resolve, reject) => {
+        let isResolved = false;
+
         const timeout = setTimeout(() => {
-          reject(new Error(`Timeout waiting for binary data: ${blobId}`));
+          if (!isResolved) {
+            isResolved = true;
+            cleanup();
+            reject(new Error(`Timeout waiting for binary data: ${blobId}`));
+          }
         }, 30000); // 30 second timeout
 
         // Set up one-time listener for this specific blob
@@ -300,28 +306,40 @@ export class MediaBlobCache extends EventTarget implements IBlobCache {
           data: number[];
           mime?: string;
         }) => {
-          if (data.id === blobId) {
-            clearTimeout(timeout);
-            websocketClient.off("mediaBlobData");
+          if (data.id === blobId && !isResolved) {
+            isResolved = true;
+            cleanup();
             resolve(data);
           }
         };
 
-        // Add listener
+        // Set up error handler
+        const handleError = (error: { message: string; code?: string }) => {
+          if (!isResolved) {
+            isResolved = true;
+            cleanup();
+            reject(new Error(`WebSocket error: ${error.message}`));
+          }
+        };
+
+        // Cleanup function to remove listeners
+        const cleanup = () => {
+          clearTimeout(timeout);
+          websocketClient.off("mediaBlobData");
+          websocketClient.off("error");
+        };
+
+        // Add listeners
         websocketClient.on("mediaBlobData", handleBlobData);
+        websocketClient.on("error", handleError);
 
         // Request the data
         const success = websocketClient.getMediaBlobData(blobId);
         if (!success) {
-          clearTimeout(timeout);
-          websocketClient.off("mediaBlobData");
+          isResolved = true;
+          cleanup();
           resolve(null);
         }
-
-        // Clean up listener after timeout
-        setTimeout(() => {
-          websocketClient.off("mediaBlobData");
-        }, 31000);
       });
 
       if (response && response.data) {

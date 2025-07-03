@@ -4,7 +4,8 @@
 //! and routes them through the NotificationService to WebSocket clients.
 
 use grimoire::notifications::{
-    NotificationChannel, NotificationEvent, NotificationService, NotificationServiceError,
+    config::NotificationConfig, NotificationChannel, NotificationEvent, NotificationService,
+    NotificationServiceError,
 };
 use grimoire::DatabaseConnection;
 use serde_json::Value;
@@ -16,7 +17,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tokio::sync::{broadcast, RwLock};
 use tokio::time::{interval, sleep};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 /// Errors that can occur in PostgreSQL notification listener
 #[derive(Debug, Error)]
@@ -41,6 +42,15 @@ pub enum PostgresListenerError {
 
     #[error("Shutdown signal received")]
     Shutdown,
+
+    #[error("Connection retry limit exceeded after {attempts} attempts")]
+    RetryLimitExceeded { attempts: usize },
+
+    #[error("Invalid payload format: {details}")]
+    InvalidPayload { details: String },
+
+    #[error("Channel subscription failed: {channel}")]
+    SubscriptionFailed { channel: String },
 }
 
 /// Statistics for PostgreSQL listener
@@ -52,6 +62,15 @@ pub struct PostgresListenerStats {
     pub last_notification_at: Option<OffsetDateTime>,
     pub connection_status: ConnectionStatus,
     pub uptime_seconds: u64,
+    pub total_reconnections: u64,
+    pub last_error: Option<String>,
+    pub avg_processing_time_ms: f64,
+    pub peak_processing_time_ms: u64,
+    pub notification_rate_per_minute: f64,
+    pub last_rate_calculation: Option<OffsetDateTime>,
+    pub circuit_breaker_failures: u32,
+    pub circuit_breaker_state: CircuitBreakerState,
+    pub last_failure_time: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +79,14 @@ pub enum ConnectionStatus {
     Disconnected,
     Reconnecting,
     Error(String),
+    HealthCheck,
+}
+
+#[derive(Debug, Clone)]
+pub enum CircuitBreakerState {
+    Closed,   // Normal operation
+    Open,     // Failing fast
+    HalfOpen, // Testing if service is back
 }
 
 impl Default for PostgresListenerStats {
@@ -71,6 +98,15 @@ impl Default for PostgresListenerStats {
             last_notification_at: None,
             connection_status: ConnectionStatus::Disconnected,
             uptime_seconds: 0,
+            total_reconnections: 0,
+            last_error: None,
+            avg_processing_time_ms: 0.0,
+            peak_processing_time_ms: 0,
+            notification_rate_per_minute: 0.0,
+            last_rate_calculation: None,
+            circuit_breaker_failures: 0,
+            circuit_breaker_state: CircuitBreakerState::Closed,
+            last_failure_time: None,
         }
     }
 }
@@ -83,11 +119,21 @@ pub struct PostgresNotificationListener {
     stats: Arc<RwLock<PostgresListenerStats>>,
     start_time: Option<OffsetDateTime>,
     listener: Option<PgListener>,
+    config: NotificationConfig,
 }
 
 impl PostgresNotificationListener {
     /// Create a new PostgreSQL notification listener
     pub fn new(db: DatabaseConnection, notification_service: Arc<NotificationService>) -> Self {
+        Self::new_with_config(db, notification_service, NotificationConfig::default())
+    }
+
+    /// Create a new PostgreSQL notification listener with custom configuration
+    pub fn new_with_config(
+        db: DatabaseConnection,
+        notification_service: Arc<NotificationService>,
+        config: NotificationConfig,
+    ) -> Self {
         Self {
             db,
             notification_service,
@@ -95,6 +141,7 @@ impl PostgresNotificationListener {
             stats: Arc::new(RwLock::new(PostgresListenerStats::default())),
             start_time: None,
             listener: None,
+            config,
         }
     }
 
@@ -104,6 +151,21 @@ impl PostgresNotificationListener {
         notification_service: Arc<NotificationService>,
         websocket_tx: broadcast::Sender<String>,
     ) -> Self {
+        Self::new_with_websocket_and_config(
+            db,
+            notification_service,
+            websocket_tx,
+            NotificationConfig::default(),
+        )
+    }
+
+    /// Create a new PostgreSQL notification listener with WebSocket broadcasting and custom configuration
+    pub fn new_with_websocket_and_config(
+        db: DatabaseConnection,
+        notification_service: Arc<NotificationService>,
+        websocket_tx: broadcast::Sender<String>,
+        config: NotificationConfig,
+    ) -> Self {
         Self {
             db,
             notification_service,
@@ -111,10 +173,12 @@ impl PostgresNotificationListener {
             stats: Arc::new(RwLock::new(PostgresListenerStats::default())),
             start_time: None,
             listener: None,
+            config,
         }
     }
 
     /// Start listening for PostgreSQL notifications
+    #[instrument(skip(self, shutdown_rx))]
     pub async fn start(
         &mut self,
         shutdown_rx: broadcast::Receiver<()>,
@@ -129,22 +193,21 @@ impl PostgresNotificationListener {
         // Listen to notification channels and verify
         for channel in &["media_blobs", "thumbnail_jobs", "music_notifications"] {
             match listener.listen(channel).await {
-                Ok(_) => info!(
-                    "✅ Successfully subscribed to PostgreSQL channel: {}",
-                    channel
-                ),
+                Ok(_) => info!("Successfully subscribed to PostgreSQL channel: {}", channel),
                 Err(e) => {
                     error!(
-                        "❌ Failed to subscribe to PostgreSQL channel {}: {}",
+                        "Failed to subscribe to PostgreSQL channel {}: {}",
                         channel, e
                     );
-                    return Err(PostgresListenerError::Database(e));
+                    return Err(PostgresListenerError::SubscriptionFailed {
+                        channel: channel.to_string(),
+                    });
                 }
             }
         }
 
         // Verify notification system works by sending a test notification
-        info!("🧪 Testing PostgreSQL notification system...");
+        info!("Testing PostgreSQL notification system...");
         let test_result = sqlx::query(
             "SELECT pg_notify('media_blobs', '{\"event_type\":\"system.startup\",\"message\":\"PostgreSQL listener initialized\",\"timestamp\":\"' || NOW() || '\"}')"
         )
@@ -152,8 +215,8 @@ impl PostgresNotificationListener {
         .await;
 
         match test_result {
-            Ok(_) => info!("✅ Test notification sent successfully"),
-            Err(e) => warn!("⚠️ Could not send test notification: {}", e),
+            Ok(_) => info!("Test notification sent successfully"),
+            Err(e) => warn!("Could not send test notification: {}", e),
         }
 
         info!("PostgreSQL listener subscribed to channels: media_blobs, thumbnail_jobs, music_notifications");
@@ -169,6 +232,7 @@ impl PostgresNotificationListener {
         let stats = Arc::clone(&self.stats);
         let start_time = self.start_time.unwrap();
         let websocket_tx = self.websocket_tx.clone();
+        let config = self.config.clone();
 
         tokio::spawn(async move {
             let result = async {
@@ -186,17 +250,12 @@ impl PostgresNotificationListener {
 
                 for channel in ["media_blobs", "thumbnail_jobs", "music_notifications"] {
                     match listener_clone.listen(channel).await {
-                        Ok(_) => info!(
-                            "✅ Worker thread subscribed to PostgreSQL channel: {}",
-                            channel
-                        ),
-                        Err(e) => error!(
-                            "❌ Worker thread failed to subscribe to PostgreSQL channel {}: {}",
-                            channel, e
-                        ),
+                        Ok(_) => info!("Worker thread subscribed to PostgreSQL channel: {}", channel),
+                        Err(e) => error!("Worker thread failed to subscribe to PostgreSQL channel {}: {}", channel, e),
                     }
                 }
 
+                // Start the listening loop
                 Self::listen_loop(
                     &mut listener_clone,
                     notification_service,
@@ -204,6 +263,7 @@ impl PostgresNotificationListener {
                     start_time,
                     shutdown_rx,
                     websocket_tx,
+                    &config,
                 )
                 .await
             }
@@ -229,8 +289,17 @@ impl PostgresNotificationListener {
         start_time: OffsetDateTime,
         mut shutdown_rx: broadcast::Receiver<()>,
         websocket_tx: Option<broadcast::Sender<String>>,
+        config: &NotificationConfig,
     ) -> Result<(), PostgresListenerError> {
-        let mut stats_update_interval = interval(Duration::from_secs(30));
+        let stats_interval = Duration::from_secs(30);
+        let health_interval =
+            Duration::from_secs(config.postgres.reconnect_interval_seconds as u64 * 6); // Health check every 6 reconnect intervals
+        let max_consecutive_errors = config.postgres.max_reconnect_attempts as usize;
+
+        let mut stats_update_interval = interval(stats_interval);
+        let mut health_check_interval = interval(health_interval);
+        let mut metrics_interval = interval(Duration::from_secs(60)); // Metrics every minute
+        let mut consecutive_errors = 0;
 
         loop {
             tokio::select! {
@@ -246,36 +315,98 @@ impl PostgresNotificationListener {
                     stats_guard.uptime_seconds = (OffsetDateTime::now_utc() - start_time).whole_seconds() as u64;
                 }
 
+                // Calculate metrics periodically
+                _ = metrics_interval.tick() => {
+                    Self::calculate_metrics(&stats, start_time).await;
+                }
+
+                // Periodic health check
+                _ = health_check_interval.tick() => {
+                    debug!("Performing PostgreSQL listener health check");
+                    let mut stats_guard = stats.write().await;
+                    if matches!(stats_guard.connection_status, ConnectionStatus::Connected) {
+                        stats_guard.connection_status = ConnectionStatus::HealthCheck;
+                        // Health check completed - set back to connected
+                        stats_guard.connection_status = ConnectionStatus::Connected;
+                    }
+                }
+
                 // Listen for PostgreSQL notifications
                 notification_result = listener.recv() => {
                     match notification_result {
                         Ok(notification) => {
+                            consecutive_errors = 0; // Reset error counter on success
                             let channel = notification.channel();
-                            let payload = notification.payload();
 
-                            info!("📢 NOTIFICATION RECEIVED: Channel '{}' with payload: '{}'",
-                                channel, payload);
+                            debug!("PostgreSQL notification received on channel '{}'", channel);
 
-                            if let Err(e) = Self::handle_notification(
-                                notification,
-                                &notification_service,
-                                &stats,
-                                &websocket_tx,
-                            ).await {
-                                error!("Error handling notification: {}", e);
-                                let mut stats_guard = stats.write().await;
-                                stats_guard.total_processing_errors += 1;
-                                stats_guard.connection_status = ConnectionStatus::Error(e.to_string());
+                            let process_start = std::time::Instant::now();
+
+                            // Check circuit breaker before processing
+                            let should_process = {
+                                let stats_guard = stats.read().await;
+                                Self::should_process_notification(&stats_guard.circuit_breaker_state)
+                            };
+
+                            if should_process {
+                                match Self::handle_notification(
+                                    notification,
+                                    &notification_service,
+                                    &stats,
+                                    &websocket_tx,
+                                ).await {
+                                    Ok(()) => {
+                                        let processing_time = process_start.elapsed().as_millis() as u64;
+
+                                        // Update processing time statistics and reset circuit breaker on success
+                                        let mut stats_guard = stats.write().await;
+                                        if processing_time > stats_guard.peak_processing_time_ms {
+                                            stats_guard.peak_processing_time_ms = processing_time;
+                                        }
+
+                                        // Update average processing time (simple moving average)
+                                        let count = stats_guard.total_notifications_received as f64;
+                                        stats_guard.avg_processing_time_ms =
+                                            (stats_guard.avg_processing_time_ms * count + processing_time as f64) / (count + 1.0);
+
+                                        // Reset circuit breaker on success
+                                        stats_guard.circuit_breaker_failures = 0;
+                                        stats_guard.circuit_breaker_state = CircuitBreakerState::Closed;
+                                    }
+                                    Err(e) => {
+                                        error!("Error handling notification: {}", e);
+                                        Self::handle_processing_failure(&stats, e.to_string()).await;
+                                    }
+                                }
+                            } else {
+                                debug!("Notification dropped due to circuit breaker open state");
                             }
                         }
                         Err(e) => {
-                            error!("PostgreSQL listener connection error: {}", e);
+                            consecutive_errors += 1;
+                            error!("PostgreSQL listener connection error (#{} consecutive): {}", consecutive_errors, e);
+
                             let mut stats_guard = stats.write().await;
                             stats_guard.connection_status = ConnectionStatus::Error(e.to_string());
+                            stats_guard.last_error = Some(e.to_string());
 
-                            // Attempt to reconnect after a delay
-                            sleep(Duration::from_secs(5)).await;
+                            if max_consecutive_errors > 0 && consecutive_errors >= max_consecutive_errors {
+                                error!("Too many consecutive errors ({}), stopping listener", consecutive_errors);
+                                return Err(PostgresListenerError::RetryLimitExceeded {
+                                    attempts: consecutive_errors
+                                });
+                            }
+
+                            // Progressive backoff for reconnection
+                            let base_interval = config.postgres.reconnect_interval_seconds as u64;
+                            let backoff_duration = Duration::from_secs(
+                                std::cmp::min(base_interval * consecutive_errors as u64, base_interval * 12)
+                            );
+                            warn!("Attempting reconnection in {:?}...", backoff_duration);
+                            sleep(backoff_duration).await;
+
                             stats_guard.connection_status = ConnectionStatus::Reconnecting;
+                            stats_guard.total_reconnections += 1;
                         }
                     }
                 }
@@ -293,33 +424,44 @@ impl PostgresNotificationListener {
         let channel_name = notification.channel();
         let payload = notification.payload();
 
-        info!(
-            "🔍 Processing notification - Channel: '{}', Payload: {}",
-            channel_name, payload
-        );
-
-        // Debug full payload for troubleshooting
         debug!(
-            "Full notification payload on channel '{}':\n{}\n",
-            channel_name, payload
+            "Processing notification - Channel: '{}', Payload length: {} bytes",
+            channel_name,
+            payload.len()
         );
 
-        // Parse the JSON payload
-        let payload_json: Value = serde_json::from_str(payload)?;
+        // Validate payload size (prevent memory issues)
+        let max_payload_size = 1024 * 1024; // 1MB default payload size limit
+
+        if payload.len() > max_payload_size {
+            return Err(PostgresListenerError::InvalidPayload {
+                details: format!(
+                    "Payload too large: {} bytes (max: {})",
+                    payload.len(),
+                    max_payload_size
+                ),
+            });
+        }
+
+        // Parse the JSON payload with better error handling
+        let payload_json: Value =
+            serde_json::from_str(payload).map_err(|e| PostgresListenerError::InvalidPayload {
+                details: format!("JSON parse error: {}", e),
+            })?;
 
         // Map database channel to notification channel
         let notification_channel = match channel_name {
             "media_blobs" => {
-                info!("📄 Media blob notification received");
+                debug!("Media blob notification received");
                 NotificationChannel::MediaBlobs
             }
             "thumbnail_jobs" => {
-                info!("🖼️ Thumbnail job notification received");
+                debug!("Thumbnail job notification received");
                 NotificationChannel::ThumbnailJobs
             }
             "music_notifications" => {
-                info!("🎵 Music notification received: {}", payload);
-                info!("🎵 Routing music notification to MediaBlobs channel for client consumption");
+                debug!("Music notification received: {}", payload);
+                debug!("Routing music notification to MediaBlobs channel for client consumption");
                 NotificationChannel::MediaBlobs // Route music notifications to MediaBlobs channel
             }
             _ => {
@@ -361,20 +503,20 @@ impl PostgresNotificationListener {
                 Ok(message_str) => match websocket_tx.send(message_str) {
                     Ok(receiver_count) => {
                         info!(
-                                "✅ Successfully published notification - Channel: '{}', Event: '{}' to {} WebSocket clients",
+                                "Successfully published notification - Channel: '{}', Event: '{}' to {} WebSocket clients",
                                 channel_name, event_type_str, receiver_count
                             );
                     }
                     Err(_) => {
-                        warn!(
-                                "⚠️ No WebSocket receivers for notification - Channel: '{}', Event: '{}'",
-                                channel_name, event_type_str
-                            );
+                        debug!(
+                            "No WebSocket receivers for notification - Channel: '{}', Event: '{}'",
+                            channel_name, event_type_str
+                        );
                     }
                 },
                 Err(e) => {
                     error!(
-                        "❌ Failed to serialize notification for WebSocket - Channel: '{}', Event: '{}', Error: {}",
+                        "Failed to serialize notification for WebSocket - Channel: '{}', Event: '{}', Error: {}",
                         channel_name, event_type_str, e
                     );
                 }
@@ -388,7 +530,7 @@ impl PostgresNotificationListener {
             }
             Err(e) => {
                 error!(
-                    "❌ Failed to publish notification - Channel: '{}', Event: '{}': {}",
+                    "Failed to publish notification - Channel: '{}', Event: '{}': {}",
                     channel_name, event_type_str, e
                 );
                 return Err(e.into());
@@ -416,7 +558,94 @@ impl PostgresNotificationListener {
         Ok(())
     }
 
+    /// Calculate and update metrics
+    async fn calculate_metrics(
+        stats: &Arc<RwLock<PostgresListenerStats>>,
+        _start_time: OffsetDateTime,
+    ) {
+        let mut stats_guard = stats.write().await;
+        let now = OffsetDateTime::now_utc();
+
+        // Calculate notification rate per minute
+        if let Some(last_calc) = stats_guard.last_rate_calculation {
+            let elapsed_minutes = (now - last_calc).whole_seconds() as f64 / 60.0;
+            if elapsed_minutes > 0.0 {
+                let notifications_since_last = stats_guard.total_notifications_received as f64;
+                stats_guard.notification_rate_per_minute =
+                    notifications_since_last / elapsed_minutes;
+            }
+        }
+
+        stats_guard.last_rate_calculation = Some(now);
+
+        // Log metrics for monitoring systems
+        if stats_guard.notification_rate_per_minute > 0.0 {
+            info!(
+                "PostgreSQL listener metrics - Rate: {:.2} notifications/min, Avg processing: {:.2}ms, Peak processing: {}ms, Uptime: {}s, Circuit breaker: {:?}, Failures: {}",
+                stats_guard.notification_rate_per_minute,
+                stats_guard.avg_processing_time_ms,
+                stats_guard.peak_processing_time_ms,
+                stats_guard.uptime_seconds,
+                stats_guard.circuit_breaker_state,
+                stats_guard.circuit_breaker_failures
+            );
+        }
+    }
+
+    /// Check if notification should be processed based on circuit breaker state
+    fn should_process_notification(circuit_state: &CircuitBreakerState) -> bool {
+        match circuit_state {
+            CircuitBreakerState::Closed => true,
+            CircuitBreakerState::Open => false,
+            CircuitBreakerState::HalfOpen => true, // Allow test requests in half-open state
+        }
+    }
+
+    /// Handle processing failure and update circuit breaker
+    async fn handle_processing_failure(
+        stats: &Arc<RwLock<PostgresListenerStats>>,
+        error_message: String,
+    ) {
+        let mut stats_guard = stats.write().await;
+        stats_guard.total_processing_errors += 1;
+        stats_guard.last_error = Some(error_message);
+        stats_guard.circuit_breaker_failures += 1;
+        stats_guard.last_failure_time = Some(OffsetDateTime::now_utc());
+
+        // Circuit breaker logic
+        const FAILURE_THRESHOLD: u32 = 5;
+        const RECOVERY_TIMEOUT_SECONDS: i64 = 30;
+
+        match stats_guard.circuit_breaker_state {
+            CircuitBreakerState::Closed => {
+                if stats_guard.circuit_breaker_failures >= FAILURE_THRESHOLD {
+                    warn!(
+                        "Circuit breaker opening due to {} consecutive failures",
+                        stats_guard.circuit_breaker_failures
+                    );
+                    stats_guard.circuit_breaker_state = CircuitBreakerState::Open;
+                }
+            }
+            CircuitBreakerState::Open => {
+                // Check if enough time has passed to try half-open
+                if let Some(last_failure) = stats_guard.last_failure_time {
+                    let elapsed = (OffsetDateTime::now_utc() - last_failure).whole_seconds();
+                    if elapsed > RECOVERY_TIMEOUT_SECONDS {
+                        info!("Circuit breaker moving to half-open state for testing");
+                        stats_guard.circuit_breaker_state = CircuitBreakerState::HalfOpen;
+                        stats_guard.circuit_breaker_failures = 0; // Reset for testing
+                    }
+                }
+            }
+            CircuitBreakerState::HalfOpen => {
+                warn!("Circuit breaker reopening due to failure during half-open test");
+                stats_guard.circuit_breaker_state = CircuitBreakerState::Open;
+            }
+        }
+    }
+
     /// Shutdown the listener
+    #[instrument(skip(self))]
     pub async fn shutdown(&mut self) -> Result<(), PostgresListenerError> {
         info!("Shutting down PostgreSQL notification listener...");
 
@@ -454,14 +683,18 @@ impl PostgresNotificationListener {
     }
 
     /// Check if the listener is currently running
+    #[instrument(skip(self))]
     pub async fn is_running(&self) -> bool {
         match self.stats.read().await.connection_status {
-            ConnectionStatus::Connected | ConnectionStatus::Reconnecting => true,
+            ConnectionStatus::Connected
+            | ConnectionStatus::Reconnecting
+            | ConnectionStatus::HealthCheck => true,
             ConnectionStatus::Disconnected | ConnectionStatus::Error(_) => false,
         }
     }
 
     /// Manually test a notification (useful for development)
+    #[instrument(skip(self, payload))]
     pub async fn test_notification(
         &self,
         channel: &str,

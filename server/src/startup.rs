@@ -1,6 +1,6 @@
 use crate::jobs::ThumbnailJobQueue;
 use crate::maintenance::{MaintenanceConfig, MaintenanceScheduler};
-use crate::notifications::{NotificationInfrastructure, NotificationInfrastructureError};
+use crate::notifications::NotificationInfrastructure;
 use crate::storage::SessionStore;
 use crate::websocket::handlers::ConnectionManager;
 use grimoire::analytics::AnalyticsConfig;

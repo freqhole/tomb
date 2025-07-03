@@ -452,6 +452,63 @@ export class UnifiedStorageImpl implements UnifiedStorage {
   }
 
   /**
+   * Get count for a specific table
+   */
+  async getTableCount(tableName: string): Promise<number> {
+    if (!this.db) throw new Error("Storage not initialized");
+
+    try {
+      const transaction = this.db.transaction([tableName], "readonly");
+      const store = transaction.objectStore(tableName);
+      const countRequest = store.count();
+
+      return await this.promisifyRequest(countRequest);
+    } catch (error) {
+      debugWarn(`Failed to get count for table ${tableName}:`, error);
+      return 0;
+    }
+  }
+
+  /**
+   * Get detailed music domain breakdown
+   */
+  async getMusicBreakdown(): Promise<{
+    songs: number;
+    playlists: number;
+    playlistSongs: number;
+  }> {
+    if (!this.db) throw new Error("Storage not initialized");
+
+    const [songs, playlists, playlistSongs] = await Promise.all([
+      this.getTableCount("songs"),
+      this.getTableCount("playlists"),
+      this.getTableCount("playlist_songs"),
+    ]);
+
+    return { songs, playlists, playlistSongs };
+  }
+
+  /**
+   * Save sync completion state
+   */
+  async saveSyncCompletion(
+    domain: SyncDomain,
+    itemsSynced: number
+  ): Promise<void> {
+    if (!this.db) throw new Error("Storage not initialized");
+
+    debugInfo(`💾 Saving sync completion for ${domain}: ${itemsSynced} items`);
+
+    await this.updateDomainMetadata(domain, {
+      last_sync: new Date().toISOString(),
+      item_count: itemsSynced,
+      sync_status: "complete",
+    });
+
+    debugInfo(`✅ Sync completion saved for ${domain}`);
+  }
+
+  /**
    * Cleanup old and expired data
    */
   async cleanup(): Promise<void> {

@@ -28,8 +28,10 @@ import type {
   SyncError,
   BinarySyncStats,
   BinarySyncProgressEvent,
+  StorageStats,
 } from "./types.js";
 import { debugInfo, debugWarn, debugError } from "./debug.js";
+import { ConnectionStatus } from "../lib/websocket-client.js";
 
 import type { UnifiedStorage } from "./unified-storage.js";
 import type { WebSocketClient } from "../lib/websocket-client.js";
@@ -173,6 +175,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         const domainOptions: SyncDomainOptions = {
           forceFullSync: options.forceFullSync,
           includeBinaryData: options.includeBinaryData,
+          include_media_blobs: options.include_media_blobs,
         };
 
         const result = await this.syncDomain(domain, domainOptions);
@@ -281,6 +284,13 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         totalBatches: 1,
         currentOperation: "Complete",
       });
+
+      // Save sync completion state - use songs count for music domain
+      const itemsToSave =
+        domain === "music" && result.breakdown
+          ? result.breakdown.songs.itemsSynced
+          : result.itemsSynced;
+      await this.storage.saveSyncCompletion(domain, itemsToSave);
 
       // Emit completion event
       this.emitEvent({
@@ -484,7 +494,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
   /**
    * Get storage statistics
    */
-  async getStorageStats(): Promise<any> {
+  async getStorageStats(): Promise<StorageStats> {
     try {
       return await this.storage.getStats();
     } catch (error) {
@@ -500,6 +510,19 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
           videos: null,
         },
       };
+    }
+  }
+
+  async getMusicBreakdown(): Promise<{
+    songs: number;
+    playlists: number;
+    playlistSongs: number;
+  }> {
+    try {
+      return await this.storage.getMusicBreakdown();
+    } catch (error) {
+      debugError("Failed to get music breakdown:", error);
+      return { songs: 0, playlists: 0, playlistSongs: 0 };
     }
   }
 
@@ -736,11 +759,9 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
 
     // 2. Sync playlists
     console.log("📋 Syncing playlists...");
+    let playlistsResult = { itemsSynced: 0, totalItems: 0 };
     try {
-      const playlistsResult = await this.syncMusicDataType(
-        "playlists",
-        options
-      );
+      playlistsResult = await this.syncMusicDataType("playlists", options);
       console.log("✅ Playlists sync result:", playlistsResult);
       totalItemsSynced += playlistsResult.itemsSynced;
       totalItems += playlistsResult.totalItems;
@@ -751,8 +772,9 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
 
     // 3. Sync playlist_songs relationships
     console.log("🔗 Syncing playlist songs...");
+    let playlistSongsResult = { itemsSynced: 0, totalItems: 0 };
     try {
-      const playlistSongsResult = await this.syncMusicDataType(
+      playlistSongsResult = await this.syncMusicDataType(
         "playlist-songs",
         options
       );
@@ -764,16 +786,33 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       // Continue with other syncs even if playlist_songs fail
     }
 
-    // 4. Sync media_blobs (the metadata, not binary data)
-    console.log("📦 Syncing media blobs...");
-    const mediaBlobsResult = await this.syncMediaBlobs(options);
-    totalItemsSynced += mediaBlobsResult.itemsSynced;
-    totalItems += mediaBlobsResult.totalItems;
+    // 4. Sync media_blobs (the metadata, not binary data) - if enabled
+    let mediaBlobsResult = { itemsSynced: 0, totalItems: 0 };
+    if (options.include_media_blobs !== false) {
+      console.log("📦 Syncing media blobs...");
+      mediaBlobsResult = await this.syncMediaBlobs(options);
+      totalItemsSynced += mediaBlobsResult.itemsSynced;
+      totalItems += mediaBlobsResult.totalItems;
+    } else {
+      console.log("⏭️ Skipping media blobs sync (disabled)");
+    }
 
     console.log(
       `✅ Unified music sync complete: ${totalItemsSynced} total items`
     );
-    return { itemsSynced: totalItemsSynced, totalItems };
+
+    // Return breakdown for better UI display - prioritize songs count
+    return {
+      itemsSynced: songsResult.itemsSynced, // Show songs count as primary
+      totalItems: songsResult.totalItems,
+      breakdown: {
+        songs: songsResult,
+        playlists: playlistsResult,
+        playlistSongs: playlistSongsResult,
+        mediaBlobs: mediaBlobsResult,
+        totalAll: totalItemsSynced,
+      },
+    };
   }
 
   /**
@@ -1026,55 +1065,175 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
       );
 
       // Count items that actually need binary data
+      // Only sync blobs that have database-stored binary data (has_binary_data = true)
       const itemsToSync = [];
       for (const blob of mediaBlobs) {
         const existingData = await this.storage.getBinaryData(blob.id);
         if (!existingData) {
-          itemsToSync.push(blob);
+          // Check if this blob has database-stored binary data
+          // Skip file-based blobs (those with has_binary_data = false)
+          if (blob.has_binary_data === true) {
+            itemsToSync.push(blob);
+          } else {
+            debugInfo(
+              `⏭️ Skipping blob ${blob.id} - no database binary data (file-based)`
+            );
+          }
         }
       }
 
       const totalItemsToSync = itemsToSync.length;
       debugInfo(`📦 Need to sync ${totalItemsToSync} binary items`);
 
-      for (let i = 0; i < itemsToSync.length; i++) {
-        const blob = itemsToSync[i];
-        try {
-          debugInfo(
-            `🔄 Requesting binary data for blob ${blob.id}... (${i + 1}/${totalItemsToSync})`
+      // Process blobs in parallel batches for much faster sync
+      const concurrency_limit = 5; // Process 5 blobs simultaneously
+      let processed = 0;
+
+      // Split items into batches
+      const batches: any[][] = [];
+      for (let i = 0; i < itemsToSync.length; i += concurrency_limit) {
+        batches.push(itemsToSync.slice(i, i + concurrency_limit));
+      }
+
+      debugInfo(
+        `📦 Processing ${batches.length} batches of ${concurrency_limit} items each`
+      );
+
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        if (!batch) continue;
+
+        debugInfo(
+          `🔄 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} items)`
+        );
+
+        // Safety check: ensure we don't have too many hanging requests
+        if (this.pendingBinaryRequests.size > 20) {
+          debugWarn(
+            `⚠️ High number of pending requests (${this.pendingBinaryRequests.size}) before batch ${batchIndex + 1}`
           );
+        }
 
-          // Emit binary progress event
-          this.emitEvent({
-            type: SyncEventType.BinaryProgress,
-            timestamp: new Date(),
-            domain: "music", // Binary data is associated with music domain
-            blobId: blob.id,
-            progress:
-              totalItemsToSync > 0
-                ? Math.round(((i + 1) / totalItemsToSync) * 100)
-                : 0,
-            currentItem: i + 1,
-            totalItems: totalItemsToSync,
-          } as BinarySyncProgressEvent);
+        const batchStartTime = Date.now();
+        debugInfo(
+          `🚀 Starting batch ${batchIndex + 1} with ${batch.length} items at ${new Date().toLocaleTimeString()}`
+        );
 
-          // Request binary data via WebSocket
-          const binaryData = await this.requestBinaryDataViaWebSocket(blob.id);
+        const batchResults = await Promise.allSettled(
+          batch.map(async (blob, index) => {
+            const globalIndex = processed + index + 1;
+            const requestStartTime = Date.now();
 
-          if (binaryData) {
-            // Store binary data (metadata comes from media_blobs table as per plan)
-            await this.storage.storeBinaryData(blob.id, binaryData);
-
-            itemsSynced++;
-            totalBytes += binaryData.byteLength;
             debugInfo(
-              `✅ Cached binary data for ${blob.id} (${binaryData.byteLength} bytes)`
+              `🔄 [${globalIndex}/${totalItemsToSync}] Starting request for blob ${blob.id} at ${new Date().toLocaleTimeString()}`
             );
+
+            // Emit binary progress event
+            this.emitEvent({
+              type: SyncEventType.BinaryProgress,
+              timestamp: new Date(),
+              domain: "music", // Binary data is associated with music domain
+              blobId: blob.id,
+              progress:
+                totalItemsToSync > 0
+                  ? Math.round((globalIndex / totalItemsToSync) * 100)
+                  : 0,
+              currentItem: globalIndex,
+              totalItems: totalItemsToSync,
+            } as BinarySyncProgressEvent);
+
+            try {
+              // Request binary data via WebSocket
+              const binaryData = await this.requestBinaryDataViaWebSocket(
+                blob.id
+              );
+
+              const requestDuration = Date.now() - requestStartTime;
+
+              if (binaryData) {
+                // Store binary data (metadata comes from media_blobs table as per plan)
+                await this.storage.storeBinaryData(blob.id, binaryData);
+
+                debugInfo(
+                  `✅ [${globalIndex}/${totalItemsToSync}] Completed ${blob.id} in ${requestDuration}ms (${binaryData.byteLength} bytes)`
+                );
+
+                return {
+                  success: true,
+                  blobId: blob.id,
+                  bytes: binaryData.byteLength,
+                };
+              } else {
+                debugWarn(
+                  `⚠️ [${globalIndex}/${totalItemsToSync}] No data received for ${blob.id} after ${requestDuration}ms`
+                );
+                return {
+                  success: false,
+                  blobId: blob.id,
+                  error: "No data received",
+                };
+              }
+            } catch (error) {
+              const requestDuration = Date.now() - requestStartTime;
+              debugError(
+                `❌ [${globalIndex}/${totalItemsToSync}] Error for ${blob.id} after ${requestDuration}ms:`,
+                error
+              );
+              return {
+                success: false,
+                blobId: blob.id,
+                error: error instanceof Error ? error.message : String(error),
+              };
+            }
+          })
+        );
+
+        // Process batch results
+        for (const result of batchResults) {
+          if (result.status === "fulfilled") {
+            const data = result.value;
+            if (data.success) {
+              itemsSynced++;
+              totalBytes += data.bytes || 0;
+            } else {
+              const errorMsg = `Failed to sync binary data for ${data.blobId}: ${data.error}`;
+              debugError(errorMsg);
+              errors.push(errorMsg);
+            }
+          } else {
+            const errorMsg = `Batch processing error: ${result.reason}`;
+            debugError(errorMsg);
+            errors.push(errorMsg);
           }
-        } catch (error) {
-          const errorMsg = `Failed to sync binary data for ${blob.id}: ${error}`;
-          debugError(errorMsg);
-          errors.push(errorMsg);
+        }
+
+        processed += batch.length;
+        const batchDuration = Date.now() - batchStartTime;
+        debugInfo(
+          `✅ Completed batch ${batchIndex + 1}/${batches.length} in ${batchDuration}ms - ${itemsSynced} successful, ${errors.length} failed`
+        );
+        debugInfo(
+          `📊 Pending requests after batch: ${this.pendingBinaryRequests.size}`
+        );
+
+        // Check for any stale pending requests for this batch
+        const staleBlobIds = batch.filter((blob) =>
+          this.pendingBinaryRequests.has(blob.id)
+        );
+        if (staleBlobIds.length > 0) {
+          debugWarn(
+            `🧹 Found ${staleBlobIds.length} stale pending requests: [${staleBlobIds.map((b) => b.id).join(", ")}]`
+          );
+          for (const blob of staleBlobIds) {
+            debugWarn(`🧹 Cleaning up stale pending request for ${blob.id}`);
+            this.removePendingBinaryRequest(blob.id);
+          }
+        }
+
+        // Add delay between batches to help debug timing issues
+        if (batchIndex < batches.length - 1) {
+          debugInfo(`⏳ Brief pause before next batch...`);
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
       }
 
@@ -1099,139 +1258,166 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
 
   /**
    * Request binary data for a blob via WebSocket and wait for binary response
+   * Uses the existing WebSocket connection with proper concurrent handling
    */
   private async requestBinaryDataViaWebSocket(
     blobId: string
   ): Promise<ArrayBuffer | null> {
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error(`Timeout waiting for binary data for blob ${blobId}`));
-      }, 10000); // 10 second timeout
+      // Quick connection health check - fail fast if disconnected
+      if (this.wsClient.getStatus() !== ConnectionStatus.Connected) {
+        reject(new Error(`WebSocket not connected for blob ${blobId}`));
+        return;
+      }
 
-      // Create a direct WebSocket connection for binary frames
-      const wsUrl = this.config.websocketUrl || "ws://localhost:3000/ws";
+      // Prevent too many pending requests (system health check)
+      if (this.pendingBinaryRequests.size > 100) {
+        reject(
+          new Error(
+            `Too many pending requests (${this.pendingBinaryRequests.size}) - system may be stalled`
+          )
+        );
+        return;
+      }
 
-      const binarySocket = new WebSocket(wsUrl);
+      // Store this request in pending requests
+      debugInfo(`📝 Setting up request for ${blobId}`);
+      this.addPendingBinaryRequest(
+        blobId,
+        (data) => {
+          // Convert number array to ArrayBuffer
+          const arrayBuffer = new ArrayBuffer(data.data.length);
+          const uint8Array = new Uint8Array(arrayBuffer);
+          uint8Array.set(data.data);
 
-      binarySocket.onopen = () => {
-        debugInfo(`🔌 Binary WebSocket connected for blob ${blobId}`);
-
-        // Send GetMediaBlobData request
-        const request = {
-          type: "GetMediaBlobData",
-          data: { id: blobId },
-        };
-
-        const requestJson = JSON.stringify(request);
-        debugInfo(`📤 Sending binary request for ${blobId}:`, requestJson);
-        binarySocket.send(requestJson);
-        debugInfo(`✅ Binary request sent for ${blobId}`);
-      };
-
-      binarySocket.onmessage = (event) => {
-        debugInfo(`🔍 Binary WebSocket message for ${blobId}:`, {
-          dataType: typeof event.data,
-          isArrayBuffer: event.data instanceof ArrayBuffer,
-          isBlob: event.data instanceof Blob,
-          size: event.data.byteLength || event.data.size || event.data.length,
-          data:
-            event.data instanceof ArrayBuffer
-              ? "ArrayBuffer"
-              : event.data instanceof Blob
-                ? "Blob"
-                : typeof event.data === "string"
-                  ? event.data.substring(0, 100)
-                  : "Unknown",
-        });
-
-        if (event.data instanceof ArrayBuffer) {
-          // This is our binary response!
           debugInfo(
-            `📦 Received ArrayBuffer for ${blobId} (${event.data.byteLength} bytes)`
+            `✅ Received and converted binary data for ${blobId} (${arrayBuffer.byteLength} bytes)`
           );
-          clearTimeout(timeout);
-          binarySocket.close();
-          resolve(event.data);
-        } else if (event.data instanceof Blob) {
-          // Handle Blob response - convert to ArrayBuffer
-          debugInfo(
-            `📦 Received Blob for ${blobId} (${event.data.size} bytes), converting to ArrayBuffer...`
-          );
-          event.data
-            .arrayBuffer()
-            .then((arrayBuffer) => {
-              debugInfo(
-                `✅ Converted Blob to ArrayBuffer for ${blobId} (${arrayBuffer.byteLength} bytes)`
-              );
-              clearTimeout(timeout);
-              binarySocket.close();
-              resolve(arrayBuffer);
-            })
-            .catch((error) => {
-              debugError(
-                `❌ Failed to convert Blob to ArrayBuffer for ${blobId}:`,
-                error
-              );
-              clearTimeout(timeout);
-              binarySocket.close();
-              reject(
-                new Error(`Failed to convert Blob to ArrayBuffer: ${error}`)
-              );
-            });
-        } else if (typeof event.data === "string") {
-          // Handle potential JSON error responses
-          try {
-            const response = JSON.parse(event.data);
-            debugInfo(`📝 JSON response for ${blobId}:`, response);
-            if (response.type === "Error") {
-              clearTimeout(timeout);
-              binarySocket.close();
-              reject(new Error(`Server error: ${response.data.message}`));
-              return;
-            }
-            // Check for other response types that might indicate success
-            if (
-              response.type === "Welcome" ||
-              response.type === "ConnectionStatus"
-            ) {
-              debugInfo(`ℹ️ Ignoring non-data response: ${response.type}`);
-              return;
-            }
-          } catch (e) {
-            debugInfo(
-              `⚠️ Non-JSON string response for ${blobId}:`,
-              event.data.substring(0, 100)
-            );
-          }
+
+          resolve(arrayBuffer);
+        },
+        (error) => {
+          debugError(`❌ Error for ${blobId}:`, error);
+          reject(new Error(`Server error: ${error.message}`));
         }
-      };
+      );
 
-      binarySocket.onerror = (error) => {
-        debugError(`❌ Binary WebSocket error for blob ${blobId}:`, error);
-        debugInfo(
-          `🔍 WebSocket state: readyState=${binarySocket.readyState}, url=${binarySocket.url}`
-        );
-        clearTimeout(timeout);
-        reject(new Error(`WebSocket error for blob ${blobId}`));
-      };
+      // Send the request using the existing connection
+      const success = this.wsClient.getMediaBlobData(blobId);
 
-      binarySocket.onclose = (event) => {
-        debugInfo(
-          `🔌 Binary WebSocket closed for blob ${blobId}: code=${event.code}, reason='${event.reason}', wasClean=${event.wasClean}`
+      if (!success) {
+        debugError(`❌ Failed to send getMediaBlobData request for ${blobId}`);
+        this.removePendingBinaryRequest(blobId);
+        reject(
+          new Error(`Failed to send WebSocket request for blob ${blobId}`)
         );
-        if (event.code !== 1000) {
-          debugWarn(
-            `⚠️ Binary WebSocket closed unexpectedly for blob ${blobId}: ${event.code} ${event.reason}`
+        return;
+      }
+
+      debugInfo(
+        `📤 Sent binary data request for ${blobId} via existing WebSocket connection (pending: ${this.pendingBinaryRequests.size})`
+      );
+
+      // Race condition check: verify the request is still pending after sending
+      setTimeout(() => {
+        if (this.pendingBinaryRequests.has(blobId)) {
+          debugInfo(
+            `⏱️ Request ${blobId} still pending after 100ms - this is normal`
           );
-          clearTimeout(timeout);
-          reject(
-            new Error(
-              `WebSocket closed unexpectedly for blob ${blobId}: ${event.code} ${event.reason}`
-            )
+        } else {
+          debugInfo(
+            `⚡ Request ${blobId} completed within 100ms - very fast response!`
           );
         }
-      };
+      }, 100);
     });
+  }
+
+  private pendingBinaryRequests = new Map<
+    string,
+    {
+      resolve: (data: { id: string; data: number[]; mime?: string }) => void;
+      reject: (error: { message: string; code?: string }) => void;
+    }
+  >();
+
+  private binaryDataListenerSetup = false;
+
+  private addPendingBinaryRequest(
+    blobId: string,
+    resolve: (data: { id: string; data: number[]; mime?: string }) => void,
+    reject: (error: { message: string; code?: string }) => void
+  ) {
+    debugInfo(
+      `📝 Adding pending request for ${blobId} (pending count: ${this.pendingBinaryRequests.size})`
+    );
+    this.pendingBinaryRequests.set(blobId, { resolve, reject });
+    debugInfo(
+      `📊 Pending requests after add: ${this.pendingBinaryRequests.size}`
+    );
+
+    // Setup global listeners only once
+    if (!this.binaryDataListenerSetup) {
+      this.binaryDataListenerSetup = true;
+
+      debugInfo("🔧 Setting up binary data listeners (ONCE)");
+
+      // Handle binary data (WebSocket client handles metadata matching)
+      this.wsClient.on("mediaBlobData", (data) => {
+        debugInfo(
+          `📨 Received mediaBlobData for ${data.id} (${data.data?.length || 0} bytes)`
+        );
+        debugInfo(
+          `📊 Current pending requests: [${Array.from(this.pendingBinaryRequests.keys()).join(", ")}]`
+        );
+
+        const request = this.pendingBinaryRequests.get(data.id);
+        if (request) {
+          debugInfo(
+            `✅ Found pending request for ${data.id}, resolving and removing from pending`
+          );
+          this.pendingBinaryRequests.delete(data.id);
+          debugInfo(
+            `📊 Pending requests after removal: ${this.pendingBinaryRequests.size}`
+          );
+          request.resolve(data);
+        } else {
+          debugWarn(
+            `⚠️ No pending request found for ${data.id}! Available requests: [${Array.from(this.pendingBinaryRequests.keys()).join(", ")}]`
+          );
+        }
+      });
+
+      this.wsClient.on("error", (error) => {
+        debugError(
+          "❌ WebSocket error, notifying all pending requests:",
+          error
+        );
+        debugError(
+          `📊 Clearing ${this.pendingBinaryRequests.size} pending requests due to WebSocket error`
+        );
+        // Notify all pending requests of the error
+        for (const [blobId, request] of this.pendingBinaryRequests.entries()) {
+          debugError(
+            `❌ Rejecting pending request for ${blobId} due to WebSocket error`
+          );
+          request.reject(error);
+        }
+        this.pendingBinaryRequests.clear();
+      });
+    } else {
+      debugInfo(
+        `📝 Adding request for ${blobId} to existing listener setup (total pending: ${this.pendingBinaryRequests.size})`
+      );
+    }
+  }
+
+  private removePendingBinaryRequest(blobId: string) {
+    const existed = this.pendingBinaryRequests.has(blobId);
+    this.pendingBinaryRequests.delete(blobId);
+    debugInfo(
+      `🗑️ ${existed ? "Removed" : "Attempted to remove non-existent"} pending request for ${blobId} (remaining: ${this.pendingBinaryRequests.size})`
+    );
   }
 
   private setupWebSocketListeners(): void {
@@ -1267,14 +1453,22 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
 
   private async loadSyncStates(): Promise<void> {
     // Load last sync states from storage
+    debugInfo("📋 Loading sync states from storage...");
     const stats = await this.storage.getStats();
 
     for (const domain of Object.keys(this.currentStatus) as SyncDomain[]) {
       const lastSyncTime = stats.lastSyncTimes[domain];
       if (lastSyncTime) {
+        debugInfo(
+          `✅ Restored ${domain} sync state: ${lastSyncTime.toISOString()} (${stats.itemCounts[domain]} items)`
+        );
         this.currentStatus[domain] = SyncStatus.Complete;
+      } else {
+        debugInfo(`📝 No previous sync found for ${domain}`);
       }
     }
+
+    debugInfo("📋 Sync state loading complete");
   }
 
   private updateStatus(domain: SyncDomain, status: SyncStatus): void {

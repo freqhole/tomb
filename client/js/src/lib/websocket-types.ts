@@ -304,6 +304,14 @@ export const WebSocketResponseSchema = z.discriminatedUnion("type", [
     }),
   }),
   z.object({
+    type: z.literal("MediaBlobDataHeader"),
+    data: z.object({
+      id: ShortHashSchema,
+      size: z.number(),
+      mime: z.string().optional(),
+    }),
+  }),
+  z.object({
     type: z.literal("MediaBlobData"),
     data: z.object({
       id: ShortHashSchema,
@@ -579,6 +587,12 @@ export const isMediaBlobMessage = (
   response: WebSocketResponse
 ): response is Extract<WebSocketResponse, { type: "MediaBlob" }> => {
   return response.type === "MediaBlob";
+};
+
+export const isMediaBlobDataHeaderMessage = (
+  response: WebSocketResponse
+): response is Extract<WebSocketResponse, { type: "MediaBlobDataHeader" }> => {
+  return response.type === "MediaBlobDataHeader";
 };
 
 export const isMediaBlobDataMessage = (

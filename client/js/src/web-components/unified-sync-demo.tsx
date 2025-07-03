@@ -32,8 +32,41 @@ import {
   type SyncProgressEvent,
   type SyncCompletedEvent,
 } from "../sync/index.js";
+import { enableDebug, disableDebug, configureDebug } from "../sync/debug.js";
 import { WebSocketStatus as WebSocketStatusComponent } from "./websocket-status.js";
 import { ConnectionStatus } from "../lib/websocket-client.js";
+import { formatRelativeTime, formatFullDateTime } from "../lib/date-utils.js";
+
+// Helper function to format domain progress display
+const formatDomainProgress = (
+  domain: string,
+  progress: any,
+  breakdown?: any
+) => {
+  if (domain === "music" && breakdown) {
+    // For music, show songs and playlists breakdown from actual data
+    const parts = [];
+
+    if (breakdown.songs > 0) {
+      parts.push(`${breakdown.songs} songs`);
+    }
+
+    if (breakdown.playlists > 0) {
+      parts.push(`${breakdown.playlists} playlists`);
+    }
+
+    return parts.length > 0 ? parts.join(", ") : "0 items";
+  } else if (domain === "music") {
+    // Fallback for music without breakdown
+    const songs = progress.itemsProcessed || 0;
+    return songs > 0 ? `${songs} songs` : "0 items";
+  } else {
+    // For other domains, show standard format
+    const processed = progress.itemsProcessed || 0;
+    const total = progress.totalItems || 0;
+    return `${processed}/${total} items`;
+  }
+};
 
 export interface UnifiedSyncDemoProps {
   apiBaseUrl?: string;
@@ -126,8 +159,14 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
   const [autoSyncEnabled, setAutoSyncEnabled] = createSignal(
     props?.enableAutoSync ?? true
   );
+  const [debugEnabled, setDebugEnabled] = createSignal(props?.debug ?? false);
   const [lastSyncTime, setLastSyncTime] = createSignal<Date | null>(null);
   const [logs, setLogs] = createSignal<string[]>([]);
+  const [musicBreakdown, setMusicBreakdown] = createSignal<{
+    songs: number;
+    playlists: number;
+    playlistSongs: number;
+  } | null>(null);
 
   // System instances
   const [websocketClient, setWebsocketClient] =
@@ -177,7 +216,7 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
       const ws = new WebSocketClient({
         url: baseUrl.replace("http", "ws") + "/ws",
         autoReconnect: true,
-        debug: props?.debug || false,
+        debug: debugEnabled() || props?.debug || false,
       });
 
       setWebsocketClient(ws);
@@ -295,40 +334,76 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
           videos: managerStatus.videos || SyncStatus.Never,
         };
 
-        // Use manager progress but fix any incorrect counts from IDB stats
+        // Use storage stats for completed domains, manager progress for others
         const initialProgress: SyncProgressMap = {
           music: {
             status: initialStatus.music,
-            progress: managerProgress.music?.progress || 0,
-            itemsProcessed: managerProgress.music?.itemsProcessed || 0,
-            totalItems: managerProgress.music?.totalItems || 0,
+            progress:
+              initialStatus.music === SyncStatus.Complete
+                ? 100
+                : managerProgress.music?.progress || 0,
+            itemsProcessed:
+              initialStatus.music === SyncStatus.Complete
+                ? storageStats.itemCounts.music
+                : managerProgress.music?.itemsProcessed || 0,
+            totalItems:
+              initialStatus.music === SyncStatus.Complete
+                ? storageStats.itemCounts.music
+                : managerProgress.music?.totalItems || 0,
             currentBatch: managerProgress.music?.currentBatch || 1,
             totalBatches: managerProgress.music?.totalBatches || 1,
             eta: 0,
           },
           photos: {
             status: initialStatus.photos,
-            progress: managerProgress.photos?.progress || 0,
-            itemsProcessed: managerProgress.photos?.itemsProcessed || 0,
-            totalItems: managerProgress.photos?.totalItems || 0,
+            progress:
+              initialStatus.photos === SyncStatus.Complete
+                ? 100
+                : managerProgress.photos?.progress || 0,
+            itemsProcessed:
+              initialStatus.photos === SyncStatus.Complete
+                ? storageStats.itemCounts.photos
+                : managerProgress.photos?.itemsProcessed || 0,
+            totalItems:
+              initialStatus.photos === SyncStatus.Complete
+                ? storageStats.itemCounts.photos
+                : managerProgress.photos?.totalItems || 0,
             currentBatch: managerProgress.photos?.currentBatch || 1,
             totalBatches: managerProgress.photos?.totalBatches || 1,
             eta: 0,
           },
           documents: {
             status: initialStatus.documents,
-            progress: managerProgress.documents?.progress || 0,
-            itemsProcessed: managerProgress.documents?.itemsProcessed || 0,
-            totalItems: managerProgress.documents?.totalItems || 0,
+            progress:
+              initialStatus.documents === SyncStatus.Complete
+                ? 100
+                : managerProgress.documents?.progress || 0,
+            itemsProcessed:
+              initialStatus.documents === SyncStatus.Complete
+                ? storageStats.itemCounts.documents
+                : managerProgress.documents?.itemsProcessed || 0,
+            totalItems:
+              initialStatus.documents === SyncStatus.Complete
+                ? storageStats.itemCounts.documents
+                : managerProgress.documents?.totalItems || 0,
             currentBatch: managerProgress.documents?.currentBatch || 1,
             totalBatches: managerProgress.documents?.totalBatches || 1,
             eta: 0,
           },
           videos: {
             status: initialStatus.videos,
-            progress: managerProgress.videos?.progress || 0,
-            itemsProcessed: managerProgress.videos?.itemsProcessed || 0,
-            totalItems: managerProgress.videos?.totalItems || 0,
+            progress:
+              initialStatus.videos === SyncStatus.Complete
+                ? 100
+                : managerProgress.videos?.progress || 0,
+            itemsProcessed:
+              initialStatus.videos === SyncStatus.Complete
+                ? storageStats.itemCounts.videos
+                : managerProgress.videos?.itemsProcessed || 0,
+            totalItems:
+              initialStatus.videos === SyncStatus.Complete
+                ? storageStats.itemCounts.videos
+                : managerProgress.videos?.totalItems || 0,
             currentBatch: managerProgress.videos?.currentBatch || 1,
             totalBatches: managerProgress.videos?.totalBatches || 1,
             eta: 0,
@@ -337,6 +412,36 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
 
         setSyncStatus(initialStatus);
         setSyncProgress(initialProgress);
+
+        // Initialize last sync time from storage stats
+        const lastSyncTimes = Object.values(storageStats.lastSyncTimes).filter(
+          Boolean
+        );
+        if (lastSyncTimes.length > 0) {
+          // Find the most recent sync time across all domains
+          const mostRecentSync = lastSyncTimes.reduce(
+            (latest, current) => {
+              return current && (!latest || current > latest)
+                ? current
+                : latest;
+            },
+            null as Date | null
+          );
+
+          if (mostRecentSync) {
+            setLastSyncTime(mostRecentSync);
+            log("initialized last sync time", mostRecentSync);
+          }
+        }
+
+        // Load music breakdown if music domain has data
+        if (initialStatus.music === SyncStatus.Complete) {
+          manager.getMusicBreakdown().then((breakdown) => {
+            setMusicBreakdown(breakdown);
+            log("loaded music breakdown", breakdown);
+          });
+        }
+
         log("initialized from IDB", {
           status: initialStatus,
           itemCounts: storageStats.itemCounts,
@@ -464,6 +569,15 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
 
       setIsSyncing(false);
       setLastSyncTime(new Date());
+
+      // Update music breakdown after sync completion
+      const manager = syncManager();
+      if (manager) {
+        manager.getMusicBreakdown().then((breakdown) => {
+          setMusicBreakdown(breakdown);
+          log("updated music breakdown after sync", breakdown);
+        });
+      }
 
       // Set final overall progress to show 100% completion
       setOverallProgress({
@@ -782,6 +896,43 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
     }
   };
 
+  // Handle debug toggle
+  const handleToggleDebug = () => {
+    const newDebugState = !debugEnabled();
+    setDebugEnabled(newDebugState);
+
+    // Configure debug utilities directly
+    if (newDebugState) {
+      enableDebug();
+      configureDebug({
+        enabled: true,
+        timestamps: true,
+        levels: {
+          info: true,
+          warn: true,
+          error: true,
+          debug: true,
+        },
+      });
+    } else {
+      disableDebug();
+    }
+
+    // Update WebSocket debug state if client exists
+    const ws = websocketClient();
+    if (ws) {
+      ws.setDebug(newDebugState);
+    }
+
+    // Update global debug state for compatibility
+    if (typeof window !== "undefined") {
+      (window as any).debugEnabled = newDebugState;
+    }
+
+    log(`Debug logging ${newDebugState ? "enabled" : "disabled"}`);
+    addLog(`🔧 Debug logging ${newDebugState ? "enabled" : "disabled"}`);
+  };
+
   // Auto-connect handles connection, no manual connect/disconnect needed
 
   // Calculate overall progress
@@ -812,6 +963,26 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
   // Initialize on mount
   onMount(() => {
     log("component mounted");
+
+    // Initialize debug state if debug prop is set
+    if (debugEnabled()) {
+      enableDebug();
+      configureDebug({
+        enabled: true,
+        timestamps: true,
+        levels: {
+          info: true,
+          warn: true,
+          error: true,
+          debug: true,
+        },
+      });
+
+      if (typeof window !== "undefined") {
+        (window as any).debugEnabled = true;
+      }
+    }
+
     initializeSystem();
   });
 
@@ -876,6 +1047,15 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
           />
           <span>Enable real-time auto-sync</span>
         </label>
+
+        <label class="toggle-control">
+          <input
+            type="checkbox"
+            checked={debugEnabled()}
+            onChange={handleToggleDebug}
+          />
+          <span>Enable debug logging</span>
+        </label>
       </div>
 
       {/* Sync Controls */}
@@ -898,8 +1078,8 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
           </button>
 
           <Show when={lastSyncTime()}>
-            <div class="last-sync">
-              Last sync: {lastSyncTime()?.toLocaleTimeString()}
+            <div class="last-sync" title={formatFullDateTime(lastSyncTime()!)}>
+              Last sync: {formatRelativeTime(lastSyncTime()!)}
             </div>
           </Show>
         </div>
@@ -973,12 +1153,11 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
                 <div class="domain-name">{domain}</div>
                 <div class="domain-status">{status}</div>
                 <div class="domain-progress">
-                  {
-                    syncProgress()[domain as keyof SyncProgressMap]
-                      .itemsProcessed
-                  }
-                  /{syncProgress()[domain as keyof SyncProgressMap].totalItems}{" "}
-                  items
+                  {formatDomainProgress(
+                    domain,
+                    syncProgress()[domain as keyof SyncProgressMap],
+                    domain === "music" ? musicBreakdown() : undefined
+                  )}
                 </div>
               </div>
             )}

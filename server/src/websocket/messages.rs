@@ -17,6 +17,8 @@ pub enum WebSocketResponseType {
     Json(WebSocketResponse),
     /// Binary response with optional metadata
     Binary { data: Vec<u8>, blob_id: String },
+    /// Multiple responses (for JSON + Binary pairs)
+    Multiple(Vec<WebSocketResponseType>),
 }
 
 /// Messages sent from client to server
@@ -65,6 +67,12 @@ pub enum WebSocketResponse {
     },
     /// Server sends single media blob
     MediaBlob { blob: MediaBlob },
+    /// Server sends media blob data header (metadata before binary frame)
+    MediaBlobDataHeader {
+        id: String,
+        size: usize,
+        mime: Option<String>,
+    },
     /// Server sends media blob data (binary content) - DEPRECATED
     /// Use WebSocketResponseType::Binary instead for actual binary data
     MediaBlobData {
@@ -168,9 +176,30 @@ impl WebSocketResponseType {
         Self::Binary { data, blob_id }
     }
 
+    /// Create a JSON + Binary pair for blob data
+    pub fn json_binary_pair(id: String, data: Vec<u8>, mime: Option<String>) -> Self {
+        let header = WebSocketResponse::MediaBlobDataHeader {
+            id: id.clone(),
+            size: data.len(),
+            mime,
+        };
+
+        Self::Multiple(vec![Self::Json(header), Self::Binary { data, blob_id: id }])
+    }
+
+    /// Create multiple responses
+    pub fn multiple(responses: Vec<WebSocketResponseType>) -> Self {
+        Self::Multiple(responses)
+    }
+
     /// Check if this is a binary response
     pub fn is_binary(&self) -> bool {
         matches!(self, Self::Binary { .. })
+    }
+
+    /// Check if this is a multiple response
+    pub fn is_multiple(&self) -> bool {
+        matches!(self, Self::Multiple(_))
     }
 
     /// Get binary data if this is a binary response
@@ -201,6 +230,13 @@ impl WebSocketResponseType {
                         "Cannot serialize binary response for blob {} to JSON",
                         blob_id
                     ),
+                )))
+            }
+            Self::Multiple(_) => {
+                // Multiple responses cannot be serialized to a single JSON
+                Err(serde_json::Error::io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Cannot serialize multiple responses to JSON",
                 )))
             }
         }
@@ -359,6 +395,12 @@ impl std::fmt::Debug for WebSocketResponse {
                 .debug_struct("Thumbnails")
                 .field("media_blob_id", media_blob_id)
                 .field("thumbnail_count", &thumbnails.len())
+                .finish(),
+            WebSocketResponse::MediaBlobDataHeader { id, size, mime } => f
+                .debug_struct("MediaBlobDataHeader")
+                .field("id", id)
+                .field("size", size)
+                .field("mime", mime)
                 .finish(),
         }
     }

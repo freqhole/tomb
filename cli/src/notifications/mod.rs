@@ -179,16 +179,16 @@ impl NotificationCommands {
         &self,
         db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("🔍 Checking notification system health...\n");
+        println!("Checking notification system health...\n");
 
         // Use the service layer for database health checks
         let health_status = NotificationService::database_health_check(db).await?;
 
         // Report database connection status
         if health_status.connection_status {
-            println!("Database: ✅ Connected");
+            println!("Database: Connected");
         } else {
-            println!("Database: ❌ Connection failed");
+            println!("Database: Connection failed");
             if let Some(error) = &health_status.connection_error {
                 println!("  Error: {}", error);
             }
@@ -196,9 +196,9 @@ impl NotificationCommands {
 
         // Report LISTEN/NOTIFY status
         if health_status.listen_notify_status {
-            println!("PostgreSQL NOTIFY/LISTEN: ✅ LISTEN/NOTIFY supported");
+            println!("PostgreSQL NOTIFY/LISTEN: LISTEN/NOTIFY supported");
         } else {
-            println!("PostgreSQL NOTIFY/LISTEN: ❌ LISTEN/NOTIFY not available");
+            println!("PostgreSQL NOTIFY/LISTEN: LISTEN/NOTIFY not available");
             if let Some(error) = &health_status.listen_notify_error {
                 println!("  Error: {}", error);
             }
@@ -207,11 +207,11 @@ impl NotificationCommands {
         // Report trigger status
         let trigger_status = if health_status.trigger_count > 0 {
             format!(
-                "✅ {} notification triggers installed",
+                "{} notification triggers installed",
                 health_status.trigger_count
             )
         } else {
-            "⚠️  No notification triggers found".to_string()
+            "No notification triggers found".to_string()
         };
         println!("Database triggers: {}", trigger_status);
         if let Some(error) = &health_status.trigger_error {
@@ -221,9 +221,9 @@ impl NotificationCommands {
         // Test notification service creation
         let config = NotificationConfig::default();
         let _service = NotificationService::new(config);
-        println!("Notification service: ✅ Created successfully");
+        println!("Notification service: Created successfully");
 
-        println!("\n🎉 Health check completed!");
+        println!("\nHealth check completed!");
         Ok(())
     }
 
@@ -231,32 +231,32 @@ impl NotificationCommands {
         &self,
         _db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("📊 Notification System Statistics\n");
+        println!("Notification System Statistics\n");
 
         // In a real implementation, we'd get these from the actual running service
         // For now, we'll show what the stats would look like
 
         println!("Service Statistics:");
-        println!("  📝 Total Published: 0");
-        println!("  ✅ Total Delivered: 0");
-        println!("  ❌ Total Failed: 0");
-        println!("  👥 Active Subscriptions: 0");
-        println!("  ⏱️  Avg Processing Time: 0.0ms");
+        println!("  Total Published: 0");
+        println!("  Total Delivered: 0");
+        println!("  Total Failed: 0");
+        println!("  Active Subscriptions: 0");
+        println!("  Avg Processing Time: 0.0ms");
 
         println!("\nPostgreSQL Listener:");
-        println!("  📨 Notifications Received: 0");
-        println!("  🔗 Connection Status: Disconnected");
-        println!("  ⏰ Uptime: 0s");
+        println!("  Notifications Received: 0");
+        println!("  Connection Status: Disconnected");
+        println!("  Uptime: 0s");
 
         println!("\nWebSocket Publisher:");
-        println!("  📤 Messages Sent: 0");
-        println!("  ❌ Messages Failed: 0");
-        println!("  🔌 Active Connections: 0");
+        println!("  Messages Sent: 0");
+        println!("  Messages Failed: 0");
+        println!("  Active Connections: 0");
 
         println!("\nChannel Breakdown:");
-        println!("  📁 MediaBlobs: 0 events");
-        println!("  🖼️  ThumbnailJobs: 0 events");
-        println!("  🔧 System: 0 events");
+        println!("  MediaBlobs: 0 events");
+        println!("  ThumbnailJobs: 0 events");
+        println!("  System: 0 events");
 
         Ok(())
     }
@@ -303,8 +303,8 @@ impl NotificationCommands {
 
         // In a real implementation, we'd send this through the notification service
         // For now, we'll just simulate it
-        println!("\n✅ Test notification created successfully!");
-        println!("💡 Note: This is a simulation. To actually send notifications, the server must be running.");
+        println!("\nTest notification created successfully!");
+        println!("Note: This is a simulation. To actually send notifications, the server must be running.");
 
         Ok(())
     }
@@ -315,7 +315,7 @@ impl NotificationCommands {
         channel: &str,
         payload: &Option<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("🐘 Sending test PostgreSQL NOTIFY...\n");
+        println!("Sending test PostgreSQL NOTIFY...\n");
 
         let test_payload = if let Some(payload_str) = payload {
             serde_json::from_str::<Value>(payload_str)?
@@ -328,7 +328,7 @@ impl NotificationCommands {
             })
         };
 
-        println!("📋 PostgreSQL NOTIFY Details:");
+        println!("PostgreSQL NOTIFY Details:");
         println!("  Channel: {}", channel);
         println!(
             "  Payload: {}",
@@ -338,9 +338,9 @@ impl NotificationCommands {
         // Use the service layer for test notifications
         NotificationService::send_test_notification(db, channel, test_payload).await?;
 
-        println!("\n✅ PostgreSQL NOTIFY sent successfully!");
+        println!("\nPostgreSQL NOTIFY sent successfully!");
         println!(
-            "💡 Any running listeners on channel '{}' should receive this notification.",
+            "Any running listeners on channel '{}' should receive this notification.",
             channel
         );
 
@@ -353,13 +353,13 @@ impl NotificationCommands {
         hours: u64,
         dry_run: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("🧹 Notification system cleanup...\n");
+        println!("Notification system cleanup...\n");
 
         if dry_run {
-            println!("🔍 DRY RUN - No actual changes will be made\n");
+            println!("DRY RUN - No actual changes will be made\n");
         }
 
-        println!("📅 Cleanup threshold: {} hours ago", hours);
+        println!("Cleanup threshold: {} hours ago", hours);
 
         // In a real implementation, we'd clean up:
         // - Old notification logs
@@ -368,15 +368,15 @@ impl NotificationCommands {
         // - Failed delivery records
 
         println!("\nCleanup operations (simulated):");
-        println!("  🗑️  Old notification logs: 0 entries");
-        println!("  🔌 Stale connections: 0 connections");
-        println!("  ⏱️  Rate limit cache: 0 entries");
-        println!("  ❌ Failed deliveries: 0 records");
+        println!("  Old notification logs: 0 entries");
+        println!("  Stale connections: 0 connections");
+        println!("  Rate limit cache: 0 entries");
+        println!("  Failed deliveries: 0 records");
 
         if dry_run {
-            println!("\n💡 Run without --dry-run to perform actual cleanup");
+            println!("\nRun without --dry-run to perform actual cleanup");
         } else {
-            println!("\n✅ Cleanup completed successfully!");
+            println!("\nCleanup completed successfully!");
         }
 
         Ok(())
@@ -388,12 +388,12 @@ impl NotificationCommands {
         interval: u64,
         count: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("📡 Monitoring notification system...\n");
-        println!("🔄 Update interval: {}s", interval);
+        println!("Monitoring notification system...\n");
+        println!("Update interval: {}s", interval);
         if count > 0 {
-            println!("📊 Max updates: {}", count);
+            println!("Max updates: {}", count);
         } else {
-            println!("📊 Updates: unlimited (Ctrl+C to stop)");
+            println!("Updates: unlimited (Ctrl+C to stop)");
         }
         println!("Press Ctrl+C to stop monitoring\n");
 
@@ -405,20 +405,20 @@ impl NotificationCommands {
 
             let timestamp = OffsetDateTime::now_utc();
             println!(
-                "⏰ {} - System Status:",
+                "{} - System Status:",
                 timestamp.format(&time::format_description::well_known::Rfc3339)?
             );
-            println!("  🔗 Connections: 0");
-            println!("  📨 Notifications/min: 0");
-            println!("  💾 Memory usage: N/A");
-            println!("  ⚡ Processing time: 0ms");
+            println!("  Connections: 0");
+            println!("  Notifications/min: 0");
+            println!("  Memory usage: N/A");
+            println!("  Processing time: 0ms");
             println!();
 
             updates += 1;
             tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
         }
 
-        println!("📊 Monitoring completed after {} updates", updates);
+        println!("Monitoring completed after {} updates", updates);
         Ok(())
     }
 

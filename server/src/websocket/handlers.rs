@@ -250,6 +250,63 @@ pub async fn handle_websocket_connection(
     );
 }
 
+/// Send a WebSocket response (handles single, binary, and multiple responses)
+async fn send_websocket_response(
+    socket: &mut WebSocket,
+    response: WebSocketResponseType,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match response {
+        WebSocketResponseType::Json(json_response) => {
+            if let Ok(response_json) = json_response.to_json() {
+                if let Err(e) = socket
+                    .send(axum::extract::ws::Message::Text(response_json.into()))
+                    .await
+                {
+                    return Err(format!("Failed to send JSON response: {}", e).into());
+                }
+            }
+        }
+        WebSocketResponseType::Binary { data, blob_id } => {
+            info!(
+                "Sending binary WebSocket frame for blob {} ({} bytes)",
+                blob_id,
+                data.len()
+            );
+            if let Err(e) = socket
+                .send(axum::extract::ws::Message::Binary(data.into()))
+                .await
+            {
+                return Err(
+                    format!("Failed to send binary response for blob {}: {}", blob_id, e).into(),
+                );
+            }
+        }
+        WebSocketResponseType::Multiple(responses) => {
+            info!(
+                "📨 Sending {} WebSocket responses (JSON + Binary pair)",
+                responses.len()
+            );
+            for (index, response) in responses.into_iter().enumerate() {
+                match &response {
+                    WebSocketResponseType::Json(_) => {
+                        info!("📤 Sending JSON response {} of pair", index + 1);
+                    }
+                    WebSocketResponseType::Binary { blob_id, .. } => {
+                        info!(
+                            "📤 Sending binary response {} of pair for blob {}",
+                            index + 1,
+                            blob_id
+                        );
+                    }
+                    _ => {}
+                }
+                Box::pin(send_websocket_response(socket, response)).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Handle a single WebSocket message
 async fn handle_websocket_message(
     msg: Result<axum::extract::ws::Message, axum::Error>,
@@ -276,37 +333,9 @@ async fn handle_websocket_message(
                     )
                     .await
                     {
-                        match response {
-                            WebSocketResponseType::Json(json_response) => {
-                                if let Ok(response_json) = json_response.to_json() {
-                                    if let Err(e) = socket
-                                        .send(axum::extract::ws::Message::Text(
-                                            response_json.into(),
-                                        ))
-                                        .await
-                                    {
-                                        error!("Failed to send JSON response: {}", e);
-                                        return Ok(false);
-                                    }
-                                }
-                            }
-                            WebSocketResponseType::Binary { data, blob_id } => {
-                                info!(
-                                    "Sending binary WebSocket frame for blob {} ({} bytes)",
-                                    blob_id,
-                                    data.len()
-                                );
-                                if let Err(e) = socket
-                                    .send(axum::extract::ws::Message::Binary(data.into()))
-                                    .await
-                                {
-                                    error!(
-                                        "Failed to send binary response for blob {}: {}",
-                                        blob_id, e
-                                    );
-                                    return Ok(false);
-                                }
-                            }
+                        if let Err(e) = send_websocket_response(socket, response).await {
+                            error!("Failed to send WebSocket response: {}", e);
+                            return Ok(false);
                         }
                     }
                 }
@@ -442,12 +471,15 @@ async fn handle_message(
                 Ok(blob) => {
                     if let Some(data) = blob.data {
                         info!(
-                            "Sending binary data for blob {} (size: {} bytes)",
+                            "Sending JSON + Binary pair for blob {} (size: {} bytes, mime: {:?})",
                             blob.id,
-                            data.len()
+                            data.len(),
+                            blob.mime
                         );
-                        // Send raw binary data instead of JSON
-                        Some(WebSocketResponseType::binary(data, blob.id))
+                        // Send JSON metadata header followed by raw binary data
+                        Some(WebSocketResponseType::json_binary_pair(
+                            blob.id, data, blob.mime,
+                        ))
                     } else {
                         warn!("Media blob {} has no data", id);
                         Some(WebSocketResponseType::json(WebSocketResponse::error(

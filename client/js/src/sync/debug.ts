@@ -109,3 +109,32 @@ export function debugLog(message: string, ...args: any[]): void {
 export function alwaysLog(message: string, ...args: any[]): void {
   console.log(`${getTimestamp()}${message}`, ...args);
 }
+
+/**
+ * Get current debug configuration (for console inspection)
+ */
+export function getDebugConfig(): DebugConfig {
+  return { ...config };
+}
+
+/**
+ * Set debug enabled state from browser console
+ * Usage: window.syncDebug.enable() or window.syncDebug.disable()
+ */
+export function setDebugEnabled(enabled: boolean): void {
+  config.enabled = enabled;
+  console.log(`🐛 Sync debug logging ${enabled ? "ENABLED" : "DISABLED"}`);
+}
+
+/**
+ * Global debug controls for browser console
+ * Usage: window.syncDebug.enable(), window.syncDebug.disable(), window.syncDebug.config()
+ */
+if (typeof window !== "undefined") {
+  (window as any).syncDebug = {
+    enable: () => setDebugEnabled(true),
+    disable: () => setDebugEnabled(false),
+    config: () => getDebugConfig(),
+    configure: configureDebug,
+  };
+}

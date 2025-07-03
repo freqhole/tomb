@@ -66,10 +66,12 @@ impl NotificationInfrastructure {
         }
 
         // Start PostgreSQL listener with direct WebSocket broadcasting
-        let mut postgres_listener = PostgresNotificationListener::new_with_websocket(
+        let config = grimoire::notifications::config::NotificationConfig::production();
+        let mut postgres_listener = PostgresNotificationListener::new_with_websocket_and_config(
             db,
             self.service.clone(),
             websocket_tx,
+            config,
         );
 
         postgres_listener.start(shutdown_rx).await?;

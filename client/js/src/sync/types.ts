@@ -108,6 +108,8 @@ export interface SyncAllOptions {
   forceFullSync?: boolean;
   /** Include binary data sync */
   includeBinaryData?: boolean;
+  /** Include media blob metadata sync */
+  include_media_blobs?: boolean;
   /** Priority order for domains */
   priorityOrder?: SyncDomain[];
 }
@@ -120,6 +122,8 @@ export interface SyncDomainOptions {
   forceFullSync?: boolean;
   /** Include binary data sync */
   includeBinaryData?: boolean;
+  /** Include media blob metadata sync */
+  include_media_blobs?: boolean;
   /** Page size for batch operations */
   pageSize?: number;
   /** Maximum items to sync */
@@ -144,6 +148,24 @@ export interface SyncResult {
   binaryStats?: BinarySyncStats;
   /** Any errors encountered */
   errors: SyncError[];
+  /** Detailed breakdown for music domain */
+  breakdown?: MusicSyncBreakdown;
+}
+
+/**
+ * Music sync breakdown for detailed reporting
+ */
+export interface MusicSyncBreakdown {
+  /** Songs sync results */
+  songs: { itemsSynced: number; totalItems: number };
+  /** Playlists sync results */
+  playlists: { itemsSynced: number; totalItems: number };
+  /** Playlist songs sync results */
+  playlistSongs: { itemsSynced: number; totalItems: number };
+  /** Media blobs sync results */
+  mediaBlobs: { itemsSynced: number; totalItems: number };
+  /** Total items across all music data types */
+  totalAll: number;
 }
 
 /**
@@ -407,6 +429,16 @@ export interface UnifiedStorage {
 
   /** Get storage statistics */
   getStats(): Promise<StorageStats>;
+
+  /** Save sync completion state */
+  saveSyncCompletion(domain: SyncDomain, itemsSynced: number): Promise<void>;
+
+  /** Get detailed music domain breakdown */
+  getMusicBreakdown(): Promise<{
+    songs: number;
+    playlists: number;
+    playlistSongs: number;
+  }>;
 
   /** Binary data operations (simple blob ID -> ArrayBuffer storage as per plan) */
   storeBinaryData(blobId: string, data: ArrayBuffer): Promise<void>;

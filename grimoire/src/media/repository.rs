@@ -57,7 +57,7 @@ impl MediaBlobRepository {
             r#"
             INSERT INTO media_blobs (data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at
+            RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data
             "#,
             create_blob.data,
             create_blob.sha256,
@@ -76,7 +76,8 @@ impl MediaBlobRepository {
 
         Ok(MediaBlob {
             id: row.id,
-            data: data_clone, // Include data in response for create
+            data: data_clone,
+            has_binary_data: row.has_binary_data.unwrap_or(false),
             sha256: row.sha256,
             size: row.size,
             mime: row.mime,
@@ -93,7 +94,7 @@ impl MediaBlobRepository {
     /// Find a media blob by ID
     pub async fn find_by_id(&self, id: &str) -> Result<MediaBlob, MediaRepositoryError> {
         let row = sqlx::query!(
-            "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at FROM media_blobs WHERE id = $1",
+            "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE id = $1",
             id
         )
         .fetch_optional(&self.pool)
@@ -102,7 +103,8 @@ impl MediaBlobRepository {
         match row {
             Some(row) => Ok(MediaBlob {
                 id: row.id,
-                data: row.data,
+                data: row.data.clone(),
+                has_binary_data: row.has_binary_data.unwrap_or(false),
                 sha256: row.sha256,
                 size: row.size,
                 mime: row.mime,
@@ -124,7 +126,7 @@ impl MediaBlobRepository {
         id: &str,
     ) -> Result<MediaBlob, MediaRepositoryError> {
         let row = sqlx::query!(
-            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at FROM media_blobs WHERE id = $1",
+            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE id = $1",
             id
         )
         .fetch_optional(&self.pool)
@@ -134,6 +136,7 @@ impl MediaBlobRepository {
             Some(row) => Ok(MediaBlob {
                 id: row.id,
                 data: None,
+                has_binary_data: row.has_binary_data.unwrap_or(false),
                 sha256: row.sha256,
                 size: row.size,
                 mime: row.mime,
@@ -152,7 +155,7 @@ impl MediaBlobRepository {
     /// Find a media blob by SHA256 hash
     pub async fn find_by_sha256(&self, sha256: &str) -> Result<MediaBlob, MediaRepositoryError> {
         let row = sqlx::query!(
-            "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at FROM media_blobs WHERE sha256 = $1",
+            "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE sha256 = $1",
             sha256
         )
         .fetch_optional(&self.pool)
@@ -161,7 +164,8 @@ impl MediaBlobRepository {
         match row {
             Some(row) => Ok(MediaBlob {
                 id: row.id,
-                data: row.data,
+                data: row.data.clone(),
+                has_binary_data: row.has_binary_data.unwrap_or(false),
                 sha256: row.sha256,
                 size: row.size,
                 mime: row.mime,
@@ -206,7 +210,7 @@ impl MediaBlobRepository {
 
         // Build the SQL query
         let mut sql = String::from(
-            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at FROM media_blobs WHERE 1=1"
+            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE 1=1"
         );
         let mut param_count = 0;
         // Add cursor condition
@@ -312,6 +316,9 @@ impl MediaBlobRepository {
             .map(|row| MediaBlob {
                 id: row.get("id"),
                 data: None, // Don't include binary data in query results
+                has_binary_data: row
+                    .get::<Option<bool>, _>("has_binary_data")
+                    .unwrap_or(false),
                 sha256: row.get("sha256"),
                 size: row.get("size"),
                 mime: row.get("mime"),
@@ -377,7 +384,7 @@ impl MediaBlobRepository {
 
         // Build the query for items
         let mut sql = String::from(
-            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at FROM media_blobs WHERE 1=1"
+            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE 1=1"
         );
         let mut count_sql = String::from("SELECT COUNT(*) FROM media_blobs WHERE 1=1");
         let mut param_count = 0;
@@ -482,6 +489,9 @@ impl MediaBlobRepository {
             .map(|row| MediaBlob {
                 id: row.get("id"),
                 data: None, // Don't include binary data in query results
+                has_binary_data: row
+                    .get::<Option<bool>, _>("has_binary_data")
+                    .unwrap_or(false),
                 sha256: row.get("sha256"),
                 size: row.get("size"),
                 mime: row.get("mime"),
@@ -526,7 +536,7 @@ impl MediaBlobRepository {
         let updated_at = OffsetDateTime::now_utc();
 
         let row = sqlx::query!(
-            "UPDATE media_blobs SET metadata = $1, updated_at = $2 WHERE id = $3 RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at",
+            "UPDATE media_blobs SET metadata = $1, updated_at = $2 WHERE id = $3 RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data",
             metadata,
             updated_at,
             id
@@ -538,6 +548,7 @@ impl MediaBlobRepository {
             Some(row) => Ok(MediaBlob {
                 id: row.id,
                 data: None, // Don't include binary data in update response
+                has_binary_data: row.has_binary_data.unwrap_or(false),
                 sha256: row.sha256,
                 size: row.size,
                 mime: row.mime,
