@@ -36,86 +36,85 @@ Make sure your Axum server is running on <code>localhost:8080</code> (API) and W
   </div>
 
   <script type="module">
-import{d as Nt,c as u,g as Re,o as Mt,f as Tt,t as b,k as r,i as f,S,b as T,e as J,m as At,F as Fe,l as je}from"./web-Bmt1sUg0.js";import{c as Lt}from"./index-CuXI0cIU.js";import{A as Wt}from"./api-client-oDSgDTkX.js";import{C as R,W as Ot}from"./websocket-client-BIZ3xMI1.js";import{a as l,S as Rt,b as Ft,s as jt,e as Gt,d as Vt,c as L}from"./sync-status-MeXiLf_p.js";import{W as Xt}from"./websocket-status-B6AILaLV.js";import"./types-DDODKsJP.js";var Yt=b("<button class=connect-button>"),Kt=b("<button class=disconnect-button>Disconnect"),Qt=b("<div class=connection-buttons>"),qt=b("<label class=toggle-control><input type=checkbox checked disabled><span>🔔 User Notifications"),Ht=b("<span>🔄 Syncing..."),Jt=b("<div class=last-sync>Last sync: "),Zt=b('<div class="last-sync music-update">🎵 Last music update: <button class=refresh-button>🔄 Refresh Now'),en=b("<span class=progress-percentage>%"),tn=b("<div class=progress-operation>"),nn=b("<span class=progress-initializing>"),sn=b("<span class=progress-items>"),on=b("<div class=horizontal-progress-container><div class=horizontal-progress-bar><div class=horizontal-progress-fill></div></div><div class=horizontal-progress-text>"),rn=b("<div class=progress-section><h3>📊 Sync Progress"),an=b("<div class=domain-status><h3>🎵 Music Domain Status</h3><div class=domain-grid><div><div class=domain-name>🎵 music</div><div class=domain-progress><div class=domain-progress-text>/<!> items</div><div class=domain-progress-bar><div class=domain-progress-fill></div></div><div class=domain-progress-percent>%"),ln=b("<div class=image-grid-section><h3>🖼️ Binary Data Image Grid (<!> images)</h3><div class=image-grid>"),cn=b("<div class=log-empty>No activity yet..."),dn=b(`<div><div class=demo-header><h2>🚀 Unified Sync System Demo</h2><div class=phase-info><span class=phase-badge>Phase 4: Unified UI Demo</span><span class=version-badge>v1.0.0</span></div></div><div class=connection-section><h3>🔗 Connection Status</h3><div class=connection-controls><div class=initialization-status><span></span></div></div></div><div class=feature-toggles><h3>⚙️ Feature Controls</h3><div class=toggle-controls><label class=toggle-control><input type=checkbox><span>🔧 Service Worker Background Sync</span></label><label class=toggle-control><input type=checkbox><span>🔄 Auto-Sync on Changes</span></label><label class=toggle-control><input type=checkbox><span>🐛 Debug Logging</span></label></div></div><div class=sync-controls><h3>🎯 Unified Sync Control</h3><div class=main-controls><button></button><button class=destroy-button title="Completely destroy all IndexedDB data (for testing)">💥 Destroy All Data</button></div></div><div class=storage-stats><h3>💾 Storage Usage</h3><div class=storage-display><div class=storage-item><span class=storage-label>Total:</span><span class=storage-value></span></div><div class=storage-breakdown><div class=storage-item><span class=storage-label>Music:</span><span class=storage-value></span></div><div class=storage-item><span class=storage-label>Binary Data:</span><span class=storage-value></span></div></div></div></div><div class=activity-log><h3>📋 Activity Log</h3><div class=log-container></div></div><div class=system-info><h3>ℹ️ System Information</h3><div class=info-grid><div class=info-item><span class=info-label>Sync Features:</span><span class=info-value></span></div><div class=info-item><span class=info-label>Client ID:</span><span class=info-value>...</span></div><div class=info-item><span class=info-label>API URL:</span><span class=info-value></span></div></div></div><style>
+import{d as st,c as b,g as $e,o as nt,f as ot,t as $,k as a,i as S,b as T,e as U,S as B,F as oe,l as ae}from"./web-Bmt1sUg0.js";import{c as at}from"./index-CuXI0cIU.js";import{A as it}from"./api-client-oDSgDTkX.js";import{C as A,W as rt}from"./websocket-client-BIZ3xMI1.js";import{S as u,s as ct,a as R}from"./index-CpDRoFb1.js";import{W as lt}from"./websocket-status-B6AILaLV.js";import"./types-DDODKsJP.js";var dt=$("<span> (Status: <!>)"),gt=$("<div class=error-message>❌ "),mt=$("<div class=last-sync>Last sync: "),ut=$("<span class=progress-percentage>%"),pt=$("<div class=progress-operation>"),ht=$("<span class=progress-initializing>"),bt=$("<span class=progress-items>/<!> items"),ft=$("<div class=horizontal-progress-container><div class=horizontal-progress-bar><div class=horizontal-progress-fill></div></div><div class=horizontal-progress-text>"),yt=$("<div class=progress-section><h3>📊 Sync Progress"),vt=$("<div class=image-grid-section><h3>🖼️ Binary Data Image Grid (<!> images)</h3><div class=image-grid>"),xt=$("<div class=log-empty>No activity yet..."),St=$(`<div><div class=demo-header><h2>🚀 Unified Sync System Demo</h2><div class=status-badges><span></span><span> (<!>)</span></div></div><div class=connection-section><h3>🔗 Connection</h3><div class=connection-status></div></div><div class=autosync-section><h3>⚙️ Auto-Sync</h3><label class=toggle-control><input type=checkbox><span>Enable real-time auto-sync</span></label></div><div class=sync-section><h3>🎯 Sync Control</h3><div class=sync-controls><button></button></div></div><div class=domains-section><h3>📁 Domain Status</h3><div class=domain-grid></div></div><div class=storage-stats><h3>💾 Storage Usage</h3><div class=storage-display><div class=storage-item><span class=storage-label>Total:</span><span class=storage-value></span></div><div class=storage-breakdown><div class=storage-item><span class=storage-label>Music:</span><span class=storage-value></span></div><div class=storage-item><span class=storage-label>Binary Data:</span><span class=storage-value></span></div></div></div></div><div class=log-section><h3>📋 Activity Log</h3><div class=log-container></div></div><style>
         .unified-sync-demo {
-          padding: 20px;
+          font-family:
+            -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           max-width: 800px;
           margin: 0 auto;
-          font-family:
-            -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          padding: 20px;
           background: black;
           color: white;
-          border-radius: 12px;
+          border-radius: 8px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
         }
 
         .demo-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
+          text-align: center;
           margin-bottom: 30px;
-          padding-bottom: 15px;
-          border-bottom: 2px solid #333;
+          padding-bottom: 20px;
+          border-bottom: 1px solid #333;
         }
 
         .demo-header h2 {
-          margin: 0;
+          margin: 0 0 10px 0;
           color: white;
         }
 
-        .phase-info {
+        .status-badges {
           display: flex;
           gap: 10px;
+          justify-content: center;
+          margin-top: 10px;
         }
 
-        .phase-badge,
-        .version-badge {
-          padding: 4px 8px;
-          border-radius: 4px;
+        .status-badge {
+          padding: 4px 12px;
+          border-radius: 20px;
           font-size: 12px;
-          font-weight: 600;
+          font-weight: 500;
         }
 
-        .phase-badge {
-          background: #3498db;
-          color: white;
+        .status-badge.success {
+          background: #0f5132;
+          color: #d1e7dd;
         }
 
-        .version-badge {
-          background: #2ecc71;
-          color: white;
+        .status-badge.pending {
+          background: #664d03;
+          color: #fff3cd;
+        }
+
+        .status-badge.error {
+          background: #842029;
+          color: #f8d7da;
         }
 
         .connection-section,
-        .feature-toggles,
-        .sync-controls,
+        .autosync-section,
+        .sync-section,
         .progress-section,
-        .domain-status,
-        .image-grid-section,
-        .activity-log,
-        .system-info,
-        .storage-stats {
+        .domains-section,
+        .log-section {
           margin-bottom: 25px;
-          padding: 15px;
-          border: 1px solid #333;
-          border-radius: 8px;
+          padding: 20px;
           background: #111;
+          border-radius: 6px;
+          border: 1px solid #333;
         }
 
         .connection-section h3,
-        .feature-toggles h3,
-        .sync-controls h3,
+        .autosync-section h3,
+        .sync-section h3,
         .progress-section h3,
-        .domain-status h3,
-        .image-grid-section h3,
-        .activity-log h3,
-        .system-info h3,
-        .storage-stats h3 {
+        .domains-section h3,
+        .log-section h3 {
           margin: 0 0 15px 0;
-          color: white;
           font-size: 16px;
+          color: white;
         }
 
-        .connection-controls {
+        .connection-status {
           display: flex;
           align-items: center;
           gap: 15px;
@@ -126,163 +125,189 @@ import{d as Nt,c as u,g as Re,o as Mt,f as Tt,t as b,k as r,i as f,S,b as T,e as
           gap: 10px;
         }
 
-        .connect-button,
-        .disconnect-button {
-          padding: 6px 12px;
-          border: none;
-          border-radius: 4px;
-          font-size: 12px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .connect-button {
-          background: #3498db;
-          color: white;
-        }
-
-        .connect-button:hover:not(:disabled) {
-          background: #2980b9;
-        }
-
-        .connect-button:disabled {
-          background: #95a5a6;
-          cursor: not-allowed;
-        }
-
-        .disconnect-button {
-          background: #e74c3c;
-          color: white;
-        }
-
-        .disconnect-button:hover {
-          background: #c0392b;
-        }
-
-        .status-indicator {
-          padding: 4px 8px;
-          border-radius: 4px;
-          font-size: 14px;
-          font-weight: 500;
-        }
-
-        .status-indicator.success {
-          background: #d4edda;
-          color: #155724;
-        }
-
-        .status-indicator.pending {
-          background: #fff3cd;
-          color: #856404;
-        }
-
-        .toggle-controls {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
         .toggle-control {
           display: flex;
           align-items: center;
           gap: 8px;
           cursor: pointer;
-          user-select: none;
           color: white;
         }
 
-        .toggle-control input[type="checkbox"] {
-          cursor: pointer;
-        }
-
-        .toggle-control input[type="checkbox"]:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .main-controls {
+        .sync-controls {
           display: flex;
           align-items: center;
-          gap: 15px;
-          margin-bottom: 15px;
+          gap: 20px;
         }
 
-        .sync-all-button {
-          padding: 15px 30px;
-          font-size: 18px;
-          font-weight: 600;
+        .btn {
+          padding: 10px 20px;
           border: none;
-          border-radius: 8px;
+          border-radius: 4px;
+          font-size: 14px;
+          font-weight: 500;
           cursor: pointer;
-          transition: all 0.3s ease;
-          background: #ff00ff;
-          color: black;
-          min-width: 200px;
+          transition: all 0.2s;
         }
 
-        .sync-all-button:hover:not(:disabled) {
-          background: #ff00ff;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 15px rgba(255, 0, 255, 0.3);
-        }
-
-        .sync-all-button:disabled {
-          background: #333;
-          color: #666;
+        .btn:disabled {
+          opacity: 0.6;
           cursor: not-allowed;
-          transform: none;
-          box-shadow: none;
         }
 
-        .sync-all-button.syncing {
-          background: linear-gradient(135deg, #ff00ff, #cc00cc);
+        .btn-primary {
+          background: #007bff;
+          color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+          background: #0056b3;
+        }
+
+        .btn-secondary {
+          background: #6c757d;
+          color: white;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+          background: #545b62;
+        }
+
+        .btn-sync {
+          background: magenta;
+          color: black;
+          position: relative;
+          font-weight: 600;
+        }
+
+        .btn-sync:hover:not(:disabled) {
+          background: #ff40ff;
+        }
+
+        .btn-sync.syncing {
+          background: #cc00cc;
           animation: pulse 2s infinite;
         }
 
         @keyframes pulse {
-          0%,
-          100% {
+          0% {
             opacity: 1;
           }
           50% {
-            opacity: 0.8;
+            opacity: 0.7;
+          }
+          100% {
+            opacity: 1;
           }
         }
 
         .last-sync {
+          font-size: 12px;
           color: #ccc;
+        }
+
+        .progress-bar {
+          width: 100%;
+          height: 8px;
+          background: #333;
+          border-radius: 4px;
+          overflow: hidden;
+          margin-bottom: 10px;
+        }
+
+        .progress-fill {
+          height: 100%;
+          background: magenta;
+          transition: width 0.3s ease;
+        }
+
+        .progress-text {
+          text-align: center;
           font-size: 14px;
+          color: white;
         }
 
-        .loading-indicator {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 16px;
-          background: #f8f9fa;
-          border: 1px solid #e9ecef;
-          border-radius: 8px;
+        .domain-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 15px;
+        }
+
+        .domain-card {
+          padding: 15px;
+          border-radius: 6px;
+          border: 1px solid #333;
+          background: #222;
+        }
+
+        .domain-card.complete {
+          border-color: #0f0;
+          background: #003300;
+        }
+
+        .domain-card.in_progress {
+          border-color: magenta;
+          background: #330033;
+        }
+
+        .domain-card.never {
+          border-color: #666;
+          background: #1a1a1a;
+        }
+
+        .domain-name {
+          font-weight: 600;
+          margin-bottom: 5px;
+          text-transform: capitalize;
+          color: white;
+        }
+
+        .domain-status {
+          font-size: 12px;
+          color: #ccc;
+          margin-bottom: 5px;
+        }
+
+        .domain-progress {
+          font-size: 11px;
+          color: #aaa;
+        }
+
+        .log-container {
+          max-height: 200px;
+          overflow-y: auto;
+          background: #000;
+          border: 1px solid #333;
+          border-radius: 4px;
+          padding: 10px;
+        }
+
+        .log-entry {
+          font-family: "Monaco", "Consolas", monospace;
+          font-size: 12px;
+          padding: 2px 0;
+          border-bottom: 1px solid #333;
+          color: #ccc;
+        }
+
+        .log-entry:last-child {
+          border-bottom: none;
+        }
+
+        .log-empty {
+          text-align: center;
+          color: #666;
+          font-style: italic;
+          padding: 20px;
+        }
+
+        .error-message {
+          margin-top: 10px;
+          padding: 10px;
+          background: #330000;
+          border: 1px solid #660000;
+          border-radius: 4px;
+          color: #ff6666;
           font-size: 14px;
-          color: #6c757d;
-        }
-
-        .loading-spinner {
-          width: 20px;
-          height: 20px;
-          border: 2px solid #e9ecef;
-          border-top: 2px solid #007bff;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-          0% {
-            transform: rotate(0deg);
-          }
-          100% {
-            transform: rotate(360deg);
-          }
         }
 
         .horizontal-progress-container {
@@ -345,7 +370,7 @@ import{d as Nt,c as u,g as Re,o as Mt,f as Tt,t as b,k as r,i as f,S,b as T,e as
 
         .progress-percentage {
           font-weight: 600;
-          color: #ff00ff;
+          color: magenta;
           font-size: 16px;
         }
 
@@ -354,7 +379,7 @@ import{d as Nt,c as u,g as Re,o as Mt,f as Tt,t as b,k as r,i as f,S,b as T,e as
         }
 
         .progress-initializing {
-          color: #ff00ff;
+          color: magenta;
           font-weight: 500;
         }
 
@@ -364,212 +389,18 @@ import{d as Nt,c as u,g as Re,o as Mt,f as Tt,t as b,k as r,i as f,S,b as T,e as
           font-style: italic;
         }
 
-        .last-sync {
-          color: #ccc;
-          font-size: 13px;
-          font-style: italic;
-        }
-
-        .music-update {
-          color: #88c0ff;
-          margin-top: 4px;
-          border-top: 1px solid rgba(255, 255, 255, 0.1);
-          padding-top: 4px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .refresh-button {
-          background: #3b82f6;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          padding: 2px 5px;
-          font-size: 11px;
-          cursor: pointer;
-          margin-left: 8px;
-        }
-
-        .refresh-button:hover {
-          background: #2563eb;
-        }
-
-        .progress-display {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .domain-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 15px;
-        }
-
-        .domain-card {
-          padding: 15px;
-          border: 2px solid #333;
-          border-radius: 8px;
-          background: #222;
-          transition: all 0.2s ease;
-        }
-
-        .domain-card.complete {
-          border-color: #0f0;
-          background: #001100;
-        }
-
-        .domain-card.in_progress {
-          border-color: #ff00ff;
-          background: #330033;
-        }
-
-        .domain-card.failed {
-          border-color: #e74c3c;
-          background: #fadbd8;
-        }
-
-        .domain-name {
-          font-weight: 600;
-          margin-bottom: 10px;
-          color: white;
-        }
-
-        .domain-progress {
-          margin-top: 8px;
-          font-size: 12px;
-        }
-
-        .domain-progress-text {
-          color: #ccc;
-          margin-bottom: 4px;
-        }
-
-        .domain-progress-bar {
-          width: 100%;
-          height: 4px;
-          background-color: #444;
-          border-radius: 2px;
-          overflow: hidden;
-          margin-bottom: 4px;
-        }
-
-        .domain-progress-fill {
-          height: 100%;
-          transition: width 0.3s ease;
-          border-radius: 2px;
-        }
-
-        .domain-progress-percent {
-          color: white;
-          font-weight: 500;
-          text-align: center;
-        }
-
-        .storage-display {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .storage-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 8px 12px;
-          background: #222;
-          border-radius: 6px;
-          border: 1px solid #444;
-        }
-
-        .storage-label {
-          font-weight: 500;
-          color: white;
-        }
-
-        .storage-value {
-          font-weight: 600;
-          color: #ff00ff;
-          font-family: "Monaco", "Menlo", monospace;
-          font-size: 13px;
-        }
-
-        .storage-breakdown {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 8px;
-          margin-top: 8px;
-        }
-
-        .storage-breakdown .storage-item {
-          background: #1a1a1a;
-          border-color: #333;
-        }
-
-        .log-container {
-          max-height: 200px;
-          overflow-y: auto;
-          border: 1px solid #333;
-          border-radius: 4px;
-          background: #111;
-          padding: 10px;
-        }
-
-        .log-entry {
-          padding: 4px 0;
-          font-family: "Monaco", "Menlo", monospace;
-          font-size: 12px;
-          color: #ccc;
-          border-bottom: 1px solid #333;
-        }
-
-        .log-entry:last-child {
-          border-bottom: none;
-        }
-
-        .log-empty {
-          color: #666;
-          font-style: italic;
-          text-align: center;
-          padding: 20px;
-        }
-
-        .info-grid {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .info-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 8px 0;
-          border-bottom: 1px solid #333;
-        }
-
-        .info-item:last-child {
-          border-bottom: none;
-        }
-
-        .info-label {
-          font-weight: 600;
-          color: #34495e;
-        }
-
-        .info-value {
-          font-family: "Monaco", "Menlo", monospace;
-          color: white;
-          font-size: 13px;
-        }
-
         .image-grid-section {
           margin-bottom: 25px;
           padding: 20px;
           background: #111;
-          border-radius: 8px;
+          border-radius: 6px;
           border: 1px solid #333;
+        }
+
+        .image-grid-section h3 {
+          margin: 0 0 15px 0;
+          font-size: 16px;
+          color: white;
         }
 
         .image-grid {
@@ -604,36 +435,74 @@ import{d as Nt,c as u,g as Re,o as Mt,f as Tt,t as b,k as r,i as f,S,b as T,e as
           box-shadow: 0 4px 15px rgba(255, 0, 255, 0.3);
         }
 
-        .grid-image:error {
-          border-color: #f00;
-          background: #330000;
+        .storage-stats {
+          margin-bottom: 25px;
+          padding: 20px;
+          background: #111;
+          border-radius: 6px;
+          border: 1px solid #333;
         }
 
-        @media (max-width: 600px) {
-          .unified-sync-demo {
-            padding: 15px;
-          }
-
-          .demo-header {
-            flex-direction: column;
-            gap: 10px;
-            text-align: center;
-          }
-
-          .connection-controls {
-            flex-direction: column;
-            align-items: stretch;
-          }
-
-          .progress-stats {
-            justify-content: center;
-          }
-
-          .domain-grid {
-            grid-template-columns: 1fr;
-          }
+        .storage-stats h3 {
+          margin: 0 0 15px 0;
+          font-size: 16px;
+          color: white;
         }
-      `),gn=b("<span>🚀 Sync All Domains"),un=b("<div class=image-item><img class=grid-image>"),pn=b("<div class=log-entry>");function mn(D){const[k,me]=u(null),[fe,be]=u(null),[Y,Ge]=u(null),[fn,Ve]=u(null),[he,Xe]=u(null),[U,ye]=u(!1),[Z,xe]=u(R.Disconnected),[C,ve]=u(!1),[bn,F]=u(null),[j,G]=u({music:l.Never,photos:l.Never,documents:l.Never,videos:l.Never}),[W,V]=u({music:{status:l.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0},photos:{status:l.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0},documents:{status:l.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0},videos:{status:l.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0}}),[hn,ee]=u(l.Never),[y,K]=u({status:l.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0,eta:0,currentOperation:"Ready"}),[te,Ye]=u(D.enableServiceWorker??!0),[Q,Ke]=u(D.enableAutoSync??!0),[Se,Qe]=u([]),[$,ne]=u(!1),[se,oe]=u(null),[ie,re]=u([]),[qe,$e]=u(0),[we,He]=u(!1),[Je,Ce]=u("Loading..."),[Ze,_e]=u("Loading..."),[et,ke]=u("Loading..."),o=e=>{const n=new Date().toLocaleTimeString();Qe(s=>[...s.slice(-9),`[${n}] ${e}`])},tt=()=>typeof crypto<"u"&&crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,function(e){const n=Math.random()*16|0;return(e=="x"?n:n&3|8).toString(16)}),Ie=()=>{const e=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;return D.clientId&&e.test(D.clientId)?D.clientId:tt()},Be=async()=>{try{o("🚀 Initializing Unified Sync System...");const e=D.apiBaseUrl||"http://localhost:8080",n=Ie();o(`📋 Client ID: ${n}`),o(`🌐 API Base URL: ${e}`);const s=new Wt({baseUrl:e});Ve(s);const p=e.replace("http","ws").replace("3001","8080")+"/ws",a=new Ot({url:p,autoReconnect:!0,reconnectDelay:3e3,debug:!0});Ge(a);const x=t=>{xe(t);const c=t===R.Connected;ye(c),o(`🔗 WebSocket status: ${t}`),console.log("🐛 WebSocket status change:",{status:t,isConnected:c,isInitialized:C()}),c?(F(null),console.log("🔌 WebSocket connected - forcing UI update")):t===R.Error&&F("WebSocket connection error")};a.on("statusChange",x),a.on("error",t=>{F(t.message),o(`❌ WebSocket error: ${t.message}`)}),a.on("rawMessage",t=>{console.log("🔍 Raw WebSocket message:",t),o(`📥 WS Raw: ${typeof t=="string"?t.substring(0,100):"[Binary data]"}...`),typeof t=="string"&&t.includes("Notification")&&o(`📥 WS Raw: ${t.substring(0,100)}...`)}),a.on("notification",t=>{if(console.log("📬 ALL WebSocket notifications received:",{channel:t.channel,event_type:t.event_type,payload:t.payload,priority:t.priority,timestamp:t.timestamp,fullData:t}),o(`📬 Notification: ${t.channel}/${t.event_type}`),t.channel==="MediaBlobs"&&(t.event_type==="song.created"||t.event_type==="song.updated"||t.event_type==="song.deleted")&&(console.log("🎵 SONG EVENT notification received:",t),o(`🎵 Song event: ${t.event_type}`)),t.channel==="MediaBlobs"&&t.event_type==="music.library.updated"||t.event_type==="scan_completed"||t.event_type==="song.created"){if(console.log("🎵 Music-related notification received:",t),Xe(new Date),t.event_type==="music.library.updated"||t.event_type==="scan_completed"){const c=t.payload?.songs_added??0,h=t.payload?.scan_name??"unknown";o(`🎵 Music library updated: ${c} songs added from scan "${h}"`)}else t.event_type==="song.created"&&o(`🎵 New song added: "${t.payload?.title??"Unknown"}" by ${t.payload?.artist??"Unknown"}`);Q()&&k()&&o("🔄 Auto-syncing music library after update...")}}),D.autoConnect!==!1&&(o("🔄 Auto-connecting WebSocket..."),a.connect()),o("⚙️ Setting up unified sync manager...");const{syncManager:m,autoSyncSystem:w}=await jt(a,s,{apiBaseUrl:e,clientId:n,enableUserNotifications:D.enableUserNotifications??!0,enableBackgroundSync:te()});me(m),be(w),console.log("🔍 Auto-sync system status:",{autoSyncSystem:w,status:w?.getStatus?.(),stats:w?.getStats?.(),pendingNotifications:w?.getPendingNotifications?.()}),nt(m),Q()&&(o("🔄 Enabling auto-sync..."),m.enableAutoSync(!0),w?.enable&&(console.log("🔄 Starting auto-sync system..."),await w.enable(),o("✅ Auto-sync system started")));try{const t=await m.getStorageStats();console.log("🐛 Initial storage stats:",t);const c={music:(t.itemCounts?.music||0)>0?l.Complete:l.Never,photos:(t.itemCounts?.photos||0)>0?l.Complete:l.Never,documents:(t.itemCounts?.documents||0)>0?l.Complete:l.Never,videos:(t.itemCounts?.videos||0)>0?l.Complete:l.Never},h={music:{status:c.music,progress:c.music===l.Complete?100:0,itemsProcessed:t.itemCounts?.music||0,totalItems:t.itemCounts?.music||0,currentBatch:1,totalBatches:1},photos:{status:c.photos,progress:c.photos===l.Complete?100:0,itemsProcessed:t.itemCounts?.photos||0,totalItems:t.itemCounts?.photos||0,currentBatch:1,totalBatches:1},documents:{status:c.documents,progress:c.documents===l.Complete?100:0,itemsProcessed:t.itemCounts?.documents||0,totalItems:t.itemCounts?.documents||0,currentBatch:1,totalBatches:1},videos:{status:c.videos,progress:c.videos===l.Complete?100:0,itemsProcessed:t.itemCounts?.videos||0,totalItems:t.itemCounts?.videos||0,currentBatch:1,totalBatches:1}};G(c),V(h),o(`📊 Initialized domain status: ${Object.values(c).filter(I=>I===l.Complete).length} domains with data`)}catch(t){console.warn("Could not initialize domain status:",t),G(m.getStatus()),V(m.getProgress()),o("📊 Using default domain status")}setTimeout(()=>{ze()},2e3),ve(!0),o("✅ Unified Sync System initialized successfully"),window.websocketClient=a,window.syncManager=m,window.autoSyncSystem=w,window.phase3System=w,window.isConnected=U(),window.syncStatus=j,window.syncProgress=W,window.lastSyncTime=se,window.refreshUIFromSyncManager=()=>{console.log("🔄 Refreshing UI from sync manager...");const t=m.getStatus(),c=m.getProgress();G(t),V(c),oe(new Date),console.log("✅ UI refreshed with:",{freshStatus:t,freshProgress:c})},o("🔧 Debug objects exposed to window");const O=a.getStatus();O===R.Connected&&!U()&&(ye(!0),F(null)),xe(O),console.log("🐛 State after initialization:",{isInitialized:!0,isConnected:U(),isSyncing:$()}),Re(()=>{const t=U(),c=C(),h=$();console.log("🔄 Button state check:",{connected:t,initialized:c,syncing:h,buttonEnabled:t&&c&&!h})}),o("✅ Unified Sync System initialized successfully")}catch(e){o(`❌ Initialization failed: ${e.message}`),F(e.message)}},nt=e=>{e.on(L.Started,n=>{o(`🔄 Sync started: ${n.domain||"all domains"}`),ne(!0),ee(l.InProgress)}),e.on(L.Progress,n=>{const s=n,p=e.getStatus(),a=e.getProgress();G(p),V(a),a[s.domain].totalItems>0&&console.log(`📊 ${s.domain}: ${a[s.domain].itemsProcessed}/${a[s.domain].totalItems} (${a[s.domain].progress}%)`);const x=Object.values(a),m=x.reduce((h,I)=>h+I.totalItems,0),w=x.reduce((h,I)=>h+I.itemsProcessed,0),O=x.reduce((h,I)=>h+I.totalBatches,0),t=x.reduce((h,I)=>h+I.currentBatch,0),c=m>0?Math.round(w/m*100):0;K({status:l.InProgress,progress:c,itemsProcessed:w,totalItems:m,currentBatch:t,totalBatches:O,eta:s.progress.eta,currentOperation:s.progress.currentOperation||`Syncing ${s.domain}`}),s.domain&&o(`📊 ${s.domain}: ${s.progress.itemsProcessed}/${s.progress.totalItems} items (${s.progress.progress}%)`)}),e.on(L.AllCompleted,n=>{const s=n;o(`✅ Sync completed: ${s.domain||"all domains"}`),ne(!1),oe(new Date),ee(l.Complete);const p=e.getStatus(),a=e.getProgress();G(p),V(a),console.log("🔄 UI updated after sync completion:",{finalStatus:p,finalProgressMap:a,lastSyncTime:new Date}),K({status:l.Complete,progress:100,itemsProcessed:y().itemsProcessed,totalItems:y().totalItems,currentBatch:y().totalBatches,totalBatches:y().totalBatches,eta:0,currentOperation:"Complete"}),s.result&&o(`📈 Stats: ${s.result.itemsSynced} items, ${Math.round(s.result.duration/1e3)}s`),$e(x=>x+1),setTimeout(()=>{ze()},1500),s.result&&s.result.binaryStats&&s.result.binaryStats.cached>0&&(o("🖼️ Binary sync completed, checking for images..."),setTimeout(()=>{ae()},2e3)),setTimeout(()=>{$()||K({status:l.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0,eta:0,currentOperation:"Ready"})},5e3)}),e.on(L.Failed,n=>{o(`❌ Sync failed: ${n.error.message}`),ne(!1),ee(l.Failed)}),e.on(L.AutoSyncTriggered,n=>{const s=n;o(`🔄 Auto-sync triggered for ${s.trigger}: ${s.domain}`)}),e.on(L.ConnectionChanged,n=>{o(`🔗 Connection ${n.isOnline?"established":"lost"}`)}),e.on(L.BinaryProgress,n=>{const s=n;if(s.currentItem&&s.totalItems){const p=s.currentItem,a=s.totalItems;o(`📁 Binary sync: ${p}/${a} files`),K({status:l.InProgress,progress:s.progress||0,itemsProcessed:p,totalItems:a,currentBatch:p,totalBatches:a,eta:0,currentOperation:`Downloading binary data (${p}/${a})`})}})},Pe=e=>{if(e===0)return"0 B";const n=1024,s=["B","KB","MB","GB"],p=Math.floor(Math.log(e)/Math.log(n));return Math.round(e/Math.pow(n,p)*100)/100+" "+s[p]},ze=async()=>{try{const e=k();if(!e){console.log("🐛 No sync manager available for storage stats");return}console.log("🐛 Calculating storage usage...");const n=await e.getStorageStats();console.log("🐛 Storage stats received:",n);const s={totalSize:n?.totalSize||0,itemCounts:n?.itemCounts||{music:0,photos:0,documents:0,videos:0},binarySize:n?.binarySize||0};console.log("🐛 Safe stats:",s);const p=Pe(s.totalSize),a=s.itemCounts.music,x=a>0?`${a} items`:"No data",m=Pe(s.binarySize);Ce(p),_e(x),ke(m),console.log("🐛 Updated storage stats:",{total:p,music:x,binary:m})}catch(e){console.error("Could not calculate storage usage:",e),Ce("Error"),_e("Error"),ke("Error")}},st=async()=>{const e=k();if(!(!e||$()))try{o("🚀 Starting unified sync for all domains...");const n=await e.syncAll({domains:["music","photos"],includeBinaryData:!0,forceFullSync:!1});o(`✨ Sync completed! Domain: ${n.domain}, Items: ${n.itemsSynced}/${n.totalItems}`)}catch(n){o(`❌ Sync failed: ${n.message}`)}},ot=async()=>{const e=!te();if(Ye(e),o(`🔧 Service Worker ${e?"enabled":"disabled"}`),k()&&fe()){const s=fe();s.setBackgroundSyncEnabled&&await s.setBackgroundSyncEnabled(e)}},it=async()=>{const e=!Q();Ke(e);const n=k();n&&(e?(o("🔄 Enabling auto-sync..."),n.enableAutoSync(!0)):(o("⏸️ Disabling auto-sync..."),n.enableAutoSync(!1)))},rt=async()=>{if(!(!k()||$()))try{o("💥 Starting complete database teardown..."),ve(!1),oe(null),re([]),$e(0),await k()?.destroy(),o("🗑️ Database completely destroyed!"),me(null),be(null),o("🔄 Reinitializing system..."),await Be(),o("✅ System reinitialized successfully!")}catch(n){o(`❌ Teardown failed: ${n.message}`),console.error("Destroy error:",n)}},ae=async()=>{const e=k();if(!(!e||!C()))try{const n=(await e.getMediaBlobs()).slice(0,100);if(n.length===0){re([]);return}o(`📷 Found ${n.length} image blobs, checking binary data...`);const s=[];let p=0;for(const a of n)try{if(await e.hasBinaryData(a.id)){p++;const m=await e.getBlobUrl(a.id);m&&s.push(m)}}catch{continue}s.length>0?(re(s),o(`🎨 Image grid loaded: ${s.length} images (${p} with binary data)`)):p===0&&n.length>0&&o(`📷 Found ${n.length} image metadata but no binary data yet`)}catch(n){o(`❌ Failed to load image grid: ${n.message}`)}};Re(()=>{const e=k(),n=C();if(qe(),e&&n){ae();const s=setInterval(()=>{ae()},3e3);setTimeout(()=>{clearInterval(s)},3e4)}});const at=()=>{const e=Y();e&&!U()&&(o("🔄 Connecting WebSocket..."),e.connect())},lt=()=>{const e=!we();He(e),e?(Gt(),o("🐛 Debug logging enabled")):(Vt(),o("🔇 Debug logging disabled"))},ct=()=>{const e=Y();e&&U()&&(o("🔌 Disconnecting WebSocket..."),e.disconnect())};Mt(()=>{Be()}),Tt(()=>{const e=Y(),n=k();e&&e.disconnect(),n&&n.destroy()});const le=()=>{const e=y();return{percentage:e.progress,itemsText:`${e.itemsProcessed}/${e.totalItems} items`,batchText:e.totalBatches>0?`Batch ${e.currentBatch}/${e.totalBatches}`:"",etaText:e.eta&&e.eta>0?`ETA: ${Math.round(e.eta)}s`:"",speedText:""}};return(()=>{var e=dn(),n=e.firstChild,s=n.nextSibling,p=s.firstChild,a=p.nextSibling,x=a.firstChild,m=x.firstChild,w=s.nextSibling,O=w.firstChild,t=O.nextSibling,c=t.firstChild,h=c.firstChild,I=c.nextSibling,ce=I.firstChild,dt=I.nextSibling,De=dt.firstChild,Ue=w.nextSibling,gt=Ue.firstChild,de=gt.nextSibling,X=de.firstChild,B=X.nextSibling,ge=Ue.nextSibling,ut=ge.firstChild,pt=ut.nextSibling,Ee=pt.firstChild,mt=Ee.firstChild,ft=mt.nextSibling,bt=Ee.nextSibling,Ne=bt.firstChild,ht=Ne.firstChild,yt=ht.nextSibling,xt=Ne.nextSibling,vt=xt.firstChild,St=vt.nextSibling,q=ge.nextSibling,$t=q.firstChild,Me=$t.nextSibling,wt=q.nextSibling,Ct=wt.firstChild,_t=Ct.nextSibling,Te=_t.firstChild,kt=Te.firstChild,It=kt.nextSibling,Ae=Te.nextSibling,Bt=Ae.firstChild,Le=Bt.nextSibling,Pt=Le.firstChild,zt=Ae.nextSibling,Dt=zt.firstChild,Ut=Dt.nextSibling;return r(a,f(S,{get when(){return Y()},get children(){return[f(Xt,{get status(){return Z()},showText:!0,compact:!0}),(()=>{var i=Qt();return r(i,f(S,{get when(){return!U()},get children(){var d=Yt();return d.$$click=at,r(d,()=>Z()===R.Connecting?"Connecting...":"Connect"),T(()=>d.disabled=Z()===R.Connecting),d}}),null),r(i,f(S,{get when(){return U()},get children(){var d=Kt();return d.$$click=ct,d}}),null),i})()]}}),x),r(m,()=>C()?"✅ Initialized":"⏳ Initializing..."),h.addEventListener("change",ot),ce.addEventListener("change",it),De.addEventListener("change",lt),r(t,f(S,{get when(){return D.enableUserNotifications!==!1},get children(){return qt()}}),null),X.$$click=()=>{console.log("🐛 Button click - Debug state:",{isInitialized:C(),isConnected:U(),isSyncing:$(),buttonDisabled:!C()||!U()||$()}),st()},r(X,f(S,{get when(){return $()},get fallback(){return gn()},get children(){return Ht()}})),B.$$click=rt,B.style.setProperty("background-color","#dc3545"),B.style.setProperty("color","white"),B.style.setProperty("border","none"),B.style.setProperty("padding","10px 20px"),B.style.setProperty("border-radius","5px"),B.style.setProperty("margin-left","10px"),r(de,f(S,{get when(){return se()},get children(){var i=Jt();return i.firstChild,r(i,()=>se()?.toLocaleTimeString(),null),i}}),null),r(de,f(S,{get when(){return he()},get children(){var i=Zt(),d=i.firstChild,P=d.nextSibling;return r(i,()=>he()?.toLocaleTimeString(),P),P.$$click=()=>{k()&&(o("🔄 Manually refreshing music after update"),k().syncDomain("music",{forceRefresh:!0}))},i}}),null),r(e,f(S,{get when(){return $()||y().totalItems>0},get children(){var i=rn();return i.firstChild,r(i,f(S,{get when(){return $()},get children(){var d=on(),P=d.firstChild,_=P.firstChild,E=P.nextSibling;return r(E,f(S,{get when(){return y().totalItems>0},get children(){var g=en(),v=g.firstChild;return r(g,()=>le().percentage,v),g}}),null),r(E,f(S,{get when(){return y().currentOperation},get children(){var g=tn();return r(g,()=>y().currentOperation),g}}),null),r(E,f(S,{get when(){return y().totalItems===0},get children(){var g=nn();return r(g,()=>y().currentOperation||(y().itemsProcessed>0?`Processing... (${y().itemsProcessed} items)`:"Initializing sync...")),g}}),null),r(E,f(S,{get when(){return y().totalItems>0},get children(){var g=sn();return r(g,()=>le().itemsText),g}}),null),T(g=>{var v=`${y().totalItems>0?le().percentage:Math.min(85,Math.max(10,y().itemsProcessed*.5))}%`,z=y().totalItems>0?"linear-gradient(90deg, #3b82f6, #1d4ed8)":"linear-gradient(90deg, #f59e0b, #d97706)";return v!==g.e&&((g.e=v)!=null?_.style.setProperty("width",v):_.style.removeProperty("width")),z!==g.t&&((g.t=z)!=null?_.style.setProperty("background",z):_.style.removeProperty("background")),g},{e:void 0,t:void 0}),d}}),null),i}}),ge),r(ft,Je),r(yt,Ze),r(St,et),r(e,f(S,{get when(){return At(()=>!!j().music)()&&W().music},get children(){var i=an(),d=i.firstChild,P=d.nextSibling,_=P.firstChild,E=_.firstChild,g=E.nextSibling,v=g.firstChild,z=v.firstChild,N=z.nextSibling;N.nextSibling;var M=v.nextSibling,H=M.firstChild,We=M.nextSibling,Et=We.firstChild;return r(_,f(Rt,{get status(){return j().music},compact:!0}),g),r(v,()=>W().music.itemsProcessed,z),r(v,()=>W().music.totalItems,N),r(We,()=>Math.round(W().music.progress),Et),T(A=>{var Oe=`domain-card ${j().music.toLowerCase()}`,ue=`${W().music.progress}%`,pe=j().music==="in_progress"?"#ff00ff":"#0f0";return Oe!==A.e&&J(_,A.e=Oe),ue!==A.t&&((A.t=ue)!=null?H.style.setProperty("width",ue):H.style.removeProperty("width")),pe!==A.a&&((A.a=pe)!=null?H.style.setProperty("background-color",pe):H.style.removeProperty("background-color")),A},{e:void 0,t:void 0,a:void 0}),i}}),q),r(e,f(S,{get when(){return ie().length>0},get children(){var i=ln(),d=i.firstChild,P=d.firstChild,_=P.nextSibling;_.nextSibling;var E=d.nextSibling;return r(d,()=>ie().length,_),r(E,f(Fe,{get each(){return ie()},children:(g,v)=>(()=>{var z=un(),N=z.firstChild;return N.addEventListener("error",M=>{console.log(`Failed to load image ${v()+1}:`,g),M.target.style.display="none"}),je(N,"src",g),T(()=>je(N,"alt",`Image ${v()+1}`)),z})()})),i}}),q),r(Me,f(Fe,{get each(){return Se().slice().reverse()},children:i=>(()=>{var d=pn();return r(d,i),d})()}),null),r(Me,f(S,{get when(){return Se().length===0},get children(){return cn()}}),null),r(It,()=>Object.entries(Ft).filter(([i,d])=>d).map(([i,d])=>i).join(", ")),r(Le,()=>Ie().slice(0,8),Pt),r(Ut,()=>D.apiBaseUrl||"http://localhost:8080"),T(i=>{var d=`unified-sync-demo ${D.className||""}`,P=`status-indicator ${C()?"success":"pending"}`,_=!C(),E=!C(),g=`sync-all-button ${$()?"syncing pulse":""}`,v=!C()||!U()||$(),z=!C()||$(),N=!C()||$()?"not-allowed":"pointer",M=!C()||$()?"0.5":"1";return d!==i.e&&J(e,i.e=d),P!==i.t&&J(m,i.t=P),_!==i.a&&(h.disabled=i.a=_),E!==i.o&&(ce.disabled=i.o=E),g!==i.i&&J(X,i.i=g),v!==i.n&&(X.disabled=i.n=v),z!==i.s&&(B.disabled=i.s=z),N!==i.h&&((i.h=N)!=null?B.style.setProperty("cursor",N):B.style.removeProperty("cursor")),M!==i.r&&((i.r=M)!=null?B.style.setProperty("opacity",M):B.style.removeProperty("opacity")),i},{e:void 0,t:void 0,a:void 0,o:void 0,i:void 0,n:void 0,s:void 0,h:void 0,r:void 0}),T(()=>h.checked=te()),T(()=>ce.checked=Q()),T(()=>De.checked=we()),e})()}Lt("unified-sync-demo",{apiBaseUrl:void 0,clientId:void 0,autoConnect:!0,enableServiceWorker:!0,enableAutoSync:!0,className:"",enableUserNotifications:!0},mn);Nt(["click"]);
+
+        .storage-display {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .storage-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 12px;
+          background: #222;
+          border-radius: 6px;
+          border: 1px solid #444;
+        }
+
+        .storage-label {
+          font-weight: 500;
+          color: white;
+        }
+
+        .storage-value {
+          font-weight: 600;
+          color: magenta;
+          font-family: "Monaco", "Menlo", monospace;
+          font-size: 13px;
+        }
+
+        .storage-breakdown {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin-top: 8px;
+        }
+
+        .storage-breakdown .storage-item {
+          background: #1a1a1a;
+          border-color: #333;
+        }
+
+        .connection-text {
+          margin-left: 10px;
+          font-weight: 500;
+          font-size: 14px;
+        }
+
+        .connection-text.connected {
+          color: #0f0;
+        }
+
+        .connection-text.disconnected {
+          color: #f00;
+        }
+      `),$t=$("<div><div class=domain-name></div><div class=domain-status></div><div class=domain-progress>/<!> items"),wt=$("<div class=image-item><img class=grid-image>"),_t=$("<div class=log-entry>");const Ct=(P={})=>{const[M,we]=b(!1),[D,q]=b(!1),[I,H]=b(!1),[L,J]=b(A.Disconnected),[ie,G]=b(null),[p,O]=b({status:u.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0,eta:0,currentOperation:"Ready"}),[Y,re]=b([]),[_e,Ce]=b(0),[Be,ce]=b("Loading..."),[Ie,le]=b("Loading..."),[ke,de]=b("Loading..."),[Pe,W]=b({music:u.Never,photos:u.Never,videos:u.Never,documents:u.Never}),[ge,X]=b({music:{status:u.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0,eta:0},photos:{status:u.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0,eta:0},videos:{status:u.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0,eta:0},documents:{status:u.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0,eta:0}}),[Z,me]=b(P?.enableAutoSync??!0),[ue,pe]=b(null),[he,ze]=b([]),[ee,De]=b(null),[K,Ee]=b(null),[Ne,Me]=b(null),r=(e,t)=>{P?.debug&&console.log(`[UnifiedSyncDemo] ${e}`,t||"")},g=e=>{const t=new Date().toLocaleTimeString();ze(s=>[...s.slice(-19),`[${t}] ${e}`])},Te=()=>{const e=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;return P?.clientId&&e.test(P.clientId)?P.clientId:crypto.randomUUID()},Ue=async()=>{try{r("initializing system"),g("🚀 Initializing Unified Sync System...");const e=P?.apiBaseUrl||"http://localhost:8080",t=Te();r("created client",{baseUrl:e,clientId:t.slice(0,8)}),g(`📋 Client ID: ${t.slice(0,8)}...`);const s=new it({baseUrl:e}),o=new rt({url:e.replace("http","ws")+"/ws",autoReconnect:!0,debug:P?.debug||!1});De(o);const m=i=>{r("handleStatusChange called",{status:i,previous:L()}),J(i);const h=i===A.Connected;q(h),r("websocket status change",{status:i,connected:h}),g(`🔗 WebSocket: ${i}`),h?(G(null),g("✅ WebSocket connected successfully")):i===A.Error&&G("WebSocket connection error")};o.on("statusChange",m),o.on("error",i=>{r("websocket error",i),g(`❌ WebSocket error: ${i.message}`),G(i.message)}),o.on("notification",i=>{r("received notification",{channel:i.channel,event_type:i.event_type}),g(`📬 Notification: ${i.channel}/${i.event_type}`),i.channel==="MediaBlobs"&&(i.event_type==="song.created"||i.event_type==="song.updated"||i.event_type==="song.deleted"||i.event_type==="music.library.updated")&&(g(`🎵 Music event: ${i.event_type}`),pe(new Date))}),r("setting up unified sync system");const{syncManager:c,autoSyncSystem:f}=await ct(o,s,{apiBaseUrl:e,clientId:t,enableUserNotifications:!1,enableBackgroundSync:!1});if(!c)throw new Error("Failed to create sync manager");if(!f)throw new Error("Failed to create auto-sync system");Ee(c),Me(f),Ae(c),r("auto-connecting websocket"),o.connect();const E=1e4,N=Date.now();for(;o.getStatus()!==A.Connected;){if(Date.now()-N>E)throw new Error("WebSocket connection timeout");await new Promise(i=>setTimeout(i,100))}const z=o.getStatus();r("final websocket status after connect",z),J(z),q(z===A.Connected),g(`🔗 WebSocket connection established: ${z}`);try{const i=await c.getStorageStats();r("storage stats from IDB",i);const h=c.getStatus(),l=c.getProgress(),k={music:h.music||u.Never,photos:h.photos||u.Never,documents:h.documents||u.Never,videos:h.videos||u.Never},F={music:{status:k.music,progress:l.music?.progress||0,itemsProcessed:l.music?.itemsProcessed||0,totalItems:l.music?.totalItems||0,currentBatch:l.music?.currentBatch||1,totalBatches:l.music?.totalBatches||1,eta:0},photos:{status:k.photos,progress:l.photos?.progress||0,itemsProcessed:l.photos?.itemsProcessed||0,totalItems:l.photos?.totalItems||0,currentBatch:l.photos?.currentBatch||1,totalBatches:l.photos?.totalBatches||1,eta:0},documents:{status:k.documents,progress:l.documents?.progress||0,itemsProcessed:l.documents?.itemsProcessed||0,totalItems:l.documents?.totalItems||0,currentBatch:l.documents?.currentBatch||1,totalBatches:l.documents?.totalBatches||1,eta:0},videos:{status:k.videos,progress:l.videos?.progress||0,itemsProcessed:l.videos?.itemsProcessed||0,totalItems:l.videos?.totalItems||0,currentBatch:l.videos?.currentBatch||1,totalBatches:l.videos?.totalBatches||1,eta:0}};W(k),X(F),r("initialized from IDB",{status:k,itemCounts:i.itemCounts}),g(`📊 Loaded from IDB: ${Object.values(k).filter(V=>V===u.Complete).length} domains with data`),setTimeout(()=>{fe()},2e3),setTimeout(()=>{Q()},1e3)}catch(i){r("failed to get initial status",i),W({music:u.Never,photos:u.Never,videos:u.Never,documents:u.Never})}we(!0),r("system initialized successfully"),g("✅ System initialized successfully")}catch(e){r("initialization failed",e),g(`❌ Initialization failed: ${e.message}`),G(e.message)}},Ae=e=>{e.on(R.Started,t=>{r("sync started",{domain:t.domain}),g(`🔄 Sync started: ${t.domain||"all domains"}`),H(!0),O({status:u.InProgress,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0,eta:0,currentOperation:"Starting sync..."})}),e.on(R.Progress,t=>{const s=t,o=e.getStatus(),m=e.getProgress();W(o),X(m);const c=Object.values(m),f=c.reduce((h,l)=>h+l.totalItems,0),E=c.reduce((h,l)=>h+l.itemsProcessed,0),N=c.reduce((h,l)=>h+l.totalBatches,0),z=c.reduce((h,l)=>h+l.currentBatch,0),i=f>0?Math.round(E/f*100):0;O({status:u.InProgress,progress:i,itemsProcessed:E,totalItems:f,currentBatch:z,totalBatches:N,eta:s.progress?.eta||0,currentOperation:s.progress?.currentOperation||`Syncing ${s.domain}`}),s.domain&&s.progress&&g(`📊 ${s.domain}: ${s.progress.itemsProcessed}/${s.progress.totalItems} items (${s.progress.progress}%)`)}),e.on(R.AllCompleted,t=>{const s=t;r("sync completed",{domain:s.domain,itemsSynced:s.result.itemsSynced}),g(`✅ Sync completed: ${s.domain||"all domains"} - ${s.result.itemsSynced} items`),s.domain&&W(o=>({...o,[s.domain]:u.Complete})),H(!1),pe(new Date),O({status:u.Complete,progress:100,itemsProcessed:p().itemsProcessed,totalItems:p().totalItems,currentBatch:p().totalBatches,totalBatches:p().totalBatches,eta:0,currentOperation:"Complete"}),setTimeout(()=>{W(e.getStatus()),X(e.getProgress())},100),Ce(o=>o+1),setTimeout(()=>{fe()},1500),s.result&&s.result.binaryStats&&s.result.binaryStats.cached>0&&(g("🖼️ Binary sync completed, checking for images..."),setTimeout(()=>{Q()},2e3)),setTimeout(()=>{I()||O({status:u.Never,progress:0,itemsProcessed:0,totalItems:0,currentBatch:0,totalBatches:0,eta:0,currentOperation:"Ready"})},5e3)}),e.on(R.Failed,t=>{const s=t;r("sync failed",s),g(`❌ Sync failed: ${s.error?.message||"Unknown error"}`),H(!1)}),e.on(R.BinaryProgress,t=>{const s=t,{currentItem:o,totalItems:m,domain:c}=s;c&&m>0&&(X(f=>({...f,[c]:{...f[c],itemsProcessed:o,totalItems:m,currentOperation:`Downloading binary data (${o}/${m})`}})),O({status:u.InProgress,progress:s.progress||0,itemsProcessed:o,totalItems:m,currentBatch:o,totalBatches:m,eta:0,currentOperation:`Downloading binary data (${o}/${m})`}))})},Q=async()=>{const e=K();if(!(!e||!M()))try{const t=(await e.getMediaBlobs()).slice(0,100);if(t.length===0){re([]);return}g(`📷 Found ${t.length} image blobs, checking binary data...`);const s=[];let o=0;for(const m of t)try{if(await e.hasBinaryData(m.id)){o++;const f=await e.getBlobUrl(m.id);f&&s.push(f)}}catch{continue}s.length>0?(re(s),g(`🎨 Image grid loaded: ${s.length} images (${o} with binary data)`)):o===0&&t.length>0&&g(`📷 Found ${t.length} image metadata but no binary data yet`)}catch(t){g(`❌ Failed to load image grid: ${t.message}`)}},be=e=>{if(e===0)return"0 B";const t=1024,s=["B","KB","MB","GB"],o=Math.floor(Math.log(e)/Math.log(t));return Math.round(e/Math.pow(t,o)*100)/100+" "+s[o]},fe=async()=>{try{const e=K();if(!e){r("no sync manager available for storage stats");return}r("calculating storage usage");const t=await e.getStorageStats();r("storage stats received",t);const s={totalSize:t?.totalSize||0,itemCounts:t?.itemCounts||{music:0,photos:0,documents:0,videos:0},binarySize:t?.binarySize||0},o=be(s.totalSize),m=s.itemCounts.music,c=m>0?`${m} items`:"No data",f=be(s.binarySize);ce(o),le(c),de(f),r("updated storage stats",{total:o,music:c,binary:f})}catch(e){console.error("Could not calculate storage usage:",e),ce("Error"),le("Error"),de("Error")}};$e(()=>{const e=D(),t=M(),s=I(),o=L();r("button state reactive check",{connected:e,initialized:t,syncing:s,wsStatus:o,buttonEnabled:e&&!s});const m=ee();if(m){const c=m.getStatus();c!==o&&(r("status mismatch detected, correcting",{actualStatus:c,wsStatus:o}),J(c),q(c===A.Connected))}}),$e(()=>{const e=K(),t=M();if(_e(),e&&t){Q();const s=setInterval(()=>{Q()},3e3);setTimeout(()=>{clearInterval(s)},3e4)}});const Le=async()=>{const e=K();if(!(!e||I()))try{r("starting sync all"),g("🔄 Starting sync for all domains...");const t=await e.syncAll({domains:["music","photos"],includeBinaryData:!0,forceFullSync:!1});g(`✨ Sync completed! Domain: ${t.domain}, Items: ${t.itemsSynced}/${t.totalItems}`)}catch(t){r("sync all failed",t),g(`❌ Sync failed: ${t.message}`)}},Oe=async()=>{const e=Ne();if(!e){g("❌ Auto-sync system not available");return}try{const t=!Z();me(t),t?(e.start?await e.start():e.enable&&await e.enable(),r("auto-sync enabled"),g("🔄 Auto-sync enabled")):(e.stop?await e.stop():e.disable&&await e.disable(),r("auto-sync disabled"),g("⏸️ Auto-sync disabled"))}catch(t){r("auto-sync toggle failed",t),g(`❌ Auto-sync toggle failed: ${t.message}`),me(!Z())}};return nt(()=>{r("component mounted"),Ue()}),ot(()=>{r("component unmounting");const e=ee();e&&e.disconnect()}),(()=>{var e=St(),t=e.firstChild,s=t.firstChild,o=s.nextSibling,m=o.firstChild,c=m.nextSibling,f=c.firstChild,E=f.nextSibling;E.nextSibling;var N=t.nextSibling,z=N.firstChild,i=z.nextSibling,h=N.nextSibling,l=h.firstChild,k=l.nextSibling,F=k.firstChild,V=h.nextSibling,We=V.firstChild,ye=We.nextSibling,j=ye.firstChild,te=V.nextSibling,Fe=te.firstChild,je=Fe.nextSibling,se=te.nextSibling,Re=se.firstChild,Ge=Re.nextSibling,ve=Ge.firstChild,Xe=ve.firstChild,Ke=Xe.nextSibling,Qe=ve.nextSibling,xe=Qe.firstChild,Ve=xe.firstChild,qe=Ve.nextSibling,He=xe.nextSibling,Je=He.firstChild,Ye=Je.nextSibling,Ze=se.nextSibling,et=Ze.firstChild,Se=et.nextSibling;return a(m,()=>M()?"✅ Ready":"⏳ Initializing"),a(c,()=>D()?"🔗 Connected":"🔗 Disconnected",f),a(c,L,E),a(i,S(B,{get when(){return ee()},get children(){return[S(lt,{get status(){return L()},showText:!0,compact:!0}),(()=>{var n=dt(),y=n.firstChild,w=y.nextSibling;return w.nextSibling,a(n,()=>D()?"Connected":"Disconnected",y),a(n,L,w),T(()=>U(n,`connection-text ${D()?"connected":"disconnected"}`)),n})()]}})),a(N,S(B,{get when(){return ie()},get children(){var n=gt();return n.firstChild,a(n,ie,null),n}}),null),F.addEventListener("change",Oe),j.$$click=Le,a(j,()=>I()?"🔄 Syncing...":"🚀 Sync All"),a(ye,S(B,{get when(){return ue()},get children(){var n=mt();return n.firstChild,a(n,()=>ue()?.toLocaleTimeString(),null),n}}),null),a(e,S(B,{get when(){return I()||p().totalItems>0},get children(){var n=yt();return n.firstChild,a(n,S(B,{get when(){return I()},get children(){var y=ft(),w=y.firstChild,_=w.firstChild,C=w.nextSibling;return a(C,S(B,{get when(){return p().totalItems>0},get children(){var d=ut(),v=d.firstChild;return a(d,()=>p().progress,v),d}}),null),a(C,S(B,{get when(){return p().currentOperation},get children(){var d=pt();return a(d,()=>p().currentOperation),d}}),null),a(C,S(B,{get when(){return p().totalItems===0},get children(){var d=ht();return a(d,()=>p().currentOperation||(p().itemsProcessed>0?`Processing... (${p().itemsProcessed} items)`:"Initializing sync...")),d}}),null),a(C,S(B,{get when(){return p().totalItems>0},get children(){var d=bt(),v=d.firstChild,x=v.nextSibling;return x.nextSibling,a(d,()=>p().itemsProcessed,v),a(d,()=>p().totalItems,x),d}}),null),T(d=>{var v=`${p().totalItems>0?p().progress:Math.min(85,Math.max(10,p().itemsProcessed*.5))}%`,x=p().totalItems>0?"linear-gradient(90deg, magenta, #cc00cc)":"linear-gradient(90deg, #ff6600, #cc4400)";return v!==d.e&&((d.e=v)!=null?_.style.setProperty("width",v):_.style.removeProperty("width")),x!==d.t&&((d.t=x)!=null?_.style.setProperty("background",x):_.style.removeProperty("background")),d},{e:void 0,t:void 0}),y}}),null),n}}),te),a(je,S(oe,{get each(){return Object.entries(Pe())},children:([n,y])=>(()=>{var w=$t(),_=w.firstChild,C=_.nextSibling,d=C.nextSibling,v=d.firstChild,x=v.nextSibling;return x.nextSibling,a(_,n),a(C,y),a(d,()=>ge()[n].itemsProcessed,v),a(d,()=>ge()[n].totalItems,x),T(()=>U(w,`domain-card ${y.toLowerCase()}`)),w})()})),a(e,S(B,{get when(){return Y().length>0},get children(){var n=vt(),y=n.firstChild,w=y.firstChild,_=w.nextSibling;_.nextSibling;var C=y.nextSibling;return a(y,()=>Y().length,_),a(C,S(oe,{get each(){return Y()},children:(d,v)=>(()=>{var x=wt(),ne=x.firstChild;return ne.addEventListener("error",tt=>{r(`failed to load image ${v()+1}`,d),tt.target.style.display="none"}),ae(ne,"src",d),T(()=>ae(ne,"alt",`Image ${v()+1}`)),x})()})),n}}),se),a(Ke,Be),a(qe,Ie),a(Ye,ke),a(Se,S(oe,{get each(){return he().slice().reverse()},children:n=>(()=>{var y=_t();return a(y,n),y})()}),null),a(Se,S(B,{get when(){return he().length===0},get children(){return xt()}}),null),T(n=>{var y=`unified-sync-demo ${P?.className||""}`,w=`status-badge ${M()?"success":"pending"}`,_=`status-badge ${D()?"success":"error"}`,C=!M(),d=`btn btn-sync ${I()?"syncing":""}`,v=!D()||I(),x=D()?I()?"Sync in progress...":"Sync all domains":"WebSocket must be connected to sync";return y!==n.e&&U(e,n.e=y),w!==n.t&&U(m,n.t=w),_!==n.a&&U(c,n.a=_),C!==n.o&&(F.disabled=n.o=C),d!==n.i&&U(j,n.i=d),v!==n.n&&(j.disabled=n.n=v),x!==n.s&&ae(j,"title",n.s=x),n},{e:void 0,t:void 0,a:void 0,o:void 0,i:void 0,n:void 0,s:void 0}),T(()=>F.checked=Z()),e})()};at("unified-sync-demo",{apiBaseUrl:"",clientId:"",enableAutoSync:!0,debug:!1,className:""},Ct);st(["click"]);
 //# sourceMappingURL=unified-sync-demo.js.map
 
   </script>
