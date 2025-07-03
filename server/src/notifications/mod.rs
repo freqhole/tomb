@@ -47,28 +47,30 @@ impl NotificationInfrastructure {
     pub async fn start(
         &mut self,
         db: DatabaseConnection,
-        _websocket_tx: broadcast::Sender<String>, // For broadcasting to WebSocket connections
+        websocket_tx: broadcast::Sender<String>, // For broadcasting to WebSocket connections
     ) -> Result<(), NotificationInfrastructureError> {
         info!("Starting notification infrastructure...");
 
         let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
         self.shutdown_tx = Some(shutdown_tx);
 
-        // For now, use mock publishers to avoid type conflicts
-        // TODO: Implement proper bridge between server WebSocket publisher and grimoire Publisher
-
-        // Clone the service for modification
+        // Use mock publishers for the notification service (these aren't the main path anymore)
         let service_clone = Arc::clone(&self.service);
 
         // Try to get mutable access to add publishers
         if let Ok(mut service_mut) = Arc::try_unwrap(service_clone) {
             service_mut.add_publisher(NotificationChannel::MediaBlobs, Publisher::mock());
             service_mut.add_publisher(NotificationChannel::ThumbnailJobs, Publisher::mock());
+            service_mut.add_publisher(NotificationChannel::System, Publisher::mock());
             self.service = Arc::new(service_mut);
         }
 
-        // Start PostgreSQL listener
-        let mut postgres_listener = PostgresNotificationListener::new(db, self.service.clone());
+        // Start PostgreSQL listener with direct WebSocket broadcasting
+        let mut postgres_listener = PostgresNotificationListener::new_with_websocket(
+            db,
+            self.service.clone(),
+            websocket_tx,
+        );
 
         postgres_listener.start(shutdown_rx).await?;
         self.postgres_listener = Some(postgres_listener);

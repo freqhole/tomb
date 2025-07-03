@@ -66,6 +66,8 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
   const [websocketClient, setWebsocketClient] =
     createSignal<WebSocketClient | null>(null);
   const [apiClient, setApiClient] = createSignal<ApiClient | null>(null);
+  const [lastMusicLibraryUpdate, setLastMusicLibraryUpdate] =
+    createSignal<Date | null>(null);
 
   // Connection state
   const [isConnected, setIsConnected] = createSignal<boolean>(false);
@@ -230,9 +232,82 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       // Set up event listeners BEFORE connecting
       ws.on("statusChange", handleStatusChange);
 
-      ws.on("error", (error) => {
-        setConnectionError(error.message);
-        addLog(`❌ WebSocket error: ${error.message}`);
+      ws.on("error", (data) => {
+        setConnectionError(data.message);
+        addLog(`❌ WebSocket error: ${data.message}`);
+      });
+
+      // Debug all raw WebSocket messages
+      ws.on("rawMessage", (rawMessage) => {
+        console.log("🔍 Raw WebSocket message:", rawMessage);
+        addLog(
+          `📥 WS Raw: ${typeof rawMessage === "string" ? rawMessage.substring(0, 100) : "[Binary data]"}...`
+        );
+
+        // Don't log binary messages in UI
+        if (
+          typeof rawMessage === "string" &&
+          rawMessage.includes("Notification")
+        ) {
+          addLog(`📥 WS Raw: ${rawMessage.substring(0, 100)}...`);
+        }
+      });
+
+      // Enhanced notification debugging - log ALL notifications received
+      ws.on("notification", (data) => {
+        console.log("📬 ALL WebSocket notifications received:", {
+          channel: data.channel,
+          event_type: data.event_type,
+          payload: data.payload,
+          priority: data.priority,
+          timestamp: data.timestamp,
+          fullData: data,
+        });
+        addLog(`📬 Notification: ${data.channel}/${data.event_type}`);
+
+        // Check if this matches our song events specifically
+        if (
+          data.channel === "MediaBlobs" &&
+          (data.event_type === "song.created" ||
+            data.event_type === "song.updated" ||
+            data.event_type === "song.deleted")
+        ) {
+          console.log("🎵 SONG EVENT notification received:", data);
+          addLog(`🎵 Song event: ${data.event_type}`);
+        }
+
+        // Original logic for music library updates
+        if (
+          (data.channel === "MediaBlobs" &&
+            data.event_type === "music.library.updated") ||
+          data.event_type === "scan_completed" ||
+          data.event_type === "song.created"
+        ) {
+          console.log("🎵 Music-related notification received:", data);
+          setLastMusicLibraryUpdate(new Date());
+
+          // Handle different notification types
+          if (
+            data.event_type === "music.library.updated" ||
+            data.event_type === "scan_completed"
+          ) {
+            const songsAdded = data.payload?.songs_added ?? 0;
+            const scanName = data.payload?.scan_name ?? "unknown";
+            addLog(
+              `🎵 Music library updated: ${songsAdded} songs added from scan "${scanName}"`
+            );
+          } else if (data.event_type === "song.created") {
+            addLog(
+              `🎵 New song added: "${data.payload?.title ?? "Unknown"}" by ${data.payload?.artist ?? "Unknown"}`
+            );
+          }
+
+          // Auto-trigger sync if auto-sync is enabled
+          if (autoSyncEnabled() && syncManager()) {
+            addLog(`🔄 Auto-syncing music library after update...`);
+            // We don't need to manually trigger sync since the auto-sync notification router will handle it
+          }
+        }
       });
 
       // Auto-connect if enabled
@@ -254,6 +329,14 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       setSyncManager(manager);
       setPhase3System(autoSyncSystem);
 
+      // Debug: Check if auto-sync system has notification router
+      console.log("🔍 Auto-sync system status:", {
+        autoSyncSystem,
+        status: autoSyncSystem?.getStatus?.(),
+        stats: autoSyncSystem?.getStats?.(),
+        pendingNotifications: autoSyncSystem?.getPendingNotifications?.(),
+      });
+
       // Set up sync event listeners
       setupSyncEventListeners(manager);
 
@@ -261,6 +344,13 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       if (autoSyncEnabled()) {
         addLog("🔄 Enabling auto-sync...");
         manager.enableAutoSync(true);
+
+        // Also enable the auto-sync system
+        if (autoSyncSystem?.enable) {
+          console.log("🔄 Starting auto-sync system...");
+          await autoSyncSystem.enable();
+          addLog("✅ Auto-sync system started");
+        }
       }
 
       // Initialize domain status from existing storage data
@@ -343,6 +433,29 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
 
       setIsInitialized(true);
       addLog("✅ Unified Sync System initialized successfully");
+
+      // Expose objects to window for debugging
+      (window as any).websocketClient = ws;
+      (window as any).syncManager = manager;
+      (window as any).autoSyncSystem = autoSyncSystem;
+      (window as any).phase3System = autoSyncSystem;
+      (window as any).isConnected = isConnected();
+
+      // Expose UI signals for debugging and manual refresh
+      (window as any).syncStatus = syncStatus;
+      (window as any).syncProgress = syncProgress;
+      (window as any).lastSyncTime = lastSyncTime;
+      (window as any).refreshUIFromSyncManager = () => {
+        console.log("🔄 Refreshing UI from sync manager...");
+        const freshStatus = manager.getStatus();
+        const freshProgress = manager.getProgress();
+        setSyncStatus(freshStatus);
+        setSyncProgress(freshProgress);
+        setLastSyncTime(new Date());
+        console.log("✅ UI refreshed with:", { freshStatus, freshProgress });
+      };
+
+      addLog("🔧 Debug objects exposed to window");
 
       // Final connection state sync
       const currentWsStatus = ws.getStatus();
@@ -452,9 +565,17 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
       setLastSyncTime(new Date());
       setOverallStatus(SyncStatus.Complete);
 
-      // Update final progress state
+      // Force refresh UI state from sync manager after completion
+      const finalStatus = manager.getStatus();
       const finalProgressMap = manager.getProgress();
+      setSyncStatus(finalStatus);
       setSyncProgress(finalProgressMap);
+
+      console.log("🔄 UI updated after sync completion:", {
+        finalStatus,
+        finalProgressMap,
+        lastSyncTime: new Date(),
+      });
 
       // Set final overall progress to show 100% completion
       setOverallProgress({
@@ -981,6 +1102,24 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
               Last sync: {lastSyncTime()?.toLocaleTimeString()}
             </div>
           </Show>
+
+          <Show when={lastMusicLibraryUpdate()}>
+            <div class="last-sync music-update">
+              🎵 Last music update:{" "}
+              {lastMusicLibraryUpdate()?.toLocaleTimeString()}
+              <button
+                class="refresh-button"
+                onClick={() => {
+                  if (syncManager()) {
+                    addLog("🔄 Manually refreshing music after update");
+                    syncManager().syncDomain("music", { forceRefresh: true });
+                  }
+                }}
+              >
+                🔄 Refresh Now
+              </button>
+            </div>
+          </Show>
         </div>
       </div>
 
@@ -1485,6 +1624,37 @@ function UnifiedSyncDemoComponent(props: UnifiedSyncDemoProps) {
           color: #ccc;
           font-size: 13px;
           font-style: italic;
+        }
+
+        .last-sync {
+          color: #ccc;
+          font-size: 13px;
+          font-style: italic;
+        }
+
+        .music-update {
+          color: #88c0ff;
+          margin-top: 4px;
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          padding-top: 4px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .refresh-button {
+          background: #3b82f6;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          padding: 2px 5px;
+          font-size: 11px;
+          cursor: pointer;
+          margin-left: 8px;
+        }
+
+        .refresh-button:hover {
+          background: #2563eb;
         }
 
         .progress-display {

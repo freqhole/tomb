@@ -162,13 +162,15 @@ impl WebSocketNotificationPublisher {
         event: &NotificationEvent,
     ) -> Result<String, WebSocketPublisherError> {
         let websocket_message = serde_json::json!({
-            "type": "notification",
-            "id": event.id,
-            "channel": format!("{:?}", event.channel),
-            "event_type": event.event_type,
-            "payload": event.payload_value(),
-            "priority": format!("{:?}", event.priority),
-            "timestamp": event.timestamp(),
+            "type": "Notification",
+            "data": {
+                "id": event.id,
+                "channel": format!("{:?}", event.channel),
+                "event_type": event.event_type,
+                "payload": event.payload_value(),
+                "priority": format!("{:?}", event.priority),
+                "timestamp": event.timestamp(),
+            }
         });
 
         serde_json::to_string(&websocket_message).map_err(WebSocketPublisherError::from)
@@ -433,9 +435,9 @@ mod tests {
         let message_str = serialized.unwrap();
         let parsed: Value = serde_json::from_str(&message_str).unwrap();
 
-        assert_eq!(parsed["type"], "notification");
-        assert_eq!(parsed["channel"], "MediaBlobs");
-        assert_eq!(parsed["event_type"], "media_blob.created");
+        assert_eq!(parsed["type"], "Notification");
+        assert_eq!(parsed["data"]["channel"], "MediaBlobs");
+        assert_eq!(parsed["data"]["event_type"], "media_blob.created");
     }
 
     #[test]

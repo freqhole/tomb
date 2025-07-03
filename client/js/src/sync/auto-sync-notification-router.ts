@@ -57,6 +57,14 @@ interface DebouncedSyncState {
 }
 
 /**
+ * Domain-specific sync statistics
+ */
+interface DomainSyncStats {
+  triggers: number;
+  lastSync: number;
+}
+
+/**
  * Auto-sync notification router implementation
  */
 export class AutoSyncNotificationRouter {
@@ -75,7 +83,8 @@ export class AutoSyncNotificationRouter {
     notificationsReceived: 0,
     syncsTriggered: 0,
     lastActivity: 0,
-    domainStats: new Map<SyncDomain, { triggers: number; lastSync: number }>(),
+    musicUpdates: 0,
+    domainStats: new Map<SyncDomain, DomainSyncStats>(),
   };
 
   constructor(
@@ -101,6 +110,11 @@ export class AutoSyncNotificationRouter {
     }
 
     console.log("🚀 Starting auto-sync notification router...");
+    console.log("🔧 Router config:", {
+      enabled: this.config.enabled,
+      syncRules: this.config.syncRules?.length || 0,
+      monitoredChannels: this.config.monitoredChannels,
+    });
 
     // Subscribe to configured notification channels
     await this.subscribeToChannels();
@@ -137,12 +151,24 @@ export class AutoSyncNotificationRouter {
   }
 
   /**
-   * Process incoming notification and route to appropriate sync
+   * Process a notification and trigger syncs as needed
    */
   async processNotification(
     notification: WebSocketNotification
   ): Promise<void> {
+    console.log("📬 AutoSyncNotificationRouter.processNotification called:", {
+      isActive: this.isActive,
+      configEnabled: this.config.enabled,
+      notification: {
+        channel: notification.channel,
+        eventType: notification.eventType,
+        priority: notification.priority,
+        payload: notification.payload,
+      },
+    });
+
     if (!this.isActive || !this.config.enabled) {
+      console.log("⏭️ Notification router not active or disabled, skipping");
       return;
     }
 
@@ -153,7 +179,26 @@ export class AutoSyncNotificationRouter {
       channel: notification.channel,
       eventType: notification.eventType,
       priority: notification.priority,
+      payload: notification.payload,
     });
+
+    // Debug: Log all notifications to help troubleshoot
+    console.log("🔍 ALL NOTIFICATION DEBUG:", {
+      receivedChannel: notification.channel,
+      receivedEventType: notification.eventType,
+      expectedChannels: ["MediaBlobs", "ThumbnailJobs", "System"],
+      expectedSongEvents: ["song.created", "song.updated", "song.deleted"],
+      willProcess: this.getTargetDomains(notification).length > 0,
+    });
+
+    // Special handling for music library update notifications
+    if (
+      notification.channel === "MediaBlobs" &&
+      notification.eventType === "music.library.updated"
+    ) {
+      console.log("🎵 Music library update detected:", notification.payload);
+      this.stats.musicUpdates++;
+    }
 
     // Determine target domain(s) for this notification
     const targetDomains = this.getTargetDomains(notification);
@@ -275,6 +320,8 @@ export class AutoSyncNotificationRouter {
    * Set up WebSocket notification listeners
    */
   private setupWebSocketListeners(): void {
+    console.log("🔧 AutoSyncNotificationRouter setting up WebSocket listeners");
+
     // Listen for notifications
     this.wsClient.on(
       "notification",
@@ -286,6 +333,8 @@ export class AutoSyncNotificationRouter {
       "statusChange",
       this.handleConnectionStatusChange.bind(this)
     );
+
+    console.log("✅ AutoSyncNotificationRouter WebSocket listeners set up");
   }
 
   /**
@@ -307,10 +356,25 @@ export class AutoSyncNotificationRouter {
     priority: string;
     timestamp: string;
   }): Promise<void> {
+    console.log(
+      "🔔 AutoSyncNotificationRouter received WebSocket notification:",
+      {
+        id: data.id,
+        channel: data.channel,
+        event_type: data.event_type,
+        payload: data.payload,
+        priority: data.priority,
+        timestamp: data.timestamp,
+        isActive: this.isActive,
+        configEnabled: this.config.enabled,
+      }
+    );
+
+    // Convert snake_case to camelCase for internal processing
     const notification: WebSocketNotification = {
       id: data.id,
       channel: data.channel,
-      eventType: data.event_type,
+      eventType: data.event_type, // Convert event_type to eventType
       payload: data.payload,
       priority: data.priority,
       timestamp: data.timestamp,
@@ -483,6 +547,27 @@ export class AutoSyncNotificationRouter {
       return true;
     }
 
+    // Special handling for music library updates
+    if (
+      notification.channel === "MediaBlobs" &&
+      notification.eventType === "music.library.updated"
+    ) {
+      // Create a delayed sync to ensure all DB operations are complete
+      setTimeout(() => {
+        console.log(
+          "🎵 Music library updated from CLI scan, scheduling delayed sync"
+        );
+        this.triggerDomainSync(
+          queuedNotification.domain,
+          "notification-immediate", // Use a valid AutoSyncTrigger
+          [queuedNotification]
+        );
+      }, 5000); // 5-second delay before sync to ensure DB operations are complete
+
+      // Return false as we're handling it with setTimeout
+      return false;
+    }
+
     return false;
   }
 
@@ -575,6 +660,27 @@ export class AutoSyncNotificationRouter {
     }
     this.stats.syncsTriggered++;
 
+    // Special handling for music library updates
+    let syncOptions: any = { includeBinaryData: true };
+
+    // Handle music library updates with special options
+    const isMusicLibraryUpdate = notifications.some(
+      (n) =>
+        n.notification.channel === "MediaBlobs" &&
+        n.notification.eventType === "music.library.updated"
+    );
+
+    if (isMusicLibraryUpdate) {
+      console.log("🎵 Using special options for music library update sync");
+      syncOptions = {
+        ...syncOptions,
+        forceRefresh: true,
+        // Only sync metadata first, then binary data in a separate pass
+        // This ensures users see new music entries quickly
+        syncStrategy: "metadata-first",
+      };
+    }
+
     // Update debounce state
     const debounceState = this.domainDebounceState.get(domain);
     if (debounceState) {
@@ -593,11 +699,23 @@ export class AutoSyncNotificationRouter {
 
     try {
       // Trigger the actual sync through the sync manager
-      await this.syncManager.syncDomain(domain, {
-        includeBinaryData: true,
-      });
+      await this.syncManager.syncDomain(domain, syncOptions);
 
-      console.log(`✅ Auto-sync completed for ${domain}`);
+      console.log(
+        `✅ Auto-sync completed for ${domain}`,
+        isMusicLibraryUpdate ? "with music library update options" : ""
+      );
+
+      // Trigger UI refresh after auto-sync completion
+      if (
+        typeof window !== "undefined" &&
+        (window as any).refreshUIFromSyncManager
+      ) {
+        console.log(
+          `🔄 Refreshing UI after auto-sync completion for ${domain}`
+        );
+        (window as any).refreshUIFromSyncManager();
+      }
     } catch (error) {
       console.error(`❌ Auto-sync failed for ${domain}:`, error);
     }
@@ -638,6 +756,22 @@ export function createAutoSyncNotificationRouter(
     maxQueueSize: 50,
     monitoredChannels: ["MediaBlobs", "ThumbnailJobs", "System"],
     syncRules: [
+      // Music library updates - specific handling for CLI music scan completion
+      {
+        id: "music-library-updates",
+        channels: ["MediaBlobs"],
+        eventTypes: ["music.library.updated"],
+        targetDomains: ["music"],
+        priorities: ["high"],
+      },
+      // Song database trigger events - real-time song CRUD operations
+      {
+        id: "song-database-events",
+        channels: ["MediaBlobs"],
+        eventTypes: ["song.created", "song.updated", "song.deleted"],
+        targetDomains: ["music"],
+        priorities: ["high"],
+      },
       // Media content updates
       {
         id: "media-content-updates",

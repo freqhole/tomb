@@ -8,6 +8,7 @@ use crate::music::jobs::ScanSessionStatus;
 use crate::music::{Scanner, ScannerConfig};
 use crate::{AppConfig, DatabaseConnection};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::path::Path;
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -129,12 +130,30 @@ impl ServiceSession {
 pub struct MusicService<'a> {
     db: &'a DatabaseConnection,
     config: &'a AppConfig,
+    notification_tx: Option<tokio::sync::broadcast::Sender<String>>,
 }
 
 impl<'a> MusicService<'a> {
     /// Create a new music service
     pub fn new(db: &'a DatabaseConnection, config: &'a AppConfig) -> Self {
-        Self { db, config }
+        Self {
+            db,
+            config,
+            notification_tx: None,
+        }
+    }
+
+    /// Create a new music service with notification support
+    pub fn new_with_notifications(
+        db: &'a DatabaseConnection,
+        config: &'a AppConfig,
+        notification_tx: tokio::sync::broadcast::Sender<String>,
+    ) -> Self {
+        Self {
+            db,
+            config,
+            notification_tx: Some(notification_tx),
+        }
     }
 
     /// Get database connection
@@ -364,6 +383,37 @@ impl<'a> MusicService<'a> {
         )
         .fetch_one(self.db.pool())
         .await?;
+
+        // If scan completed successfully, send a notification
+        if status == ScanSessionStatus::Completed {
+            if let Some(ref notification_tx) = self.notification_tx {
+                // Get session info for payload
+                if let Ok(session) = self.get_session_stats(session_id).await {
+                    let notification = json!({
+                        "type": "Notification",
+                        "data": {
+                            "id": Uuid::new_v4(),
+                            "channel": "MediaBlobs",
+                            "event_type": "music.library.updated",
+                            "payload": {
+                                "session_id": session_id.to_string(),
+                                "songs_added": session.songs_added,
+                                "songs_updated": session.songs_updated,
+                                "total_songs_processed": session.processed_files,
+                                "scan_name": session.session_name
+                            },
+                            "priority": "high",
+                            "timestamp": OffsetDateTime::now_utc().to_string()
+                        }
+                    });
+
+                    if let Ok(notification_json) = serde_json::to_string(&notification) {
+                        let _ = notification_tx.send(notification_json);
+                        tracing::info!("📡 Sent music library update notification");
+                    }
+                }
+            }
+        }
 
         Ok(result.success.unwrap_or(false))
     }

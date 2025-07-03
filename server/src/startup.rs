@@ -1,9 +1,11 @@
 use crate::jobs::ThumbnailJobQueue;
 use crate::maintenance::{MaintenanceConfig, MaintenanceScheduler};
+use crate::notifications::{NotificationInfrastructure, NotificationInfrastructureError};
 use crate::storage::SessionStore;
 use crate::websocket::handlers::ConnectionManager;
 use grimoire::analytics::AnalyticsConfig;
 use grimoire::config::{ConfigService, StorageBackend};
+use grimoire::notifications::NotificationConfig;
 
 use grimoire::wordlist::{initialize_wordlist, ManagementWordlistConfig as WordlistConfig};
 use grimoire::{AppConfig, DatabaseConnection};
@@ -43,6 +45,8 @@ pub struct AppState {
     pub connection_manager: ConnectionManager,
     // Maintenance scheduler for cleanup tasks
     pub maintenance_scheduler: Option<Arc<MaintenanceScheduler>>,
+    // Notification infrastructure for PostgreSQL LISTEN/NOTIFY
+    pub notification_infrastructure: Option<Arc<tokio::sync::Mutex<NotificationInfrastructure>>>,
 }
 
 impl AppState {
@@ -208,6 +212,29 @@ impl AppState {
             None
         };
 
+        // Initialize notification infrastructure
+        let notification_infrastructure = if config.features.notifications_enabled {
+            let notification_config = NotificationConfig::default();
+            let mut infrastructure = NotificationInfrastructure::new(notification_config);
+
+            let websocket_tx = connection_manager.get_notification_sender();
+
+            match infrastructure.start(database.clone(), websocket_tx).await {
+                Ok(_) => {
+                    tracing::info!("✅ Notification infrastructure started successfully");
+                    Some(Arc::new(tokio::sync::Mutex::new(infrastructure)))
+                }
+                Err(e) => {
+                    tracing::error!("❌ Failed to start notification infrastructure: {}", e);
+                    tracing::warn!("Real-time notifications will not be available");
+                    None
+                }
+            }
+        } else {
+            tracing::info!("🔕 Notifications are disabled in configuration");
+            None
+        };
+
         Ok(AppState {
             webauthn,
             database,
@@ -217,12 +244,23 @@ impl AppState {
             thumbnail_queue: Arc::new(tokio::sync::Mutex::new(thumbnail_queue)),
             connection_manager,
             maintenance_scheduler,
+            notification_infrastructure,
         })
     }
 
     /// Gracefully shutdown the application, stopping all background workers
     pub async fn shutdown(&self) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Shutting down application...");
+
+        // Stop notification infrastructure
+        if let Some(infrastructure) = &self.notification_infrastructure {
+            let mut infra = infrastructure.lock().await;
+            if let Err(e) = infra.shutdown().await {
+                tracing::error!("Failed to stop notification infrastructure: {}", e);
+            } else {
+                tracing::info!("✅ Notification infrastructure stopped gracefully");
+            }
+        }
 
         // Stop maintenance scheduler
         if let Some(scheduler) = &self.maintenance_scheduler {

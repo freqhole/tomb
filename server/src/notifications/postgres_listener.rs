@@ -79,6 +79,7 @@ impl Default for PostgresListenerStats {
 pub struct PostgresNotificationListener {
     db: DatabaseConnection,
     notification_service: Arc<NotificationService>,
+    websocket_tx: Option<broadcast::Sender<String>>,
     stats: Arc<RwLock<PostgresListenerStats>>,
     start_time: Option<OffsetDateTime>,
     listener: Option<PgListener>,
@@ -90,6 +91,23 @@ impl PostgresNotificationListener {
         Self {
             db,
             notification_service,
+            websocket_tx: None,
+            stats: Arc::new(RwLock::new(PostgresListenerStats::default())),
+            start_time: None,
+            listener: None,
+        }
+    }
+
+    /// Create a new PostgreSQL notification listener with WebSocket broadcasting
+    pub fn new_with_websocket(
+        db: DatabaseConnection,
+        notification_service: Arc<NotificationService>,
+        websocket_tx: broadcast::Sender<String>,
+    ) -> Self {
+        Self {
+            db,
+            notification_service,
+            websocket_tx: Some(websocket_tx),
             stats: Arc::new(RwLock::new(PostgresListenerStats::default())),
             start_time: None,
             listener: None,
@@ -108,11 +126,37 @@ impl PostgresNotificationListener {
         // Create PgListener using the database connection pool
         let mut listener = PgListener::connect_with(&self.db.pool()).await?;
 
-        // Listen to notification channels
-        listener.listen("media_blobs").await?;
-        listener.listen("thumbnail_jobs").await?;
+        // Listen to notification channels and verify
+        for channel in &["media_blobs", "thumbnail_jobs", "music_notifications"] {
+            match listener.listen(channel).await {
+                Ok(_) => info!(
+                    "✅ Successfully subscribed to PostgreSQL channel: {}",
+                    channel
+                ),
+                Err(e) => {
+                    error!(
+                        "❌ Failed to subscribe to PostgreSQL channel {}: {}",
+                        channel, e
+                    );
+                    return Err(PostgresListenerError::Database(e));
+                }
+            }
+        }
 
-        info!("PostgreSQL listener subscribed to channels: media_blobs, thumbnail_jobs");
+        // Verify notification system works by sending a test notification
+        info!("🧪 Testing PostgreSQL notification system...");
+        let test_result = sqlx::query(
+            "SELECT pg_notify('media_blobs', '{\"event_type\":\"system.startup\",\"message\":\"PostgreSQL listener initialized\",\"timestamp\":\"' || NOW() || '\"}')"
+        )
+        .execute(self.db.pool())
+        .await;
+
+        match test_result {
+            Ok(_) => info!("✅ Test notification sent successfully"),
+            Err(e) => warn!("⚠️ Could not send test notification: {}", e),
+        }
+
+        info!("PostgreSQL listener subscribed to channels: media_blobs, thumbnail_jobs, music_notifications");
 
         {
             let mut stats = self.stats.write().await;
@@ -124,12 +168,34 @@ impl PostgresNotificationListener {
         let notification_service = Arc::clone(&self.notification_service);
         let stats = Arc::clone(&self.stats);
         let start_time = self.start_time.unwrap();
+        let websocket_tx = self.websocket_tx.clone();
 
         tokio::spawn(async move {
             let result = async {
                 let mut listener_clone = PgListener::connect_with(&_db.pool()).await?;
-                listener_clone.listen("media_blobs").await?;
-                listener_clone.listen("thumbnail_jobs").await?;
+
+                // Listen to all required notification channels
+                info!("Subscribing to PostgreSQL notification channels in worker thread...");
+
+                // Test direct notification capability
+                let _ = sqlx::query(
+                    "SELECT pg_notify('music_notifications', '{\"event_type\":\"listener.started\",\"message\":\"Worker thread started\"}')"
+                )
+                .execute(_db.pool())
+                .await;
+
+                for channel in ["media_blobs", "thumbnail_jobs", "music_notifications"] {
+                    match listener_clone.listen(channel).await {
+                        Ok(_) => info!(
+                            "✅ Worker thread subscribed to PostgreSQL channel: {}",
+                            channel
+                        ),
+                        Err(e) => error!(
+                            "❌ Worker thread failed to subscribe to PostgreSQL channel {}: {}",
+                            channel, e
+                        ),
+                    }
+                }
 
                 Self::listen_loop(
                     &mut listener_clone,
@@ -137,6 +203,7 @@ impl PostgresNotificationListener {
                     stats,
                     start_time,
                     shutdown_rx,
+                    websocket_tx,
                 )
                 .await
             }
@@ -154,12 +221,14 @@ impl PostgresNotificationListener {
     }
 
     /// Main listening loop
+    /// Main listening loop for PostgreSQL notifications
     async fn listen_loop(
         listener: &mut PgListener,
         notification_service: Arc<NotificationService>,
         stats: Arc<RwLock<PostgresListenerStats>>,
         start_time: OffsetDateTime,
         mut shutdown_rx: broadcast::Receiver<()>,
+        websocket_tx: Option<broadcast::Sender<String>>,
     ) -> Result<(), PostgresListenerError> {
         let mut stats_update_interval = interval(Duration::from_secs(30));
 
@@ -181,10 +250,17 @@ impl PostgresNotificationListener {
                 notification_result = listener.recv() => {
                     match notification_result {
                         Ok(notification) => {
+                            let channel = notification.channel();
+                            let payload = notification.payload();
+
+                            info!("📢 NOTIFICATION RECEIVED: Channel '{}' with payload: '{}'",
+                                channel, payload);
+
                             if let Err(e) = Self::handle_notification(
                                 notification,
                                 &notification_service,
-                                &stats
+                                &stats,
+                                &websocket_tx,
                             ).await {
                                 error!("Error handling notification: {}", e);
                                 let mut stats_guard = stats.write().await;
@@ -212,12 +288,19 @@ impl PostgresNotificationListener {
         notification: PgNotification,
         notification_service: &NotificationService,
         stats: &Arc<RwLock<PostgresListenerStats>>,
+        websocket_tx: &Option<broadcast::Sender<String>>,
     ) -> Result<(), PostgresListenerError> {
         let channel_name = notification.channel();
         let payload = notification.payload();
 
+        info!(
+            "🔍 Processing notification - Channel: '{}', Payload: {}",
+            channel_name, payload
+        );
+
+        // Debug full payload for troubleshooting
         debug!(
-            "Received PostgreSQL notification on channel '{}': {}",
+            "Full notification payload on channel '{}':\n{}\n",
             channel_name, payload
         );
 
@@ -226,8 +309,19 @@ impl PostgresNotificationListener {
 
         // Map database channel to notification channel
         let notification_channel = match channel_name {
-            "media_blobs" => NotificationChannel::MediaBlobs,
-            "thumbnail_jobs" => NotificationChannel::ThumbnailJobs,
+            "media_blobs" => {
+                info!("📄 Media blob notification received");
+                NotificationChannel::MediaBlobs
+            }
+            "thumbnail_jobs" => {
+                info!("🖼️ Thumbnail job notification received");
+                NotificationChannel::ThumbnailJobs
+            }
+            "music_notifications" => {
+                info!("🎵 Music notification received: {}", payload);
+                info!("🎵 Routing music notification to MediaBlobs channel for client consumption");
+                NotificationChannel::MediaBlobs // Route music notifications to MediaBlobs channel
+            }
             _ => {
                 warn!("Unknown PostgreSQL notification channel: {}", channel_name);
                 return Err(PostgresListenerError::UnknownChannel {
@@ -246,8 +340,60 @@ impl PostgresNotificationListener {
         // Create NotificationEvent
         let event = NotificationEvent::new(notification_channel, event_type, payload_json);
 
-        // Publish through the notification service
-        notification_service.publish_event(event).await?;
+        // Extract more notification details for better logging
+        let event_type_str = event.event_type.clone();
+
+        // Broadcast directly to WebSocket clients if available
+        if let Some(websocket_tx) = websocket_tx {
+            let websocket_message = serde_json::json!({
+                "type": "Notification",
+                "data": {
+                    "id": event.id,
+                    "channel": format!("{:?}", event.channel),
+                    "event_type": event.event_type,
+                    "payload": event.payload_value(),
+                    "priority": format!("{:?}", event.priority),
+                    "timestamp": event.timestamp(),
+                }
+            });
+
+            match serde_json::to_string(&websocket_message) {
+                Ok(message_str) => match websocket_tx.send(message_str) {
+                    Ok(receiver_count) => {
+                        info!(
+                                "✅ Successfully published notification - Channel: '{}', Event: '{}' to {} WebSocket clients",
+                                channel_name, event_type_str, receiver_count
+                            );
+                    }
+                    Err(_) => {
+                        warn!(
+                                "⚠️ No WebSocket receivers for notification - Channel: '{}', Event: '{}'",
+                                channel_name, event_type_str
+                            );
+                    }
+                },
+                Err(e) => {
+                    error!(
+                        "❌ Failed to serialize notification for WebSocket - Channel: '{}', Event: '{}', Error: {}",
+                        channel_name, event_type_str, e
+                    );
+                }
+            }
+        }
+
+        // Also publish through the notification service for other publishers
+        match notification_service.publish_event(event).await {
+            Ok(_) => {
+                // Already logged success above for WebSocket
+            }
+            Err(e) => {
+                error!(
+                    "❌ Failed to publish notification - Channel: '{}', Event: '{}': {}",
+                    channel_name, event_type_str, e
+                );
+                return Err(e.into());
+            }
+        }
 
         // Update stats
         {

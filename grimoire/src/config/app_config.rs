@@ -446,6 +446,9 @@ pub struct FeatureFlags {
     /// Enable analytics collection
     #[serde(default = "default_true")]
     pub analytics_enabled: bool,
+    /// Enable real-time notifications
+    #[serde(default = "default_true")]
+    pub notifications_enabled: bool,
 }
 
 // Default value functions
@@ -745,6 +748,7 @@ impl AppConfig {
                 registration_enabled: true,
                 invite_codes_required: true,
                 analytics_enabled: true,
+                notifications_enabled: true,
             },
         }
     }
@@ -980,6 +984,7 @@ impl Default for AppConfig {
                 registration_enabled: default_true(),
                 invite_codes_required: default_true(),
                 analytics_enabled: default_true(),
+                notifications_enabled: default_true(),
             },
         }
     }
