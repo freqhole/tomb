@@ -53,8 +53,10 @@
 
 pub mod models;
 pub mod repository;
+pub mod scanner;
 pub mod service;
 pub mod sync;
+pub mod traits;
 pub mod types;
 
 pub use models::{
@@ -62,19 +64,53 @@ pub use models::{
     PaginationDirection, PaginationMetadata,
 };
 pub use repository::{MediaBlobRepository, MediaBlobStats, MediaRepositoryError, MimeTypeCount};
+pub use scanner::{
+    ConsoleScanProgress, DomainScanner, ScanError, ScanProgress, ScanResult, ScanStats,
+    UnifiedMediaScanner, UnifiedScannerBuilder,
+};
 pub use service::{MediaBlobService, MediaServiceError, SyncPriority, SyncRecommendations};
 pub use sync::{
     ClientSyncState, FullSyncRequest, SyncAcknowledgment, SyncCapabilities, SyncError, SyncRequest,
     SyncResponse, SyncStatus, SyncStatusResponse,
+};
+pub use traits::{
+    CollectionRepository, CreateCollection, CreateMediaItem, ImageFormat, MediaCollection,
+    MediaItem, MediaQuery, MediaRepository, MediaScanner, MediaService, MediaStats,
+    MetadataExtractor, ScanConfig, ScannedFile, ThumbnailGenerator, ThumbnailInfo,
+    UpdateCollection, UpdateMediaItem,
 };
 pub use types::{MediaTypeDetector, MediaTypeError, StorageStrategy};
 
 /// Re-exports for convenience
 pub mod prelude {
     pub use super::{
-        CreateMediaBlob, MediaBlob, MediaBlobCursor, MediaBlobQuery, MediaBlobRepository,
-        MediaBlobService, MediaTypeDetector, PaginatedResult, PaginationDirection, StorageStrategy,
-        SyncRequest, SyncResponse, SyncStatusResponse,
+        CollectionRepository,
+        CreateMediaBlob,
+        DomainScanner,
+        MediaBlob,
+        MediaBlobCursor,
+        MediaBlobQuery,
+        MediaBlobRepository,
+        MediaBlobService,
+        MediaCollection,
+        // Generic traits
+        MediaItem,
+        MediaRepository,
+        MediaScanner,
+        MediaService,
+        MediaTypeDetector,
+        MetadataExtractor,
+        PaginatedResult,
+        PaginationDirection,
+        ScanConfig,
+        StorageStrategy,
+        SyncRequest,
+        SyncResponse,
+        SyncStatusResponse,
+        ThumbnailGenerator,
+        // Scanner types
+        UnifiedMediaScanner,
+        UnifiedScannerBuilder,
     };
 }
 

@@ -9,6 +9,7 @@ use crate::analytics::AnalyticsCommands;
 use crate::config::ConfigCommands;
 use crate::music::MusicCommands;
 use crate::notifications::NotificationCommands;
+use crate::photos::PhotoCommands;
 use crate::thumbnails::ThumbnailCommands;
 use crate::users::UserCommands;
 use crate::wordlist::WordlistCommands;
@@ -58,6 +59,35 @@ pub enum Commands {
     /// Music library management and scanning
     #[command(subcommand)]
     Music(MusicCommands),
+    /// Photo library management and scanning
+    #[command(subcommand)]
+    Photos(PhotoCommands),
+    /// Unified media scanning across all domains
+    Scan {
+        /// Directory path to scan
+        #[arg(value_name = "PATH")]
+        path: std::path::PathBuf,
+
+        /// Optional session name
+        #[arg(long, short)]
+        name: Option<String>,
+
+        /// Maximum directory depth to scan
+        #[arg(long, short, default_value = "10")]
+        depth: Option<usize>,
+
+        /// Batch size for processing
+        #[arg(long, short, default_value = "50")]
+        batch_size: usize,
+
+        /// Maximum file size in MB
+        #[arg(long, default_value = "500")]
+        max_size_mb: Option<u64>,
+
+        /// Media domains to scan (music,photos,videos or 'all')
+        #[arg(long, default_value = "all")]
+        domains: String,
+    },
 }
 
 impl Cli {
@@ -92,6 +122,28 @@ impl Cli {
             Commands::Music(ref music_command) => {
                 let (_config, db) = self.setup_database().await?;
                 music_command.handle(&db).await
+            }
+            Commands::Photos(ref photo_command) => {
+                let (_config, db) = self.setup_database().await?;
+                photo_command.handle(&db).await
+            }
+            Commands::Scan {
+                ref path,
+                ref name,
+                ref depth,
+                ref batch_size,
+                ref max_size_mb,
+                ref domains,
+            } => {
+                self.handle_unified_scan(
+                    path,
+                    name.as_ref(),
+                    depth,
+                    batch_size,
+                    max_size_mb,
+                    domains,
+                )
+                .await
             }
         }
     }
@@ -177,6 +229,110 @@ impl Cli {
         })?;
 
         tracing::info!("Wordlist initialized successfully from {}", wordlist_path);
+        Ok(())
+    }
+
+    async fn handle_unified_scan(
+        &self,
+        path: &std::path::PathBuf,
+        name: Option<&String>,
+        depth: &Option<usize>,
+        batch_size: &usize,
+        max_size_mb: &Option<u64>,
+        domains: &String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🔍 Starting unified media scan...");
+        println!("📁 Scanning directory: {}", path.display());
+
+        // Parse domains
+        let scan_domains: Vec<&str> = if domains == "all" {
+            vec!["music", "photos", "videos"]
+        } else {
+            domains.split(',').map(|s| s.trim()).collect()
+        };
+
+        println!("🎯 Domains: {}", scan_domains.join(", "));
+
+        // Configure scanner
+        let scan_config = grimoire::media::ScanConfig {
+            batch_size: *batch_size,
+            max_depth: *depth,
+            max_file_size: max_size_mb.map(|mb| mb * 1024 * 1024),
+            ..Default::default()
+        };
+
+        // Build unified scanner with requested domains
+        let mut builder = grimoire::media::UnifiedScannerBuilder::new().with_config(scan_config);
+
+        for domain in &scan_domains {
+            match *domain {
+                "music" => {
+                    // Would add music scanner here when available
+                    println!("⚠️  Music scanner not yet integrated with unified scanner");
+                }
+                "photos" => {
+                    let photo_scanner = grimoire::photos::PhotoScanner::new();
+                    builder = builder.add_scanner(photo_scanner);
+                    println!("📸 Added photo scanner");
+                }
+                "videos" => {
+                    // Would add video scanner here when available
+                    println!("⚠️  Video scanner not yet implemented");
+                }
+                _ => {
+                    println!("⚠️  Unknown domain: {}", domain);
+                }
+            }
+        }
+
+        let scanner = builder.build();
+
+        print!("🔍 Discovering media files...");
+        std::io::Write::flush(&mut std::io::stdout())?;
+
+        // Start scanning
+        let results = scanner.scan_directory(path).await?;
+
+        println!(" found {} files", results.len());
+
+        if let Some(session_name) = name {
+            println!("🏷️  Session: {}", session_name);
+        }
+
+        // Process and display results by domain
+        let mut domain_stats = std::collections::HashMap::new();
+
+        for result in &results {
+            let entry = domain_stats
+                .entry(result.media_type.clone())
+                .or_insert((0, 0));
+            if result.success {
+                entry.0 += 1;
+            } else {
+                entry.1 += 1;
+            }
+        }
+
+        println!("📊 Results by domain:");
+        for (domain, (success, failed)) in domain_stats {
+            println!("   {}: {} ✅ {} ❌", domain, success, failed);
+        }
+
+        let total_success = results.iter().filter(|r| r.success).count();
+        let total_failed = results.len() - total_success;
+
+        println!();
+        println!("✅ Unified scan completed!");
+        println!("📊 Summary:");
+        println!("   📁 Files processed: {}", results.len());
+        println!("   ✅ Successful: {}", total_success);
+        println!("   ❌ Failed: {}", total_failed);
+
+        if results.len() > 0 {
+            let success_rate = (total_success as f64 / results.len() as f64) * 100.0;
+            println!("   📈 Success rate: {:.1}%", success_rate);
+        }
+
         Ok(())
     }
 }

@@ -15,6 +15,7 @@ pub mod filesys;
 pub mod media;
 pub mod music;
 pub mod notifications;
+pub mod photos;
 pub mod thumbnails;
 pub mod wordlist;
 
@@ -68,6 +69,12 @@ pub use music::{
     AudioMetadata, JobParameters, JobPriority, JobResult, JobStatus, MusicJob, MusicJobHealth,
     MusicJobType, MusicScanSession, ScanSessionStats, ScanSessionStatus, TitleBuilder,
     TitleBuilderConfig, TitleBuilderError,
+};
+
+// Re-export photos types
+pub use photos::{
+    CreateGallery, CreatePhoto, Gallery, Photo, PhotoGallery, PhotoMetadata, PhotoMetadataError,
+    PhotoMetadataExtractor, PhotoQuery, PhotoScanConfig, PhotoScanner, UpdateGallery, UpdatePhoto,
 };
 
 // Re-export database connection
