@@ -5,6 +5,7 @@
 //! for large files and includes proper security controls.
 
 use axum::{
+    body::Body,
     extract::{Extension, Path, Request},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
@@ -17,8 +18,12 @@ use tokio::{
     fs,
     io::{AsyncReadExt, AsyncSeekExt},
 };
+use tokio_util::io::ReaderStream;
 
 use crate::{auth::AuthenticatedUser, error::AppError};
+
+// Size threshold for streaming vs. loading into memory (10MB)
+const STREAMING_THRESHOLD: u64 = 10 * 1024 * 1024;
 
 /// Get a blob by ID with authentication
 ///
@@ -124,37 +129,73 @@ pub async fn get_blob(
                 .await;
         }
 
-        // Read full file for non-range requests
-        let file_data = match fs::read(&file_path).await {
-            Ok(file_data) => file_data,
-            Err(e) => {
-                tracing::error!(
-                    blob_id = %id,
-                    local_path = %local_path,
-                    error = %e,
-                    "Failed to read file from disk"
-                );
-                return Err(AppError::InternalServerError(format!(
-                    "Failed to read file from disk: {}",
-                    e
-                )));
-            }
-        };
+        // Use streaming for large files, memory loading for small files
+        if file_size > STREAMING_THRESHOLD {
+            // Stream large files to avoid memory issues
+            let file = match tokio::fs::File::open(&file_path).await {
+                Ok(file) => file,
+                Err(e) => {
+                    tracing::error!(
+                        blob_id = %id,
+                        local_path = %local_path,
+                        error = %e,
+                        "Failed to open file for streaming"
+                    );
+                    return Err(AppError::InternalServerError(format!(
+                        "Failed to open file for streaming: {}",
+                        e
+                    )));
+                }
+            };
 
-        // Build response with file data
-        let response =
-            build_blob_response(file_data, Some(file_size), content_type.clone(), &blob).await;
+            let stream = ReaderStream::new(file);
+            let body = Body::from_stream(stream);
 
-        // Log successful access
-        tracing::info!(
-            blob_id = %id,
-            user_id = %user.0.id,
-            size_bytes = ?blob.size,
-            content_type = %content_type,
-            "Blob access granted (from file)"
-        );
+            let response = build_streaming_response(body, file_size, content_type.clone(), &blob);
 
-        return Ok(response);
+            // Log successful access
+            tracing::info!(
+                blob_id = %id,
+                user_id = %user.0.id,
+                size_bytes = ?blob.size,
+                content_type = %content_type,
+                "Blob access granted (streaming from file)"
+            );
+
+            return Ok(response);
+        } else {
+            // Read small files into memory for better performance
+            let file_data = match fs::read(&file_path).await {
+                Ok(file_data) => file_data,
+                Err(e) => {
+                    tracing::error!(
+                        blob_id = %id,
+                        local_path = %local_path,
+                        error = %e,
+                        "Failed to read file from disk"
+                    );
+                    return Err(AppError::InternalServerError(format!(
+                        "Failed to read file from disk: {}",
+                        e
+                    )));
+                }
+            };
+
+            // Build response with file data
+            let response =
+                build_blob_response(file_data, Some(file_size), content_type.clone(), &blob).await;
+
+            // Log successful access
+            tracing::info!(
+                blob_id = %id,
+                user_id = %user.0.id,
+                size_bytes = ?blob.size,
+                content_type = %content_type,
+                "Blob access granted (from file)"
+            );
+
+            return Ok(response);
+        }
     } else {
         return Err(AppError::InternalServerError(
             "Blob exists but has no data or file path available".to_string(),
@@ -326,6 +367,50 @@ async fn build_blob_response(
     add_filename_header(&mut headers, blob);
 
     (StatusCode::OK, headers, data).into_response()
+}
+
+/// Build streaming response for large blob data
+fn build_streaming_response(
+    body: Body,
+    file_size: u64,
+    content_type: String,
+    blob: &grimoire::media::MediaBlob,
+) -> Response {
+    let mut headers = HeaderMap::new();
+
+    // Set content type
+    headers.insert(
+        header::CONTENT_TYPE,
+        content_type
+            .parse()
+            .unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
+    );
+
+    // Set content length
+    headers.insert(
+        header::CONTENT_LENGTH,
+        file_size.to_string().parse().unwrap(),
+    );
+
+    // Add range support headers
+    headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+
+    // Add cache control headers
+    headers.insert(
+        header::CACHE_CONTROL,
+        "private, max-age=3600".parse().unwrap(), // 1 hour cache
+    );
+
+    // Add security headers
+    headers.insert(
+        header::HeaderName::from_static("x-content-type-options"),
+        "nosniff".parse().unwrap(),
+    );
+
+    // Add filename if available
+    add_filename_header(&mut headers, blob);
+
+    (StatusCode::OK, headers, body).into_response()
 }
 
 /// Add filename header if available in metadata
