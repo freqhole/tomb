@@ -7,6 +7,7 @@
 use crate::media::traits::MetadataExtractor;
 use crate::photos::models::{Photo, PhotoMetadata};
 use async_trait::async_trait;
+use num_traits::FromPrimitive;
 use std::path::Path;
 use time::OffsetDateTime;
 use tracing::{debug, warn};
@@ -171,18 +172,21 @@ impl PhotoMetadataExtractor {
     fn extract_gps_coordinates(
         &self,
         exif: &serde_json::Value,
-    ) -> (Option<rust_decimal::Decimal>, Option<rust_decimal::Decimal>) {
+    ) -> (
+        Option<bigdecimal::BigDecimal>,
+        Option<bigdecimal::BigDecimal>,
+    ) {
         let latitude = exif
             .get("GPSLatitude")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<f64>().ok())
-            .and_then(|f| rust_decimal::Decimal::from_f64_retain(f));
+            .and_then(|f| bigdecimal::BigDecimal::from_f64(f));
 
         let longitude = exif
             .get("GPSLongitude")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<f64>().ok())
-            .and_then(|f| rust_decimal::Decimal::from_f64_retain(f));
+            .and_then(|f| bigdecimal::BigDecimal::from_f64(f));
 
         (latitude, longitude)
     }
@@ -215,7 +219,7 @@ impl PhotoMetadataExtractor {
         }
 
         if let Some(aperture) = exif.get("FNumber").and_then(|v| v.as_f64()) {
-            metadata.aperture = rust_decimal::Decimal::from_f64_retain(aperture);
+            metadata.aperture = bigdecimal::BigDecimal::from_f64(aperture);
         }
 
         if let Some(shutter_speed) = exif.get("ExposureTime").and_then(|v| v.as_str()) {

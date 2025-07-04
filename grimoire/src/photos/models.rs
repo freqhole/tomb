@@ -5,6 +5,7 @@
 //! different media domains while maintaining photo-specific functionality.
 
 use crate::media::traits::{MediaCollection, MediaItem};
+use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -19,14 +20,14 @@ pub struct Photo {
     pub caption: Option<String>,
     pub alt_text: Option<String>,
     pub location: Option<String>,
-    pub latitude: Option<rust_decimal::Decimal>,
-    pub longitude: Option<rust_decimal::Decimal>,
+    pub latitude: Option<bigdecimal::BigDecimal>,
+    pub longitude: Option<bigdecimal::BigDecimal>,
     pub taken_at: Option<OffsetDateTime>,
     pub camera_make: Option<String>,
     pub camera_model: Option<String>,
     pub lens_info: Option<String>,
     pub focal_length: Option<i32>,
-    pub aperture: Option<rust_decimal::Decimal>,
+    pub aperture: Option<bigdecimal::BigDecimal>,
     pub shutter_speed: Option<String>,
     pub iso: Option<i32>,
     pub flash_used: Option<bool>,
@@ -35,8 +36,8 @@ pub struct Photo {
     pub height_px: Option<i32>,
     pub color_space: Option<String>,
     pub rating: Option<i32>,
-    pub is_favorite: bool,
-    pub tags: Vec<String>,
+    pub is_favorite: Option<bool>,
+    pub tags: Option<Vec<String>>,
     pub metadata: serde_json::Value,
     pub deleted_at: Option<OffsetDateTime>,
     pub deleted_by: Option<Uuid>,
@@ -57,7 +58,7 @@ pub struct PhotoMetadata {
     /// Focal length in millimeters
     pub focal_length: Option<i32>,
     /// Aperture value (f-stop)
-    pub aperture: Option<rust_decimal::Decimal>,
+    pub aperture: Option<bigdecimal::BigDecimal>,
     /// Shutter speed as string (e.g., "1/60", "2s")
     pub shutter_speed: Option<String>,
     /// ISO sensitivity value
@@ -73,8 +74,8 @@ pub struct PhotoMetadata {
     /// Color space (sRGB, Adobe RGB, etc.)
     pub color_space: Option<String>,
     /// GPS coordinates
-    pub latitude: Option<rust_decimal::Decimal>,
-    pub longitude: Option<rust_decimal::Decimal>,
+    pub latitude: Option<bigdecimal::BigDecimal>,
+    pub longitude: Option<bigdecimal::BigDecimal>,
     /// When the photo was taken (from EXIF)
     pub taken_at: Option<OffsetDateTime>,
     /// Additional EXIF data
@@ -113,8 +114,8 @@ pub struct Gallery {
     pub title: String,
     pub description: Option<String>,
     pub client_id: Option<String>,
-    pub is_public: bool,
-    pub is_collaborative: bool,
+    pub is_public: Option<bool>,
+    pub is_collaborative: Option<bool>,
     pub metadata: serde_json::Value,
     pub deleted_at: Option<OffsetDateTime>,
     pub deleted_by: Option<Uuid>,
@@ -252,11 +253,11 @@ impl MediaItem for Photo {
     }
 
     fn is_favorite(&self) -> bool {
-        self.is_favorite
+        self.is_favorite.unwrap_or(false)
     }
 
     fn tags(&self) -> &[String] {
-        &self.tags
+        self.tags.as_ref().map(|t| t.as_slice()).unwrap_or(&[])
     }
 
     fn metadata(&self) -> &Self::Metadata {
@@ -358,11 +359,11 @@ impl MediaCollection for Gallery {
     }
 
     fn is_public(&self) -> bool {
-        self.is_public
+        self.is_public.unwrap_or(false)
     }
 
     fn is_collaborative(&self) -> bool {
-        self.is_collaborative
+        self.is_collaborative.unwrap_or(false)
     }
 
     fn thumbnail_blob_id(&self) -> Option<&str> {
@@ -482,7 +483,7 @@ impl PhotoMetadata {
 
         if let Some(aperture) = exif_data.get("FNumber").and_then(|v| v.as_f64()) {
             metadata.aperture =
-                Some(rust_decimal::Decimal::from_f64_retain(aperture).unwrap_or_default());
+                Some(bigdecimal::BigDecimal::from_f64(aperture).unwrap_or_default());
         }
 
         if let Some(shutter_speed) = exif_data.get("ExposureTime").and_then(|v| v.as_str()) {
@@ -584,7 +585,7 @@ mod tests {
             width_px: Some(1920),
             height_px: Some(1080),
             focal_length: Some(85),
-            aperture: Some(rust_decimal::Decimal::from_f64_retain(2.8).unwrap_or_default()),
+            aperture: Some(bigdecimal::BigDecimal::from_f64(2.8).unwrap_or_default()),
             shutter_speed: Some("1/60".to_string()),
             iso: Some(400),
             ..Default::default()
@@ -714,8 +715,8 @@ impl Default for Photo {
             height_px: None,
             color_space: None,
             rating: None,
-            is_favorite: false,
-            tags: Vec::new(),
+            is_favorite: Some(false),
+            tags: Some(Vec::new()),
             metadata: serde_json::Value::Object(serde_json::Map::new()),
             deleted_at: None,
             deleted_by: None,
@@ -736,8 +737,8 @@ impl Default for Gallery {
             title: String::new(),
             description: None,
             client_id: None,
-            is_public: false,
-            is_collaborative: false,
+            is_public: Some(false),
+            is_collaborative: Some(false),
             metadata: serde_json::Value::Object(serde_json::Map::new()),
             deleted_at: None,
             deleted_by: None,

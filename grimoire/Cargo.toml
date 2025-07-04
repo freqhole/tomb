@@ -29,6 +29,8 @@ tempfile.workspace = true
 sha2.workspace = true
 lofty.workspace = true
 walkdir.workspace = true
-rust_decimal = "1.37.2"
+bigdecimal.workspace = true
+mime_guess.workspace = true
+image.workspace = true
 
 [dev-dependencies]

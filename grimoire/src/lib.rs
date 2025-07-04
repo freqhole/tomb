@@ -74,7 +74,9 @@ pub use music::{
 // Re-export photos types
 pub use photos::{
     CreateGallery, CreatePhoto, Gallery, Photo, PhotoGallery, PhotoMetadata, PhotoMetadataError,
-    PhotoMetadataExtractor, PhotoQuery, PhotoScanConfig, PhotoScanner, UpdateGallery, UpdatePhoto,
+    PhotoMetadataExtractor, PhotoProcessingConfig, PhotoQuery, PhotoRepository,
+    PhotoRepositoryError, PhotoScanConfig, PhotoScanner, PhotoService, PhotoServiceError,
+    PhotoStats, PhotoWithMedia, UpdateGallery, UpdatePhoto,
 };
 
 // Re-export database connection

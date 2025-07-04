@@ -5,8 +5,10 @@
 
 use clap::Subcommand;
 use grimoire::{
-    media::{ConsoleScanProgress, MetadataExtractor, ScanConfig, UnifiedScannerBuilder},
-    photos::{PhotoMetadataExtractor, PhotoScanConfig},
+    media::{
+        ConsoleScanProgress, MediaCollection, MetadataExtractor, ScanConfig, UnifiedScannerBuilder,
+    },
+    photos::{CreateGallery, PhotoMetadataExtractor, PhotoScanConfig, PhotoService},
     DatabaseConnection,
 };
 use std::path::PathBuf;
@@ -203,6 +205,7 @@ impl PhotoCommands {
                 extract_gps,
             } => {
                 self.handle_scan(
+                    db,
                     path,
                     name.clone(),
                     *depth,
@@ -241,6 +244,7 @@ impl PhotoCommands {
 
     async fn handle_scan(
         &self,
+        db: &DatabaseConnection,
         path: &PathBuf,
         name: Option<String>,
         depth: Option<usize>,
@@ -250,10 +254,13 @@ impl PhotoCommands {
         full_exif: bool,
         extract_gps: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("📸 Starting photo library scan...");
+        println!("📸 Starting photo library scan with database storage...");
         println!("📁 Scanning directory: {}", path.display());
 
-        // Configure scanner
+        // Create photo service for database operations
+        let photo_service = PhotoService::new(db.pool().clone());
+
+        // Configure scanner for file discovery
         let mut scan_config = ScanConfig {
             batch_size,
             max_depth: depth,
@@ -279,7 +286,7 @@ impl PhotoCommands {
 
         let photo_scanner = grimoire::photos::ConfigurablePhotoScanner::new(photo_config);
 
-        // Build unified scanner
+        // Build unified scanner for file discovery
         let scanner = UnifiedScannerBuilder::new()
             .with_config(scan_config)
             .add_scanner(photo_scanner)
@@ -288,19 +295,24 @@ impl PhotoCommands {
         print!("🔍 Discovering photo files...");
         std::io::Write::flush(&mut std::io::stdout())?;
 
-        // Start scanning
+        // Start scanning for file discovery
         let results = scanner.scan_directory(path).await?;
 
         println!(" found {} files", results.len());
 
-        if let Some(session_name) = name {
+        if let Some(session_name) = &name {
             println!("🏷️  Session: {}", session_name);
         }
 
-        // Process results
+        // Create session ID for tracking
+        let session_id = uuid::Uuid::new_v4();
+        println!("📋 Session ID: {}", session_id);
+
+        // Process and store each photo in the database
         let mut processed = 0;
         let mut succeeded = 0;
         let mut failed = 0;
+        let mut photos_created = Vec::new();
 
         let _progress = ConsoleScanProgress::new(10);
 
@@ -309,43 +321,55 @@ impl PhotoCommands {
             processed += 1;
 
             if result.success {
-                succeeded += 1;
-                info!(
-                    "Successfully processed: {} ({})",
-                    result.file.path.display(),
-                    result.media_type
-                );
+                println!("💾 Storing photo: {}", result.file.path.display());
 
-                // Extract some interesting metadata for display
-                if let Some(camera) = result.metadata.get("camera_make") {
-                    if let Some(model) = result.metadata.get("camera_model") {
-                        println!(
-                            "  📷 Camera: {} {}",
-                            camera.as_str().unwrap_or("Unknown"),
-                            model.as_str().unwrap_or("Unknown")
-                        );
-                    }
-                }
-
-                if let Some(has_gps) = result.metadata.get("has_gps") {
-                    if has_gps.as_bool().unwrap_or(false) {
-                        println!("  🌍 GPS coordinates available");
-                    }
-                }
-
-                if let Some(dimensions) = result
-                    .metadata
-                    .get("width_px")
-                    .zip(result.metadata.get("height_px"))
+                // Process and store the photo using the service
+                match photo_service
+                    .process_and_store_photo(&result.file.path, Some(session_id), Some("photo-cli"))
+                    .await
                 {
-                    if let (Some(w), Some(h)) = (dimensions.0.as_i64(), dimensions.1.as_i64()) {
-                        println!("  📐 Dimensions: {}×{}", w, h);
+                    Ok(photo) => {
+                        succeeded += 1;
+                        photos_created.push(photo.id);
+
+                        info!(
+                            "✅ Created photo record: {} (ID: {})",
+                            result.file.path.display(),
+                            photo.id
+                        );
+
+                        // Display photo information
+                        println!("  📸 Photo ID: {}", photo.id);
+                        if let Some(title) = &photo.title {
+                            println!("  🏷️  Title: {}", title);
+                        }
+                        if let Some(camera_make) = &photo.camera_make {
+                            if let Some(camera_model) = &photo.camera_model {
+                                println!("  📷 Camera: {} {}", camera_make, camera_model);
+                            } else {
+                                println!("  📷 Camera: {}", camera_make);
+                            }
+                        }
+                        if let (Some(w), Some(h)) = (photo.width_px, photo.height_px) {
+                            println!("  📐 Dimensions: {}×{}", w, h);
+                        }
+                        if photo.thumbnail_blob_id.is_some() {
+                            println!("  🖼️  WebP thumbnail generated");
+                        }
+                    }
+                    Err(e) => {
+                        failed += 1;
+                        error!(
+                            "❌ Failed to store photo {}: {}",
+                            result.file.path.display(),
+                            e
+                        );
                     }
                 }
             } else {
                 failed += 1;
                 error!(
-                    "Failed to process: {} - {}",
+                    "❌ Failed to process: {} - {}",
                     result.file.path.display(),
                     result
                         .error
@@ -354,21 +378,42 @@ impl PhotoCommands {
                 );
             }
 
-            // Report progress every 10 files
-            if processed % 10 == 0 {
+            // Report progress every 5 files
+            if processed % 5 == 0 {
                 println!("📊 Progress: {}/{} files processed", processed, total_files);
             }
         }
 
-        println!("✅ Scan completed!");
+        println!("✅ Photo scan and storage completed!");
         println!("📊 Summary:");
+        println!("   📁 Files discovered: {}", total_files);
         println!("   📁 Files processed: {}", processed);
-        println!("   ✅ Successful: {}", succeeded);
+        println!("   ✅ Photos saved to database: {}", succeeded);
         println!("   ❌ Failed: {}", failed);
+        println!("   📋 Session ID: {}", session_id);
 
         if succeeded > 0 {
             let success_rate = (succeeded as f64 / processed as f64) * 100.0;
             println!("   📈 Success rate: {:.1}%", success_rate);
+            println!("   🗄️  Check database for {} new photo records", succeeded);
+        }
+
+        if !photos_created.is_empty() {
+            println!("💡 Next steps:");
+            println!("   - View photos: cli photos list");
+            println!(
+                "   - Create gallery: cli photos galleries create \"{}\"",
+                name.unwrap_or_else(|| "New Gallery".to_string())
+            );
+            println!(
+                "   - Add photos to gallery: cli photos galleries add <gallery_id> {}",
+                photos_created
+                    .iter()
+                    .take(3)
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
         }
 
         Ok(())
@@ -567,35 +612,42 @@ impl PhotoCommands {
 }
 
 impl GalleryCommands {
-    pub async fn handle(&self, _db: &DatabaseConnection) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn handle(&self, db: &DatabaseConnection) -> Result<(), Box<dyn std::error::Error>> {
         match self {
-            GalleryCommands::List { public, verbose } => self.handle_list(*public, *verbose).await,
+            GalleryCommands::List { public, verbose } => {
+                self.handle_list(db, *public, *verbose).await
+            }
             GalleryCommands::Create {
                 title,
                 description,
                 public,
                 collaborative,
             } => {
-                self.handle_create(title, description.clone(), *public, *collaborative)
+                self.handle_create(db, title, description.clone(), *public, *collaborative)
                     .await
             }
-            GalleryCommands::Show { gallery, verbose } => self.handle_show(gallery, *verbose).await,
-            GalleryCommands::Add { gallery, photos } => self.handle_add(gallery, photos).await,
-            GalleryCommands::Remove { gallery, photos } => {
-                self.handle_remove(gallery, photos).await
+            GalleryCommands::Show { gallery, verbose } => {
+                self.handle_show(db, gallery, *verbose).await
             }
-            GalleryCommands::Delete { gallery, force } => self.handle_delete(gallery, *force).await,
+            GalleryCommands::Add { gallery, photos } => self.handle_add(db, gallery, photos).await,
+            GalleryCommands::Remove { gallery, photos } => {
+                self.handle_remove(db, gallery, photos).await
+            }
+            GalleryCommands::Delete { gallery, force } => {
+                self.handle_delete(db, gallery, *force).await
+            }
         }
     }
 
     async fn handle_list(
         &self,
-        public_only: bool,
+        _db: &DatabaseConnection,
+        public: bool,
         verbose: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         println!("🖼️  Listing galleries...");
 
-        if public_only {
+        if public {
             println!("🌍 Public galleries only");
         }
 
@@ -604,14 +656,15 @@ impl GalleryCommands {
         }
 
         println!();
-        println!("⚠️  Gallery database operations not yet implemented");
-        println!("💡 This would query the galleries table and display results");
+        println!("⚠️  Gallery listing not yet implemented");
+        println!("💡 This would query the galleries table");
 
         Ok(())
     }
 
     async fn handle_create(
         &self,
+        db: &DatabaseConnection,
         title: &str,
         description: Option<String>,
         public: bool,
@@ -620,7 +673,7 @@ impl GalleryCommands {
         println!("📁 Creating new gallery...");
         println!("🏷️  Title: {}", title);
 
-        if let Some(desc) = description {
+        if let Some(desc) = &description {
             println!("📝 Description: {}", desc);
         }
 
@@ -633,87 +686,157 @@ impl GalleryCommands {
         }
 
         println!();
-        println!("⚠️  Gallery creation not yet implemented");
-        println!("💡 This would insert into the galleries table");
+
+        // Create photo service for database operations
+        let photo_service = PhotoService::new(db.pool().clone());
+
+        // Create gallery
+        let create_gallery = CreateGallery {
+            title: title.to_string(),
+            description,
+            client_id: Some("photo-cli".to_string()),
+            is_public: public,
+            is_collaborative: collaborative,
+            thumbnail_blob_id: None,
+        };
+
+        match photo_service.create_gallery(create_gallery).await {
+            Ok(gallery) => {
+                println!("✅ Gallery created successfully!");
+                println!("📁 Gallery ID: {}", gallery.id);
+                println!("🏷️  Title: {}", gallery.title);
+                if let Some(desc) = &gallery.description {
+                    println!("📝 Description: {}", desc);
+                }
+                println!("🌍 Public: {}", gallery.is_public());
+                println!("👥 Collaborative: {}", gallery.is_collaborative());
+                println!("📅 Created: {}", gallery.created_at.date());
+
+                println!();
+                println!("💡 Next steps:");
+                println!(
+                    "   - Add photos: cli photos galleries add {} <photo-id> [photo-id...]",
+                    gallery.id
+                );
+                println!(
+                    "   - View gallery: cli photos galleries show {}",
+                    gallery.id
+                );
+            }
+            Err(e) => {
+                error!("❌ Failed to create gallery: {}", e);
+                return Err(e.into());
+            }
+        }
 
         Ok(())
     }
 
     async fn handle_show(
         &self,
+        _db: &DatabaseConnection,
         gallery: &str,
         verbose: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         println!("🖼️  Gallery Details");
-        println!("🆔 Gallery: {}", gallery);
+        println!("📁 Gallery: {}", gallery);
 
         if verbose {
-            println!("📋 Detailed information requested");
+            println!("📝 Verbose output enabled");
         }
 
         println!();
-        println!("⚠️  Gallery query not yet implemented");
-        println!("💡 This would show gallery details and associated photos");
+        println!("⚠️  Gallery details not yet implemented");
+        println!("💡 This would query the galleries and photo_galleries tables");
 
         Ok(())
     }
 
     async fn handle_add(
         &self,
+        db: &DatabaseConnection,
         gallery: &str,
         photos: &[String],
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("➕ Adding photos to gallery");
-        println!("🖼️  Gallery: {}", gallery);
+        println!("➕ Adding photos to gallery...");
+        println!("📁 Gallery: {}", gallery);
         println!("📸 Photos to add: {}", photos.len());
 
-        for photo in photos {
-            println!("   📸 {}", photo);
+        // Parse gallery ID
+        let gallery_id = gallery
+            .parse::<uuid::Uuid>()
+            .map_err(|_| format!("Invalid gallery ID: {}", gallery))?;
+
+        // Parse photo IDs
+        let mut photo_ids = Vec::new();
+        for photo_str in photos {
+            let photo_id = photo_str
+                .parse::<uuid::Uuid>()
+                .map_err(|_| format!("Invalid photo ID: {}", photo_str))?;
+            photo_ids.push(photo_id);
         }
 
-        println!();
-        println!("⚠️  Gallery photo management not yet implemented");
-        println!("💡 This would insert into the photo_galleries table");
+        // Create photo service
+        let photo_service = PhotoService::new(db.pool().clone());
+
+        // Add photos to gallery
+        match photo_service
+            .add_photos_to_gallery(gallery_id, &photo_ids)
+            .await
+        {
+            Ok(()) => {
+                println!();
+                println!("✅ Successfully added {} photos to gallery!", photos.len());
+                for (i, photo_id) in photo_ids.iter().enumerate() {
+                    println!("   📸 Photo {} (position {}): {}", i + 1, i + 1, photo_id);
+                }
+                println!();
+                println!("💡 Next steps:");
+                println!("   - View gallery: cli photos galleries show {}", gallery);
+                println!("   - List galleries: cli photos galleries list");
+            }
+            Err(e) => {
+                error!("❌ Failed to add photos to gallery: {}", e);
+                return Err(e.into());
+            }
+        }
 
         Ok(())
     }
 
     async fn handle_remove(
         &self,
+        _db: &DatabaseConnection,
         gallery: &str,
         photos: &[String],
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("➖ Removing photos from gallery");
-        println!("🖼️  Gallery: {}", gallery);
-        println!("📸 Photos to remove: {}", photos.len());
-
-        for photo in photos {
-            println!("   📸 {}", photo);
-        }
+        println!("➖ Removing photos from gallery...");
+        println!("📁 Gallery: {}", gallery);
+        println!("📸 Photos: {:?}", photos);
 
         println!();
-        println!("⚠️  Gallery photo management not yet implemented");
-        println!("💡 This would delete from the photo_galleries table");
+        println!("⚠️  Gallery photo removal not yet implemented");
+        println!("💡 This would remove from the photo_galleries table");
 
         Ok(())
     }
 
     async fn handle_delete(
         &self,
+        _db: &DatabaseConnection,
         gallery: &str,
         force: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("🗑️  Deleting gallery");
-        println!("🖼️  Gallery: {}", gallery);
+        println!("🗑️  Deleting gallery...");
+        println!("📁 Gallery: {}", gallery);
 
-        if !force {
-            println!("⚠️  This would normally ask for confirmation");
-            println!("💡 Use --force to skip confirmation");
+        if force {
+            println!("⚠️  Force delete enabled (no confirmation)");
         }
 
         println!();
         println!("⚠️  Gallery deletion not yet implemented");
-        println!("💡 This would soft-delete from the galleries table");
+        println!("💡 This would update the galleries table (soft delete)");
 
         Ok(())
     }

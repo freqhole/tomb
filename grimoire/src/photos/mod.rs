@@ -57,7 +57,9 @@
 
 pub mod metadata;
 pub mod models;
+pub mod repository;
 pub mod scanner;
+pub mod service;
 
 // Re-export main types for convenience
 pub use metadata::{
@@ -68,13 +70,15 @@ pub use models::{
     CreateGallery, CreatePhoto, Gallery, GalleryQuery, Photo, PhotoGallery, PhotoMetadata,
     PhotoQuery, UpdateGallery, UpdatePhoto,
 };
+pub use repository::{PhotoRepository, PhotoRepositoryError, PhotoWithMedia};
 pub use scanner::{ConfigurablePhotoScanner, PhotoScanConfig, PhotoScanner};
+pub use service::{PhotoProcessingConfig, PhotoService, PhotoServiceError, PhotoStats};
 
 /// Re-exports for convenience
 pub mod prelude {
     pub use super::{
         CreateGallery, CreatePhoto, Gallery, Photo, PhotoMetadata, PhotoMetadataExtractor,
-        PhotoScanner,
+        PhotoRepository, PhotoScanner, PhotoService,
     };
 }
 

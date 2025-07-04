@@ -55,3 +55,5 @@ base64 = "0.21"
 lofty = "0.18"
 walkdir = "2.4"
 inquire = "0.7"
+bigdecimal = { version = "0.4", features = ["serde"] }
+image = "0.24"
