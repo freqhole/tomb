@@ -68,6 +68,7 @@ export type NotificationChannel = z.infer<typeof NotificationChannelSchema>;
 export const MediaBlobSchema = z.object({
   id: ShortHashSchema,
   data: z.array(z.number()).optional(), // Vec<u8> as number array, often omitted
+  has_binary_data: z.boolean().optional(), // Whether the blob has binary data stored
   sha256: z.string(),
   size: z.number().int().nullish(),
   mime: z.string().optional(),
