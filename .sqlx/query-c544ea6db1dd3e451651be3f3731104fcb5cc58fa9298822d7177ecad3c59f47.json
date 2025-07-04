@@ -1,0 +1,203 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT p.* FROM photos p\n            JOIN photo_galleries pg ON p.id = pg.photo_id\n            WHERE pg.gallery_id = $1 AND p.deleted_at IS NULL\n            ORDER BY pg.position ASC\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "media_blob_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "thumbnail_blob_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "caption",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "alt_text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "location",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "latitude",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 8,
+        "name": "longitude",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 9,
+        "name": "taken_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "camera_make",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "camera_model",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "lens_info",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "focal_length",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 14,
+        "name": "aperture",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 15,
+        "name": "shutter_speed",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "iso",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 17,
+        "name": "flash_used",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 18,
+        "name": "orientation",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 19,
+        "name": "width_px",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 20,
+        "name": "height_px",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 21,
+        "name": "color_space",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 22,
+        "name": "rating",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 23,
+        "name": "is_favorite",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 24,
+        "name": "tags",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 25,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 26,
+        "name": "deleted_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 27,
+        "name": "deleted_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 28,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 29,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 30,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c544ea6db1dd3e451651be3f3731104fcb5cc58fa9298822d7177ecad3c59f47"
+}
