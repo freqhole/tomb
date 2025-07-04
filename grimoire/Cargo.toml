@@ -32,5 +32,6 @@ walkdir.workspace = true
 bigdecimal.workspace = true
 mime_guess.workspace = true
 image.workspace = true
+futures-util.workspace = true
 
 [dev-dependencies]

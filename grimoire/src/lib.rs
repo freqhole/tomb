@@ -17,6 +17,7 @@ pub mod music;
 pub mod notifications;
 pub mod photos;
 pub mod thumbnails;
+pub mod videos;
 pub mod wordlist;
 
 // Re-export analytics types
@@ -77,6 +78,14 @@ pub use photos::{
     PhotoMetadataExtractor, PhotoProcessingConfig, PhotoQuery, PhotoRepository,
     PhotoRepositoryError, PhotoScanConfig, PhotoScanner, PhotoService, PhotoServiceError,
     PhotoStats, PhotoWithMedia, UpdateGallery, UpdatePhoto,
+};
+
+// Re-export videos types
+pub use videos::{
+    CreateVideo, CreateVideoPlaylist, UpdateVideo, UpdateVideoPlaylist, Video, VideoMetadata,
+    VideoMetadataError, VideoMetadataExtractor, VideoPlaylist, VideoPlaylistItem,
+    VideoPlaylistQuery, VideoQuery, VideoRepository, VideoRepositoryError, VideoScanner,
+    VideoService, VideoServiceError, VideoStats,
 };
 
 // Re-export database connection

@@ -12,6 +12,7 @@ use crate::notifications::NotificationCommands;
 use crate::photos::PhotoCommands;
 use crate::thumbnails::ThumbnailCommands;
 use crate::users::UserCommands;
+use crate::videos::VideoCommands;
 use crate::wordlist::WordlistCommands;
 
 #[derive(Parser)]
@@ -62,6 +63,9 @@ pub enum Commands {
     /// Photo library management and scanning
     #[command(subcommand)]
     Photos(PhotoCommands),
+    /// Video library management and scanning
+    #[command(subcommand)]
+    Videos(VideoCommands),
     /// Unified media scanning across all domains
     Scan {
         /// Directory path to scan
@@ -126,6 +130,10 @@ impl Cli {
             Commands::Photos(ref photo_command) => {
                 let (_config, db) = self.setup_database().await?;
                 photo_command.handle(&db).await
+            }
+            Commands::Videos(ref video_command) => {
+                let (_config, db) = self.setup_database().await?;
+                video_command.handle(&db).await
             }
             Commands::Scan {
                 ref path,
@@ -276,8 +284,9 @@ impl Cli {
                     println!("📸 Added photo scanner");
                 }
                 "videos" => {
-                    // Would add video scanner here when available
-                    println!("⚠️  Video scanner not yet implemented");
+                    let video_scanner = grimoire::videos::VideoScanner::new();
+                    builder = builder.add_scanner(video_scanner);
+                    println!("🎬 Added video scanner");
                 }
                 _ => {
                     println!("⚠️  Unknown domain: {}", domain);
