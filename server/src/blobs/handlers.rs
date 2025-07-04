@@ -53,6 +53,7 @@ pub async fn get_blob(
     tracing::info!(
         blob_id = %id,
         user_id = %user.0.id,
+        has_range_header = req.headers().contains_key(header::RANGE),
         "Blob access request"
     );
 
@@ -104,15 +105,30 @@ pub async fn get_blob(
         // Large file: read from filesystem
         let file_path = std::path::Path::new("assets").join(local_path);
 
+        tracing::info!(
+            blob_id = %id,
+            local_path = %local_path,
+            constructed_path = %file_path.display(),
+            "Attempting to access file"
+        );
+
         // Get file size for range requests
         let metadata = match fs::metadata(&file_path).await {
-            Ok(meta) => meta,
+            Ok(meta) => {
+                tracing::info!(
+                    blob_id = %id,
+                    file_size = meta.len(),
+                    "File metadata retrieved successfully"
+                );
+                meta
+            }
             Err(e) => {
                 tracing::error!(
                     blob_id = %id,
                     local_path = %local_path,
+                    constructed_path = %file_path.display(),
                     error = %e,
-                    "Failed to get file metadata"
+                    "Failed to get file metadata - file may not exist"
                 );
                 return Err(AppError::InternalServerError(format!(
                     "Failed to get file metadata: {}",
@@ -123,11 +139,75 @@ pub async fn get_blob(
 
         let file_size = metadata.len();
 
-        // Handle range requests for files
-        if let Some(_range_header) = range_header {
-            return handle_range_request(req, file_path, file_size, &blob, content_type.clone())
-                .await;
+        // Handle range requests for ALL files (both large and small)
+        if let Some(range_header_value) = range_header {
+            tracing::info!(
+                blob_id = %id,
+                range_header = ?range_header_value,
+                file_size = file_size,
+                "Processing range request"
+            );
+
+            // Check if this is a large range request that should use streaming instead
+            if let Ok(range_str) = range_header_value.to_str() {
+                if range_str.starts_with("bytes=") {
+                    let ranges_str = &range_str[6..]; // Remove "bytes="
+                    let range_part = ranges_str.split(',').next().unwrap().trim();
+
+                    // Calculate range size to decide between range handling vs streaming
+                    let range_size = if range_part == "0-" {
+                        file_size // Entire file
+                    } else if range_part.ends_with('-') {
+                        // Start range: "32768-" means from 32768 to end
+                        let start = range_part[..range_part.len() - 1]
+                            .parse::<u64>()
+                            .unwrap_or(0);
+                        file_size.saturating_sub(start)
+                    } else if range_part.starts_with('-') {
+                        // Suffix range: "-1000" means last 1000 bytes
+                        range_part[1..].parse::<u64>().unwrap_or(0)
+                    } else {
+                        // Full range: "100-200"
+                        let parts: Vec<&str> = range_part.split('-').collect();
+                        if parts.len() == 2 {
+                            let start = parts[0].parse::<u64>().unwrap_or(0);
+                            let end = parts[1].parse::<u64>().unwrap_or(file_size);
+                            end.saturating_sub(start) + 1
+                        } else {
+                            0
+                        }
+                    };
+
+                    const MAX_RANGE_SIZE: u64 = 50 * 1024 * 1024; // 50MB max for range handling
+
+                    if range_size > MAX_RANGE_SIZE {
+                        tracing::info!(
+                            blob_id = %id,
+                            range_size = range_size,
+                            "Large range request, using streaming instead of range handling"
+                        );
+                        // Fall through to streaming logic below
+                    } else {
+                        return handle_range_request(
+                            req,
+                            file_path,
+                            file_size,
+                            &blob,
+                            content_type.clone(),
+                        )
+                        .await;
+                    }
+                }
+            }
         }
+
+        tracing::info!(
+            blob_id = %id,
+            file_size = file_size,
+            threshold = STREAMING_THRESHOLD,
+            will_stream = file_size > STREAMING_THRESHOLD,
+            "Deciding between streaming vs memory loading"
+        );
 
         // Use streaming for large files, memory loading for small files
         if file_size > STREAMING_THRESHOLD {
@@ -213,6 +293,12 @@ async fn handle_range_request(
 ) -> Result<Response, AppError> {
     let range_header = req.headers().get(header::RANGE).unwrap();
 
+    tracing::debug!(
+        "Range request details: file_size={}, range_header={:?}",
+        file_size,
+        range_header
+    );
+
     // Parse range header
     let range_str = range_header
         .to_str()
@@ -265,6 +351,17 @@ async fn handle_range_request(
         return Err(AppError::BadRequest("Range not satisfiable".to_string()));
     }
 
+    // Don't try to read huge ranges into memory - limit to reasonable size
+    let content_length = end - start + 1;
+    const MAX_RANGE_SIZE: u64 = 50 * 1024 * 1024; // 50MB max range
+
+    if content_length > MAX_RANGE_SIZE {
+        return Err(AppError::BadRequest(format!(
+            "Range too large: {} bytes requested, max {} bytes allowed",
+            content_length, MAX_RANGE_SIZE
+        )));
+    }
+
     // Open file and seek to start position
     let mut file = tokio::fs::File::open(&file_path)
         .await
@@ -275,7 +372,6 @@ async fn handle_range_request(
         .map_err(|e| AppError::InternalServerError(format!("Failed to seek in file: {}", e)))?;
 
     // Read the requested range
-    let content_length = end - start + 1;
     let mut buffer = vec![0; content_length as usize];
     file.read_exact(&mut buffer)
         .await
@@ -302,7 +398,17 @@ async fn handle_range_request(
     );
     headers.insert(
         header::CACHE_CONTROL,
-        "private, max-age=3600".parse().unwrap(),
+        "public, max-age=3600".parse().unwrap(),
+    );
+    headers.insert(
+        header::HeaderName::from_static("access-control-allow-origin"),
+        "*".parse().unwrap(),
+    );
+    headers.insert(
+        header::HeaderName::from_static("access-control-expose-headers"),
+        "Content-Length, Content-Range, Accept-Ranges"
+            .parse()
+            .unwrap(),
     );
 
     // Add filename if available
@@ -336,10 +442,17 @@ async fn build_blob_response(
 ) -> Response {
     let mut headers = HeaderMap::new();
 
-    // Set content type
+    // Set content type - ensure video/mp4 for MP4 files
+    let final_content_type =
+        if content_type == "video/mp4" || blob.mime.as_ref() == Some(&"video/mp4".to_string()) {
+            "video/mp4"
+        } else {
+            &content_type
+        };
+
     headers.insert(
         header::CONTENT_TYPE,
-        content_type
+        final_content_type
             .parse()
             .unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
     );
@@ -351,16 +464,22 @@ async fn build_blob_response(
     // Add range support headers
     headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
 
-    // Add cache control headers
+    // Browser-friendly cache headers for video
     headers.insert(
         header::CACHE_CONTROL,
-        "private, max-age=3600".parse().unwrap(), // 1 hour cache
+        "public, max-age=3600, immutable".parse().unwrap(),
     );
 
-    // Add security headers
+    // Add CORS headers for browser compatibility
     headers.insert(
-        header::HeaderName::from_static("x-content-type-options"),
-        "nosniff".parse().unwrap(),
+        header::HeaderName::from_static("access-control-allow-origin"),
+        "*".parse().unwrap(),
+    );
+    headers.insert(
+        header::HeaderName::from_static("access-control-expose-headers"),
+        "Content-Length, Content-Range, Accept-Ranges"
+            .parse()
+            .unwrap(),
     );
 
     // Add filename if available
@@ -378,10 +497,17 @@ fn build_streaming_response(
 ) -> Response {
     let mut headers = HeaderMap::new();
 
-    // Set content type
+    // Set content type - ensure video/mp4 for MP4 files
+    let final_content_type =
+        if content_type == "video/mp4" || blob.mime.as_ref() == Some(&"video/mp4".to_string()) {
+            "video/mp4"
+        } else {
+            &content_type
+        };
+
     headers.insert(
         header::CONTENT_TYPE,
-        content_type
+        final_content_type
             .parse()
             .unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
     );
@@ -392,23 +518,39 @@ fn build_streaming_response(
         file_size.to_string().parse().unwrap(),
     );
 
-    // Add range support headers
+    // Add range support headers - critical for video streaming
     headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
 
-    // Add cache control headers
+    // Add CORS headers for browser compatibility
+    headers.insert(
+        header::HeaderName::from_static("access-control-allow-origin"),
+        "*".parse().unwrap(),
+    );
+    headers.insert(
+        header::HeaderName::from_static("access-control-expose-headers"),
+        "Content-Length, Content-Range, Accept-Ranges"
+            .parse()
+            .unwrap(),
+    );
+
+    // Browser-friendly cache headers for video
     headers.insert(
         header::CACHE_CONTROL,
-        "private, max-age=3600".parse().unwrap(), // 1 hour cache
+        "public, max-age=3600, immutable".parse().unwrap(),
     );
 
-    // Add security headers
-    headers.insert(
-        header::HeaderName::from_static("x-content-type-options"),
-        "nosniff".parse().unwrap(),
-    );
-
-    // Add filename if available
-    add_filename_header(&mut headers, blob);
+    // Remove security headers that might interfere with video playback
+    // Add content disposition for better browser handling
+    if let Some(ref local_path) = blob.local_path {
+        if let Some(filename) = std::path::Path::new(local_path).file_name() {
+            if let Some(filename_str) = filename.to_str() {
+                let disposition = format!("inline; filename=\"{}\"", filename_str);
+                if let Ok(header_value) = disposition.parse() {
+                    headers.insert(header::CONTENT_DISPOSITION, header_value);
+                }
+            }
+        }
+    }
 
     (StatusCode::OK, headers, body).into_response()
 }
