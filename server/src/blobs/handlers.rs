@@ -5,14 +5,18 @@
 //! for large files and includes proper security controls.
 
 use axum::{
-    extract::{Extension, Path},
-    http::{header, HeaderMap, StatusCode},
+    extract::{Extension, Path, Request},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
 
 use grimoire::{media::MediaBlobService, DatabaseConnection};
 use mime_guess::from_path;
-use tokio::fs;
+use std::io::SeekFrom;
+use tokio::{
+    fs,
+    io::{AsyncReadExt, AsyncSeekExt},
+};
 
 use crate::{auth::AuthenticatedUser, error::AppError};
 
@@ -39,6 +43,7 @@ pub async fn get_blob(
     Extension(db): Extension<DatabaseConnection>,
     Path(id): Path<String>,
     Extension(user): Extension<AuthenticatedUser>,
+    req: Request,
 ) -> Result<Response, AppError> {
     tracing::info!(
         blob_id = %id,
@@ -69,15 +74,58 @@ pub async fn get_blob(
     // - User roles and permissions
     // - Organization/team access controls
 
-    // Get blob data - either from database or from file
-    let data = if let Some(data) = blob.data {
+    // Check if this is a range request
+    let range_header = req.headers().get(header::RANGE);
+
+    // Determine content type from MIME type or file extension
+    let content_type = determine_content_type(&blob);
+
+    // Handle different data sources
+    if let Some(ref data) = blob.data {
         // Small file: data is stored in database
-        data
+        let response = build_blob_response(data.clone(), None, content_type.clone(), &blob).await;
+
+        // Log successful access
+        tracing::info!(
+            blob_id = %id,
+            user_id = %user.0.id,
+            size_bytes = ?blob.size,
+            content_type = %content_type,
+            "Blob access granted (from database)"
+        );
+
+        return Ok(response);
     } else if let Some(ref local_path) = blob.local_path {
         // Large file: read from filesystem
         let file_path = std::path::Path::new("assets").join(local_path);
 
-        match fs::read(&file_path).await {
+        // Get file size for range requests
+        let metadata = match fs::metadata(&file_path).await {
+            Ok(meta) => meta,
+            Err(e) => {
+                tracing::error!(
+                    blob_id = %id,
+                    local_path = %local_path,
+                    error = %e,
+                    "Failed to get file metadata"
+                );
+                return Err(AppError::InternalServerError(format!(
+                    "Failed to get file metadata: {}",
+                    e
+                )));
+            }
+        };
+
+        let file_size = metadata.len();
+
+        // Handle range requests for files
+        if let Some(_range_header) = range_header {
+            return handle_range_request(req, file_path, file_size, &blob, content_type.clone())
+                .await;
+        }
+
+        // Read full file for non-range requests
+        let file_data = match fs::read(&file_path).await {
             Ok(file_data) => file_data,
             Err(e) => {
                 tracing::error!(
@@ -91,35 +139,160 @@ pub async fn get_blob(
                     e
                 )));
             }
-        }
+        };
+
+        // Build response with file data
+        let response =
+            build_blob_response(file_data, Some(file_size), content_type.clone(), &blob).await;
+
+        // Log successful access
+        tracing::info!(
+            blob_id = %id,
+            user_id = %user.0.id,
+            size_bytes = ?blob.size,
+            content_type = %content_type,
+            "Blob access granted (from file)"
+        );
+
+        return Ok(response);
     } else {
         return Err(AppError::InternalServerError(
             "Blob exists but has no data or file path available".to_string(),
         ));
+    }
+}
+
+/// Handle range requests for file-based blobs
+async fn handle_range_request(
+    req: Request,
+    file_path: std::path::PathBuf,
+    file_size: u64,
+    blob: &grimoire::media::MediaBlob,
+    content_type: String,
+) -> Result<Response, AppError> {
+    let range_header = req.headers().get(header::RANGE).unwrap();
+
+    // Parse range header
+    let range_str = range_header
+        .to_str()
+        .map_err(|_| AppError::BadRequest("Invalid range header".to_string()))?;
+
+    if !range_str.starts_with("bytes=") {
+        return Err(AppError::BadRequest(
+            "Invalid range header format".to_string(),
+        ));
+    }
+
+    let ranges_str = &range_str[6..]; // Remove "bytes="
+    let range_part = ranges_str.split(',').next().unwrap().trim();
+
+    // Parse range (start-end, start-, -suffix)
+    let (start, end) = if range_part.starts_with('-') {
+        // Suffix range: -500 (last 500 bytes)
+        let suffix = range_part[1..]
+            .parse::<u64>()
+            .map_err(|_| AppError::BadRequest("Invalid range format".to_string()))?;
+        let start = if suffix >= file_size {
+            0
+        } else {
+            file_size - suffix
+        };
+        (start, file_size - 1)
+    } else if range_part.ends_with('-') {
+        // Start range: 500- (from byte 500 to end)
+        let start = range_part[..range_part.len() - 1]
+            .parse::<u64>()
+            .map_err(|_| AppError::BadRequest("Invalid range format".to_string()))?;
+        (start, file_size - 1)
+    } else {
+        // Full range: 500-999
+        let parts: Vec<&str> = range_part.split('-').collect();
+        if parts.len() != 2 {
+            return Err(AppError::BadRequest("Invalid range format".to_string()));
+        }
+        let start = parts[0]
+            .parse::<u64>()
+            .map_err(|_| AppError::BadRequest("Invalid range start".to_string()))?;
+        let end = parts[1]
+            .parse::<u64>()
+            .map_err(|_| AppError::BadRequest("Invalid range end".to_string()))?;
+        (start, end)
     };
 
-    // Determine content type from MIME type or file extension
-    let content_type = if let Some(ref mime) = blob.mime {
-        if !mime.is_empty() {
-            mime.clone()
-        } else {
-            // Fallback to guessing from local_path if available
-            blob.local_path
-                .as_ref()
-                .and_then(|path| from_path(path).first())
-                .map(|mime| mime.to_string())
-                .unwrap_or_else(|| "application/octet-stream".to_string())
-        }
-    } else {
-        // Fallback to guessing from local_path if available
-        blob.local_path
-            .as_ref()
-            .and_then(|path| from_path(path).first())
-            .map(|mime| mime.to_string())
-            .unwrap_or_else(|| "application/octet-stream".to_string())
-    };
+    // Validate range
+    if start >= file_size || end >= file_size || start > end {
+        return Err(AppError::BadRequest("Range not satisfiable".to_string()));
+    }
+
+    // Open file and seek to start position
+    let mut file = tokio::fs::File::open(&file_path)
+        .await
+        .map_err(|e| AppError::InternalServerError(format!("Failed to open file: {}", e)))?;
+
+    file.seek(SeekFrom::Start(start))
+        .await
+        .map_err(|e| AppError::InternalServerError(format!("Failed to seek in file: {}", e)))?;
+
+    // Read the requested range
+    let content_length = end - start + 1;
+    let mut buffer = vec![0; content_length as usize];
+    file.read_exact(&mut buffer)
+        .await
+        .map_err(|e| AppError::InternalServerError(format!("Failed to read file range: {}", e)))?;
 
     // Build response headers
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        content_type
+            .parse()
+            .unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
+    );
+    headers.insert(
+        header::CONTENT_LENGTH,
+        content_length.to_string().parse().unwrap(),
+    );
+    headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    headers.insert(
+        header::CONTENT_RANGE,
+        format!("bytes {}-{}/{}", start, end, file_size)
+            .parse()
+            .unwrap(),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        "private, max-age=3600".parse().unwrap(),
+    );
+
+    // Add filename if available
+    add_filename_header(&mut headers, blob);
+
+    Ok((StatusCode::PARTIAL_CONTENT, headers, buffer).into_response())
+}
+
+/// Determine content type from blob metadata
+fn determine_content_type(blob: &grimoire::media::MediaBlob) -> String {
+    if let Some(ref mime) = blob.mime {
+        if !mime.is_empty() {
+            return mime.clone();
+        }
+    }
+
+    // Fallback to guessing from local_path if available
+    blob.local_path
+        .as_ref()
+        .and_then(|path| from_path(path).first())
+        .map(|mime| mime.to_string())
+        .unwrap_or_else(|| "application/octet-stream".to_string())
+}
+
+/// Build response for blob data
+async fn build_blob_response(
+    data: Vec<u8>,
+    file_size: Option<u64>,
+    content_type: String,
+    blob: &grimoire::media::MediaBlob,
+) -> Response {
     let mut headers = HeaderMap::new();
 
     // Set content type
@@ -131,9 +304,11 @@ pub async fn get_blob(
     );
 
     // Set content length
-    if let Some(size) = blob.size {
-        headers.insert(header::CONTENT_LENGTH, size.to_string().parse().unwrap());
-    }
+    let size = file_size.unwrap_or(data.len() as u64);
+    headers.insert(header::CONTENT_LENGTH, size.to_string().parse().unwrap());
+
+    // Add range support headers
+    headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
 
     // Add cache control headers
     headers.insert(
@@ -147,7 +322,14 @@ pub async fn get_blob(
         "nosniff".parse().unwrap(),
     );
 
-    // Optional: Add filename for downloads
+    // Add filename if available
+    add_filename_header(&mut headers, blob);
+
+    (StatusCode::OK, headers, data).into_response()
+}
+
+/// Add filename header if available in metadata
+fn add_filename_header(headers: &mut HeaderMap, blob: &grimoire::media::MediaBlob) {
     if let Ok(meta_obj) =
         serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(blob.metadata.clone())
     {
@@ -160,18 +342,6 @@ pub async fn get_blob(
             }
         }
     }
-
-    // Log successful access
-    tracing::info!(
-        blob_id = %id,
-        user_id = %user.0.id,
-        size_bytes = ?blob.size,
-        content_type = %content_type,
-        "Blob access granted"
-    );
-
-    // Return response with blob data
-    Ok((StatusCode::OK, headers, data).into_response())
 }
 
 /// Get blob metadata without the actual data
