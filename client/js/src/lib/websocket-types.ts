@@ -69,7 +69,7 @@ export const MediaBlobSchema = z.object({
   id: ShortHashSchema,
   data: z.array(z.number()).optional(), // Vec<u8> as number array, often omitted
   sha256: z.string(),
-  size: z.number().int().optional(),
+  size: z.number().int().nullish(),
   mime: z.string().optional(),
   source_client_id: z.string().optional(),
   local_path: z.string().nullish(),
@@ -92,7 +92,7 @@ export type MediaBlob = z.infer<typeof MediaBlobSchema>;
 export const CreateMediaBlobSchema = z.object({
   data: z.array(z.number()).optional(), // Vec<u8> as number array, often omitted
   sha256: z.string(),
-  size: z.number().int().optional(),
+  size: z.number().int().nullish(),
   mime: z.string().optional(),
   source_client_id: z.string().optional(),
   local_path: z.string().nullish(),
