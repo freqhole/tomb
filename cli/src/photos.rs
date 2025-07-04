@@ -13,6 +13,7 @@ use grimoire::{
 };
 use std::path::PathBuf;
 use tracing::{error, info};
+use uuid::Uuid;
 
 #[derive(Subcommand, Clone)]
 pub enum PhotoCommands {
@@ -305,7 +306,7 @@ impl PhotoCommands {
         }
 
         // Create session ID for tracking
-        let session_id = uuid::Uuid::new_v4();
+        let session_id = Uuid::new_v4();
         println!("📋 Session ID: {}", session_id);
 
         // Process and store each photo in the database
@@ -641,7 +642,7 @@ impl GalleryCommands {
 
     async fn handle_list(
         &self,
-        _db: &DatabaseConnection,
+        db: &DatabaseConnection,
         public: bool,
         verbose: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -656,8 +657,71 @@ impl GalleryCommands {
         }
 
         println!();
-        println!("⚠️  Gallery listing not yet implemented");
-        println!("💡 This would query the galleries table");
+
+        // Create photo service for database operations
+        let photo_service = PhotoService::new(db.pool().clone());
+
+        // Get galleries (limit to 100 for now)
+        match photo_service.list_galleries(100).await {
+            Ok(galleries) => {
+                if galleries.is_empty() {
+                    println!("📭 No galleries found");
+                    return Ok(());
+                }
+
+                // Filter by public if requested
+                let filtered_galleries: Vec<_> = if public {
+                    galleries
+                        .into_iter()
+                        .filter(|g| g.is_public.unwrap_or(false))
+                        .collect()
+                } else {
+                    galleries
+                };
+
+                if filtered_galleries.is_empty() {
+                    if public {
+                        println!("📭 No public galleries found");
+                    } else {
+                        println!("📭 No galleries found");
+                    }
+                    return Ok(());
+                }
+
+                println!("📁 Found {} galleries:", filtered_galleries.len());
+                println!();
+
+                for gallery in &filtered_galleries {
+                    println!("📁 {}", gallery.title);
+                    println!("   ID: {}", gallery.id);
+
+                    if let Some(desc) = &gallery.description {
+                        println!("   📝 {}", desc);
+                    }
+
+                    if verbose {
+                        println!("   🌍 Public: {}", gallery.is_public.unwrap_or(false));
+                        println!(
+                            "   👥 Collaborative: {}",
+                            gallery.is_collaborative.unwrap_or(false)
+                        );
+                        println!("   📅 Created: {}", gallery.created_at.date());
+
+                        if let Some(client_id) = &gallery.client_id {
+                            println!("   🔧 Client: {}", client_id);
+                        }
+                    }
+
+                    println!();
+                }
+
+                println!("💡 Use 'galleries show <gallery-id>' to see photos in a gallery");
+            }
+            Err(e) => {
+                error!("❌ Failed to list galleries: {}", e);
+                return Err(e.into());
+            }
+        }
 
         Ok(())
     }
@@ -734,7 +798,7 @@ impl GalleryCommands {
 
     async fn handle_show(
         &self,
-        _db: &DatabaseConnection,
+        db: &DatabaseConnection,
         gallery: &str,
         verbose: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -746,8 +810,107 @@ impl GalleryCommands {
         }
 
         println!();
-        println!("⚠️  Gallery details not yet implemented");
-        println!("💡 This would query the galleries and photo_galleries tables");
+
+        // Create photo service for database operations
+        let photo_service = PhotoService::new(db.pool().clone());
+
+        // Resolve gallery ID (supports UUID or name matching)
+        let gallery_id = self.resolve_gallery_id(&photo_service, gallery).await?;
+
+        // Get gallery details
+        match photo_service.get_gallery(gallery_id).await {
+            Ok(gallery_info) => {
+                println!("📁 Gallery: {}", gallery_info.title);
+                println!("🆔 ID: {}", gallery_info.id);
+
+                if let Some(desc) = &gallery_info.description {
+                    println!("📝 Description: {}", desc);
+                }
+
+                println!("🌍 Public: {}", gallery_info.is_public.unwrap_or(false));
+                println!(
+                    "👥 Collaborative: {}",
+                    gallery_info.is_collaborative.unwrap_or(false)
+                );
+                println!("📅 Created: {}", gallery_info.created_at.date());
+
+                if verbose {
+                    if let Some(client_id) = &gallery_info.client_id {
+                        println!("🔧 Client: {}", client_id);
+                    }
+                    println!("🔄 Updated: {}", gallery_info.updated_at.date());
+                    println!("📋 Version: {}", gallery_info.version);
+                }
+
+                println!();
+
+                // Get photos in this gallery
+                match photo_service.get_gallery_photos(gallery_id, 100).await {
+                    Ok(photos) => {
+                        if photos.is_empty() {
+                            println!("📭 No photos in this gallery");
+                            println!(
+                                "💡 Add photos with: cli photos galleries add {} <photo-id>",
+                                gallery_id
+                            );
+                        } else {
+                            println!("📸 Photos in gallery ({}):", photos.len());
+                            println!();
+
+                            for (index, photo) in photos.iter().enumerate() {
+                                println!(
+                                    "{}. 📸 {}",
+                                    index + 1,
+                                    photo.title.as_ref().unwrap_or(&"Untitled".to_string())
+                                );
+                                println!("   🆔 ID: {}", photo.id);
+
+                                if let Some(caption) = &photo.caption {
+                                    println!("   📝 {}", caption);
+                                }
+
+                                if let Some(location) = &photo.location {
+                                    println!("   📍 {}", location);
+                                }
+
+                                if verbose {
+                                    println!(
+                                        "   📅 Taken: {}",
+                                        photo
+                                            .taken_at
+                                            .map(|t| t.date())
+                                            .unwrap_or_else(|| photo.created_at.date())
+                                    );
+                                    if photo.is_favorite.unwrap_or(false) {
+                                        println!("   ⭐ Favorite");
+                                    }
+                                    if let Some(ref tags) = photo.tags {
+                                        if !tags.is_empty() {
+                                            println!("   🏷️  Tags: {}", tags.join(", "));
+                                        }
+                                    }
+                                }
+
+                                println!();
+                            }
+
+                            println!(
+                                "💡 Use 'photos info <photo-id>' for detailed photo information"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!("❌ Failed to get gallery photos: {}", e);
+                        return Err(e.into());
+                    }
+                }
+            }
+            Err(e) => {
+                error!("❌ Failed to get gallery: {}", e);
+                println!("💡 Use 'galleries list' to see available galleries");
+                return Err(e.into());
+            }
+        }
 
         Ok(())
     }
@@ -762,22 +925,20 @@ impl GalleryCommands {
         println!("📁 Gallery: {}", gallery);
         println!("📸 Photos to add: {}", photos.len());
 
-        // Parse gallery ID
-        let gallery_id = gallery
-            .parse::<uuid::Uuid>()
-            .map_err(|_| format!("Invalid gallery ID: {}", gallery))?;
+        // Create photo service
+        let photo_service = PhotoService::new(db.pool().clone());
+
+        // Resolve gallery ID (supports UUID or name matching)
+        let gallery_id = self.resolve_gallery_id(&photo_service, gallery).await?;
 
         // Parse photo IDs
         let mut photo_ids = Vec::new();
         for photo_str in photos {
             let photo_id = photo_str
-                .parse::<uuid::Uuid>()
+                .parse::<Uuid>()
                 .map_err(|_| format!("Invalid photo ID: {}", photo_str))?;
             photo_ids.push(photo_id);
         }
-
-        // Create photo service
-        let photo_service = PhotoService::new(db.pool().clone());
 
         // Add photos to gallery
         match photo_service
@@ -804,39 +965,182 @@ impl GalleryCommands {
         Ok(())
     }
 
+    /// Resolve gallery identifier to UUID - supports UUID or name matching
+    async fn resolve_gallery_id(
+        &self,
+        photo_service: &PhotoService,
+        gallery_identifier: &str,
+    ) -> Result<Uuid, Box<dyn std::error::Error>> {
+        // Try to parse as UUID first
+        if let Ok(uuid) = gallery_identifier.parse::<Uuid>() {
+            return Ok(uuid);
+        }
+
+        // Search by name (case-insensitive partial match)
+        let matching_galleries = photo_service
+            .find_galleries_by_title(gallery_identifier)
+            .await?;
+
+        match matching_galleries.len() {
+            0 => {
+                error!("❌ No galleries found matching '{}'", gallery_identifier);
+                println!("💡 Use 'galleries list' to see available galleries");
+                Err(format!("No galleries found matching '{}'", gallery_identifier).into())
+            }
+            1 => {
+                let gallery = &matching_galleries[0];
+                println!("🔍 Found gallery: {} ({})", gallery.title, gallery.id);
+                Ok(gallery.id)
+            }
+            _ => {
+                error!("❌ Multiple galleries match '{}':", gallery_identifier);
+                for gallery in &matching_galleries {
+                    println!("   📁 {} ({})", gallery.title, gallery.id);
+                }
+                println!("💡 Use a more specific name or the exact UUID");
+                Err(format!(
+                    "Multiple galleries match '{}'. Use a more specific name or UUID",
+                    gallery_identifier
+                )
+                .into())
+            }
+        }
+    }
+
     async fn handle_remove(
         &self,
-        _db: &DatabaseConnection,
+        db: &DatabaseConnection,
         gallery: &str,
         photos: &[String],
     ) -> Result<(), Box<dyn std::error::Error>> {
         println!("➖ Removing photos from gallery...");
         println!("📁 Gallery: {}", gallery);
-        println!("📸 Photos: {:?}", photos);
+        println!("📸 Photos to remove: {}", photos.len());
+
+        // Create photo service
+        let photo_service = PhotoService::new(db.pool().clone());
+
+        // Resolve gallery ID
+        let gallery_id = self.resolve_gallery_id(&photo_service, gallery).await?;
+
+        // Parse photo IDs
+        let mut photo_ids = Vec::new();
+        for photo_str in photos {
+            let photo_id = photo_str
+                .parse::<Uuid>()
+                .map_err(|_| format!("Invalid photo ID: {}", photo_str))?;
+            photo_ids.push(photo_id);
+        }
 
         println!();
-        println!("⚠️  Gallery photo removal not yet implemented");
-        println!("💡 This would remove from the photo_galleries table");
+
+        // Remove photos from gallery
+        match photo_service
+            .remove_photos_from_gallery(gallery_id, &photo_ids)
+            .await
+        {
+            Ok(_) => {
+                println!(
+                    "✅ Successfully removed {} photos from gallery",
+                    photo_ids.len()
+                );
+                for photo_id in &photo_ids {
+                    println!("   ➖ Removed photo: {}", photo_id);
+                }
+                println!();
+                println!(
+                    "💡 Use 'galleries show {}' to see updated gallery",
+                    gallery_id
+                );
+            }
+            Err(e) => {
+                error!("❌ Failed to remove photos from gallery: {}", e);
+                return Err(e.into());
+            }
+        }
 
         Ok(())
     }
 
     async fn handle_delete(
         &self,
-        _db: &DatabaseConnection,
+        db: &DatabaseConnection,
         gallery: &str,
         force: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         println!("🗑️  Deleting gallery...");
         println!("📁 Gallery: {}", gallery);
 
-        if force {
+        // Create photo service
+        let photo_service = PhotoService::new(db.pool().clone());
+
+        // Resolve gallery ID
+        let gallery_id = self.resolve_gallery_id(&photo_service, gallery).await?;
+
+        // Get gallery details for confirmation
+        let gallery_info = match photo_service.get_gallery(gallery_id).await {
+            Ok(gallery) => gallery,
+            Err(e) => {
+                error!("❌ Failed to get gallery details: {}", e);
+                return Err(e.into());
+            }
+        };
+
+        println!();
+        println!("📁 Gallery to delete: {}", gallery_info.title);
+        println!("🆔 ID: {}", gallery_info.id);
+        if let Some(desc) = &gallery_info.description {
+            println!("📝 Description: {}", desc);
+        }
+
+        // Check if gallery has photos
+        let photos = photo_service.get_gallery_photos(gallery_id, 1).await?;
+        if !photos.is_empty() {
+            println!(
+                "⚠️  Gallery contains photos - they will NOT be deleted (only gallery removed)"
+            );
+        }
+
+        // Confirmation unless force is used
+        if !force {
+            println!();
+            println!("⚠️  Are you sure you want to delete this gallery? (y/N)");
+            println!("💡 Use --force to skip this confirmation");
+
+            use std::io::{self, Write};
+            print!("Delete gallery? ");
+            io::stdout().flush()?;
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+
+            let input = input.trim().to_lowercase();
+            if input != "y" && input != "yes" {
+                println!("❌ Gallery deletion cancelled");
+                return Ok(());
+            }
+        } else {
             println!("⚠️  Force delete enabled (no confirmation)");
         }
 
         println!();
-        println!("⚠️  Gallery deletion not yet implemented");
-        println!("💡 This would update the galleries table (soft delete)");
+
+        // Delete gallery
+        match photo_service.delete_gallery(gallery_id).await {
+            Ok(_) => {
+                println!("✅ Gallery deleted successfully!");
+                println!("📁 Deleted: {}", gallery_info.title);
+                println!("🆔 ID: {}", gallery_info.id);
+                println!();
+                println!(
+                    "💡 Photos in this gallery were not deleted - only the gallery was removed"
+                );
+            }
+            Err(e) => {
+                error!("❌ Failed to delete gallery: {}", e);
+                return Err(e.into());
+            }
+        }
 
         Ok(())
     }

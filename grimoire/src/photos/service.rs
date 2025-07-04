@@ -179,6 +179,18 @@ impl PhotoService {
         Ok(())
     }
 
+    /// List galleries
+    pub async fn list_galleries(&self, limit: i64) -> Result<Vec<Gallery>> {
+        let galleries = self.repository.list_galleries(limit).await?;
+        Ok(galleries)
+    }
+
+    /// Get a gallery by ID
+    pub async fn get_gallery(&self, id: Uuid) -> Result<Gallery> {
+        let gallery = self.repository.get_gallery(id).await?;
+        Ok(gallery)
+    }
+
     /// Get photos in a gallery
     pub async fn get_gallery_photos(&self, gallery_id: Uuid, limit: i64) -> Result<Vec<Photo>> {
         let photos = self
@@ -186,6 +198,21 @@ impl PhotoService {
             .get_gallery_photos(gallery_id, limit)
             .await?;
         Ok(photos)
+    }
+
+    /// Find galleries by title (case-insensitive partial match)
+    pub async fn find_galleries_by_title(&self, title_pattern: &str) -> Result<Vec<Gallery>> {
+        let galleries = self
+            .repository
+            .find_galleries_by_title(title_pattern)
+            .await?;
+        Ok(galleries)
+    }
+
+    /// Delete gallery (soft delete)
+    pub async fn delete_gallery(&self, gallery_id: Uuid) -> Result<()> {
+        self.repository.delete_gallery(gallery_id).await?;
+        Ok(())
     }
 
     /// Get photo statistics

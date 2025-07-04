@@ -384,6 +384,36 @@ impl PhotoRepository {
         Ok(galleries)
     }
 
+    /// Find galleries by title (case-insensitive partial match)
+    pub async fn find_galleries_by_title(&self, title_pattern: &str) -> Result<Vec<Gallery>> {
+        let pattern = format!("%{}%", title_pattern.to_lowercase());
+        let galleries = sqlx::query_as!(
+            Gallery,
+            "SELECT * FROM galleries WHERE deleted_at IS NULL AND LOWER(title) LIKE $1 ORDER BY created_at DESC",
+            pattern
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(galleries)
+    }
+
+    /// Delete gallery (soft delete)
+    pub async fn delete_gallery(&self, gallery_id: Uuid) -> Result<()> {
+        let result = sqlx::query!(
+            "UPDATE galleries SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
+            gallery_id
+        )
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(PhotoRepositoryError::GalleryNotFound(gallery_id));
+        }
+
+        Ok(())
+    }
+
     // Photo-Gallery operations
 
     /// Add photo to gallery
