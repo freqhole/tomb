@@ -635,6 +635,62 @@ export function PopupPreview() {
                           </span>
                         </div>
                       </Show>
+
+                      <Show when={item().metadata}>
+                        <For
+                          each={(() => {
+                            const flatten = (
+                              obj: any,
+                              prefix = ""
+                            ): [string, any][] => {
+                              return Object.entries(obj).flatMap(
+                                ([key, val]) => {
+                                  const newKey = prefix
+                                    ? `${prefix}.${key}`
+                                    : key;
+
+                                  // Skip specific problematic keys or large values
+                                  if (
+                                    key === "thumbnails" ||
+                                    (typeof val === "string" &&
+                                      val.length > 500) ||
+                                    (typeof val === "string" &&
+                                      val.startsWith("data:image/"))
+                                  ) {
+                                    return [];
+                                  }
+
+                                  return typeof val === "object" &&
+                                    val !== null &&
+                                    !Array.isArray(val)
+                                    ? flatten(val, newKey)
+                                    : [
+                                        [
+                                          newKey,
+                                          Array.isArray(val)
+                                            ? JSON.stringify(val)
+                                            : String(val),
+                                        ],
+                                      ];
+                                }
+                              );
+                            };
+                            return flatten(item().metadata);
+                          })()}
+                        >
+                          {([key, val]) => (
+                            <div
+                              class="popup-meta-row"
+                              style="display: flex; justify-content: space-between;"
+                            >
+                              <span style="font-weight: 600;">{key}</span>
+                              <span style="font-family: monospace; font-size: 11px; color: #888; word-break: break-all; max-width: 60%; text-align: right;">
+                                {val}
+                              </span>
+                            </div>
+                          )}
+                        </For>
+                      </Show>
                     </div>
                   </div>
                 </>
