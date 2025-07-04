@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT s.id, mb.local_path\n            FROM songs s\n            JOIN media_blobs mb ON s.media_blob_id = mb.id\n            WHERE mb.local_path = ANY($1)\n            AND s.thumbnail_blob_id IS NULL\n            AND s.deleted_at IS NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "local_path",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "51bf9b774b667dd8569e1ab4dacc7edd1b9c5860cdc054f8baf9fadbb95f8415"
+}
