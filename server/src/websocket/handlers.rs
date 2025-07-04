@@ -392,7 +392,7 @@ async fn handle_message(
             );
         }
         _ => {
-            info!("Processing WebSocket message: {:?}", message);
+            debug!("Processing WebSocket message: {:?}", message);
         }
     }
 
@@ -660,7 +660,7 @@ async fn handle_message(
             ))
         }
         WebSocketMessage::GetThumbnails { media_blob_id } => {
-            info!(
+            debug!(
                 "GetThumbnails request for blob ID: {} from user: {:?}",
                 media_blob_id, user_id
             );
@@ -672,7 +672,7 @@ async fn handle_message(
                 .await
             {
                 Ok(thumbnail_infos) => {
-                    info!(
+                    debug!(
                         "Found {} thumbnails for blob {}",
                         thumbnail_infos.len(),
                         media_blob_id

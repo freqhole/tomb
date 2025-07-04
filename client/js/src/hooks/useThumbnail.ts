@@ -69,9 +69,27 @@ export function useThumbnail(props: UseThumbnailProps): ThumbnailState {
   const [imageError, setImageError] = createSignal(false);
   const [autoRequested, setAutoRequested] = createSignal(false);
 
-  // Extract thumbnails from metadata using the proven pattern
+  // Extract thumbnails from metadata with smart prioritization
   const thumbnails = createMemo(() => {
-    return (props.item.metadata?.thumbnails as MediaBlob[]) || [];
+    const thumbs = (props.item.metadata?.thumbnails as MediaBlob[]) || [];
+
+    // Sort by priority: album art → waveforms → other types
+    const sorted = thumbs.sort((a, b) => {
+      const getPriority = (thumb: MediaBlob) => {
+        switch (thumb.blob_type) {
+          case "thumbnail":
+            return 1; // Embedded album art (highest priority)
+          case "waveform":
+            return 2; // Waveform visualization (fallback)
+          default:
+            return 3; // Other types (lowest priority)
+        }
+      };
+
+      return getPriority(a) - getPriority(b);
+    });
+
+    return sorted;
   });
 
   const hasThumbnails = createMemo(() => {

@@ -117,6 +117,7 @@ export const SongSchema = z.object({
   media_blob_id: ShortHashSchema,
   thumbnail_blob_id: ShortHashSchema.nullish(),
   waveform_blob_id: ShortHashSchema.nullish(),
+  thumbnail_blob_ids: z.array(ShortHashSchema).default([]),
   title: z.string(),
   artist: z.string().nullish(),
   album: z.string().nullish(),

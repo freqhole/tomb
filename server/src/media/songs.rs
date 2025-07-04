@@ -16,6 +16,7 @@ use grimoire::music::{
 use grimoire::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use time::format_description::well_known::Rfc3339;
 use uuid::Uuid;
 
 use crate::error::WebauthnError;
@@ -48,6 +49,9 @@ pub struct SongResponse {
     pub display_title: String,
     pub detailed_display_title: String,
     pub created_at: String,
+    pub thumbnail_blob_id: Option<String>,
+    pub waveform_blob_id: Option<String>,
+    pub thumbnail_blob_ids: Vec<String>,
 }
 
 impl From<Song> for SongResponse {
@@ -58,9 +62,9 @@ impl From<Song> for SongResponse {
 
         Self {
             id: song.id,
-            title: song.title.clone(),
-            artist: song.artist.clone(),
-            album: song.album.clone(),
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
             album_artist: song.album_artist,
             track_number: song.track_number,
             disc_number: song.disc_number,
@@ -74,7 +78,13 @@ impl From<Song> for SongResponse {
             tags: song.tags,
             display_title,
             detailed_display_title,
-            created_at: song.created_at.to_string(),
+            created_at: song
+                .created_at
+                .format(&Rfc3339)
+                .unwrap_or_else(|_| song.created_at.to_string()),
+            thumbnail_blob_id: song.thumbnail_blob_id,
+            waveform_blob_id: song.waveform_blob_id,
+            thumbnail_blob_ids: song.thumbnail_blob_ids.unwrap_or_default(),
         }
     }
 }
@@ -135,6 +145,7 @@ pub struct SongQueryParams {
     pub title_search: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub media_blob_id: Option<String>,
 }
 
 impl From<SongQueryParams> for SongQuery {
@@ -150,7 +161,9 @@ impl From<SongQueryParams> for SongQuery {
             tags: None,
             limit: params.limit,
             offset: params.offset,
-            ..Default::default()
+            created_after: None,
+            updated_after: None,
+            media_blob_id: params.media_blob_id,
         }
     }
 }

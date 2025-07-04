@@ -119,6 +119,11 @@ impl MusicRepository {
             sql.push_str(&format!(" AND tags && ${}", bind_count));
         }
 
+        if query.media_blob_id.is_some() {
+            bind_count += 1;
+            sql.push_str(&format!(" AND media_blob_id = ${}", bind_count));
+        }
+
         if query.created_after.is_some() {
             bind_count += 1;
             sql.push_str(&format!(" AND created_at > ${}", bind_count));
@@ -163,6 +168,9 @@ impl MusicRepository {
         }
         if let Some(ref tags) = query.tags {
             query_builder = query_builder.bind(tags);
+        }
+        if let Some(ref media_blob_id) = query.media_blob_id {
+            query_builder = query_builder.bind(media_blob_id);
         }
         if let Some(created_after) = query.created_after {
             query_builder = query_builder.bind(created_after);
@@ -560,6 +568,7 @@ impl MusicRepository {
                 media_blob_id: row.get("media_blob_id"),
                 thumbnail_blob_id: row.get("thumbnail_blob_id"),
                 waveform_blob_id: row.get("waveform_blob_id"),
+                thumbnail_blob_ids: row.get("thumbnail_blob_ids"),
                 title: row.get("title"),
                 artist: row.get("artist"),
                 album: row.get("album"),
@@ -1051,6 +1060,52 @@ impl MusicRepository {
         .await?;
 
         Ok(song_id)
+    }
+
+    /// Update thumbnail_blob_ids array for a song (used for directory album art)
+    pub async fn update_song_thumbnail_blob_ids(
+        &self,
+        song_id: Uuid,
+        thumbnail_blob_ids: &[String],
+    ) -> Result<()> {
+        sqlx::query!(
+            r#"
+            UPDATE songs
+            SET thumbnail_blob_ids = $2, updated_at = NOW()
+            WHERE id = $1
+            "#,
+            song_id,
+            thumbnail_blob_ids
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Get songs in a directory that are missing thumbnails
+    pub async fn get_songs_without_thumbnails_by_paths(
+        &self,
+        file_paths: &[String],
+    ) -> Result<Vec<(Uuid, String)>> {
+        let songs = sqlx::query!(
+            r#"
+            SELECT s.id, mb.local_path
+            FROM songs s
+            JOIN media_blobs mb ON s.media_blob_id = mb.id
+            WHERE mb.local_path = ANY($1)
+            AND s.thumbnail_blob_id IS NULL
+            AND s.deleted_at IS NULL
+            "#,
+            file_paths
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(songs
+            .into_iter()
+            .map(|row| (row.id, row.local_path.unwrap_or_default()))
+            .collect())
     }
 
     /// Safely reorder playlist using the SQL function that handles triggers

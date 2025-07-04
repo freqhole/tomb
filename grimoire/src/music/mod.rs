@@ -49,6 +49,7 @@
 //! let audio_files = scanner.scan_directory("/music/library").await?;
 //! ```
 
+pub mod directory_art;
 pub mod hasher;
 pub mod jobs;
 pub mod metadata;
@@ -62,6 +63,10 @@ pub mod title_builder;
 pub mod waveform;
 
 // Re-export main types for convenience
+pub use directory_art::{
+    extract_basic_metadata, AudioFileMetadata, DirectoryArtConfig, DirectoryArtDetector,
+    DirectoryArtError, DirectoryContext, DirectoryImage,
+};
 pub use hasher::{hash_bytes, hash_file, FileHasher};
 pub use jobs::{
     JobParameters, JobPriority, JobResult, JobStatus, MusicJob, MusicJobHealth, MusicJobType,

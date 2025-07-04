@@ -10,6 +10,7 @@ use clap::Subcommand;
 use colored::*;
 use console::measure_text_width;
 use grimoire::media::{CreateMediaBlob, MediaBlobRepository, MediaTypeDetector};
+use grimoire::music::{extract_basic_metadata, DirectoryArtDetector, DirectoryContext};
 use grimoire::music::{extract_metadata, extract_thumbnail, hash_bytes, hash_file, TitleBuilder};
 use grimoire::music::{ConsoleScanProgress, MusicService, ScanConfig, ScanProgress, ScannerConfig};
 use grimoire::music::{CreatePlaylist, MusicRepository, PlaylistQuery, PlaylistService, SongQuery};
@@ -21,8 +22,9 @@ use inquire::{
     Select, Text,
 };
 use sqlx::Row;
+use std::collections::HashMap;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use time;
@@ -330,8 +332,25 @@ pub enum MusicCommands {
         /// Batch size for processing
         #[arg(long, default_value = "50")]
         batch_size: u32,
-
-        /// Force regeneration of existing waveforms
+        /// Force regeneration even if waveforms already exist
+        #[arg(long)]
+        force: bool,
+    },
+    /// Generate directory album art for songs missing thumbnails
+    GenerateDirectoryArt {
+        /// Maximum number of songs to process
+        #[arg(long, default_value = "100")]
+        limit: u32,
+        /// Force regeneration even if thumbnails already exist
+        #[arg(long)]
+        force: bool,
+    },
+    /// Backfill directory album art for all songs in batches
+    BackfillDirectoryArt {
+        /// Batch size for processing
+        #[arg(long, default_value = "50")]
+        batch_size: u32,
+        /// Force regeneration even if thumbnails already exist
         #[arg(long)]
         force: bool,
     },
@@ -506,6 +525,16 @@ impl MusicCommands {
                 self.handle_backfill_waveforms(&service, *batch_size, *force)
                     .await
             }
+            Self::GenerateDirectoryArt { limit, force } => {
+                let _ = self
+                    .handle_generate_directory_art(&service, *limit, *force)
+                    .await?;
+                Ok(())
+            }
+            Self::BackfillDirectoryArt { batch_size, force } => {
+                self.handle_backfill_directory_art(&service, *batch_size, *force)
+                    .await
+            }
         }
     }
 
@@ -590,53 +619,110 @@ impl MusicCommands {
 
         let files_iter = scanner.scan_with_resume(&path, None::<&PathBuf>)?;
 
+        // Group files by directory for album art detection
+        let mut directory_groups: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+        let mut all_files = Vec::new();
+
         for entry in files_iter {
+            let file_path = entry.path().to_path_buf();
+            all_files.push(file_path.clone());
+
+            if let Some(parent) = file_path.parent() {
+                directory_groups
+                    .entry(parent.to_path_buf())
+                    .or_insert_with(Vec::new)
+                    .push(file_path);
+            }
+        }
+
+        println!(
+            "📁 Found {} directories with audio files",
+            directory_groups.len()
+        );
+
+        // Process files by directory
+        for (dir_path, files_in_dir) in directory_groups {
             // Check for shutdown signal
             if shutdown.load(Ordering::Relaxed) {
                 println!("💾 Saving progress and pausing scan...");
                 break;
             }
 
-            let file_path = entry.path();
-            processed_count += 1;
-            last_processed_path = Some(file_path.to_string_lossy().to_string());
+            println!("📂 Processing directory: {}", dir_path.display());
 
-            // Update progress
-            progress.on_file_processed(file_path, processed_count);
+            // Process individual files first
+            let mut song_ids_in_dir = Vec::new();
 
-            // Process the audio file
-            match self
-                .process_audio_file(
-                    &service,
-                    file_path,
-                    session_id,
-                    max_size_mb.map(|mb| mb * 1024 * 1024),
-                )
-                .await
-            {
-                Ok(_) => {
-                    // File processed successfully - count as added
-                    songs_added_total += 1;
+            for file_path in &files_in_dir {
+                // Check for shutdown signal
+                if shutdown.load(Ordering::Relaxed) {
+                    println!("💾 Saving progress and pausing scan...");
+                    break;
                 }
-                Err(e) => {
-                    eprintln!("Error processing {}: {}", file_path.display(), e);
-                    errors_total += 1;
+
+                processed_count += 1;
+                last_processed_path = Some(file_path.to_string_lossy().to_string());
+
+                // Update progress
+                progress.on_file_processed(file_path, processed_count);
+
+                // Process the audio file
+                match self
+                    .process_audio_file(
+                        &service,
+                        file_path,
+                        session_id,
+                        max_size_mb.map(|mb| mb * 1024 * 1024),
+                    )
+                    .await
+                {
+                    Ok(song_id) => {
+                        song_ids_in_dir.push(song_id);
+                        songs_added_total += 1;
+                    }
+                    Err(e) => {
+                        eprintln!("Error processing {}: {}", file_path.display(), e);
+                        errors_total += 1;
+                    }
+                }
+
+                // Update database progress every batch
+                if processed_count % batch_size == 0 {
+                    service
+                        .update_progress(
+                            session_id,
+                            processed_count as i32,
+                            last_processed_path.clone(),
+                            songs_added_total,
+                            songs_updated_total,
+                            songs_skipped_total,
+                            errors_total,
+                        )
+                        .await?;
                 }
             }
 
-            // Update database progress every batch
-            if processed_count % batch_size == 0 {
-                service
-                    .update_progress(
-                        session_id,
-                        processed_count as i32,
-                        last_processed_path.clone(),
-                        songs_added_total,
-                        songs_updated_total,
-                        songs_skipped_total,
-                        errors_total,
-                    )
-                    .await?;
+            // After processing all files in directory, look for directory album art
+            if !song_ids_in_dir.is_empty() {
+                match self
+                    .process_directory_album_art(&service, &dir_path, &files_in_dir)
+                    .await
+                {
+                    Ok(applied_count) => {
+                        if applied_count > 0 {
+                            println!(
+                                "  🖼️  Applied directory album art to {} songs",
+                                applied_count
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        println!(
+                            "  ⚠️  Warning: Failed to process directory album art: {}",
+                            e
+                        );
+                    }
+                }
             }
         }
 
@@ -929,7 +1015,7 @@ impl MusicCommands {
         file_path: &std::path::Path,
         _session_id: Uuid,
         max_size_bytes: Option<u64>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<Uuid, Box<dyn std::error::Error>> {
         // Check file size if limit is set
         if let Some(max_bytes) = max_size_bytes {
             let metadata = std::fs::metadata(file_path)?;
@@ -1145,7 +1231,7 @@ impl MusicCommands {
             waveform_info
         );
 
-        Ok(())
+        Ok(song_id)
     }
 
     /// Handle listing songs command
@@ -3263,7 +3349,7 @@ impl MusicCommands {
         let png_data = tokio::fs::read(&temp_png_path).await?;
 
         // Convert PNG to WebP for smaller size
-        let webp_data = self.convert_png_to_webp(&png_data)?;
+        let webp_data = self.convert_image_to_webp(&png_data)?;
 
         // Create a media blob for the waveform (stored in database)
         let waveform_hash = hash_bytes(&webp_data);
@@ -3307,13 +3393,16 @@ impl MusicCommands {
         }
     }
 
-    fn convert_png_to_webp(&self, png_data: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        // For now, we'll use the image crate to convert PNG to WebP
-        // This requires adding image and webp dependencies
+    fn convert_image_to_webp(
+        &self,
+        image_data: &[u8],
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        // Convert any image format to WebP using the image crate
+        // Supports JPEG, PNG, GIF, BMP, WebP, etc.
         use image::ImageFormat;
         use std::io::Cursor;
 
-        let img = image::load_from_memory(png_data)?;
+        let img = image::load_from_memory(image_data)?;
 
         let mut webp_data = Vec::new();
         let mut cursor = Cursor::new(&mut webp_data);
@@ -3492,6 +3581,427 @@ impl MusicCommands {
         println!("\n📊 Backfill Complete:");
         println!("   📦 Total batches processed: {}", offset / batch_size + 1);
         println!("   🌊 Total waveforms generated: {}", total_generated);
+        println!("   ❌ Total errors: {}", total_errors);
+
+        Ok(())
+    }
+
+    /// Process directory album art for songs that don't have embedded thumbnails
+    async fn process_directory_album_art(
+        &self,
+        music_service: &MusicService<'_>,
+        directory: &Path,
+        audio_files: &[PathBuf],
+    ) -> Result<usize, Box<dyn std::error::Error>> {
+        // Create directory art detector
+        let detector = DirectoryArtDetector::new();
+
+        // Extract basic metadata from audio files for album detection
+        let mut metadata = Vec::new();
+        for file_path in audio_files {
+            match extract_basic_metadata(file_path).await {
+                Ok(meta) => metadata.push(meta),
+                Err(e) => {
+                    println!(
+                        "  ⚠️  Could not extract metadata from {}: {}",
+                        file_path.display(),
+                        e
+                    );
+                    // Continue with what we have
+                }
+            }
+        }
+
+        // Create directory context
+        let context = DirectoryContext {
+            path: directory.to_path_buf(),
+            audio_files: audio_files.to_vec(),
+            metadata,
+        };
+
+        // Check if this directory looks like an album
+        if !detector.is_likely_album(&context) {
+            println!(
+                "  📁 Directory doesn't appear to be an album, skipping directory art detection"
+            );
+            return Ok(0);
+        }
+
+        println!("  📀 Directory appears to be an album, looking for directory art...");
+
+        // Find potential album art images
+        let mut images = match detector.find_directory_images(directory).await {
+            Ok(images) => images,
+            Err(e) => {
+                println!("  ⚠️  Could not scan for images: {}", e);
+                return Ok(0);
+            }
+        };
+
+        if images.is_empty() {
+            println!("  📷 No suitable images found in directory");
+            return Ok(0);
+        }
+
+        println!("  🖼️  Found {} potential album art image(s)", images.len());
+
+        // Get repository instances
+        let media_repository = MediaBlobRepository::new(music_service.db().pool().clone());
+        let music_repository =
+            grimoire::music::MusicRepository::new(music_service.db().pool().clone());
+
+        // Find songs in this directory that don't have thumbnails
+        let file_paths: Vec<String> = audio_files
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+
+        let songs_without_thumbnails = music_repository
+            .get_songs_without_thumbnails_by_paths(&file_paths)
+            .await?;
+
+        if songs_without_thumbnails.is_empty() {
+            println!("  ✅ All songs in directory already have thumbnails");
+            return Ok(0);
+        }
+
+        println!(
+            "  📷 {} songs missing thumbnails",
+            songs_without_thumbnails.len()
+        );
+
+        // Get the first song's media blob ID to use as parent for directory art
+        let first_song_media_blob_id =
+            match sqlx::query_scalar::<_, String>("SELECT media_blob_id FROM songs WHERE id = $1")
+                .bind(songs_without_thumbnails[0].0)
+                .fetch_optional(music_service.db().pool())
+                .await
+            {
+                Ok(Some(id)) => id,
+                _ => {
+                    println!("  ⚠️  Could not find media blob ID for first song");
+                    return Ok(0);
+                }
+            };
+
+        // Create shared directory art blobs once
+        let mut created_blob_ids = Vec::new();
+
+        for image in &mut images {
+            // Load image data
+            if let Err(e) = detector.load_image_data(image).await {
+                println!("  ⚠️  Could not load image {}: {}", image.path.display(), e);
+                continue;
+            }
+
+            let image_data = image.data.as_ref().unwrap();
+
+            // Convert image to WebP format like existing thumbnail processing
+            let webp_data = match self.convert_image_to_webp(image_data) {
+                Ok(data) => data,
+                Err(e) => {
+                    println!("  ⚠️  Could not convert image to WebP: {}", e);
+                    // Fall back to original image data
+                    image_data.clone()
+                }
+            };
+
+            // Create directory art blob (will be shared across songs)
+            let thumbnail_hash = hash_bytes(&webp_data);
+
+            // Check if blob with this hash already exists
+            let existing_blob =
+                sqlx::query_scalar::<_, String>("SELECT id FROM media_blobs WHERE sha256 = $1")
+                    .bind(&thumbnail_hash)
+                    .fetch_optional(music_service.db().pool())
+                    .await;
+
+            let blob_id = match existing_blob {
+                Ok(Some(existing_id)) => {
+                    println!("  🔄 Using existing directory art blob: {}", existing_id);
+                    existing_id
+                }
+                _ => {
+                    // Create new shared blob with first song as parent
+                    let thumbnail_create_blob = CreateMediaBlob {
+                        data: Some(webp_data.clone()),
+                        sha256: thumbnail_hash.clone(),
+                        size: Some(webp_data.len() as i64),
+                        mime: Some("image/webp".to_string()),
+                        source_client_id: Some("music-cli-directory-art".to_string()),
+                        local_path: Some(image.path.to_string_lossy().to_string()),
+                        parent_blob_id: Some(first_song_media_blob_id.clone()),
+                        blob_type: Some("thumbnail".to_string()),
+                        metadata: serde_json::json!({
+                            "thumbnail_source": "directory_album_art",
+                            "source_directory": directory.to_string_lossy(),
+                            "source_filename": image.filename,
+                            "priority": image.priority,
+                            "converted_to_webp": true,
+                            "shared_directory_art": true
+                        }),
+                    };
+
+                    match media_repository.create(thumbnail_create_blob).await {
+                        Ok(thumbnail_blob) => {
+                            let blob_id = thumbnail_blob.id.clone();
+                            println!("  🖼️  Created shared directory art blob: {}", blob_id);
+                            blob_id
+                        }
+                        Err(e) => {
+                            println!("  ⚠️  Failed to create directory art blob: {}", e);
+                            continue;
+                        }
+                    }
+                }
+            };
+
+            created_blob_ids.push(blob_id);
+        }
+
+        if created_blob_ids.is_empty() {
+            println!("  ❌ No directory art blobs could be created");
+            return Ok(0);
+        }
+
+        // Apply directory art to all songs without thumbnails
+        let mut applied_count = 0;
+
+        for (song_id, _file_path) in songs_without_thumbnails {
+            // Update the primary thumbnail_blob_id if it's null
+            let primary_update_result = sqlx::query!(
+                "UPDATE songs SET thumbnail_blob_id = $2 WHERE id = $1 AND thumbnail_blob_id IS NULL",
+                song_id,
+                &created_blob_ids[0]
+            )
+            .execute(music_service.db().pool())
+            .await;
+
+            match primary_update_result {
+                Ok(result) => {
+                    if result.rows_affected() > 0 {
+                        println!("  ✅ Updated primary thumbnail for song {}", song_id);
+                    } else {
+                        println!("  ℹ️  Song {} already has primary thumbnail", song_id);
+                    }
+                }
+                Err(e) => {
+                    println!(
+                        "  ⚠️  Failed to update primary thumbnail for song {}: {}",
+                        song_id, e
+                    );
+                    continue;
+                }
+            }
+
+            // Update thumbnail_blob_ids array with all directory images
+            if let Err(e) = music_repository
+                .update_song_thumbnail_blob_ids(song_id, &created_blob_ids)
+                .await
+            {
+                println!(
+                    "  ⚠️  Failed to update thumbnail array for song {}: {}",
+                    song_id, e
+                );
+            } else {
+                applied_count += 1;
+                println!(
+                    "  📸 Applied {} directory images to song {}",
+                    created_blob_ids.len(),
+                    song_id
+                );
+            }
+        }
+
+        Ok(applied_count)
+    }
+
+    async fn handle_generate_directory_art(
+        &self,
+        service: &MusicService<'_>,
+        limit: u32,
+        force: bool,
+    ) -> Result<(u32, u32), Box<dyn std::error::Error>> {
+        println!("🖼️  Generating directory album art for songs...");
+
+        // Find songs without thumbnails (or all songs if force=true)
+        let query = if force {
+            "SELECT s.id, s.media_blob_id, s.title, s.artist, mb.local_path
+             FROM songs s
+             JOIN media_blobs mb ON s.media_blob_id = mb.id
+             WHERE s.deleted_at IS NULL
+             AND mb.local_path IS NOT NULL
+             ORDER BY s.created_at DESC
+             LIMIT $1"
+        } else {
+            "SELECT s.id, s.media_blob_id, s.title, s.artist, mb.local_path
+             FROM songs s
+             JOIN media_blobs mb ON s.media_blob_id = mb.id
+             WHERE s.deleted_at IS NULL
+             AND mb.local_path IS NOT NULL
+             AND s.thumbnail_blob_id IS NULL
+             ORDER BY s.created_at DESC
+             LIMIT $1"
+        };
+
+        let songs = sqlx::query(query)
+            .bind(limit as i64)
+            .fetch_all(service.db().pool())
+            .await?;
+
+        if songs.is_empty() {
+            if force {
+                println!("✅ No songs found to process");
+            } else {
+                println!("✅ No songs missing thumbnails found");
+            }
+            return Ok((0, 0));
+        }
+
+        println!("🔍 Found {} songs to process", songs.len());
+
+        // Group songs by directory
+        let mut directory_groups: HashMap<PathBuf, Vec<(Uuid, PathBuf)>> = HashMap::new();
+
+        for song in songs {
+            let song_id: Uuid = song.try_get("id")?;
+            let local_path: Option<String> = song.try_get("local_path")?;
+
+            if let Some(local_path) = local_path {
+                let file_path = PathBuf::from(local_path);
+                if let Some(parent) = file_path.parent() {
+                    directory_groups
+                        .entry(parent.to_path_buf())
+                        .or_insert_with(Vec::new)
+                        .push((song_id, file_path));
+                }
+            }
+        }
+
+        println!("📁 Found {} directories to process", directory_groups.len());
+
+        let mut processed = 0;
+        let mut generated = 0;
+
+        for (dir_path, song_files) in directory_groups {
+            println!("📂 Processing directory: {}", dir_path.display());
+
+            let audio_files: Vec<PathBuf> =
+                song_files.iter().map(|(_, path)| path.clone()).collect();
+
+            match self
+                .process_directory_album_art(service, &dir_path, &audio_files)
+                .await
+            {
+                Ok(applied_count) => {
+                    processed += song_files.len() as u32;
+                    generated += applied_count as u32;
+                    if applied_count > 0 {
+                        println!("  ✅ Applied directory art to {} songs", applied_count);
+                    } else {
+                        println!("  📷 No directory art found or applicable");
+                    }
+                }
+                Err(e) => {
+                    println!("  ❌ Error processing directory: {}", e);
+                    processed += song_files.len() as u32;
+                }
+            }
+        }
+
+        println!("\n📊 Directory Art Generation Summary:");
+        println!("   🔍 Songs processed: {}", processed);
+        println!("   🖼️  Thumbnails generated: {}", generated);
+
+        Ok((processed, generated))
+    }
+
+    async fn handle_backfill_directory_art(
+        &self,
+        service: &MusicService<'_>,
+        batch_size: u32,
+        force: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🖼️  Backfilling directory album art in batches...");
+
+        let mut total_processed = 0;
+        let mut total_generated = 0;
+        let mut total_errors = 0;
+
+        loop {
+            // Process one batch
+            match self
+                .handle_generate_directory_art(service, batch_size, force)
+                .await
+            {
+                Ok((batch_processed, batch_generated)) => {
+                    total_processed += batch_processed;
+                    total_generated += batch_generated;
+                    println!(
+                        "✅ Completed batch - processed: {}, generated: {}",
+                        batch_processed, batch_generated
+                    );
+
+                    // Check if there are more songs to process (only continue if we made progress)
+                    if batch_processed == 0 {
+                        println!("No more songs can be processed, stopping.");
+                        break;
+                    }
+
+                    let query = if force {
+                        "SELECT COUNT(*) FROM songs s
+                         JOIN media_blobs mb ON s.media_blob_id = mb.id
+                         WHERE s.deleted_at IS NULL
+                         AND mb.local_path IS NOT NULL"
+                    } else {
+                        "SELECT COUNT(*) FROM songs s
+                         JOIN media_blobs mb ON s.media_blob_id = mb.id
+                         WHERE s.deleted_at IS NULL
+                         AND mb.local_path IS NOT NULL
+                         AND s.thumbnail_blob_id IS NULL"
+                    };
+
+                    let remaining_count: Option<i64> = sqlx::query_scalar(query)
+                        .fetch_one(service.db().pool())
+                        .await?;
+
+                    let remaining = remaining_count.unwrap_or(0);
+                    println!("📊 Remaining songs to process: {}", remaining);
+
+                    if remaining == 0 {
+                        println!("🎉 All songs processed!");
+                        println!("📊 Summary:");
+                        println!("   🎵 Total songs processed: {}", total_processed);
+                        println!("   🖼️  Total thumbnails generated: {}", total_generated);
+                        println!("   ❌ Total errors: {}", total_errors);
+                        break;
+                    }
+
+                    // Safety check: if we generated 0 thumbnails but still have remaining songs,
+                    // we might be in an infinite loop
+                    if batch_generated == 0 && remaining > 0 {
+                        println!("⚠️  No thumbnails generated in this batch but {} songs still need processing.", remaining);
+                        println!("    This might indicate songs that can't be processed. Stopping to avoid infinite loop.");
+                        break;
+                    }
+
+                    // Small delay between batches to avoid overwhelming the system
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                }
+                Err(e) => {
+                    eprintln!("❌ Error processing batch: {}", e);
+                    total_errors += 1;
+
+                    if total_errors > 5 {
+                        eprintln!("Too many batch errors, stopping.");
+                        break;
+                    }
+                }
+            }
+        }
+
+        println!("\n📊 Backfill Complete:");
+        println!("   🖼️  Total thumbnails generated: {}", total_generated);
         println!("   ❌ Total errors: {}", total_errors);
 
         Ok(())

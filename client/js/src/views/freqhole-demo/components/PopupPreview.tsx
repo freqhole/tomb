@@ -1,4 +1,11 @@
-import { Show, onMount, onCleanup, createSignal } from "solid-js";
+import {
+  Show,
+  onMount,
+  onCleanup,
+  createSignal,
+  createResource,
+  For,
+} from "solid-js";
 import { getDisplayFilename } from "../../../lib/media-utils";
 import { formatBytes } from "../../../lib/format-utils";
 import {
@@ -6,6 +13,7 @@ import {
   useFreqholeAppContext,
 } from "../context/FreqholeStateContext";
 import { Thumbnail } from "./Thumbnail";
+import type { Song, MediaBlob } from "../../../lib/websocket-types";
 
 export function PopupPreview() {
   const state = useFreqholeStateContext();
@@ -24,6 +32,77 @@ export function PopupPreview() {
       addLog(`🖼️ Requesting thumbnails for ${itemId.slice(0, 8)}`);
     }
   };
+
+  // Fetch song data for audio files to get thumbnail_blob_ids
+  const fetchSongData = async (mediaBlob: MediaBlob): Promise<Song | null> => {
+    if (!mediaBlob.mime?.startsWith("audio/")) return null;
+
+    console.log("🔍 Fetching song data for MediaBlob:", {
+      id: mediaBlob.id,
+      mime: mediaBlob.mime,
+      blob_type: mediaBlob.blob_type,
+      has_thumbnails: mediaBlob.metadata?.has_thumbnails,
+      thumbnails_count: mediaBlob.metadata?.thumbnails?.length || 0,
+    });
+
+    try {
+      const response = await fetch(
+        `/api/media/songs?media_blob_id=${mediaBlob.id}`
+      );
+      if (!response.ok) {
+        console.warn(
+          "❌ Song fetch failed:",
+          response.status,
+          response.statusText
+        );
+        return null;
+      }
+      const data = await response.json();
+      const song = data.songs?.[0] || null;
+
+      console.log("📀 Song data received:", {
+        found: !!song,
+        thumbnail_blob_id: song?.thumbnail_blob_id,
+        thumbnail_blob_ids: song?.thumbnail_blob_ids,
+        waveform_blob_id: song?.waveform_blob_id,
+        title: song?.title,
+      });
+
+      return song;
+    } catch (error) {
+      console.error("Failed to fetch song data:", error);
+      return null;
+    }
+  };
+
+  // Current carousel index for thumbnail navigation
+  const [currentThumbnailIndex, setCurrentThumbnailIndex] = createSignal(0);
+
+  // Resource to fetch song data when popup opens
+  const [songData] = createResource(
+    () => state.popupPreview()?.item,
+    fetchSongData
+  );
+
+  // Watch for popup item changes and reset carousel
+  onMount(() => {
+    let lastItemId: string | null = null;
+    const checkForItemChange = () => {
+      const currentItem = state.popupPreview()?.item;
+      const currentItemId = currentItem?.id || null;
+
+      if (currentItemId !== lastItemId) {
+        lastItemId = currentItemId;
+        if (currentItemId) {
+          setCurrentThumbnailIndex(0);
+        }
+      }
+
+      // Continue checking
+      requestAnimationFrame(checkForItemChange);
+    };
+    checkForItemChange();
+  });
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
@@ -218,18 +297,197 @@ export function PopupPreview() {
                           padding: 40px;
                         `}
                       >
-                        <Thumbnail
-                          item={item()}
-                          size={200}
-                          apiBaseUrl="/api"
-                          onRequestThumbnails={requestThumbnails}
-                          requestedThumbnails={thumbnailRequests()}
-                          showIndicators={true}
-                          borderRadius="8px"
-                        />
-                        <div style="font-size: 18px; font-weight: 600; color: #e0e0e0;">
-                          {filename}
+                        {/* Thumbnail Carousel */}
+                        <Show
+                          when={
+                            songData() &&
+                            (songData()!.thumbnail_blob_id ||
+                              songData()!.thumbnail_blob_ids.length > 0)
+                          }
+                          fallback={
+                            <Thumbnail
+                              item={item()}
+                              size={200}
+                              apiBaseUrl="/api"
+                              onRequestThumbnails={requestThumbnails}
+                              requestedThumbnails={thumbnailRequests()}
+                              showIndicators={true}
+                              borderRadius="8px"
+                            />
+                          }
+                        >
+                          <div style="position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px;">
+                            {/* Main thumbnail display */}
+                            <div style="position: relative;">
+                              <Show
+                                when={(() => {
+                                  const song = songData()!;
+                                  const allThumbnails = [
+                                    ...(song.thumbnail_blob_id
+                                      ? [song.thumbnail_blob_id]
+                                      : []),
+                                    ...song.thumbnail_blob_ids,
+                                    ...(song.waveform_blob_id
+                                      ? [song.waveform_blob_id]
+                                      : []),
+                                  ];
+                                  return allThumbnails[currentThumbnailIndex()];
+                                })()}
+                              >
+                                {(thumbnailId) => (
+                                  <img
+                                    src={`/api/blobs/${thumbnailId()}`}
+                                    alt="Album Art"
+                                    style={`
+                                      width: 200px;
+                                      height: 200px;
+                                      object-fit: cover;
+                                      border-radius: 8px;
+                                      border: 2px solid #444;
+                                    `}
+                                    onError={(e) => {
+                                      // Fallback to regular thumbnail on error
+                                      const fallback =
+                                        document.createElement("div");
+                                      fallback.innerHTML = `
+                                        <div style="width: 200px; height: 200px; background: #333; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 48px;">
+                                          🎵
+                                        </div>
+                                      `;
+                                      e.target.parentNode?.replaceChild(
+                                        fallback,
+                                        e.target
+                                      );
+                                    }}
+                                  />
+                                )}
+                              </Show>
+                            </div>
+
+                            {/* Thumbnail navigation dots */}
+                            <Show
+                              when={(() => {
+                                const song = songData()!;
+                                const allThumbnails = [
+                                  ...(song.thumbnail_blob_id
+                                    ? [song.thumbnail_blob_id]
+                                    : []),
+                                  ...song.thumbnail_blob_ids,
+                                  ...(song.waveform_blob_id
+                                    ? [song.waveform_blob_id]
+                                    : []),
+                                ];
+                                return allThumbnails.length > 1;
+                              })()}
+                            >
+                              <div style="display: flex; gap: 8px; align-items: center;">
+                                <For
+                                  each={(() => {
+                                    const song = songData()!;
+                                    return [
+                                      ...(song.thumbnail_blob_id
+                                        ? [song.thumbnail_blob_id]
+                                        : []),
+                                      ...song.thumbnail_blob_ids,
+                                      ...(song.waveform_blob_id
+                                        ? [song.waveform_blob_id]
+                                        : []),
+                                    ];
+                                  })()}
+                                >
+                                  {(_, index) => (
+                                    <button
+                                      onClick={() =>
+                                        setCurrentThumbnailIndex(index())
+                                      }
+                                      style={`
+                                        width: 12px;
+                                        height: 12px;
+                                        border-radius: 50%;
+                                        border: none;
+                                        cursor: pointer;
+                                        transition: background 0.2s;
+                                        background: ${currentThumbnailIndex() === index() ? "#ff00ff" : "#666"};
+                                      `}
+                                      onMouseEnter={(e) => {
+                                        if (
+                                          currentThumbnailIndex() !== index()
+                                        ) {
+                                          (
+                                            e.target as HTMLElement
+                                          ).style.background = "#888";
+                                        }
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        if (
+                                          currentThumbnailIndex() !== index()
+                                        ) {
+                                          (
+                                            e.target as HTMLElement
+                                          ).style.background = "#666";
+                                        }
+                                      }}
+                                    />
+                                  )}
+                                </For>
+                              </div>
+                            </Show>
+
+                            {/* Thumbnail counter */}
+                            <Show
+                              when={(() => {
+                                const song = songData()!;
+                                const allThumbnails = [
+                                  ...(song.thumbnail_blob_id
+                                    ? [song.thumbnail_blob_id]
+                                    : []),
+                                  ...song.thumbnail_blob_ids,
+                                  ...(song.waveform_blob_id
+                                    ? [song.waveform_blob_id]
+                                    : []),
+                                ];
+                                return allThumbnails.length > 1;
+                              })()}
+                            >
+                              <div style="font-size: 12px; color: #888;">
+                                {currentThumbnailIndex() + 1} of{" "}
+                                {(() => {
+                                  const song = songData()!;
+                                  return (
+                                    (song.thumbnail_blob_id ? 1 : 0) +
+                                    song.thumbnail_blob_ids.length +
+                                    (song.waveform_blob_id ? 1 : 0)
+                                  );
+                                })()}
+                              </div>
+                            </Show>
+                          </div>
+                        </Show>
+
+                        {/* Song info */}
+                        <div style="text-align: center;">
+                          <Show when={songData()}>
+                            <div style="font-size: 18px; font-weight: 600; color: #e0e0e0; margin-bottom: 4px;">
+                              {songData()!.title}
+                            </div>
+                            <Show when={songData()!.artist}>
+                              <div style="font-size: 14px; color: #b0b0b0; margin-bottom: 4px;">
+                                by {songData()!.artist}
+                              </div>
+                            </Show>
+                            <Show when={songData()!.album}>
+                              <div style="font-size: 14px; color: #888;">
+                                from {songData()!.album}
+                              </div>
+                            </Show>
+                          </Show>
+                          <Show when={!songData()}>
+                            <div style="font-size: 18px; font-weight: 600; color: #e0e0e0;">
+                              {filename}
+                            </div>
+                          </Show>
                         </div>
+
                         <audio controls style="width: 100%; max-width: 400px;">
                           <source
                             src={`/api/blobs/${item().id}`}

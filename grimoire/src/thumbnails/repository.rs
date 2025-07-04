@@ -346,11 +346,33 @@ impl<'a> ThumbnailRepository<'a> {
     ) -> Result<Vec<MediaBlobInfo>, ThumbnailError> {
         let rows = sqlx::query!(
             r#"
-            SELECT id, local_path, data, mime, size, metadata
-            FROM media_blobs
-            WHERE parent_blob_id = $1 AND deleted_at IS NULL
-            AND blob_type IN ('thumbnail', 'waveform', 'preview')
-            ORDER BY created_at DESC
+            SELECT DISTINCT
+                mb.id,
+                mb.local_path,
+                mb.data,
+                mb.mime,
+                mb.size,
+                mb.metadata,
+                CASE mb.blob_type
+                    WHEN 'thumbnail' THEN 1
+                    WHEN 'preview' THEN 2
+                    WHEN 'waveform' THEN 3
+                    ELSE 4
+                END as priority_order,
+                mb.created_at
+            FROM media_blobs mb
+            WHERE (
+                -- Direct children (old approach)
+                (mb.parent_blob_id = $1 AND mb.deleted_at IS NULL AND mb.blob_type IN ('thumbnail', 'waveform', 'preview'))
+                OR
+                -- Songs' thumbnail_blob_ids array (new approach)
+                (mb.id = ANY(
+                    SELECT unnest(s.thumbnail_blob_ids)
+                    FROM songs s
+                    WHERE s.media_blob_id = $1 AND s.deleted_at IS NULL
+                ))
+            )
+            ORDER BY priority_order, mb.created_at DESC
             "#,
             blob_id
         )

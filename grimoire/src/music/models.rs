@@ -16,6 +16,7 @@ pub struct Song {
     pub media_blob_id: String,
     pub thumbnail_blob_id: Option<String>,
     pub waveform_blob_id: Option<String>,
+    pub thumbnail_blob_ids: Option<Vec<String>>,
     pub title: String,
     pub artist: Option<String>,
     pub album: Option<String>,
@@ -731,6 +732,7 @@ pub struct SongQuery {
     pub offset: Option<i64>,
     pub created_after: Option<OffsetDateTime>,
     pub updated_after: Option<OffsetDateTime>,
+    pub media_blob_id: Option<String>,
 }
 
 impl SongQuery {
