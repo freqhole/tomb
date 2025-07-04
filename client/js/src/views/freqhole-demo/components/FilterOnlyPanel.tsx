@@ -361,7 +361,7 @@ export function FilterOnlyPanel() {
                   updateFilter("mime", "");
                   updateFilter("blobType", "");
                   updateFilter("minSize", 0);
-                  updateFilter("maxSize", 100000000);
+                  updateFilter("maxSize", 0);
                   updateFilter("hasParent", "all");
                   updateFilter("hasLocalPath", "all");
                 }}

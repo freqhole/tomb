@@ -364,7 +364,7 @@ export function FilterPanel(props: FilterPanelProps) {
                 onInput={(e) =>
                   props.onFilterChange(
                     "maxSize",
-                    parseInt(e.currentTarget.value) || 100000000
+                    parseInt(e.currentTarget.value) || 0
                   )
                 }
                 style={`

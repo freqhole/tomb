@@ -66,7 +66,7 @@ export function HeaderActionMenu() {
     state.updateFilter("mime", "");
     state.updateFilter("blobType", "");
     state.updateFilter("minSize", 0);
-    state.updateFilter("maxSize", 100000000);
+    state.updateFilter("maxSize", 0);
     state.updateFilter("hasParent", "all");
     state.updateFilter("hasLocalPath", "all");
     state.setHeaderActionMenu(null);

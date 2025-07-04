@@ -163,7 +163,7 @@ export function useFreqholeState(props: FreqholeStateProps): FreqholeStateHook {
     mime: "",
     blobType: "",
     minSize: 0,
-    maxSize: 100000000,
+    maxSize: 0,
     hasParent: "all",
     hasLocalPath: "all",
     ...(initialState.filterConfig || {}),
