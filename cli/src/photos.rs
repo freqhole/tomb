@@ -227,6 +227,7 @@ impl PhotoCommands {
                 offset,
             } => {
                 self.handle_list(
+                    db,
                     *favorites,
                     camera.clone(),
                     location.clone(),
@@ -544,6 +545,7 @@ impl PhotoCommands {
 
     async fn handle_list(
         &self,
+        db: &DatabaseConnection,
         favorites: bool,
         camera: Option<String>,
         location: Option<String>,
@@ -552,23 +554,74 @@ impl PhotoCommands {
     ) -> Result<(), Box<dyn std::error::Error>> {
         println!("📸 Listing photos...");
 
-        // This would typically query the database for photos
-        // For now, we'll show a placeholder implementation
         println!("🔍 Filters:");
         if favorites {
             println!("   ⭐ Favorites only");
         }
-        if let Some(cam) = camera {
+        if let Some(cam) = &camera {
             println!("   📷 Camera: {}", cam);
         }
-        if let Some(loc) = location {
+        if let Some(loc) = &location {
             println!("   📍 Location: {}", loc);
         }
         println!("   📊 Limit: {}, Offset: {}", limit, offset);
 
         println!();
-        println!("⚠️  Photo database operations not yet implemented");
-        println!("💡 This would query the photos table and display results");
+
+        // Create photo service
+        let photo_service = PhotoService::new(db.pool().clone());
+
+        // Get recent photos
+        match photo_service.list_recent_photos(limit).await {
+            Ok(photos) => {
+                if photos.is_empty() {
+                    println!("📭 No photos found");
+                    println!("💡 Use 'photos scan <path>' to add photos to your library");
+                } else {
+                    println!("📸 Found {} photos:", photos.len());
+                    println!();
+
+                    for (index, photo) in photos.iter().enumerate() {
+                        println!(
+                            "{}. 📸 {}",
+                            index + 1,
+                            photo.title.as_ref().unwrap_or(&"Untitled".to_string())
+                        );
+                        println!("   🆔 ID: {}", photo.id);
+                        println!("   📄 Media Blob ID: {}", photo.media_blob_id);
+
+                        if let Some(ref thumbnail_id) = photo.thumbnail_blob_id {
+                            println!("   🖼️  Thumbnail ID: {}", thumbnail_id);
+                        }
+
+                        if let Some(ref camera_make) = photo.camera_make {
+                            if let Some(ref camera_model) = photo.camera_model {
+                                println!("   📷 Camera: {} {}", camera_make, camera_model);
+                            } else {
+                                println!("   📷 Camera: {}", camera_make);
+                            }
+                        }
+
+                        if let Some(ref location) = photo.location {
+                            println!("   📍 Location: {}", location);
+                        }
+
+                        if photo.is_favorite.unwrap_or(false) {
+                            println!("   ⭐ Favorite");
+                        }
+
+                        println!("   📅 Created: {}", photo.created_at.date());
+                        println!();
+                    }
+
+                    println!("💡 Use 'photos info <photo-id>' for detailed information");
+                }
+            }
+            Err(e) => {
+                error!("❌ Failed to list photos: {}", e);
+                return Err(e.into());
+            }
+        }
 
         Ok(())
     }
