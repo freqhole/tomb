@@ -28,6 +28,10 @@ export class UnifiedStorageImpl implements UnifiedStorage {
     songs: "songs",
     playlists: "playlists",
     playlist_songs: "playlist_songs",
+    // Photos domain tables
+    photos: "photos",
+    galleries: "galleries",
+    photo_galleries: "photo_galleries",
     // Shared filesystem layer
     media_blobs: "media_blobs",
     // Binary data storage
@@ -41,12 +45,17 @@ export class UnifiedStorageImpl implements UnifiedStorage {
     return ["songs", "playlists", "playlist_songs"];
   }
 
+  private getPhotosTables() {
+    return ["photos", "galleries", "photo_galleries"];
+  }
+
   // Get primary table for domain
   private getDomainTable(domain: SyncDomain): string {
     switch (domain) {
       case "music":
         return "songs"; // Primary table for music
       case "photos":
+        return "photos"; // Primary table for photos
       case "documents":
       case "videos":
         return "media_blobs";
@@ -99,6 +108,10 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       return this.storeMusicItems(items);
     }
 
+    if (domain === "photos") {
+      return this.storePhotosItems(items);
+    }
+
     // Other domains use single table
     const storeName = this.getDomainTable(domain);
     const transaction = this.db.transaction([storeName], "readwrite");
@@ -119,7 +132,68 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       item_count: await this.countItems(domain),
     });
 
-    debugInfo(`💾 Stored ${items.length} items for domain: ${domain}`);
+    debugInfo(`✅ Stored ${items.length} items in music domain`);
+  }
+
+  /**
+   * Store photos domain items (photos, galleries, photo_galleries)
+   */
+  private async storePhotosItems(items: any[]): Promise<void> {
+    if (!this.db) throw new Error("Storage not initialized");
+
+    const tables = this.getPhotosTables();
+    const transaction = this.db.transaction(tables, "readwrite");
+
+    // Separate items by data type
+    const photos = items.filter((item) => item._data_type === "photo");
+    const galleries = items.filter((item) => item._data_type === "gallery");
+    const photoGalleries = items.filter(
+      (item) => item._data_type === "photo_gallery"
+    );
+
+    // Store photos
+    if (photos.length > 0) {
+      const photosStore = transaction.objectStore("photos");
+      for (const photo of photos) {
+        const { _data_type, ...cleanPhoto } = photo;
+        await this.promisifyRequest(
+          photosStore.put({
+            ...cleanPhoto,
+            _stored_at: new Date().toISOString(),
+          })
+        );
+      }
+    }
+
+    // Store galleries
+    if (galleries.length > 0) {
+      const galleriesStore = transaction.objectStore("galleries");
+      for (const gallery of galleries) {
+        const { _data_type, ...cleanGallery } = gallery;
+        await this.promisifyRequest(
+          galleriesStore.put({
+            ...cleanGallery,
+            _stored_at: new Date().toISOString(),
+          })
+        );
+      }
+    }
+
+    // Store photo_galleries
+    if (photoGalleries.length > 0) {
+      const photoGalleriesStore = transaction.objectStore("photo_galleries");
+      for (const photoGallery of photoGalleries) {
+        const { _data_type, ...cleanPhotoGallery } = photoGallery;
+        await this.promisifyRequest(
+          photoGalleriesStore.put({
+            ...cleanPhotoGallery,
+            _stored_at: new Date().toISOString(),
+          })
+        );
+      }
+    }
+
+    debugInfo(`✅ Stored ${items.length} items in photos domain`);
   }
 
   /**
@@ -218,6 +292,10 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       return this.getMusicItems(options);
     }
 
+    if (domain === "photos") {
+      return this.getPhotosItems(options);
+    }
+
     const storeName = this.getDomainTable(domain);
     const transaction = this.db.transaction([storeName], "readonly");
     const store = transaction.objectStore(storeName);
@@ -238,6 +316,23 @@ export class UnifiedStorageImpl implements UnifiedStorage {
 
     // Get songs by default, or specific table if requested
     const tableName = "songs"; // Default to songs table for music domain
+    const store = transaction.objectStore(tableName);
+    const request = store.getAll();
+    const items = await this.promisifyRequest(request);
+
+    return this.applyQueryOptions(items, options);
+  }
+
+  private async getPhotosItems(
+    options: StorageQueryOptions = {}
+  ): Promise<any[]> {
+    if (!this.db) throw new Error("Storage not initialized");
+
+    const tables = this.getPhotosTables();
+    const transaction = this.db.transaction(tables, "readonly");
+
+    // Get photos by default, or specific table if requested
+    const tableName = "photos"; // Default to photos table for photos domain
     const store = transaction.objectStore(tableName);
     const request = store.getAll();
     const items = await this.promisifyRequest(request);
@@ -489,6 +584,25 @@ export class UnifiedStorageImpl implements UnifiedStorage {
   }
 
   /**
+   * Get detailed photos domain breakdown
+   */
+  async getPhotosBreakdown(): Promise<{
+    photos: number;
+    galleries: number;
+    photoGalleries: number;
+  }> {
+    if (!this.db) throw new Error("Storage not initialized");
+
+    const [photos, galleries, photoGalleries] = await Promise.all([
+      this.getTableCount("photos"),
+      this.getTableCount("galleries"),
+      this.getTableCount("photo_galleries"),
+    ]);
+
+    return { photos, galleries, photoGalleries };
+  }
+
+  /**
    * Save sync completion state
    */
   async saveSyncCompletion(
@@ -588,6 +702,21 @@ export class UnifiedStorageImpl implements UnifiedStorage {
             store.createIndex("song_id", "song_id");
             store.createIndex("position", "position");
             break;
+          case "photos":
+            store.createIndex("title", "title");
+            store.createIndex("created_at", "created_at");
+            store.createIndex("width", "width");
+            store.createIndex("height", "height");
+            break;
+          case "galleries":
+            store.createIndex("title", "title");
+            store.createIndex("created_at", "created_at");
+            break;
+          case "photo_galleries":
+            store.createIndex("gallery_id", "gallery_id");
+            store.createIndex("photo_id", "photo_id");
+            store.createIndex("position", "position");
+            break;
           case "media_blobs":
             store.createIndex("created_at", "created_at");
             store.createIndex("mime_type", "mime_type");
@@ -616,11 +745,22 @@ export class UnifiedStorageImpl implements UnifiedStorage {
   }
 
   private async countItems(domain: SyncDomain): Promise<number> {
-    if (!this.db) return 0;
+    if (!this.db) throw new Error("Storage not initialized");
 
     if (domain === "music") {
-      // Count all music tables combined
       const tables = this.getMusicTables();
+      const transaction = this.db.transaction(tables, "readonly");
+      let total = 0;
+      for (const tableName of tables) {
+        const store = transaction.objectStore(tableName);
+        const request = store.count();
+        total += await this.promisifyRequest(request);
+      }
+      return total;
+    }
+
+    if (domain === "photos") {
+      const tables = this.getPhotosTables();
       const transaction = this.db.transaction(tables, "readonly");
       let total = 0;
       for (const tableName of tables) {

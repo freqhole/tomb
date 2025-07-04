@@ -111,10 +111,53 @@ pub struct PlaylistSongSyncQuery {
     /// Pagination cursor for continuing sync
     pub cursor: Option<String>,
     /// Number of items per batch
+    pub page_size: Option<i32>,
+}
+
+/// Query parameters for photo sync
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PhotoSyncQuery {
+    /// Last sync timestamp in RFC3339 format
+    pub last_sync_time: Option<String>,
+    /// Cursor for pagination
+    pub cursor: Option<String>,
+    /// Number of items per page
+    pub page_size: Option<i64>,
+    /// Filter by title search
+    pub title_search: Option<String>,
+    /// Filter by dimensions
+    pub width_min: Option<i32>,
+    pub width_max: Option<i32>,
+    pub height_min: Option<i32>,
+    pub height_max: Option<i32>,
+}
+
+/// Query parameters for gallery sync
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GallerySyncQuery {
+    /// Last sync timestamp in RFC3339 format
+    pub last_sync_time: Option<String>,
+    /// Cursor for pagination
+    pub cursor: Option<String>,
+    /// Number of items per page
+    pub page_size: Option<i64>,
+    /// Filter by title search
+    pub title_search: Option<String>,
+}
+
+/// Query parameters for photo_gallery sync
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PhotoGallerySyncQuery {
+    /// Gallery ID to filter by
+    pub gallery_id: Option<String>,
+    /// Last sync timestamp in RFC3339 format
+    pub last_sync_time: Option<String>,
+    /// Cursor for pagination
+    pub cursor: Option<String>,
+    /// Number of items per page
     pub page_size: Option<i64>,
 }
 
-/// Incremental sync endpoint - GET /api/sync/media
 pub async fn incremental_sync(
     Extension(db): Extension<DatabaseConnection>,
     Extension(user): Extension<AuthenticatedUser>,
@@ -703,7 +746,7 @@ pub async fn incremental_playlist_song_sync(
         playlist_songs
     };
     let next_cursor = if has_more {
-        Some((offset + page_size).to_string())
+        Some((offset + page_size as i64).to_string())
     } else {
         None
     };
@@ -720,5 +763,194 @@ pub async fn incremental_playlist_song_sync(
         "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
         "is_full_sync": last_sync_time.is_none(),
         "total_items": actual_playlist_songs.len()
+    })))
+}
+
+/// Photo incremental sync endpoint - GET /api/sync/photos
+pub async fn incremental_photo_sync(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(params): Query<PhotoSyncQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!(
+        "Photo sync requested by user: {} (client: {})",
+        user.user().username,
+        user.user().id
+    );
+
+    let photos_repo = grimoire::photos::PhotoRepository::new(db.pool().clone());
+    let page_size = params.page_size.unwrap_or(50) as i64;
+
+    // Use list_recent_photos method since query_photos may not be available
+    let photos = photos_repo
+        .list_recent_photos(page_size + 1)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch photos: {}", e);
+            AppError::InternalServerError("Sync operation failed".to_string())
+        })?;
+
+    // Calculate pagination metadata
+    let has_more = photos.len() > page_size as usize;
+    let actual_photos = if has_more {
+        photos
+            .into_iter()
+            .take(page_size as usize)
+            .collect::<Vec<_>>()
+    } else {
+        photos
+    };
+    let next_cursor = if has_more {
+        Some(page_size.to_string())
+    } else {
+        None
+    };
+
+    // Add _data_type to each photo for client processing
+    let photos_with_type: Vec<serde_json::Value> = actual_photos
+        .into_iter()
+        .map(|photo| {
+            let mut photo_json = serde_json::to_value(photo).unwrap_or_default();
+            photo_json["_data_type"] = serde_json::Value::String("photo".to_string());
+            photo_json
+        })
+        .collect();
+
+    info!(
+        "Photo sync completed for user: {} - {} items",
+        user.user().username,
+        photos_with_type.len()
+    );
+
+    Ok(Json(serde_json::json!({
+        "items": photos_with_type,
+        "pagination": {
+            "batch_size": photos_with_type.len(),
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+            "progress": null,
+            "suggested_delay": null
+        },
+        "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        "is_full_sync": true,
+        "total_items": photos_with_type.len()
+    })))
+}
+
+/// Gallery incremental sync endpoint - GET /api/sync/galleries
+pub async fn incremental_gallery_sync(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(_params): Query<GallerySyncQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!(
+        "Gallery sync requested by user: {} (client: {})",
+        user.user().username,
+        user.user().id
+    );
+
+    let photos_repo = grimoire::photos::PhotoRepository::new(db.pool().clone());
+
+    // Use list_galleries method since query_galleries may not be available
+    let galleries = photos_repo.list_galleries(50).await.map_err(|e| {
+        error!("Failed to fetch galleries: {}", e);
+        AppError::InternalServerError("Sync operation failed".to_string())
+    })?;
+
+    // Add _data_type to each gallery for client processing
+    let galleries_with_type: Vec<serde_json::Value> = galleries
+        .into_iter()
+        .map(|gallery| {
+            let mut gallery_json = serde_json::to_value(gallery).unwrap_or_default();
+            gallery_json["_data_type"] = serde_json::Value::String("gallery".to_string());
+            gallery_json
+        })
+        .collect();
+
+    info!(
+        "Gallery sync completed for user: {} - {} items",
+        user.user().username,
+        galleries_with_type.len()
+    );
+
+    Ok(Json(serde_json::json!({
+        "items": galleries_with_type,
+        "pagination": {
+            "batch_size": galleries_with_type.len(),
+            "has_more": false,
+            "next_cursor": null,
+            "progress": null,
+            "suggested_delay": null
+        },
+        "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        "is_full_sync": true,
+        "total_items": galleries_with_type.len()
+    })))
+}
+
+/// Photo Gallery incremental sync endpoint - GET /api/sync/photo-galleries
+pub async fn incremental_photo_gallery_sync(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(_params): Query<PhotoGallerySyncQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!(
+        "Photo Gallery sync requested by user: {} (client: {})",
+        user.user().username,
+        user.user().id
+    );
+
+    let photos_repo = grimoire::photos::PhotoRepository::new(db.pool().clone());
+
+    // Get all galleries first, then fetch their photos to create photo_gallery records
+    let galleries = photos_repo.list_galleries(50).await.map_err(|e| {
+        error!("Failed to fetch galleries: {}", e);
+        AppError::InternalServerError("Sync operation failed".to_string())
+    })?;
+
+    let mut photo_galleries_with_type: Vec<serde_json::Value> = Vec::new();
+
+    // For each gallery, get its photos and create photo_gallery records
+    for gallery in galleries {
+        let photos = match photos_repo.get_gallery_photos(gallery.id, 100).await {
+            Ok(photos) => photos,
+            Err(e) => {
+                error!("Failed to fetch photos for gallery {}: {}", gallery.id, e);
+                // Continue with other galleries instead of failing
+                continue;
+            }
+        };
+
+        for (idx, photo) in photos.into_iter().enumerate() {
+            let photo_gallery = serde_json::json!({
+                "id": format!("{}-{}", gallery.id, photo.id),
+                "gallery_id": gallery.id,
+                "photo_id": photo.id,
+                "position": idx as i32,
+                "created_at": photo.created_at,
+                "_data_type": "photo_gallery"
+            });
+            photo_galleries_with_type.push(photo_gallery);
+        }
+    }
+
+    info!(
+        "Photo Gallery sync completed for user: {} - {} items",
+        user.user().username,
+        photo_galleries_with_type.len()
+    );
+
+    Ok(Json(serde_json::json!({
+        "items": photo_galleries_with_type,
+        "pagination": {
+            "batch_size": photo_galleries_with_type.len(),
+            "has_more": false,
+            "next_cursor": null,
+            "progress": null,
+            "suggested_delay": null
+        },
+        "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        "is_full_sync": true,
+        "total_items": photo_galleries_with_type.len()
     })))
 }

@@ -257,9 +257,12 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
 
       // Step 2: Binary data sync via WebSocket
       let binaryStats: BinarySyncStats | undefined;
-      if (options.includeBinaryData && domain === "music") {
+      if (
+        options.includeBinaryData &&
+        (domain === "music" || domain === "photos")
+      ) {
         debugInfo("🔄 Starting binary data sync...");
-        binaryStats = await this.syncBinaryData();
+        binaryStats = await this.syncBinaryData(domain);
       }
 
       const duration = Date.now() - startTime;
@@ -468,10 +471,62 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
    */
   async getMediaBlobs(): Promise<any[]> {
     try {
-      const mediaBlobs = await this.storage.getItems("documents");
-      return mediaBlobs.filter(
-        (blob: any) => blob.mime && blob.mime.startsWith("image/")
+      const allBlobs: any[] = [];
+
+      // Get media blobs from documents domain (music thumbnails, etc.)
+      try {
+        const mediaBlobs = await this.storage.getItems("documents");
+        const imageBlobs = mediaBlobs.filter(
+          (blob: any) => blob.mime && blob.mime.startsWith("image/")
+        );
+        allBlobs.push(...imageBlobs);
+      } catch (error) {
+        console.warn("Failed to get media blobs from documents:", error);
+      }
+
+      // Get photo thumbnails from photos domain
+      try {
+        const photos = await this.storage.getItems("photos");
+        for (const photo of photos) {
+          // Add thumbnail blob (prioritize thumbnails for grid display)
+          if (photo.thumbnail_blob_id) {
+            allBlobs.push({
+              id: photo.thumbnail_blob_id,
+              mime: "image/jpeg", // Assume thumbnails are JPEG
+              created_at: photo.created_at,
+              type: "thumbnail",
+              photo_id: photo.id,
+              title: photo.title,
+            });
+          }
+          // Also add main photo blob if no thumbnail
+          else if (photo.media_blob_id) {
+            allBlobs.push({
+              id: photo.media_blob_id,
+              mime: "image/jpeg", // Assume photos are images
+              created_at: photo.created_at,
+              type: "photo",
+              photo_id: photo.id,
+              title: photo.title,
+            });
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to get photos for image grid:", error);
+      }
+
+      // Sort by created_at date (most recent first)
+      const sortedBlobs = allBlobs.sort((a: any, b: any) => {
+        const dateA = new Date(a.created_at || 0);
+        const dateB = new Date(b.created_at || 0);
+        return dateB.getTime() - dateA.getTime();
+      });
+
+      debugInfo(
+        `📸 Image grid: Found ${sortedBlobs.length} total images (${sortedBlobs.filter((b) => b.type === "thumbnail").length} thumbnails, ${sortedBlobs.filter((b) => b.type === "photo").length} photos) - sorted by most recent first`
       );
+
+      return sortedBlobs;
     } catch (error) {
       console.error("Failed to get media blobs:", error);
       return [];
@@ -523,6 +578,19 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
     } catch (error) {
       debugError("Failed to get music breakdown:", error);
       return { songs: 0, playlists: 0, playlistSongs: 0 };
+    }
+  }
+
+  async getPhotosBreakdown(): Promise<{
+    photos: number;
+    galleries: number;
+    photoGalleries: number;
+  }> {
+    try {
+      return await this.storage.getPhotosBreakdown();
+    } catch (error) {
+      debugError("Failed to get photos breakdown:", error);
+      return { photos: 0, galleries: 0, photoGalleries: 0 };
     }
   }
 
@@ -638,13 +706,18 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
 
   private async syncStructuredData(
     domain: SyncDomain,
-    options: SyncDomainOptions
+    options: SyncDomainOptions = {}
   ) {
     const domainConfig = this.domainConfigs[domain];
 
     // For music domain, sync songs, playlists, and playlist_songs together
     if (domain === "music") {
       return this.syncMusicDomain(options);
+    }
+
+    // For photos domain, sync photos, galleries, and photo_galleries together
+    if (domain === "photos") {
+      return this.syncPhotosDomain(options);
     }
 
     const pageSize =
@@ -810,18 +883,140 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         playlists: playlistsResult,
         playlistSongs: playlistSongsResult,
         mediaBlobs: mediaBlobsResult,
-        totalAll: totalItemsSynced,
       },
     };
   }
 
   /**
-   * Sync a specific music data type (songs, playlists, playlist-songs)
+   * Unified photos domain sync - handles photos, galleries, and photo_galleries together
+   */
+  private async syncPhotosDomain(options: SyncDomainOptions) {
+    debugInfo("🖼️ Starting unified photos domain sync...");
+
+    let totalItemsSynced = 0;
+    let totalItems = 0;
+
+    // 1. Sync photos first
+    debugInfo("🖼️ Syncing photos...");
+    const photosResult = await this.syncPhotosDataType("photos", options);
+    totalItemsSynced += photosResult.itemsSynced;
+    totalItems += photosResult.totalItems;
+
+    // 2. Sync galleries
+    console.log("📁 Syncing galleries...");
+    let galleriesResult = { itemsSynced: 0, totalItems: 0 };
+    try {
+      galleriesResult = await this.syncPhotosDataType("galleries", options);
+      console.log("✅ Galleries sync result:", galleriesResult);
+      totalItemsSynced += galleriesResult.itemsSynced;
+      totalItems += galleriesResult.totalItems;
+    } catch (error) {
+      console.error("❌ Galleries sync failed:", error);
+      // Continue with other syncs even if galleries fail
+    }
+
+    // 3. Sync photo_galleries relationships
+    console.log("🔗 Syncing photo galleries...");
+    let photoGalleriesResult = { itemsSynced: 0, totalItems: 0 };
+    try {
+      photoGalleriesResult = await this.syncPhotosDataType(
+        "photo-galleries",
+        options
+      );
+      console.log("✅ Photo galleries sync result:", photoGalleriesResult);
+      totalItemsSynced += photoGalleriesResult.itemsSynced;
+      totalItems += photoGalleriesResult.totalItems;
+    } catch (error) {
+      console.error("❌ Photo galleries sync failed:", error);
+      // Continue with other syncs even if photo_galleries fail
+    }
+
+    console.log(
+      `✅ Unified photos sync complete: ${totalItemsSynced} total items`
+    );
+
+    // Return breakdown for better UI display - prioritize photos count
+    return {
+      itemsSynced: photosResult.itemsSynced, // Show photos count as primary
+      totalItems: photosResult.totalItems,
+      breakdown: {
+        photos: photosResult.itemsSynced,
+        galleries: galleriesResult.itemsSynced,
+        photoGalleries: photoGalleriesResult.itemsSynced,
+      },
+    };
+  }
+
+  /**
+   * Sync specific photos data type (photos, galleries, photo-galleries)
+   */
+  private async syncPhotosDataType(
+    dataType: string,
+    options: SyncDomainOptions
+  ): Promise<{ itemsSynced: number; totalItems: number }> {
+    const endpoint = `/api/sync/${dataType}`;
+    const pageSize = options.pageSize || 50;
+    let totalItemsSynced = 0;
+    let cursor: string | null = null;
+    let hasMore = true;
+
+    while (hasMore) {
+      try {
+        const queryParams = new URLSearchParams();
+        queryParams.append("page_size", pageSize.toString());
+        if (cursor) {
+          queryParams.append("cursor", cursor);
+        }
+        if (options.forceFullSync !== true && options.lastSyncTime) {
+          queryParams.append("last_sync_time", options.lastSyncTime);
+        }
+
+        const url = `${this.config.apiBaseUrl}${endpoint}?${queryParams}`;
+        debugInfo(`🔄 Fetching ${dataType} from: ${url}`);
+
+        const response = await fetch(url, {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const items = data.items || [];
+
+        debugInfo(`📦 Received ${items.length} ${dataType} items`);
+
+        if (items.length > 0) {
+          await this.storage.storeItems("photos", items);
+          totalItemsSynced += items.length;
+        }
+
+        // Check pagination
+        hasMore = data.pagination?.has_more === true;
+        cursor = data.pagination?.next_cursor || null;
+
+        debugInfo(
+          `📄 Pagination: hasMore=${hasMore}, cursor=${cursor}, synced=${totalItemsSynced}`
+        );
+      } catch (error) {
+        debugError(`❌ Failed to sync ${dataType}:`, error);
+        throw error;
+      }
+    }
+
+    return { itemsSynced: totalItemsSynced, totalItems: totalItemsSynced };
+  }
+
+  /**
+   * Sync specific music data type (songs, playlists, playlist-songs)
    */
   private async syncMusicDataType(
     dataType: string,
     options: SyncDomainOptions
-  ) {
+  ): Promise<{ itemsSynced: number; totalItems: number }> {
     const pageSize = Math.min(options.pageSize || 50, 100); // Cap at 100 items
     const endpoint =
       dataType === "songs"
@@ -1051,7 +1246,9 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
   /**
    * Sync binary data for media blobs using WebSocket
    */
-  private async syncBinaryData(): Promise<BinarySyncStats> {
+  private async syncBinaryData(
+    domain: SyncDomain = "music"
+  ): Promise<BinarySyncStats> {
     const startTime = Date.now();
     let itemsSynced = 0;
     let totalBytes = 0;
@@ -1059,7 +1256,35 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
 
     try {
       // Get all media blobs that need binary data
-      const mediaBlobs = await this.storage.getItems("documents"); // media_blobs table is used for documents domain
+      let mediaBlobs;
+      if (domain === "photos") {
+        // For photos, get both photos and their thumbnails
+        const photos = await this.storage.getItems("photos");
+        mediaBlobs = [];
+
+        // Add main photo blobs
+        for (const photo of photos) {
+          if (photo.media_blob_id) {
+            mediaBlobs.push({
+              id: photo.media_blob_id,
+              type: "photo",
+              photo_id: photo.id,
+            });
+          }
+          // Add thumbnail blobs
+          if (photo.thumbnail_blob_id) {
+            mediaBlobs.push({
+              id: photo.thumbnail_blob_id,
+              type: "thumbnail",
+              photo_id: photo.id,
+            });
+          }
+        }
+      } else {
+        // For music and other domains, use media_blobs table
+        mediaBlobs = await this.storage.getItems("documents"); // media_blobs table is used for documents domain
+      }
+
       debugInfo(
         `📦 Found ${mediaBlobs.length} media blobs to check for binary data`
       );
@@ -1132,7 +1357,7 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
             this.emitEvent({
               type: SyncEventType.BinaryProgress,
               timestamp: new Date(),
-              domain: "music", // Binary data is associated with music domain
+              domain: domain, // Use the actual domain being synced
               blobId: blob.id,
               progress:
                 totalItemsToSync > 0
@@ -1397,12 +1622,12 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
           `📊 Clearing ${this.pendingBinaryRequests.size} pending requests due to WebSocket error`
         );
         // Notify all pending requests of the error
-        for (const [blobId, request] of this.pendingBinaryRequests.entries()) {
+        this.pendingBinaryRequests.forEach((request, blobId) => {
           debugError(
             `❌ Rejecting pending request for ${blobId} due to WebSocket error`
           );
           request.reject(error);
-        }
+        });
         this.pendingBinaryRequests.clear();
       });
     } else {

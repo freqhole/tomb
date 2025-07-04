@@ -10,6 +10,7 @@ use crate::auth::build_auth_routes;
 use crate::blobs::build_blob_routes;
 use crate::health::build_health_routes;
 use crate::media::build_media_routes;
+use crate::photos::build_photos_routes;
 
 use crate::static_filez::{build_enhanced_private_routes, build_enhanced_public_routes};
 
@@ -31,6 +32,7 @@ pub fn build_routes(config: &AppConfig, connection_manager: ConnectionManager) -
         .merge(build_upload_routes(config))
         .merge(create_sync_routes())
         .merge(build_media_routes())
+        .merge(build_photos_routes())
 }
 
 #[cfg(test)]

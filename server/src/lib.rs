@@ -8,6 +8,7 @@ pub mod logging;
 pub mod maintenance;
 pub mod media;
 pub mod notifications;
+pub mod photos;
 pub mod routes;
 pub mod startup;
 pub mod static_filez;

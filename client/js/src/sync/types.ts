@@ -77,6 +77,24 @@ export interface UnifiedSyncManager {
   getStorageStats(): Promise<StorageStats>;
 
   /**
+   * Get music domain breakdown
+   */
+  getMusicBreakdown(): Promise<{
+    songs: number;
+    playlists: number;
+    playlistSongs: number;
+  }>;
+
+  /**
+   * Get photos domain breakdown
+   */
+  getPhotosBreakdown(): Promise<{
+    photos: number;
+    galleries: number;
+    photoGalleries: number;
+  }>;
+
+  /**
    * Event subscription for sync events
    */
   on(event: SyncEventType, listener: SyncEventListener): void;
@@ -128,6 +146,8 @@ export interface SyncDomainOptions {
   pageSize?: number;
   /** Maximum items to sync */
   maxItems?: number;
+  /** Last sync timestamp for incremental sync */
+  lastSyncTime?: string;
 }
 
 /**
@@ -165,6 +185,19 @@ export interface MusicSyncBreakdown {
   /** Media blobs sync results */
   mediaBlobs: { itemsSynced: number; totalItems: number };
   /** Total items across all music data types */
+  totalAll: number;
+}
+
+export interface PhotosSyncBreakdown {
+  /** Photos sync results */
+  photos: { itemsSynced: number; totalItems: number };
+  /** Galleries sync results */
+  galleries: { itemsSynced: number; totalItems: number };
+  /** Photo galleries sync results */
+  photoGalleries: { itemsSynced: number; totalItems: number };
+  /** Media blobs sync results */
+  mediaBlobs: { itemsSynced: number; totalItems: number };
+  /** Total items across all photos data types */
   totalAll: number;
 }
 
@@ -438,6 +471,13 @@ export interface UnifiedStorage {
     songs: number;
     playlists: number;
     playlistSongs: number;
+  }>;
+
+  /** Get detailed photos domain breakdown */
+  getPhotosBreakdown(): Promise<{
+    photos: number;
+    galleries: number;
+    photoGalleries: number;
   }>;
 
   /** Binary data operations (simple blob ID -> ArrayBuffer storage as per plan) */

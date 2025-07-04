@@ -56,10 +56,27 @@ const formatDomainProgress = (
     }
 
     return parts.length > 0 ? parts.join(", ") : "0 items";
+  } else if (domain === "photos" && breakdown) {
+    // For photos, show photos and galleries breakdown from actual data
+    const parts = [];
+
+    if (breakdown.photos > 0) {
+      parts.push(`${breakdown.photos} photos`);
+    }
+
+    if (breakdown.galleries > 0) {
+      parts.push(`${breakdown.galleries} galleries`);
+    }
+
+    return parts.length > 0 ? parts.join(", ") : "0 items";
   } else if (domain === "music") {
     // Fallback for music without breakdown
     const songs = progress.itemsProcessed || 0;
     return songs > 0 ? `${songs} songs` : "0 items";
+  } else if (domain === "photos") {
+    // Fallback for photos without breakdown
+    const photos = progress.itemsProcessed || 0;
+    return photos > 0 ? `${photos} photos` : "0 items";
   } else {
     // For other domains, show standard format
     const processed = progress.itemsProcessed || 0;
@@ -166,6 +183,11 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
     songs: number;
     playlists: number;
     playlistSongs: number;
+  } | null>(null);
+  const [photosBreakdown, setPhotosBreakdown] = createSignal<{
+    photos: number;
+    galleries: number;
+    photoGalleries: number;
   } | null>(null);
 
   // System instances
@@ -442,6 +464,14 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
           });
         }
 
+        // Load photos breakdown if photos domain has data
+        if (initialStatus.photos === SyncStatus.Complete) {
+          manager.getPhotosBreakdown().then((breakdown) => {
+            setPhotosBreakdown(breakdown);
+            log("loaded photos breakdown", breakdown);
+          });
+        }
+
         log("initialized from IDB", {
           status: initialStatus,
           itemCounts: storageStats.itemCounts,
@@ -578,6 +608,14 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
         });
       }
 
+      // Update photos breakdown after domain sync completion
+      if (manager && completeEvent.domain === "photos") {
+        manager.getPhotosBreakdown().then((breakdown) => {
+          setPhotosBreakdown(breakdown);
+          log("updated photos breakdown after domain sync", breakdown);
+        });
+      }
+
       // Refresh UI state for the completed domain
       setTimeout(() => {
         const currentManager = syncManager();
@@ -627,6 +665,13 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
           setMusicBreakdown(breakdown);
           log("updated music breakdown after sync", breakdown);
         });
+
+        if (manager) {
+          manager.getPhotosBreakdown().then((breakdown) => {
+            setPhotosBreakdown(breakdown);
+            log("updated photos breakdown after sync", breakdown);
+          });
+        }
       }
 
       // Set final overall progress to show 100% completion
@@ -643,8 +688,11 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
 
       // Refresh UI state
       setTimeout(() => {
-        setSyncStatus(manager.getStatus());
-        setSyncProgress(manager.getProgress());
+        const currentManager = syncManager();
+        if (currentManager) {
+          setSyncStatus(currentManager.getStatus());
+          setSyncProgress(currentManager.getProgress());
+        }
       }, 100);
 
       // Trigger image grid refresh when sync completes
@@ -1206,7 +1254,11 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
                   {formatDomainProgress(
                     domain,
                     syncProgress()[domain as keyof SyncProgressMap],
-                    domain === "music" ? musicBreakdown() : undefined
+                    domain === "music"
+                      ? musicBreakdown()
+                      : domain === "photos"
+                        ? photosBreakdown()
+                        : undefined
                   )}
                 </div>
               </div>
@@ -1218,14 +1270,17 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
       {/* Image Grid */}
       <Show when={imageUrls().length > 0}>
         <div class="image-grid-section">
-          <h3>🖼️ Binary Data Image Grid ({imageUrls().length} images)</h3>
+          <h3>
+            🖼️ Binary Data Image Grid ({imageUrls().length} images) - Updated:{" "}
+            {new Date().toLocaleTimeString()}
+          </h3>
           <div class="image-grid">
             <For each={imageUrls()}>
               {(url, index) => (
                 <div class="image-item">
                   <img
                     src={url}
-                    alt={`Image ${index() + 1}`}
+                    alt={`Recent image ${index() + 1}`}
                     class="grid-image"
                     onError={(e) => {
                       log(`failed to load image ${index() + 1}`, url);

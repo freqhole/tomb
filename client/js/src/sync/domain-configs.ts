@@ -81,20 +81,61 @@ const PHOTOS_CONFIG: DomainConfig = {
     batchSize: 5, // Process 5 photos at a time
   },
   transforms: {
-    fromApi: (data: any) => ({
-      id: data.id,
-      title: data.title,
-      description: data.description,
-      width: data.width,
-      height: data.height,
-      blob_id: data.blob_id,
-      thumbnail_blob_id: data.thumbnail_blob_id,
-      created_at: data.created_at,
-      updated_at: data.updated_at,
-      location: data.location,
-      camera_info: data.camera_info,
-      metadata: data.metadata || {},
-    }),
+    fromApi: (data: any) => {
+      // Handle different data types from the photos domain
+      if (data._data_type === "photo") {
+        return {
+          id: data.id,
+          title: data.title,
+          description: data.description,
+          width: data.width,
+          height: data.height,
+          blob_id: data.blob_id,
+          thumbnail_blob_id: data.thumbnail_blob_id,
+          created_at: data.created_at,
+          updated_at: data.updated_at,
+          location: data.location,
+          camera_info: data.camera_info,
+          metadata: data.metadata || {},
+          _data_type: "photo",
+        };
+      } else if (data._data_type === "gallery") {
+        return {
+          id: data.id,
+          title: data.title,
+          description: data.description,
+          created_at: data.created_at,
+          updated_at: data.updated_at,
+          metadata: data.metadata || {},
+          _data_type: "gallery",
+        };
+      } else if (data._data_type === "photo_gallery") {
+        return {
+          id: data.id,
+          gallery_id: data.gallery_id,
+          photo_id: data.photo_id,
+          position: data.position,
+          created_at: data.created_at,
+          _data_type: "photo_gallery",
+        };
+      }
+      // Default to photo if no _data_type specified
+      return {
+        id: data.id,
+        title: data.title,
+        description: data.description,
+        width: data.width,
+        height: data.height,
+        blob_id: data.blob_id,
+        thumbnail_blob_id: data.thumbnail_blob_id,
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        location: data.location,
+        camera_info: data.camera_info,
+        metadata: data.metadata || {},
+        _data_type: "photo",
+      };
+    },
     toStorage: (data: any) => ({
       ...data,
       _sync_version: 1,
