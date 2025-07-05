@@ -1202,12 +1202,13 @@ pub async fn incremental_video_playlist_sync(
 pub async fn incremental_video_playlist_item_sync(
     Extension(db): Extension<DatabaseConnection>,
     Extension(user): Extension<AuthenticatedUser>,
-    Query(params): Query<VideoPlaylistItemSyncQuery>,
+    Query(_params): Query<VideoPlaylistItemSyncQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     info!(
-        "Video playlist items sync requested by user: {} (client: {})",
+        "Video playlist items sync requested by user: {} (client: {}) (params: {:?})",
         user.user().username,
-        user.user().id
+        user.user().id,
+        _params
     );
 
     let videos_repo = grimoire::videos::VideoRepository::new(db.pool().clone());
