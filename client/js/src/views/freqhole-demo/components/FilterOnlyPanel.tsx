@@ -1,17 +1,14 @@
-import { createSignal, For, createMemo } from "solid-js";
-import type { FilterConfig, ColumnVisibility } from "../types";
+import { For, createMemo } from "solid-js";
+import type { FilterConfig } from "../types";
 import { ResizeHandle } from "../ResizeHandle";
 import { useResize } from "../hooks/useResize";
-import { ColumnManager } from "./ColumnManager";
 import { useFreqholeStateContext } from "../context/FreqholeStateContext";
 import { useWebSocketFeed } from "../../../hooks/useWebSocketFeed";
 import { useFreqholeData } from "../hooks/useFreqholeData";
-import { useResponsiveColumns } from "../hooks/useResponsiveColumns";
 import type { NotificationChannel } from "../../../lib/websocket-types";
 
 export function FilterOnlyPanel() {
   const state = useFreqholeStateContext();
-  const [showColumnSettings, setShowColumnSettings] = createSignal(false);
 
   // Set up the same hooks that the main component uses
   const feed = useWebSocketFeed({
@@ -29,10 +26,6 @@ export function FilterOnlyPanel() {
     sortConfig: state.sortConfig,
   });
 
-  const responsiveColumns = useResponsiveColumns({
-    baseColumnVisibility: () => state.columnVisibility(),
-  });
-
   // Computed values from hooks
   const availableMimeCategories = createMemo(() => data.mimeCategories());
   const availableBlobTypes = createMemo(() => data.blobTypes());
@@ -40,10 +33,6 @@ export function FilterOnlyPanel() {
   // Event handlers that work with context
   const updateFilter = (key: keyof FilterConfig, value: any) => {
     state.updateFilter(key, value);
-  };
-
-  const toggleColumnVisibility = (column: keyof ColumnVisibility) => {
-    state.toggleColumn(column);
   };
 
   const resize = useResize({
@@ -90,7 +79,7 @@ export function FilterOnlyPanel() {
         `}
       >
         <h2 style="margin: 0; font-size: 18px; color: #ffffff; font-weight: 600;">
-          🔍 Filters & Columns
+          🔍 Filters
         </h2>
         <button
           onClick={() => state.toggleFilterPanel()}
@@ -311,47 +300,6 @@ export function FilterOnlyPanel() {
               </div>
             </div>
 
-            {/* Column Visibility Toggle */}
-            <div class="filter-section" style="margin-bottom: 24px;">
-              <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #ffffff;">
-                👁️ Column Visibility
-              </h3>
-              <button
-                onClick={() => setShowColumnSettings(!showColumnSettings())}
-                class="toggle-button"
-                style={`
-                width: 100%;
-                padding: 8px 12px;
-                background: #333333;
-                border: 1px solid #555555;
-                border-radius: 4px;
-                color: #ffffff;
-                font-size: 14px;
-                cursor: pointer;
-                transition: all 0.2s;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-              `}
-              >
-                <span>Manage Columns</span>
-                <span style="transform: rotate(90deg); font-size: 12px;">
-                  {showColumnSettings() ? "▼" : "▶"}
-                </span>
-              </button>
-              {showColumnSettings() && (
-                <div style="margin-top: 12px;">
-                  <ColumnManager
-                    columnVisibility={state.columnVisibility()}
-                    onColumnToggle={toggleColumnVisibility}
-                    responsiveColumnVisibility={responsiveColumns.responsiveColumnVisibility()}
-                    hiddenColumns={responsiveColumns.getHiddenColumns()}
-                    breakpointInfo={responsiveColumns.getBreakpointInfo()}
-                  />
-                </div>
-              )}
-            </div>
-
             {/* Reset Filters */}
             <div class="filter-section" style="margin-bottom: 24px;">
               <button
@@ -390,7 +338,7 @@ export function FilterOnlyPanel() {
                   (e.target as HTMLElement).style.borderColor = "#666666";
                 }}
               >
-                <span>Reset All Filters</span>
+                <span>🗑️ Reset All Filters</span>
               </button>
             </div>
 

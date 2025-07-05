@@ -1,9 +1,17 @@
 import { Show, onCleanup, createEffect } from "solid-js";
 import { useFreqholeAppContext } from "../context/FreqholeStateContext";
+import { ColumnManager } from "./ColumnManager";
+import { COLUMNS } from "../hooks/useGridColumns";
+import { useResponsiveColumns } from "../hooks/useResponsiveColumns";
 
 export function HeaderActionMenu() {
   const { state } = useFreqholeAppContext();
   let menuRef: HTMLDivElement | undefined;
+
+  // Set up responsive columns for the column manager
+  const responsiveColumns = useResponsiveColumns({
+    baseColumnVisibility: () => state.columnVisibility(),
+  });
 
   // Close on outside click
   const handleClickOutside = (e: MouseEvent) => {
@@ -72,6 +80,14 @@ export function HeaderActionMenu() {
     state.setHeaderActionMenu(null);
   };
 
+  // Column toggle handler (don't close menu)
+  const handleColumnToggle = (
+    column: keyof import("../types").ColumnVisibility
+  ) => {
+    state.toggleColumn(column);
+    // Don't close the menu to allow multiple column toggles
+  };
+
   return (
     <Show when={state.headerActionMenu()?.isOpen}>
       <div
@@ -86,7 +102,9 @@ export function HeaderActionMenu() {
           border-radius: 8px;
           box-shadow: 0 8px 32px rgba(0,0,0,0.6);
           z-index: 10000;
-          min-width: 200px;
+          min-width: 350px;
+          max-height: 80vh;
+          overflow-y: auto;
           animation: slideIn 0.15s ease-out;
         `}
       >
@@ -111,7 +129,7 @@ export function HeaderActionMenu() {
             `}
           >
             <div style="flex: 1;">
-              <div style="font-weight: 500;">Filters & Columns</div>
+              <div style="font-weight: 500;">Filters</div>
             </div>
             <Show when={state.isFilterPanelOpen()}>
               <span style="color: #ff00ff; font-size: 12px;">●</span>
@@ -189,6 +207,7 @@ export function HeaderActionMenu() {
               align-items: center;
               gap: 12px;
               transition: all 0.15s ease;
+              border-bottom: 1px solid #444;
             `}
           >
             <div style="flex: 1;">
@@ -198,6 +217,19 @@ export function HeaderActionMenu() {
               <span style="color: #ff00ff; font-size: 12px;">●</span>
             </Show>
           </button>
+
+          {/* Column Manager Section */}
+          <div style="padding: 12px 16px;">
+            <ColumnManager
+              columnVisibility={state.columnVisibility()}
+              onColumnToggle={handleColumnToggle}
+              responsiveColumnVisibility={responsiveColumns.responsiveColumnVisibility()}
+              hiddenColumns={responsiveColumns.getHiddenColumns()}
+              breakpointInfo={responsiveColumns.getBreakpointInfo()}
+              columns={COLUMNS}
+              className="header-menu-column-manager"
+            />
+          </div>
         </div>
       </div>
 
@@ -219,6 +251,22 @@ export function HeaderActionMenu() {
 
         .header-action-menu-item:active {
           background: rgba(255, 255, 255, 0.12) !important;
+        }
+
+        .header-menu-column-manager {
+          font-size: 12px;
+        }
+
+        .header-menu-column-manager .column-manager > div {
+          margin-bottom: 8px !important;
+        }
+
+        .header-menu-column-manager label {
+          font-size: 12px !important;
+        }
+
+        .header-menu-column-manager input[type="checkbox"] {
+          margin-right: 6px !important;
         }
       `}</style>
     </Show>

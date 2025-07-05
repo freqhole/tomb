@@ -1,4 +1,3 @@
-
 import { For, Show } from "solid-js";
 import type { ColumnVisibility } from "../types";
 
@@ -11,26 +10,14 @@ export interface ColumnManagerProps {
   responsiveColumnVisibility?: ColumnVisibility;
   hiddenColumns?: string[];
   breakpointInfo?: { name: string; size: string };
+  // Column definitions
+  columns: Array<{ key: string; title: string }>;
 }
-
-const COLUMNS = [
-  { key: "id", title: "ID" },
-  { key: "thumbnail", title: "📷 Thumbnail" },
-  { key: "name", title: "📄 Name" },
-  { key: "mime", title: "🎭 MIME Type" },
-  { key: "blob_type", title: "🏷️ Type" },
-  { key: "size", title: "📏 Size" },
-  { key: "parent_blob_id", title: "🌳 Parent" },
-  { key: "local_path", title: "📁 Path" },
-  { key: "created_at", title: "📅 Created" },
-  { key: "updated_at", title: "🔄 Updated" },
-  { key: "actions", title: "⚙️ Actions" },
-];
 
 export function ColumnManager(props: ColumnManagerProps) {
   return (
     <div class={`column-manager ${props.className || ""}`}>
-      <For each={COLUMNS}>
+      <For each={props.columns}>
         {(column) => {
           const columnKey = column.key as keyof ColumnVisibility;
           const isEnabled = props.columnVisibility[columnKey];

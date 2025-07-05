@@ -1,4 +1,3 @@
-
 import { createMemo } from "solid-js";
 import type { GridColumn } from "../../../components/infinite-data-grid/types";
 import type { MediaBlob } from "../../../lib/websocket-types";
@@ -6,6 +5,20 @@ import type { ColumnVisibility } from "../types";
 import { Thumbnail } from "../components/Thumbnail";
 import { getDisplayFilename } from "../../../lib/media-utils";
 import { formatBytes } from "../../../lib/format-utils";
+
+export const COLUMNS = [
+  { key: "id", title: "ID" },
+  { key: "thumbnail", title: "📷 Thumbnail" },
+  { key: "name", title: "📄 Name" },
+  { key: "mime", title: "🎭 MIME Type" },
+  { key: "blob_type", title: "🏷️ Type" },
+  { key: "size", title: "📏 Size" },
+  { key: "parent_blob_id", title: "🌳 Parent" },
+  { key: "local_path", title: "📁 Path" },
+  { key: "created_at", title: "📅 Created" },
+  { key: "updated_at", title: "🔄 Updated" },
+  { key: "actions", title: "⚙️ Actions" },
+];
 
 export interface UseGridColumnsProps {
   columnVisibility: () => ColumnVisibility;
