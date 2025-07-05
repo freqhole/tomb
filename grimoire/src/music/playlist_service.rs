@@ -565,7 +565,7 @@ impl PlaylistService {
         }
 
         self.repository
-            .reorder_playlist(playlist_id, song_ids_ordered)
+            .reorder_playlist_by_function(playlist_id, song_ids_ordered)
             .await
             .map_err(PlaylistServiceError::Repository)
     }
