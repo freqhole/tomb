@@ -226,7 +226,7 @@ export function HeaderActionMenu() {
               responsiveColumnVisibility={responsiveColumns.responsiveColumnVisibility()}
               hiddenColumns={responsiveColumns.getHiddenColumns()}
               breakpointInfo={responsiveColumns.getBreakpointInfo()}
-              columns={COLUMNS}
+              columns={COLUMNS.filter((c) => c.key !== "actions")}
               className="header-menu-column-manager"
             />
           </div>
