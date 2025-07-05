@@ -158,6 +158,55 @@ pub struct PhotoGallerySyncQuery {
     pub page_size: Option<i64>,
 }
 
+/// Query parameters for video sync
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VideoSyncQuery {
+    /// Last sync timestamp in RFC3339 format
+    pub last_sync_time: Option<String>,
+    /// Cursor for pagination
+    pub cursor: Option<String>,
+    /// Number of items per batch
+    pub page_size: Option<i64>,
+    /// Filter by title search
+    pub title_search: Option<String>,
+    /// Filter by duration (minimum seconds)
+    pub duration_min: Option<i32>,
+    /// Filter by duration (maximum seconds)
+    pub duration_max: Option<i32>,
+    /// Filter by resolution
+    pub resolution: Option<String>,
+    /// Only sync favorites
+    pub favorites_only: Option<bool>,
+}
+
+/// Query parameters for video playlist sync
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VideoPlaylistSyncQuery {
+    /// Last sync timestamp in RFC3339 format
+    pub last_sync_time: Option<String>,
+    /// Cursor for pagination
+    pub cursor: Option<String>,
+    /// Number of items per batch
+    pub page_size: Option<i64>,
+    /// Filter by title search
+    pub title_search: Option<String>,
+    /// Only sync public playlists
+    pub public_only: Option<bool>,
+}
+
+/// Query parameters for video playlist items sync
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VideoPlaylistItemSyncQuery {
+    /// Optional playlist ID to filter by (if None, sync all playlist items)
+    pub playlist_id: Option<String>,
+    /// Last sync timestamp in RFC3339 format
+    pub last_sync_time: Option<String>,
+    /// Cursor for pagination
+    pub cursor: Option<String>,
+    /// Number of items per batch
+    pub page_size: Option<i32>,
+}
+
 pub async fn incremental_sync(
     Extension(db): Extension<DatabaseConnection>,
     Extension(user): Extension<AuthenticatedUser>,
@@ -952,5 +1001,272 @@ pub async fn incremental_photo_gallery_sync(
         "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
         "is_full_sync": true,
         "total_items": photo_galleries_with_type.len()
+    })))
+}
+
+/// Video incremental sync endpoint - GET /api/sync/videos
+pub async fn incremental_video_sync(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(params): Query<VideoSyncQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!(
+        "Video sync requested by user: {} (client: {})",
+        user.user().username,
+        user.user().id
+    );
+
+    // Parse last sync time
+    let last_sync_time = if let Some(time_str) = params.last_sync_time {
+        Some(
+            OffsetDateTime::parse(&time_str, &time::format_description::well_known::Rfc3339)
+                .map_err(|e| {
+                    AppError::BadRequest(format!("Invalid last_sync_time format: {}", e))
+                })?,
+        )
+    } else {
+        None
+    };
+
+    let videos_repo = grimoire::videos::VideoRepository::new(db.pool().clone());
+    let page_size = params.page_size.unwrap_or(20);
+    let offset = params
+        .cursor
+        .as_ref()
+        .and_then(|c| c.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    // Create query with filters
+    let video_query = grimoire::videos::VideoQuery {
+        search: params.title_search,
+        duration_min: params.duration_min,
+        duration_max: params.duration_max,
+        is_favorite: params.favorites_only,
+        created_after: last_sync_time,
+        ..Default::default()
+    };
+
+    // Request one extra item to determine if there are more pages
+    let videos = videos_repo
+        .list_videos(Some(video_query), Some(page_size + 1), Some(offset))
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch videos: {}", e);
+            AppError::InternalServerError("Sync operation failed".to_string())
+        })?;
+
+    // Calculate pagination metadata
+    let has_more = videos.len() > page_size as usize;
+    let actual_videos = if has_more {
+        videos
+            .into_iter()
+            .take(page_size as usize)
+            .collect::<Vec<_>>()
+    } else {
+        videos
+    };
+    let next_cursor = if has_more {
+        Some((offset + page_size).to_string())
+    } else {
+        None
+    };
+
+    // Transform videos to include _data_type
+    let videos_with_type: Vec<serde_json::Value> = actual_videos
+        .into_iter()
+        .map(|video| {
+            let mut video_json = serde_json::to_value(video).unwrap_or_default();
+            video_json["_data_type"] = serde_json::json!("video");
+            video_json
+        })
+        .collect();
+
+    info!(
+        "Video sync completed for user: {} - {} items",
+        user.user().username,
+        videos_with_type.len()
+    );
+
+    Ok(Json(serde_json::json!({
+        "items": videos_with_type,
+        "pagination": {
+            "batch_size": videos_with_type.len(),
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+            "progress": null,
+            "suggested_delay": null
+        },
+        "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        "is_full_sync": last_sync_time.is_none(),
+        "total_items": videos_with_type.len()
+    })))
+}
+
+/// Video playlist incremental sync endpoint - GET /api/sync/video-playlists
+pub async fn incremental_video_playlist_sync(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(params): Query<VideoPlaylistSyncQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!(
+        "Video playlist sync requested by user: {} (client: {})",
+        user.user().username,
+        user.user().id
+    );
+
+    // Parse last sync time
+    let last_sync_time = if let Some(time_str) = params.last_sync_time {
+        Some(
+            OffsetDateTime::parse(&time_str, &time::format_description::well_known::Rfc3339)
+                .map_err(|e| {
+                    AppError::BadRequest(format!("Invalid last_sync_time format: {}", e))
+                })?,
+        )
+    } else {
+        None
+    };
+
+    let videos_repo = grimoire::videos::VideoRepository::new(db.pool().clone());
+    let page_size = params.page_size.unwrap_or(50);
+    let offset = params
+        .cursor
+        .as_ref()
+        .and_then(|c| c.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    // Create query with filters
+    let playlist_query = grimoire::videos::VideoPlaylistQuery {
+        search: params.title_search,
+        is_public: params.public_only,
+        created_after: last_sync_time,
+        ..Default::default()
+    };
+
+    // Request one extra item to determine if there are more pages
+    let playlists = videos_repo
+        .list_playlists(Some(playlist_query), Some(page_size + 1), Some(offset))
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch video playlists: {}", e);
+            AppError::InternalServerError("Sync operation failed".to_string())
+        })?;
+
+    // Calculate pagination metadata
+    let has_more = playlists.len() > page_size as usize;
+    let actual_playlists = if has_more {
+        playlists
+            .into_iter()
+            .take(page_size as usize)
+            .collect::<Vec<_>>()
+    } else {
+        playlists
+    };
+    let next_cursor = if has_more {
+        Some((offset + page_size).to_string())
+    } else {
+        None
+    };
+
+    // Transform playlists to include _data_type
+    let playlists_with_type: Vec<serde_json::Value> = actual_playlists
+        .into_iter()
+        .map(|playlist| {
+            let mut playlist_json = serde_json::to_value(playlist).unwrap_or_default();
+            playlist_json["_data_type"] = serde_json::json!("video_playlist");
+            playlist_json
+        })
+        .collect();
+
+    info!(
+        "Video playlist sync completed for user: {} - {} items",
+        user.user().username,
+        playlists_with_type.len()
+    );
+
+    Ok(Json(serde_json::json!({
+        "items": playlists_with_type,
+        "pagination": {
+            "batch_size": playlists_with_type.len(),
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+            "progress": null,
+            "suggested_delay": null
+        },
+        "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        "is_full_sync": last_sync_time.is_none(),
+        "total_items": playlists_with_type.len()
+    })))
+}
+
+/// Video playlist items incremental sync endpoint - GET /api/sync/video-playlist-items
+pub async fn incremental_video_playlist_item_sync(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(params): Query<VideoPlaylistItemSyncQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!(
+        "Video playlist items sync requested by user: {} (client: {})",
+        user.user().username,
+        user.user().id
+    );
+
+    let videos_repo = grimoire::videos::VideoRepository::new(db.pool().clone());
+
+    // Get all video playlists first, then fetch their videos to create video_playlist_item records
+    let playlists = videos_repo
+        .list_playlists(None, Some(50), None)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch video playlists: {}", e);
+            AppError::InternalServerError("Sync operation failed".to_string())
+        })?;
+
+    let mut video_playlist_items_with_type: Vec<serde_json::Value> = Vec::new();
+
+    // For each playlist, get its videos and create video_playlist_item records
+    for playlist in playlists {
+        let videos = match videos_repo
+            .get_playlist_videos(playlist.id, Some(100), None)
+            .await
+        {
+            Ok(videos) => videos,
+            Err(e) => {
+                error!("Failed to fetch videos for playlist {}: {}", playlist.id, e);
+                // Continue with other playlists instead of failing
+                continue;
+            }
+        };
+
+        for (idx, video) in videos.into_iter().enumerate() {
+            let video_playlist_item = serde_json::json!({
+                "id": format!("{}-{}", playlist.id, video.id),
+                "playlist_id": playlist.id,
+                "video_id": video.id,
+                "position": idx as i32,
+                "created_at": video.created_at,
+                "_data_type": "video_playlist_item"
+            });
+            video_playlist_items_with_type.push(video_playlist_item);
+        }
+    }
+
+    info!(
+        "Video playlist items sync completed for user: {} - {} items",
+        user.user().username,
+        video_playlist_items_with_type.len()
+    );
+
+    Ok(Json(serde_json::json!({
+        "items": video_playlist_items_with_type,
+        "pagination": {
+            "batch_size": video_playlist_items_with_type.len(),
+            "has_more": false,
+            "next_cursor": null,
+            "progress": null,
+            "suggested_delay": null
+        },
+        "sync_timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        "is_full_sync": true,
+        "total_items": video_playlist_items_with_type.len()
     })))
 }

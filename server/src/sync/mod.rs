@@ -51,10 +51,12 @@ pub mod integration_tests;
 pub use handlers::{
     acknowledge_sync, check_sync_needed, full_sync, incremental_gallery_sync,
     incremental_photo_gallery_sync, incremental_photo_sync, incremental_playlist_song_sync,
-    incremental_playlist_sync, incremental_song_sync, incremental_sync, sync_recommendations,
-    sync_status, FullSyncQuery, GallerySyncQuery, IncrementalSyncQuery, PhotoGallerySyncQuery,
-    PhotoSyncQuery, PlaylistSongSyncQuery, PlaylistSyncQuery, SongSyncQuery, SyncAckRequest,
-    SyncRecommendationsResponse,
+    incremental_playlist_sync, incremental_song_sync, incremental_sync,
+    incremental_video_playlist_item_sync, incremental_video_playlist_sync, incremental_video_sync,
+    sync_recommendations, sync_status, FullSyncQuery, GallerySyncQuery, IncrementalSyncQuery,
+    PhotoGallerySyncQuery, PhotoSyncQuery, PlaylistSongSyncQuery, PlaylistSyncQuery, SongSyncQuery,
+    SyncAckRequest, SyncRecommendationsResponse, VideoPlaylistItemSyncQuery,
+    VideoPlaylistSyncQuery, VideoSyncQuery,
 };
 
 use axum::{
@@ -82,6 +84,15 @@ pub fn create_sync_routes() -> Router {
         .route(
             "/api/sync/photo-galleries",
             get(incremental_photo_gallery_sync),
+        )
+        .route("/api/sync/videos", get(incremental_video_sync))
+        .route(
+            "/api/sync/video-playlists",
+            get(incremental_video_playlist_sync),
+        )
+        .route(
+            "/api/sync/video-playlist-items",
+            get(incremental_video_playlist_item_sync),
         )
         .route("/api/sync/status", get(sync_status))
         .route("/api/sync/recommendations", get(sync_recommendations))

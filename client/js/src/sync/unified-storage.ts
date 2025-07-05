@@ -32,6 +32,10 @@ export class UnifiedStorageImpl implements UnifiedStorage {
     photos: "photos",
     galleries: "galleries",
     photo_galleries: "photo_galleries",
+    // Videos domain tables
+    videos: "videos",
+    video_playlists: "video_playlists",
+    video_playlist_items: "video_playlist_items",
     // Shared filesystem layer
     media_blobs: "media_blobs",
     // Binary data storage
@@ -49,6 +53,10 @@ export class UnifiedStorageImpl implements UnifiedStorage {
     return ["photos", "galleries", "photo_galleries"];
   }
 
+  private getVideosTables() {
+    return ["videos", "video_playlists", "video_playlist_items"];
+  }
+
   // Get primary table for domain
   private getDomainTable(domain: SyncDomain): string {
     switch (domain) {
@@ -56,8 +64,9 @@ export class UnifiedStorageImpl implements UnifiedStorage {
         return "songs"; // Primary table for music
       case "photos":
         return "photos"; // Primary table for photos
-      case "documents":
       case "videos":
+        return "videos"; // Primary table for videos
+      case "documents":
         return "media_blobs";
       default:
         return "media_blobs";
@@ -112,6 +121,10 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       return this.storePhotosItems(items);
     }
 
+    if (domain === "videos") {
+      return this.storeVideosItems(items);
+    }
+
     // Other domains use single table
     const storeName = this.getDomainTable(domain);
     const transaction = this.db.transaction([storeName], "readwrite");
@@ -133,6 +146,64 @@ export class UnifiedStorageImpl implements UnifiedStorage {
     });
 
     debugInfo(`✅ Stored ${items.length} items in music domain`);
+  }
+
+  /**
+   * Store videos domain items (videos, video_playlists, video_playlist_items)
+   */
+  private async storeVideosItems(items: any[]): Promise<void> {
+    if (!this.db) throw new Error("Storage not initialized");
+
+    // Group items by data type
+    const videoItems = items.filter((item) => item._data_type === "video");
+    const playlistItems = items.filter(
+      (item) => item._data_type === "video_playlist"
+    );
+    const playlistItemItems = items.filter(
+      (item) => item._data_type === "video_playlist_item"
+    );
+
+    // Get tables
+    const tables = this.getVideosTables();
+    const transaction = this.db.transaction(tables, "readwrite");
+
+    // Store each type
+    if (videoItems.length > 0) {
+      const store = transaction.objectStore("videos");
+      for (const item of videoItems) {
+        const processedItem = { ...item, _stored_at: new Date().toISOString() };
+        delete processedItem._data_type; // Remove temporary field
+        store.put(processedItem);
+      }
+    }
+
+    if (playlistItems.length > 0) {
+      const store = transaction.objectStore("video_playlists");
+      for (const item of playlistItems) {
+        const processedItem = { ...item, _stored_at: new Date().toISOString() };
+        delete processedItem._data_type; // Remove temporary field
+        store.put(processedItem);
+      }
+    }
+
+    if (playlistItemItems.length > 0) {
+      const store = transaction.objectStore("video_playlist_items");
+      for (const item of playlistItemItems) {
+        const processedItem = { ...item, _stored_at: new Date().toISOString() };
+        delete processedItem._data_type; // Remove temporary field
+        store.put(processedItem);
+      }
+    }
+
+    return new Promise((resolve, reject) => {
+      transaction.oncomplete = () => {
+        debugInfo(
+          `📦 Stored videos items: ${videoItems.length} videos, ${playlistItems.length} playlists, ${playlistItemItems.length} playlist items`
+        );
+        resolve();
+      };
+      transaction.onerror = () => reject(transaction.error);
+    });
   }
 
   /**
@@ -294,6 +365,10 @@ export class UnifiedStorageImpl implements UnifiedStorage {
 
     if (domain === "photos") {
       return this.getPhotosItems(options);
+    }
+
+    if (domain === "videos") {
+      return this.getVideosItems(options);
     }
 
     const storeName = this.getDomainTable(domain);
@@ -603,6 +678,65 @@ export class UnifiedStorageImpl implements UnifiedStorage {
   }
 
   /**
+   * Get videos domain items (videos, video_playlists, video_playlist_items)
+   */
+  private async getVideosItems(
+    options: StorageQueryOptions = {}
+  ): Promise<any[]> {
+    if (!this.db) throw new Error("Storage not initialized");
+
+    const tables = this.getVideosTables();
+    const transaction = this.db.transaction(tables, "readonly");
+    let allItems: any[] = [];
+
+    // Get items from all videos tables
+    for (const tableName of tables) {
+      const store = transaction.objectStore(tableName);
+      const request = store.getAll();
+      const items = await this.promisifyRequest(request);
+
+      // Add data type to distinguish items
+      const typedItems = items.map((item) => ({
+        ...item,
+        _data_type:
+          tableName === "videos"
+            ? "video"
+            : tableName === "video_playlists"
+              ? "video_playlist"
+              : "video_playlist_item",
+      }));
+
+      allItems = allItems.concat(typedItems);
+    }
+
+    // Apply filtering if specified
+    if (options.limit) {
+      allItems = allItems.slice(0, options.limit);
+    }
+
+    return allItems;
+  }
+
+  /**
+   * Get detailed videos domain breakdown
+   */
+  async getVideosBreakdown(): Promise<{
+    videos: number;
+    videoPlaylists: number;
+    videoPlaylistItems: number;
+  }> {
+    if (!this.db) throw new Error("Storage not initialized");
+
+    const [videos, videoPlaylists, videoPlaylistItems] = await Promise.all([
+      this.getTableCount("videos"),
+      this.getTableCount("video_playlists"),
+      this.getTableCount("video_playlist_items"),
+    ]);
+
+    return { videos, videoPlaylists, videoPlaylistItems };
+  }
+
+  /**
    * Save sync completion state
    */
   async saveSyncCompletion(
@@ -717,6 +851,23 @@ export class UnifiedStorageImpl implements UnifiedStorage {
             store.createIndex("photo_id", "photo_id");
             store.createIndex("position", "position");
             break;
+          case "videos":
+            store.createIndex("title", "title");
+            store.createIndex("created_at", "created_at");
+            store.createIndex("duration", "duration");
+            store.createIndex("width_px", "width_px");
+            store.createIndex("height_px", "height_px");
+            break;
+          case "video_playlists":
+            store.createIndex("title", "title");
+            store.createIndex("created_at", "created_at");
+            store.createIndex("client_id", "client_id");
+            break;
+          case "video_playlist_items":
+            store.createIndex("playlist_id", "playlist_id");
+            store.createIndex("video_id", "video_id");
+            store.createIndex("position", "position");
+            break;
           case "media_blobs":
             store.createIndex("created_at", "created_at");
             store.createIndex("mime_type", "mime_type");
@@ -771,12 +922,24 @@ export class UnifiedStorageImpl implements UnifiedStorage {
       return total;
     }
 
-    const storeName = this.getDomainTable(domain);
-    const transaction = this.db.transaction([storeName], "readonly");
-    const store = transaction.objectStore(storeName);
+    if (domain === "videos") {
+      const tables = this.getVideosTables();
+      const transaction = this.db.transaction(tables, "readonly");
+      let total = 0;
+      for (const tableName of tables) {
+        const store = transaction.objectStore(tableName);
+        const request = store.count();
+        total += await this.promisifyRequest(request);
+      }
+      return total;
+    }
 
+    // Default to primary table
+    const tableName = this.getDomainTable(domain);
+    const transaction = this.db.transaction([tableName], "readonly");
+    const store = transaction.objectStore(tableName);
     const request = store.count();
-    return await this.promisifyRequest(request);
+    return this.promisifyRequest(request);
   }
 
   private async calculateBinarySize(): Promise<number> {

@@ -546,6 +546,19 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
     }
   }
 
+  async getVideosBreakdown(): Promise<{
+    videos: number;
+    videoPlaylists: number;
+    videoPlaylistItems: number;
+  }> {
+    try {
+      return await this.storage.getVideosBreakdown();
+    } catch (error) {
+      debugError("Failed to get videos breakdown:", error);
+      return { videos: 0, videoPlaylists: 0, videoPlaylistItems: 0 };
+    }
+  }
+
   /**
    * Get storage statistics
    */
@@ -718,6 +731,10 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
     // For photos domain, sync photos, galleries, and photo_galleries together
     if (domain === "photos") {
       return this.syncPhotosDomain(options);
+    }
+
+    if (domain === "videos") {
+      return this.syncVideosDomain(options);
     }
 
     const pageSize =
@@ -945,6 +962,105 @@ export class UnifiedSyncManagerImpl implements UnifiedSyncManager {
         photoGalleries: photoGalleriesResult.itemsSynced,
       },
     };
+  }
+
+  /**
+   * Unified videos domain sync - handles videos, video playlists, and video playlist items together
+   */
+  private async syncVideosDomain(options: SyncDomainOptions) {
+    debugInfo("🎬 Starting unified videos domain sync...");
+
+    // Sync videos first
+    const videosResult = await this.syncVideosDataType("videos", options);
+
+    // Sync video playlists
+    const videoPlaylistsResult = await this.syncVideosDataType(
+      "video-playlists",
+      options
+    );
+
+    // Sync video playlist items
+    const videoPlaylistItemsResult = await this.syncVideosDataType(
+      "video-playlist-items",
+      options
+    );
+
+    debugInfo(
+      `🎬 Videos domain sync completed: ${videosResult.itemsSynced} videos, ${videoPlaylistsResult.itemsSynced} playlists, ${videoPlaylistItemsResult.itemsSynced} playlist items`
+    );
+
+    // Return breakdown for better UI display - prioritize videos count
+    return {
+      itemsSynced: videosResult.itemsSynced, // Show videos count as primary
+      totalItems: videosResult.totalItems,
+      breakdown: {
+        videos: videosResult.itemsSynced,
+        videoPlaylists: videoPlaylistsResult.itemsSynced,
+        videoPlaylistItems: videoPlaylistItemsResult.itemsSynced,
+      },
+    };
+  }
+
+  /**
+   * Sync specific videos data type (videos, video-playlists, video-playlist-items)
+   */
+  private async syncVideosDataType(
+    dataType: string,
+    options: SyncDomainOptions
+  ): Promise<{ itemsSynced: number; totalItems: number }> {
+    const endpoint = `/api/sync/${dataType}`;
+    const pageSize = options.pageSize || 20;
+    let totalItemsSynced = 0;
+    let cursor: string | null = null;
+    let hasMore = true;
+
+    while (hasMore) {
+      try {
+        const queryParams = new URLSearchParams();
+        queryParams.append("page_size", pageSize.toString());
+        if (cursor) {
+          queryParams.append("cursor", cursor);
+        }
+        if (options.forceFullSync !== true && options.lastSyncTime) {
+          queryParams.append("last_sync_time", options.lastSyncTime);
+        }
+
+        const url = `${this.config.apiBaseUrl}${endpoint}?${queryParams}`;
+        debugInfo(`🔄 Fetching ${dataType} from: ${url}`);
+
+        const response = await fetch(url, {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const items = data.items || [];
+
+        if (items.length > 0) {
+          await this.storage.storeItems("videos", items);
+          totalItemsSynced += items.length;
+          debugInfo(`✅ Stored ${items.length} ${dataType} items`);
+        }
+
+        hasMore = data.pagination?.has_more || false;
+        cursor = data.pagination?.next_cursor || null;
+
+        debugInfo(
+          `📄 ${dataType} page complete: ${items.length} items, hasMore: ${hasMore}`
+        );
+      } catch (error) {
+        debugError(`❌ Failed to sync ${dataType}:`, error);
+        throw error;
+      }
+    }
+
+    debugInfo(`🎬 ${dataType} sync complete: ${totalItemsSynced} items total`);
+    return { itemsSynced: totalItemsSynced, totalItems: totalItemsSynced };
   }
 
   /**

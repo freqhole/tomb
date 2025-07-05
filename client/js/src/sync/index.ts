@@ -109,7 +109,7 @@ export const DEFAULT_UNIFIED_SYNC_CONFIG: Partial<UnifiedSyncConfig> = {
   domains: createDomainConfigs(),
   storage: {
     databaseName: "unified_sync_storage",
-    version: 1,
+    version: 2,
     maxSize: 100 * 1024 * 1024, // 100MB
     maxAge: 30, // 30 days
   },

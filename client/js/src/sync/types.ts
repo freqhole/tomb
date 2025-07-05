@@ -95,6 +95,15 @@ export interface UnifiedSyncManager {
   }>;
 
   /**
+   * Get videos domain breakdown
+   */
+  getVideosBreakdown(): Promise<{
+    videos: number;
+    videoPlaylists: number;
+    videoPlaylistItems: number;
+  }>;
+
+  /**
    * Event subscription for sync events
    */
   on(event: SyncEventType, listener: SyncEventListener): void;
@@ -478,6 +487,13 @@ export interface UnifiedStorage {
     photos: number;
     galleries: number;
     photoGalleries: number;
+  }>;
+
+  /** Get detailed videos domain breakdown */
+  getVideosBreakdown(): Promise<{
+    videos: number;
+    videoPlaylists: number;
+    videoPlaylistItems: number;
   }>;
 
   /** Binary data operations (simple blob ID -> ArrayBuffer storage as per plan) */

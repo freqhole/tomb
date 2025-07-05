@@ -179,7 +179,7 @@ pub struct UpdateVideoPlaylist {
 }
 
 /// Video query parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VideoQuery {
     pub is_favorite: Option<bool>,
     pub tags: Option<Vec<String>>,
@@ -200,7 +200,7 @@ pub struct VideoQuery {
 }
 
 /// Video playlist query parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VideoPlaylistQuery {
     pub is_public: Option<bool>,
     pub is_collaborative: Option<bool>,

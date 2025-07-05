@@ -943,7 +943,7 @@ const UnifiedSyncDemoComponent = (props: UnifiedSyncDemoProps = {}) => {
       addLog("🔄 Starting sync for all domains...");
 
       const result = await manager.syncAll({
-        domains: ["music", "photos"], // Start with core domains
+        domains: ["music", "photos", "videos"], // Start with core domains
         includeBinaryData: true, // Enable WebSocket binary sync
         forceFullSync: false,
       });
