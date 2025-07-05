@@ -720,19 +720,52 @@ impl UpdatePlaylist {
 /// Query parameters for searching songs
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SongQuery {
-    pub favorites_only: Option<bool>,
+    // Basic filters
     pub artist: Option<String>,
     pub album: Option<String>,
+    pub album_artist: Option<String>,
     pub genre: Option<String>,
+    pub title_search: Option<String>,
+
+    // Numeric filters
     pub year: Option<i32>,
     pub rating_min: Option<i32>,
-    pub title_search: Option<String>,
+    pub rating_max: Option<i32>,
+    pub bpm_min: Option<i32>,
+    pub bpm_max: Option<i32>,
+
+    // Duration filters (in seconds)
+    pub duration_min: Option<i32>,
+    pub duration_max: Option<i32>,
+
+    // Boolean filters
+    pub favorites_only: Option<bool>,
+    pub has_thumbnail: Option<bool>,
+    pub has_waveform: Option<bool>,
+
+    // Array filters
     pub tags: Option<Vec<String>>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
+
+    // Date filters
     pub created_after: Option<OffsetDateTime>,
     pub updated_after: Option<OffsetDateTime>,
+
+    // JSONB filters
+    pub metadata_filter: Option<serde_json::Value>,
+
+    // Musical filters
+    pub key_signature: Option<String>,
+
+    // Media blob filter
     pub media_blob_id: Option<String>,
+
+    // Pagination
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+
+    // Ordering
+    pub order_by: Option<String>,
+    pub order_direction: Option<String>,
 }
 
 impl SongQuery {
@@ -806,6 +839,7 @@ mod tests {
             media_blob_id: "abc1234".to_string(),
             thumbnail_blob_id: None,
             waveform_blob_id: None,
+            thumbnail_blob_ids: None,
             title: "Bohemian Rhapsody".to_string(),
             artist: Some("Queen".to_string()),
             album: Some("A Night at the Opera".to_string()),
@@ -842,6 +876,7 @@ mod tests {
             media_blob_id: "def5678".to_string(),
             thumbnail_blob_id: None,
             waveform_blob_id: None,
+            thumbnail_blob_ids: None,
             title: "Untitled".to_string(),
             artist: None,
             album: None,

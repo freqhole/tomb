@@ -381,7 +381,6 @@ pub async fn extract_metadata_batch(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_supported_extensions() {

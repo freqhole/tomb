@@ -464,7 +464,6 @@ impl ScanProgress for ConsoleScanProgress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     struct TestScanner {
         media_type: String,

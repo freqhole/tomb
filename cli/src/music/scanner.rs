@@ -559,39 +559,27 @@ async fn process_audio_file(
         .or_else(|| metadata.tags.tags.get("DATE"))
         .and_then(|s| s.parse::<i32>().ok());
 
-    let metadata_json = serde_json::json!({
-        "audio_properties": metadata.properties,
-        "original_tags": metadata.tags.tags,
-        "processing_info": {
-            "processed_at": "now",
-            "processor": "music-cli",
-            "file_path": file_path.to_string_lossy()
-        },
-        "duration_seconds": metadata.properties.duration_seconds,
-        "has_embedded_thumbnail": thumbnail_blob_id.is_some()
-    });
+    // Metadata is stored via the individual fields passed to create_song_with_waveform_metadata
 
     // Create song record using MusicRepository with waveform
-    let song_id = repository
+    let song = repository
         .create_song_with_waveform_metadata(
             &media_blob.id,
-            thumbnail_blob_id.as_deref(),
-            waveform_blob_id.as_deref(),
-            smart_title,
-            artist,
-            album,
-            album_artist,
+            &smart_title,
+            artist.as_deref(),
+            album.as_deref(),
+            album_artist.as_deref(),
             track_number,
             disc_number,
-            genre,
+            None, // duration will be extracted later
+            genre.as_deref(),
             year,
-            metadata_json,
+            thumbnail_blob_id.as_deref(),
+            waveform_blob_id.as_deref(),
         )
         .await?;
 
-    let song = repository.get_song(song_id).await?;
-    println!("  ✅ Added: {}", song.title);
-    Ok(song_id)
+    Ok(song.id)
 }
 
 /// Process directory album art for songs that don't have embedded thumbnails
@@ -738,21 +726,14 @@ async fn process_directory_album_art(
 
     for song_id in songs_without_thumbnails {
         // Update the primary thumbnail_blob_id if it's null
-        let primary_update_result = sqlx::query(
-            "UPDATE songs SET thumbnail_blob_id = $2, updated_at = NOW() WHERE id = $1 AND thumbnail_blob_id IS NULL"
-        )
-        .bind(song_id)
-        .bind(&created_blob_ids[0])
-        .execute(music_service.db().pool())
-        .await;
+        let primary_update_result = music_repository
+            .update_song_thumbnail_blob_id_if_null(song_id, &created_blob_ids[0])
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>);
 
         match primary_update_result {
-            Ok(result) => {
-                if result.rows_affected() > 0 {
-                    println!("  ✅ Updated primary thumbnail for song {}", song_id);
-                } else {
-                    println!("  ℹ️  Song {} already has primary thumbnail", song_id);
-                }
+            Ok(_) => {
+                println!("  ✅ Updated primary thumbnail for song {}", song_id);
             }
             Err(e) => {
                 println!(
@@ -800,14 +781,13 @@ async fn get_songs_without_thumbnails(
     song_ids: &[Uuid],
 ) -> Result<Vec<Uuid>, Box<dyn std::error::Error>> {
     let mut songs_without_thumbnails = Vec::new();
+    let music_repository = grimoire::music::MusicRepository::new(music_service.db().pool().clone());
 
     for &song_id in song_ids {
-        let has_thumbnail = sqlx::query_scalar::<_, bool>(
-            "SELECT thumbnail_blob_id IS NOT NULL FROM songs WHERE id = $1",
-        )
-        .bind(song_id)
-        .fetch_one(music_service.db().pool())
-        .await?;
+        let has_thumbnail = music_repository
+            .song_has_thumbnail(song_id)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
         if !has_thumbnail {
             songs_without_thumbnails.push(song_id);
@@ -822,11 +802,11 @@ async fn get_song_media_blob_id(
     music_service: &MusicService<'_>,
     song_id: Uuid,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let media_blob_id =
-        sqlx::query_scalar::<_, String>("SELECT media_blob_id FROM songs WHERE id = $1")
-            .bind(song_id)
-            .fetch_one(music_service.db().pool())
-            .await?;
+    let music_repository = grimoire::music::MusicRepository::new(music_service.db().pool().clone());
+    let media_blob_id = music_repository
+        .get_song_media_blob_id(song_id)
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
     Ok(media_blob_id)
 }

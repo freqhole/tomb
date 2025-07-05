@@ -151,19 +151,52 @@ pub struct SongQueryParams {
 impl From<SongQueryParams> for SongQuery {
     fn from(params: SongQueryParams) -> Self {
         Self {
-            favorites_only: params.favorites,
+            // Basic filters
             artist: params.artist,
             album: params.album,
+            album_artist: None,
             genre: params.genre,
+            title_search: params.title_search,
+
+            // Numeric filters
             year: params.year,
             rating_min: params.rating_min,
-            title_search: params.title_search,
+            rating_max: None,
+            bpm_min: None,
+            bpm_max: None,
+
+            // Duration filters
+            duration_min: None,
+            duration_max: None,
+
+            // Boolean filters
+            favorites_only: params.favorites,
+            has_thumbnail: None,
+            has_waveform: None,
+
+            // Array filters
             tags: None,
-            limit: params.limit,
-            offset: params.offset,
+
+            // Date filters
             created_after: None,
             updated_after: None,
+
+            // JSONB filters
+            metadata_filter: None,
+
+            // Musical filters
+            key_signature: None,
+
+            // Media blob filter
             media_blob_id: params.media_blob_id,
+
+            // Pagination
+            limit: params.limit,
+            offset: params.offset,
+
+            // Ordering
+            order_by: None,
+            order_direction: None,
         }
     }
 }

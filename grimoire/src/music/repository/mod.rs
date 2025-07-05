@@ -76,116 +76,51 @@ impl MusicRepository {
     }
 
     /// Query songs with filtering and pagination
+    #[allow(unused_variables)] // Variables used for dynamic SQL building
     pub async fn query_songs(&self, query: SongQuery) -> Result<Vec<Song>> {
-        let mut sql = String::from("SELECT * FROM songs WHERE deleted_at IS NULL");
-        let mut bind_count = 0;
+        // Set default values for pagination
+        let limit = query.limit.unwrap_or(100) as i32;
+        let offset = query.offset.unwrap_or(0) as i32;
+        let order_by = query.order_by.as_deref().unwrap_or("created_at");
+        let order_direction = query.order_direction.as_deref().unwrap_or("DESC");
 
-        if let Some(true) = query.favorites_only {
-            sql.push_str(" AND is_favorite = true");
-        }
+        let songs = sqlx::query_as::<_, Song>(
+            "
+            SELECT * FROM query_songs(
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                $21, $22, $23, $24, $25
+            )
+        ",
+        )
+        .bind(query.artist.as_deref())
+        .bind(query.album.as_deref())
+        .bind(query.album_artist.as_deref())
+        .bind(query.genre.as_deref())
+        .bind(query.title_search.as_deref())
+        .bind(query.year)
+        .bind(query.rating_min)
+        .bind(query.rating_max)
+        .bind(query.bpm_min)
+        .bind(query.bpm_max)
+        .bind(query.duration_min)
+        .bind(query.duration_max)
+        .bind(query.favorites_only)
+        .bind(query.has_thumbnail)
+        .bind(query.has_waveform)
+        .bind(query.tags.as_deref())
+        .bind(query.created_after)
+        .bind(query.updated_after)
+        .bind(query.metadata_filter)
+        .bind(query.key_signature.as_deref())
+        .bind(query.media_blob_id.as_deref())
+        .bind(limit)
+        .bind(offset)
+        .bind(order_by)
+        .bind(order_direction)
+        .fetch_all(&self.pool)
+        .await?;
 
-        if query.artist.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" AND artist ILIKE ${}", bind_count));
-        }
-
-        if query.album.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" AND album ILIKE ${}", bind_count));
-        }
-
-        if query.genre.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" AND genre ILIKE ${}", bind_count));
-        }
-
-        if query.year.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" AND year = ${}", bind_count));
-        }
-
-        if query.rating_min.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" AND rating >= ${}", bind_count));
-        }
-
-        if query.title_search.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" AND title ILIKE ${}", bind_count));
-        }
-
-        if query.tags.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" AND tags && ${}", bind_count));
-        }
-
-        if query.media_blob_id.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" AND media_blob_id = ${}", bind_count));
-        }
-
-        if query.created_after.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" AND created_at > ${}", bind_count));
-        }
-
-        if query.updated_after.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" AND updated_at > ${}", bind_count));
-        }
-
-        sql.push_str(" ORDER BY artist, album, track_number, title");
-
-        if query.offset.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" OFFSET ${}", bind_count));
-        }
-
-        if query.limit.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" LIMIT ${}", bind_count));
-        }
-
-        let mut query_builder = sqlx::query_as::<_, Song>(&sql);
-
-        if let Some(ref artist) = query.artist {
-            query_builder = query_builder.bind(format!("%{}%", artist));
-        }
-        if let Some(ref album) = query.album {
-            query_builder = query_builder.bind(format!("%{}%", album));
-        }
-        if let Some(ref genre) = query.genre {
-            query_builder = query_builder.bind(format!("%{}%", genre));
-        }
-        if let Some(year) = query.year {
-            query_builder = query_builder.bind(year);
-        }
-        if let Some(rating_min) = query.rating_min {
-            query_builder = query_builder.bind(rating_min);
-        }
-        if let Some(ref title_search) = query.title_search {
-            query_builder = query_builder.bind(format!("%{}%", title_search));
-        }
-        if let Some(ref tags) = query.tags {
-            query_builder = query_builder.bind(tags);
-        }
-        if let Some(ref media_blob_id) = query.media_blob_id {
-            query_builder = query_builder.bind(media_blob_id);
-        }
-        if let Some(created_after) = query.created_after {
-            query_builder = query_builder.bind(created_after);
-        }
-        if let Some(updated_after) = query.updated_after {
-            query_builder = query_builder.bind(updated_after);
-        }
-        if let Some(offset) = query.offset {
-            query_builder = query_builder.bind(offset);
-        }
-        if let Some(limit) = query.limit {
-            query_builder = query_builder.bind(limit);
-        }
-
-        let songs = query_builder.fetch_all(&self.pool).await?;
         Ok(songs)
     }
 
@@ -193,38 +128,33 @@ impl MusicRepository {
     pub async fn create_song(&self, params: CreateSong) -> Result<Song> {
         params
             .validate()
-            .map_err(MusicRepositoryError::Validation)?;
+            .map_err(|e| MusicRepositoryError::Validation(e.to_string()))?;
 
         let song = sqlx::query_as::<_, Song>(
             r#"
             INSERT INTO songs (
-                media_blob_id, thumbnail_blob_id, waveform_blob_id,
-                title, artist, album, album_artist, track_number, disc_number,
-                duration, genre, year, bpm, key_signature, rating, is_favorite,
-                tags, metadata
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                media_blob_id, title, artist, album, album_artist, track_number, disc_number,
+                duration, genre, year, bpm, key_signature, rating, is_favorite, tags, metadata
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             RETURNING *
             "#,
         )
-        .bind(params.media_blob_id)
-        .bind(params.thumbnail_blob_id)
-        .bind(params.waveform_blob_id)
-        .bind(params.title)
-        .bind(params.artist)
-        .bind(params.album)
-        .bind(params.album_artist)
+        .bind(&params.media_blob_id)
+        .bind(&params.title)
+        .bind(&params.artist)
+        .bind(&params.album)
+        .bind(&params.album_artist)
         .bind(params.track_number)
         .bind(params.disc_number)
         .bind(params.duration)
-        .bind(params.genre)
+        .bind(&params.genre)
         .bind(params.year)
         .bind(params.bpm)
-        .bind(params.key_signature)
+        .bind(&params.key_signature)
         .bind(params.rating)
         .bind(params.is_favorite.unwrap_or(false))
-        .bind(params.tags.unwrap_or_default())
-        .bind(params.metadata.unwrap_or(serde_json::Value::Null))
+        .bind(&params.tags)
+        .bind(&params.metadata)
         .fetch_one(&self.pool)
         .await?;
 
@@ -301,20 +231,20 @@ impl MusicRepository {
         title: &str,
         exact_match: bool,
     ) -> Result<Vec<Playlist>> {
-        let query = if exact_match {
+        let sql = if exact_match {
             "SELECT * FROM playlists WHERE title = $1 AND deleted_at IS NULL ORDER BY created_at DESC"
         } else {
-            "SELECT * FROM playlists WHERE title ILIKE $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 10"
+            "SELECT * FROM playlists WHERE title ILIKE $1 AND deleted_at IS NULL ORDER BY created_at DESC"
         };
 
-        let search_term = if exact_match {
+        let bind_value = if exact_match {
             title.to_string()
         } else {
             format!("%{}%", title)
         };
 
-        let playlists = sqlx::query_as::<_, Playlist>(query)
-            .bind(search_term)
+        let playlists = sqlx::query_as::<_, Playlist>(sql)
+            .bind(bind_value)
             .fetch_all(&self.pool)
             .await?;
 
@@ -322,60 +252,65 @@ impl MusicRepository {
     }
 
     /// Query playlists with filtering and pagination
+    #[allow(unused_variables)] // Variables used for dynamic SQL building
     pub async fn query_playlists(&self, query: PlaylistQuery) -> Result<Vec<PlaylistWithCount>> {
         let mut sql = String::from(
             r#"
-            SELECT p.*, COUNT(ps.song_id) as song_count
+            SELECT p.*, COUNT(ps.id) as song_count
             FROM playlists p
             LEFT JOIN playlist_songs ps ON p.id = ps.playlist_id
+            LEFT JOIN songs s ON ps.song_id = s.id AND s.deleted_at IS NULL
             WHERE p.deleted_at IS NULL
             "#,
         );
+
         let mut bind_count = 0;
+
+        if let Some(title_search) = &query.title_search {
+            bind_count += 1;
+            sql.push_str(&format!(" AND p.title ILIKE ${}", bind_count));
+        }
 
         if let Some(true) = query.public_only {
             sql.push_str(" AND p.is_public = true");
         }
 
-        if query.client_id.is_some() {
+        if let Some(client_id) = &query.client_id {
             bind_count += 1;
             sql.push_str(&format!(" AND p.client_id = ${}", bind_count));
         }
 
-        if query.title_search.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" AND p.title ILIKE ${}", bind_count));
-        }
-
-        if query.created_after.is_some() {
+        if let Some(created_after) = query.created_after {
             bind_count += 1;
             sql.push_str(&format!(" AND p.created_at > ${}", bind_count));
         }
 
-        if query.updated_after.is_some() {
+        if let Some(updated_after) = query.updated_after {
             bind_count += 1;
             sql.push_str(&format!(" AND p.updated_at > ${}", bind_count));
         }
 
+        // GROUP BY
         sql.push_str(" GROUP BY p.id ORDER BY p.created_at DESC");
 
-        if query.offset.is_some() {
-            bind_count += 1;
-            sql.push_str(&format!(" OFFSET ${}", bind_count));
-        }
-
-        if query.limit.is_some() {
+        if let Some(limit) = query.limit {
             bind_count += 1;
             sql.push_str(&format!(" LIMIT ${}", bind_count));
         }
 
+        if let Some(offset) = query.offset {
+            bind_count += 1;
+            sql.push_str(&format!(" OFFSET ${}", bind_count));
+        }
+
+        // Build query with bindings
         let mut query_builder = sqlx::query(&sql);
 
-        if let Some(ref client_id) = query.client_id {
-            query_builder = query_builder.bind(client_id);
-        }
-        if let Some(ref title_search) = query.title_search {
+        if let Some(title_search) = &query.title_search {
             query_builder = query_builder.bind(format!("%{}%", title_search));
+        }
+        if let Some(client_id) = &query.client_id {
+            query_builder = query_builder.bind(client_id);
         }
         if let Some(created_after) = query.created_after {
             query_builder = query_builder.bind(created_after);
@@ -383,40 +318,43 @@ impl MusicRepository {
         if let Some(updated_after) = query.updated_after {
             query_builder = query_builder.bind(updated_after);
         }
-        if let Some(offset) = query.offset {
-            query_builder = query_builder.bind(offset);
-        }
         if let Some(limit) = query.limit {
             query_builder = query_builder.bind(limit);
+        }
+        if let Some(offset) = query.offset {
+            query_builder = query_builder.bind(offset);
         }
 
         let rows = query_builder.fetch_all(&self.pool).await?;
 
-        let mut playlists = Vec::new();
-        for row in rows {
-            let playlist = Playlist {
-                id: row.get("id"),
-                media_blob_id: row.get("media_blob_id"),
-                thumbnail_blob_id: row.get("thumbnail_blob_id"),
-                title: row.get("title"),
-                description: row.get("description"),
-                client_id: row.get("client_id"),
-                is_public: row.get("is_public"),
-                is_collaborative: row.get("is_collaborative"),
-                metadata: row.get("metadata"),
-                deleted_at: row.get("deleted_at"),
-                deleted_by: row.get("deleted_by"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-                version: row.get("version"),
-            };
-            let song_count: i64 = row.get("song_count");
+        let playlists = rows
+            .into_iter()
+            .map(|row| {
+                let playlist = Playlist {
+                    id: row.get("id"),
+                    title: row.get("title"),
+                    description: row.get("description"),
+                    client_id: row.get("client_id"),
+                    is_public: row.get("is_public"),
+                    is_collaborative: row.get("is_collaborative"),
+                    media_blob_id: row.get("media_blob_id"),
+                    thumbnail_blob_id: row.get("thumbnail_blob_id"),
+                    metadata: row.get("metadata"),
+                    deleted_at: row.get("deleted_at"),
+                    deleted_by: row.get("deleted_by"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                    version: row.get("version"),
+                };
 
-            playlists.push(PlaylistWithCount {
-                playlist,
-                song_count,
-            });
-        }
+                let song_count: i64 = row.get("song_count");
+
+                PlaylistWithCount {
+                    playlist,
+                    song_count,
+                }
+            })
+            .collect();
 
         Ok(playlists)
     }
@@ -425,15 +363,20 @@ impl MusicRepository {
     pub async fn create_playlist(&self, params: CreatePlaylist) -> Result<Playlist> {
         params
             .validate()
-            .map_err(MusicRepositoryError::Validation)?;
+            .map_err(|e| MusicRepositoryError::Validation(e.to_string()))?;
 
         // Check for duplicate title
-        if !self
-            .find_playlists_by_title(&params.title, true)
-            .await?
-            .is_empty()
-        {
-            return Err(MusicRepositoryError::DuplicatePlaylistTitle(params.title));
+        let existing = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM playlists WHERE title = $1 AND deleted_at IS NULL)",
+        )
+        .bind(&params.title)
+        .fetch_one(&self.pool)
+        .await?;
+
+        if existing {
+            return Err(MusicRepositoryError::DuplicatePlaylistTitle(
+                params.title.clone(),
+            ));
         }
 
         let playlist = sqlx::query_as::<_, Playlist>(
@@ -443,12 +386,12 @@ impl MusicRepository {
             RETURNING *
             "#,
         )
-        .bind(params.title)
-        .bind(params.description)
-        .bind(params.client_id)
+        .bind(&params.title)
+        .bind(&params.description)
+        .bind(&params.client_id)
         .bind(params.is_public.unwrap_or(false))
         .bind(params.is_collaborative.unwrap_or(false))
-        .bind(params.metadata.unwrap_or(serde_json::Value::Null))
+        .bind(&params.metadata)
         .fetch_one(&self.pool)
         .await?;
 
@@ -459,12 +402,19 @@ impl MusicRepository {
     pub async fn update_playlist(&self, id: Uuid, params: UpdatePlaylist) -> Result<Playlist> {
         params
             .validate()
-            .map_err(MusicRepositoryError::Validation)?;
+            .map_err(|e| MusicRepositoryError::Validation(e.to_string()))?;
 
-        // Check for duplicate title if updating title
-        if let Some(ref new_title) = params.title {
-            let existing = self.find_playlists_by_title(new_title, true).await?;
-            if !existing.is_empty() && existing[0].id != id {
+        // If updating title, check for duplicates
+        if let Some(new_title) = &params.title {
+            let existing = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM playlists WHERE title = $1 AND id != $2 AND deleted_at IS NULL)",
+            )
+            .bind(new_title)
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
+
+            if existing {
                 return Err(MusicRepositoryError::DuplicatePlaylistTitle(
                     new_title.clone(),
                 ));
@@ -472,41 +422,46 @@ impl MusicRepository {
         }
 
         let mut sql = String::from("UPDATE playlists SET updated_at = NOW()");
-        let mut param_count = 0;
+        let mut bind_count = 0;
 
         if params.title.is_some() {
-            param_count += 1;
-            sql.push_str(&format!(", title = ${}", param_count));
-        }
-        if params.description.is_some() {
-            param_count += 1;
-            sql.push_str(&format!(", description = ${}", param_count));
-        }
-        if params.is_public.is_some() {
-            param_count += 1;
-            sql.push_str(&format!(", is_public = ${}", param_count));
-        }
-        if params.is_collaborative.is_some() {
-            param_count += 1;
-            sql.push_str(&format!(", is_collaborative = ${}", param_count));
-        }
-        if params.metadata.is_some() {
-            param_count += 1;
-            sql.push_str(&format!(", metadata = ${}", param_count));
+            bind_count += 1;
+            sql.push_str(&format!(", title = ${}", bind_count));
         }
 
-        param_count += 1;
+        if params.description.is_some() {
+            bind_count += 1;
+            sql.push_str(&format!(", description = ${}", bind_count));
+        }
+
+        if params.is_public.is_some() {
+            bind_count += 1;
+            sql.push_str(&format!(", is_public = ${}", bind_count));
+        }
+
+        if params.is_collaborative.is_some() {
+            bind_count += 1;
+            sql.push_str(&format!(", is_collaborative = ${}", bind_count));
+        }
+
+        if params.metadata.is_some() {
+            bind_count += 1;
+            sql.push_str(&format!(", metadata = ${}", bind_count));
+        }
+
+        bind_count += 1;
         sql.push_str(&format!(
             " WHERE id = ${} AND deleted_at IS NULL RETURNING *",
-            param_count
+            bind_count
         ));
 
+        // Build query with bindings
         let mut query_builder = sqlx::query_as::<_, Playlist>(&sql);
 
-        if let Some(ref title) = params.title {
+        if let Some(title) = &params.title {
             query_builder = query_builder.bind(title);
         }
-        if let Some(ref description) = params.description {
+        if let Some(description) = &params.description {
             query_builder = query_builder.bind(description);
         }
         if let Some(is_public) = params.is_public {
@@ -515,10 +470,9 @@ impl MusicRepository {
         if let Some(is_collaborative) = params.is_collaborative {
             query_builder = query_builder.bind(is_collaborative);
         }
-        if let Some(ref metadata) = params.metadata {
+        if let Some(metadata) = &params.metadata {
             query_builder = query_builder.bind(metadata);
         }
-
         query_builder = query_builder.bind(id);
 
         let playlist = query_builder
@@ -542,18 +496,20 @@ impl MusicRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    // Playlist song operations
-
     /// Get songs in a playlist
     pub async fn get_playlist_songs(&self, playlist_id: Uuid) -> Result<Vec<PlaylistSongDetail>> {
         let rows = sqlx::query(
             r#"
             SELECT
-                ps.position, ps.created_at as added_at, ps.added_by_client_id,
+                ps.id as playlist_song_id,
+                ps.position,
+                ps.created_at as added_at,
+                ps.added_by_client_id,
                 s.*
             FROM playlist_songs ps
             JOIN songs s ON ps.song_id = s.id
-            WHERE ps.playlist_id = $1 AND s.deleted_at IS NULL
+            WHERE ps.playlist_id = $1
+            AND s.deleted_at IS NULL
             ORDER BY ps.position
             "#,
         )
@@ -561,45 +517,47 @@ impl MusicRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut playlist_songs = Vec::new();
-        for row in rows {
-            let song = Song {
-                id: row.get("id"),
-                media_blob_id: row.get("media_blob_id"),
-                thumbnail_blob_id: row.get("thumbnail_blob_id"),
-                waveform_blob_id: row.get("waveform_blob_id"),
-                thumbnail_blob_ids: row.get("thumbnail_blob_ids"),
-                title: row.get("title"),
-                artist: row.get("artist"),
-                album: row.get("album"),
-                album_artist: row.get("album_artist"),
-                track_number: row.get("track_number"),
-                disc_number: row.get("disc_number"),
-                duration: row.get("duration"),
-                genre: row.get("genre"),
-                year: row.get("year"),
-                bpm: row.get("bpm"),
-                key_signature: row.get("key_signature"),
-                rating: row.get("rating"),
-                is_favorite: row.get("is_favorite"),
-                tags: row.get("tags"),
-                metadata: row.get("metadata"),
-                deleted_at: row.get("deleted_at"),
-                deleted_by: row.get("deleted_by"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-                version: row.get("version"),
-            };
+        let songs = rows
+            .into_iter()
+            .map(|row| {
+                let song = Song {
+                    id: row.get("id"),
+                    media_blob_id: row.get("media_blob_id"),
+                    thumbnail_blob_id: row.get("thumbnail_blob_id"),
+                    waveform_blob_id: row.get("waveform_blob_id"),
+                    thumbnail_blob_ids: row.get("thumbnail_blob_ids"),
+                    title: row.get("title"),
+                    artist: row.get("artist"),
+                    album: row.get("album"),
+                    album_artist: row.get("album_artist"),
+                    track_number: row.get("track_number"),
+                    disc_number: row.get("disc_number"),
+                    duration: row.get("duration"),
+                    genre: row.get("genre"),
+                    year: row.get("year"),
+                    bpm: row.get("bpm"),
+                    key_signature: row.get("key_signature"),
+                    rating: row.get("rating"),
+                    is_favorite: row.get("is_favorite"),
+                    tags: row.get("tags"),
+                    metadata: row.get("metadata"),
+                    deleted_at: row.get("deleted_at"),
+                    deleted_by: row.get("deleted_by"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                    version: row.get("version"),
+                };
 
-            playlist_songs.push(PlaylistSongDetail {
-                position: row.get("position"),
-                song,
-                added_at: row.get("added_at"),
-                added_by_client_id: row.get("added_by_client_id"),
-            });
-        }
+                PlaylistSongDetail {
+                    position: row.get("position"),
+                    added_at: row.get("added_at"),
+                    added_by_client_id: row.get("added_by_client_id"),
+                    song,
+                }
+            })
+            .collect();
 
-        Ok(playlist_songs)
+        Ok(songs)
     }
 
     /// Add songs to a playlist
@@ -609,37 +567,17 @@ impl MusicRepository {
         song_ids: &[Uuid],
         client_id: Option<String>,
     ) -> Result<Vec<PlaylistSong>> {
-        // Verify playlist exists
-        self.get_playlist(playlist_id).await?;
-
-        // Get current max position
-        let max_position: Option<i32> =
-            sqlx::query_scalar("SELECT MAX(position) FROM playlist_songs WHERE playlist_id = $1")
-                .bind(playlist_id)
-                .fetch_one(&self.pool)
-                .await?;
-
-        let mut next_position = max_position.unwrap_or(0) + 1;
         let mut added_songs = Vec::new();
 
         for &song_id in song_ids {
-            // Verify song exists
-            self.get_song(song_id).await?;
-
-            // Check if already in playlist
-            let exists = sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS(SELECT 1 FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2)"
+            // Get the next position
+            let next_position = sqlx::query_scalar::<_, i32>(
+                "SELECT COALESCE(MAX(position), 0) + 1 FROM playlist_songs WHERE playlist_id = $1",
             )
             .bind(playlist_id)
-            .bind(song_id)
             .fetch_one(&self.pool)
             .await?;
 
-            if exists {
-                return Err(MusicRepositoryError::SongAlreadyInPlaylist);
-            }
-
-            // Add song to playlist
             let playlist_song = sqlx::query_as::<_, PlaylistSong>(
                 "INSERT INTO playlist_songs (playlist_id, song_id, position, added_by_client_id) VALUES ($1, $2, $3, $4) RETURNING *"
             )
@@ -651,7 +589,6 @@ impl MusicRepository {
             .await?;
 
             added_songs.push(playlist_song);
-            next_position += 1;
         }
 
         Ok(added_songs)
@@ -721,8 +658,6 @@ impl MusicRepository {
         Ok(exists)
     }
 
-    // SQL View and Function Methods
-
     /// Get playlist summaries using the playlist_summary view
     pub async fn get_playlist_summaries(&self, limit: Option<i64>) -> Result<Vec<PlaylistSummary>> {
         let mut query = "SELECT * FROM playlist_summary ORDER BY created_at DESC".to_string();
@@ -755,11 +690,12 @@ impl MusicRepository {
         &self,
         playlist_id: Uuid,
     ) -> Result<Vec<PlaylistSongWithMedia>> {
-        let songs =
-            sqlx::query_as::<_, PlaylistSongWithMedia>("SELECT * FROM get_playlist_songs($1)")
-                .bind(playlist_id)
-                .fetch_all(&self.pool)
-                .await?;
+        let songs = sqlx::query_as::<_, PlaylistSongWithMedia>(
+            "SELECT * FROM get_playlist_songs($1) ORDER BY position",
+        )
+        .bind(playlist_id)
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(songs)
     }
@@ -788,9 +724,9 @@ impl MusicRepository {
         &self,
         playlist_id: Uuid,
         song_id: Uuid,
-        to_position: i32,
+        new_position: i32,
     ) -> Result<()> {
-        self.update_playlist_song_position(playlist_id, song_id, to_position)
+        self.update_playlist_song_position(playlist_id, song_id, new_position)
             .await
     }
 
@@ -800,17 +736,16 @@ impl MusicRepository {
         album_filter: Option<String>,
         artist_filter: Option<String>,
         max_results: Option<i32>,
-    ) -> Result<Vec<Song>> {
-        let songs = sqlx::query_as::<_, Song>(
-            "SELECT s.* FROM get_songs_by_album_order($1, $2, $3) gsao JOIN songs s ON gsao.song_id = s.id"
-        )
-        .bind(album_filter)
-        .bind(artist_filter)
-        .bind(max_results.unwrap_or(100))
-        .fetch_all(&self.pool)
-        .await?;
+    ) -> Result<Vec<AlbumTrack>> {
+        let tracks =
+            sqlx::query_as::<_, AlbumTrack>("SELECT * FROM get_songs_by_album_order($1, $2, $3)")
+                .bind(album_filter)
+                .bind(artist_filter)
+                .bind(max_results.unwrap_or(100))
+                .fetch_all(&self.pool)
+                .await?;
 
-        Ok(songs)
+        Ok(tracks)
     }
 
     /// Get album summaries
@@ -907,8 +842,6 @@ impl MusicRepository {
         Ok(playlist_song)
     }
 
-    // Administrative and operational methods
-
     /// Get comprehensive database statistics for CLI status commands
     pub async fn get_database_stats(&self) -> Result<MusicDatabaseStats> {
         // Count songs
@@ -916,31 +849,23 @@ impl MusicRepository {
             .fetch_one(&self.pool)
             .await?;
 
-        // Count media blobs from music CLI
-        let media_blob_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM media_blobs WHERE source_client_id = 'music-cli'",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        // Count media blobs
+        let media_blob_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM media_blobs")
+            .fetch_one(&self.pool)
+            .await?;
 
-        // Count thumbnail blobs from music CLI
+        // Count thumbnail blobs
         let thumbnail_blob_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM media_blobs WHERE source_client_id = 'music-cli-thumbnail'",
+            "SELECT COUNT(*) FROM songs WHERE thumbnail_blob_id IS NOT NULL AND deleted_at IS NULL",
         )
         .fetch_one(&self.pool)
         .await?;
-
-        // Count scan sessions
-        let scan_session_count =
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM music_scan_sessions")
-                .fetch_one(&self.pool)
-                .await?;
 
         Ok(MusicDatabaseStats {
             song_count,
             media_blob_count,
             thumbnail_blob_count,
-            scan_session_count,
+            scan_session_count: 0,
         })
     }
 
@@ -951,8 +876,11 @@ impl MusicRepository {
     ) -> Result<Vec<RecentSongWithThumbnail>> {
         let songs = sqlx::query_as::<_, RecentSongWithThumbnail>(
             r#"
-            SELECT id, title, artist, album, thumbnail_blob_id
+            SELECT
+                id, title, artist, album, thumbnail_blob_id, created_at,
+                CASE WHEN thumbnail_blob_id IS NOT NULL THEN true ELSE false END as has_thumbnail
             FROM songs
+            WHERE deleted_at IS NULL
             ORDER BY created_at DESC
             LIMIT $1
             "#,
@@ -980,86 +908,90 @@ impl MusicRepository {
     pub async fn create_song_with_metadata(
         &self,
         media_blob_id: &str,
-        thumbnail_blob_id: Option<&str>,
-        title: String,
-        artist: Option<String>,
-        album: Option<String>,
-        album_artist: Option<String>,
+        title: &str,
+        artist: Option<&str>,
+        album: Option<&str>,
+        album_artist: Option<&str>,
         track_number: Option<i32>,
         disc_number: Option<i32>,
-        genre: Option<String>,
+        duration: Option<std::time::Duration>,
+        genre: Option<&str>,
         year: Option<i32>,
-        metadata: serde_json::Value,
-    ) -> Result<Uuid> {
-        let song_id = sqlx::query_scalar::<_, Uuid>(
+        thumbnail_blob_id: Option<&str>,
+        waveform_blob_id: Option<&str>,
+    ) -> Result<Song> {
+        let duration_interval = duration.map(|d| format!("{} seconds", d.as_secs()));
+
+        let song = sqlx::query_as::<_, Song>(
             r#"
             INSERT INTO songs (
-                media_blob_id, thumbnail_blob_id, title, artist, album, album_artist,
-                track_number, disc_number, genre, year, metadata
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING id
+                media_blob_id, title, artist, album, album_artist, track_number, disc_number,
+                duration, genre, year, thumbnail_blob_id, waveform_blob_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::interval, $9, $10, $11, $12)
+            RETURNING *
             "#,
         )
         .bind(media_blob_id)
-        .bind(thumbnail_blob_id)
         .bind(title)
         .bind(artist)
         .bind(album)
         .bind(album_artist)
         .bind(track_number)
         .bind(disc_number)
+        .bind(duration_interval)
         .bind(genre)
         .bind(year)
-        .bind(metadata)
+        .bind(thumbnail_blob_id)
+        .bind(waveform_blob_id)
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(song_id)
+        Ok(song)
     }
 
     /// Create a song record with full metadata including waveform (used during scanning)
     pub async fn create_song_with_waveform_metadata(
         &self,
         media_blob_id: &str,
-        thumbnail_blob_id: Option<&str>,
-        waveform_blob_id: Option<&str>,
-        title: String,
-        artist: Option<String>,
-        album: Option<String>,
-        album_artist: Option<String>,
+        title: &str,
+        artist: Option<&str>,
+        album: Option<&str>,
+        album_artist: Option<&str>,
         track_number: Option<i32>,
         disc_number: Option<i32>,
-        genre: Option<String>,
+        duration: Option<std::time::Duration>,
+        genre: Option<&str>,
         year: Option<i32>,
-        metadata: serde_json::Value,
-    ) -> Result<Uuid> {
-        let song_id = sqlx::query_scalar::<_, Uuid>(
+        thumbnail_blob_id: Option<&str>,
+        waveform_blob_id: Option<&str>,
+    ) -> Result<Song> {
+        let duration_interval = duration.map(|d| format!("{} seconds", d.as_secs()));
+
+        let song = sqlx::query_as::<_, Song>(
             r#"
             INSERT INTO songs (
-                media_blob_id, thumbnail_blob_id, waveform_blob_id, title, artist, album, album_artist,
-                track_number, disc_number, genre, year, metadata
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-            RETURNING id
+                media_blob_id, title, artist, album, album_artist, track_number, disc_number,
+                duration, genre, year, thumbnail_blob_id, waveform_blob_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::interval, $9, $10, $11, $12)
+            RETURNING *
             "#,
         )
         .bind(media_blob_id)
-        .bind(thumbnail_blob_id)
-        .bind(waveform_blob_id)
         .bind(title)
         .bind(artist)
         .bind(album)
         .bind(album_artist)
         .bind(track_number)
         .bind(disc_number)
+        .bind(duration_interval)
         .bind(genre)
         .bind(year)
-        .bind(metadata)
+        .bind(thumbnail_blob_id)
+        .bind(waveform_blob_id)
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(song_id)
+        Ok(song)
     }
 
     /// Update thumbnail_blob_ids array for a song (used for directory album art)
@@ -1068,17 +1000,11 @@ impl MusicRepository {
         song_id: Uuid,
         thumbnail_blob_ids: &[String],
     ) -> Result<()> {
-        sqlx::query!(
-            r#"
-            UPDATE songs
-            SET thumbnail_blob_ids = $2, updated_at = NOW()
-            WHERE id = $1
-            "#,
-            song_id,
-            thumbnail_blob_ids
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE songs SET thumbnail_blob_ids = $1, updated_at = NOW() WHERE id = $2")
+            .bind(thumbnail_blob_ids)
+            .bind(song_id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -1087,25 +1013,31 @@ impl MusicRepository {
     pub async fn get_songs_without_thumbnails_by_paths(
         &self,
         file_paths: &[String],
-    ) -> Result<Vec<(Uuid, String)>> {
-        let songs = sqlx::query!(
+    ) -> Result<Vec<Uuid>> {
+        if file_paths.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let songs = sqlx::query(
             r#"
-            SELECT s.id, mb.local_path
+            SELECT s.id
             FROM songs s
             JOIN media_blobs mb ON s.media_blob_id = mb.id
             WHERE mb.local_path = ANY($1)
             AND s.thumbnail_blob_id IS NULL
             AND s.deleted_at IS NULL
             "#,
-            file_paths
         )
+        .bind(file_paths)
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(songs
+        let song_ids = songs
             .into_iter()
-            .map(|row| (row.id, row.local_path.unwrap_or_default()))
-            .collect())
+            .map(|row| row.get::<Uuid, _>("id"))
+            .collect();
+
+        Ok(song_ids)
     }
 
     /// Safely reorder playlist using the SQL function that handles triggers
@@ -1142,14 +1074,108 @@ impl MusicRepository {
 
         Ok(count)
     }
+
+    // Generation methods
+
+    /// Get songs for waveform generation
+    pub async fn get_songs_for_waveform_generation(
+        &self,
+        limit: i32,
+        force: bool,
+    ) -> Result<Vec<Song>> {
+        let sql = if force {
+            "SELECT * FROM songs WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1"
+        } else {
+            "SELECT * FROM songs WHERE deleted_at IS NULL AND waveform_blob_id IS NULL ORDER BY created_at DESC LIMIT $1"
+        };
+
+        let songs = sqlx::query_as::<_, Song>(sql)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(songs)
+    }
+
+    /// Get songs for directory art generation
+    pub async fn get_songs_for_directory_art_generation(
+        &self,
+        limit: i32,
+        force: bool,
+    ) -> Result<Vec<Song>> {
+        let sql = if force {
+            "SELECT * FROM songs WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1"
+        } else {
+            "SELECT * FROM songs WHERE deleted_at IS NULL AND thumbnail_blob_id IS NULL ORDER BY created_at DESC LIMIT $1"
+        };
+
+        let songs = sqlx::query_as::<_, Song>(sql)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(songs)
+    }
+
+    /// Update song with waveform blob ID
+    pub async fn update_song_waveform_blob_id(
+        &self,
+        song_id: Uuid,
+        waveform_blob_id: &str,
+    ) -> Result<()> {
+        sqlx::query("UPDATE songs SET waveform_blob_id = $1, updated_at = NOW() WHERE id = $2")
+            .bind(waveform_blob_id)
+            .bind(song_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Update song with thumbnail blob ID (only if currently null)
+    pub async fn update_song_thumbnail_blob_id_if_null(
+        &self,
+        song_id: Uuid,
+        thumbnail_blob_id: &str,
+    ) -> Result<()> {
+        sqlx::query("UPDATE songs SET thumbnail_blob_id = $1, updated_at = NOW() WHERE id = $2 AND thumbnail_blob_id IS NULL")
+            .bind(thumbnail_blob_id)
+            .bind(song_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    // Scanner methods
+
+    /// Check if song has thumbnail
+    pub async fn song_has_thumbnail(&self, song_id: Uuid) -> Result<bool> {
+        let has_thumbnail = sqlx::query_scalar::<_, bool>(
+            "SELECT thumbnail_blob_id IS NOT NULL FROM songs WHERE id = $1",
+        )
+        .bind(song_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(has_thumbnail)
+    }
+
+    /// Get song's media blob ID
+    pub async fn get_song_media_blob_id(&self, song_id: Uuid) -> Result<String> {
+        let media_blob_id =
+            sqlx::query_scalar::<_, String>("SELECT media_blob_id FROM songs WHERE id = $1")
+                .bind(song_id)
+                .fetch_one(&self.pool)
+                .await?;
+
+        Ok(media_blob_id)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Note: These tests would require a test database setup
-    // For now they are placeholder tests
 
     #[tokio::test]
     async fn test_song_query_construction() {
@@ -1160,7 +1186,6 @@ mod tests {
             ..Default::default()
         };
 
-        // Test that query fields are properly set
         assert_eq!(query.favorites_only, Some(true));
         assert_eq!(query.artist, Some("Queen".to_string()));
         assert_eq!(query.limit, Some(10));

@@ -256,16 +256,10 @@ async fn get_songs_for_waveform_generation(
     limit: i32,
     force: bool,
 ) -> Result<Vec<Song>, Box<dyn std::error::Error>> {
-    let sql = if force {
-        "SELECT * FROM songs WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1"
-    } else {
-        "SELECT * FROM songs WHERE deleted_at IS NULL AND waveform_blob_id IS NULL ORDER BY created_at DESC LIMIT $1"
-    };
-
-    let songs = sqlx::query_as::<_, Song>(sql)
-        .bind(limit)
-        .fetch_all(repository.pool())
-        .await?;
+    let songs = repository
+        .get_songs_for_waveform_generation(limit, force)
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
     Ok(songs)
 }
@@ -276,16 +270,10 @@ async fn get_songs_for_directory_art_generation(
     limit: i32,
     force: bool,
 ) -> Result<Vec<Song>, Box<dyn std::error::Error>> {
-    let sql = if force {
-        "SELECT * FROM songs WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1"
-    } else {
-        "SELECT * FROM songs WHERE deleted_at IS NULL AND thumbnail_blob_id IS NULL ORDER BY created_at DESC LIMIT $1"
-    };
-
-    let songs = sqlx::query_as::<_, Song>(sql)
-        .bind(limit)
-        .fetch_all(repository.pool())
-        .await?;
+    let songs = repository
+        .get_songs_for_directory_art_generation(limit, force)
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
     Ok(songs)
 }
@@ -349,11 +337,10 @@ async fn generate_waveform_for_song(
     let saved_blob = media_blob_service.create_media_blob(waveform_blob).await?;
 
     // Update the song record with the waveform blob ID
-    sqlx::query("UPDATE songs SET waveform_blob_id = $1, updated_at = NOW() WHERE id = $2")
-        .bind(&saved_blob.id)
-        .bind(song.id)
-        .execute(repository.pool())
-        .await?;
+    repository
+        .update_song_waveform_blob_id(song.id, &saved_blob.id)
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
     println!("    ✅ Generated waveform: {}", saved_blob.id);
     Ok(())
@@ -461,11 +448,10 @@ async fn generate_directory_art_for_song(
 
     // Update the primary thumbnail_blob_id (first/best image)
     let primary_blob_id = &created_blob_ids[0];
-    sqlx::query("UPDATE songs SET thumbnail_blob_id = $1, updated_at = NOW() WHERE id = $2 AND thumbnail_blob_id IS NULL")
-        .bind(primary_blob_id)
-        .bind(song.id)
-        .execute(repository.pool())
-        .await?;
+    repository
+        .update_song_thumbnail_blob_id_if_null(song.id, primary_blob_id)
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
     // Update thumbnail_blob_ids array with remaining images (excluding primary)
     let remaining_blob_ids: Vec<String> = if created_blob_ids.len() > 1 {

@@ -618,7 +618,7 @@ impl PlaylistService {
         album_filter: Option<String>,
         artist_filter: Option<String>,
         max_results: Option<i32>,
-    ) -> Result<Vec<Song>> {
+    ) -> Result<Vec<AlbumTrack>> {
         self.repository
             .get_songs_by_album_order(album_filter, artist_filter, max_results)
             .await

@@ -368,7 +368,6 @@ pub async fn extract_full_photo_metadata(
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::path::PathBuf;
 
     #[test]
     fn test_metadata_extractor_creation() {

@@ -34,4 +34,6 @@ mime_guess.workspace = true
 image.workspace = true
 futures-util.workspace = true
 
+dotenvy.workspace = true
+
 [dev-dependencies]

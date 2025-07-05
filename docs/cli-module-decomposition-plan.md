@@ -346,6 +346,18 @@ The following files are under the 500-line threshold and can remain as single fi
 
 **The music module now serves as the perfect template for decomposing other modules!**
 
+### ✅ Resolved Issues:
+
+✅ **Database Trigger Issue - RESOLVED**: The problematic trigger on `playlist_songs` that caused unique constraint violations when deleting songs from playlists has been fixed. The solution involved:
+
+1. **Removed problematic DELETE trigger** - The original `maintain_playlist_positions()` trigger that tried to handle both INSERT and DELETE operations was removed
+2. **Added simple INSERT-only trigger** - New `auto_assign_playlist_position()` trigger only handles auto-positioning on INSERT operations
+3. **Implemented deferred constraints** - Replaced the immediate unique constraint with a deferred constraint that allows temporary duplicates during transactions
+4. **Fixed reorder function** - Simplified `reorder_playlist_positions()` function works with deferred constraints instead of dropping indexes
+5. **Updated application code** - CLI reorder command now uses the PostgreSQL function instead of individual UPDATE statements
+
+**Result**: All playlist operations (add, remove, reorder) now work correctly without constraint violations. The solution uses proper PostgreSQL patterns (deferred constraints) instead of workarounds.
+
 ### Known Issues:
 
-⚠️ **Database Trigger Issue**: There's a problematic trigger on `playlist_songs` that causes unique constraint violations when deleting songs that are in playlists. The `maintain_playlist_positions()` trigger attempts to renumber positions but creates duplicate position conflicts. This blocks song deletion during testing/cleanup. The trigger logic needs to be reviewed and fixed - there may be other code elsewhere that handles position re-sorting that conflicts with this trigger.
+_No known issues at this time._
