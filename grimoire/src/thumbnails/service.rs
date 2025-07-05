@@ -460,6 +460,10 @@ impl<'a> ThumbnailService<'a> {
             "audio/wav" => "wav",
             "audio/ogg" => "ogg",
             "audio/flac" => "flac",
+            "audio/x-aiff" => "aif",
+            // "audio/ogg" => "opus",
+            "audio/aac" => "aac",
+            "audio/alac" => "alac", // audio/mp4 maybe better?
             _ => "",
         }
         .to_string()

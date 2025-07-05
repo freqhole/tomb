@@ -531,6 +531,11 @@ fn default_supported_audio_formats() -> Vec<String> {
         "wav".to_string(),
         "flac".to_string(),
         "m4a".to_string(),
+        "aif".to_string(),
+        "aiff".to_string(),
+        "opus".to_string(),
+        "aac".to_string(),
+        "alac".to_string(),
     ]
 }
 

@@ -73,6 +73,11 @@ impl MediaTypeDetector {
             "wav" => "audio/wav",
             "flac" => "audio/flac",
             "m4a" => "audio/mp4",
+            "aif" => "audio/x-aiff",
+            "aiff" => "audio/x-aiff",
+            "opus" => "audio/ogg",
+            "aac" => "audio/aac",
+            "alac" => "audio/alac", // audio/mp4 maybe better?
 
             // Image formats (for thumbnails)
             "jpg" | "jpeg" => "image/jpeg",
@@ -141,6 +146,11 @@ mod tests {
                     "wav".to_string(),
                     "flac".to_string(),
                     "m4a".to_string(),
+                    "aif".to_string(),
+                    "aiff".to_string(),
+                    "opus".to_string(),
+                    "aac".to_string(),
+                    "alac".to_string(),
                 ],
                 thumbnails: Default::default(),
                 playback: Default::default(),
