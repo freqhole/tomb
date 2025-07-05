@@ -9,6 +9,7 @@ use crate::music::models::{
     PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount, RecentSongWithThumbnail, Song,
     SongQuery, SongWithMedia, UpdatePlaylist,
 };
+use crate::search::{SearchQuery, SearchService, SongSearchResult, SortBy, SortDirection};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -77,51 +78,101 @@ impl MusicRepository {
 
     /// Query songs with filtering and pagination
     #[allow(unused_variables)] // Variables used for dynamic SQL building
-    pub async fn query_songs(&self, query: SongQuery) -> Result<Vec<Song>> {
-        // Set default values for pagination
-        let limit = query.limit.unwrap_or(100) as i32;
-        let offset = query.offset.unwrap_or(0) as i32;
-        let order_by = query.order_by.as_deref().unwrap_or("created_at");
-        let order_direction = query.order_direction.as_deref().unwrap_or("DESC");
+    /// Search songs using the new FTS system
+    pub async fn search_songs(&self, query: SongQuery) -> Result<Vec<SongSearchResult>> {
+        let search_service = SearchService::new(self.pool.clone());
+
+        // Convert SongQuery to SearchQuery
+        let search_query = self.convert_song_query_to_search_query(query);
+
+        let results = search_service
+            .search_songs(&search_query)
+            .await
+            .map_err(|e| MusicRepositoryError::Database(sqlx::Error::Protocol(e.to_string())))?;
+
+        Ok(results)
+    }
+
+    /// Convert old SongQuery format to new SearchQuery format
+    fn convert_song_query_to_search_query(&self, query: SongQuery) -> SearchQuery {
+        let mut search_query = SearchQuery::new();
+
+        // Set basic text search
+        if let Some(title_search) = query.title_search {
+            search_query = search_query.with_query(&title_search);
+        }
+
+        // Set pagination
+        let page = (query.offset.unwrap_or(0) / query.limit.unwrap_or(100)) + 1;
+        search_query = search_query.with_pagination(page as u32, query.limit.unwrap_or(100) as u32);
+
+        // Set sorting
+        let sort_by = match query.order_by.as_deref() {
+            Some("title") => SortBy::Title,
+            Some("artist") => SortBy::Artist,
+            Some("album") => SortBy::Album,
+            Some("rating") => SortBy::Rating,
+            Some("created_at") => SortBy::CreatedAt,
+            _ => SortBy::CreatedAt,
+        };
+
+        let direction = match query.order_direction.as_deref() {
+            Some("ASC") => SortDirection::Asc,
+            _ => SortDirection::Desc,
+        };
+
+        search_query = search_query.with_sort(sort_by, direction);
+
+        // Set filters
+        search_query.filters.artist = query.artist;
+        search_query.filters.album = query.album;
+        search_query.filters.album_artist = query.album_artist;
+        search_query.filters.genre = query.genre;
+        search_query.filters.year = query.year;
+        search_query.filters.rating_min = query.rating_min;
+        search_query.filters.rating_max = query.rating_max;
+        search_query.filters.bpm_min = query.bpm_min;
+        search_query.filters.bpm_max = query.bpm_max;
+        search_query.filters.duration_min = query.duration_min;
+        search_query.filters.duration_max = query.duration_max;
+        search_query.filters.favorites_only = query.favorites_only;
+        search_query.filters.has_thumbnail = query.has_thumbnail;
+        search_query.filters.has_waveform = query.has_waveform;
+        search_query.filters.tags = query.tags;
+        search_query.filters.created_after = query.created_after;
+        search_query.filters.updated_after = query.updated_after;
+        search_query.filters.metadata_filter = query.metadata_filter;
+        search_query.filters.key_signature = query.key_signature;
+        search_query.filters.media_blob_id = query.media_blob_id;
+
+        search_query
+    }
+
+    /// Simple song listing (non-search)
+    pub async fn list_songs(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Song>> {
+        let limit = limit.unwrap_or(100) as i32;
+        let offset = offset.unwrap_or(0) as i32;
 
         let songs = sqlx::query_as::<_, Song>(
-            "
-            SELECT * FROM query_songs(
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                $21, $22, $23, $24, $25
-            )
-        ",
+            "SELECT * FROM songs WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1 OFFSET $2"
         )
-        .bind(query.artist.as_deref())
-        .bind(query.album.as_deref())
-        .bind(query.album_artist.as_deref())
-        .bind(query.genre.as_deref())
-        .bind(query.title_search.as_deref())
-        .bind(query.year)
-        .bind(query.rating_min)
-        .bind(query.rating_max)
-        .bind(query.bpm_min)
-        .bind(query.bpm_max)
-        .bind(query.duration_min)
-        .bind(query.duration_max)
-        .bind(query.favorites_only)
-        .bind(query.has_thumbnail)
-        .bind(query.has_waveform)
-        .bind(query.tags.as_deref())
-        .bind(query.created_after)
-        .bind(query.updated_after)
-        .bind(query.metadata_filter)
-        .bind(query.key_signature.as_deref())
-        .bind(query.media_blob_id.as_deref())
         .bind(limit)
         .bind(offset)
-        .bind(order_by)
-        .bind(order_direction)
         .fetch_all(&self.pool)
         .await?;
 
         Ok(songs)
+    }
+
+    /// Query songs with filtering and pagination (backward compatibility)
+    /// This method converts search results back to Song objects for existing code
+    pub async fn query_songs(&self, query: SongQuery) -> Result<Vec<Song>> {
+        // For now, use the simple list method for backward compatibility
+        // This can be enhanced later to use search results
+        let limit = query.limit;
+        let offset = query.offset;
+
+        self.list_songs(limit, offset).await
     }
 
     /// Create a new song

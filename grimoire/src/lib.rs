@@ -16,6 +16,7 @@ pub mod media;
 pub mod music;
 pub mod notifications;
 pub mod photos;
+pub mod search;
 pub mod thumbnails;
 pub mod videos;
 pub mod wordlist;
@@ -86,6 +87,13 @@ pub use videos::{
     VideoMetadataError, VideoMetadataExtractor, VideoPlaylist, VideoPlaylistItem,
     VideoPlaylistQuery, VideoQuery, VideoRepository, VideoRepositoryError, VideoScanner,
     VideoService, VideoServiceError, VideoStats,
+};
+
+// Re-export search types
+pub use search::{
+    MusicSearchResult, PaginationOptions, SearchError, SearchFacet, SearchQuery, SearchResult,
+    SearchResultItem, SearchService, SearchSuggestion, SearchType, SongSearchResult, SortBy,
+    SortDirection,
 };
 
 // Re-export database connection
