@@ -23,6 +23,7 @@ inquire.workspace = true
 colored = "2.0"
 console = "0.15"
 image = "0.24"
+sha2.workspace = true
 server = { path = "../server" }
 grimoire = { path = "../grimoire" }
 

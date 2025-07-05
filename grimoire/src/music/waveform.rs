@@ -3,7 +3,9 @@
 //! This module provides functionality for generating visual waveform representations
 //! of audio files and storing them as PNG bytea in the database.
 
+use image::{ImageBuffer, Rgb, RgbImage};
 use serde::{Deserialize, Serialize};
+use std::io::Cursor;
 use std::path::Path;
 use thiserror::Error;
 use uuid::Uuid;
@@ -202,26 +204,29 @@ impl WaveformGenerator {
         &self,
         audio_samples: &AudioSamples,
     ) -> Result<Vec<u8>, WaveformError> {
-        // Create a simple bitmap-based PNG generator
-        // This is a simplified implementation - in production you might want to use a proper image library
-
-        let width = self.config.width as usize;
-        let height = self.config.height as usize;
+        let width = self.config.width;
+        let height = self.config.height;
 
         // Parse colors
         let waveform_color = self.parse_color(&self.config.color)?;
         let bg_color = self.parse_color(&self.config.background_color)?;
 
-        // Create bitmap
-        let mut bitmap = vec![bg_color; width * height];
+        // Create image buffer
+        let mut img: RgbImage = ImageBuffer::new(width, height);
+
+        // Fill background
+        for pixel in img.pixels_mut() {
+            *pixel = Rgb([bg_color.0, bg_color.1, bg_color.2]);
+        }
 
         // Calculate waveform points
-        let samples_per_pixel = audio_samples.samples.len() / width;
+        let samples_per_pixel = audio_samples.samples.len() / width as usize;
         let samples_per_pixel = samples_per_pixel.max(1);
 
         for x in 0..width {
-            let start_sample = x * samples_per_pixel;
-            let end_sample = ((x + 1) * samples_per_pixel).min(audio_samples.samples.len());
+            let start_sample = (x as usize) * samples_per_pixel;
+            let end_sample =
+                ((x as usize + 1) * samples_per_pixel).min(audio_samples.samples.len());
 
             if start_sample >= audio_samples.samples.len() {
                 break;
@@ -239,21 +244,31 @@ impl WaveformGenerator {
 
             // Normalize and convert to pixel coordinates
             let center_y = height / 2;
-            let max_y_offset = (center_y as f32 * 0.9) as usize; // Leave some margin
+            let max_y_offset = (center_y as f32 * 0.9) as u32; // Leave some margin
 
-            let min_y = center_y - ((-min_amp * max_y_offset as f32) as usize).min(max_y_offset);
-            let max_y = center_y - ((max_amp * max_y_offset as f32) as usize).min(max_y_offset);
+            let min_y = center_y - ((-min_amp * max_y_offset as f32) as u32).min(max_y_offset);
+            let max_y = center_y - ((max_amp * max_y_offset as f32) as u32).min(max_y_offset);
 
             // Draw vertical line for this pixel column
             for y in min_y..=max_y {
                 if y < height {
-                    bitmap[y * width + x] = waveform_color;
+                    img.put_pixel(
+                        x,
+                        y,
+                        Rgb([waveform_color.0, waveform_color.1, waveform_color.2]),
+                    );
                 }
             }
         }
 
-        // Convert bitmap to PNG
-        self.bitmap_to_png(&bitmap, width, height)
+        // Convert to PNG bytes using the image crate
+        let mut png_data = Vec::new();
+        let mut cursor = Cursor::new(&mut png_data);
+
+        img.write_to(&mut cursor, image::ImageFormat::Png)
+            .map_err(|e| WaveformError::InvalidParameters(format!("PNG encoding failed: {}", e)))?;
+
+        Ok(png_data)
     }
 
     /// Parse hex color string to RGB tuple
@@ -278,124 +293,6 @@ impl WaveformGenerator {
         })?;
 
         Ok((r, g, b))
-    }
-
-    /// Convert RGB bitmap to PNG bytes (simplified implementation)
-    fn bitmap_to_png(
-        &self,
-        bitmap: &[(u8, u8, u8)],
-        width: usize,
-        height: usize,
-    ) -> Result<Vec<u8>, WaveformError> {
-        // This is a very simplified PNG implementation
-        // In production, you'd want to use a proper image library like `image` crate
-
-        let mut png_data = Vec::new();
-
-        // PNG signature
-        png_data.extend_from_slice(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-
-        // IHDR chunk
-        let ihdr_data = self.create_ihdr_chunk(width as u32, height as u32)?;
-        png_data.extend_from_slice(&ihdr_data);
-
-        // IDAT chunk (image data)
-        let idat_data = self.create_idat_chunk(bitmap, width, height)?;
-        png_data.extend_from_slice(&idat_data);
-
-        // IEND chunk
-        let iend_data = [
-            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
-        ];
-        png_data.extend_from_slice(&iend_data);
-
-        Ok(png_data)
-    }
-
-    /// Create IHDR chunk for PNG
-    fn create_ihdr_chunk(&self, width: u32, height: u32) -> Result<Vec<u8>, WaveformError> {
-        let mut chunk = Vec::new();
-
-        // Length (13 bytes)
-        chunk.extend_from_slice(&13u32.to_be_bytes());
-
-        // Type
-        chunk.extend_from_slice(b"IHDR");
-
-        // Data
-        chunk.extend_from_slice(&width.to_be_bytes()); // Width
-        chunk.extend_from_slice(&height.to_be_bytes()); // Height
-        chunk.push(8); // Bit depth
-        chunk.push(2); // Color type (RGB)
-        chunk.push(0); // Compression method
-        chunk.push(0); // Filter method
-        chunk.push(0); // Interlace method
-
-        // CRC
-        let crc = self.calculate_crc(&chunk[4..]);
-        chunk.extend_from_slice(&crc.to_be_bytes());
-
-        Ok(chunk)
-    }
-
-    /// Create IDAT chunk for PNG (simplified - no compression)
-    fn create_idat_chunk(
-        &self,
-        bitmap: &[(u8, u8, u8)],
-        width: usize,
-        height: usize,
-    ) -> Result<Vec<u8>, WaveformError> {
-        // This is extremely simplified - real PNG requires DEFLATE compression
-        // For now, we'll create a minimal uncompressed data structure
-
-        let mut raw_data = Vec::new();
-
-        for y in 0..height {
-            raw_data.push(0); // Filter type (None)
-            for x in 0..width {
-                let (r, g, b) = bitmap[y * width + x];
-                raw_data.push(r);
-                raw_data.push(g);
-                raw_data.push(b);
-            }
-        }
-
-        // For this simplified implementation, we'll just wrap the raw data
-        // Real PNG would compress this with DEFLATE
-        let mut chunk = Vec::new();
-
-        // Length
-        chunk.extend_from_slice(&(raw_data.len() as u32).to_be_bytes());
-
-        // Type
-        chunk.extend_from_slice(b"IDAT");
-
-        // Data (should be compressed, but keeping simple for now)
-        chunk.extend_from_slice(&raw_data);
-
-        // CRC
-        let crc = self.calculate_crc(&chunk[4..]);
-        chunk.extend_from_slice(&crc.to_be_bytes());
-
-        Ok(chunk)
-    }
-
-    /// Calculate CRC32 for PNG chunks (simplified)
-    fn calculate_crc(&self, data: &[u8]) -> u32 {
-        // Simplified CRC calculation
-        // In production, use a proper CRC32 implementation
-        let mut crc = 0xFFFFFFFFu32;
-        for &byte in data {
-            crc ^= byte as u32;
-            for _ in 0..8 {
-                if crc & 1 != 0 {
-                    crc = (crc >> 1) ^ 0xEDB88320;
-                } else {
-                    crc >>= 1;
-                }
-            }
-        }
-        !crc
     }
 
     /// Validate waveform configuration
