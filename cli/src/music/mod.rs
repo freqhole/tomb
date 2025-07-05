@@ -11,6 +11,7 @@ pub mod generation;
 pub mod library;
 pub mod playlist;
 pub mod scanner;
+pub mod search;
 pub mod sync;
 
 // Re-export the main command enum
@@ -178,6 +179,30 @@ impl MusicCommands {
             }
             Self::BackfillDirectoryArt { batch_size, force } => {
                 generation::handle_backfill_directory_art(&service, *batch_size, *force).await
+            }
+            Self::Search {
+                query,
+                structured,
+                search_type,
+                limit,
+                verbose,
+                songs_only,
+                page,
+            } => {
+                search::handle_search(
+                    &service,
+                    query.clone(),
+                    *structured,
+                    search_type.clone(),
+                    *limit,
+                    *verbose,
+                    *songs_only,
+                    *page,
+                )
+                .await
+            }
+            Self::Suggest { query, limit } => {
+                search::handle_suggest(&service, query.clone(), *limit).await
             }
         }
     }

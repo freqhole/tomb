@@ -321,6 +321,174 @@ cli music play-song 550e8400-e29b-41d4-a716-446655440000 --visualize
 cli music play-playlist "Road Trip Mix" --shuffle
 ```
 
+## Search Commands 🔍
+
+### `music search <query>`
+
+Search across songs and playlists using powerful full-text search.
+
+```bash
+cli music search "piano"                    # Search for "piano" in songs and playlists
+cli music search "jazz piano"               # Multi-word search
+cli music search "Miles Davis"              # Artist search
+cli music search --songs-only "guitar"     # Search only songs (exclude playlists)
+```
+
+**Search Types:**
+
+```bash
+cli music search "love OR hate" --search-type websearch    # Natural language (default)
+cli music search "love hate" --search-type plainto         # Simple AND search
+cli music search "exact phrase" --search-type phrase       # Exact phrase matching
+```
+
+**Options:**
+
+- `--structured` - Use structured field-based search (see below)
+- `--search-type <type>` - Search algorithm: `websearch`, `plainto`, `phrase` (default: `websearch`)
+- `--limit <num>` - Maximum number of results (default: 20)
+- `--page <num>` - Page number for pagination (default: 1)
+- `--verbose` - Show detailed song information
+- `--songs-only` - Search only songs, exclude playlists
+
+### `music search --structured <field:value>`
+
+Search using structured field-based queries for precise filtering.
+
+```bash
+cli music search --structured "genre:rap"          # Find rap songs
+cli music search --structured "artist:pink"        # Songs by artists containing "pink"
+cli music search --structured "album:blue"         # Albums containing "blue"
+cli music search --structured "title:piano"        # Song titles containing "piano"
+cli music search --structured "album_artist:various"  # Various artist compilations
+```
+
+**Structured Search Fields:**
+
+- `genre:value` - Search by genre (case-insensitive)
+- `artist:value` - Search by artist name (partial match)
+- `album:value` - Search by album name (partial match)
+- `title:value` - Search by song title (partial match)
+- `album_artist:value` - Search by album artist (partial match)
+
+**Advanced Examples:**
+
+```bash
+# Combine structured search with limits
+cli music search --structured "genre:jazz" --limit 10
+
+# Use different search types with structured queries
+cli music search --structured "artist:Miles Davis" --search-type phrase
+
+# Songs-only structured search
+cli music search --structured "genre:electronic" --songs-only --verbose
+```
+
+### `music suggest <partial>`
+
+Get smart search suggestions for autocomplete functionality.
+
+```bash
+cli music suggest "pian"                    # Returns: "piano", "Piano Collection", etc.
+cli music suggest "ja"                      # Returns: genre "Jazz", artist suggestions
+cli music suggest "mil"                     # Returns: "Miles Davis", etc.
+```
+
+**Features:**
+
+- **Partial matching** - Finds matches anywhere in titles, not just at the beginning
+- **Word extraction** - Extracts individual words from song titles for better suggestions
+- **Multiple categories** - Returns suggestions for artists, albums, genres, titles, playlists
+- **Frequency ranking** - More popular terms appear first
+- **Smart filtering** - Excludes common stop words
+
+**Suggestion Categories:**
+
+- `artist` - Artist names containing the query
+- `album` - Album names containing the query
+- `title` - Song titles containing the query
+- `genre` - Genres containing the query
+- `playlist` - Playlist titles containing the query
+- `word` - Individual words from song titles
+
+**Options:**
+
+- `--limit <num>` - Maximum number of suggestions (default: 10)
+
+## Search Examples
+
+```bash
+# Basic searches
+cli music search "jazz"                     # Find all jazz-related content
+cli music search "piano riff"               # Multi-word search
+cli music search "Bohemian Rhapsody"        # Specific song search
+
+# Structured searches for precision
+cli music search --structured "genre:rap" --limit 5
+cli music search --structured "artist:radiohead" --verbose
+cli music search --structured "album:ok computer"
+
+# Search types comparison
+cli music search "love me tender" --search-type websearch   # Natural language
+cli music search "love me tender" --search-type plainto     # All words required
+cli music search "love me tender" --search-type phrase      # Exact phrase
+
+# Songs-only searches
+cli music search --songs-only "guitar solo" --limit 15
+cli music search --songs-only --structured "genre:rock"
+
+# Getting suggestions for autocomplete
+cli music suggest "bea"                     # Beatles, Beastie Boys, etc.
+cli music suggest "cla"                     # Classical, Clapton, etc.
+cli music suggest "prog"                    # Progressive rock suggestions
+
+# Pagination for large result sets
+cli music search "rock" --page 1 --limit 20
+cli music search "rock" --page 2 --limit 20
+
+# Verbose output for detailed information
+cli music search "Miles Davis" --verbose --limit 5
+```
+
+## Search Features
+
+**🔍 Full-Text Search:**
+
+- Searches across song titles, artists, albums, genres
+- Includes playlist titles and descriptions
+- Smart ranking by relevance
+- Multiple search algorithms for different use cases
+
+**🎯 Structured Search:**
+
+- Field-specific queries: `genre:jazz`, `artist:pink`
+- Case-insensitive matching
+- Partial word matching
+- Precise filtering capabilities
+
+**💡 Smart Suggestions:**
+
+- Real-time autocomplete support
+- Partial matching anywhere in text ("pian" → "piano")
+- Word extraction from song titles
+- Category-based grouping
+- Frequency-based ranking
+
+**📊 Search Results:**
+
+- Unified results (songs + playlists) or songs-only
+- Relevance scoring and ranking
+- Pagination support
+- Detailed or compact display modes
+- Performance timing information
+
+**⚡ Performance:**
+
+- PostgreSQL full-text search indexes
+- Fast search responses (typically < 10ms)
+- Efficient suggestions with word extraction
+- Optimized database queries
+
 ## Audio Playback
 
 Playback commands use the audio player configured in `media.playback` section:

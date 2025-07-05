@@ -187,7 +187,7 @@ impl SearchService {
     pub async fn search_music(&self, query: &SearchQuery) -> Result<SearchResult, SearchError> {
         let start_time = Instant::now();
 
-        if query.query.is_none() {
+        if query.query.is_none() && query.structured_search.is_none() {
             return Ok(SearchResult {
                 total_count: 0,
                 results: vec![],
@@ -215,11 +215,12 @@ impl SearchService {
                 result_type, id, title, subtitle, description,
                 media_blob_id, thumbnail_blob_id, search_rank,
                 metadata, created_at, updated_at
-            FROM music_search($1, $2, $3, $4)
+            FROM music_search($1, $2, $3, $4, $5)
             "#,
         )
-        .bind(query.query.as_deref().unwrap())
+        .bind(query.query.as_deref())
         .bind(search_type)
+        .bind(query.structured_search.as_deref())
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
@@ -305,7 +306,7 @@ impl SearchService {
         &self,
         query: &SearchQuery,
     ) -> Result<u64, SearchError> {
-        if query.query.is_none() {
+        if query.query.is_none() && query.structured_search.is_none() {
             return Ok(0);
         }
 
@@ -318,11 +319,12 @@ impl SearchService {
         let row = sqlx::query_scalar::<_, i64>(
             r#"
             SELECT COUNT(*) as count
-            FROM music_search($1, $2, 1000000, 0)
+            FROM music_search($1, $2, $3, 1000000, 0)
             "#,
         )
-        .bind(query.query.as_deref().unwrap())
+        .bind(query.query.as_deref())
         .bind(search_type)
+        .bind(query.structured_search.as_deref())
         .fetch_one(&self.pool)
         .await?;
 

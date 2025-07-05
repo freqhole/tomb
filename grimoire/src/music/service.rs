@@ -166,6 +166,11 @@ impl<'a> MusicService<'a> {
         self.config
     }
 
+    /// Get database pool
+    pub fn get_pool(&self) -> &sqlx::PgPool {
+        self.db.pool()
+    }
+
     /// Start a new music scan
     pub async fn start_scan(
         &self,

@@ -329,4 +329,44 @@ pub enum MusicCommands {
         #[arg(long)]
         force: bool,
     },
+
+    /// Search for songs and playlists
+    Search {
+        /// Search query
+        query: String,
+
+        /// Use structured search (e.g., "artist:jazz" or "genre:rock")
+        #[arg(long)]
+        structured: bool,
+
+        /// Search type: websearch, plainto, or phrase
+        #[arg(long, short, default_value = "websearch")]
+        search_type: String,
+
+        /// Maximum number of results
+        #[arg(long, short, default_value = "20")]
+        limit: u32,
+
+        /// Show detailed results
+        #[arg(long, short)]
+        verbose: bool,
+
+        /// Search only songs (exclude playlists)
+        #[arg(long)]
+        songs_only: bool,
+
+        /// Page number for pagination
+        #[arg(long, default_value = "1")]
+        page: u32,
+    },
+
+    /// Get search suggestions for autocomplete
+    Suggest {
+        /// Partial query to get suggestions for
+        query: String,
+
+        /// Maximum number of suggestions
+        #[arg(long, short, default_value = "10")]
+        limit: u32,
+    },
 }

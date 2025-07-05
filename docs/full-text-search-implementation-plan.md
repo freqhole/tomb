@@ -33,13 +33,210 @@ PostgreSQL's built-in full-text search capabilities providing:
 - No additional infrastructure dependencies
 - Seamless integration with existing PostgreSQL setup
 
-### Phase 2: CLI and API Integration 🚧 **NEXT**
+### Phase 2: CLI and API Integration ✅ **COMPLETED**
 
-Add CLI commands and REST API endpoints to use the FTS system.
+Added comprehensive CLI commands and REST API endpoints for the FTS system.
 
-### Phase 3: Enhanced Search Features
+**CLI Commands Implemented:**
 
-Add advanced capabilities like faceted search, search suggestions, and analytics.
+- `music search <query>` - Unified search across songs and playlists
+- `music search --structured "field:value"` - Structured field-based search (genre:rap, artist:pink, etc.)
+- `music search --songs-only <query>` - Songs-only search
+- `music search --search-type <type>` - Different search types (websearch, plainto, phrase)
+- `music suggest <partial>` - Smart suggestions with word extraction and partial matching
+
+**REST API Endpoints Implemented:** (🔐 Authentication Required)
+
+- `GET /api/music/search?q=jazz&type=websearch` - Main search endpoint
+- `GET /api/music/search/songs?q=piano&structured=true` - Songs-only search
+- `GET /api/music/search/suggestions?q=mil` - Search suggestions for autocomplete
+
+**API Endpoint Examples:** (🔐 Requires Authentication)
+
+```bash
+# Note: All API endpoints require user authentication via session cookies
+
+# Text search across songs and playlists
+GET /api/music/search?q=piano&search_type=websearch&page=1&page_size=20
+
+# Structured search for specific genre
+GET /api/music/search?q=genre:rap&structured=true&limit=10
+
+# Songs-only search with filtering
+GET /api/music/search/songs?q=jazz&artist=miles&rating_min=4
+
+# Search suggestions for autocomplete
+GET /api/music/search/suggestions?q=pian&limit=5
+
+# Advanced search with sorting
+GET /api/music/search?q=piano&sort_by=relevance&sort_direction=desc&favorites_only=true
+
+# Unauthenticated requests will receive 401 Unauthorized
+curl "http://localhost:8080/api/music/search?q=piano"  # Returns 401
+```
+
+**API Response Format:**
+
+```json
+{
+  "total_count": 14,
+  "page": 1,
+  "page_size": 20,
+  "total_pages": 1,
+  "query_time_ms": 8,
+  "results": [
+    {
+      "id": "uuid",
+      "result_type": "song",
+      "title": "Piano Sonata",
+      "subtitle": "Mozart - Classical Collection",
+      "relevance_score": 0.89,
+      "metadata": {}
+    }
+  ],
+  "suggestions": [
+    {
+      "text": "piano",
+      "category": "word",
+      "frequency": 15
+    }
+  ]
+}
+```
+
+**API Parameters:**
+
+| Parameter        | Type    | Description                          | Default       | Example                                |
+| ---------------- | ------- | ------------------------------------ | ------------- | -------------------------------------- |
+| `q`              | string  | Search query (required)              | -             | `"piano"` or `"genre:rap"`             |
+| `structured`     | boolean | Interpret query as structured search | `false`       | `true`                                 |
+| `search_type`    | string  | Search algorithm type                | `"websearch"` | `"websearch"`, `"plainto"`, `"phrase"` |
+| `page`           | integer | Page number (1-based)                | `1`           | `2`                                    |
+| `page_size`      | integer | Results per page                     | `20`          | `50`                                   |
+| `sort_by`        | string  | Sort field                           | `"relevance"` | `"title"`, `"artist"`, `"created_at"`  |
+| `sort_direction` | string  | Sort direction                       | `"desc"`      | `"asc"`, `"desc"`                      |
+| `artist`         | string  | Filter by artist                     | -             | `"Miles Davis"`                        |
+| `album`          | string  | Filter by album                      | -             | `"Kind of Blue"`                       |
+| `genre`          | string  | Filter by genre                      | -             | `"Jazz"`                               |
+| `year`           | integer | Filter by year                       | -             | `1959`                                 |
+| `rating_min`     | integer | Minimum rating (1-5)                 | -             | `4`                                    |
+| `rating_max`     | integer | Maximum rating (1-5)                 | -             | `5`                                    |
+| `favorites_only` | boolean | Show only favorites                  | `false`       | `true`                                 |
+| `songs_only`     | boolean | Exclude playlists                    | `false`       | `true`                                 |
+
+**Structured Search Syntax:**
+
+- `genre:rap` - Find songs with genre containing "rap"
+- `artist:miles` - Find songs with artist containing "miles"
+- `title:piano` - Find songs with title containing "piano"
+- `album:blue` - Find songs with album containing "blue"
+- `album_artist:various` - Find songs with album artist containing "various"
+
+**Key Features:**
+
+- ✅ Case-insensitive structured search
+- ✅ Partial matching in suggestions ("pian" → "piano")
+- ✅ Word extraction from titles for better suggestions
+- ✅ Multiple search types with relevance ranking
+- ✅ Unified results combining songs and playlists
+- ✅ Enhanced `music_search` function with structured search support
+- ✅ Improved `get_search_suggestions` with partial matching and word extraction
+- ✅ All API endpoints protected with user authentication
+- ✅ Router-level authentication applied to `/api/*` routes
+
+### Phase 3: JavaScript Client Integration 🚧 **NEXT**
+
+Build comprehensive JavaScript client wrappers for the search API to enable seamless frontend integration.
+
+**Client Library Features to Implement:**
+
+- 🚧 **Core Search Client** - Main search API wrapper with authentication
+- 🚧 **Search Builder** - Fluent API for building complex search queries
+- 🚧 **Autocomplete Component** - Real-time suggestions with debouncing
+- 🚧 **Search Results UI** - Reusable components for displaying results
+- 🚧 **TypeScript Definitions** - Full type safety for search operations
+- 🚧 **Error Handling** - Comprehensive error handling and retry logic
+- 🚧 **Caching Layer** - Client-side caching for performance
+- 🚧 **Search History** - Local storage for recent searches
+
+**JavaScript API Examples:**
+
+```javascript
+// Basic search
+const results = await searchClient.search("piano");
+
+// Structured search with filters
+const rapSongs = await searchClient
+  .query("genre:rap")
+  .structured(true)
+  .songsOnly()
+  .limit(20)
+  .execute();
+
+// Real-time suggestions
+const suggestions = await searchClient.suggest("pian");
+
+// Advanced search builder
+const results = await searchClient
+  .search("jazz")
+  .filterBy("artist", "Miles Davis")
+  .sortBy("relevance")
+  .paginate(1, 50)
+  .execute();
+```
+
+### Phase 4: Enhanced Search Features 🔮 **FUTURE**
+
+Add remaining advanced capabilities like faceted search and search analytics.
+
+**Already Implemented:**
+
+- ✅ Search suggestions with autocomplete
+- ✅ Multiple search types (websearch, plainto, phrase)
+- ✅ Structured search with field-specific queries
+- ✅ Word extraction and partial matching
+- ✅ Authentication and authorization for all API endpoints
+- ✅ Complete CLI and REST API integration
+
+**Future Features:**
+
+- Faceted search (filter counts by genre, artist, year, etc.)
+- Search analytics and query logging
+- Search result caching
+- Advanced ranking algorithms
+- Search result highlighting
+- Fuzzy search and spell correction
+
+## Documentation
+
+Comprehensive documentation has been created for all search functionality:
+
+### 📖 **Documentation Structure**
+
+- **[CLI Commands](cli/music.md#search-commands-🔍)** - Complete CLI search command reference
+- **[REST API](server/search-api.md)** - Detailed API documentation with examples
+- **[Search Features](features/search.md)** - Feature overview and architecture
+- **[Implementation Plan](full-text-search-implementation-plan.md)** - This document
+
+### 🎯 **Quick References**
+
+**For Developers:**
+
+- API integration guide: `docs/server/search-api.md`
+- JavaScript examples and best practices included
+- TypeScript definitions and error handling patterns
+
+**For Users:**
+
+- CLI command reference: `docs/cli/music.md#search-commands-🔍`
+- Search syntax and examples
+- Tips for effective searching
+
+**For Product/Architecture:**
+
+- Features overview: `docs/features/search.md`
+- Performance characteristics and use cases
+- Future enhancement roadmap
 
 ## Search Types Explained
 

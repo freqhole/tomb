@@ -3,10 +3,10 @@
 //! This module contains the main routing logic and general app routes.
 //! Domain-specific routes are handled by their respective modules.
 
-use axum::Router;
+use axum::{middleware as axum_middleware, Router};
 
 use crate::analytics::build_analytics_routes;
-use crate::auth::build_auth_routes;
+use crate::auth::{build_auth_routes, require_authentication};
 use crate::blobs::build_blob_routes;
 use crate::health::build_health_routes;
 use crate::media::build_media_routes;
@@ -21,18 +21,26 @@ use grimoire::AppConfig;
 
 /// Build all routes for the application
 pub fn build_routes(config: &AppConfig, connection_manager: ConnectionManager) -> Router {
-    Router::new()
-        .merge(build_auth_routes(config))
-        .merge(build_analytics_routes(config))
-        .merge(build_blob_routes(config))
-        .merge(build_enhanced_private_routes(config))
-        .merge(build_enhanced_public_routes(config))
-        .merge(build_health_routes())
-        .merge(build_websocket_routes_with_manager(connection_manager))
-        .merge(build_upload_routes(config))
-        .merge(create_sync_routes())
+    // Build protected routes that require authentication
+    let protected_routes = Router::new()
         .merge(build_media_routes())
         .merge(build_photos_routes())
+        .merge(build_blob_routes(config))
+        .merge(build_upload_routes(config))
+        .merge(create_sync_routes())
+        .merge(build_enhanced_private_routes(config))
+        .merge(build_websocket_routes_with_manager(connection_manager))
+        .layer(axum_middleware::from_fn(require_authentication));
+
+    Router::new()
+        // Public routes (no auth required)
+        .merge(build_auth_routes(config))
+        .merge(build_health_routes())
+        .merge(build_enhanced_public_routes(config))
+        // Protected routes
+        .merge(protected_routes)
+        // Analytics routes (have their own auth requirements)
+        .merge(build_analytics_routes(config))
 }
 
 #[cfg(test)]

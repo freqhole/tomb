@@ -14,6 +14,12 @@ Documentation for the TypeScript client library and web components:
 - **[Thumbnail Fixes](client/js/thumbnail-fixes.md)** - Media preview and thumbnail functionality fixes
 - **[WebSocket Modular Components](client/js/websocket-modular-components.md)** - Usage guide for modular WebSocket components
 
+### 🔧 CLI (`cli/`)
+
+Command-line interface documentation:
+
+- **[Music CLI](cli/music.md)** - Music library management, search, and playlist commands
+
 ### 🛠️ Development (`development/`)
 
 Development setup, build processes, and tooling:
@@ -22,6 +28,12 @@ Development setup, build processes, and tooling:
 - **[Testing](development/testing.md)** - Testing strategies and test suite documentation
 - **[Config Files Cleaned](development/config-files-cleaned.md)** - Configuration file organization and cleanup
 - **[Prompts](development/prompts.md)** - AI prompts and development assistance
+
+### 🖥️ Server (`server/`)
+
+Server-side API documentation and architecture:
+
+- **[Search API](server/search-api.md)** - Music search REST API endpoints and integration guide
 
 ### 🚀 Operations (`operations/`)
 
@@ -36,6 +48,7 @@ Application features and functionality documentation:
 
 - **[Account Recovery](features/account-recovery.md)** - User account recovery mechanisms
 - **[Roles](features/roles.md)** - User roles and permission system
+- **[Search](features/search.md)** - Music search features and capabilities
 
 ### 📖 Reference (`reference/`)
 
@@ -91,15 +104,18 @@ Specifications, configurations, and lookup information.
 - **Authentication**: See WebAuthn components in `client/js/`
 - **Real-time Communication**: WebSocket documentation in `client/js/`
 - **User Management**: Account recovery and roles in `features/`
+- **Search**: Music search features in `features/search.md`, CLI commands in `cli/music.md`, API in `server/search-api.md`
+- **Music Library**: CLI commands in `cli/music.md` and search features
 - **Monitoring**: Access logging in `operations/`
 - **Development**: Setup and testing in `development/`
 
 ### By Audience
 
-- **Frontend Developers**: Focus on `client/js/` directory
-- **Backend Developers**: Review `features/` and `operations/`
+- **Frontend Developers**: Focus on `client/js/` directory and `server/search-api.md` for API integration
+- **Backend Developers**: Review `features/`, `operations/`, and `server/` directories
+- **CLI Users**: See `cli/music.md` for comprehensive command reference
 - **DevOps Engineers**: Start with `operations/` and `development/setup.md`
-- **Product Managers**: Review `features/` for functionality overview
+- **Product Managers**: Review `features/` for functionality overview, especially `features/search.md`
 
 ## 📝 Contributing to Documentation
 

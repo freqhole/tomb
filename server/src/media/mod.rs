@@ -10,6 +10,7 @@
 
 pub mod models;
 pub mod repository;
+pub mod search;
 pub mod songs;
 
 // Re-export commonly used types
@@ -97,5 +98,7 @@ impl<'a> MediaService<'a> {
 
 /// Build media routes including songs and playlists
 pub fn build_media_routes() -> axum::Router {
-    axum::Router::new().nest("/api/media", songs::create_routes())
+    axum::Router::new()
+        .nest("/api/media", songs::create_routes())
+        .nest("/api/music", search::create_search_routes())
 }

@@ -175,7 +175,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Search suggestions function
+-- Enhanced search suggestions function with improved matching and word extraction
 CREATE OR REPLACE FUNCTION get_search_suggestions(
     p_partial_query TEXT,
     p_limit INTEGER DEFAULT 10
@@ -186,42 +186,96 @@ CREATE OR REPLACE FUNCTION get_search_suggestions(
 ) AS $$
 BEGIN
     RETURN QUERY
-    -- Artist suggestions
-    SELECT DISTINCT s.artist as suggestion, 'artist' as category,
-           COUNT(*)::INTEGER as frequency
-    FROM songs s
-    WHERE s.deleted_at IS NULL
-      AND s.artist ILIKE p_partial_query || '%'
-      AND s.artist IS NOT NULL
-    GROUP BY s.artist
-    UNION ALL
-    -- Album suggestions
-    SELECT DISTINCT s.album as suggestion, 'album' as category,
-           COUNT(*)::INTEGER as frequency
-    FROM songs s
-    WHERE s.deleted_at IS NULL
-      AND s.album ILIKE p_partial_query || '%'
-      AND s.album IS NOT NULL
-    GROUP BY s.album
-    UNION ALL
-    -- Title suggestions
-    SELECT DISTINCT s.title as suggestion, 'title' as category,
-           COUNT(*)::INTEGER as frequency
-    FROM songs s
-    WHERE s.deleted_at IS NULL
-      AND s.title ILIKE p_partial_query || '%'
-      AND s.title IS NOT NULL
-    GROUP BY s.title
-    UNION ALL
-    -- Genre suggestions
-    SELECT DISTINCT s.genre as suggestion, 'genre' as category,
-           COUNT(*)::INTEGER as frequency
-    FROM songs s
-    WHERE s.deleted_at IS NULL
-      AND s.genre ILIKE p_partial_query || '%'
-      AND s.genre IS NOT NULL
-    GROUP BY s.genre
-    ORDER BY frequency DESC, suggestion ASC
+    SELECT sug.suggestion, sug.category, sug.frequency
+    FROM (
+        -- Artist suggestions (partial match anywhere)
+        SELECT DISTINCT s.artist as suggestion, 'artist' as category,
+               COUNT(*)::INTEGER as frequency
+        FROM songs s
+        WHERE s.deleted_at IS NULL
+          AND s.artist ILIKE '%' || p_partial_query || '%'
+          AND s.artist IS NOT NULL
+          AND LENGTH(s.artist) > 0
+        GROUP BY s.artist
+        HAVING COUNT(*) > 0
+
+        UNION ALL
+
+        -- Album suggestions (partial match anywhere)
+        SELECT DISTINCT s.album as suggestion, 'album' as category,
+               COUNT(*)::INTEGER as frequency
+        FROM songs s
+        WHERE s.deleted_at IS NULL
+          AND s.album ILIKE '%' || p_partial_query || '%'
+          AND s.album IS NOT NULL
+          AND LENGTH(s.album) > 0
+        GROUP BY s.album
+        HAVING COUNT(*) > 0
+
+        UNION ALL
+
+        -- Full title suggestions (partial match anywhere)
+        SELECT DISTINCT s.title as suggestion, 'title' as category,
+               COUNT(*)::INTEGER as frequency
+        FROM songs s
+        WHERE s.deleted_at IS NULL
+          AND s.title ILIKE '%' || p_partial_query || '%'
+          AND s.title IS NOT NULL
+          AND LENGTH(s.title) > 0
+        GROUP BY s.title
+        HAVING COUNT(*) > 0
+
+        UNION ALL
+
+        -- Individual word suggestions from titles
+        SELECT DISTINCT word as suggestion, 'word' as category,
+               COUNT(*)::INTEGER as frequency
+        FROM (
+            SELECT unnest(string_to_array(lower(s.title), ' ')) as word
+            FROM songs s
+            WHERE s.deleted_at IS NULL
+              AND s.title IS NOT NULL
+              AND LENGTH(s.title) > 0
+        ) words
+        WHERE word ILIKE p_partial_query || '%'
+          AND LENGTH(word) >= 3  -- Only suggest words 3+ characters
+          AND word NOT IN ('the', 'and', 'or', 'but', 'for', 'nor', 'yet', 'so', 'a', 'an', 'at', 'by', 'in', 'of', 'on', 'to', 'up', 'as', 'be', 'is', 'it', 'he', 'she', 'we', 'you', 'they', 'was', 'were', 'been', 'have', 'has', 'had', 'do', 'did', 'does', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must', 'shall')
+        GROUP BY word
+        HAVING COUNT(*) > 0
+
+        UNION ALL
+
+        -- Genre suggestions (partial match anywhere)
+        SELECT DISTINCT s.genre as suggestion, 'genre' as category,
+               COUNT(*)::INTEGER as frequency
+        FROM songs s
+        WHERE s.deleted_at IS NULL
+          AND s.genre ILIKE '%' || p_partial_query || '%'
+          AND s.genre IS NOT NULL
+          AND LENGTH(s.genre) > 0
+        GROUP BY s.genre
+        HAVING COUNT(*) > 0
+
+        UNION ALL
+
+        -- Playlist title suggestions (partial match anywhere)
+        SELECT DISTINCT p.title as suggestion, 'playlist' as category,
+               COUNT(*)::INTEGER as frequency
+        FROM playlists p
+        WHERE p.deleted_at IS NULL
+          AND p.title ILIKE '%' || p_partial_query || '%'
+          AND p.title IS NOT NULL
+          AND LENGTH(p.title) > 0
+        GROUP BY p.title
+        HAVING COUNT(*) > 0
+    ) sug
+    ORDER BY
+        -- Prioritize exact matches at the beginning
+        CASE WHEN lower(sug.suggestion) LIKE lower(p_partial_query) || '%' THEN 1 ELSE 2 END,
+        -- Then by frequency (popularity)
+        sug.frequency DESC,
+        -- Then alphabetically
+        sug.suggestion ASC
     LIMIT p_limit;
 END;
 $$ LANGUAGE plpgsql;
@@ -280,5 +334,5 @@ $$ LANGUAGE plpgsql;
 
 -- Add comments for documentation
 COMMENT ON FUNCTION search_songs IS 'Enhanced song search with FTS, structured search, and compatibility with old query_songs parameters';
-COMMENT ON FUNCTION get_search_suggestions IS 'Get search suggestions for autocomplete based on partial query matches';
+COMMENT ON FUNCTION get_search_suggestions IS 'Enhanced search suggestions with partial matching, word extraction, and better ranking for autocomplete functionality';
 COMMENT ON FUNCTION search_playlists IS 'Full-text search for playlists with relevance ranking';
