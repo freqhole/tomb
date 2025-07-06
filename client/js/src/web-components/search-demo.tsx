@@ -218,8 +218,7 @@ function SearchDemoContent() {
 
   // Handle clear/reset search
   const handleClearSearch = () => {
-    context.state.setQuery("");
-    context.state.clearFilters();
+    context.clearAll();
     setSearchResults([]);
     setCurrentQuery("");
     console.log("🧹 Search cleared");
@@ -245,6 +244,82 @@ function SearchDemoContent() {
     console.log("🔍 Context query changed:", contextQuery);
     setCurrentQuery(contextQuery);
   });
+
+  // Get suggestions from search results
+  const searchSuggestions = () => {
+    const results = context.search.results();
+    return results?.suggestions || [];
+  };
+
+  // Group suggestions by category
+  const groupedSuggestions = () => {
+    const suggestions = searchSuggestions();
+    if (!suggestions.length) return [];
+
+    const groups = new Map<string, any[]>();
+
+    // Group suggestions by category
+    suggestions.forEach((suggestion) => {
+      const category = suggestion.category || "general";
+      if (!groups.has(category)) {
+        groups.set(category, []);
+      }
+      groups.get(category)!.push(suggestion);
+    });
+
+    // Convert to array and sort by category priority
+    const categoryOrder = ["word", "title", "playlist", "general"];
+    return Array.from(groups.entries()).sort(([a], [b]) => {
+      const aIndex = categoryOrder.indexOf(a);
+      const bIndex = categoryOrder.indexOf(b);
+      const aOrder = aIndex === -1 ? categoryOrder.length : aIndex;
+      const bOrder = bIndex === -1 ? categoryOrder.length : bIndex;
+      return aOrder - bOrder;
+    });
+  };
+
+  // Get category display info
+  const getCategoryInfo = (category: string) => {
+    const categoryData: Record<
+      string,
+      { name: string; icon: string; description: string }
+    > = {
+      word: {
+        name: "Search Suggestions",
+        icon: "🔍",
+        description: "Try these search terms",
+      },
+      title: {
+        name: "Songs",
+        icon: "🎵",
+        description: "Songs that match your search",
+      },
+      playlist: {
+        name: "Playlists",
+        icon: "📋",
+        description: "Playlists containing your search terms",
+      },
+      general: {
+        name: "Suggestions",
+        icon: "💡",
+        description: "Other suggestions",
+      },
+    };
+    return (
+      categoryData[category] || {
+        name: category.charAt(0).toUpperCase() + category.slice(1),
+        icon: "💡",
+        description: "Related suggestions",
+      }
+    );
+  };
+
+  // Handle suggestion card click
+  const handleSuggestionClick = (suggestion: string) => {
+    console.log("🔍 Suggestion clicked:", suggestion);
+    context.state.setQuery(suggestion);
+    handleSearch(suggestion);
+  };
 
   return (
     <div class="search-demo">
@@ -597,6 +672,53 @@ function SearchDemoContent() {
                       Error: {context.search.error()?.message}
                     </p>
                   </Show>
+
+                  <Show when={groupedSuggestions().length > 0}>
+                    <div class="search-demo__suggestions-section">
+                      <h4>You might be interested in:</h4>
+                      <div class="search-demo__suggestions-groups">
+                        <For each={groupedSuggestions()}>
+                          {([category, suggestions]) => {
+                            const categoryInfo = getCategoryInfo(category);
+                            return (
+                              <div class="search-demo__suggestion-group">
+                                <div class="search-demo__suggestion-group-header">
+                                  <span class="search-demo__suggestion-group-icon">
+                                    {categoryInfo.icon}
+                                  </span>
+                                  <div class="search-demo__suggestion-group-title">
+                                    <h5>{categoryInfo.name}</h5>
+                                    <p>{categoryInfo.description}</p>
+                                  </div>
+                                </div>
+                                <div class="search-demo__suggestion-cards">
+                                  <For each={suggestions}>
+                                    {(suggestion) => (
+                                      <div
+                                        class="search-demo__suggestion-card"
+                                        onClick={() =>
+                                          handleSuggestionClick(suggestion.text)
+                                        }
+                                      >
+                                        <span class="search-demo__suggestion-text">
+                                          {suggestion.text}
+                                        </span>
+                                        <Show when={suggestion.frequency > 1}>
+                                          <span class="search-demo__suggestion-frequency">
+                                            {suggestion.frequency}
+                                          </span>
+                                        </Show>
+                                      </div>
+                                    )}
+                                  </For>
+                                </div>
+                              </div>
+                            );
+                          }}
+                        </For>
+                      </div>
+                    </div>
+                  </Show>
                 </div>
               </Show>
 
@@ -672,6 +794,122 @@ function SearchDemoContent() {
         .search-suggestions__item--selected {
           background-color: #007bff;
           color: white;
+        }
+
+        /* Grouped suggestions styling */
+        .search-demo__suggestions-section {
+          margin-top: 2rem;
+          padding: 1.5rem;
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 12px;
+          backdrop-filter: blur(10px);
+        }
+
+        .search-demo__suggestions-section h4 {
+          margin: 0 0 1.5rem 0;
+          font-size: 1.2rem;
+          color: #fff;
+          text-align: center;
+        }
+
+        .search-demo__suggestions-groups {
+          display: flex;
+          flex-direction: column;
+          gap: 1.5rem;
+        }
+
+        .search-demo__suggestion-group {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+          padding: 1rem;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .search-demo__suggestion-group-header {
+          display: flex;
+          align-items: center;
+          margin-bottom: 1rem;
+          gap: 0.75rem;
+        }
+
+        .search-demo__suggestion-group-icon {
+          font-size: 1.5rem;
+          flex-shrink: 0;
+        }
+
+        .search-demo__suggestion-group-title h5 {
+          margin: 0;
+          font-size: 1rem;
+          color: #fff;
+          font-weight: 600;
+        }
+
+        .search-demo__suggestion-group-title p {
+          margin: 0.25rem 0 0 0;
+          font-size: 0.85rem;
+          color: rgba(255, 255, 255, 0.7);
+        }
+
+        .search-demo__suggestion-cards {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+        }
+
+        .search-demo__suggestion-card {
+          background: rgba(255, 255, 255, 0.15);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 6px;
+          padding: 0.5rem 0.75rem;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          font-size: 0.9rem;
+          color: #fff;
+          backdrop-filter: blur(5px);
+        }
+
+        .search-demo__suggestion-card:hover {
+          background: rgba(255, 255, 255, 0.25);
+          border-color: rgba(255, 255, 255, 0.5);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .search-demo__suggestion-text {
+          flex: 1;
+        }
+
+        .search-demo__suggestion-frequency {
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 10px;
+          padding: 0.1rem 0.4rem;
+          font-size: 0.75rem;
+          font-weight: 500;
+          min-width: 1.5rem;
+          text-align: center;
+        }
+
+        /* Responsive design for suggestion cards */
+        @media (max-width: 768px) {
+          .search-demo__suggestions-groups {
+            gap: 1rem;
+          }
+
+          .search-demo__suggestion-group {
+            padding: 0.75rem;
+          }
+
+          .search-demo__suggestion-cards {
+            gap: 0.4rem;
+          }
+
+          .search-demo__suggestion-card {
+            padding: 0.4rem 0.6rem;
+            font-size: 0.85rem;
+          }
         }
 
         .search-demo {

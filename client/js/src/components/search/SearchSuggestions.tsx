@@ -91,6 +91,48 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     return filtered;
   };
 
+  // Group suggestions by category
+  const groupedSuggestions = () => {
+    const suggestions = filteredSuggestions();
+    const groups = new Map<string, any[]>();
+
+    // Group suggestions by category
+    suggestions.forEach((suggestion) => {
+      const category =
+        typeof suggestion === "string"
+          ? "general"
+          : suggestion.category || "general";
+      if (!groups.has(category)) {
+        groups.set(category, []);
+      }
+      groups.get(category)!.push(suggestion);
+    });
+
+    // Convert to array and sort by category priority
+    const categoryOrder = ["word", "title", "playlist", "general"];
+    return Array.from(groups.entries()).sort(([a], [b]) => {
+      const aIndex = categoryOrder.indexOf(a);
+      const bIndex = categoryOrder.indexOf(b);
+      const aOrder = aIndex === -1 ? categoryOrder.length : aIndex;
+      const bOrder = bIndex === -1 ? categoryOrder.length : bIndex;
+      return aOrder - bOrder;
+    });
+  };
+
+  // Get category display name
+  const getCategoryDisplayName = (category: string) => {
+    const categoryNames: Record<string, string> = {
+      word: "Search suggestions",
+      title: "Songs",
+      playlist: "Playlists",
+      general: "Suggestions",
+    };
+    return (
+      categoryNames[category] ||
+      category.charAt(0).toUpperCase() + category.slice(1)
+    );
+  };
+
   // Check if dropdown should be visible
   const shouldShowDropdown = () => {
     if (props.show === false) return false;
@@ -99,6 +141,13 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     return (
       filteredSuggestions().length > 0 || (isLoading() && props.showLoading)
     );
+  };
+
+  // Get flattened suggestions for keyboard navigation
+  const flattenedSuggestions = () => {
+    return groupedSuggestions().reduce((acc, [_, suggestions]) => {
+      return acc.concat(suggestions);
+    }, [] as any[]);
   };
 
   // Handle suggestion click
@@ -111,7 +160,7 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
 
   // Handle keyboard navigation
   const handleKeyDown = (e: KeyboardEvent) => {
-    const suggestions = filteredSuggestions();
+    const suggestions = flattenedSuggestions();
 
     switch (e.key) {
       case "ArrowDown":
@@ -158,7 +207,7 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
 
   // Reset selection when suggestions change
   createEffect(() => {
-    const suggestions = filteredSuggestions();
+    const suggestions = flattenedSuggestions();
     if (suggestions.length === 0) {
       setSelectedIndex(-1);
     } else if (selectedIndex() >= suggestions.length) {
@@ -209,23 +258,43 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
         </Show>
 
         <Show when={!isLoading() && filteredSuggestions().length > 0}>
-          <For each={filteredSuggestions()}>
-            {(suggestion, index) => {
-              const text =
-                typeof suggestion === "string" ? suggestion : suggestion.text;
+          <For each={groupedSuggestions()}>
+            {([category, suggestions]) => {
+              // Calculate the starting index for this group
+              const flatSuggestions = flattenedSuggestions();
+              const groupStartIndex = flatSuggestions.findIndex((s) =>
+                suggestions.includes(s)
+              );
+
               return (
-                <div
-                  class={`search-suggestions__item ${
-                    index() === selectedIndex()
-                      ? "search-suggestions__item--selected"
-                      : ""
-                  }`}
-                  onClick={() => handleSuggestionClick(text)}
-                  role="option"
-                  aria-selected={index() === selectedIndex()}
-                  data-suggestion={text}
-                >
-                  <span class="search-suggestions__text">{text}</span>
+                <div class="search-suggestions__group">
+                  <div class="search-suggestions__group-header">
+                    {getCategoryDisplayName(category)}
+                  </div>
+                  <For each={suggestions}>
+                    {(suggestion, localIndex) => {
+                      const globalIndex = groupStartIndex + localIndex();
+                      const text =
+                        typeof suggestion === "string"
+                          ? suggestion
+                          : suggestion.text;
+                      return (
+                        <div
+                          class={`search-suggestions__item ${
+                            globalIndex === selectedIndex()
+                              ? "search-suggestions__item--selected"
+                              : ""
+                          }`}
+                          onClick={() => handleSuggestionClick(text)}
+                          role="option"
+                          aria-selected={globalIndex === selectedIndex()}
+                          data-suggestion={text}
+                        >
+                          <span class="search-suggestions__text">{text}</span>
+                        </div>
+                      );
+                    }}
+                  </For>
                 </div>
               );
             }}
@@ -287,6 +356,29 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
           .search-suggestions__text {
             font-size: 14px;
             line-height: 1.2;
+          }
+
+          .search-suggestions__group {
+            border-bottom: 1px solid #e9ecef;
+          }
+
+          .search-suggestions__group:last-child {
+            border-bottom: none;
+          }
+
+          .search-suggestions__group-header {
+            padding: 8px 12px 4px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #f0f0f0;
+          }
+
+          .search-suggestions__group .search-suggestions__item {
+            padding-left: 20px;
           }
 
           /* Scrollbar styling */
