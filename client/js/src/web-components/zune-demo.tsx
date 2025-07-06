@@ -1,13 +1,6 @@
 /* @jsxImportSource solid-js */
 import { render } from "solid-js/web";
-import {
-  createSignal,
-  createEffect,
-  Show,
-  For,
-  onMount,
-  onCleanup,
-} from "solid-js";
+import { createSignal, Show, For, onMount, onCleanup } from "solid-js";
 import {
   SearchProvider,
   useSearchContext,
@@ -92,7 +85,7 @@ interface Album {
 }
 
 const createApiClient = (baseUrl: string): ApiClient => {
-  return new ApiClient(baseUrl);
+  return new ApiClient({ baseUrl });
 };
 
 // SVG Icons
@@ -616,7 +609,7 @@ function ZuneDemoContent() {
         <div class="zune-branding">
           <div class="zune-logo">
             <div class="zune-logo-square"></div>
-            <span class="zune-logo-text">zune</span>
+            <span class="zune-logo-text">freqhole</span>
           </div>
           <div class="zune-search-container">
             <SearchBox
@@ -682,7 +675,7 @@ function ZuneDemoContent() {
         <div class="zune-sidebar">
           <Show when={currentView() === "artists"}>
             <div class="zune-filter-section">
-              <h3>artists</h3>
+              {/* <h3>artists</h3> */}
               <div class="zune-filter-list">
                 <button
                   class={`zune-filter-item ${selectedArtist() === null ? "active" : ""}`}
@@ -707,7 +700,7 @@ function ZuneDemoContent() {
 
           <Show when={currentView() === "albums"}>
             <div class="zune-filter-section">
-              <h3>albums</h3>
+              {/* <h3>albums</h3> */}
               <div class="zune-filter-list">
                 <button
                   class={`zune-filter-item ${selectedAlbum() === null ? "active" : ""}`}
@@ -732,7 +725,7 @@ function ZuneDemoContent() {
 
           <Show when={currentView() === "playlists"}>
             <div class="zune-filter-section">
-              <h3>playlists</h3>
+              {/* <h3>playlists</h3> */}
               <div class="zune-filter-list">
                 <button
                   class={`zune-filter-item ${currentPlaylist() === null ? "active" : ""}`}
@@ -764,7 +757,7 @@ function ZuneDemoContent() {
         {/* Center Content */}
         <div class="zune-center">
           <div class="zune-content-header">
-            <h1 class="zune-title">{getViewTitle()}</h1>
+            {/* <h1 class="zune-title">{getViewTitle()}</h1> */}
             <div class="zune-stats">
               <Show when={isSearchActive()}>
                 <Show when={searchResults().length > 0}>
@@ -1201,7 +1194,7 @@ function ZuneDemoContent() {
           font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
           font-weight: 300;
           letter-spacing: 0.3px;
-          overflow: hidden;
+
           display: flex;
           flex-direction: column;
         }
@@ -1211,6 +1204,8 @@ function ZuneDemoContent() {
           background: rgba(0, 0, 0, 0.4);
           backdrop-filter: blur(20px);
           padding: 1.5rem 2rem;
+          position: sticky;
+          top: 0px;
         }
 
         .zune-branding {
