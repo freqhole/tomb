@@ -41,10 +41,11 @@
   "author": "WebAuthn Team",
   "license": "MIT",
   "dependencies": {
-    "zod": "^3.22.4",
-    "solid-js": "^1.8.5"
+    "solid-js": "^1.8.5",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@solidjs/testing-library": "^0.8.10",
     "@types/node": "^20.9.0",
     "@typescript-eslint/eslint-plugin": "^8.34.1",
     "@typescript-eslint/parser": "^8.34.1",
