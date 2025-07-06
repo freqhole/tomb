@@ -273,13 +273,16 @@ impl StandardFields {
         };
 
         Self {
-            title: get_tag("Title"),
-            artist: get_tag("Artist").or_else(|| get_tag("AlbumArtist")),
-            album: get_tag("Album"),
+            title: get_tag("TrackTitle").or_else(|| get_tag("Title")),
+            artist: get_tag("TrackArtist")
+                .or_else(|| get_tag("Artist"))
+                .or_else(|| get_tag("AlbumArtist")),
+            album: get_tag("AlbumTitle").or_else(|| get_tag("Album")),
             album_artist: get_tag("AlbumArtist"),
             track_number: get_tag("TrackNumber").and_then(|s| parse_u32(&s)),
             disc_number: get_tag("DiscNumber").and_then(|s| parse_u32(&s)),
-            year: get_tag("Year")
+            year: get_tag("RecordingDate")
+                .or_else(|| get_tag("Year"))
                 .or_else(|| get_tag("Date"))
                 .and_then(|s| parse_u32(&s)),
             genre: get_tag("Genre"),

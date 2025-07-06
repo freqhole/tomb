@@ -367,7 +367,7 @@ pub struct AlbumSummary {
     pub favorite_count: i64,
     pub first_added: OffsetDateTime,
     pub last_modified: OffsetDateTime,
-    pub album_thumbnail_id: Option<Uuid>,
+    pub album_thumbnail_id: Option<String>,
 }
 
 impl AlbumSummary {
@@ -521,9 +521,9 @@ pub struct AlbumTrack {
     pub year: Option<i32>,
     pub rating: Option<i32>,
     pub is_favorite: bool,
-    pub media_blob_id: Uuid,
-    pub thumbnail_id: Option<Uuid>,
-    pub waveform_id: Option<Uuid>,
+    pub media_blob_id: String,
+    pub thumbnail_id: Option<String>,
+    pub waveform_id: Option<String>,
 }
 
 impl AlbumTrack {

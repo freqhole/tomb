@@ -801,6 +801,8 @@ impl MusicRepository {
 
     /// Get album summaries
     pub async fn get_album_summaries(&self, limit: Option<i64>) -> Result<Vec<AlbumSummary>> {
+        tracing::debug!("get_album_summaries called with limit: {:?}", limit);
+
         let mut query =
             "SELECT * FROM album_summary ORDER BY year DESC NULLS LAST, album".to_string();
 
@@ -808,10 +810,17 @@ impl MusicRepository {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
+        tracing::debug!("Executing query: {}", query);
+
         let albums = sqlx::query_as::<_, AlbumSummary>(&query)
             .fetch_all(&self.pool)
-            .await?;
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error in get_album_summaries: {:?}", e);
+                e
+            })?;
 
+        tracing::debug!("Retrieved {} albums from database", albums.len());
         Ok(albums)
     }
 
@@ -1089,6 +1098,116 @@ impl MusicRepository {
             .collect();
 
         Ok(song_ids)
+    }
+
+    /// Get songs with pagination
+    pub async fn get_songs_paginated(&self, limit: i64, offset: i64) -> Result<Vec<Song>> {
+        let songs = sqlx::query_as::<_, Song>(
+            r#"
+            SELECT * FROM songs
+            WHERE deleted_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(songs)
+    }
+
+    /// Get songs with missing or poor metadata
+    pub async fn get_songs_with_missing_metadata(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Song>> {
+        let songs = sqlx::query_as::<_, Song>(
+            r#"
+            SELECT * FROM songs
+            WHERE deleted_at IS NULL
+            AND (
+                artist IS NULL
+                OR album IS NULL
+                OR duration IS NULL
+                OR artist = ''
+                OR album = ''
+            )
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(songs)
+    }
+
+    /// Get songs by media blob ID
+    pub async fn get_songs_by_media_blob_id(&self, media_blob_id: &str) -> Result<Vec<Song>> {
+        let songs = sqlx::query_as::<_, Song>(
+            r#"
+            SELECT * FROM songs
+            WHERE media_blob_id = $1
+            AND deleted_at IS NULL
+            "#,
+        )
+        .bind(media_blob_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(songs)
+    }
+
+    /// Update song metadata fields
+    pub async fn update_song_metadata(
+        &self,
+        song_id: Uuid,
+        artist: Option<&str>,
+        album: Option<&str>,
+        album_artist: Option<&str>,
+        track_number: Option<i32>,
+        disc_number: Option<i32>,
+        duration: Option<std::time::Duration>,
+        genre: Option<&str>,
+        year: Option<i32>,
+    ) -> Result<Song> {
+        let duration_interval = duration.map(|d| format!("{} seconds", d.as_secs()));
+
+        let song = sqlx::query_as::<_, Song>(
+            r#"
+            UPDATE songs
+            SET
+                artist = COALESCE($1, artist),
+                album = COALESCE($2, album),
+                album_artist = COALESCE($3, album_artist),
+                track_number = COALESCE($4, track_number),
+                disc_number = COALESCE($5, disc_number),
+                duration = COALESCE($6::interval, duration),
+                genre = COALESCE($7, genre),
+                year = COALESCE($8, year),
+                updated_at = NOW()
+            WHERE id = $9
+            RETURNING *
+            "#,
+        )
+        .bind(artist)
+        .bind(album)
+        .bind(album_artist)
+        .bind(track_number)
+        .bind(disc_number)
+        .bind(duration_interval)
+        .bind(genre)
+        .bind(year)
+        .bind(song_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(song)
     }
 
     /// Safely reorder playlist using the SQL function that handles triggers

@@ -307,7 +307,7 @@ pub struct AlbumSummaryResponse {
     pub genres: Option<String>,
     pub avg_rating: Option<f64>,
     pub favorite_count: i64,
-    pub album_thumbnail_id: Option<Uuid>,
+    pub album_thumbnail_id: Option<String>,
 }
 
 impl From<AlbumSummary> for AlbumSummaryResponse {
@@ -854,6 +854,8 @@ pub async fn get_album_summaries(
     Extension(db): Extension<DatabaseConnection>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<AlbumSummaryResponse>>, WebauthnError> {
+    tracing::debug!("get_album_summaries called with params: {:?}", params);
+
     let repository = MusicRepository::new(db.pool().clone());
     let service = PlaylistService::new(repository);
 
@@ -862,13 +864,19 @@ pub async fn get_album_summaries(
         .and_then(|l| l.parse::<i64>().ok())
         .or(Some(20));
 
-    let albums = service
-        .get_album_summaries(limit)
-        .await
-        .map_err(|_| WebauthnError::DatabaseError)?;
+    tracing::debug!("Using limit: {:?}", limit);
+
+    let albums = service.get_album_summaries(limit).await.map_err(|e| {
+        tracing::error!("Error getting album summaries: {:?}", e);
+        WebauthnError::DatabaseError
+    })?;
+
+    tracing::debug!("Got {} albums from service", albums.len());
 
     let responses: Vec<AlbumSummaryResponse> =
         albums.into_iter().map(AlbumSummaryResponse::from).collect();
+
+    tracing::debug!("Converted to {} responses", responses.len());
 
     Ok(Json(responses))
 }
@@ -984,6 +992,7 @@ mod tests {
             media_blob_id: "abc1234".to_string(),
             thumbnail_blob_id: None,
             waveform_blob_id: None,
+            thumbnail_blob_ids: None,
             title: "Test Song".to_string(),
             artist: Some("Test Artist".to_string()),
             album: Some("Test Album".to_string()),

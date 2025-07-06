@@ -330,6 +330,16 @@ pub enum MusicCommands {
         force: bool,
     },
 
+    /// Backfill metadata for existing songs (artist, album, duration)
+    BackfillMetadata {
+        /// Batch size for processing
+        #[arg(long, default_value = "50")]
+        batch_size: u32,
+        /// Force re-extraction even if metadata already exists
+        #[arg(long)]
+        force: bool,
+    },
+
     /// Search for songs and playlists
     Search {
         /// Search query

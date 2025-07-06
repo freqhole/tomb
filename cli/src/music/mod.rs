@@ -180,6 +180,9 @@ impl MusicCommands {
             Self::BackfillDirectoryArt { batch_size, force } => {
                 generation::handle_backfill_directory_art(&service, *batch_size, *force).await
             }
+            Self::BackfillMetadata { batch_size, force } => {
+                generation::handle_backfill_metadata(&service, *batch_size, *force).await
+            }
             Self::Search {
                 query,
                 structured,

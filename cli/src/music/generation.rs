@@ -250,6 +250,133 @@ pub async fn handle_backfill_directory_art(
     Ok(())
 }
 
+/// Handle backfill metadata command
+pub async fn handle_backfill_metadata(
+    service: &MusicService<'_>,
+    batch_size: u32,
+    force: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!(
+        "🏷️  Backfilling metadata (batch: {}, force: {})",
+        batch_size, force
+    );
+
+    let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
+    let mut offset = 0;
+    let mut total_updated = 0;
+    let mut total_failed = 0;
+
+    loop {
+        // Get batch of songs that need metadata updates
+        let songs = if force {
+            // If force, get all songs
+            repository
+                .get_songs_paginated(batch_size as i64, offset)
+                .await?
+        } else {
+            // Otherwise, get songs with missing or poor metadata
+            repository
+                .get_songs_with_missing_metadata(batch_size as i64, offset)
+                .await?
+        };
+
+        if songs.is_empty() {
+            break;
+        }
+
+        println!(
+            "📊 Processing batch of {} songs (offset: {})...",
+            songs.len(),
+            offset
+        );
+
+        for song in songs {
+            match backfill_song_metadata(service, &song).await {
+                Ok(updated) => {
+                    if updated {
+                        total_updated += 1;
+                        println!("  ✅ Updated: {}", song.title);
+                    } else {
+                        println!("  ⏭️  Skipped: {}", song.title);
+                    }
+                }
+                Err(e) => {
+                    total_failed += 1;
+                    eprintln!("  ❌ Failed to update {}: {}", song.title, e);
+                }
+            }
+        }
+
+        offset += batch_size as i64;
+    }
+
+    println!(
+        "🏷️  Backfill complete: {} total updated, {} failed",
+        total_updated, total_failed
+    );
+
+    Ok(())
+}
+
+/// Backfill metadata for a single song
+async fn backfill_song_metadata(
+    service: &MusicService<'_>,
+    song: &grimoire::music::Song,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    // Get the media blob to find the local path
+    let media_repository = grimoire::media::MediaBlobRepository::new(service.db().pool().clone());
+    let media_blob = media_repository.find_by_id(&song.media_blob_id).await?;
+
+    let local_path = match media_blob.local_path {
+        Some(path) => path,
+        None => {
+            return Err("Song has no local path".into());
+        }
+    };
+
+    let file_path = std::path::Path::new(&local_path);
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", local_path).into());
+    }
+
+    // Extract fresh metadata
+    let standard_fields = grimoire::music::extract_standard_fields(file_path).await?;
+
+    // Check if we need to update anything
+    let needs_update = song.artist.is_none()
+        || song.album.is_none()
+        || song.duration.is_none()
+        || standard_fields.artist.is_some() && song.artist != standard_fields.artist
+        || standard_fields.album.is_some() && song.album != standard_fields.album
+        || standard_fields.duration_seconds.is_some() && song.duration.is_none();
+
+    if !needs_update {
+        return Ok(false);
+    }
+
+    // Update song with new metadata
+    let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
+
+    // Use repository method to update song metadata
+    repository
+        .update_song_metadata(
+            song.id,
+            standard_fields.artist.as_deref(),
+            standard_fields.album.as_deref(),
+            standard_fields.album_artist.as_deref(),
+            standard_fields.track_number.map(|n| n as i32),
+            standard_fields.disc_number.map(|n| n as i32),
+            standard_fields
+                .duration_seconds
+                .map(|secs| std::time::Duration::from_secs(secs)),
+            standard_fields.genre.as_deref(),
+            standard_fields.year.map(|n| n as i32),
+        )
+        .await?;
+
+    Ok(true)
+}
+
 /// Get songs that need waveform generation
 async fn get_songs_for_waveform_generation(
     repository: &MusicRepository,

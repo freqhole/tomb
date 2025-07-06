@@ -4,7 +4,7 @@ use crate::music::generation;
 use grimoire::media::{CreateMediaBlob, MediaBlobRepository, MediaBlobService, MediaTypeDetector};
 use grimoire::music::{
     directory_art::DirectoryArtDetector, extract_basic_metadata, extract_metadata,
-    extract_thumbnail, hash_bytes, hash_file, waveform::WaveformGenerator,
+    extract_standard_fields, extract_thumbnail, hash_bytes, hash_file, waveform::WaveformGenerator,
 };
 use grimoire::music::{ConsoleScanProgress, MusicService, ScanConfig, ScanProgress, ScannerConfig};
 use grimoire::AppConfig;
@@ -395,18 +395,40 @@ async fn process_audio_file(
         }
     }
 
-    // Extract metadata
-    let metadata = extract_metadata(file_path).await?;
-    let _basic_metadata = extract_basic_metadata(file_path).await?;
-
-    // Hash the file
+    // Hash the file first to check for duplicates
     let file_hash = hash_file(file_path).await?;
+
+    // Check if file is already processed by looking for existing media_blob with this SHA256
+    let media_repository = MediaBlobRepository::new(service.db().pool().clone());
+    let media_blob_service = MediaBlobService::new(media_repository.clone());
+
+    if let Ok(existing_blob) = media_blob_service
+        .get_media_blob_by_sha256(&file_hash)
+        .await
+    {
+        // File already processed, check if it has an associated song
+        let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
+        if let Ok(songs) = repository
+            .get_songs_by_media_blob_id(&existing_blob.id)
+            .await
+        {
+            if !songs.is_empty() {
+                println!(
+                    "  ⏭️  Skipping already processed file (duplicate SHA256): {}",
+                    file_path.display()
+                );
+                return Ok(songs[0].id);
+            }
+        }
+    }
+
+    // Extract metadata using StandardFields for better field extraction
+    let metadata = extract_metadata(file_path).await?;
+    let standard_fields = extract_standard_fields(file_path).await?;
+    let _basic_metadata = extract_basic_metadata(file_path).await?;
 
     // Create song repository directly
     let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
-
-    // Create media blob
-    let media_repository = MediaBlobRepository::new(service.db().pool().clone());
     let file_metadata = std::fs::metadata(file_path)?;
     let file_size = file_metadata.len() as i64;
 
@@ -515,49 +537,19 @@ async fn process_audio_file(
     );
     let smart_title = title_builder.build_title(&audio_meta);
 
-    // Extract individual metadata fields
-    let artist = metadata
-        .tags
-        .tags
-        .get("Artist")
-        .or_else(|| metadata.tags.tags.get("ARTIST"))
-        .cloned();
-    let album = metadata
-        .tags
-        .tags
-        .get("Album")
-        .or_else(|| metadata.tags.tags.get("ALBUM"))
-        .cloned();
-    let album_artist = metadata
-        .tags
-        .tags
-        .get("AlbumArtist")
-        .or_else(|| metadata.tags.tags.get("ALBUMARTIST"))
-        .cloned();
-    let track_number = metadata
-        .tags
-        .tags
-        .get("TrackNumber")
-        .or_else(|| metadata.tags.tags.get("TRACKNUMBER"))
-        .and_then(|s| s.parse::<i32>().ok());
-    let disc_number = metadata
-        .tags
-        .tags
-        .get("DiscNumber")
-        .or_else(|| metadata.tags.tags.get("DISCNUMBER"))
-        .and_then(|s| s.parse::<i32>().ok());
-    let genre = metadata
-        .tags
-        .tags
-        .get("Genre")
-        .or_else(|| metadata.tags.tags.get("GENRE"))
-        .cloned();
-    let year = metadata
-        .tags
-        .tags
-        .get("Year")
-        .or_else(|| metadata.tags.tags.get("DATE"))
-        .and_then(|s| s.parse::<i32>().ok());
+    // Extract individual metadata fields using StandardFields for better extraction
+    let artist = standard_fields.artist.clone();
+    let album = standard_fields.album.clone();
+    let album_artist = standard_fields.album_artist.clone();
+    let track_number = standard_fields.track_number.map(|n| n as i32);
+    let disc_number = standard_fields.disc_number.map(|n| n as i32);
+    let genre = standard_fields.genre.clone();
+    let year = standard_fields.year.map(|n| n as i32);
+
+    // Extract duration from standard fields
+    let duration = standard_fields
+        .duration_seconds
+        .map(|secs| std::time::Duration::from_secs(secs));
 
     // Metadata is stored via the individual fields passed to create_song_with_waveform_metadata
 
@@ -571,7 +563,7 @@ async fn process_audio_file(
             album_artist.as_deref(),
             track_number,
             disc_number,
-            None, // duration will be extracted later
+            duration,
             genre.as_deref(),
             year,
             thumbnail_blob_id.as_deref(),
