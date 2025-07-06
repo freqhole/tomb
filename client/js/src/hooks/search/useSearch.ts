@@ -1,12 +1,12 @@
 import { createSignal, createMemo, createEffect } from "solid-js";
-import type { ApiClient } from "../lib/api-client.js";
+import type { ApiClient } from "../../lib/api-client.js";
 import type {
   SearchResult,
   SongsSearchResult,
   MusicSearchOptions,
   SongsSearchOptions,
   SearchDomain,
-} from "../lib/search-types.js";
+} from "../../lib/search-types.js";
 
 export interface UseSearchProps {
   apiClient: ApiClient;

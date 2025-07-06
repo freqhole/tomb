@@ -1,7 +1,11 @@
 /* @jsxImportSource solid-js */
 import { createContext, useContext, JSX } from "solid-js";
 import type { ApiClient } from "../../lib/api-client.js";
-import { useSearchAll, type UseSearchAllProps, type UseSearchAllReturn } from "../../hooks/useSearchAll.js";
+import {
+  useSearchAll,
+  type UseSearchAllProps,
+  type UseSearchAllReturn,
+} from "../../hooks/search/index.js";
 
 export interface SearchContextValue extends UseSearchAllReturn {
   apiClient: ApiClient;

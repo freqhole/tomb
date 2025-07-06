@@ -20,11 +20,11 @@ export type {
 } from "./SearchContext.js";
 
 // Re-export search hooks for convenience
-export { useSearch } from "../../hooks/useSearch.js";
-export { useSearchAll } from "../../hooks/useSearchAll.js";
-export { useSearchData } from "../../hooks/useSearchData.js";
-export { useSearchState } from "../../hooks/useSearchState.js";
-export { useSearchSuggestions } from "../../hooks/useSearchSuggestions.js";
+export { useSearch } from "../../hooks/search/index.js";
+export { useSearchAll } from "../../hooks/search/index.js";
+export { useSearchData } from "../../hooks/search/index.js";
+export { useSearchState } from "../../hooks/search/index.js";
+export { useSearchSuggestions } from "../../hooks/search/index.js";
 
 // Re-export search types
 export type {

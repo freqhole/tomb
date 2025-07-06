@@ -26,6 +26,7 @@ export const SortBySchema = z.enum([
   "created_at",
   "rating",
 ]);
+export type SortBy = z.infer<typeof SortBySchema>;
 export const SortDirectionSchema = z.enum(["asc", "desc"]);
 
 // Base search options schema

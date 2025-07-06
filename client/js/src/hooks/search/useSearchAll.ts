@@ -1,11 +1,11 @@
 import { createMemo } from "solid-js";
-import type { ApiClient } from "../lib/api-client.js";
+import type { ApiClient } from "../../lib/api-client.js";
 import { useSearch } from "./useSearch.js";
 import { useSearchSuggestions } from "./useSearchSuggestions.js";
 import { useSearchState } from "./useSearchState.js";
 import { useSearchData } from "./useSearchData.js";
-import type { SearchDomain } from "../lib/search-types.js";
-import type { MediaBlob } from "../lib/websocket-types.js";
+import type { SearchDomain } from "../../lib/search-types.js";
+import type { MediaBlob } from "../../lib/websocket-types.js";
 
 export interface UseSearchAllProps {
   apiClient: ApiClient;

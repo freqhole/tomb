@@ -34,11 +34,20 @@ const defaultFilterOptions = {
     { value: "folk", label: "Folk" },
     { value: "hip-hop", label: "Hip-Hop" },
     { value: "country", label: "Country" },
+    { value: "blues", label: "Blues" },
+    { value: "r&b", label: "R&B" },
   ],
-  artists: [{ value: "", label: "All Artists" }],
+  artists: [
+    { value: "", label: "All Artists" },
+    { value: "beatles", label: "The Beatles" },
+    { value: "dylan", label: "Bob Dylan" },
+    { value: "stones", label: "Rolling Stones" },
+    { value: "bowie", label: "David Bowie" },
+  ],
   types: [
     { value: "song", label: "Song" },
     { value: "album", label: "Album" },
+    { value: "artist", label: "Artist" },
   ],
 };
 
@@ -51,8 +60,12 @@ function SearchDemoContent() {
   // Clear localStorage for clean demo experience
   onMount(() => {
     try {
+      // Clear all possible localStorage keys
       localStorage.removeItem("search-state");
-      console.log("🧹 Cleared search localStorage for demo");
+      localStorage.removeItem("freqhole-state");
+      localStorage.removeItem("grid-state");
+      localStorage.clear(); // Clear everything for demo
+      console.log("🧹 Cleared all localStorage for demo");
     } catch (error) {
       console.log("Could not clear localStorage:", error);
     }
@@ -105,20 +118,30 @@ function SearchDemoContent() {
 
   // Handle suggestion selection
   const handleSuggestionSelect = (suggestion: string) => {
+    console.log("🔍 Suggestion selected:", suggestion);
     context.state.setQuery(suggestion);
     handleSearch(suggestion);
+  };
+
+  // Handle clear/reset search
+  const handleClearSearch = () => {
+    context.state.setQuery("");
+    context.state.clearFilters();
+    setSearchResults([]);
+    setCurrentQuery("");
+    console.log("🧹 Search cleared");
+  };
+
+  // Handle suggestions blur/close
+  const handleSuggestionsBlur = () => {
+    // Suggestions will close automatically via the onBlur prop
   };
 
   // Update currentQuery when context changes
   createEffect(() => {
     const contextQuery = context.state.query();
+    console.log("🔍 Context query changed:", contextQuery);
     setCurrentQuery(contextQuery);
-  });
-
-  // Update currentQuery when context changes
-  createEffect(() => {
-    const query = context.state.query();
-    setCurrentQuery(query);
   });
 
   return (
@@ -134,23 +157,43 @@ function SearchDemoContent() {
       <div class="search-demo__content">
         <div class="search-demo__search-section">
           <div class="search-demo__search-container">
-            <SearchBox
-              onSearch={handleSearch}
-              placeholder="Search music, artists, albums..."
-              showSearchButton={true}
-              searchButtonText="Search"
-              autoSearch={false}
-              useInternalState={true}
-            />
+            <div class="search-demo__input-group">
+              <SearchBox
+                onSearch={handleSearch}
+                placeholder="Search music, artists, albums..."
+                showSearchButton={true}
+                searchButtonText="Search"
+                autoSearch={false}
+                useInternalState={false}
+                query={context.state.query()}
+                onQueryChange={(query) => context.state.setQuery(query)}
+              />
+              <Show
+                when={
+                  context.state.query().trim() || searchResults().length > 0
+                }
+              >
+                <button
+                  class="search-demo__clear-button"
+                  onClick={handleClearSearch}
+                  type="button"
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              </Show>
+            </div>
 
             <SearchSuggestions
               query={context.state.query()}
               onSuggestionSelect={handleSuggestionSelect}
+              onBlur={handleSuggestionsBlur}
               maxSuggestions={8}
               showLoading={true}
               position="bottom"
               useInternalSuggestions={true}
               apiClient={context.apiClient}
+              show={true}
             />
           </div>
 
@@ -160,6 +203,15 @@ function SearchDemoContent() {
                 <span class="search-demo__stats-label">Results:</span>
                 <span class="search-demo__stats-value">
                   {context.totalResultsCount()}
+                </span>
+              </div>
+            </Show>
+
+            <Show when={context.state.hasActiveFilters()}>
+              <div class="search-demo__stats-item">
+                <span class="search-demo__stats-label">🎛️ Filters:</span>
+                <span class="search-demo__stats-value">
+                  {context.state.getFilterCount()} active
                 </span>
               </div>
             </Show>
@@ -181,28 +233,37 @@ function SearchDemoContent() {
               showToggle={true}
               showQueryInput={false}
               useInternalState={false}
-              filters={{}}
+              filters={{
+                genre: context.state.filters().genre,
+                artist: context.state.filters().artist,
+                yearFrom: context.state.filters().year?.toString() || "",
+                rating_min:
+                  context.state.filters().rating_min?.toString() || "",
+                rating_max:
+                  context.state.filters().rating_max?.toString() || "",
+                favorites_only: context.state.filters().favorites_only,
+              }}
               onFiltersChange={(filters) => {
                 console.log("Filters changed:", filters);
                 // Apply filters to search context
-                if (filters.genre)
-                  context.state.updateFilter("genre", filters.genre);
-                if (filters.artist)
-                  context.state.updateFilter("artist", filters.artist);
-                if (filters.yearFrom)
+                if (filters.genre !== undefined)
+                  context.state.updateFilter("genre", filters.genre || "");
+                if (filters.artist !== undefined)
+                  context.state.updateFilter("artist", filters.artist || "");
+                if (filters.yearFrom !== undefined)
                   context.state.updateFilter(
                     "year",
-                    parseInt(filters.yearFrom)
+                    filters.yearFrom ? parseInt(filters.yearFrom) : null
                   );
-                if (filters.rating_min)
+                if (filters.rating_min !== undefined)
                   context.state.updateFilter(
                     "rating_min",
-                    parseInt(filters.rating_min)
+                    filters.rating_min ? parseInt(filters.rating_min) : null
                   );
-                if (filters.rating_max)
+                if (filters.rating_max !== undefined)
                   context.state.updateFilter(
                     "rating_max",
-                    parseInt(filters.rating_max)
+                    filters.rating_max ? parseInt(filters.rating_max) : null
                   );
                 if (filters.favorites_only !== undefined)
                   context.state.updateFilter(
@@ -210,9 +271,19 @@ function SearchDemoContent() {
                     filters.favorites_only
                   );
 
-                // Trigger search with new filters
+                // Trigger search with new filters if we have a query
                 if (context.state.query().trim()) {
+                  console.log(
+                    "🎛️ Filters changed, re-running search with filters:",
+                    filters
+                  );
                   handleSearch();
+                } else {
+                  // If no query, still show that filters are applied
+                  console.log(
+                    "🎛️ Filters applied, but no search query to execute. Current filters:",
+                    filters
+                  );
                 }
               }}
             />
@@ -278,7 +349,7 @@ function SearchDemoContent() {
                 </div>
               </Show>
 
-              <Show when={!currentQuery()}>
+              <Show when={!currentQuery() && searchResults().length === 0}>
                 <div class="search-demo__welcome">
                   <h3>Welcome to Search Demo</h3>
                   <p>Enter a search query to get started</p>
@@ -296,6 +367,62 @@ function SearchDemoContent() {
       </div>
 
       <style>{`
+        /* Fix text colors for demo */
+        .search-demo {
+          color: #333;
+        }
+
+        .search-demo h1,
+        .search-demo h2,
+        .search-demo h3,
+        .search-demo p,
+        .search-demo span,
+        .search-demo div {
+          color: #333;
+        }
+
+        .search-demo__results-item {
+          color: #333;
+        }
+
+        .search-demo__results-item h3 {
+          color: #2c3e50;
+        }
+
+        .search-demo__results-item p {
+          color: #666;
+        }
+
+        .search-demo__stats-value {
+          color: #007bff;
+        }
+
+        .search-demo__stats-loading {
+          color: #28a745;
+        }
+
+        /* Ensure search suggestions are visible */
+        .search-suggestions {
+          background: white;
+          color: #333;
+          border: 1px solid #ddd;
+          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .search-suggestions__item {
+          color: #333;
+        }
+
+        .search-suggestions__item:hover {
+          background-color: #f8f9fa;
+          color: #333;
+        }
+
+        .search-suggestions__item--selected {
+          background-color: #007bff;
+          color: white;
+        }
+
         .search-demo {
           min-height: 100vh;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -335,6 +462,36 @@ function SearchDemoContent() {
           position: relative;
           max-width: 600px;
           margin: 0 auto 1rem auto;
+        }
+
+        .search-demo__input-group {
+          position: relative;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .search-demo__clear-button {
+          padding: 8px 12px;
+          background: rgba(255, 255, 255, 0.2);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 4px;
+          color: white;
+          cursor: pointer;
+          font-size: 16px;
+          font-weight: bold;
+          transition: all 0.2s;
+          backdrop-filter: blur(10px);
+        }
+
+        .search-demo__clear-button:hover {
+          background: rgba(255, 255, 255, 0.3);
+          border-color: rgba(255, 255, 255, 0.5);
+          transform: scale(1.05);
+        }
+
+        .search-demo__clear-button:active {
+          transform: scale(0.95);
         }
 
         .search-demo__stats {

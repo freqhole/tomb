@@ -5,8 +5,8 @@ import type {
   SongsSearchResult,
   SearchResultItem,
   SongSearchResult,
-} from "../lib/search-types.js";
-import type { MediaBlob } from "../lib/websocket-types.js";
+} from "../../lib/search-types.js";
+import type { MediaBlob } from "../../lib/websocket-types.js";
 
 // Union type for all search result items
 type SearchItem = SearchResultItem | SongSearchResult;

@@ -1,7 +1,7 @@
 /* @jsxImportSource solid-js */
 import { createSignal, For, Show } from "solid-js";
 
-import { useSearchState } from "../../hooks/useSearchState.js";
+import { useSearchState } from "../../hooks/search/index.js";
 
 export interface FilterOption {
   value: string;

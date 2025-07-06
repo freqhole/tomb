@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createRoot, createSignal } from "solid-js";
 import { renderHook } from "@solidjs/testing-library";
-import { useSearch } from "../../src/hooks/useSearch.js";
-import { useSearchSuggestions } from "../../src/hooks/useSearchSuggestions.js";
-import { useSearchState } from "../../src/hooks/useSearchState.js";
-import { useSearchData } from "../../src/hooks/useSearchData.js";
-import { useSearchAll } from "../../src/hooks/useSearchAll.js";
+import { useSearch } from "../../src/hooks/search/index.js";
+import { useSearchSuggestions } from "../../src/hooks/search/index.js";
+import { useSearchState } from "../../src/hooks/search/index.js";
+import { useSearchData } from "../../src/hooks/search/index.js";
+import { useSearchAll } from "../../src/hooks/search/index.js";
 import type { ApiClient } from "../../src/lib/api-client.js";
 import type {
   SearchResult,

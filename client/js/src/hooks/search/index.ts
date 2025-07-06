@@ -19,16 +19,10 @@ export type {
 } from "./useSearchState.js";
 
 export { useSearchData } from "./useSearchData.js";
-export type {
-  UseSearchDataProps,
-  SearchDataReturn,
-} from "./useSearchData.js";
+export type { UseSearchDataProps, SearchDataReturn } from "./useSearchData.js";
 
 export { useSearchAll } from "./useSearchAll.js";
-export type {
-  UseSearchAllProps,
-  UseSearchAllReturn,
-} from "./useSearchAll.js";
+export type { UseSearchAllProps, UseSearchAllReturn } from "./useSearchAll.js";
 
 // Re-export search types for convenience
 export type {
@@ -40,4 +34,4 @@ export type {
   MusicSearchOptions,
   SongsSearchOptions,
   SuggestionsOptions,
-} from "../lib/search-types.js";
+} from "../../lib/search-types.js";

@@ -1,7 +1,7 @@
 /* @jsxImportSource solid-js */
 import { createSignal, onMount } from "solid-js";
 import type { JSX } from "solid-js";
-import { useSearchState } from "../../hooks/useSearchState.js";
+import { useSearchState } from "../../hooks/search/index.js";
 
 export interface SearchBoxProps {
   /** Callback when search is triggered */
@@ -86,6 +86,7 @@ export function SearchBox(props: SearchBoxProps) {
         const query = currentQuery().trim();
         if (query) {
           props.onSearch?.(query);
+          inputRef()?.blur(); // Blur input after search
         }
         break;
       case "Escape":
@@ -99,6 +100,7 @@ export function SearchBox(props: SearchBoxProps) {
     const query = currentQuery().trim();
     if (query) {
       props.onSearch?.(query);
+      inputRef()?.blur(); // Blur input after search
     }
   };
 

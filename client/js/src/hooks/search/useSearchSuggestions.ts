@@ -1,9 +1,9 @@
 import { createSignal, createMemo, createEffect } from "solid-js";
-import type { ApiClient } from "../lib/api-client.js";
+import type { ApiClient } from "../../lib/api-client.js";
 import type {
   SuggestionsOptions,
   SearchSuggestion,
-} from "../lib/search-types.js";
+} from "../../lib/search-types.js";
 
 export interface UseSearchSuggestionsProps {
   apiClient: ApiClient;

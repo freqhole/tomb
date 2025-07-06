@@ -8,7 +8,7 @@ import {
   onCleanup,
 } from "solid-js";
 
-import { useSearchSuggestions } from "../../hooks/useSearchSuggestions.js";
+import { useSearchSuggestions } from "../../hooks/search/index.js";
 
 export interface SearchSuggestionsProps {
   /** Current search query */
@@ -35,6 +35,8 @@ export interface SearchSuggestionsProps {
   showLoading?: boolean;
   /** API client for fetching suggestions (required when using internal hook) */
   apiClient?: any;
+  /** Callback when suggestions should be hidden (e.g., on blur, submit) */
+  onBlur?: () => void;
 }
 
 export function SearchSuggestions(props: SearchSuggestionsProps) {
@@ -52,7 +54,8 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
       : null;
 
   const [selectedIndex, setSelectedIndex] = createSignal(-1);
-  const [, setDropdownRef] = createSignal<HTMLDivElement>();
+  const [dropdownRef, setDropdownRef] = createSignal<HTMLDivElement>();
+  const [isVisible, setIsVisible] = createSignal(true);
 
   // Get current suggestions
   const currentSuggestions = () => {
@@ -92,6 +95,7 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
   const shouldShowDropdown = () => {
     if (props.show === false) return false;
     if (!props.query.trim()) return false;
+    if (!isVisible()) return false;
     return (
       filteredSuggestions().length > 0 || (isLoading() && props.showLoading)
     );
@@ -101,6 +105,8 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
   const handleSuggestionClick = (suggestion: string) => {
     props.onSuggestionSelect?.(suggestion);
     setSelectedIndex(-1);
+    setIsVisible(false);
+    props.onBlur?.();
   };
 
   // Handle keyboard navigation
@@ -135,11 +141,17 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
               typeof selected === "string" ? selected : selected.text;
             handleSuggestionClick(text);
           }
+        } else {
+          // Close dropdown if Enter pressed without selection
+          setIsVisible(false);
+          props.onBlur?.();
         }
         break;
 
       case "Escape":
         setSelectedIndex(-1);
+        setIsVisible(false);
+        props.onBlur?.();
         break;
     }
   };
@@ -154,13 +166,34 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     }
   });
 
-  // Add keyboard event listener
+  // Show dropdown when query changes (reset visibility)
+  createEffect(() => {
+    const query = props.query.trim();
+    if (query) {
+      setIsVisible(true);
+    } else {
+      setIsVisible(false);
+    }
+  });
+
+  // Handle clicks outside the dropdown
+  const handleClickOutside = (e: MouseEvent) => {
+    const dropdown = dropdownRef();
+    if (dropdown && !dropdown.contains(e.target as Node)) {
+      setIsVisible(false);
+      props.onBlur?.();
+    }
+  };
+
+  // Add event listeners
   onMount(() => {
     document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handleClickOutside);
   });
 
   onCleanup(() => {
     document.removeEventListener("keydown", handleKeyDown);
+    document.removeEventListener("mousedown", handleClickOutside);
   });
 
   return (
