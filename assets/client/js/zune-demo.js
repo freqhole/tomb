@@ -1,0 +1,912 @@
+import{f as wt,r as _t,g as r,c as m,o as yt,b as kt,t as c,i as t,S as f,F as A,d as _,m as C,e as y,s as be}from"./web-D-xQcgi-.js";import{S as St,c as Ct,d as qt}from"./SearchContext-CrQHirpG.js";import{A as It}from"./api-client-DUH2cqEH.js";import"./types-CGPwAX3k.js";var Mt=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M8 5v14l11-7z">'),Pt=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z">'),At=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z">'),jt=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z">'),Qt=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z">'),Vt=c('<svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z">'),Tt=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z">'),Bt=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z">'),Et=c('<svg width=20 height=20 viewBox="0 0 24 24"fill=currentColor><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z">'),Lt=c('<button class=zune-search-clear title="Clear search">'),Rt=c("<div class=zune-filter-section><h3>artists</h3><div class=zune-filter-list><button>all artists"),Dt=c("<div class=zune-filter-section><h3>albums</h3><div class=zune-filter-list><button>all albums"),Ht=c("<div class=zune-filter-section><h3>playlists</h3><div class=zune-filter-list><button>all playlists"),Ft=c("<button class=zune-play-all-btn>play all"),Nt=c("<div class=zune-loading><div class=zune-loading-spinner></div><p>loading..."),Ut=c("<div class=zune-error><p>error: </p><button>retry"),Ot=c('<div class=zune-suggestions-table><div class=zune-table-header><div class="zune-table-cell zune-table-cell--category">category</div><div class="zune-table-cell zune-table-cell--suggestion">suggestion</div><div class="zune-table-cell zune-table-cell--frequency">matches</div><div class="zune-table-cell zune-table-cell--actions">'),Xt=c('<div class=zune-songs-table><div class=zune-table-header><div class="zune-table-cell zune-table-cell--play"></div><div class="zune-table-cell zune-table-cell--title">title</div><div class="zune-table-cell zune-table-cell--artist">artist</div><div class="zune-table-cell zune-table-cell--album">album</div><div class="zune-table-cell zune-table-cell--duration">time</div><div class="zune-table-cell zune-table-cell--actions">'),Ie=c("<div class=zune-grid>"),Yt=c("<div class=zune-queue-empty>queue is empty"),Zt=c("<div class=zune-queue><div class=zune-queue-header><h3>queue</h3><div class=zune-queue-controls><button>clear</button><button></button></div></div><div class=zune-queue-list>"),Gt=c('<img class="zune-artwork-image small">'),Jt=c('<div class=zune-player><div class=zune-player-info><div class=zune-player-artwork></div><div class=zune-player-text><h4 class=zune-player-title></h4><p class=zune-player-artist></p></div></div><div class=zune-player-controls><button class=zune-control-btn></button><button class="zune-control-btn primary"></button><button class=zune-control-btn></button><button class=zune-control-btn title="Show Queue"></button></div><div class=zune-player-progress><span class=zune-time></span><div class=zune-progress-bar><div class=zune-progress-fill></div></div><span class=zune-time></span></div><div class=zune-player-volume><input type=range min=0 max=1 step=0.1 class=zune-volume-slider>'),Kt=c(`<div class=zune-demo><div class=zune-header><div class=zune-branding><div class=zune-logo><div class=zune-logo-square></div><span class=zune-logo-text>zune</span></div><div class=zune-search-container></div></div><nav class=zune-nav><button>music</button><button>artists</button><button>albums</button><button>playlists</button></nav></div><div class=zune-main><div class=zune-sidebar></div><div class=zune-center><div class=zune-content-header><h1 class=zune-title></h1><div class=zune-stats></div></div><div></div></div></div><style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap');
+
+        .zune-demo {
+          min-height: 100vh;
+          background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+          color: #ffffff;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          font-weight: 300;
+          letter-spacing: 0.3px;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
+
+        /* Header */
+        .zune-header {
+          background: rgba(0, 0, 0, 0.4);
+          backdrop-filter: blur(20px);
+          padding: 1.5rem 2rem;
+        }
+
+        .zune-branding {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 1.5rem;
+        }
+
+        .zune-logo {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+        }
+
+        .zune-logo-square {
+          width: 28px;
+          height: 28px;
+          background: linear-gradient(135deg, #ff0080 0%, #ff4081 100%);
+          border-radius: 2px;
+        }
+
+        .zune-logo-text {
+          font-size: 1.5rem;
+          font-weight: 300;
+          color: #ffffff;
+          text-transform: lowercase;
+        }
+
+        .zune-search-container {
+          flex: 1;
+          max-width: 400px;
+          margin-left: 3rem;
+          position: relative;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .zune-search-box {
+          flex: 1;
+        }
+
+        .zune-search-clear {
+          background: rgba(255, 255, 255, 0.1);
+          border: none;
+          color: rgba(255, 255, 255, 0.6);
+          cursor: pointer;
+          padding: 0.5rem;
+          border-radius: 4px;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .zune-search-clear:hover {
+          background: #ff0080;
+          color: #ffffff;
+        }
+
+        /* Dark theme overrides for SearchBox */
+        .zune-search-box .search-box__input {
+          width: 100%;
+          padding: 0.75rem 1rem;
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+          font-size: 1rem;
+          font-weight: 300;
+          transition: all 0.3s ease;
+        }
+
+        .zune-search-box .search-box__input:focus {
+          border-color: #ff0080;
+          box-shadow: 0 0 0 2px rgba(255, 0, 128, 0.2);
+        }
+
+        .zune-search-box .search-box__input::placeholder {
+          color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Navigation */
+        .zune-nav {
+          display: flex;
+          gap: 0.5rem;
+          overflow-x: auto;
+          scrollbar-width: none;
+        }
+
+        .zune-nav::-webkit-scrollbar {
+          display: none;
+        }
+
+        .zune-nav-item {
+          padding: 1rem 2rem;
+          background: transparent;
+          border: none;
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 1.1rem;
+          font-weight: 400;
+          cursor: pointer;
+          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+          text-transform: lowercase;
+          white-space: nowrap;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .zune-nav-item::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+          transition: left 0.6s ease;
+        }
+
+        .zune-nav-item:hover::before {
+          left: 100%;
+        }
+
+        .zune-nav-item:hover {
+          color: #ffffff;
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .zune-nav-item.active {
+          color: #ff0080;
+          background: rgba(255, 0, 128, 0.1);
+          font-weight: 500;
+        }
+
+        /* Main Layout */
+        .zune-main {
+          display: flex;
+          flex: 1;
+          height: calc(100vh - 240px);
+        }
+
+        /* Sidebar */
+        .zune-sidebar {
+          width: 300px;
+          background: rgba(0, 0, 0, 0.2);
+          padding: 2rem;
+          overflow-y: auto;
+          scrollbar-width: thin;
+        }
+
+        .zune-filter-section h3 {
+          margin: 0 0 1rem 0;
+          font-size: 1.2rem;
+          font-weight: 500;
+          color: #ffffff;
+          text-transform: lowercase;
+        }
+
+        .zune-filter-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+
+        .zune-filter-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          width: 100%;
+          padding: 0.75rem 1rem;
+          background: transparent;
+          border: none;
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 0.9rem;
+          font-weight: 300;
+          text-align: left;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          border-radius: 4px;
+          text-transform: lowercase;
+        }
+
+        .zune-filter-item:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+        }
+
+        .zune-filter-item.active {
+          background: rgba(255, 0, 128, 0.2);
+          color: #ff0080;
+        }
+
+        .zune-filter-count {
+          font-size: 0.8rem;
+          opacity: 0.7;
+        }
+
+        /* Center Content */
+        .zune-center {
+          flex: 1;
+          padding: 2rem;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .zune-content-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 2rem;
+          flex-shrink: 0;
+        }
+
+        .zune-title {
+          font-size: 3rem;
+          font-weight: 300;
+          margin: 0;
+          color: #ffffff;
+          text-transform: lowercase;
+          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .zune-stats {
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 1rem;
+          font-weight: 300;
+        }
+
+        .zune-play-all-btn {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.75rem 1.5rem;
+          background: linear-gradient(135deg, #ff0080 0%, #ff4081 100%);
+          border: none;
+          color: #ffffff;
+          font-size: 0.9rem;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          border-radius: 4px;
+          text-transform: lowercase;
+        }
+
+        .zune-play-all-btn:hover {
+          background: linear-gradient(135deg, #ff1a8a 0%, #ff5a8a 100%);
+        }
+
+        .zune-content-area {
+          flex: 1;
+          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+          overflow-y: auto;
+        }
+
+        .zune-content-area.exiting {
+          opacity: 0;
+          transform: translateX(-30px);
+        }
+
+        .zune-content-area.entering {
+          opacity: 0;
+          transform: translateX(30px);
+        }
+
+        /* Loading &amp; Error States */
+        .zune-loading {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 1rem;
+          padding: 3rem;
+          color: rgba(255, 255, 255, 0.6);
+        }
+
+        .zune-loading-spinner {
+          width: 40px;
+          height: 40px;
+          border: 3px solid rgba(255, 255, 255, 0.1);
+          border-top: 3px solid #ff0080;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+
+        .zune-error {
+          text-align: center;
+          padding: 3rem;
+          color: #ff6b6b;
+        }
+
+        .zune-error button {
+          margin-top: 1rem;
+          padding: 0.75rem 1.5rem;
+          background: #ff0080;
+          border: none;
+          color: white;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+
+        /* Songs Table */
+        .zune-songs-table,
+        .zune-suggestions-table {
+          display: flex;
+          flex-direction: column;
+          background: rgba(255, 255, 255, 0.02);
+          border-radius: 8px;
+          overflow: hidden;
+        }
+
+        .zune-table-header {
+          display: grid;
+          grid-template-columns: 60px 1fr 200px 200px 80px 60px;
+          padding: 1rem;
+          background: rgba(255, 255, 255, 0.05);
+          font-size: 0.8rem;
+          font-weight: 500;
+          color: rgba(255, 255, 255, 0.7);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        .zune-suggestions-table .zune-table-header {
+          grid-template-columns: 150px 1fr 100px 60px;
+        }
+
+        .zune-table-row {
+          display: grid;
+          grid-template-columns: 60px 1fr 200px 200px 80px 60px;
+          padding: 1rem;
+          cursor: pointer;
+          transition: background 0.3s ease;
+          align-items: center;
+        }
+
+        .zune-suggestions-table .zune-table-row {
+          grid-template-columns: 150px 1fr 100px 60px;
+        }
+
+        .zune-suggestion-group-header {
+          display: grid;
+          grid-template-columns: 150px 1fr 100px 60px;
+          padding: 0.75rem 1rem;
+          background: rgba(255, 0, 128, 0.1);
+          font-weight: 500;
+          color: #ff0080;
+          text-transform: lowercase;
+        }
+
+        .zune-suggestion-row:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .zune-table-row:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .zune-table-row.playing {
+          background: rgba(255, 0, 128, 0.1);
+        }
+
+        .zune-table-cell {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 0.9rem;
+        }
+
+        .zune-track-number {
+          color: rgba(255, 255, 255, 0.5);
+          font-size: 0.8rem;
+          text-align: center;
+        }
+
+        .zune-playing-indicator {
+          display: flex;
+          gap: 2px;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .zune-wave {
+          width: 3px;
+          height: 12px;
+          background: #ff0080;
+          border-radius: 1px;
+          animation: wave 1s infinite ease-in-out;
+        }
+
+        .zune-wave:nth-child(2) {
+          animation-delay: 0.2s;
+        }
+
+        .zune-wave:nth-child(3) {
+          animation-delay: 0.4s;
+        }
+
+        @keyframes wave {
+          0%, 100% { height: 6px; }
+          50% { height: 12px; }
+        }
+
+        .zune-song-title-cell {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+        }
+
+        .zune-song-thumbnail {
+          width: 40px;
+          height: 40px;
+          border-radius: 4px;
+          object-fit: cover;
+        }
+
+        .zune-song-info {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          overflow: hidden;
+        }
+
+        .zune-song-title {
+          font-weight: 500;
+          color: #ffffff;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .zune-favorite-indicator {
+          color: #ff0080;
+          font-size: 0.8rem;
+        }
+
+        .zune-action-btn {
+          width: 32px;
+          height: 32px;
+          background: rgba(255, 255, 255, 0.1);
+          border: none;
+          color: rgba(255, 255, 255, 0.7);
+          border-radius: 50%;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .zune-action-btn:hover {
+          background: #ff0080;
+          color: #ffffff;
+        }
+
+        /* Grid Layout */
+        .zune-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 1.5rem;
+        }
+
+        .zune-grid-card {
+          background: rgba(255, 255, 255, 0.05);
+          padding: 1.5rem;
+          cursor: pointer;
+          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+          border-radius: 8px;
+          text-align: center;
+        }
+
+        .zune-grid-card:hover {
+          background: rgba(255, 255, 255, 0.1);
+          transform: translateY(-4px);
+        }
+
+        .zune-grid-icon {
+          color: #ff0080;
+          margin-bottom: 1rem;
+          display: flex;
+          justify-content: center;
+        }
+
+        .zune-grid-card h3 {
+          font-size: 1.1rem;
+          font-weight: 500;
+          margin: 0 0 0.5rem 0;
+          color: #ffffff;
+        }
+
+        .zune-grid-card p {
+          font-size: 0.9rem;
+          color: rgba(255, 255, 255, 0.7);
+          margin: 0 0 0.25rem 0;
+        }
+
+        .zune-description {
+          font-size: 0.8rem;
+          color: rgba(255, 255, 255, 0.5);
+          font-style: italic;
+        }
+
+        /* Queue Panel */
+        .zune-queue {
+          width: 350px;
+          background: rgba(0, 0, 0, 0.3);
+          display: flex;
+          flex-direction: column;
+          animation: slideInRight 0.3s ease;
+        }
+
+        @keyframes slideInRight {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+
+        .zune-queue-header {
+          padding: 1.5rem;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: rgba(0, 0, 0, 0.2);
+        }
+
+        .zune-queue-header h3 {
+          margin: 0;
+          color: #ffffff;
+          font-size: 1.1rem;
+          font-weight: 500;
+          text-transform: lowercase;
+        }
+
+        .zune-queue-controls {
+          display: flex;
+          gap: 0.5rem;
+        }
+
+        .zune-queue-controls button {
+          background: rgba(255, 255, 255, 0.1);
+          border: none;
+          color: #ffffff;
+          padding: 0.5rem;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 0.8rem;
+          transition: background 0.3s ease;
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+        }
+
+        .zune-queue-controls button:hover {
+          background: #ff0080;
+        }
+
+        .zune-queue-list {
+          flex: 1;
+          overflow-y: auto;
+          padding: 1rem;
+        }
+
+        .zune-queue-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0.75rem;
+          cursor: pointer;
+          transition: background 0.3s ease;
+          border-radius: 4px;
+          margin-bottom: 0.5rem;
+        }
+
+        .zune-queue-item:hover {
+          background: rgba(255, 255, 255, 0.1);
+        }
+
+        .zune-queue-item.current {
+          background: rgba(255, 0, 128, 0.2);
+        }
+
+        .zune-queue-info h4 {
+          margin: 0;
+          font-size: 0.9rem;
+          font-weight: 500;
+          color: #ffffff;
+        }
+
+        .zune-queue-info p {
+          margin: 0.25rem 0 0 0;
+          font-size: 0.8rem;
+          color: rgba(255, 255, 255, 0.7);
+        }
+
+        .zune-queue-remove {
+          background: none;
+          border: none;
+          color: rgba(255, 255, 255, 0.5);
+          cursor: pointer;
+          padding: 0.25rem;
+          transition: color 0.3s ease;
+          display: flex;
+          align-items: center;
+        }
+
+        .zune-queue-remove:hover {
+          color: #ff0080;
+        }
+
+        .zune-queue-empty {
+          text-align: center;
+          padding: 2rem;
+          color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Player */
+        .zune-player {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          background: rgba(0, 0, 0, 0.9);
+          backdrop-filter: blur(20px);
+          padding: 1rem 2rem;
+          display: flex;
+          align-items: center;
+          gap: 2rem;
+          z-index: 1000;
+          animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @keyframes slideUp {
+          from { transform: translateY(100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+
+        .zune-player-info {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          min-width: 250px;
+        }
+
+        .zune-artwork-placeholder {
+          width: 50px;
+          height: 50px;
+          background: linear-gradient(135deg, #333 0%, #555 100%);
+          border-radius: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: rgba(255, 255, 255, 0.3);
+        }
+
+        .zune-artwork-image {
+          width: 50px;
+          height: 50px;
+          border-radius: 4px;
+          object-fit: cover;
+        }
+
+        .zune-player-text {
+          flex: 1;
+        }
+
+        .zune-player-title {
+          font-size: 1rem;
+          font-weight: 500;
+          margin: 0;
+          color: #ffffff;
+        }
+
+        .zune-player-artist {
+          font-size: 0.9rem;
+          font-weight: 300;
+          margin: 0;
+          color: rgba(255, 255, 255, 0.7);
+        }
+
+        .zune-player-controls {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+        }
+
+        .zune-control-btn {
+          width: 44px;
+          height: 44px;
+          border: none;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .zune-control-btn:hover {
+          background: rgba(255, 255, 255, 0.2);
+          transform: scale(1.1);
+        }
+
+        .zune-control-btn.primary {
+          background: linear-gradient(135deg, #ff0080 0%, #ff4081 100%);
+          width: 52px;
+          height: 52px;
+        }
+
+        .zune-control-btn.primary:hover {
+          background: linear-gradient(135deg, #ff1a8a 0%, #ff5a8a 100%);
+        }
+
+        .zune-control-btn:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .zune-player-progress {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          flex: 1;
+          max-width: 400px;
+        }
+
+        .zune-time {
+          font-size: 0.9rem;
+          color: rgba(255, 255, 255, 0.7);
+          font-weight: 300;
+          min-width: 40px;
+        }
+
+        .zune-progress-bar {
+          flex: 1;
+          height: 6px;
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 3px;
+          overflow: hidden;
+          cursor: pointer;
+          transition: height 0.2s ease;
+        }
+
+        .zune-progress-bar:hover {
+          height: 8px;
+        }
+
+        .zune-progress-fill {
+          height: 100%;
+          background: linear-gradient(90deg, #ff0080 0%, #ff4081 100%);
+          transition: width 0.1s ease;
+        }
+
+        .zune-player-volume {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .zune-volume-slider {
+          width: 100px;
+          height: 4px;
+          background: rgba(255, 255, 255, 0.2);
+          border: none;
+          border-radius: 2px;
+          outline: none;
+          appearance: none;
+          cursor: pointer;
+        }
+
+        .zune-volume-slider::-webkit-slider-thumb {
+          width: 16px;
+          height: 16px;
+          background: #ff0080;
+          border: none;
+          border-radius: 50%;
+          cursor: pointer;
+        }
+
+        .zune-volume-slider::-moz-range-thumb {
+          width: 16px;
+          height: 16px;
+          background: #ff0080;
+          border: none;
+          border-radius: 50%;
+          cursor: pointer;
+        }
+
+        /* Scrollbar styling */
+        .zune-sidebar::-webkit-scrollbar,
+        .zune-center::-webkit-scrollbar,
+        .zune-queue-list::-webkit-scrollbar {
+          width: 8px;
+        }
+
+        .zune-sidebar::-webkit-scrollbar-track,
+        .zune-center::-webkit-scrollbar-track,
+        .zune-queue-list::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.1);
+        }
+
+        .zune-sidebar::-webkit-scrollbar-thumb,
+        .zune-center::-webkit-scrollbar-thumb,
+        .zune-queue-list::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.3);
+          border-radius: 4px;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+          .zune-header {
+            padding: 1rem;
+          }
+
+          .zune-branding {
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 1rem;
+          }
+
+          .zune-search-container {
+            margin-left: 0;
+            max-width: 100%;
+          }
+
+          .zune-nav {
+            justify-content: space-between;
+          }
+
+          .zune-nav-item {
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+          }
+
+          .zune-main {
+            flex-direction: column;
+            height: auto;
+          }
+
+          .zune-sidebar {
+            width: 100%;
+            padding: 1rem;
+          }
+
+          .zune-center {
+            padding: 1rem;
+          }
+
+          .zune-title {
+            font-size: 2rem;
+          }
+
+          .zune-table-header,
+          .zune-table-row {
+            grid-template-columns: 50px 1fr 60px;
+          }
+
+          .zune-table-cell--artist,
+          .zune-table-cell--album,
+          .zune-table-cell--duration {
+            display: none;
+          }
+
+          .zune-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .zune-queue {
+            width: 100%;
+            height: 50vh;
+          }
+
+          .zune-player {
+            padding: 1rem;
+            flex-direction: column;
+            gap: 1rem;
+          }
+
+          .zune-player-info {
+            min-width: auto;
+          }
+
+          .zune-player-progress {
+            max-width: 100%;
+          }
+        }
+      `),Me=c("<button><span class=zune-filter-count>"),Wt=c('<div class=zune-suggestion-group-header><div class="zune-table-cell zune-table-cell--category"></div><div class=zune-table-cell></div><div class=zune-table-cell></div><div class=zune-table-cell>'),en=c('<div class="zune-table-row zune-suggestion-row"><div class="zune-table-cell zune-table-cell--category"></div><div class="zune-table-cell zune-table-cell--suggestion"></div><div class="zune-table-cell zune-table-cell--frequency"></div><div class="zune-table-cell zune-table-cell--actions"><button class=zune-action-btn title="Search this"><svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z">'),tn=c("<div class=zune-playing-indicator><div class=zune-wave></div><div class=zune-wave></div><div class=zune-wave>"),nn=c("<img class=zune-song-thumbnail>"),rn=c("<span class=zune-favorite-indicator>♥"),ln=c('<div><div class="zune-table-cell zune-table-cell--play"></div><div class="zune-table-cell zune-table-cell--title"><div class=zune-song-title-cell><div class=zune-song-info><span class=zune-song-title></span></div></div></div><div class="zune-table-cell zune-table-cell--artist"></div><div class="zune-table-cell zune-table-cell--album"></div><div class="zune-table-cell zune-table-cell--duration"></div><div class="zune-table-cell zune-table-cell--actions"><button class=zune-action-btn title="Add to queue">'),an=c("<span class=zune-track-number>"),sn=c("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p> songs</p><p> albums"),on=c("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p></p><p> tracks"),cn=c("<p class=zune-description>"),un=c("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p> songs"),dn=c("<div><div class=zune-queue-info><h4></h4><p></p></div><button class=zune-queue-remove>"),gn=c('<div class="zune-artwork-placeholder small">');const Ye=w=>new It(w),Oe=()=>Mt(),fn=()=>Pt(),bn=()=>At(),hn=()=>jt(),Xe=()=>Qt(),mn=()=>Vt(),Pe=()=>Tt(),pn=()=>Bt(),Ae=()=>Et();function vn(){const w=Ct(),[p,he]=m("music"),[Ze,Ge]=m([]),[me,Je]=m([]),[pe,Ke]=m([]),[ve,We]=m([]),[q,re]=m(null),[et,ze]=m([]),[xe,ie]=m(!1),[$e,le]=m(null),[j,tt]=m(null),[we,ae]=m(!1),[je,Qe]=m(0),[se,nt]=m(0),[Ve,rt]=m(.7),[J,it]=m(null),[T,K]=m([]),[W,D]=m(0),[Te,Be]=m(!1),[H,oe]=m(null),[F,ce]=m(null),[ue,de]=m(""),[N,B]=m([]),[U,ee]=m(!1),[lt,_e]=m("idle");Ye("http://localhost:8080");const ye=async e=>{ie(!0),le(null);try{switch(e){case"music":const g=await(await fetch("/api/media/songs?limit=100")).json();Ge(g.songs||[]);break;case"artists":const k=await(await fetch("/api/media/artists")).json();We(k.artists||[]);break;case"playlists":const I=await(await fetch("/api/media/playlists?limit=100")).json();Je(I.playlists||[]);break;case"albums":const L=await(await fetch("/api/media/albums")).json();Ke(L||[]);break}}catch(l){le(l instanceof Error?l.message:"Failed to fetch data")}finally{ie(!1)}};yt(()=>{const e=new Audio;it(e),e.addEventListener("loadedmetadata",()=>{nt(e.duration)}),e.addEventListener("timeupdate",()=>{Qe(e.currentTime)}),e.addEventListener("ended",()=>{ae(!1),Qe(0),Ee()}),ye(p())}),kt(()=>{const e=J();e&&(e.pause(),e.src="")});const at=e=>{if(T().find(a=>a.song.id===e.id))return;const g={song:e,id:`queue-${e.id}-${Date.now()}`};K(a=>[...a,g])},Ee=()=>{const e=T(),l=W();if(l<e.length-1){D(l+1);const g=e[l+1];g&&te(g.song,!1)}},st=()=>{const e=T(),l=W();if(l>0){D(l-1);const g=e[l-1];g&&te(g.song,!1)}},ot=e=>{K(l=>l.filter(g=>g.id!==e))},ct=()=>{K([]),D(0)},O=e=>{e!==p()&&(_e("exiting"),setTimeout(()=>{he(e),_e("entering"),ye(e),oe(null),ce(null),re(null),setTimeout(()=>{_e("idle")},200)},200))},ut=()=>{const e=J();!e||!j()||(we()?(e.pause(),ae(!1)):(e.play(),ae(!0)))},te=(e,l=!0)=>{const g=J();if(g&&(tt(e),g.src=`/api/blobs/${e.media_blob_id}`,g.volume=Ve(),g.play(),ae(!0),l&&T().length===0)){const a={song:e,id:`queue-${e.id}-${Date.now()}`};K([a]),D(0)}},Le=async e=>{try{const a=(await(await fetch(`/api/media/playlists/${e.id}/songs`)).json()).songs||[];re(e),ze(a)}catch(l){le(l instanceof Error?l.message:"Failed to load playlist")}},Re=async e=>{try{const a=(await(await fetch(`/api/media/playlists/${e.id}/songs`)).json()).songs||[];if(a.length>0){re(e),ze(a);const k=a.map((E,I)=>({song:E.song,id:`playlist-${e.id}-${I}`}));K(k),D(0),te(a[0].song,!1)}}catch(l){le(l instanceof Error?l.message:"Failed to load playlist")}},ke=e=>{const l=Math.floor(e/60),g=Math.floor(e%60);return`${l}:${g.toString().padStart(2,"0")}`},dt=e=>{const l=J();l&&(l.currentTime=e/100*se())},gt=()=>{if(U()&&N().length>0)return N();let e=Ze();if(H()&&(e=e.filter(l=>l.artist===H())),F()&&(e=e.filter(l=>l.album===F())),ue().trim()&&!U()){const l=ue().toLowerCase();e=e.filter(g=>g.title.toLowerCase().includes(l)||g.artist?.toLowerCase().includes(l)||g.album?.toLowerCase().includes(l))}return e},De=e=>{de(e),w.state.setQuery(e),O("music"),He(e)},ft=e=>{de(e),w.state.setQuery(e),O("music"),e.trim()?He(e):(ee(!1),B([]))},He=async e=>{if(!e.trim()){ee(!1),B([]);return}ee(!0),ie(!0);try{await w.performSearch();const l=w.search.results();if(l?.results){const g=l.results.filter(a=>a.result_type==="song").map(a=>({id:a.id,title:a.title,artist:a.metadata?.artist||"",album:a.metadata?.album||"",album_artist:a.metadata?.album_artist,track_number:a.metadata?.track_number,disc_number:a.metadata?.disc_number,duration_seconds:a.metadata?.duration_seconds,genre:a.metadata?.genre,year:a.metadata?.year,bpm:a.metadata?.bpm,key_signature:a.metadata?.key_signature,rating:a.metadata?.rating,is_favorite:a.metadata?.is_favorite||!1,tags:a.metadata?.tags||[],display_title:a.title,detailed_display_title:a.title,created_at:a.created_at,media_blob_id:a.media_blob_id||"",thumbnail_blob_id:a.thumbnail_blob_id,waveform_blob_id:a.waveform_blob_id,thumbnail_blob_ids:a.thumbnail_blob_ids||[]}));B(g)}else B([])}catch(l){console.error("Search failed:",l),B([])}finally{ie(!1)}},bt=()=>{de(""),w.state.setQuery(""),ee(!1),B([])},ht=()=>{const e=w.suggestions.suggestions();if(!e.length)return[];const l=new Map;e.forEach(a=>{const k=a.category||"general";l.has(k)||l.set(k,[]),l.get(k).push(a)});const g=["word","title","playlist","general"];return Array.from(l.entries()).sort(([a],[k])=>{const E=g.indexOf(a),I=g.indexOf(k),X=E===-1?g.length:E,L=I===-1?g.length:I;return X-L})},mt=e=>({word:"search suggestions",title:"songs",playlist:"playlists",general:"suggestions"})[e]||e,pt=()=>{if(q())return q().title;switch(p()){case"music":return H()||F()?`${H()||F()}`:"music";case"artists":return"artists";case"albums":return"albums";case"playlists":return"playlists";default:return"music"}},Se=()=>q()?et().map(e=>e.song):gt(),vt=()=>U()&&w.suggestions.suggestions().length>0,zt=()=>Se().length>0&&(!U()||N().length>0);return(()=>{var e=Kt(),l=e.firstChild,g=l.firstChild,a=g.firstChild,k=a.nextSibling,E=g.nextSibling,I=E.firstChild,X=I.nextSibling,L=X.nextSibling,Fe=L.nextSibling,Ce=l.nextSibling,ge=Ce.firstChild,xt=ge.nextSibling,qe=xt.firstChild,Ne=qe.firstChild,Ue=Ne.nextSibling,fe=qe.nextSibling,$t=Ce.nextSibling;return t(k,r(qt,{placeholder:"search your music...",useInternalState:!1,get query(){return ue()},onQueryChange:n=>{de(n),w.state.setQuery(n),n.trim()||(ee(!1),B([]))},onSearch:ft,autoSearch:!0,debounceMs:300,class:"zune-search-box"}),null),t(k,r(f,{get when(){return ue().trim()},get children(){var n=Lt();return n.$$click=bt,t(n,r(Pe,{})),n}}),null),I.$$click=()=>O("music"),X.$$click=()=>O("artists"),L.$$click=()=>O("albums"),Fe.$$click=()=>O("playlists"),t(ge,r(f,{get when(){return p()==="artists"},get children(){var n=Rt(),i=n.firstChild,d=i.nextSibling,u=d.firstChild;return u.$$click=()=>oe(null),t(d,r(A,{get each(){return ve()},children:s=>(()=>{var o=Me(),b=o.firstChild;return o.$$click=()=>oe(s.artist),t(o,()=>s.artist,b),t(b,()=>s.song_count),_(()=>y(o,`zune-filter-item ${H()===s.artist?"active":""}`)),o})()}),null),_(()=>y(u,`zune-filter-item ${H()===null?"active":""}`)),n}}),null),t(ge,r(f,{get when(){return p()==="albums"},get children(){var n=Dt(),i=n.firstChild,d=i.nextSibling,u=d.firstChild;return u.$$click=()=>ce(null),t(d,r(A,{get each(){return pe()},children:s=>(()=>{var o=Me(),b=o.firstChild;return o.$$click=()=>ce(s.album),t(o,()=>s.album,b),t(b,()=>s.track_count),_(()=>y(o,`zune-filter-item ${F()===s.album?"active":""}`)),o})()}),null),_(()=>y(u,`zune-filter-item ${F()===null?"active":""}`)),n}}),null),t(ge,r(f,{get when(){return p()==="playlists"},get children(){var n=Ht(),i=n.firstChild,d=i.nextSibling,u=d.firstChild;return u.$$click=()=>{re(null),ze([])},t(d,r(A,{get each(){return me()},children:s=>(()=>{var o=Me(),b=o.firstChild;return o.$$click=()=>Le(s),t(o,()=>s.title,b),t(b,()=>s.song_count||0),_(()=>y(o,`zune-filter-item ${q()?.id===s.id?"active":""}`)),o})()}),null),_(()=>y(u,`zune-filter-item ${q()===null?"active":""}`)),n}}),null),t(Ne,pt),t(Ue,r(f,{get when(){return U()},get children(){return[r(f,{get when(){return N().length>0},get children(){return[C(()=>N().length)," search results"]}}),r(f,{get when(){return C(()=>N().length===0)()&&!xe()},children:"no results found"})]}}),null),t(Ue,r(f,{get when(){return!U()},get children(){return[r(f,{get when(){return p()==="music"||q()},get children(){return[C(()=>Se().length)," songs"]}}),r(f,{get when(){return C(()=>p()==="playlists")()&&!q()},get children(){return[C(()=>me().length)," playlists"]}}),r(f,{get when(){return p()==="albums"},get children(){return[C(()=>pe().length)," albums"]}}),r(f,{get when(){return p()==="artists"},get children(){return[C(()=>ve().length)," artists"]}})]}}),null),t(qe,r(f,{get when(){return q()},get children(){var n=Ft(),i=n.firstChild;return n.$$click=()=>Re(q()),t(n,r(Oe,{}),i),n}}),null),t(fe,r(f,{get when(){return xe()},get children(){return Nt()}}),null),t(fe,r(f,{get when(){return $e()},get children(){var n=Ut(),i=n.firstChild;i.firstChild;var d=i.nextSibling;return t(i,$e,null),d.$$click=()=>ye(p()),n}}),null),t(fe,r(f,{get when(){return C(()=>!xe())()&&!$e()},get children(){return[r(f,{get when(){return p()==="music"||q()},get children(){return[r(f,{get when(){return vt()},get children(){var n=Ot();return n.firstChild,t(n,r(A,{get each(){return ht()},children:([i,d])=>[(()=>{var u=Wt(),s=u.firstChild;return t(s,()=>mt(i)),u})(),r(A,{each:d,children:u=>(()=>{var s=en(),o=s.firstChild,b=o.nextSibling,h=b.nextSibling,S=h.nextSibling,x=S.firstChild;return s.$$click=()=>De(u.text),t(b,()=>u.text),t(h,()=>u.frequency),x.$$click=M=>{M.stopPropagation(),De(u.text)},s})()})]}),null),n}}),r(f,{get when(){return zt()},get children(){var n=Xt();return n.firstChild,t(n,r(A,{get each(){return Se()},children:(i,d)=>(()=>{var u=ln(),s=u.firstChild,o=s.nextSibling,b=o.firstChild,h=b.firstChild,S=h.firstChild,x=o.nextSibling,M=x.nextSibling,V=M.nextSibling,Y=V.nextSibling,Q=Y.firstChild;return u.$$dblclick=()=>te(i),t(s,r(f,{get when(){return C(()=>j()?.id===i.id)()&&we()},get fallback(){return(()=>{var z=an();return t(z,()=>d()+1),z})()},get children(){return tn()}})),t(b,r(f,{get when(){return i.thumbnail_blob_id},get children(){var z=nn();return _(R=>{var ne=`/api/blobs/${i.thumbnail_blob_id}`,Z=i.title;return ne!==R.e&&be(z,"src",R.e=ne),Z!==R.t&&be(z,"alt",R.t=Z),R},{e:void 0,t:void 0}),z}}),h),t(S,()=>i.title),t(h,r(f,{get when(){return i.is_favorite},get children(){return rn()}}),null),t(x,()=>i.artist||"Unknown Artist"),t(M,()=>i.album||"Unknown Album"),t(V,(()=>{var z=C(()=>!!i.duration_seconds);return()=>z()?ke(i.duration_seconds):"--:--"})()),Q.$$click=z=>{z.stopPropagation(),at(i)},t(Q,r(mn,{})),_(()=>y(u,`zune-table-row ${j()?.id===i.id?"playing":""}`)),u})()}),null),n}})]}}),r(f,{get when(){return p()==="artists"},get children(){var n=Ie();return t(n,r(A,{get each(){return ve()},children:i=>(()=>{var d=sn(),u=d.firstChild,s=u.nextSibling,o=s.nextSibling,b=o.firstChild,h=o.nextSibling,S=h.firstChild;return d.$$click=()=>oe(i.artist),t(u,r(Ae,{})),t(s,()=>i.artist),t(o,()=>i.song_count,b),t(h,()=>i.album_count,S),d})()})),n}}),r(f,{get when(){return p()==="albums"},get children(){var n=Ie();return t(n,r(A,{get each(){return pe()},children:i=>(()=>{var d=on(),u=d.firstChild,s=u.nextSibling,o=s.nextSibling,b=o.nextSibling,h=b.firstChild;return d.$$click=()=>ce(i.album),t(u,r(Ae,{})),t(s,()=>i.album),t(o,()=>i.artist),t(b,()=>i.track_count,h),d})()})),n}}),r(f,{get when(){return C(()=>p()==="playlists")()&&!q()},get children(){var n=Ie();return t(n,r(A,{get each(){return me()},children:i=>(()=>{var d=un(),u=d.firstChild,s=u.nextSibling,o=s.nextSibling,b=o.firstChild;return d.$$dblclick=()=>Re(i),d.$$click=()=>Le(i),t(u,r(Xe,{})),t(s,()=>i.title),t(o,()=>i.song_count||0,b),t(d,r(f,{get when(){return i.description},get children(){var h=cn();return t(h,()=>i.description),h}}),null),d})()})),n}})]}}),null),t(Ce,r(f,{get when(){return Te()},get children(){var n=Zt(),i=n.firstChild,d=i.firstChild,u=d.nextSibling,s=u.firstChild,o=s.nextSibling,b=i.nextSibling;return s.$$click=ct,o.$$click=()=>Be(!1),t(o,r(Pe,{})),t(b,r(A,{get each(){return T()},children:(h,S)=>(()=>{var x=dn(),M=x.firstChild,V=M.firstChild,Y=V.nextSibling,Q=M.nextSibling;return x.$$click=()=>{D(S()),te(h.song,!1)},t(V,()=>h.song.title),t(Y,()=>h.song.artist),Q.$$click=z=>{z.stopPropagation(),ot(h.id)},t(Q,r(Pe,{})),_(()=>y(x,`zune-queue-item ${S()===W()?"current":""}`)),x})()}),null),t(b,r(f,{get when(){return T().length===0},get children(){return Yt()}}),null),n}}),null),t(e,r(f,{get when(){return j()},get children(){var n=Jt(),i=n.firstChild,d=i.firstChild,u=d.nextSibling,s=u.firstChild,o=s.nextSibling,b=i.nextSibling,h=b.firstChild,S=h.nextSibling,x=S.nextSibling,M=x.nextSibling,V=b.nextSibling,Y=V.firstChild,Q=Y.nextSibling,z=Q.firstChild,R=Q.nextSibling,ne=V.nextSibling,Z=ne.firstChild;return t(d,r(f,{get when(){return j()?.thumbnail_blob_id},get fallback(){return(()=>{var v=gn();return t(v,r(Ae,{})),v})()},get children(){var v=Gt();return _($=>{var P=`/api/blobs/${j()?.thumbnail_blob_id}`,G=j()?.title;return P!==$.e&&be(v,"src",$.e=P),G!==$.t&&be(v,"alt",$.t=G),$},{e:void 0,t:void 0}),v}})),t(s,()=>j()?.title),t(o,()=>j()?.artist),h.$$click=st,t(h,r(bn,{})),S.$$click=ut,t(S,(()=>{var v=C(()=>!!we());return()=>v()?r(fn,{}):r(Oe,{})})()),x.$$click=Ee,t(x,r(hn,{})),M.$$click=()=>Be(!Te()),t(M,r(Xe,{})),t(Y,()=>ke(je())),Q.$$click=v=>{const $=v.currentTarget.getBoundingClientRect(),P=(v.clientX-$.left)/$.width*100;dt(P)},t(R,()=>ke(se())),t(ne,r(pn,{}),Z),Z.$$input=v=>{const $=parseFloat(v.currentTarget.value);rt($);const P=J();P&&(P.volume=$)},_(v=>{var $=W()===0,P=W()>=T().length-1,G=`${se()>0?je()/se()*100:0}%`;return $!==v.e&&(h.disabled=v.e=$),P!==v.t&&(x.disabled=v.t=P),G!==v.a&&((v.a=G)!=null?z.style.setProperty("width",G):z.style.removeProperty("width")),v},{e:void 0,t:void 0,a:void 0}),_(()=>Z.value=Ve()),n}}),$t),_(n=>{var i=`zune-nav-item ${p()==="music"?"active":""}`,d=`zune-nav-item ${p()==="artists"?"active":""}`,u=`zune-nav-item ${p()==="albums"?"active":""}`,s=`zune-nav-item ${p()==="playlists"?"active":""}`,o=`zune-content-area ${lt()}`;return i!==n.e&&y(I,n.e=i),d!==n.t&&y(X,n.t=d),u!==n.a&&y(L,n.a=u),s!==n.o&&y(Fe,n.o=s),o!==n.i&&y(fe,n.i=o),n},{e:void 0,t:void 0,a:void 0,o:void 0,i:void 0}),e})()}function zn(w){const p=Ye(w.apiBaseUrl||"http://localhost:8080");return r(St,{apiClient:p,searchOptions:{enableSuggestions:!0,enableHistory:!1,autoSearch:!1,integrationMode:"standalone"},get children(){return r(vn,{})}})}class xn extends HTMLElement{dispose=null;connectedCallback(){const p=this.getAttribute("api-base-url")||"http://localhost:8080",he=this.getAttribute("auto-connect")==="true";this.dispose=_t(()=>r(zn,{apiBaseUrl:p,autoConnect:he}),this)}disconnectedCallback(){this.dispose&&this.dispose()}}customElements.define("zune-demo",xn);wt(["click","input","dblclick"]);
+//# sourceMappingURL=zune-demo.js.map

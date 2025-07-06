@@ -24,7 +24,7 @@ Make sure your server is running on <code>localhost:8080</code>
       color: white;
     }
     .container {
-      max-width: 1000px;
+
       margin: 0 auto;
     }
     
@@ -36,64 +36,8 @@ Make sure your server is running on <code>localhost:8080</code>
   </div>
 
   <script type="module">
-import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e as J,n as Y,f as fe,i as b,S as k,F as G,j as be,u as ye,r as pe}from"./web-D0fRMFns.js";import{A as ve}from"./api-client-Ciyqoh98.js";import"./types-CGPwAX3k.js";function xe(e,o){let n;return(..._)=>{clearTimeout(n),n=setTimeout(()=>e(..._),o)}}function Se(e){const[o,n]=S(e.initialQuery||""),[_,p]=S(e.initialDomain||"music"),[g,f]=S(null),[F,C]=S(null),[I,E]=S(!1),[i,s]=S(null),t=L(()=>{const y=g(),v=F();return(y?.results?.length||0)>0||(v?.songs?.length||0)>0}),c=L(()=>{const y=g(),v=F();return(y?.results?.length||0)+(v?.songs?.length||0)}),l=L(()=>o().trim().length===0),r=L(()=>o().trim().length>0&&!I());N(()=>{o(),i()&&s(null)});const u=async y=>{const v=o().trim();if(!v){f(null);return}E(!0),s(null);try{const $=await e.apiClient.searchMusic(v,y);f($),C(null)}catch($){const T=$ instanceof Error?$:new Error(String($));s(T),f(null),e.onError&&e.onError(T)}finally{E(!1)}},a=async y=>{const v=o().trim();if(!v){C(null);return}E(!0),s(null);try{const $=await e.apiClient.searchSongs(v,y);C($),f(null)}catch($){const T=$ instanceof Error?$:new Error(String($));s(T),C(null),e.onError&&e.onError(T)}finally{E(!1)}},x=xe(u,e.debounceMs||300);return N(()=>{e.autoSearch!==!1&&(o().trim().length>0?x():(f(null),C(null)))}),{query:o,setQuery:n,domain:_,setDomain:p,results:g,songsResults:F,loading:I,error:i,clearError:()=>{s(null)},search:u,searchSongs:a,clearResults:()=>{f(null),C(null)},hasResults:t,resultsCount:c,isEmpty:l,canSearch:r}}function $e(e,o){let n;return(..._)=>{clearTimeout(n),n=setTimeout(()=>e(..._),o)}}function he(e){const[o,n]=S([]),[_,p]=S(!1),[g,f]=S(null),F=()=>e.minQueryLength??2,C=()=>e.maxSuggestions??10,I=()=>e.enabled??!0,E=L(()=>o().length>0),i=L(()=>o().length),s=L(()=>e.query().trim().length===0),t=async a=>{if(!I())return;const x=a.trim();if(x.length<F()){n([]);return}p(!0),f(null);try{const R={q:x,limit:C()},d=await e.apiClient.getMusicSuggestions(x,R);n(d.suggestions)}catch(R){const d=R instanceof Error?R:new Error(String(R));f(d),n([]),e.onError&&e.onError(d)}finally{p(!1)}},c=$e(t,e.debounceMs||300);return N(()=>{const a=e.query();I()?c(a):n([])}),N(()=>{e.query(),g()&&f(null)}),{suggestions:o,loading:_,error:g,hasSuggestions:E,suggestionsCount:i,isEmpty:s,refresh:async()=>{const a=e.query();await t(a)},clearSuggestions:()=>{n([])},clearError:()=>{f(null)}}}const ce=300,we=50,se={artist:"",album:"",genre:"",year:null,rating_min:null,rating_max:null,favorites_only:!1};function ne(e={}){const[o,n]=S(e.initialQuery||""),[_,p]=S(e.initialDomain||"music"),[g,f]=S({...se}),F=e.maxHistoryItems||we,[C,I]=S([]),[E,i]=S(!1),[s,t]=S(ce),[c,l]=S(!1),[r,u]=S(ce),[a,x]=S(""),[R,d]=S("music"),[y,v]=S(1),[$,T]=S(20),[Q,P]=S("relevance"),[H,z]=S("desc");return{query:o,setQuery:n,domain:_,setDomain:p,filters:g,setFilters:f,updateFilter:(m,M)=>{const V={...g(),[m]:M};f(V)},clearFilters:()=>{f({...se})},searchHistory:C,addToHistory:m=>{if(!e.enableHistory)return;const M=m.trim();if(!M)return;const V=C().filter(me=>me!==M),_e=[M,...V].slice(0,F);I(_e)},removeFromHistory:m=>{if(!e.enableHistory)return;const re=C().filter(V=>V!==m);I(re)},clearHistory:()=>{I([])},isSearchPanelOpen:E,setIsSearchPanelOpen:i,toggleSearchPanel:()=>{i(!E())},searchPanelWidth:s,setSearchPanelWidth:t,isFiltersPanelOpen:c,setIsFiltersPanelOpen:l,toggleFiltersPanel:()=>{l(!c())},filtersPanelWidth:r,setFiltersPanelWidth:u,lastSearchQuery:a,setLastSearchQuery:x,lastSearchDomain:R,setLastSearchDomain:d,currentPage:y,setCurrentPage:v,pageSize:$,setPageSize:T,sortBy:Q,setSortBy:P,sortDirection:H,setSortDirection:z,toggleSortDirection:()=>{z(H()==="asc"?"desc":"asc")},getMusicSearchOptions:()=>{const m=g();return{q:o(),artist:m.artist||void 0,album:m.album||void 0,genre:m.genre||void 0,year:m.year||void 0,rating_min:m.rating_min||void 0,rating_max:m.rating_max||void 0,favorites_only:m.favorites_only||void 0,page:y(),page_size:$(),sort_by:Q(),sort_direction:H()}},getSongsSearchOptions:()=>{const m=g();return{q:o(),artist:m.artist||void 0,album:m.album||void 0,genre:m.genre||void 0,year:m.year||void 0,rating_min:m.rating_min||void 0,rating_max:m.rating_max||void 0,favorites_only:m.favorites_only||void 0,page:y(),page_size:$(),sort_by:Q(),sort_direction:H()}},reset:()=>{n(""),p("music"),f({...se}),v(1),P("relevance"),z("desc"),x(""),d("music")},hasActiveFilters:()=>{const m=g();return m.artist!==""||m.album!==""||m.genre!==""||m.year!==null||m.rating_min!==null||m.rating_max!==null||m.favorites_only!==!1},getFilterCount:()=>{const m=g();let M=0;return m.artist&&M++,m.album&&M++,m.genre&&M++,m.year!==null&&M++,m.rating_min!==null&&M++,m.rating_max!==null&&M++,m.favorites_only&&M++,M}}}function Ce(e){const o=L(()=>{const t=e.searchResults(),c=e.songsResults(),l=[];return t?.results&&l.push(...t.results),c?.songs&&l.push(...c.songs),l}),n=L(()=>{const t=o(),c=e.searchState.filters();return t.filter(l=>{const r="artist"in l;return!(c.artist&&r&&l.artist&&!l.artist.toLowerCase().includes(c.artist.toLowerCase())||c.album&&r&&l.album&&!l.album.toLowerCase().includes(c.album.toLowerCase())||c.genre&&r&&l.genre&&!l.genre.toLowerCase().includes(c.genre.toLowerCase())||c.year&&r&&l.year&&l.year!==c.year||c.rating_min&&r&&l.rating&&l.rating<c.rating_min||c.rating_max&&r&&l.rating&&l.rating>c.rating_max||c.favorites_only&&r&&!l.is_favorite)})}),_=L(()=>{const t=n(),c=e.searchState.sortBy(),l=e.searchState.sortDirection();return[...t].sort((u,a)=>{let x,R;switch(c){case"title":x=u.title?.toLowerCase()||"",R=a.title?.toLowerCase()||"";break;case"artist":x=("artist"in u?u.artist?.toLowerCase():"")||"",R=("artist"in a?a.artist?.toLowerCase():"")||"";break;case"album":x=("album"in u?u.album?.toLowerCase():"")||"",R=("album"in a?a.album?.toLowerCase():"")||"";break;case"created_at":x=u.created_at?new Date(u.created_at).getTime():0,R=a.created_at?new Date(a.created_at).getTime():0;break;case"rating":x=("rating"in u?u.rating:0)||0,R=("rating"in a?a.rating:0)||0;break;case"relevance":default:return 0}return x<R?l==="asc"?-1:1:x>R?l==="asc"?1:-1:0})}),p=L(()=>_()),g=L(()=>{const t=p(),c={},l={},r={},u={};return t.forEach(a=>{const x="artist"in a;x&&a.artist&&(c[a.artist]||(c[a.artist]=[]),c[a.artist].push(a)),x&&a.album&&(l[a.album]||(l[a.album]=[]),l[a.album].push(a)),x&&a.genre&&(r[a.genre]||(r[a.genre]=[]),r[a.genre].push(a)),x&&a.year&&(u[a.year]||(u[a.year]=[]),u[a.year].push(a))}),{byArtist:c,byAlbum:l,byGenre:r,byYear:u}}),f=L(()=>{const t=e.searchResults(),c=e.songsResults(),l=e.searchState.currentPage(),r=e.searchState.pageSize(),u=t?.total_count||c?.total_count||0,a=Math.ceil(u/r);return{totalResults:u,totalPages:a,currentPage:l,hasNextPage:l<a,hasPrevPage:l>1,resultsPerPage:r}}),F=L(()=>{if(e.integrationMode!=="freqhole-integrated"||!e.webSocketItems)return p();const t=p(),c=e.webSocketItems(),l=new Set(t.map(u=>u.id)),r=c.filter(u=>!l.has(u.id));return[...t,...r]}),C=L(()=>F()),I=L(()=>p().length===0),E=L(()=>p().length>0);return{processedResults:p,integratedResults:F,searchStats:f,groupedResults:g,filteredResults:n,sortedResults:_,mergedWithWebSocket:C,isEmpty:I,hasResults:E,getResultById:t=>p().find(c=>c.id===t),getResultsByType:t=>p().filter(c=>"result_type"in c?c.result_type===t:!1)}}function ke(e){const o=ne({initialQuery:e.initialQuery,initialDomain:e.initialDomain,enableHistory:e.enableHistory}),n=Se({apiClient:e.apiClient,initialQuery:e.initialQuery,initialDomain:e.initialDomain,debounceMs:e.debounceMs,autoSearch:e.autoSearch,onError:e.onError}),_=he({apiClient:e.apiClient,query:n.query,debounceMs:e.debounceMs,enabled:e.enableSuggestions,onError:e.onError}),p=Ce({searchResults:n.results,songsResults:n.songsResults,searchState:o,integrationMode:e.integrationMode,webSocketItems:e.webSocketItems}),g=async()=>{const s=o.query(),t=o.getMusicSearchOptions();s.trim()&&(o.addToHistory(s),o.setLastSearchQuery(s),o.setLastSearchDomain(o.domain())),n.setQuery(s),await n.search(t)},f=async()=>{const s=o.query(),t=o.getSongsSearchOptions();s.trim()&&(o.addToHistory(s),o.setLastSearchQuery(s),o.setLastSearchDomain(o.domain())),n.setQuery(s),await n.searchSongs(t)},F=()=>{n.clearResults(),_.clearSuggestions(),o.setQuery(""),o.setCurrentPage(1)},C=L(()=>n.loading()||_.loading()||o.query().trim().length>0),I=L(()=>n.hasResults()||p.hasResults()),E=L(()=>p.searchStats().totalResults),i=L(()=>n.canSearch()&&!n.loading());return{state:o,search:n,suggestions:_,data:p,performSearch:g,performSongsSearch:f,clearAll:F,isActive:C,hasAnyResults:I,totalResultsCount:E,canPerformSearch:i}}var Fe=w(`<div><div class=search-box__container><input type=text class=search-box__input autocomplete=off></div><style>
-        .search-box {
-          position: relative;
-          width: 100%;
-        }
-
-        .search-box__container {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .search-box__input {
-          flex: 1;
-          padding: 8px 12px;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-          font-size: 14px;
-          outline: none;
-          transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .search-box__input:focus {
-          border-color: #007bff;
-          box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
-        }
-
-        .search-box__input:disabled {
-          background-color: #f5f5f5;
-          cursor: not-allowed;
-        }
-
-        .search-box__button {
-          padding: 8px 16px;
-          border: 1px solid #007bff;
-          background-color: #007bff;
-          color: white;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 14px;
-          transition: all 0.2s;
-        }
-
-        .search-box__button:hover:not(:disabled) {
-          background-color: #0056b3;
-          border-color: #0056b3;
-        }
-
-        .search-box__button:disabled {
-          background-color: #6c757d;
-          border-color: #6c757d;
-          cursor: not-allowed;
-        }
-
-        .search-box__button:active {
-          transform: translateY(1px);
-        }
-      `),Re=w("<button class=search-box__button type=button>");function Ee(e){const o=e.useInternalState!==!1,n=o?ne({}):null,[_,p]=S(),[g,f]=S(),F=()=>o&&n?n.query():e.query||"",C=s=>{if(o&&n?n.setQuery(s):e.onQueryChange?.(s),e.autoSearch&&s.trim()){const t=g();t&&clearTimeout(t);const c=setTimeout(()=>{e.onSearch?.(s.trim())},e.debounceMs||300);f(c)}},I=s=>{const t=s.currentTarget.value;C(t)},E=s=>{switch(s.key){case"Enter":s.preventDefault();const t=F().trim();t&&(e.onSearch?.(t),_()?.blur());break;case"Escape":_()?.blur();break}},i=()=>{const s=F().trim();s&&(e.onSearch?.(s),_()?.blur())};return ae(()=>()=>{const s=g();s&&clearTimeout(s)}),(()=>{var s=Fe(),t=s.firstChild,c=t.firstChild;return c.$$keydown=E,c.$$input=I,de(p,c),h(t,(()=>{var l=j(()=>!!e.showSearchButton);return()=>l()&&(()=>{var r=Re();return r.$$click=i,h(r,()=>e.searchButtonText||"Search"),A(()=>r.disabled=e.disabled||!F().trim()),r})()})(),null),A(l=>{var r=`search-box ${e.class||""}`,u=e.placeholder||"Search...",a=e.disabled;return r!==l.e&&J(s,l.e=r),u!==l.t&&Y(c,"placeholder",l.t=u),a!==l.a&&(c.disabled=l.a=a),l},{e:void 0,t:void 0,a:void 0}),A(()=>c.value=F()),s})()}X(["input","keydown","click"]);var qe=w("<div class=search-suggestions__loading>Loading suggestions..."),De=w(`<div role=listbox aria-label="Search suggestions"><style>
+import{c as M,o as Se,f as ke,a as _e,b as De,g as o,t as f,u as Te,i as a,S,F as U,s as re,d as F,m as de,e as Z,r as Be}from"./web-D-xQcgi-.js";import{F as fe,G as Ie,A as Ne,Y as Pe,a as Me,t as Le,u as Qe,b as Ue,S as Ge,c as je,d as Ve}from"./SearchContext-CrQHirpG.js";import{A as Ye}from"./api-client-DUH2cqEH.js";import"./types-CGPwAX3k.js";//! Music filter API client with proper error handling and validation
+class X extends Error{constructor(b,r,c){super(b),this.status=r,this.response=c,this.name="MusicFilterApiError"}}class He{apiClient;constructor(b){this.apiClient=b}async getGenreFilters(b={}){try{const r=fe.parse(b),c=new URLSearchParams;r.limit!==void 0&&c.set("limit",r.limit.toString()),r.min_count!==void 0&&c.set("min_count",r.min_count.toString());const k=`/api/music/filters/genres?${c.toString()}`,z=await this.apiClient.makeRequest("GET",k);return Ie.parse(z)}catch(r){throw r instanceof X?r:new X(`Error fetching genre filters: ${r.message}`,void 0,r)}}async getArtistFilters(b={}){try{const r=fe.parse(b),c=new URLSearchParams;r.limit!==void 0&&c.set("limit",r.limit.toString()),r.min_count!==void 0&&c.set("min_count",r.min_count.toString());const k=`/api/music/filters/artists?${c.toString()}`,z=await this.apiClient.makeRequest("GET",k);return Ne.parse(z)}catch(r){throw r instanceof X?r:new X(`Error fetching artist filters: ${r.message}`,void 0,r)}}async getYearFilters(b={}){try{const r=fe.parse(b),c=new URLSearchParams;r.limit!==void 0&&c.set("limit",r.limit.toString()),r.min_count!==void 0&&c.set("min_count",r.min_count.toString());const k=`/api/music/filters/years?${c.toString()}`,z=await this.apiClient.makeRequest("GET",k);return Pe.parse(z)}catch(r){throw r instanceof X?r:new X(`Error fetching year filters: ${r.message}`,void 0,r)}}async getAllFilters(b={}){try{const r=fe.parse(b),c=new URLSearchParams;r.limit!==void 0&&c.set("limit",r.limit.toString()),r.min_count!==void 0&&c.set("min_count",r.min_count.toString());const k=`/api/music/filters/metadata?${c.toString()}`,z=await this.apiClient.makeRequest("GET",k);return Me.parse(z)}catch(r){throw r instanceof X?r:new X(`Error fetching all filters: ${r.message}`,void 0,r)}}async refreshFilterData(){return this.getAllFilters({limit:50,min_count:1})}async getPopularFilters(b=5){return this.getAllFilters({limit:25,min_count:b})}}function Je(e){return new He(e)}function We(e){const[b,r]=M(null),[c,k]=M(!1),[z,I]=M(null),i=Je(e.apiClient),O=()=>{const A=b();return A?Le(A):{genres:[{value:"rock",label:"Rock"},{value:"pop",label:"Pop"},{value:"jazz",label:"Jazz"},{value:"classical",label:"Classical"},{value:"electronic",label:"Electronic"}],artists:[{value:"",label:"All Artists"}],types:[{value:"song",label:"Song"},{value:"album",label:"Album"},{value:"artist",label:"Artist"}]}},D=async()=>{k(!0),I(null);try{const A=await i.getAllFilters({limit:e.limit||50,min_count:e.minCount||1});r(A)}catch(A){const P=A instanceof X?A:new Error(`Failed to fetch filters: ${A}`);I(P),e.onError&&e.onError(P)}finally{k(!1)}};return Se(()=>{D()}),{filterOptions:O,filterData:b,loading:c,error:z,refreshFilters:D,clearError:()=>{I(null)},getFilterOption:(A,P)=>{const d=b();if(!d)return;const g=d[A];if(Array.isArray(g))return g.find(h=>h.value===P)},hasFilters:()=>{const A=b();return A!==null&&(A.genres.length>0||A.artists.length>0||A.years.length>0)}}}var Xe=f("<div class=search-suggestions__loading>Loading suggestions..."),Ze=f(`<div role=listbox aria-label="Search suggestions"><style>
           .search-suggestions {
             position: absolute;
             left: 0;
@@ -150,6 +94,29 @@ import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e
             line-height: 1.2;
           }
 
+          .search-suggestions__group {
+            border-bottom: 1px solid #e9ecef;
+          }
+
+          .search-suggestions__group:last-child {
+            border-bottom: none;
+          }
+
+          .search-suggestions__group-header {
+            padding: 8px 12px 4px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #f0f0f0;
+          }
+
+          .search-suggestions__group .search-suggestions__item {
+            padding-left: 20px;
+          }
+
           /* Scrollbar styling */
           .search-suggestions::-webkit-scrollbar {
             width: 4px;
@@ -167,33 +134,29 @@ import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e
           .search-suggestions::-webkit-scrollbar-thumb:hover {
             background: #a8a8a8;
           }
-        `),Ie=w("<div role=option><span class=search-suggestions__text>");function Le(e){const o=e.useInternalSuggestions!==!1,n=o&&e.apiClient?he({apiClient:e.apiClient,query:()=>e.query,debounceMs:e.debounceMs||300,enabled:e.show!==!1}):null,[_,p]=S(-1),[g,f]=S(),[F,C]=S(!0),I=()=>o&&n?n.suggestions():e.suggestions||[],E=()=>o&&n?n.loading():e.loading||!1,i=()=>{const r=e.query.toLowerCase().trim();return r?I().filter(a=>{const x=typeof a=="string"?a:a.text;return x.toLowerCase().includes(r)&&x.toLowerCase()!==r}).slice(0,e.maxSuggestions||10):[]},s=()=>e.show===!1||!e.query.trim()||!F()?!1:i().length>0||E()&&e.showLoading,t=r=>{e.onSuggestionSelect?.(r),p(-1),C(!1),e.onBlur?.()},c=r=>{const u=i();switch(r.key){case"ArrowDown":r.preventDefault(),u.length>0&&p(a=>a<u.length-1?a+1:0);break;case"ArrowUp":r.preventDefault(),u.length>0&&p(a=>a>0?a-1:u.length-1);break;case"Enter":if(r.preventDefault(),_()>=0&&_()<u.length){const a=u[_()];if(a){const x=typeof a=="string"?a:a.text;t(x)}}else C(!1),e.onBlur?.();break;case"Escape":p(-1),C(!1),e.onBlur?.();break}};N(()=>{const r=i();r.length===0?p(-1):_()>=r.length&&p(r.length-1)}),N(()=>{const r=e.query.trim();C(!!r)});const l=r=>{const u=g();u&&!u.contains(r.target)&&(C(!1),e.onBlur?.())};return ae(()=>{document.addEventListener("keydown",c),document.addEventListener("mousedown",l)}),fe(()=>{document.removeEventListener("keydown",c),document.removeEventListener("mousedown",l)}),b(k,{get when(){return s()},get children(){var r=De(),u=r.firstChild;return de(f,r),h(r,b(k,{get when(){return E()&&e.showLoading},get children(){return qe()}}),u),h(r,b(k,{get when(){return j(()=>!E())()&&i().length>0},get children(){return b(G,{get each(){return i()},children:(a,x)=>{const R=typeof a=="string"?a:a.text;return(()=>{var d=Ie(),y=d.firstChild;return d.$$click=()=>t(R),Y(d,"data-suggestion",R),h(y,R),A(v=>{var $=`search-suggestions__item ${x()===_()?"search-suggestions__item--selected":""}`,T=x()===_();return $!==v.e&&J(d,v.e=$),T!==v.t&&Y(d,"aria-selected",v.t=T),v},{e:void 0,t:void 0}),d})()}})}}),u),A(()=>J(r,`search-suggestions ${e.class||""} search-suggestions--${e.position||"bottom"}`)),r}})}X(["click"]);var Ae=w("<span class=search-filters__count>(<!>)"),Te=w("<button class=search-filters__clear-button type=button>Clear All"),Me=w("<button class=search-filters__toggle-button type=button>"),Oe=w("<div class=search-filters__loading>Loading filters..."),ze=w('<div class=search-filters__group><label class=search-filters__label>Search Query<input type=text class=search-filters__input placeholder="Enter search terms...">'),Be=w("<div class=search-filters__group><label class=search-filters__label>Genre</label><select class=search-filters__select><option value>All Genres"),Qe=w("<div class=search-filters__group><label class=search-filters__label>Artist</label><select class=search-filters__select><option value>All Artists"),Pe=w("<div class=search-filters__group><label class=search-filters__label>Type</label><div class=search-filters__checkboxes>"),He=w('<div class=search-filters__content><div class=search-filters__group><label class=search-filters__label>Year</label><div class=search-filters__range><input type=number class=search-filters__input placeholder=Year min=1900 max=2024></div></div><div class=search-filters__group><label class=search-filters__label>Rating</label><div class=search-filters__range><input type=number class="search-filters__input search-filters__input--small"placeholder=Min min=1 max=5><span class=search-filters__range-separator>to</span><input type=number class="search-filters__input search-filters__input--small"placeholder=Max min=1 max=5></div></div><div class=search-filters__group><label class=search-filters__checkbox-label><input type=checkbox class=search-filters__checkbox>Favorites Only</label></div><div class=search-filters__group><label class=search-filters__label>Sort By</label><select class=search-filters__select><option value=relevance>Relevance</option><option value=name>Name</option><option value=size>Size</option><option value=duration>Duration</option><option value=created>Date Created</option></select></div><div class=search-filters__group><label class=search-filters__label>Sort Order</label><select class=search-filters__select><option value=asc>Ascending</option><option value=desc>Descending'),We=w(`<div><div class=search-filters__header><h3 class=search-filters__title>Filters</h3><div class=search-filters__actions></div></div><style>
+        `),Ke=f("<div class=search-suggestions__group><div class=search-suggestions__group-header>"),et=f("<div role=option><span class=search-suggestions__text>");function tt(e){const b=e.useInternalSuggestions!==!1,r=b&&e.apiClient?Qe({apiClient:e.apiClient,query:()=>e.query,debounceMs:e.debounceMs||300,enabled:e.show!==!1}):null,[c,k]=M(-1),[z,I]=M(),[i,O]=M(!0),D=()=>b&&r?r.suggestions():e.suggestions||[],G=()=>b&&r?r.loading():e.loading||!1,H=()=>{const u=e.query.toLowerCase().trim();return u?D().filter(y=>{const l=typeof y=="string"?y:y.text;return l.toLowerCase().includes(u)&&l.toLowerCase()!==u}).slice(0,e.maxSuggestions||10):[]},J=()=>{const u=H(),_=new Map;u.forEach(l=>{const C=typeof l=="string"?"general":l.category||"general";_.has(C)||_.set(C,[]),_.get(C).push(l)});const y=["word","title","playlist","general"];return Array.from(_.entries()).sort(([l],[C])=>{const $=y.indexOf(l),E=y.indexOf(C),N=$===-1?y.length:$,T=E===-1?y.length:E;return N-T})},A=u=>({word:"Search suggestions",title:"Songs",playlist:"Playlists",general:"Suggestions"})[u]||u.charAt(0).toUpperCase()+u.slice(1),P=()=>e.show===!1||!e.query.trim()||!i()?!1:H().length>0||G()&&e.showLoading,d=()=>J().reduce((u,[_,y])=>u.concat(y),[]),g=u=>{e.onSuggestionSelect?.(u),k(-1),O(!1),e.onBlur?.()},h=u=>{const _=d();switch(u.key){case"ArrowDown":u.preventDefault(),_.length>0&&k(y=>y<_.length-1?y+1:0);break;case"ArrowUp":u.preventDefault(),_.length>0&&k(y=>y>0?y-1:_.length-1);break;case"Enter":if(u.preventDefault(),c()>=0&&c()<_.length){const y=_[c()];if(y){const l=typeof y=="string"?y:y.text;g(l)}}else O(!1),e.onBlur?.();break;case"Escape":k(-1),O(!1),e.onBlur?.();break}};_e(()=>{const u=d();u.length===0?k(-1):c()>=u.length&&k(u.length-1)}),_e(()=>{const u=e.query.trim();O(!!u)});const se=u=>{const _=z();_&&!_.contains(u.target)&&(O(!1),e.onBlur?.())};return Se(()=>{document.addEventListener("keydown",h),document.addEventListener("mousedown",se)}),De(()=>{document.removeEventListener("keydown",h),document.removeEventListener("mousedown",se)}),o(S,{get when(){return P()},get children(){var u=Ze(),_=u.firstChild;return Te(I,u),a(u,o(S,{get when(){return G()&&e.showLoading},get children(){return Xe()}}),_),a(u,o(S,{get when(){return de(()=>!G())()&&H().length>0},get children(){return o(U,{get each(){return J()},children:([y,l])=>{const $=d().findIndex(E=>l.includes(E));return(()=>{var E=Ke(),N=E.firstChild;return a(N,()=>A(y)),a(E,o(U,{each:l,children:(T,K)=>{const j=$+K(),V=typeof T=="string"?T:T.text;return(()=>{var Y=et(),ae=Y.firstChild;return Y.$$click=()=>g(V),re(Y,"data-suggestion",V),a(ae,V),F(B=>{var ee=`search-suggestions__item ${j===c()?"search-suggestions__item--selected":""}`,le=j===c();return ee!==B.e&&Z(Y,B.e=ee),le!==B.t&&re(Y,"aria-selected",B.t=le),B},{e:void 0,t:void 0}),Y})()}}),null),E})()}})}}),_),F(()=>Z(u,`search-suggestions ${e.class||""} search-suggestions--${e.position||"bottom"}`)),u}})}ke(["click"]);var rt=f("<span class=search-filters__count>(<!>)"),st=f("<button class=search-filters__clear-button type=button>Clear All"),at=f("<button class=search-filters__toggle-button type=button>"),lt=f("<div class=search-filters__loading>Loading filters..."),it=f('<div class=search-filters__group><label class=search-filters__label>Search Query<input type=text class=search-filters__input placeholder="Enter search terms...">'),nt=f("<div class=search-filters__group><label class=search-filters__label>Genre</label><select class=search-filters__select><option value>All Genres"),ot=f("<div class=search-filters__active><label class=search-filters__label>Active Filters</label><div class=search-filters__active-list>"),ct=f('<div class=search-filters__content><div class=search-filters__simple><div class=search-filters__group><label class=search-filters__label>Quick Filters</label><div class=search-filters__quick-category><h5 class=search-filters__category-title>Favorites & Rating</h5><div class=search-filters__quick-filters></div></div><div class=search-filters__quick-category><h5 class=search-filters__category-title>Genres</h5><div class=search-filters__quick-filters></div></div><div class=search-filters__quick-category><h5 class=search-filters__category-title>Time & Features</h5><div class=search-filters__quick-filters></div></div></div><div class=search-filters__group><label class=search-filters__label>Manual Filters</label><div class=search-filters__manual-grid><input type=text class=search-filters__input placeholder="Genre (e.g. jazz, rock)"><input type=text class=search-filters__input placeholder="Year (e.g. 2023)"><input type=text class=search-filters__input placeholder="Key (e.g. C, Am)"><input type=text class=search-filters__input placeholder="Min BPM"></div></div><div class=search-filters__group><label class=search-filters__label>Rating</label><div class=search-filters__range><input type=text class="search-filters__input search-filters__input--small"placeholder=Min><span class=search-filters__range-separator>to</span><input type=text class="search-filters__input search-filters__input--small"placeholder=Max></div></div><div class=search-filters__group><label class=search-filters__checkbox-label><input type=checkbox class=search-filters__checkbox>Show favorites only</label></div><div class=search-filters__group><label class=search-filters__label>Search Type</label><select class=search-filters__select></select></div><div class=search-filters__group><label class=search-filters__label>Sort By</label><select class=search-filters__select></select></div><div class=search-filters__group><label class=search-filters__label>Sort Direction</label><select class=search-filters__select><option value>No Direction</option><option value=desc>Descending</option><option value=asc>Ascending'),dt=f(`<div><div class=search-filters__header><h3 class=search-filters__title>Filters</h3><div class=search-filters__actions></div></div><style>
         .search-filters {
-          border: 1px solid #e0e0e0;
-          border-radius: 4px;
-          background: white;
+          padding: 16px;
+          margin-bottom: 16px;
         }
 
         .search-filters__header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 12px 16px;
-          border-bottom: 1px solid #e0e0e0;
-          background-color: #f8f9fa;
+          margin-bottom: 16px;
         }
 
         .search-filters__title {
           margin: 0;
           font-size: 16px;
           font-weight: 600;
-          color: #333;
         }
 
         .search-filters__count {
           color: #666;
           font-weight: normal;
-          font-size: 14px;
+          margin-left: 8px;
         }
 
         .search-filters__actions {
@@ -203,37 +166,30 @@ import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e
 
         .search-filters__clear-button,
         .search-filters__toggle-button {
-          padding: 4px 8px;
+          padding: 6px 12px;
           border: 1px solid #ccc;
-          background: white;
           border-radius: 4px;
+          background: white;
           cursor: pointer;
           font-size: 12px;
-          transition: all 0.2s;
-        }
-
-        .search-filters__clear-button:hover,
-        .search-filters__toggle-button:hover {
-          border-color: #007bff;
-          background-color: #f8f9fa;
         }
 
         .search-filters__loading {
-          padding: 16px;
           text-align: center;
+          padding: 16px;
           color: #666;
         }
 
         .search-filters__content {
-          padding: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
         }
+
+
 
         .search-filters__group {
           margin-bottom: 16px;
-        }
-
-        .search-filters__group:last-child {
-          margin-bottom: 0;
         }
 
         .search-filters__label {
@@ -241,28 +197,83 @@ import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e
           margin-bottom: 4px;
           font-size: 14px;
           font-weight: 500;
-          color: #333;
         }
 
         .search-filters__input,
-        .search-filters__select {
+        .search-filters__select,
+        .search-filters__textarea {
           width: 100%;
-          padding: 6px 8px;
+          padding: 6px;
           border: 1px solid #ccc;
           border-radius: 4px;
           font-size: 14px;
           outline: none;
-          transition: border-color 0.2s;
         }
 
         .search-filters__input:focus,
-        .search-filters__select:focus {
-          border-color: #007bff;
+        .search-filters__select:focus,
+        .search-filters__textarea:focus {
+          border-color: #000;
+        }
+
+        .search-filters__textarea {
+          font-family: monospace;
+          resize: vertical;
+        }
+
+        .search-filters__help {
+          margin-top: 4px;
+          font-size: 12px;
+          color: #666;
+        }
+
+        .search-filters__quick-category {
+          margin-bottom: 1rem;
+        }
+
+        .search-filters__quick-category:last-child {
+          margin-bottom: 0;
+        }
+
+        .search-filters__category-title {
+          font-size: 12px;
+          font-weight: 500;
+          color: black;
+          margin: 0 0 0.5rem 0;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        .search-filters__quick-filters {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+
+        .search-filters__quick-filter {
+          padding: 4px 8px;
+          border: 1px solid #ccc;
+          border-radius: 12px;
+          background: white;
+          cursor: pointer;
+          font-size: 12px;
+        }
+
+        .search-filters__quick-filter.active {
+          background: black;
+          color: white;
+          border-color: black;
+        }
+
+        .search-filters__manual-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
         }
 
         .search-filters__input--small {
-          width: auto;
-          flex: 1;
+          width: 60px;
+          flex: 0 0 60px;
         }
 
         .search-filters__range {
@@ -274,12 +285,6 @@ import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e
         .search-filters__range-separator {
           color: #666;
           font-size: 14px;
-        }
-
-        .search-filters__checkboxes {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
         }
 
         .search-filters__checkbox-label {
@@ -294,12 +299,50 @@ import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e
           margin: 0;
         }
 
-        .search-filters__option-count {
-          color: #666;
-          font-size: 12px;
-          margin-left: 4px;
+        .search-filters__active-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
         }
-      `),ue=w("<option>"),je=w("<span class=search-filters__option-count>(<!>)"),Ne=w("<label class=search-filters__checkbox-label><input type=checkbox class=search-filters__checkbox>");function Ue(e){const o=e.useInternalState!==!1,n=o?ne({}):null,[_,p]=S(e.startExpanded!==!1),g=()=>{if(o&&n){const i=n.filters();return{query:n.query(),genre:i.genre,artist:i.artist,yearFrom:i.year,rating_min:i.rating_min,rating_max:i.rating_max,favorites_only:i.favorites_only,types:[],sortBy:n.sortBy(),sortOrder:n.sortDirection()}}return e.filters||{}},f=(i,s)=>{if(o&&n)switch(i){case"query":n.setQuery(s);break;case"genre":n.updateFilter("genre",s);break;case"artist":n.updateFilter("artist",s);break;case"yearFrom":n.updateFilter("year",s?parseInt(s):null);break;case"rating_min":n.updateFilter("rating_min",s?parseInt(s):null);break;case"rating_max":n.updateFilter("rating_max",s?parseInt(s):null);break;case"favorites_only":n.updateFilter("favorites_only",s);break;case"sortBy":n.setSortBy(s);break;case"sortOrder":n.setSortDirection(s);break;default:const t={...g()};s===""||s===null||s===void 0?delete t[i]:t[i]=s,e.onFiltersChange?.(t);break}else{const t={...g()};s===""||s===null||s===void 0?delete t[i]:t[i]=s,e.onFiltersChange?.(t)}},F=(i,s,t)=>{const c=g()[i]||[];let l;t?l=[...c,s]:l=c.filter(r=>r!==s),f(i,l.length>0?l:void 0)},C=()=>{o&&n?(n.setQuery(""),n.clearFilters(),n.setSortBy("relevance"),n.setSortDirection("desc")):e.onFiltersChange?.({})},I=()=>{const i=g();return Object.keys(i).some(s=>{const t=i[s];return t!=null&&t!==""&&(Array.isArray(t)?t.length>0:!0)})},E=()=>{const i=g();return Object.keys(i).filter(s=>{const t=i[s];return t!=null&&t!==""&&(Array.isArray(t)?t.length>0:!0)}).length};return(()=>{var i=We(),s=i.firstChild,t=s.firstChild;t.firstChild;var c=t.nextSibling,l=s.nextSibling;return h(t,b(k,{get when(){return E()>0},get children(){var r=Ae(),u=r.firstChild,a=u.nextSibling;return a.nextSibling,h(r,E,a),r}}),null),h(c,b(k,{get when(){return I()},get children(){var r=Te();return r.$$click=C,r}}),null),h(c,b(k,{get when(){return e.showToggle!==!1},get children(){var r=Me();return r.$$click=()=>p(!_()),h(r,()=>_()?"Collapse":"Expand"),A(()=>Y(r,"aria-expanded",_())),r}}),null),h(i,b(k,{get when(){return e.loading},get children(){return Oe()}}),l),h(i,b(k,{get when(){return j(()=>!e.loading)()&&(_()||I())},get children(){var r=He(),u=r.firstChild,a=u.firstChild,x=a.nextSibling,R=x.firstChild,d=u.nextSibling,y=d.firstChild,v=y.nextSibling,$=v.firstChild,T=$.nextSibling,Q=T.nextSibling,P=d.nextSibling,H=P.firstChild,z=H.firstChild,Z=P.nextSibling,le=Z.firstChild,K=le.nextSibling,ie=Z.nextSibling,oe=ie.firstChild,ee=oe.nextSibling;return h(r,b(k,{get when(){return e.showQueryInput!==!1},get children(){var q=ze(),W=q.firstChild,B=W.firstChild,D=B.nextSibling;return D.$$input=O=>f("query",O.currentTarget.value),A(()=>D.value=g().query||""),q}}),u),h(r,b(k,{get when(){return e.filterOptions?.genres},get children(){var q=Be(),W=q.firstChild,B=W.nextSibling;return B.firstChild,B.addEventListener("change",D=>f("genre",D.currentTarget.value)),h(B,b(G,{get each(){return e.filterOptions?.genres},children:D=>(()=>{var O=ue();return h(O,()=>D.label,null),h(O,b(k,{get when(){return e.showCounts&&D.count!==void 0},get children(){return["(",j(()=>D.count),")"]}}),null),A(()=>O.value=D.value),O})()}),null),A(()=>B.value=g().genre||""),q}}),u),h(r,b(k,{get when(){return e.filterOptions?.artists},get children(){var q=Qe(),W=q.firstChild,B=W.nextSibling;return B.firstChild,B.addEventListener("change",D=>f("artist",D.currentTarget.value)),h(B,b(G,{get each(){return e.filterOptions?.artists},children:D=>(()=>{var O=ue();return h(O,()=>D.label,null),h(O,b(k,{get when(){return e.showCounts&&D.count!==void 0},get children(){return["(",j(()=>D.count),")"]}}),null),A(()=>O.value=D.value),O})()}),null),A(()=>B.value=g().artist||""),q}}),u),R.$$input=q=>f("yearFrom",q.currentTarget.value),h(r,b(k,{get when(){return e.filterOptions?.types},get children(){var q=Pe(),W=q.firstChild,B=W.nextSibling;return h(B,b(G,{get each(){return e.filterOptions?.types},children:D=>(()=>{var O=Ne(),te=O.firstChild;return te.addEventListener("change",U=>F("types",D.value,U.currentTarget.checked)),h(O,()=>D.label,null),h(O,b(k,{get when(){return e.showCounts&&D.count!==void 0},get children(){var U=je(),m=U.firstChild,M=m.nextSibling;return M.nextSibling,h(U,()=>D.count,M),U}}),null),A(()=>te.checked=(g().types||[]).includes(D.value)),O})()})),q}}),d),$.$$input=q=>f("rating_min",q.currentTarget.value),Q.$$input=q=>f("rating_max",q.currentTarget.value),z.addEventListener("change",q=>f("favorites_only",q.currentTarget.checked)),K.addEventListener("change",q=>f("sortBy",q.currentTarget.value)),ee.addEventListener("change",q=>f("sortOrder",q.currentTarget.value)),A(()=>R.value=g().yearFrom||""),A(()=>$.value=g().rating_min||""),A(()=>Q.value=g().rating_max||""),A(()=>z.checked=g().favorites_only||!1),A(()=>K.value=g().sortBy||"relevance"),A(()=>ee.value=g().sortOrder||"desc"),r}}),l),A(()=>J(i,`search-filters ${e.class||""}`)),i})()}X(["click","input"]);const ge=be();function Ve(e){const n={...ke({apiClient:e.apiClient,initialQuery:e.searchOptions?.initialQuery||"",initialDomain:e.searchOptions?.initialDomain||"music",enableHistory:e.searchOptions?.enableHistory??!0,enableSuggestions:e.searchOptions?.enableSuggestions??!0,debounceMs:e.searchOptions?.debounceMs||300,autoSearch:e.searchOptions?.autoSearch??!1,integrationMode:e.searchOptions?.integrationMode||"standalone",webSocketItems:e.searchOptions?.webSocketItems,onError:e.searchOptions?.onError}),apiClient:e.apiClient};return b(ge.Provider,{value:n,get children(){return e.children}})}function Ye(){const e=ye(ge);if(!e)throw new Error("useSearchContext must be used within a SearchProvider");return e}var Ge=w('<button class=search-demo__clear-button type=button title="Clear search">✕'),Je=w("<div class=search-demo__stats-item><span class=search-demo__stats-label>Results:</span><span class=search-demo__stats-value>"),Xe=w("<div class=search-demo__stats-item><span class=search-demo__stats-label>🎛️ Filters:</span><span class=search-demo__stats-value> active"),Ze=w("<div class=search-demo__stats-item><span class=search-demo__stats-loading>🔄 Searching..."),Ke=w("<div class=search-demo__results-header><h3>Search Results</h3><p>Found <!> results"),et=w("<div class=search-demo__results-grid>"),tt=w("<p class=search-demo__error>Error: "),rt=w("<div class=search-demo__no-results><h3>No results found</h3><p>Try adjusting your search terms or filters"),st=w("<div class=search-demo__welcome><h3>Welcome to Search Demo</h3><p>Enter a search query to get started</p><ul class=search-demo__features><li>🔍 Real-time search suggestions</li><li>🎛️ Advanced filtering options</li><li>📱 Responsive design</li><li>⚡ Fast and efficient"),at=w(`<div class=search-demo><div class=search-demo__header><h1 class=search-demo__title>🔍 Search Demo</h1><p class=search-demo__description>Modular search components with autocomplete, filtering, and real-time results</p></div><div class=search-demo__content><div class=search-demo__search-section><div class=search-demo__search-container><div class=search-demo__input-group></div></div><div class=search-demo__stats></div></div><div class=search-demo__main><div class=search-demo__filters></div><div class=search-demo__results></div></div></div><style>
+
+        .search-filters__active-chip {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          background: black;
+          padding: 4px 8px;
+          border-radius: 12px;
+          font-size: 12px;
+        }
+
+        .search-filters__active-key {
+          opacity: 0.8;
+          color: white !important;
+        }
+
+        .search-filters__active-value {
+          font-weight: 500;
+          color: white !important;
+        }
+
+        .search-filters__active-remove {
+          background: rgba(255, 255, 255, 0.3);
+          border: none;
+          color: white;
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          cursor: pointer;
+          font-size: 12px;
+          line-height: 1;
+        }
+
+        .search-filters__active-remove:hover {
+          background: rgba(255, 255, 255, 0.5);
+        }
+
+
+      `),$e=f("<button type=button>"),we=f("<option>"),ut=f("<div class=search-filters__active-chip><span class=search-filters__active-key>:</span><span class=search-filters__active-value></span><button class=search-filters__active-remove type=button>×");function gt(e){const b=e.useInternalState!==!1,r=b?Ue({}):null,[c,k]=M(e.startExpanded!==!1),[z,I]=M("");_e(()=>{const d=i().query||"";I(d)});const i=()=>{if(b&&r){const d=r.filters();return{query:r.query(),genre:d.genre||"",year:d.year||"",rating_min:d.rating_min||"",rating_max:d.rating_max||"",favorites_only:d.favorites_only||!1,types:[],sortBy:r.sortBy(),sortOrder:r.sortDirection()}}return e.filters||{}},O=(d,g)=>{if(b&&r)switch(d){case"query":r.setQuery(g);break;case"genre":r.updateFilter("genre",g);break;case"year":r.updateFilter("year",g?parseInt(g):null);break;case"rating_min":r.updateFilter("rating_min",g?parseInt(g):null);break;case"rating_max":r.updateFilter("rating_max",g?parseInt(g):null);break;case"favorites_only":r.updateFilter("favorites_only",g);break;case"sortBy":r.setSortBy(g);break;case"sortOrder":r.setSortDirection(g);break;default:const h={...i()};g===""||g===null||g===void 0?d==="favorites_only"?h[d]=!1:delete h[d]:h[d]=g,e.onFiltersChange?.(h);break}else{const h={...i()};g===""||g===null||g===void 0?d==="favorites_only"?h[d]=!1:delete h[d]:h[d]=g,e.onFiltersChange?.(h)}},D=()=>{if(b&&r)r.setQuery(""),r.clearFilters(),r.setSortBy("relevance"),r.setSortDirection("desc");else{const d={query:"",genre:"",artist:"",year:"",rating_min:"",rating_max:"",favorites_only:!1,sortBy:"",sortOrder:""};e.onFiltersChange?.(d)}},G=()=>{const d=i();return Object.keys(d).some(g=>{const h=d[g];return h!=null&&h!==""&&h!==!1&&!(g==="sortBy"&&h==="")&&!(g==="sortOrder"&&h==="")&&(Array.isArray(h)?h.length>0:!0)})},H=()=>{const d=i();return Object.keys(d).filter(g=>{const h=d[g];return h!=null&&h!==""&&h!==!1&&!(g==="sortBy"&&h==="")&&!(g==="sortOrder"&&h==="")&&(Array.isArray(h)?h.length>0:!0)}).length},J=()=>e.quickFilters||[{key:"favorites_only",value:!0,label:"Favorites",category:"favorites"},{key:"rating_min",value:4,label:"High Rated (4+)",category:"rating"},{key:"rating_min",value:3,label:"Good Rated (3+)",category:"rating"}],A=[{value:"websearch",label:"Web Search",description:"Natural language with operators"},{value:"plainto",label:"Plain Text",description:"Simple text matching"},{value:"phrase",label:"Phrase",description:"Exact phrase matching"}],P=[{value:"",label:"No Sorting"},{value:"relevance",label:"Relevance"},{value:"created_at",label:"Date Created"},{value:"title",label:"Title"},{value:"artist",label:"Artist"},{value:"album",label:"Album"},{value:"rating",label:"Rating"}];return(()=>{var d=dt(),g=d.firstChild,h=g.firstChild;h.firstChild;var se=h.nextSibling,u=g.nextSibling;return a(h,o(S,{get when(){return H()>0},get children(){var _=rt(),y=_.firstChild,l=y.nextSibling;return l.nextSibling,a(_,H,l),_}}),null),a(se,o(S,{get when(){return G()},get children(){var _=st();return _.$$click=D,_}}),null),a(se,o(S,{get when(){return e.showToggle!==!1},get children(){var _=at();return _.$$click=()=>k(!c()),a(_,()=>c()?"Collapse":"Expand"),F(()=>re(_,"aria-expanded",c())),_}}),null),a(d,o(S,{get when(){return e.loading},get children(){return lt()}}),u),a(d,o(S,{get when(){return de(()=>!e.loading)()&&(c()||G())},get children(){var _=ct(),y=_.firstChild,l=y.firstChild,C=l.firstChild,$=C.nextSibling,E=$.firstChild,N=E.nextSibling,T=$.nextSibling,K=T.firstChild,j=K.nextSibling,V=T.nextSibling,Y=V.firstChild,ae=Y.nextSibling,B=l.nextSibling,ee=B.firstChild,le=ee.nextSibling,m=le.firstChild,p=m.nextSibling,x=p.nextSibling,q=x.nextSibling,R=B.nextSibling,ne=R.firstChild,oe=ne.nextSibling,W=oe.firstChild,L=W.nextSibling,ue=L.nextSibling,ge=R.nextSibling,pe=ge.firstChild,he=pe.firstChild,me=ge.nextSibling,be=me.firstChild,te=be.nextSibling,ie=me.nextSibling,ve=ie.firstChild,ce=ve.nextSibling,Re=ie.nextSibling,Ee=Re.firstChild,Ce=Ee.nextSibling;return a(y,o(S,{get when(){return e.showQueryInput!==!1},get children(){var t=it(),s=t.firstChild,n=s.firstChild,w=n.nextSibling;return w.$$keydown=v=>{if(v.key==="Enter"){v.preventDefault();const Q={...i()};Q.query=v.currentTarget.value,e.onFiltersChange?.(Q)}},w.addEventListener("blur",v=>{const Q={...i()};Q.query=v.currentTarget.value,e.onFiltersChange?.(Q)}),w.$$input=v=>{I(v.currentTarget.value)},F(()=>w.value=z()),t}}),l),a(N,o(U,{get each(){return J().filter(t=>t.category==="favorites"||t.category==="rating")},children:t=>(()=>{var s=$e();return s.$$click=()=>{const n={...i()};i()[t.key]===t.value?n[t.key]=t.key==="favorites_only"?!1:"":n[t.key]=t.value,e.onFiltersChange?.(n)},a(s,()=>t.label),F(n=>{var w=`search-filters__quick-filter ${i()[t.key]===t.value?"active":""}`,v=t.description;return w!==n.e&&Z(s,n.e=w),v!==n.t&&re(s,"title",n.t=v),n},{e:void 0,t:void 0}),s})()})),a(j,o(U,{get each(){return J().filter(t=>t.category==="genre")},children:t=>(()=>{var s=$e();return s.$$click=()=>{const n={...i()};i()[t.key]===t.value?n[t.key]="":n[t.key]=t.value,e.onFiltersChange?.(n)},a(s,()=>t.label),F(n=>{var w=`search-filters__quick-filter ${i()[t.key]===t.value?"active":""}`,v=t.description;return w!==n.e&&Z(s,n.e=w),v!==n.t&&re(s,"title",n.t=v),n},{e:void 0,t:void 0}),s})()})),a(ae,o(U,{get each(){return J().filter(t=>t.category==="time"||t.category==="features")},children:t=>(()=>{var s=$e();return s.$$click=()=>{const n={...i()};i()[t.key]===t.value?n[t.key]="":n[t.key]=t.value,e.onFiltersChange?.(n)},a(s,()=>t.label),F(n=>{var w=`search-filters__quick-filter ${i()[t.key]===t.value?"active":""}`,v=t.description;return w!==n.e&&Z(s,n.e=w),v!==n.t&&re(s,"title",n.t=v),n},{e:void 0,t:void 0}),s})()})),a(y,o(S,{get when(){return e.filterOptions?.genres},get children(){var t=nt(),s=t.firstChild,n=s.nextSibling;return n.firstChild,n.addEventListener("change",w=>{const v=w.currentTarget.value,Q={...i()};v===""?Q.genre="":Q.genre=v,e.onFiltersChange?.(Q)}),a(n,o(U,{get each(){return e.filterOptions?.genres},children:w=>(()=>{var v=we();return a(v,()=>w.label,null),a(v,o(S,{get when(){return e.showCounts&&w.count!==void 0},get children(){return["(",de(()=>w.count),")"]}}),null),F(()=>v.value=w.value),v})()}),null),F(()=>n.value=i().genre||""),t}}),B),m.$$input=t=>O("genre",t.currentTarget.value),p.$$input=t=>{const s=t.currentTarget.value;if(s===""||!isNaN(Number(s))){const n={...i()};n.year=s===""?"":Number(s),e.onFiltersChange?.(n)}},x.$$input=t=>{const s=t.currentTarget.value;O("key_signature",s||null)},q.$$input=t=>{const s=t.currentTarget.value;(s===""||!isNaN(Number(s)))&&O("bpm_min",s===""?null:Number(s))},W.$$input=t=>{const s=t.currentTarget.value;if(s===""||!isNaN(Number(s))&&Number(s)>=1&&Number(s)<=5){const n={...i()};n.rating_min=s===""?"":Number(s),e.onFiltersChange?.(n)}},ue.$$input=t=>{const s=t.currentTarget.value;if(s===""||!isNaN(Number(s))&&Number(s)>=1&&Number(s)<=5){const n={...i()};n.rating_max=s===""?"":Number(s),e.onFiltersChange?.(n)}},he.addEventListener("change",t=>{const s={...i()};s.favorites_only=t.currentTarget.checked,e.onFiltersChange?.(s)}),te.addEventListener("change",t=>O("search_type",t.currentTarget.value)),a(te,o(U,{each:A,children:t=>(()=>{var s=we();return a(s,()=>t.label),F(()=>re(s,"title",t.description)),F(()=>s.value=t.value),s})()})),ce.addEventListener("change",t=>{const s={...i()};s.sortBy=t.currentTarget.value,e.onFiltersChange?.(s)}),a(ce,o(U,{each:P,children:t=>(()=>{var s=we();return a(s,()=>t.label),F(()=>s.value=t.value),s})()})),Ce.addEventListener("change",t=>{const s={...i()};s.sortOrder=t.currentTarget.value,e.onFiltersChange?.(s)}),a(_,o(S,{get when(){return G()},get children(){var t=ot(),s=t.firstChild,n=s.nextSibling;return a(n,o(U,{get each(){return Object.entries(i())},children:([w,v])=>o(S,{get when(){return v!=null&&v!==""&&v!==!1&&!(w==="sortBy"&&v==="")&&!(w==="sortOrder"&&v==="")&&!(Array.isArray(v)&&v.length===0)},get children(){var Q=ut(),xe=Q.firstChild,ze=xe.firstChild,Fe=xe.nextSibling,Oe=Fe.nextSibling;return a(xe,w,ze),a(Fe,()=>String(v)),Oe.$$click=qe=>{qe.preventDefault(),qe.stopPropagation();const ye={...i()};w==="favorites_only"?ye[w]=!1:ye[w]="",e.onFiltersChange?.(ye)},Q}})})),t}}),null),F(()=>m.value=i().genre||""),F(()=>p.value=i().year||""),F(()=>x.value=i().key_signature||""),F(()=>q.value=i().bpm_min||""),F(()=>W.value=i().rating_min||""),F(()=>ue.value=i().rating_max||""),F(()=>he.checked=i().favorites_only||!1),F(()=>te.value=i().search_type||"websearch"),F(()=>ce.value=i().sortBy||""),F(()=>Ce.value=i().sortOrder||""),_}}),u),F(()=>Z(d,`search-filters ${e.class||""}`)),d})()}ke(["click","input","keydown"]);var ht=f('<button class=search-demo__clear-button type=button title="Clear search">✕'),_t=f("<div class=search-demo__search-container><div class=search-demo__input-group>"),mt=f("<div class=search-demo__stats-item><span class=search-demo__stats-label>Results:</span><span class=search-demo__stats-value>"),ft=f("<div class=search-demo__stats-item><span class=search-demo__stats-label>🎛️ Filters:</span><span class=search-demo__stats-value> active"),pt=f("<div class=search-demo__stats-item><span class=search-demo__stats-loading>🔄 Searching..."),bt=f("<div class=search-demo__stats-item><span class=search-demo__stats-loading>🔄 Loading filters..."),vt=f('<div class=search-demo__stats-item><span class=search-demo__stats-label>⚠️ Filter Error:</span><button class=search-demo__refresh-button type=button title="Retry loading filters">Retry'),xt=f("<div class=search-demo__filters>"),yt=f("<div class=search-demo__results-header><h3>Search Results</h3><p>Found <!> results"),$t=f("<div class=search-demo__results-grid>"),wt=f("<p class=search-demo__error>Error: "),St=f("<div class=search-demo__suggestions-section><h4>You might be interested in:</h4><div class=search-demo__suggestions-groups>"),kt=f("<div class=search-demo__no-results><h3>No results found</h3><p>Try adjusting your search terms or filters"),Ct=f("<div class=search-demo__welcome><h3>Welcome to Search Demo</h3><p>Enter a search query to get started</p><ul class=search-demo__features><li>🔍 Real-time search suggestions</li><li>🎛️ Advanced filtering options</li><li>📱 Responsive design</li><li>⚡ Fast and efficient"),Ft=f(`<div class=search-demo><div class=search-demo__header><h1 class=search-demo__title>🔍 Search Demo</h1><p class=search-demo__description>Modular search components with autocomplete, filtering, and real-time results</p><div class=search-demo__mode-toggle><label class=search-demo__mode-label>Search Mode:</label><div class=search-demo__mode-buttons><button type=button>🔍 Search Box</button><button type=button>🎛️ Filters Only</button></div></div></div><div class=search-demo__content><div class=search-demo__search-section><div class=search-demo__stats></div></div><div><div class=search-demo__results></div></div></div><style>
         /* Fix text colors for demo */
         .search-demo {
           color: #333;
@@ -356,6 +399,122 @@ import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e
           color: white;
         }
 
+        /* Grouped suggestions styling */
+        .search-demo__suggestions-section {
+          margin-top: 2rem;
+          padding: 1.5rem;
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 12px;
+          backdrop-filter: blur(10px);
+        }
+
+        .search-demo__suggestions-section h4 {
+          margin: 0 0 1.5rem 0;
+          font-size: 1.2rem;
+          color: #fff;
+          text-align: center;
+        }
+
+        .search-demo__suggestions-groups {
+          display: flex;
+          flex-direction: column;
+          gap: 1.5rem;
+        }
+
+        .search-demo__suggestion-group {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+          padding: 1rem;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .search-demo__suggestion-group-header {
+          display: flex;
+          align-items: center;
+          margin-bottom: 1rem;
+          gap: 0.75rem;
+        }
+
+        .search-demo__suggestion-group-icon {
+          font-size: 1.5rem;
+          flex-shrink: 0;
+        }
+
+        .search-demo__suggestion-group-title h5 {
+          margin: 0;
+          font-size: 1rem;
+          color: #fff;
+          font-weight: 600;
+        }
+
+        .search-demo__suggestion-group-title p {
+          margin: 0.25rem 0 0 0;
+          font-size: 0.85rem;
+          color: rgba(255, 255, 255, 0.7);
+        }
+
+        .search-demo__suggestion-cards {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+        }
+
+        .search-demo__suggestion-card {
+          background: rgba(255, 255, 255, 0.15);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 6px;
+          padding: 0.5rem 0.75rem;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          font-size: 0.9rem;
+          color: #fff;
+          backdrop-filter: blur(5px);
+        }
+
+        .search-demo__suggestion-card:hover {
+          background: rgba(255, 255, 255, 0.25);
+          border-color: rgba(255, 255, 255, 0.5);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .search-demo__suggestion-text {
+          flex: 1;
+        }
+
+        .search-demo__suggestion-frequency {
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 10px;
+          padding: 0.1rem 0.4rem;
+          font-size: 0.75rem;
+          font-weight: 500;
+          min-width: 1.5rem;
+          text-align: center;
+        }
+
+        /* Responsive design for suggestion cards */
+        @media (max-width: 768px) {
+          .search-demo__suggestions-groups {
+            gap: 1rem;
+          }
+
+          .search-demo__suggestion-group {
+            padding: 0.75rem;
+          }
+
+          .search-demo__suggestion-cards {
+            gap: 0.4rem;
+          }
+
+          .search-demo__suggestion-card {
+            padding: 0.4rem 0.6rem;
+            font-size: 0.85rem;
+          }
+        }
+
         .search-demo {
           min-height: 100vh;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -377,8 +536,57 @@ import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e
 
         .search-demo__description {
           font-size: 1.1rem;
-          margin: 0;
+          margin: 0 0 1.5rem 0;
           opacity: 0.9;
+        }
+
+        .search-demo__mode-toggle {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 1rem;
+        }
+
+        .search-demo__mode-label {
+          font-size: 1rem;
+          font-weight: 500;
+          color: rgba(255, 255, 255, 0.9);
+        }
+
+        .search-demo__mode-buttons {
+          display: flex;
+          gap: 0.5rem;
+        }
+
+        .search-demo__mode-button {
+          padding: 0.5rem 1rem;
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 6px;
+          color: rgba(255, 255, 255, 0.8);
+          cursor: pointer;
+          font-size: 0.9rem;
+          font-weight: 500;
+          transition: all 0.2s;
+          backdrop-filter: blur(10px);
+        }
+
+        .search-demo__mode-button:hover {
+          background: rgba(255, 255, 255, 0.2);
+          border-color: rgba(255, 255, 255, 0.5);
+          color: white;
+          transform: translateY(-2px);
+        }
+
+        .search-demo__mode-button.active {
+          background: rgba(255, 255, 255, 0.3);
+          border-color: rgba(255, 255, 255, 0.6);
+          color: white;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .search-demo__mode-button:active {
+          transform: translateY(0);
         }
 
         .search-demo__content {
@@ -467,9 +675,16 @@ import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e
 
         .search-demo__main {
           display: grid;
-          grid-template-columns: 300px 1fr;
           gap: 2rem;
           align-items: start;
+        }
+
+        .search-demo__main--with-filters {
+          grid-template-columns: 300px 1fr;
+        }
+
+        .search-demo__main--full-width {
+          grid-template-columns: 1fr;
         }
 
         .search-demo__filters {
@@ -598,7 +813,23 @@ import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e
           font-size: 0.9rem;
         }
 
+        .search-demo__refresh-button {
+          padding: 4px 8px;
+          background: rgba(255, 255, 255, 0.2);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 4px;
+          color: white;
+          cursor: pointer;
+          font-size: 12px;
+          transition: all 0.2s;
+          backdrop-filter: blur(10px);
+        }
 
+        .search-demo__refresh-button:hover {
+          background: rgba(255, 255, 255, 0.3);
+          border-color: rgba(255, 255, 255, 0.5);
+          transform: scale(1.05);
+        }
 
         @media (max-width: 768px) {
           .search-demo__main {
@@ -613,7 +844,7 @@ import{c as S,h as L,g as N,d as X,o as ae,t as w,l as de,k as h,m as j,b as A,e
             grid-template-columns: 1fr;
           }
         }
-      `),nt=w("<span class=search-demo__result-score>Score: "),lt=w("<div class=search-demo__result-artist>Artist: "),it=w("<div class=search-demo__result-card><h4 class=search-demo__result-title></h4><p class=search-demo__result-description></p><div class=search-demo__result-meta><span class=search-demo__result-type>");console.log("🔍 Search Demo loading...");const ot=e=>new ve(e),ct={genres:[{value:"rock",label:"Rock"},{value:"pop",label:"Pop"},{value:"jazz",label:"Jazz"},{value:"classical",label:"Classical"},{value:"electronic",label:"Electronic"},{value:"folk",label:"Folk"},{value:"hip-hop",label:"Hip-Hop"},{value:"country",label:"Country"},{value:"blues",label:"Blues"},{value:"r&b",label:"R&B"}],artists:[{value:"",label:"All Artists"},{value:"beatles",label:"The Beatles"},{value:"dylan",label:"Bob Dylan"},{value:"stones",label:"Rolling Stones"},{value:"bowie",label:"David Bowie"}],types:[{value:"song",label:"Song"},{value:"album",label:"Album"},{value:"artist",label:"Artist"}]};function ut(){const e=Ye(),[o,n]=S(""),[_,p]=S([]),[g,f]=S(!1);ae(()=>{try{localStorage.removeItem("search-state"),localStorage.removeItem("freqhole-state"),localStorage.removeItem("grid-state"),localStorage.clear(),console.log("🧹 Cleared all localStorage for demo")}catch(i){console.log("Could not clear localStorage:",i)}});const F=async i=>{const s=i||e.state.query();if(s.trim()){f(!0),console.log("🔍 Performing search:",s),console.log("🔍 API Client:",e.apiClient),console.log("🔍 Search context:",e.search);try{i&&e.state.setQuery(i),console.log("🔍 About to call performSearch..."),await e.performSearch(),console.log("🔍 performSearch completed");const t=e.search.results();console.log("🔍 Raw results:",t),console.log("🔍 Search error:",e.search.error()),p(t?.results||[]),console.log("✅ Search completed:",t),console.log("🔍 Results array length:",t?.results?.length),console.log("🔍 Total count from server:",t?.total_count),(!t||!t.results||t.results.length===0)&&console.log("No results found for query:",s)}catch(t){console.error("❌ Search failed:",t),console.error("❌ Search error details:",t),p([])}finally{f(!1)}}},C=i=>{console.log("🔍 Suggestion selected:",i),e.state.setQuery(i),F(i)},I=()=>{e.state.setQuery(""),e.state.clearFilters(),p([]),n(""),console.log("🧹 Search cleared")},E=()=>{};return N(()=>{const i=e.state.query();console.log("🔍 Context query changed:",i),n(i)}),(()=>{var i=at(),s=i.firstChild,t=s.nextSibling,c=t.firstChild,l=c.firstChild,r=l.firstChild,u=l.nextSibling,a=c.nextSibling,x=a.firstChild,R=x.nextSibling;return h(r,b(Ee,{onSearch:F,placeholder:"Search music, artists, albums...",showSearchButton:!0,searchButtonText:"Search",autoSearch:!1,useInternalState:!1,get query(){return e.state.query()},onQueryChange:d=>e.state.setQuery(d)}),null),h(r,b(k,{get when(){return e.state.query().trim()||_().length>0},get children(){var d=Ge();return d.$$click=I,d}}),null),h(l,b(Le,{get query(){return e.state.query()},onSuggestionSelect:C,onBlur:E,maxSuggestions:8,showLoading:!0,position:"bottom",useInternalSuggestions:!0,get apiClient(){return e.apiClient},show:!0}),null),h(u,b(k,{get when(){return e.hasAnyResults()},get children(){var d=Je(),y=d.firstChild,v=y.nextSibling;return h(v,()=>e.totalResultsCount()),d}}),null),h(u,b(k,{get when(){return e.state.hasActiveFilters()},get children(){var d=Xe(),y=d.firstChild,v=y.nextSibling,$=v.firstChild;return h(v,()=>e.state.getFilterCount(),$),d}}),null),h(u,b(k,{get when(){return e.search.loading()||g()},get children(){return Ze()}}),null),h(x,b(Ue,{filterOptions:ct,showCounts:!1,startExpanded:!0,showToggle:!0,showQueryInput:!1,useInternalState:!1,get filters(){return{genre:e.state.filters().genre,artist:e.state.filters().artist,yearFrom:e.state.filters().year?.toString()||"",rating_min:e.state.filters().rating_min?.toString()||"",rating_max:e.state.filters().rating_max?.toString()||"",favorites_only:e.state.filters().favorites_only}},onFiltersChange:d=>{console.log("Filters changed:",d),d.genre!==void 0&&e.state.updateFilter("genre",d.genre||""),d.artist!==void 0&&e.state.updateFilter("artist",d.artist||""),d.yearFrom!==void 0&&e.state.updateFilter("year",d.yearFrom?parseInt(d.yearFrom):null),d.rating_min!==void 0&&e.state.updateFilter("rating_min",d.rating_min?parseInt(d.rating_min):null),d.rating_max!==void 0&&e.state.updateFilter("rating_max",d.rating_max?parseInt(d.rating_max):null),d.favorites_only!==void 0&&e.state.updateFilter("favorites_only",d.favorites_only),e.state.query().trim()?(console.log("🎛️ Filters changed, re-running search with filters:",d),F()):console.log("🎛️ Filters applied, but no search query to execute. Current filters:",d)}})),h(R,b(k,{get when(){return j(()=>!e.search.loading())()&&!g()},get children(){return[b(k,{get when(){return _().length>0},get children(){return[(()=>{var d=Ke(),y=d.firstChild,v=y.nextSibling,$=v.firstChild,T=$.nextSibling;return T.nextSibling,h(v,()=>_().length,T),d})(),(()=>{var d=et();return h(d,()=>_().map((y,v)=>(()=>{var $=it(),T=$.firstChild,Q=T.nextSibling,P=Q.nextSibling,H=P.firstChild;return h(T,()=>y.title||`Result ${v+1}`),h(Q,()=>y.subtitle||y.description||"No description"),h(H,()=>y.result_type||"Unknown"),h(P,b(k,{get when(){return y.relevance_score},get children(){var z=nt();return z.firstChild,h(z,()=>y.relevance_score?.toFixed(2),null),z}}),null),h($,b(k,{get when(){return y.metadata?.artist},get children(){var z=lt();return z.firstChild,h(z,()=>y.metadata.artist,null),z}}),null),A(()=>Y($,"key",y.id||v)),$})())),d})()]}}),b(k,{get when(){return j(()=>!!(_().length===0&&o()))()&&!g()},get children(){var d=rt(),y=d.firstChild;return y.nextSibling,h(d,b(k,{get when(){return e.search.error()},get children(){var v=tt();return v.firstChild,h(v,()=>e.search.error()?.message,null),v}}),null),d}}),b(k,{get when(){return j(()=>!o())()&&_().length===0},get children(){return st()}})]}})),i})()}function dt(e){const o=ot(e.apiBaseUrl||"http://localhost:8080");return b(Ve,{apiClient:o,searchOptions:{enableSuggestions:!0,enableHistory:!1,autoSearch:!1,integrationMode:"standalone"},get children(){return b(ut,{})}})}class ht extends HTMLElement{dispose;connectedCallback(){console.log("🔍 SearchDemo element connected");const o=this.getAttribute("api-base-url")||"http://localhost:8080",n=this.getAttribute("auto-connect")==="true";try{this.dispose=pe(()=>b(dt,{apiBaseUrl:o,autoConnect:n}),this),console.log("✅ SearchDemo render successful")}catch(_){console.error("❌ SearchDemo render failed:",_)}}disconnectedCallback(){console.log("🔍 SearchDemo element disconnected"),this.dispose&&this.dispose()}}try{customElements.define("search-demo",ht),console.log("✅ search-demo element registered successfully")}catch(e){console.error("❌ Failed to register search-demo element:",e)}X(["click"]);
+      `),qt=f("<span class=search-demo__result-score>Score: "),At=f("<div class=search-demo__result-artist>Artist: "),Rt=f("<div class=search-demo__result-card><h4 class=search-demo__result-title></h4><p class=search-demo__result-description></p><div class=search-demo__result-meta><span class=search-demo__result-type>"),Et=f("<div class=search-demo__suggestion-group><div class=search-demo__suggestion-group-header><span class=search-demo__suggestion-group-icon></span><div class=search-demo__suggestion-group-title><h5></h5><p></p></div></div><div class=search-demo__suggestion-cards>"),zt=f("<span class=search-demo__suggestion-frequency>"),Ot=f("<div class=search-demo__suggestion-card><span class=search-demo__suggestion-text>");console.log("🔍 Search Demo loading...");const Dt=e=>new Ye(e),Ae={genres:[{value:"rock",label:"Rock"},{value:"pop",label:"Pop"},{value:"jazz",label:"Jazz"},{value:"classical",label:"Classical"},{value:"electronic",label:"Electronic"},{value:"folk",label:"Folk"},{value:"hip-hop",label:"Hip-Hop"},{value:"country",label:"Country"},{value:"blues",label:"Blues"},{value:"r&b",label:"R&B"}],artists:[{value:"",label:"All Artists"},{value:"beatles",label:"The Beatles"},{value:"dylan",label:"Bob Dylan"},{value:"stones",label:"Rolling Stones"},{value:"bowie",label:"David Bowie"}],types:[{value:"song",label:"Song"},{value:"album",label:"Album"},{value:"artist",label:"Artist"}]};function Tt(){const e=je(),[b,r]=M(""),[c,k]=M([]),[z,I]=M(!1),[i,O]=M("search"),D=We({apiClient:e.apiClient,autoFetch:!0,minCount:1,limit:25,onError:l=>{console.warn("Failed to load dynamic filters:",l)}}),G=()=>{if(D.loading())return Ae;if(D.error()||!D.hasFilters())return console.log("Using fallback filters due to:",D.error()?.message||"no filters available"),Ae;const l=D.filterOptions();return console.log("Using dynamic filters:",l),l};Se(()=>{try{localStorage.removeItem("search-state"),localStorage.removeItem("freqhole-state"),localStorage.removeItem("grid-state"),localStorage.clear(),console.log("🧹 Cleared all localStorage for demo")}catch(l){console.log("Could not clear localStorage:",l)}});const[H,J]=M(null),A=(l=300)=>{const C=H();C&&clearTimeout(C);const $=setTimeout(()=>{P()},l);J($)};_e(()=>{const l=i();console.log("🔄 Search mode changed to:",l),l==="search"&&(e.state.query().trim()||k([]))});const P=async l=>{const C=l||e.state.query();if(!(i()==="search"&&!C.trim())){if(i()==="filters"&&!e.state.hasActiveFilters()&&!e.state.query().trim()){console.log("🎛️ No active filters or query, clearing results"),k([]);return}I(!0),console.log("🔍 Performing search:",C),console.log("🔍 Search mode:",i()),console.log("🔍 API Client:",e.apiClient);try{l&&e.state.setQuery(l);let $;if(i()==="filters"){console.log("🎛️ Using filterMusic API for filters-only search");const E=e.state.getMusicSearchOptions(),{q:N,...T}=E;console.log("🎛️ Filter params:",T),$=await e.apiClient.filterMusic(T)}else console.log("🔍 Using regular search API"),await e.performSearch(),$=e.search.results();console.log("🔍 Search completed"),console.log("🔍 Raw results:",$),k($?.results||[]),console.log("✅ Search completed:",$),console.log("🔍 Results array length:",$?.results?.length),console.log("🔍 Total count from server:",$?.total_count),(!$||!$.results||$.results.length===0)&&console.log("No results found for query:",C,"mode:",i())}catch($){console.error("❌ Search failed:",$),console.error("❌ Search error details:",$),k([])}finally{I(!1)}}},d=l=>{console.log("🔍 Suggestion selected:",l),e.state.setQuery(l),P(l)},g=()=>{e.clearAll(),k([]),r(""),console.log("🧹 Search cleared")},h=()=>{};_e(()=>{const l=e.state.query();console.log("🔍 Context query changed:",l),r(l)});const se=()=>e.search.results()?.suggestions||[],u=()=>{const l=se();if(!l.length)return[];const C=new Map;l.forEach(E=>{const N=E.category||"general";C.has(N)||C.set(N,[]),C.get(N).push(E)});const $=["word","title","playlist","general"];return Array.from(C.entries()).sort(([E],[N])=>{const T=$.indexOf(E),K=$.indexOf(N),j=T===-1?$.length:T,V=K===-1?$.length:K;return j-V})},_=l=>({word:{name:"Search Suggestions",icon:"🔍",description:"Try these search terms"},title:{name:"Songs",icon:"🎵",description:"Songs that match your search"},playlist:{name:"Playlists",icon:"📋",description:"Playlists containing your search terms"},general:{name:"Suggestions",icon:"💡",description:"Other suggestions"}})[l]||{name:l.charAt(0).toUpperCase()+l.slice(1),icon:"💡",description:"Related suggestions"},y=l=>{console.log("🔍 Suggestion clicked:",l),e.state.setQuery(l),P(l)};return(()=>{var l=Ft(),C=l.firstChild,$=C.firstChild,E=$.nextSibling,N=E.nextSibling,T=N.firstChild,K=T.nextSibling,j=K.firstChild,V=j.nextSibling,Y=C.nextSibling,ae=Y.firstChild,B=ae.firstChild,ee=ae.nextSibling,le=ee.firstChild;return j.$$click=()=>O("search"),V.$$click=()=>O("filters"),a(ae,o(S,{get when(){return i()==="search"},get children(){var m=_t(),p=m.firstChild;return a(p,o(Ve,{onSearch:P,placeholder:"Search music, artists, albums...",showSearchButton:!0,searchButtonText:"Search",autoSearch:!1,useInternalState:!1,get query(){return e.state.query()},onQueryChange:x=>e.state.setQuery(x)}),null),a(p,o(S,{get when(){return e.state.query().trim()||c().length>0},get children(){var x=ht();return x.$$click=g,x}}),null),a(m,o(tt,{get query(){return e.state.query()},onSuggestionSelect:d,onBlur:h,maxSuggestions:8,showLoading:!0,position:"bottom",useInternalSuggestions:!0,get apiClient(){return e.apiClient},show:!0}),null),m}}),B),a(B,o(S,{get when(){return e.hasAnyResults()},get children(){var m=mt(),p=m.firstChild,x=p.nextSibling;return a(x,()=>e.totalResultsCount()),m}}),null),a(B,o(S,{get when(){return e.state.hasActiveFilters()},get children(){var m=ft(),p=m.firstChild,x=p.nextSibling,q=x.firstChild;return a(x,()=>e.state.getFilterCount(),q),m}}),null),a(B,o(S,{get when(){return e.search.loading()||z()},get children(){return pt()}}),null),a(B,o(S,{get when(){return D.loading()},get children(){return bt()}}),null),a(B,o(S,{get when(){return D.error()},get children(){var m=vt(),p=m.firstChild,x=p.nextSibling;return x.$$click=()=>D.refreshFilters(),m}}),null),a(ee,o(S,{get when(){return i()==="filters"},get children(){var m=xt();return a(m,o(gt,{get filterOptions(){return G()},showCounts:!0,startExpanded:!0,showToggle:!0,get showQueryInput(){return i()==="filters"},useInternalState:!1,get loading(){return D.loading()},get filters(){return{genre:e.state.filters().genre,artist:e.state.filters().artist,year:e.state.filters().year,rating_min:e.state.filters().rating_min,rating_max:e.state.filters().rating_max,favorites_only:e.state.filters().favorites_only,sortBy:e.state.sortBy()==="relevance"?"":e.state.sortBy(),sortOrder:e.state.sortDirection()==="desc"?"":e.state.sortDirection()}},onFiltersChange:p=>{console.log("🎛️ Filters changed:",p),p===null||p&&Object.keys(p).length===0?(console.log("🧹 Clearing all filters"),e.state.clearFilters(),k([])):(Object.keys(p).forEach(q=>{const R=p[q];q==="sortBy"?e.state.setSortBy(R===""?"relevance":R):q==="sortOrder"?e.state.setSortDirection(R===""?"desc":R):q==="query"?e.state.setQuery(R||""):R==null||R===""?e.state.updateFilter(q,null):e.state.updateFilter(q,R)}),i()==="filters"?e.state.hasActiveFilters()||e.state.query().trim()?(console.log("🎛️ Debouncing filter search"),A()):(console.log("🎛️ No active filters or query, clearing results"),k([])):e.state.query().trim()&&(console.log("🎛️ Debouncing search with query and filters"),A()))},quickFilters:[{key:"favorites_only",value:!0,label:"Favorites Only",description:"Show only your favorite songs",category:"favorites"},{key:"rating_min",value:4,label:"High Rated",description:"Songs rated 4+ stars",category:"rating"},{key:"rating_min",value:3,label:"Good Rated",description:"Songs rated 3+ stars",category:"rating"},{key:"genre",value:"jazz",label:"Jazz",description:"Jazz music",category:"genre"},{key:"genre",value:"classical",label:"Classical",description:"Classical music",category:"genre"},{key:"genre",value:"rock",label:"Rock",description:"Rock music",category:"genre"},{key:"has_thumbnail",value:!0,label:"Has Artwork",description:"Songs with album artwork",category:"features"},{key:"year_min",value:2020,label:"Recent",description:"Music from 2020 onwards",category:"time"},{key:"year_max",value:1999,label:"Vintage",description:"Music from 1999 or earlier",category:"time"},{key:"bpm_min",value:120,label:"Upbeat",description:"Songs with 120+ BPM",category:"features"}]})),m}}),le),a(le,o(S,{get when(){return de(()=>!e.search.loading())()&&!z()},get children(){return[o(S,{get when(){return c().length>0},get children(){return[(()=>{var m=yt(),p=m.firstChild,x=p.nextSibling,q=x.firstChild,R=q.nextSibling;return R.nextSibling,a(x,()=>c().length,R),m})(),(()=>{var m=$t();return a(m,()=>c().map((p,x)=>(()=>{var q=Rt(),R=q.firstChild,ne=R.nextSibling,oe=ne.nextSibling,W=oe.firstChild;return a(R,()=>p.title||`Result ${x+1}`),a(ne,()=>p.subtitle||p.description||"No description"),a(W,()=>p.result_type||"Unknown"),a(oe,o(S,{get when(){return p.relevance_score},get children(){var L=qt();return L.firstChild,a(L,()=>p.relevance_score?.toFixed(2),null),L}}),null),a(q,o(S,{get when(){return p.metadata?.artist},get children(){var L=At();return L.firstChild,a(L,()=>p.metadata.artist,null),L}}),null),F(()=>re(q,"key",p.id||x)),q})())),m})()]}}),o(S,{get when(){return de(()=>!!(c().length===0&&b()))()&&!z()},get children(){var m=kt(),p=m.firstChild;return p.nextSibling,a(m,o(S,{get when(){return e.search.error()},get children(){var x=wt();return x.firstChild,a(x,()=>e.search.error()?.message,null),x}}),null),a(m,o(S,{get when(){return u().length>0},get children(){var x=St(),q=x.firstChild,R=q.nextSibling;return a(R,o(U,{get each(){return u()},children:([ne,oe])=>{const W=_(ne);return(()=>{var L=Et(),ue=L.firstChild,ge=ue.firstChild,pe=ge.nextSibling,he=pe.firstChild,me=he.nextSibling,be=ue.nextSibling;return a(ge,()=>W.icon),a(he,()=>W.name),a(me,()=>W.description),a(be,o(U,{each:oe,children:te=>(()=>{var ie=Ot(),ve=ie.firstChild;return ie.$$click=()=>y(te.text),a(ve,()=>te.text),a(ie,o(S,{get when(){return te.frequency>1},get children(){var ce=zt();return a(ce,()=>te.frequency),ce}}),null),ie})()})),L})()}})),x}}),null),m}}),o(S,{get when(){return de(()=>!b())()&&c().length===0},get children(){return Ct()}})]}})),F(m=>{var p=`search-demo__mode-button ${i()==="search"?"active":""}`,x=`search-demo__mode-button ${i()==="filters"?"active":""}`,q=`search-demo__main ${i()==="filters"?"search-demo__main--with-filters":"search-demo__main--full-width"}`;return p!==m.e&&Z(j,m.e=p),x!==m.t&&Z(V,m.t=x),q!==m.a&&Z(ee,m.a=q),m},{e:void 0,t:void 0,a:void 0}),l})()}function Bt(e){const b=Dt(e.apiBaseUrl||"http://localhost:8080");return o(Ge,{apiClient:b,searchOptions:{enableSuggestions:!0,enableHistory:!1,autoSearch:!1,integrationMode:"standalone"},get children(){return o(Tt,{})}})}class It extends HTMLElement{dispose;connectedCallback(){console.log("🔍 SearchDemo element connected");const b=this.getAttribute("api-base-url")||"http://localhost:8080",r=this.getAttribute("auto-connect")==="true";try{this.dispose=Be(()=>o(Bt,{apiBaseUrl:b,autoConnect:r}),this),console.log("✅ SearchDemo render successful")}catch(c){console.error("❌ SearchDemo render failed:",c)}}disconnectedCallback(){console.log("🔍 SearchDemo element disconnected"),this.dispose&&this.dispose()}}try{customElements.define("search-demo",It),console.log("✅ search-demo element registered successfully")}catch(e){console.error("❌ Failed to register search-demo element:",e)}ke(["click"]);
 //# sourceMappingURL=search-demo.js.map
 
   </script>
