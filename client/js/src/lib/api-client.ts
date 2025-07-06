@@ -11,6 +11,20 @@ import type {
   AuthStatusResponse,
   HealthResponse,
 } from "./api-spec.js";
+import type {
+  SearchResult,
+  SongsSearchResult,
+  SuggestionsResult,
+  MusicSearchOptions,
+  SongsSearchOptions,
+  SuggestionsOptions,
+} from "./search-types.js";
+import {
+  SearchResultSchema,
+  SongsSearchResultSchema,
+  SuggestionsResultSchema,
+} from "./search-types.js";
+import { searchValidation } from "./search-validation.js";
 
 // Error handling
 export class ApiError extends Error {
@@ -349,6 +363,100 @@ export class ApiClient {
     }
 
     return response.json();
+  }
+
+  // Search Methods - Music Domain
+  async searchMusic(
+    query: string,
+    options: Omit<MusicSearchOptions, "q"> = {}
+  ): Promise<SearchResult> {
+    const params = { q: query, ...options };
+
+    try {
+      const response = await this.makeRequest<unknown>(
+        "GET",
+        "/api/music/search",
+        { params }
+      );
+
+      return searchValidation.validateResponse(
+        SearchResultSchema,
+        response,
+        "Music search"
+      ) as SearchResult;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw new ApiError(
+          `Music search failed: ${error.message}`,
+          error.status,
+          error.responseText,
+          "/api/music/search"
+        );
+      }
+      throw error;
+    }
+  }
+
+  async searchSongs(
+    query: string,
+    options: Omit<SongsSearchOptions, "q"> = {}
+  ): Promise<SongsSearchResult> {
+    const params = { q: query, ...options };
+
+    try {
+      const response = await this.makeRequest<unknown>(
+        "GET",
+        "/api/music/search/songs",
+        { params }
+      );
+
+      return searchValidation.validateResponse(
+        SongsSearchResultSchema,
+        response,
+        "Songs search"
+      ) as SongsSearchResult;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw new ApiError(
+          `Songs search failed: ${error.message}`,
+          error.status,
+          error.responseText,
+          "/api/music/search/songs"
+        );
+      }
+      throw error;
+    }
+  }
+
+  async getMusicSuggestions(
+    query: string,
+    options: Omit<SuggestionsOptions, "q"> = {}
+  ): Promise<SuggestionsResult> {
+    const params = { q: query, ...options };
+
+    try {
+      const response = await this.makeRequest<unknown>(
+        "GET",
+        "/api/music/search/suggestions",
+        { params }
+      );
+
+      return searchValidation.validateResponse(
+        SuggestionsResultSchema,
+        response,
+        "Music suggestions"
+      ) as SuggestionsResult;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw new ApiError(
+          `Music suggestions failed: ${error.message}`,
+          error.status,
+          error.responseText,
+          "/api/music/search/suggestions"
+        );
+      }
+      throw error;
+    }
   }
 }
 

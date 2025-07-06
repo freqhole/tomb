@@ -130,6 +130,9 @@ export {
 // Sync functionality
 export * from "../sync-legacy/index.js";
 
+// Search functionality
+export * from "./search-index.js";
+
 // Re-export zod for convenience
 export { z } from "zod";
 
