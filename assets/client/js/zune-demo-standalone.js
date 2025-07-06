@@ -1,4 +1,4 @@
-import{f as xt,r as $t,g as r,c as h,o as wt,b as _t,t as c,i as t,S as f,F as P,d as _,m as C,e as y,s as be}from"./web-D-xQcgi-.js";import{S as yt,c as kt,d as St}from"./SearchContext-CrQHirpG.js";import{A as Ct}from"./api-client-DUH2cqEH.js";import"./types-CGPwAX3k.js";var qt=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M8 5v14l11-7z">'),It=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z">'),Mt=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z">'),Pt=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z">'),At=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z">'),jt=c('<svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z">'),Qt=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z">'),Vt=c('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z">'),Bt=c('<svg width=20 height=20 viewBox="0 0 24 24"fill=currentColor><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z">'),Et=c('<button class=zune-search-clear title="Clear search">'),Lt=c("<div class=zune-filter-section><div class=zune-filter-list><button>all artists"),Tt=c("<div class=zune-filter-section><div class=zune-filter-list><button>all albums"),Rt=c("<div class=zune-filter-section><div class=zune-filter-list><button>all playlists"),Dt=c("<button class=zune-play-all-btn>play all"),Ht=c("<div class=zune-loading><div class=zune-loading-spinner></div><p>loading..."),Ft=c("<div class=zune-error><p>error: </p><button>retry"),Nt=c('<div class=zune-suggestions-table><div class=zune-table-header><div class="zune-table-cell zune-table-cell--category">category</div><div class="zune-table-cell zune-table-cell--suggestion">suggestion</div><div class="zune-table-cell zune-table-cell--frequency">matches</div><div class="zune-table-cell zune-table-cell--actions">'),Ut=c('<div class=zune-songs-table><div class=zune-table-header><div class="zune-table-cell zune-table-cell--play"></div><div class="zune-table-cell zune-table-cell--title">title</div><div class="zune-table-cell zune-table-cell--artist">artist</div><div class="zune-table-cell zune-table-cell--album">album</div><div class="zune-table-cell zune-table-cell--duration">time</div><div class="zune-table-cell zune-table-cell--actions">'),Ie=c("<div class=zune-grid>"),Ot=c("<div class=zune-queue-empty>queue is empty"),Xt=c("<div class=zune-queue><div class=zune-queue-header><h3>queue</h3><div class=zune-queue-controls><button>clear</button><button></button></div></div><div class=zune-queue-list>"),Yt=c('<img class="zune-artwork-image small">'),Zt=c('<div class=zune-player><div class=zune-player-info><div class=zune-player-artwork></div><div class=zune-player-text><h4 class=zune-player-title></h4><p class=zune-player-artist></p></div></div><div class=zune-player-controls><button class=zune-control-btn></button><button class="zune-control-btn primary"></button><button class=zune-control-btn></button><button class=zune-control-btn title="Show Queue"></button></div><div class=zune-player-progress><span class=zune-time></span><div class=zune-progress-bar><div class=zune-progress-fill></div></div><span class=zune-time></span></div><div class=zune-player-volume><input type=range min=0 max=1 step=0.1 class=zune-volume-slider>'),Gt=c(`<div class=zune-demo><div class=zune-header><div class=zune-branding><div class=zune-logo><div class=zune-logo-square></div><span class=zune-logo-text>freqhole</span></div><div class=zune-search-container></div></div><nav class=zune-nav><button>music</button><button>artists</button><button>albums</button><button>playlists</button></nav></div><div class=zune-main><div class=zune-sidebar></div><div class=zune-center><div class=zune-content-header><div class=zune-stats></div></div><div></div></div></div><style>
+import{f as an,r as sn,g as r,c as f,o as on,b as cn,t as s,i as t,S as g,F as L,d as E,m as S,e as V,s as Se}from"./web-D-xQcgi-.js";import{S as dn,c as un,d as gn}from"./SearchContext-CrQHirpG.js";import{A as pn}from"./api-client-DUH2cqEH.js";import"./types-CGPwAX3k.js";var fn=s('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M8 5v14l11-7z">'),bn=s('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z">'),mn=s('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z">'),hn=s('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z">'),vn=s('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z">'),zn=s('<svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z">'),$n=s('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z">'),yn=s('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z">'),xn=s('<svg width=20 height=20 viewBox="0 0 24 24"fill=currentColor><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z">'),_n=s('<svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z">'),wn=s('<svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z">'),kn=s('<button class=zune-search-clear title="Clear search">'),Ne=s("<div class=zune-filter-sidebar><div class=zune-filter-list>"),Ye=s("<button class=zune-play-all-btn>play all"),Sn=s("<button class=zune-play-all-btn>create playlist"),Cn=s("<div class=zune-loading><div class=zune-loading-spinner></div><p>loading..."),Pn=s("<div class=zune-error><p>error: </p><button>retry"),In=s('<div class=zune-suggestions-table><div class=zune-table-header><div class="zune-table-cell zune-table-cell--category">category</div><div class="zune-table-cell zune-table-cell--suggestion">suggestion</div><div class="zune-table-cell zune-table-cell--frequency">matches</div><div class="zune-table-cell zune-table-cell--actions">'),qn=s('<div class=zune-songs-table><div class=zune-table-header><div class="zune-table-cell zune-table-cell--play"></div><div class="zune-table-cell zune-table-cell--title">title</div><div class="zune-table-cell zune-table-cell--artist">artist</div><div class="zune-table-cell zune-table-cell--album">album</div><div class="zune-table-cell zune-table-cell--duration">time</div><div class="zune-table-cell zune-table-cell--actions">'),Je=s("<div class=zune-grid>"),An=s("<div class=zune-queue-empty>queue is empty"),Mn=s("<div class=zune-queue><div class=zune-queue-header><h3>queue</h3><div class=zune-queue-controls><button>clear</button><button></button></div></div><div class=zune-queue-list>"),En=s('<img class="zune-artwork-image small">'),jn=s('<div class=zune-player><div class=zune-player-info><div class=zune-player-artwork></div><div class=zune-player-text><h4 class=zune-player-title></h4><p class=zune-player-artist></p></div></div><div class=zune-player-controls><button class=zune-control-btn></button><button class="zune-control-btn primary"></button><button class=zune-control-btn></button><button class=zune-control-btn title="Show Queue"></button></div><div class=zune-player-progress><span class=zune-time></span><div class=zune-progress-bar><div class=zune-progress-fill></div></div><span class=zune-time></span></div><div class=zune-player-volume><input type=range min=0 max=1 step=0.1 class=zune-volume-slider>'),Tn=s("<div class=zune-dropdown-backdrop>"),Dn=s('<div class=zune-form-group><label>Title</label><input type=text placeholder="Enter playlist title"class=zune-input>'),Fn=s('<div class=zune-form-group><label>Description (optional)</label><textarea placeholder="Enter playlist description"class=zune-textarea rows=3>'),Rn=s("<div class=zune-form-group><label class=zune-checkbox-label><input type=checkbox>Make public"),Ln=s("<div class=zune-form-group><label> (<!>)</label><div class=zune-selected-songs>"),Qn=s("<button class=zune-btn-primary>Create"),Vn=s("<button class=zune-btn-primary>Save"),Bn=s("<button class=zune-btn-primary>Add Songs"),Un=s("<div class=zune-modal-overlay><div class=zune-modal><div class=zune-modal-header><h3></h3><button class=zune-modal-close></button></div><div class=zune-modal-content></div><div class=zune-modal-actions><button class=zune-btn-secondary>Cancel"),On=s(`<div class=zune-demo><div class=zune-header><div class=zune-branding><div class=zune-logo><div class=zune-logo-square></div><span class=zune-logo-text>freqhole</span></div><div class=zune-search-container></div></div><nav class=zune-nav><button>music</button><button>artists</button><button>albums</button><button>playlists</button></nav></div><div class=zune-main><div class=zune-sidebar></div><div class=zune-center><div class=zune-content-header><div class=zune-stats></div></div><div></div></div></div><style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap');
 
         .zune-demo {
@@ -910,5 +910,285 @@ import{f as xt,r as $t,g as r,c as h,o as wt,b as _t,t as c,i as t,S as f,F as P
             max-width: 100%;
           }
         }
-      `),Me=c("<button><span class=zune-filter-count>"),Jt=c('<div class=zune-suggestion-group-header><div class="zune-table-cell zune-table-cell--category"></div><div class=zune-table-cell></div><div class=zune-table-cell></div><div class=zune-table-cell>'),Kt=c('<div class="zune-table-row zune-suggestion-row"><div class="zune-table-cell zune-table-cell--category"></div><div class="zune-table-cell zune-table-cell--suggestion"></div><div class="zune-table-cell zune-table-cell--frequency"></div><div class="zune-table-cell zune-table-cell--actions"><button class=zune-action-btn title="Search this"><svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z">'),Wt=c("<div class=zune-playing-indicator><div class=zune-wave></div><div class=zune-wave></div><div class=zune-wave>"),en=c("<img class=zune-song-thumbnail>"),tn=c("<span class=zune-favorite-indicator>♥"),nn=c('<div><div class="zune-table-cell zune-table-cell--play"></div><div class="zune-table-cell zune-table-cell--title"><div class=zune-song-title-cell><div class=zune-song-info><span class=zune-song-title></span></div></div></div><div class="zune-table-cell zune-table-cell--artist"></div><div class="zune-table-cell zune-table-cell--album"></div><div class="zune-table-cell zune-table-cell--duration"></div><div class="zune-table-cell zune-table-cell--actions"><button class=zune-action-btn title="Add to queue">'),rn=c("<span class=zune-track-number>"),ln=c("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p> songs</p><p> albums"),an=c("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p></p><p> tracks"),sn=c("<p class=zune-description>"),on=c("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p> songs"),cn=c("<div><div class=zune-queue-info><h4></h4><p></p></div><button class=zune-queue-remove>"),un=c('<div class="zune-artwork-placeholder small">');const Xe=w=>new Ct({baseUrl:w}),Ue=()=>qt(),dn=()=>It(),gn=()=>Mt(),fn=()=>Pt(),Oe=()=>At(),bn=()=>jt(),Pe=()=>Qt(),hn=()=>Vt(),Ae=()=>Bt();function mn(){const w=kt(),[m,he]=h("music"),[Ye,Ze]=h([]),[me,Ge]=h([]),[pe,Je]=h([]),[ve,Ke]=h([]),[A,te]=h(null),[We,ze]=h([]),[xe,ne]=h(!1),[$e,re]=h(null),[j,et]=h(null),[we,ie]=h(!1),[je,Qe]=h(0),[le,tt]=h(0),[Ve,nt]=h(.7),[Z,rt]=h(null),[B,G]=h([]),[J,D]=h(0),[Be,Ee]=h(!1),[ae,se]=h(null),[oe,ce]=h(null),[ue,de]=h(""),[H,E]=h([]),[F,K]=h(!1),[it,_e]=h("idle");Xe("http://localhost:8080");const ye=async e=>{ne(!0),re(null);try{switch(e){case"music":const d=await(await fetch("/api/media/songs?limit=100")).json();Ze(d.songs||[]);break;case"artists":const k=await(await fetch("/api/media/artists")).json();Ke(k.artists||[]);break;case"playlists":const q=await(await fetch("/api/media/playlists?limit=100")).json();Ge(q.playlists||[]);break;case"albums":const T=await(await fetch("/api/media/albums")).json();Je(T||[]);break}}catch(l){re(l instanceof Error?l.message:"Failed to fetch data")}finally{ne(!1)}};wt(()=>{const e=new Audio;rt(e),e.addEventListener("loadedmetadata",()=>{tt(e.duration)}),e.addEventListener("timeupdate",()=>{Qe(e.currentTime)}),e.addEventListener("ended",()=>{ie(!1),Qe(0),Le()}),ye(m())}),_t(()=>{const e=Z();e&&(e.pause(),e.src="")});const lt=e=>{if(B().find(a=>a.song.id===e.id))return;const d={song:e,id:`queue-${e.id}-${Date.now()}`};G(a=>[...a,d])},Le=()=>{const e=B(),l=J();if(l<e.length-1){D(l+1);const d=e[l+1];d&&W(d.song,!1)}},at=()=>{const e=B(),l=J();if(l>0){D(l-1);const d=e[l-1];d&&W(d.song,!1)}},st=e=>{G(l=>l.filter(d=>d.id!==e))},ot=()=>{G([]),D(0)},N=e=>{e!==m()&&(_e("exiting"),setTimeout(()=>{he(e),_e("entering"),ye(e),se(null),ce(null),te(null),setTimeout(()=>{_e("idle")},200)},200))},ct=()=>{const e=Z();!e||!j()||(we()?(e.pause(),ie(!1)):(e.play(),ie(!0)))},W=(e,l=!0)=>{const d=Z();if(d&&(et(e),d.src=`/api/blobs/${e.media_blob_id}`,d.volume=Ve(),d.play(),ie(!0),l&&B().length===0)){const a={song:e,id:`queue-${e.id}-${Date.now()}`};G([a]),D(0)}},Te=async e=>{try{const a=(await(await fetch(`/api/media/playlists/${e.id}/songs`)).json()).songs||[];te(e),ze(a)}catch(l){re(l instanceof Error?l.message:"Failed to load playlist")}},Re=async e=>{try{const a=(await(await fetch(`/api/media/playlists/${e.id}/songs`)).json()).songs||[];if(a.length>0){te(e),ze(a);const k=a.map((L,q)=>({song:L.song,id:`playlist-${e.id}-${q}`}));G(k),D(0),W(a[0].song,!1)}}catch(l){re(l instanceof Error?l.message:"Failed to load playlist")}},ke=e=>{const l=Math.floor(e/60),d=Math.floor(e%60);return`${l}:${d.toString().padStart(2,"0")}`},ut=e=>{const l=Z();l&&(l.currentTime=e/100*le())},dt=()=>{if(F()&&H().length>0)return H();let e=Ye();if(ae()&&(e=e.filter(l=>l.artist===ae())),oe()&&(e=e.filter(l=>l.album===oe())),ue().trim()&&!F()){const l=ue().toLowerCase();e=e.filter(d=>d.title.toLowerCase().includes(l)||d.artist?.toLowerCase().includes(l)||d.album?.toLowerCase().includes(l))}return e},De=e=>{de(e),w.state.setQuery(e),N("music"),He(e)},gt=e=>{de(e),w.state.setQuery(e),N("music"),e.trim()?He(e):(K(!1),E([]))},He=async e=>{if(!e.trim()){K(!1),E([]);return}K(!0),ne(!0);try{await w.performSearch();const l=w.search.results();if(l?.results){const d=l.results.filter(a=>a.result_type==="song").map(a=>({id:a.id,title:a.title,artist:a.metadata?.artist||"",album:a.metadata?.album||"",album_artist:a.metadata?.album_artist,track_number:a.metadata?.track_number,disc_number:a.metadata?.disc_number,duration_seconds:a.metadata?.duration_seconds,genre:a.metadata?.genre,year:a.metadata?.year,bpm:a.metadata?.bpm,key_signature:a.metadata?.key_signature,rating:a.metadata?.rating,is_favorite:a.metadata?.is_favorite||!1,tags:a.metadata?.tags||[],display_title:a.title,detailed_display_title:a.title,created_at:a.created_at,media_blob_id:a.media_blob_id||"",thumbnail_blob_id:a.thumbnail_blob_id,waveform_blob_id:a.waveform_blob_id,thumbnail_blob_ids:a.thumbnail_blob_ids||[]}));E(d)}else E([])}catch(l){console.error("Search failed:",l),E([])}finally{ne(!1)}},ft=()=>{de(""),w.state.setQuery(""),K(!1),E([])},bt=()=>{const e=w.suggestions.suggestions();if(!e.length)return[];const l=new Map;e.forEach(a=>{const k=a.category||"general";l.has(k)||l.set(k,[]),l.get(k).push(a)});const d=["word","title","playlist","general"];return Array.from(l.entries()).sort(([a],[k])=>{const L=d.indexOf(a),q=d.indexOf(k),U=L===-1?d.length:L,T=q===-1?d.length:q;return U-T})},ht=e=>({word:"search suggestions",title:"songs",playlist:"playlists",general:"suggestions"})[e]||e,Se=()=>A()?We().map(e=>e.song):dt(),mt=()=>F()&&w.suggestions.suggestions().length>0,pt=()=>Se().length>0&&(!F()||H().length>0);return(()=>{var e=Gt(),l=e.firstChild,d=l.firstChild,a=d.firstChild,k=a.nextSibling,L=d.nextSibling,q=L.firstChild,U=q.nextSibling,T=U.nextSibling,Fe=T.nextSibling,Ce=l.nextSibling,ge=Ce.firstChild,vt=ge.nextSibling,qe=vt.firstChild,Ne=qe.firstChild,fe=qe.nextSibling,zt=Ce.nextSibling;return t(k,r(St,{placeholder:"search your music...",useInternalState:!1,get query(){return ue()},onQueryChange:n=>{de(n),w.state.setQuery(n),n.trim()||(K(!1),E([]))},onSearch:gt,autoSearch:!0,debounceMs:300,class:"zune-search-box"}),null),t(k,r(f,{get when(){return ue().trim()},get children(){var n=Et();return n.$$click=ft,t(n,r(Pe,{})),n}}),null),q.$$click=()=>N("music"),U.$$click=()=>N("artists"),T.$$click=()=>N("albums"),Fe.$$click=()=>N("playlists"),t(ge,r(f,{get when(){return m()==="artists"},get children(){var n=Lt(),i=n.firstChild,u=i.firstChild;return u.$$click=()=>se(null),t(i,r(P,{get each(){return ve()},children:o=>(()=>{var s=Me(),g=s.firstChild;return s.$$click=()=>se(o.artist),t(s,()=>o.artist,g),t(g,()=>o.song_count),_(()=>y(s,`zune-filter-item ${ae()===o.artist?"active":""}`)),s})()}),null),_(()=>y(u,`zune-filter-item ${ae()===null?"active":""}`)),n}}),null),t(ge,r(f,{get when(){return m()==="albums"},get children(){var n=Tt(),i=n.firstChild,u=i.firstChild;return u.$$click=()=>ce(null),t(i,r(P,{get each(){return pe()},children:o=>(()=>{var s=Me(),g=s.firstChild;return s.$$click=()=>ce(o.album),t(s,()=>o.album,g),t(g,()=>o.track_count),_(()=>y(s,`zune-filter-item ${oe()===o.album?"active":""}`)),s})()}),null),_(()=>y(u,`zune-filter-item ${oe()===null?"active":""}`)),n}}),null),t(ge,r(f,{get when(){return m()==="playlists"},get children(){var n=Rt(),i=n.firstChild,u=i.firstChild;return u.$$click=()=>{te(null),ze([])},t(i,r(P,{get each(){return me()},children:o=>(()=>{var s=Me(),g=s.firstChild;return s.$$click=()=>Te(o),t(s,()=>o.title,g),t(g,()=>o.song_count||0),_(()=>y(s,`zune-filter-item ${A()?.id===o.id?"active":""}`)),s})()}),null),_(()=>y(u,`zune-filter-item ${A()===null?"active":""}`)),n}}),null),t(Ne,r(f,{get when(){return F()},get children(){return[r(f,{get when(){return H().length>0},get children(){return[C(()=>H().length)," search results"]}}),r(f,{get when(){return C(()=>H().length===0)()&&!xe()},children:"no results found"})]}}),null),t(Ne,r(f,{get when(){return!F()},get children(){return[r(f,{get when(){return m()==="music"||A()},get children(){return[C(()=>Se().length)," songs"]}}),r(f,{get when(){return C(()=>m()==="playlists")()&&!A()},get children(){return[C(()=>me().length)," playlists"]}}),r(f,{get when(){return m()==="albums"},get children(){return[C(()=>pe().length)," albums"]}}),r(f,{get when(){return m()==="artists"},get children(){return[C(()=>ve().length)," artists"]}})]}}),null),t(qe,r(f,{get when(){return A()},get children(){var n=Dt(),i=n.firstChild;return n.$$click=()=>Re(A()),t(n,r(Ue,{}),i),n}}),null),t(fe,r(f,{get when(){return xe()},get children(){return Ht()}}),null),t(fe,r(f,{get when(){return $e()},get children(){var n=Ft(),i=n.firstChild;i.firstChild;var u=i.nextSibling;return t(i,$e,null),u.$$click=()=>ye(m()),n}}),null),t(fe,r(f,{get when(){return C(()=>!xe())()&&!$e()},get children(){return[r(f,{get when(){return m()==="music"||A()},get children(){return[r(f,{get when(){return mt()},get children(){var n=Nt();return n.firstChild,t(n,r(P,{get each(){return bt()},children:([i,u])=>[(()=>{var o=Jt(),s=o.firstChild;return t(s,()=>ht(i)),o})(),r(P,{each:u,children:o=>(()=>{var s=Kt(),g=s.firstChild,v=g.nextSibling,b=v.nextSibling,S=b.nextSibling,x=S.firstChild;return s.$$click=()=>De(o.text),t(v,()=>o.text),t(b,()=>o.frequency),x.$$click=I=>{I.stopPropagation(),De(o.text)},s})()})]}),null),n}}),r(f,{get when(){return pt()},get children(){var n=Ut();return n.firstChild,t(n,r(P,{get each(){return Se()},children:(i,u)=>(()=>{var o=nn(),s=o.firstChild,g=s.nextSibling,v=g.firstChild,b=v.firstChild,S=b.firstChild,x=g.nextSibling,I=x.nextSibling,V=I.nextSibling,O=V.nextSibling,Q=O.firstChild;return o.$$dblclick=()=>W(i),t(s,r(f,{get when(){return C(()=>j()?.id===i.id)()&&we()},get fallback(){return(()=>{var z=rn();return t(z,()=>u()+1),z})()},get children(){return Wt()}})),t(v,r(f,{get when(){return i.thumbnail_blob_id},get children(){var z=en();return _(R=>{var ee=`/api/blobs/${i.thumbnail_blob_id}`,X=i.title;return ee!==R.e&&be(z,"src",R.e=ee),X!==R.t&&be(z,"alt",R.t=X),R},{e:void 0,t:void 0}),z}}),b),t(S,()=>i.title),t(b,r(f,{get when(){return i.is_favorite},get children(){return tn()}}),null),t(x,()=>i.artist||"Unknown Artist"),t(I,()=>i.album||"Unknown Album"),t(V,(()=>{var z=C(()=>!!i.duration_seconds);return()=>z()?ke(i.duration_seconds):"--:--"})()),Q.$$click=z=>{z.stopPropagation(),lt(i)},t(Q,r(bn,{})),_(()=>y(o,`zune-table-row ${j()?.id===i.id?"playing":""}`)),o})()}),null),n}})]}}),r(f,{get when(){return m()==="artists"},get children(){var n=Ie();return t(n,r(P,{get each(){return ve()},children:i=>(()=>{var u=ln(),o=u.firstChild,s=o.nextSibling,g=s.nextSibling,v=g.firstChild,b=g.nextSibling,S=b.firstChild;return u.$$click=()=>se(i.artist),t(o,r(Ae,{})),t(s,()=>i.artist),t(g,()=>i.song_count,v),t(b,()=>i.album_count,S),u})()})),n}}),r(f,{get when(){return m()==="albums"},get children(){var n=Ie();return t(n,r(P,{get each(){return pe()},children:i=>(()=>{var u=an(),o=u.firstChild,s=o.nextSibling,g=s.nextSibling,v=g.nextSibling,b=v.firstChild;return u.$$click=()=>ce(i.album),t(o,r(Ae,{})),t(s,()=>i.album),t(g,()=>i.artist),t(v,()=>i.track_count,b),u})()})),n}}),r(f,{get when(){return C(()=>m()==="playlists")()&&!A()},get children(){var n=Ie();return t(n,r(P,{get each(){return me()},children:i=>(()=>{var u=on(),o=u.firstChild,s=o.nextSibling,g=s.nextSibling,v=g.firstChild;return u.$$dblclick=()=>Re(i),u.$$click=()=>Te(i),t(o,r(Oe,{})),t(s,()=>i.title),t(g,()=>i.song_count||0,v),t(u,r(f,{get when(){return i.description},get children(){var b=sn();return t(b,()=>i.description),b}}),null),u})()})),n}})]}}),null),t(Ce,r(f,{get when(){return Be()},get children(){var n=Xt(),i=n.firstChild,u=i.firstChild,o=u.nextSibling,s=o.firstChild,g=s.nextSibling,v=i.nextSibling;return s.$$click=ot,g.$$click=()=>Ee(!1),t(g,r(Pe,{})),t(v,r(P,{get each(){return B()},children:(b,S)=>(()=>{var x=cn(),I=x.firstChild,V=I.firstChild,O=V.nextSibling,Q=I.nextSibling;return x.$$click=()=>{D(S()),W(b.song,!1)},t(V,()=>b.song.title),t(O,()=>b.song.artist),Q.$$click=z=>{z.stopPropagation(),st(b.id)},t(Q,r(Pe,{})),_(()=>y(x,`zune-queue-item ${S()===J()?"current":""}`)),x})()}),null),t(v,r(f,{get when(){return B().length===0},get children(){return Ot()}}),null),n}}),null),t(e,r(f,{get when(){return j()},get children(){var n=Zt(),i=n.firstChild,u=i.firstChild,o=u.nextSibling,s=o.firstChild,g=s.nextSibling,v=i.nextSibling,b=v.firstChild,S=b.nextSibling,x=S.nextSibling,I=x.nextSibling,V=v.nextSibling,O=V.firstChild,Q=O.nextSibling,z=Q.firstChild,R=Q.nextSibling,ee=V.nextSibling,X=ee.firstChild;return t(u,r(f,{get when(){return j()?.thumbnail_blob_id},get fallback(){return(()=>{var p=un();return t(p,r(Ae,{})),p})()},get children(){var p=Yt();return _($=>{var M=`/api/blobs/${j()?.thumbnail_blob_id}`,Y=j()?.title;return M!==$.e&&be(p,"src",$.e=M),Y!==$.t&&be(p,"alt",$.t=Y),$},{e:void 0,t:void 0}),p}})),t(s,()=>j()?.title),t(g,()=>j()?.artist),b.$$click=at,t(b,r(gn,{})),S.$$click=ct,t(S,(()=>{var p=C(()=>!!we());return()=>p()?r(dn,{}):r(Ue,{})})()),x.$$click=Le,t(x,r(fn,{})),I.$$click=()=>Ee(!Be()),t(I,r(Oe,{})),t(O,()=>ke(je())),Q.$$click=p=>{const $=p.currentTarget.getBoundingClientRect(),M=(p.clientX-$.left)/$.width*100;ut(M)},t(R,()=>ke(le())),t(ee,r(hn,{}),X),X.$$input=p=>{const $=parseFloat(p.currentTarget.value);nt($);const M=Z();M&&(M.volume=$)},_(p=>{var $=J()===0,M=J()>=B().length-1,Y=`${le()>0?je()/le()*100:0}%`;return $!==p.e&&(b.disabled=p.e=$),M!==p.t&&(x.disabled=p.t=M),Y!==p.a&&((p.a=Y)!=null?z.style.setProperty("width",Y):z.style.removeProperty("width")),p},{e:void 0,t:void 0,a:void 0}),_(()=>X.value=Ve()),n}}),zt),_(n=>{var i=`zune-nav-item ${m()==="music"?"active":""}`,u=`zune-nav-item ${m()==="artists"?"active":""}`,o=`zune-nav-item ${m()==="albums"?"active":""}`,s=`zune-nav-item ${m()==="playlists"?"active":""}`,g=`zune-content-area ${it()}`;return i!==n.e&&y(q,n.e=i),u!==n.t&&y(U,n.t=u),o!==n.a&&y(T,n.a=o),s!==n.o&&y(Fe,n.o=s),g!==n.i&&y(fe,n.i=g),n},{e:void 0,t:void 0,a:void 0,o:void 0,i:void 0}),e})()}function pn(w){const m=Xe(w.apiBaseUrl||"http://localhost:8080");return r(yt,{apiClient:m,searchOptions:{enableSuggestions:!0,enableHistory:!1,autoSearch:!1,integrationMode:"standalone"},get children(){return r(mn,{})}})}class vn extends HTMLElement{dispose=null;connectedCallback(){const m=this.getAttribute("api-base-url")||"http://localhost:8080",he=this.getAttribute("auto-connect")==="true";this.dispose=$t(()=>r(pn,{apiBaseUrl:m,autoConnect:he}),this)}disconnectedCallback(){this.dispose&&this.dispose()}}customElements.define("zune-demo",vn);xt(["click","input","dblclick"]);
+
+        /* Modal Styles */
+        .zune-modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.8);
+          backdrop-filter: blur(10px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          animation: fadeIn 0.2s ease;
+        }
+
+        .zune-modal {
+          background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+          border-radius: 12px;
+          padding: 0;
+          max-width: 500px;
+          width: 90%;
+          max-height: 80vh;
+          overflow: hidden;
+          animation: slideUp 0.3s ease;
+        }
+
+        .zune-modal-header {
+          padding: 1.5rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
+        .zune-modal-header h3 {
+          margin: 0;
+          font-size: 1.25rem;
+          font-weight: 600;
+          color: #ffffff;
+        }
+
+        .zune-modal-close {
+          background: none;
+          border: none;
+          color: rgba(255, 255, 255, 0.7);
+          cursor: pointer;
+          padding: 8px;
+          border-radius: 6px;
+          transition: all 0.2s ease;
+        }
+
+        .zune-modal-close:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+        }
+
+        .zune-modal-content {
+          padding: 1.5rem;
+          max-height: 50vh;
+          overflow-y: auto;
+        }
+
+        .zune-modal-actions {
+          padding: 1rem 1.5rem;
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          display: flex;
+          gap: 0.75rem;
+          justify-content: flex-end;
+        }
+
+        .zune-form-group {
+          margin-bottom: 1.5rem;
+        }
+
+        .zune-form-group label {
+          display: block;
+          margin-bottom: 0.5rem;
+          font-weight: 500;
+          color: #ffffff;
+          font-size: 0.9rem;
+        }
+
+        .zune-input, .zune-textarea {
+          width: 100%;
+          padding: 0.75rem;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 6px;
+          color: #ffffff;
+          font-size: 0.9rem;
+          transition: all 0.2s ease;
+        }
+
+        .zune-input:focus, .zune-textarea:focus {
+          outline: none;
+          border-color: #ff0080;
+          box-shadow: 0 0 0 2px rgba(255, 0, 128, 0.2);
+        }
+
+        .zune-checkbox-label {
+          display: flex !important;
+          align-items: center;
+          gap: 0.5rem;
+          cursor: pointer;
+        }
+
+        .zune-checkbox-label input[type="checkbox"] {
+          width: auto;
+          margin: 0;
+        }
+
+        .zune-selected-songs {
+          max-height: 150px;
+          overflow-y: auto;
+          background: rgba(0, 0, 0, 0.2);
+          border-radius: 6px;
+          padding: 0.75rem;
+        }
+
+        .zune-selected-song {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.5rem 0;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .zune-selected-song:last-child {
+          border-bottom: none;
+        }
+
+        .zune-song-title {
+          font-weight: 500;
+          color: #ffffff;
+          font-size: 0.9rem;
+        }
+
+        .zune-song-artist {
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 0.8rem;
+        }
+
+        .zune-btn-primary, .zune-btn-secondary {
+          padding: 0.75rem 1.5rem;
+          border-radius: 6px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          border: none;
+          font-size: 0.9rem;
+        }
+
+        .zune-btn-primary {
+          background: linear-gradient(135deg, #ff0080 0%, #ff4081 100%);
+          color: #ffffff;
+        }
+
+        .zune-btn-primary:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(255, 0, 128, 0.3);
+        }
+
+        .zune-btn-primary:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .zune-btn-secondary {
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+        }
+
+        .zune-btn-secondary:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+
+        .zune-filter-item-container {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+
+        .zune-filter-item-container .zune-filter-item {
+          flex: 1;
+        }
+
+        .zune-filter-actions {
+          display: none;
+          gap: 0.25rem;
+          padding-left: 0.5rem;
+        }
+
+        .zune-filter-item-container:hover .zune-filter-actions {
+          display: flex;
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(30px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        /* Playlist Dropdown Styles */
+        .zune-playlist-dropdown-container {
+          position: relative;
+          display: inline-block;
+        }
+
+        .zune-playlist-dropdown {
+          position: absolute;
+          top: calc(100% + 4px);
+          right: 0;
+          background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+          padding: 0.5rem 0;
+          z-index: 1000;
+          min-width: 220px;
+          max-width: 300px;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+          backdrop-filter: blur(10px);
+          animation: fadeIn 0.2s ease;
+          white-space: nowrap;
+        }
+
+        .zune-dropdown-item {
+          width: 100%;
+          padding: 0.75rem 1rem;
+          background: none;
+          border: none;
+          color: #ffffff;
+          cursor: pointer;
+          text-align: left;
+          transition: background-color 0.2s ease;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          font-size: 0.9rem;
+        }
+
+        .zune-dropdown-item:hover {
+          background: rgba(255, 255, 255, 0.1);
+        }
+
+        .zune-dropdown-divider {
+          height: 1px;
+          background: rgba(255, 255, 255, 0.1);
+          margin: 0.5rem 0;
+        }
+
+        .zune-playlist-count {
+          margin-left: auto;
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 0.8rem;
+        }
+
+        .zune-dropdown-backdrop {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 900;
+        }
+
+        .zune-table-cell--actions {
+          overflow: visible !important;
+        }
+      `),Hn=s('<div class=zune-filter-item-container><button><span class=zune-filter-count></span></button><div class=zune-filter-actions><button class=zune-action-btn title="Edit playlist"></button><button class=zune-action-btn title="Delete playlist">'),zt=s("<button><span class=zune-filter-count>"),Nn=s('<div class=zune-suggestion-group-header><div class="zune-table-cell zune-table-cell--category"></div><div class=zune-table-cell></div><div class=zune-table-cell></div><div class=zune-table-cell>'),Yn=s('<div class="zune-table-row zune-suggestion-row"><div class="zune-table-cell zune-table-cell--category"></div><div class="zune-table-cell zune-table-cell--suggestion"></div><div class="zune-table-cell zune-table-cell--frequency"></div><div class="zune-table-cell zune-table-cell--actions"><button class=zune-action-btn title="Search this"><svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z">'),Jn=s("<div class=zune-playing-indicator><div class=zune-wave></div><div class=zune-wave></div><div class=zune-wave>"),Xn=s("<img class=zune-song-thumbnail>"),Zn=s("<span class=zune-favorite-indicator>♥"),Gn=s("<div class=zune-playlist-dropdown><button class=zune-dropdown-item>Create New Playlist</button><div class=zune-dropdown-divider>"),Kn=s('<button class=zune-action-btn title="Remove from playlist">'),Wn=s('<div><div class="zune-table-cell zune-table-cell--play"></div><div class="zune-table-cell zune-table-cell--title"><div class=zune-song-title-cell><div class=zune-song-info><span class=zune-song-title></span></div></div></div><div class="zune-table-cell zune-table-cell--artist"></div><div class="zune-table-cell zune-table-cell--album"></div><div class="zune-table-cell zune-table-cell--duration"></div><div class="zune-table-cell zune-table-cell--actions"><button class=zune-action-btn title="Add to queue"></button><div class=zune-playlist-dropdown-container><button class=zune-action-btn title="Add to playlist">'),er=s("<span class=zune-track-number>"),tr=s("<button class=zune-dropdown-item><span class=zune-playlist-count>"),nr=s("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p> songs</p><p> albums"),rr=s("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p></p><p> tracks"),ir=s("<p class=zune-description>"),lr=s("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p> songs"),ar=s("<div><div class=zune-queue-info><h4></h4><p></p></div><button class=zune-queue-remove>"),sr=s('<div class="zune-artwork-placeholder small">'),or=s("<div class=zune-selected-song><span class=zune-song-title></span><span class=zune-song-artist>");const yt=D=>new pn({baseUrl:D}),Ce=()=>fn(),cr=()=>bn(),dr=()=>mn(),ur=()=>hn(),Xe=()=>vn(),Ze=()=>zn(),Pe=()=>$n(),gr=()=>yn(),Ge=()=>xn(),pr=()=>_n(),$t=()=>wn();function fr(){const D=un(),[z,Ie]=f("music"),[xt,_t]=f([]),[ce,Ke]=f([]),[qe,wt]=f([]),[Ae,kt]=f([]),[A,be]=f(null),[St,me]=f([]),[H,Me]=f(null),[Ct,Ee]=f([]),[N,je]=f(null),[Pt,Te]=f([]),[De,he]=f(!1),[Fe,j]=f(null),[It,Re]=f(!1),[J,We]=f("create"),[ee,et]=f([]),[de,Le]=f(null),[Qe,ve]=f(null),[B,qt]=f(null),[Ve,ze]=f(!1),[tt,nt]=f(0),[$e,At]=f(0),[rt,Mt]=f(.7),[ue,Et]=f(null),[X,Z]=f([]),[ge,Y]=f(0),[it,lt]=f(!1),[at,jt]=f(null),[st,Tt]=f(null),[ye,xe]=f(""),[te,G]=f([]),[ne,pe]=f(!1),[P,re]=f({title:"",description:"",is_public:!1}),[Dt,Be]=f("idle");yt("http://localhost:8080");const ie=async e=>{he(!0),j(null);try{switch(e){case"music":const d=await(await fetch("/api/media/songs?limit=100")).json();_t(d.songs||[]);break;case"artists":const I=await(await fetch("/api/media/artists")).json();kt(I.artists||[]);break;case"playlists":const b=await(await fetch("/api/media/playlists?limit=100")).json();Ke(b.playlists||[]);break;case"albums":const $=await(await fetch("/api/media/albums")).json();wt($||[]);break}}catch(n){j(n instanceof Error?n.message:"Failed to fetch data")}finally{he(!1)}},ot=async()=>{if(ce().length===0)try{const n=await(await fetch("/api/media/playlists?limit=100")).json();Ke(n.playlists||[])}catch(e){console.error("Failed to load playlists:",e)}};on(()=>{const e=new Audio;Et(e),e.addEventListener("loadedmetadata",()=>{At(e.duration)}),e.addEventListener("timeupdate",()=>{nt(e.currentTime)}),e.addEventListener("ended",()=>{ze(!1),nt(0),ct()}),ie(z()),ot()}),cn(()=>{const e=ue();e&&(e.pause(),e.src="")});const Ft=e=>{if(X().find(a=>a.song.id===e.id))return;const d={song:e,id:`queue-${e.id}-${Date.now()}`};Z(a=>[...a,d])},ct=()=>{const e=X(),n=ge();if(n<e.length-1){Y(n+1);const d=e[n+1];d&&K(d.song,!1)}},Rt=()=>{const e=X(),n=ge();if(n>0){Y(n-1);const d=e[n-1];d&&K(d.song,!1)}},Lt=e=>{Z(n=>n.filter(d=>d.id!==e))},Qt=()=>{Z([]),Y(0)},le=e=>{e!==z()&&(Be("exiting"),setTimeout(()=>{Ie(e),Be("entering"),ie(e),jt(null),Tt(null),be(null),Me(null),je(null),Ee([]),Te([]),me([]),setTimeout(()=>{Be("idle")},200)},100))},Vt=()=>{const e=ue();!e||!B()||(Ve()?(e.pause(),ze(!1)):(e.play(),ze(!0)))},K=(e,n=!0)=>{const d=ue();if(d&&(qt(e),d.src=`/api/blobs/${e.media_blob_id}`,d.volume=rt(),d.play(),ze(!0),n&&X().length===0)){const a={song:e,id:`queue-${e.id}-${Date.now()}`};Z([a]),Y(0)}},_e=async e=>{try{const a=(await(await fetch(`/api/media/playlists/${e.id}/songs`)).json()).songs||[];be(e),me(a)}catch(n){j(n instanceof Error?n.message:"Failed to load playlist")}},dt=async e=>{try{const a=(await(await fetch(`/api/media/artists/${encodeURIComponent(e.artist)}/songs?limit=1000`)).json()).songs||[];Me(e),Ee(a)}catch(n){j(n instanceof Error?n.message:"Failed to load artist songs")}},ut=async e=>{try{const n=encodeURIComponent(e.album||""),d=e.artist?`&artist=${encodeURIComponent(e.artist)}`:"",T=(await(await fetch(`/api/media/albums/${n}/tracks?${d}`)).json()).tracks||[];je(e),Te(T.map(b=>({id:b.song_id,title:b.title,artist:b.artist,album:e.album,track_number:b.track_number,disc_number:b.disc_number,duration_seconds:b.duration?parseFloat(b.duration.split(":").reduce((Q,$)=>60*Q+ +$)):null,genre:b.genre,year:b.year,rating:b.rating,is_favorite:b.is_favorite,display_title:b.title,detailed_display_title:`${b.title} - ${b.artist}`,media_blob_id:"temp",thumbnail_blob_id:null,waveform_blob_id:null,thumbnail_blob_ids:null,created_at:new Date().toISOString()})))}catch(n){j(n instanceof Error?n.message:"Failed to load album tracks")}},gt=async e=>{try{const a=(await(await fetch(`/api/media/playlists/${e.id}/songs`)).json()).songs||[];if(a.length>0){be(e),me(a);const I=a.map((T,b)=>({song:T.song,id:`playlist-${e.id}-${b}`}));Z(I),Y(0),K(a[0].song,!1)}}catch(n){j(n instanceof Error?n.message:"Failed to load playlist")}},pt=async e=>{try{const a=(await(await fetch(`/api/media/artists/${encodeURIComponent(e.artist)}/songs?limit=1000`)).json()).songs||[];if(a.length>0){Me(e),Ee(a);const I=a.map((T,b)=>({song:T,id:`artist-${e.artist}-${b}`}));Z(I),Y(0),K(a[0],!1)}}catch(n){j(n instanceof Error?n.message:"Failed to load artist songs")}},ft=async e=>{try{const n=encodeURIComponent(e.album||""),d=e.artist?`&artist=${encodeURIComponent(e.artist)}`:"",T=(await(await fetch(`/api/media/albums/${n}/tracks?${d}`)).json()).tracks||[];if(T.length>0){const b=T.map($=>({id:$.song_id,title:$.title,artist:$.artist,album:e.album,track_number:$.track_number,disc_number:$.disc_number,duration_seconds:$.duration?parseFloat($.duration.split(":").reduce((se,fe)=>60*se+ +fe)):null,genre:$.genre,year:$.year,rating:$.rating,is_favorite:$.is_favorite,display_title:$.title,detailed_display_title:`${$.title} - ${$.artist}`,media_blob_id:"temp",thumbnail_blob_id:null,waveform_blob_id:null,thumbnail_blob_ids:null,created_at:new Date().toISOString()}));je(e),Te(b);const Q=b.map(($,se)=>({song:$,id:`album-${e.album}-${se}`}));Z(Q),Y(0),K(b[0],!1)}}catch(n){j(n instanceof Error?n.message:"Failed to load album tracks")}},bt=e=>{We("create"),et(e||[]),re({title:"",description:"",is_public:!1}),Le(null),Re(!0)},Bt=e=>{We("edit"),Le(e),re({title:e.title,description:e.description||"",is_public:e.is_public}),Re(!0)},ae=()=>{Re(!1),et([]),Le(null),re({title:"",description:"",is_public:!1})},Ut=async()=>{if(P().title.trim())try{(await fetch("/api/media/playlists",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:P().title,description:P().description||null,is_public:P().is_public,is_collaborative:!1,song_ids:ee().map(n=>n.id)})})).ok&&(ae(),z()==="playlists"&&ie("playlists"))}catch{j("Failed to create playlist")}},Ot=async()=>{if(!(!de()||!P().title.trim()))try{(await fetch(`/api/media/playlists/${de().id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:P().title,description:P().description||null,is_public:P().is_public,is_collaborative:!1})})).ok&&(ae(),z()==="playlists"&&ie("playlists"))}catch{j("Failed to update playlist")}},Ht=async()=>{if(!(!de()||ee().length===0))try{(await fetch(`/api/media/playlists/${de().id}/songs`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({song_ids:ee().map(n=>n.id)})})).ok&&(ae(),A()?.id===de().id&&_e(A()))}catch{j("Failed to add songs to playlist")}},Nt=async(e,n)=>{try{(await fetch(`/api/media/playlists/${e.id}/songs`,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({song_ids:[n]})})).ok&&A()?.id===e.id&&_e(e)}catch{j("Failed to remove song from playlist")}},Yt=async(e,n)=>{try{(await fetch(`/api/media/playlists/${n.id}/songs`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({song_ids:[e.id]})})).ok&&(ve(null),console.log(`Added "${e.title}" to playlist "${n.title}"`))}catch{j("Failed to add song to playlist")}},Jt=async e=>{try{(await fetch(`/api/media/playlists/${e.id}`,{method:"DELETE"})).ok&&(A()?.id===e.id&&(be(null),me([])),z()==="playlists"&&ie("playlists"))}catch{j("Failed to delete playlist")}},Ue=e=>{const n=Math.floor(e/60),d=Math.floor(e%60);return`${n}:${d.toString().padStart(2,"0")}`},Xt=e=>{const n=ue();n&&(n.currentTime=e/100*$e())},Zt=()=>{if(ne()&&te().length>0)return te();let e=xt();if(at()&&(e=e.filter(n=>n.artist===at())),st()&&(e=e.filter(n=>n.album===st())),ye().trim()&&!ne()){const n=ye().toLowerCase();e=e.filter(d=>d.title.toLowerCase().includes(n)||d.artist?.toLowerCase().includes(n)||d.album?.toLowerCase().includes(n))}return e},mt=e=>{xe(e),D.state.setQuery(e),le("music"),ht(e)},Gt=e=>{xe(e),D.state.setQuery(e),le("music"),e.trim()?ht(e):(pe(!1),G([]))},ht=async e=>{if(!e.trim()){pe(!1),G([]);return}pe(!0),he(!0);try{await D.performSearch();const n=D.search.results();if(n?.results){const d=n.results.filter(a=>a.result_type==="song").map(a=>({id:a.id,title:a.title,artist:a.metadata?.artist||"",album:a.metadata?.album||"",album_artist:a.metadata?.album_artist,track_number:a.metadata?.track_number,disc_number:a.metadata?.disc_number,duration_seconds:a.metadata?.duration_seconds,genre:a.metadata?.genre,year:a.metadata?.year,bpm:a.metadata?.bpm,key_signature:a.metadata?.key_signature,rating:a.metadata?.rating,is_favorite:a.metadata?.is_favorite||!1,tags:a.metadata?.tags||[],display_title:a.title,detailed_display_title:a.title,created_at:a.created_at,media_blob_id:a.media_blob_id||"",thumbnail_blob_id:a.thumbnail_blob_id,waveform_blob_id:a.waveform_blob_id,thumbnail_blob_ids:a.thumbnail_blob_ids||[]}));G(d)}else G([])}catch(n){console.error("Search failed:",n),G([])}finally{he(!1)}},Kt=()=>{xe(""),D.state.setQuery(""),pe(!1),G([])},Wt=()=>{const e=D.suggestions.suggestions();if(!e.length)return[];const n=new Map;e.forEach(a=>{const I=a.category||"general";n.has(I)||n.set(I,[]),n.get(I).push(a)});const d=["word","title","playlist","general"];return Array.from(n.entries()).sort(([a],[I])=>{const T=d.indexOf(a),b=d.indexOf(I),Q=T===-1?d.length:T,$=b===-1?d.length:b;return Q-$})},en=e=>({word:"search suggestions",title:"songs",playlist:"playlists",general:"suggestions"})[e]||e,Oe=()=>A()?St().map(e=>e.song):H()?Ct():N()?Pt():Zt(),tn=()=>ne()&&D.suggestions.suggestions().length>0,nn=()=>Oe().length>0&&(!ne()||te().length>0);return(()=>{var e=On(),n=e.firstChild,d=n.firstChild,a=d.firstChild,I=a.nextSibling,T=d.nextSibling,b=T.firstChild,Q=b.nextSibling,$=Q.nextSibling,se=$.nextSibling,fe=n.nextSibling,we=fe.firstChild,rn=we.nextSibling,oe=rn.firstChild,vt=oe.firstChild,ke=oe.nextSibling,He=fe.nextSibling;return t(I,r(gn,{placeholder:"search your music...",useInternalState:!1,get query(){return ye()},onQueryChange:i=>{xe(i),D.state.setQuery(i),i.trim()||(pe(!1),G([]))},onSearch:Gt,autoSearch:!0,debounceMs:300,class:"zune-search-box"}),null),t(I,r(g,{get when(){return ye().trim()},get children(){var i=kn();return i.$$click=Kt,t(i,r(Pe,{})),i}}),null),b.$$click=()=>le("music"),Q.$$click=()=>le("artists"),$.$$click=()=>le("albums"),se.$$click=()=>le("playlists"),t(we,r(g,{get when(){return z()==="playlists"},get children(){var i=Ne(),l=i.firstChild;return t(l,r(L,{get each(){return ce()},children:o=>(()=>{var c=Hn(),p=c.firstChild,h=p.firstChild,x=p.nextSibling,m=x.firstChild,u=m.nextSibling;return p.$$click=()=>_e(o),t(p,()=>o.title,h),t(h,()=>o.song_count||0),m.$$click=v=>{v.stopPropagation(),Bt(o)},t(m,r(pr,{})),u.$$click=v=>{v.stopPropagation(),confirm(`Delete playlist "${o.title}"?`)&&Jt(o)},t(u,r($t,{})),E(()=>V(p,`zune-filter-item ${A()?.id===o.id?"active":""}`)),c})()})),i}}),null),t(we,r(g,{get when(){return z()==="artists"},get children(){var i=Ne(),l=i.firstChild;return t(l,r(L,{get each(){return Ae()},children:o=>(()=>{var c=zt(),p=c.firstChild;return c.$$click=()=>dt(o),t(c,()=>o.artist,p),t(p,()=>o.song_count||0),E(()=>V(c,`zune-filter-item ${H()?.artist===o.artist?"active":""}`)),c})()})),i}}),null),t(we,r(g,{get when(){return z()==="albums"},get children(){var i=Ne(),l=i.firstChild;return t(l,r(L,{get each(){return qe()},children:o=>(()=>{var c=zt(),p=c.firstChild;return c.$$click=()=>ut(o),t(c,()=>o.album||"Unknown Album",p),t(p,()=>o.track_count||0),E(()=>V(c,`zune-filter-item ${N()?.album===o.album?"active":""}`)),c})()})),i}}),null),t(vt,r(g,{get when(){return ne()},get children(){return[r(g,{get when(){return te().length>0},get children(){return[S(()=>te().length)," search results"]}}),r(g,{get when(){return S(()=>te().length===0)()&&!De()},children:"no results found"})]}}),null),t(vt,r(g,{get when(){return!ne()},get children(){return[r(g,{get when(){return z()==="music"||A()||H()||N()},get children(){return[S(()=>Oe().length)," songs"]}}),r(g,{get when(){return S(()=>z()==="playlists")()&&!A()},get children(){return[S(()=>ce().length)," playlists"]}}),r(g,{get when(){return S(()=>z()==="albums")()&&!N()},get children(){return[S(()=>qe().length)," albums"]}}),r(g,{get when(){return S(()=>z()==="artists")()&&!H()},get children(){return[S(()=>Ae().length)," artists"]}})]}}),null),t(oe,r(g,{get when(){return A()},get children(){var i=Ye(),l=i.firstChild;return i.$$click=()=>gt(A()),t(i,r(Ce,{}),l),i}}),null),t(oe,r(g,{get when(){return H()},get children(){var i=Ye(),l=i.firstChild;return i.$$click=()=>pt(H()),t(i,r(Ce,{}),l),i}}),null),t(oe,r(g,{get when(){return N()},get children(){var i=Ye(),l=i.firstChild;return i.$$click=()=>ft(N()),t(i,r(Ce,{}),l),i}}),null),t(oe,r(g,{get when(){return S(()=>z()==="playlists")()&&!A()},get children(){var i=Sn(),l=i.firstChild;return i.$$click=()=>bt(),t(i,r(Ze,{}),l),i}}),null),t(ke,r(g,{get when(){return De()},get children(){return Cn()}}),null),t(ke,r(g,{get when(){return Fe()},get children(){var i=Pn(),l=i.firstChild;l.firstChild;var o=l.nextSibling;return t(l,Fe,null),o.$$click=()=>ie(z()),i}}),null),t(ke,r(g,{get when(){return S(()=>!De())()&&!Fe()},get children(){return[r(g,{get when(){return z()==="music"||A()||H()||N()},get children(){return[r(g,{get when(){return tn()},get children(){var i=In();return i.firstChild,t(i,r(L,{get each(){return Wt()},children:([l,o])=>[(()=>{var c=Nn(),p=c.firstChild;return t(p,()=>en(l)),c})(),r(L,{each:o,children:c=>(()=>{var p=Yn(),h=p.firstChild,x=h.nextSibling,m=x.nextSibling,u=m.nextSibling,v=u.firstChild;return p.$$click=()=>mt(c.text),t(x,()=>c.text),t(m,()=>c.frequency),v.$$click=k=>{k.stopPropagation(),mt(c.text)},p})()})]}),null),i}}),r(g,{get when(){return nn()},get children(){var i=qn();return i.firstChild,t(i,r(L,{get each(){return Oe()},children:(l,o)=>(()=>{var c=Wn(),p=c.firstChild,h=p.nextSibling,x=h.firstChild,m=x.firstChild,u=m.firstChild,v=h.nextSibling,k=v.nextSibling,C=k.nextSibling,U=C.nextSibling,F=U.firstChild,R=F.nextSibling,W=R.firstChild;return c.$$dblclick=()=>K(l),t(p,r(g,{get when(){return S(()=>B()?.id===l.id)()&&Ve()},get fallback(){return(()=>{var _=er();return t(_,()=>o()+1),_})()},get children(){return Jn()}})),t(x,r(g,{get when(){return l.thumbnail_blob_id},get children(){var _=Xn();return E(q=>{var y=`/api/blobs/${l.thumbnail_blob_id}`,w=l.title;return y!==q.e&&Se(_,"src",q.e=y),w!==q.t&&Se(_,"alt",q.t=w),q},{e:void 0,t:void 0}),_}}),m),t(u,()=>l.title),t(m,r(g,{get when(){return l.is_favorite},get children(){return Zn()}}),null),t(v,()=>l.artist||"Unknown Artist"),t(k,()=>l.album||"Unknown Album"),t(C,(()=>{var _=S(()=>!!l.duration_seconds);return()=>_()?Ue(l.duration_seconds):"--:--"})()),F.$$click=_=>{_.stopPropagation(),Ft(l)},t(F,r(Xe,{})),R.style.setProperty("position","relative"),R.style.setProperty("overflow","visible"),W.$$click=async _=>{_.stopPropagation(),await ot(),ve(Qe()===l.id?null:l.id)},t(W,r(Ze,{})),t(R,r(g,{get when(){return Qe()===l.id},get children(){var _=Gn(),q=_.firstChild,y=q.firstChild;return q.nextSibling,q.$$click=w=>{w.stopPropagation(),bt([l]),ve(null)},t(q,r(Ze,{}),y),t(_,r(L,{get each(){return ce()},children:w=>(()=>{var M=tr(),O=M.firstChild;return M.$$click=ln=>{ln.stopPropagation(),Yt(l,w)},t(M,()=>w.title,O),t(O,()=>w.song_count||0),M})()}),null),_}}),null),t(U,r(g,{get when(){return A()},get children(){var _=Kn();return _.$$click=q=>{q.stopPropagation(),Nt(A(),l.id)},t(_,r($t,{})),_}}),null),E(()=>V(c,`zune-table-row ${B()?.id===l.id?"playing":""}`)),c})()}),null),i}})]}}),r(g,{get when(){return S(()=>z()==="artists")()&&!H()},get children(){var i=Je();return t(i,r(L,{get each(){return Ae()},children:l=>(()=>{var o=nr(),c=o.firstChild,p=c.nextSibling,h=p.nextSibling,x=h.firstChild,m=h.nextSibling,u=m.firstChild;return o.$$dblclick=()=>pt(l),o.$$click=()=>dt(l),t(c,r(Ge,{})),t(p,()=>l.artist),t(h,()=>l.song_count,x),t(m,()=>l.album_count,u),o})()})),i}}),r(g,{get when(){return S(()=>z()==="albums")()&&!N()},get children(){var i=Je();return t(i,r(L,{get each(){return qe()},children:l=>(()=>{var o=rr(),c=o.firstChild,p=c.nextSibling,h=p.nextSibling,x=h.nextSibling,m=x.firstChild;return o.$$dblclick=()=>ft(l),o.$$click=()=>ut(l),t(c,r(Ge,{})),t(p,()=>l.album),t(h,()=>l.artist),t(x,()=>l.track_count,m),o})()})),i}}),r(g,{get when(){return S(()=>z()==="playlists")()&&!A()},get children(){var i=Je();return t(i,r(L,{get each(){return ce()},children:l=>(()=>{var o=lr(),c=o.firstChild,p=c.nextSibling,h=p.nextSibling,x=h.firstChild;return o.$$dblclick=()=>gt(l),o.$$click=()=>_e(l),t(c,r(Xe,{})),t(p,()=>l.title),t(h,()=>l.song_count||0,x),t(o,r(g,{get when(){return l.description},get children(){var m=ir();return t(m,()=>l.description),m}}),null),o})()})),i}})]}}),null),t(fe,r(g,{get when(){return it()},get children(){var i=Mn(),l=i.firstChild,o=l.firstChild,c=o.nextSibling,p=c.firstChild,h=p.nextSibling,x=l.nextSibling;return p.$$click=Qt,h.$$click=()=>lt(!1),t(h,r(Pe,{})),t(x,r(L,{get each(){return X()},children:(m,u)=>(()=>{var v=ar(),k=v.firstChild,C=k.firstChild,U=C.nextSibling,F=k.nextSibling;return v.$$click=()=>{Y(u()),K(m.song,!1)},t(C,()=>m.song.title),t(U,()=>m.song.artist),F.$$click=R=>{R.stopPropagation(),Lt(m.id)},t(F,r(Pe,{})),E(()=>V(v,`zune-queue-item ${u()===ge()?"current":""}`)),v})()}),null),t(x,r(g,{get when(){return X().length===0},get children(){return An()}}),null),i}}),null),t(e,r(g,{get when(){return B()},get children(){var i=jn(),l=i.firstChild,o=l.firstChild,c=o.nextSibling,p=c.firstChild,h=p.nextSibling,x=l.nextSibling,m=x.firstChild,u=m.nextSibling,v=u.nextSibling,k=v.nextSibling,C=x.nextSibling,U=C.firstChild,F=U.nextSibling,R=F.firstChild,W=F.nextSibling,_=C.nextSibling,q=_.firstChild;return t(o,r(g,{get when(){return B()?.thumbnail_blob_id},get fallback(){return(()=>{var y=sr();return t(y,r(Ge,{})),y})()},get children(){var y=En();return E(w=>{var M=`/api/blobs/${B()?.thumbnail_blob_id}`,O=B()?.title;return M!==w.e&&Se(y,"src",w.e=M),O!==w.t&&Se(y,"alt",w.t=O),w},{e:void 0,t:void 0}),y}})),t(p,()=>B()?.title),t(h,()=>B()?.artist),m.$$click=Rt,t(m,r(dr,{})),u.$$click=Vt,t(u,(()=>{var y=S(()=>!!Ve());return()=>y()?r(cr,{}):r(Ce,{})})()),v.$$click=ct,t(v,r(ur,{})),k.$$click=()=>lt(!it()),t(k,r(Xe,{})),t(U,()=>Ue(tt())),F.$$click=y=>{const w=y.currentTarget.getBoundingClientRect(),M=(y.clientX-w.left)/w.width*100;Xt(M)},t(W,()=>Ue($e())),t(_,r(gr,{}),q),q.$$input=y=>{const w=parseFloat(y.currentTarget.value);Mt(w);const M=ue();M&&(M.volume=w)},E(y=>{var w=ge()===0,M=ge()>=X().length-1,O=`${$e()>0?tt()/$e()*100:0}%`;return w!==y.e&&(m.disabled=y.e=w),M!==y.t&&(v.disabled=y.t=M),O!==y.a&&((y.a=O)!=null?R.style.setProperty("width",O):R.style.removeProperty("width")),y},{e:void 0,t:void 0,a:void 0}),E(()=>q.value=rt()),i}}),He),t(e,r(g,{get when(){return Qe()},get children(){var i=Tn();return i.$$click=()=>ve(null),i}}),He),t(e,r(g,{get when(){return It()},get children(){var i=Un(),l=i.firstChild,o=l.firstChild,c=o.firstChild,p=c.nextSibling,h=o.nextSibling,x=h.nextSibling,m=x.firstChild;return i.$$click=ae,l.$$click=u=>u.stopPropagation(),t(c,(()=>{var u=S(()=>J()==="create");return()=>u()?"Create Playlist":J()==="edit"?"Edit Playlist":"Add to Playlist"})()),p.$$click=ae,t(p,r(Pe,{})),t(h,r(g,{get when(){return J()!=="add-songs"},get children(){return[(()=>{var u=Dn(),v=u.firstChild,k=v.nextSibling;return k.$$input=C=>re({...P(),title:C.currentTarget.value}),E(()=>k.value=P().title),u})(),(()=>{var u=Fn(),v=u.firstChild,k=v.nextSibling;return k.$$input=C=>re({...P(),description:C.currentTarget.value}),E(()=>k.value=P().description),u})(),(()=>{var u=Rn(),v=u.firstChild,k=v.firstChild;return k.addEventListener("change",C=>re({...P(),is_public:C.currentTarget.checked})),E(()=>k.checked=P().is_public),u})()]}}),null),t(h,r(g,{get when(){return ee().length>0},get children(){var u=Ln(),v=u.firstChild,k=v.firstChild,C=k.nextSibling;C.nextSibling;var U=v.nextSibling;return t(v,()=>J()==="add-songs"?"Adding":"Songs to add",k),t(v,()=>ee().length,C),t(U,r(L,{get each(){return ee()},children:F=>(()=>{var R=or(),W=R.firstChild,_=W.nextSibling;return t(W,()=>F.title),t(_,()=>F.artist||"Unknown Artist"),R})()})),u}}),null),m.$$click=ae,t(x,r(g,{get when(){return J()==="create"},get children(){var u=Qn();return u.$$click=Ut,E(()=>u.disabled=!P().title.trim()),u}}),null),t(x,r(g,{get when(){return J()==="edit"},get children(){var u=Vn();return u.$$click=Ot,E(()=>u.disabled=!P().title.trim()),u}}),null),t(x,r(g,{get when(){return J()==="add-songs"},get children(){var u=Bn();return u.$$click=Ht,u}}),null),i}}),He),E(i=>{var l=`zune-nav-item ${z()==="music"?"active":""}`,o=`zune-nav-item ${z()==="artists"?"active":""}`,c=`zune-nav-item ${z()==="albums"?"active":""}`,p=`zune-nav-item ${z()==="playlists"?"active":""}`,h=`zune-content-area ${Dt()}`;return l!==i.e&&V(b,i.e=l),o!==i.t&&V(Q,i.t=o),c!==i.a&&V($,i.a=c),p!==i.o&&V(se,i.o=p),h!==i.i&&V(ke,i.i=h),i},{e:void 0,t:void 0,a:void 0,o:void 0,i:void 0}),e})()}function br(D){const z=yt(D.apiBaseUrl||"http://localhost:8080");return r(dn,{apiClient:z,searchOptions:{enableSuggestions:!0,enableHistory:!1,autoSearch:!1,integrationMode:"standalone"},get children(){return r(fr,{})}})}class mr extends HTMLElement{dispose=null;connectedCallback(){const z=this.getAttribute("api-base-url")||"http://localhost:8080",Ie=this.getAttribute("auto-connect")==="true";this.dispose=sn(()=>r(br,{apiBaseUrl:z,autoConnect:Ie}),this)}disconnectedCallback(){this.dispose&&this.dispose()}}customElements.define("zune-demo",mr);an(["click","input","dblclick"]);
 //# sourceMappingURL=zune-demo.js.map
