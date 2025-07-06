@@ -38,6 +38,9 @@ import "./blob-viewer";
 import "./infinite-data-grid";
 import "./generic-infinite-grid";
 import "./product-data-grid-demo";
+import "./search-demo";
+import "./freqhole-demo";
+import "./zune-demo";
 
 // Component registration confirmation
 const REGISTERED_COMPONENTS = [
@@ -61,6 +64,9 @@ const REGISTERED_COMPONENTS = [
   "infinite-data-grid",
   "generic-infinite-grid",
   "product-data-grid-demo",
+  "search-demo",
+  "freqhole-demo",
+  "zune-demo",
 ] as const;
 
 export { REGISTERED_COMPONENTS };
@@ -237,6 +243,22 @@ declare global {
       "product-data-grid-demo": {
         className?: string;
       };
+
+      "search-demo": {
+        "api-base-url"?: string;
+        "auto-connect"?: boolean;
+      };
+
+      "freqhole-demo": {
+        "ws-url"?: string;
+        "api-base-url"?: string;
+        "auto-connect"?: boolean;
+      };
+
+      "zune-demo": {
+        "api-base-url"?: string;
+        "auto-connect"?: boolean;
+      };
     }
   }
 }
@@ -294,4 +316,7 @@ console.log("🧩 Web Components Library loaded - Available components:", [
   "infinite-data-grid",
   "generic-infinite-grid",
   "product-data-grid-demo",
+  "search-demo",
+  "freqhole-demo",
+  "zune-demo",
 ]);

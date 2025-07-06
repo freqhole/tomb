@@ -205,6 +205,24 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
     ],
   },
 
+  "zune-demo": {
+    name: "zune-demo",
+    title: "Zune Demo - Metro UI Music Player",
+    description: "🎵 Zune-inspired Music Browser with Metro UI Design",
+    element: "zune-demo",
+    attributes: {
+      "api-base-url": "http://localhost:8080",
+      "auto-connect": "true",
+    },
+    instructions: [
+      "Zune-inspired music browser with Metro UI aesthetic",
+      "Features dark theme with magenta accents and clean typography",
+      "Browse music by songs, artists, albums, and playlists",
+      "Mock playback controls with progress simulation",
+      "Responsive design with glass-morphism effects",
+    ],
+  },
+
   "product-data-grid-demo": {
     name: "product-data-grid-demo",
     title: "Product Catalog Grid Demo",
@@ -259,7 +277,7 @@ ${template.instructions.join("\n        ")}
       color: white;
     }
     .container {
-      max-width: 1000px;
+
       margin: 0 auto;
     }
     ${template.styles || ""}
@@ -300,6 +318,7 @@ function generateStandaloneFiles(): import("vite").Plugin {
           "websocket-thumbnail-demo.js": "websocket-thumbnail-demo",
           "unified-sync-demo.js": "unified-sync-demo",
           "search-demo.js": "search-demo",
+          "zune-demo.js": "zune-demo",
         };
 
         const templateKey = nameMapping[chunk.fileName];
@@ -375,6 +394,7 @@ export default defineConfig({
           "./src/web-components/websocket-thumbnail-demo.tsx",
         "unified-sync-demo": "./src/web-components/unified-sync-demo.tsx",
         "search-demo": "./src/web-components/search-demo.tsx",
+        "zune-demo": "./src/web-components/zune-demo.tsx",
         "all-components": "./src/web-components/index.tsx",
       },
       output: {
@@ -391,6 +411,7 @@ export default defineConfig({
             "websocket-thumbnail-demo": "websocket-thumbnail-demo.js",
             "unified-sync-demo": "unified-sync-demo.js",
             "search-demo": "search-demo.js",
+            "zune-demo": "zune-demo.js",
             "all-components": "all-components.js",
           };
           return nameMap[chunkInfo.name] || "[name].js";

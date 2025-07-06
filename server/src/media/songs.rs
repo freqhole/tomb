@@ -49,6 +49,7 @@ pub struct SongResponse {
     pub display_title: String,
     pub detailed_display_title: String,
     pub created_at: String,
+    pub media_blob_id: String,
     pub thumbnail_blob_id: Option<String>,
     pub waveform_blob_id: Option<String>,
     pub thumbnail_blob_ids: Vec<String>,
@@ -82,6 +83,7 @@ impl From<Song> for SongResponse {
                 .created_at
                 .format(&Rfc3339)
                 .unwrap_or_else(|_| song.created_at.to_string()),
+            media_blob_id: song.media_blob_id,
             thumbnail_blob_id: song.thumbnail_blob_id,
             waveform_blob_id: song.waveform_blob_id,
             thumbnail_blob_ids: song.thumbnail_blob_ids.unwrap_or_default(),
@@ -421,6 +423,25 @@ pub struct SongUpdateResponse {
     pub song: SongResponse,
 }
 
+/// Artist summary response
+#[derive(Debug, Serialize)]
+pub struct ArtistSummary {
+    pub artist: String,
+    pub song_count: i64,
+    pub album_count: i64,
+    pub total_duration: i64,
+    pub genres: Vec<String>,
+    pub avg_rating: Option<f64>,
+    pub favorite_count: i64,
+}
+
+/// Artists list response
+#[derive(Debug, Serialize)]
+pub struct ArtistsListResponse {
+    pub artists: Vec<ArtistSummary>,
+    pub total: usize,
+}
+
 // Route handlers
 
 /// List songs
@@ -507,6 +528,56 @@ pub async fn update_song(
         message,
         song: SongResponse::from(song),
     }))
+}
+
+/// List artists with summaries
+pub async fn list_artists(
+    Extension(db): Extension<DatabaseConnection>,
+) -> Result<Json<ArtistsListResponse>, WebauthnError> {
+    let _repository = MusicRepository::new(db.pool().clone());
+
+    // Get all artists with their statistics
+    let artists_data = sqlx::query!(
+        r#"
+        SELECT
+            s.artist,
+            COUNT(DISTINCT s.id) as song_count,
+            COUNT(DISTINCT s.album) as album_count,
+            COALESCE(SUM(EXTRACT(EPOCH FROM s.duration)), 0) as total_duration,
+            AVG(s.rating) as avg_rating,
+            COUNT(CASE WHEN s.is_favorite THEN 1 END) as favorite_count,
+            ARRAY_AGG(DISTINCT s.genre) FILTER (WHERE s.genre IS NOT NULL) as genres
+        FROM songs s
+        WHERE s.artist IS NOT NULL
+        GROUP BY s.artist
+        ORDER BY s.artist ASC
+        "#
+    )
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| WebauthnError::SqlxError(e))?;
+
+    let artists: Vec<ArtistSummary> = artists_data
+        .into_iter()
+        .map(|row| ArtistSummary {
+            artist: row.artist.unwrap_or_default(),
+            song_count: row.song_count.unwrap_or(0),
+            album_count: row.album_count.unwrap_or(0),
+            total_duration: row
+                .total_duration
+                .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0) as i64)
+                .unwrap_or(0),
+            genres: row.genres.unwrap_or_default(),
+            avg_rating: row
+                .avg_rating
+                .map(|r| r.to_string().parse::<f64>().unwrap_or(0.0)),
+            favorite_count: row.favorite_count.unwrap_or(0),
+        })
+        .collect();
+
+    let total = artists.len();
+
+    Ok(Json(ArtistsListResponse { artists, total }))
 }
 
 /// List playlists
@@ -865,6 +936,8 @@ pub fn create_routes() -> axum::Router {
         .route("/songs", get(list_songs))
         .route("/songs/{song_id}", get(get_song))
         .route("/songs/{song_id}", put(update_song))
+        // Artist routes
+        .route("/artists", get(list_artists))
         // Playlist routes
         .route("/playlists", get(list_playlists))
         .route("/playlists", post(create_playlist))
