@@ -198,6 +198,9 @@ function ZuneDemoContent() {
   const [editingPlaylist, setEditingPlaylist] = createSignal<Playlist | null>(
     null
   );
+  const [showPlaylistDropdown, setShowPlaylistDropdown] = createSignal<
+    string | null
+  >(null);
 
   // Player state
   const [currentSong, setCurrentSong] = createSignal<Song | null>(null);
@@ -275,6 +278,19 @@ function ZuneDemoContent() {
     }
   };
 
+  // Ensure playlists are loaded for dropdown functionality
+  const ensurePlaylistsLoaded = async () => {
+    if (playlists().length === 0) {
+      try {
+        const playlistsResponse = await fetch("/api/media/playlists?limit=100");
+        const playlistsData = await playlistsResponse.json();
+        setPlaylists(playlistsData.playlists || []);
+      } catch (err) {
+        console.error("Failed to load playlists:", err);
+      }
+    }
+  };
+
   // Initialize audio element
   onMount(() => {
     const audio = new Audio();
@@ -295,6 +311,7 @@ function ZuneDemoContent() {
     });
 
     fetchData(currentView());
+    ensurePlaylistsLoaded(); // Load playlists on mount
   });
 
   onCleanup(() => {
@@ -771,6 +788,29 @@ function ZuneDemoContent() {
       }
     } catch (err) {
       setError("Failed to reorder playlist");
+    }
+  };
+
+  const addSongToExistingPlaylist = async (song: Song, playlist: Playlist) => {
+    try {
+      const response = await fetch(
+        `/api/media/playlists/${playlist.id}/songs`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            song_ids: [song.id],
+          }),
+        }
+      );
+
+      if (response.ok) {
+        setShowPlaylistDropdown(null);
+        // Show success feedback
+        console.log(`Added "${song.title}" to playlist "${playlist.title}"`);
+      }
+    } catch (err) {
+      setError("Failed to add song to playlist");
     }
   };
 
@@ -1421,16 +1461,64 @@ function ZuneDemoContent() {
                             >
                               <QueueIcon />
                             </button>
-                            <button
-                              class="zune-action-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openCreatePlaylistModal([song]);
+                            <div
+                              class="zune-playlist-dropdown-container"
+                              style={{
+                                position: "relative",
+                                overflow: "visible",
                               }}
-                              title="Add to playlist"
                             >
-                              <AddIcon />
-                            </button>
+                              <button
+                                class="zune-action-btn"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  await ensurePlaylistsLoaded();
+                                  setShowPlaylistDropdown(
+                                    showPlaylistDropdown() === song.id
+                                      ? null
+                                      : song.id
+                                  );
+                                }}
+                                title="Add to playlist"
+                              >
+                                <AddIcon />
+                              </button>
+                              <Show when={showPlaylistDropdown() === song.id}>
+                                <div class="zune-playlist-dropdown">
+                                  <button
+                                    class="zune-dropdown-item"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openCreatePlaylistModal([song]);
+                                      setShowPlaylistDropdown(null);
+                                    }}
+                                  >
+                                    <AddIcon />
+                                    Create New Playlist
+                                  </button>
+                                  <div class="zune-dropdown-divider"></div>
+                                  <For each={playlists()}>
+                                    {(playlist) => (
+                                      <button
+                                        class="zune-dropdown-item"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          addSongToExistingPlaylist(
+                                            song,
+                                            playlist
+                                          );
+                                        }}
+                                      >
+                                        {playlist.title}
+                                        <span class="zune-playlist-count">
+                                          {playlist.song_count || 0}
+                                        </span>
+                                      </button>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
+                            </div>
                             <Show when={currentPlaylist()}>
                               <button
                                 class="zune-action-btn"
@@ -1662,6 +1750,14 @@ function ZuneDemoContent() {
             />
           </div>
         </div>
+      </Show>
+
+      {/* Click outside handler to close dropdown */}
+      <Show when={showPlaylistDropdown()}>
+        <div
+          class="zune-dropdown-backdrop"
+          onClick={() => setShowPlaylistDropdown(null)}
+        />
       </Show>
 
       {/* Playlist Management Modal */}
@@ -2907,6 +3003,73 @@ function ZuneDemoContent() {
             opacity: 1;
             transform: translateY(0) scale(1);
           }
+        }
+
+        /* Playlist Dropdown Styles */
+        .zune-playlist-dropdown-container {
+          position: relative;
+          display: inline-block;
+        }
+
+        .zune-playlist-dropdown {
+          position: absolute;
+          top: calc(100% + 4px);
+          right: 0;
+          background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+          padding: 0.5rem 0;
+          z-index: 1000;
+          min-width: 220px;
+          max-width: 300px;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+          backdrop-filter: blur(10px);
+          animation: fadeIn 0.2s ease;
+          white-space: nowrap;
+        }
+
+        .zune-dropdown-item {
+          width: 100%;
+          padding: 0.75rem 1rem;
+          background: none;
+          border: none;
+          color: #ffffff;
+          cursor: pointer;
+          text-align: left;
+          transition: background-color 0.2s ease;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          font-size: 0.9rem;
+        }
+
+        .zune-dropdown-item:hover {
+          background: rgba(255, 255, 255, 0.1);
+        }
+
+        .zune-dropdown-divider {
+          height: 1px;
+          background: rgba(255, 255, 255, 0.1);
+          margin: 0.5rem 0;
+        }
+
+        .zune-playlist-count {
+          margin-left: auto;
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 0.8rem;
+        }
+
+        .zune-dropdown-backdrop {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 900;
+        }
+
+        .zune-table-cell--actions {
+          overflow: visible !important;
         }
       `}</style>
     </div>
