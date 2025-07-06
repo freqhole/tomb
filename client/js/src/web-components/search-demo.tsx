@@ -143,8 +143,12 @@ function SearchDemoContent() {
     // In search mode, require a query
     if (searchMode() === "search" && !searchQuery.trim()) return;
 
-    if (searchMode() === "filters" && !context.state.hasActiveFilters()) {
-      console.log("🎛️ No active filters, clearing results");
+    if (
+      searchMode() === "filters" &&
+      !context.state.hasActiveFilters() &&
+      !context.state.query().trim()
+    ) {
+      console.log("🎛️ No active filters or query, clearing results");
       setSearchResults([]);
       return;
     }
@@ -342,20 +346,6 @@ function SearchDemoContent() {
               </div>
             </Show>
 
-            <Show
-              when={musicFilters.hasFilters() && searchMode() === "filters"}
-            >
-              <div class="search-demo__stats-item">
-                <span class="search-demo__stats-label">📊 Available:</span>
-                <span class="search-demo__stats-value">
-                  {musicFilters.filterData()?.summary.unique_genres || 0}{" "}
-                  genres,{" "}
-                  {musicFilters.filterData()?.summary.unique_artists || 0}{" "}
-                  artists
-                </span>
-              </div>
-            </Show>
-
             <Show when={musicFilters.loading()}>
               <div class="search-demo__stats-item">
                 <span class="search-demo__stats-loading">
@@ -400,8 +390,14 @@ function SearchDemoContent() {
                   rating_min: context.state.filters().rating_min,
                   rating_max: context.state.filters().rating_max,
                   favorites_only: context.state.filters().favorites_only,
-                  sortBy: context.state.sortBy(),
-                  sortOrder: context.state.sortDirection(),
+                  sortBy:
+                    context.state.sortBy() === "relevance"
+                      ? ""
+                      : context.state.sortBy(),
+                  sortOrder:
+                    context.state.sortDirection() === "desc"
+                      ? ""
+                      : context.state.sortDirection(),
                 }}
                 onFiltersChange={(filters) => {
                   console.log("🎛️ Filters changed:", filters);
@@ -420,11 +416,18 @@ function SearchDemoContent() {
                     // Apply filters to search context (batch update)
                     Object.keys(filters).forEach((key) => {
                       const value = filters[key];
-                      // Handle sort parameters separately
+                      // Handle sort parameters and query separately
                       if (key === "sortBy") {
-                        context.state.setSortBy(value || "relevance");
+                        context.state.setSortBy(
+                          value === "" ? "relevance" : value
+                        );
                       } else if (key === "sortOrder") {
-                        context.state.setSortDirection(value || "desc");
+                        context.state.setSortDirection(
+                          value === "" ? "desc" : value
+                        );
+                      } else if (key === "query") {
+                        // Handle query separately - use setQuery method
+                        context.state.setQuery(value || "");
                       } else {
                         // Clean up filter values - only set meaningful values
                         if (
@@ -441,11 +444,16 @@ function SearchDemoContent() {
 
                     // Debounced search to prevent cascading calls
                     if (searchMode() === "filters") {
-                      if (context.state.hasActiveFilters()) {
+                      if (
+                        context.state.hasActiveFilters() ||
+                        context.state.query().trim()
+                      ) {
                         console.log("🎛️ Debouncing filter search");
                         debouncedSearch();
                       } else {
-                        console.log("🎛️ No active filters, clearing results");
+                        console.log(
+                          "🎛️ No active filters or query, clearing results"
+                        );
                         setSearchResults([]);
                       }
                     } else if (context.state.query().trim()) {
@@ -462,60 +470,70 @@ function SearchDemoContent() {
                     value: true,
                     label: "Favorites Only",
                     description: "Show only your favorite songs",
+                    category: "favorites",
                   },
                   {
                     key: "rating_min",
                     value: 4,
                     label: "High Rated",
                     description: "Songs rated 4+ stars",
+                    category: "rating",
                   },
                   {
                     key: "rating_min",
                     value: 3,
                     label: "Good Rated",
                     description: "Songs rated 3+ stars",
-                  },
-                  {
-                    key: "has_thumbnail",
-                    value: true,
-                    label: "Has Artwork",
-                    description: "Songs with album artwork",
+                    category: "rating",
                   },
                   {
                     key: "genre",
                     value: "jazz",
                     label: "Jazz",
                     description: "Jazz music",
+                    category: "genre",
                   },
                   {
                     key: "genre",
                     value: "classical",
                     label: "Classical",
                     description: "Classical music",
+                    category: "genre",
                   },
                   {
                     key: "genre",
                     value: "rock",
                     label: "Rock",
                     description: "Rock music",
+                    category: "genre",
+                  },
+                  {
+                    key: "has_thumbnail",
+                    value: true,
+                    label: "Has Artwork",
+                    description: "Songs with album artwork",
+                    category: "features",
                   },
                   {
                     key: "year_min",
                     value: 2020,
                     label: "Recent",
                     description: "Music from 2020 onwards",
+                    category: "time",
                   },
                   {
                     key: "year_max",
                     value: 1999,
                     label: "Vintage",
                     description: "Music from 1999 or earlier",
+                    category: "time",
                   },
                   {
                     key: "bpm_min",
                     value: 120,
                     label: "Upbeat",
                     description: "Songs with 120+ BPM",
+                    category: "features",
                   },
                 ]}
               />
@@ -971,8 +989,6 @@ function SearchDemoContent() {
           border-color: rgba(255, 255, 255, 0.5);
           transform: scale(1.05);
         }
-
-
 
         @media (max-width: 768px) {
           .search-demo__main {

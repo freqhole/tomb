@@ -103,8 +103,8 @@ export interface SearchStateHook {
   // Sort state
   sortBy: () => string;
   setSortBy: (sortBy: string) => void;
-  sortDirection: () => "asc" | "desc";
-  setSortDirection: (direction: "asc" | "desc") => void;
+  sortDirection: () => "asc" | "desc" | "";
+  setSortDirection: (direction: "asc" | "desc" | "") => void;
   toggleSortDirection: () => void;
 
   // Helper methods
@@ -165,9 +165,9 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
   const [pageSize, setPageSize] = createSignal(20);
 
   // Sort state
-  const [sortBy, setSortBy] = createSignal("relevance");
-  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">(
-    "desc"
+  const [sortBy, setSortBy] = createSignal("");
+  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc" | "">(
+    ""
   );
 
   // Filter management
@@ -234,7 +234,14 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
   };
 
   const toggleSortDirection = () => {
-    setSortDirection(sortDirection() === "asc" ? "desc" : "asc");
+    const current = sortDirection();
+    if (current === "") {
+      setSortDirection("desc");
+    } else if (current === "desc") {
+      setSortDirection("asc");
+    } else {
+      setSortDirection("desc");
+    }
   };
 
   // Helper methods
@@ -244,8 +251,8 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
       q: query(),
       page: currentPage(),
       page_size: pageSize(),
-      sort_by: sortBy() as SortBy,
-      sort_direction: sortDirection(),
+      sort_by: (sortBy() || "relevance") as SortBy,
+      sort_direction: sortDirection() || "desc",
     };
 
     // Only include filters that have meaningful values
@@ -277,9 +284,6 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
       searchOptions.favorites_only = true;
     }
 
-    console.log("🎛️ getMusicSearchOptions - current filters:", currentFilters);
-    console.log("🎛️ getMusicSearchOptions - generated options:", searchOptions);
-
     return searchOptions;
   };
 
@@ -289,8 +293,8 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
       q: query(),
       page: currentPage(),
       page_size: pageSize(),
-      sort_by: sortBy() as SortBy,
-      sort_direction: sortDirection(),
+      sort_by: (sortBy() || "relevance") as SortBy,
+      sort_direction: sortDirection() || "desc",
     };
 
     // Only include filters that have meaningful values
@@ -367,8 +371,8 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
     setDomain("music");
     setFilters({ ...defaultFilters });
     setCurrentPage(1);
-    setSortBy("relevance");
-    setSortDirection("desc");
+    setSortBy("");
+    setSortDirection("");
     setLastSearchQuery("");
     setLastSearchDomain("music");
   };

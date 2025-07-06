@@ -75,6 +75,8 @@ pub struct FilterParams {
     /// Sort direction
     #[serde(default)]
     pub sort_direction: Option<String>,
+    /// Search query
+    pub q: Option<String>,
     /// Filter by artist
     pub artist: Option<String>,
     /// Filter by album
@@ -540,9 +542,9 @@ pub async fn filter_music(
     Extension(db): Extension<DatabaseConnection>,
     Query(params): Query<FilterParams>,
 ) -> Result<Json<SearchResponse>, StatusCode> {
-    println!("🎛️ filter_music called with params: {:?}", params);
+    println!("🎛️ filter_music called");
 
-    // Validate that at least one filter is provided
+    // Validate that at least one filter or query is provided
     let has_filters = params.artist.is_some()
         || params.album.is_some()
         || params.genre.is_some()
@@ -551,10 +553,10 @@ pub async fn filter_music(
         || params.rating_max.is_some()
         || params.favorites_only;
 
-    println!("🎛️ has_filters: {}", has_filters);
+    let has_query = params.q.is_some() && !params.q.as_ref().unwrap().trim().is_empty();
 
-    if !has_filters {
-        println!("❌ No filters provided, returning BAD_REQUEST");
+    if !has_filters && !has_query {
+        println!("❌ No filters or query provided, returning BAD_REQUEST");
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -575,14 +577,19 @@ pub async fn filter_music(
         _ => SortDirection::Desc,
     };
 
-    // Build filter-only search query (no text query required)
+    // Build search query with optional text query and filters
     let mut search_query = SearchQuery::new()
-        .with_search_type(SearchType::PlainText) // Use plaintext for filter-only
+        .with_search_type(SearchType::PlainText) // Use plaintext for filter searches
         .with_domains(vec!["music".to_string()])
         .with_pagination(params.page, params.page_size)
         .with_sort(sort_by, sort_direction);
 
-    println!("🎛️ Initial search query: {:?}", search_query);
+    // Add query if provided
+    if let Some(query) = params.q {
+        if !query.trim().is_empty() {
+            search_query = search_query.with_query(&query);
+        }
+    }
 
     // Apply filters
     if let Some(artist) = params.artist {
@@ -609,14 +616,9 @@ pub async fn filter_music(
         search_query.filters.rating_max = Some(rating_max);
     }
 
-    println!("🎛️ Final search query with filters: {:?}", search_query);
-
     // Execute filter-based browsing
     let search_service = SearchService::new(db.pool().clone());
-    println!(
-        "🎛️ About to execute search with songs_only: {}",
-        params.songs_only
-    );
+
     let search_result = if params.songs_only {
         // For songs-only filtering, use the songs search method
         let songs = search_service
@@ -661,16 +663,13 @@ pub async fn filter_music(
             suggestions: vec![],
         }
     } else {
-        println!("🎛️ Calling search_service.search_music");
-        let result = search_service
+        search_service
             .search_music(&search_query)
             .await
             .map_err(|e| {
                 println!("❌ search_music error: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-        println!("🎛️ search_music returned: {:?}", result);
-        result
+            })?
     };
 
     // Convert results

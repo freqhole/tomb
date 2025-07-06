@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, createEffect } from "solid-js";
 
 import { useSearchState } from "../../hooks/search/index.js";
 
@@ -28,6 +28,7 @@ export interface SearchFiltersProps {
     value: any;
     label: string;
     description?: string;
+    category: string;
   }>;
   /** Whether filters are loading */
   loading?: boolean;
@@ -52,12 +53,17 @@ export function SearchFilters(props: SearchFiltersProps) {
   const [isExpanded, setIsExpanded] = createSignal(
     props.startExpanded !== false
   );
-  const [searchMode, setSearchMode] = createSignal<"simple" | "structured">(
-    "simple"
-  );
-  const [structuredQuery, setStructuredQuery] = createSignal("");
+
+  const [localQuery, setLocalQuery] = createSignal("");
+
+  // Sync local query with external filters
+  createEffect(() => {
+    const currentQuery = currentFilters().query || "";
+    setLocalQuery(currentQuery);
+  });
 
   // Get current filters
+  // Parse current filters into display format
   const currentFilters = () => {
     if (useInternal && searchState) {
       const filters = searchState.filters();
@@ -115,7 +121,12 @@ export function SearchFilters(props: SearchFiltersProps) {
           // For filters not directly supported, update external state
           const newFilters = { ...currentFilters() };
           if (value === "" || value === null || value === undefined) {
-            delete newFilters[filterKey];
+            // For clearing, we want to set it to the default value, not delete
+            if (filterKey === "favorites_only") {
+              newFilters[filterKey] = false;
+            } else {
+              delete newFilters[filterKey];
+            }
           } else {
             newFilters[filterKey] = value;
           }
@@ -141,37 +152,6 @@ export function SearchFilters(props: SearchFiltersProps) {
     }
   };
 
-  // Handle structured query parsing
-  const parseStructuredQuery = (query: string) => {
-    const filters: Record<string, any> = {};
-    const parts = query.split(/\s+/);
-
-    parts.forEach((part) => {
-      const match = part.match(/^(\w+):(.+)$/);
-      if (match) {
-        const [, key, value] = match;
-        // Handle different value types
-        if (key && value) {
-          if (value === "true") filters[key] = true;
-          else if (value === "false") filters[key] = false;
-          else if (!isNaN(Number(value))) filters[key] = Number(value);
-          else filters[key] = value;
-        }
-      }
-    });
-
-    return filters;
-  };
-
-  // Handle structured query change
-  const handleStructuredQueryChange = (query: string) => {
-    setStructuredQuery(query);
-    if (searchMode() === "structured") {
-      const filters = parseStructuredQuery(query);
-      props.onFiltersChange?.(filters);
-    }
-  };
-
   // Handle clear all filters
   const handleClearAll = () => {
     if (useInternal && searchState) {
@@ -189,12 +169,11 @@ export function SearchFilters(props: SearchFiltersProps) {
         rating_min: "",
         rating_max: "",
         favorites_only: false,
-        sortBy: "relevance",
-        sortOrder: "desc",
+        sortBy: "",
+        sortOrder: "",
       };
       props.onFiltersChange?.(clearedFilters);
     }
-    setStructuredQuery("");
   };
 
   // Check if any filters are active
@@ -207,6 +186,8 @@ export function SearchFilters(props: SearchFiltersProps) {
         value !== null &&
         value !== "" &&
         value !== false &&
+        !(key === "sortBy" && value === "") &&
+        !(key === "sortOrder" && value === "") &&
         (Array.isArray(value) ? value.length > 0 : true)
       );
     });
@@ -222,6 +203,8 @@ export function SearchFilters(props: SearchFiltersProps) {
         value !== null &&
         value !== "" &&
         value !== false &&
+        !(key === "sortBy" && value === "") &&
+        !(key === "sortOrder" && value === "") &&
         (Array.isArray(value) ? value.length > 0 : true)
       );
     }).length;
@@ -230,9 +213,24 @@ export function SearchFilters(props: SearchFiltersProps) {
   // Quick filter suggestions (use props or defaults)
   const quickFilters = () =>
     props.quickFilters || [
-      { key: "favorites_only", value: true, label: "Favorites" },
-      { key: "rating_min", value: 4, label: "High Rated (4+)" },
-      { key: "rating_min", value: 3, label: "Good Rated (3+)" },
+      {
+        key: "favorites_only",
+        value: true,
+        label: "Favorites",
+        category: "favorites",
+      },
+      {
+        key: "rating_min",
+        value: 4,
+        label: "High Rated (4+)",
+        category: "rating",
+      },
+      {
+        key: "rating_min",
+        value: 3,
+        label: "Good Rated (3+)",
+        category: "rating",
+      },
     ];
 
   // Search type options
@@ -252,6 +250,7 @@ export function SearchFilters(props: SearchFiltersProps) {
 
   // Sort options
   const sortOptions = [
+    { value: "", label: "No Sorting" },
     { value: "relevance", label: "Relevance" },
     { value: "created_at", label: "Date Created" },
     { value: "title", label: "Title" },
@@ -301,50 +300,55 @@ export function SearchFilters(props: SearchFiltersProps) {
       <Show when={!props.loading && (isExpanded() || hasActiveFilters())}>
         <div class="search-filters__content">
           {/* Mode Toggle */}
-          <Show when={props.showStructured !== false}>
-            <div class="search-filters__mode-toggle">
-              <button
-                class={`search-filters__mode-button ${searchMode() === "simple" ? "active" : ""}`}
-                onClick={() => setSearchMode("simple")}
-                type="button"
-              >
-                Simple
-              </button>
-              <button
-                class={`search-filters__mode-button ${searchMode() === "structured" ? "active" : ""}`}
-                onClick={() => setSearchMode("structured")}
-                type="button"
-              >
-                Structured
-              </button>
-            </div>
-          </Show>
 
-          <Show when={searchMode() === "simple"}>
-            <div class="search-filters__simple">
-              {/* Query Filter */}
-              <Show when={props.showQueryInput !== false}>
-                <div class="search-filters__group">
-                  <label class="search-filters__label">
-                    Search Query
-                    <input
-                      type="text"
-                      class="search-filters__input"
-                      value={currentFilters().query || ""}
-                      onInput={(e) =>
-                        handleFilterChange("query", e.currentTarget.value)
-                      }
-                      placeholder="Enter search terms..."
-                    />
-                  </label>
-                </div>
-              </Show>
-
-              {/* Quick Filters */}
+          <div class="search-filters__simple">
+            {/* Query Filter */}
+            <Show when={props.showQueryInput !== false}>
               <div class="search-filters__group">
-                <label class="search-filters__label">Quick Filters</label>
+                <label class="search-filters__label">
+                  Search Query
+                  <input
+                    type="text"
+                    class="search-filters__input"
+                    value={localQuery()}
+                    onInput={(e) => {
+                      setLocalQuery(e.currentTarget.value);
+                    }}
+                    onBlur={(e) => {
+                      const newFilters = { ...currentFilters() };
+                      newFilters.query = e.currentTarget.value;
+                      props.onFiltersChange?.(newFilters);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const newFilters = { ...currentFilters() };
+                        newFilters.query = e.currentTarget.value;
+                        props.onFiltersChange?.(newFilters);
+                      }
+                    }}
+                    placeholder="Enter search terms..."
+                  />
+                </label>
+              </div>
+            </Show>
+
+            {/* Quick Filters */}
+            <div class="search-filters__group">
+              <label class="search-filters__label">Quick Filters</label>
+
+              {/* Favorites & Rating Quick Filters */}
+              <div class="search-filters__quick-category">
+                <h5 class="search-filters__category-title">
+                  Favorites & Rating
+                </h5>
                 <div class="search-filters__quick-filters">
-                  <For each={quickFilters()}>
+                  <For
+                    each={quickFilters().filter(
+                      (f) =>
+                        f.category === "favorites" || f.category === "rating"
+                    )}
+                  >
                     {(filter) => (
                       <button
                         class={`search-filters__quick-filter ${
@@ -353,10 +357,17 @@ export function SearchFilters(props: SearchFiltersProps) {
                             : ""
                         }`}
                         onClick={() => {
+                          const newFilters = { ...currentFilters() };
                           const currentValue = currentFilters()[filter.key];
-                          const newValue =
-                            currentValue === filter.value ? null : filter.value;
-                          handleFilterChange(filter.key, newValue);
+                          if (currentValue === filter.value) {
+                            // Toggle off - reset to default
+                            newFilters[filter.key] =
+                              filter.key === "favorites_only" ? false : "";
+                          } else {
+                            // Toggle on
+                            newFilters[filter.key] = filter.value;
+                          }
+                          props.onFiltersChange?.(newFilters);
                         }}
                         type="button"
                         title={filter.description}
@@ -368,244 +379,292 @@ export function SearchFilters(props: SearchFiltersProps) {
                 </div>
               </div>
 
-              {/* Genre Filter */}
-              <Show when={props.filterOptions?.genres}>
-                <div class="search-filters__group">
-                  <label class="search-filters__label">Genre</label>
-                  <select
-                    class="search-filters__select"
-                    value={currentFilters().genre || ""}
-                    onChange={(e) => {
-                      const value = e.currentTarget.value;
-                      const newFilters = { ...currentFilters() };
-                      if (value === "") {
-                        newFilters.genre = "";
-                      } else {
-                        newFilters.genre = value;
-                      }
-                      props.onFiltersChange?.(newFilters);
-                    }}
+              {/* Genre Quick Filters */}
+              <div class="search-filters__quick-category">
+                <h5 class="search-filters__category-title">Genres</h5>
+                <div class="search-filters__quick-filters">
+                  <For
+                    each={quickFilters().filter((f) => f.category === "genre")}
                   >
-                    <option value="">All Genres</option>
-                    <For each={props.filterOptions?.genres}>
-                      {(option) => (
-                        <option value={option.value}>
-                          {option.label}
-                          <Show
-                            when={
-                              props.showCounts && option.count !== undefined
-                            }
-                          >
-                            ({option.count})
-                          </Show>
-                        </option>
-                      )}
-                    </For>
-                  </select>
-                </div>
-              </Show>
-
-              {/* Manual Filters */}
-              <div class="search-filters__group">
-                <label class="search-filters__label">Manual Filters</label>
-                <div class="search-filters__manual-grid">
-                  <input
-                    type="text"
-                    class="search-filters__input"
-                    value={currentFilters().genre || ""}
-                    onInput={(e) =>
-                      handleFilterChange("genre", e.currentTarget.value)
-                    }
-                    placeholder="Genre (e.g. jazz, rock)"
-                  />
-                  <input
-                    type="text"
-                    class="search-filters__input"
-                    value={currentFilters().year || ""}
-                    onInput={(e) => {
-                      const value = e.currentTarget.value;
-                      if (value === "" || !isNaN(Number(value))) {
-                        const newFilters = { ...currentFilters() };
-                        newFilters.year = value === "" ? "" : Number(value);
-                        props.onFiltersChange?.(newFilters);
-                      }
-                    }}
-                    placeholder="Year (e.g. 2023)"
-                  />
-                  <input
-                    type="text"
-                    class="search-filters__input"
-                    value={currentFilters().key_signature || ""}
-                    onInput={(e) => {
-                      const value = e.currentTarget.value;
-                      handleFilterChange("key_signature", value || null);
-                    }}
-                    placeholder="Key (e.g. C, Am)"
-                  />
-                  <input
-                    type="text"
-                    class="search-filters__input"
-                    value={currentFilters().bpm_min || ""}
-                    onInput={(e) => {
-                      const value = e.currentTarget.value;
-                      if (value === "" || !isNaN(Number(value))) {
-                        handleFilterChange(
-                          "bpm_min",
-                          value === "" ? null : Number(value)
-                        );
-                      }
-                    }}
-                    placeholder="Min BPM"
-                  />
+                    {(filter) => (
+                      <button
+                        class={`search-filters__quick-filter ${
+                          currentFilters()[filter.key] === filter.value
+                            ? "active"
+                            : ""
+                        }`}
+                        onClick={() => {
+                          const newFilters = { ...currentFilters() };
+                          const currentValue = currentFilters()[filter.key];
+                          if (currentValue === filter.value) {
+                            // Toggle off - reset to default
+                            newFilters[filter.key] = "";
+                          } else {
+                            // Toggle on
+                            newFilters[filter.key] = filter.value;
+                          }
+                          props.onFiltersChange?.(newFilters);
+                        }}
+                        type="button"
+                        title={filter.description}
+                      >
+                        {filter.label}
+                      </button>
+                    )}
+                  </For>
                 </div>
               </div>
 
-              {/* Rating Filter */}
-              <div class="search-filters__group">
-                <label class="search-filters__label">Rating</label>
-                <div class="search-filters__range">
-                  <input
-                    type="text"
-                    class="search-filters__input search-filters__input--small"
-                    value={currentFilters().rating_min || ""}
-                    onInput={(e) => {
-                      const value = e.currentTarget.value;
-                      if (
-                        value === "" ||
-                        (!isNaN(Number(value)) &&
-                          Number(value) >= 1 &&
-                          Number(value) <= 5)
-                      ) {
-                        const newFilters = { ...currentFilters() };
-                        newFilters.rating_min =
-                          value === "" ? "" : Number(value);
-                        props.onFiltersChange?.(newFilters);
-                      }
-                    }}
-                    placeholder="Min"
-                  />
-                  <span class="search-filters__range-separator">to</span>
-                  <input
-                    type="text"
-                    class="search-filters__input search-filters__input--small"
-                    value={currentFilters().rating_max || ""}
-                    onInput={(e) => {
-                      const value = e.currentTarget.value;
-                      if (
-                        value === "" ||
-                        (!isNaN(Number(value)) &&
-                          Number(value) >= 1 &&
-                          Number(value) <= 5)
-                      ) {
-                        const newFilters = { ...currentFilters() };
-                        newFilters.rating_max =
-                          value === "" ? "" : Number(value);
-                        props.onFiltersChange?.(newFilters);
-                      }
-                    }}
-                    placeholder="Max"
-                  />
+              {/* Time & Features Quick Filters */}
+              <div class="search-filters__quick-category">
+                <h5 class="search-filters__category-title">Time & Features</h5>
+                <div class="search-filters__quick-filters">
+                  <For
+                    each={quickFilters().filter(
+                      (f) => f.category === "time" || f.category === "features"
+                    )}
+                  >
+                    {(filter) => (
+                      <button
+                        class={`search-filters__quick-filter ${
+                          currentFilters()[filter.key] === filter.value
+                            ? "active"
+                            : ""
+                        }`}
+                        onClick={() => {
+                          const newFilters = { ...currentFilters() };
+                          const currentValue = currentFilters()[filter.key];
+                          if (currentValue === filter.value) {
+                            // Toggle off - reset to default
+                            newFilters[filter.key] = "";
+                          } else {
+                            // Toggle on
+                            newFilters[filter.key] = filter.value;
+                          }
+                          props.onFiltersChange?.(newFilters);
+                        }}
+                        type="button"
+                        title={filter.description}
+                      >
+                        {filter.label}
+                      </button>
+                    )}
+                  </For>
                 </div>
               </div>
+            </div>
 
-              {/* Favorites Filter */}
+            {/* Genre Filter */}
+            <Show when={props.filterOptions?.genres}>
               <div class="search-filters__group">
-                <label class="search-filters__checkbox-label">
-                  <input
-                    type="checkbox"
-                    class="search-filters__checkbox"
-                    checked={currentFilters().favorites_only || false}
-                    onChange={(e) => {
-                      const newFilters = { ...currentFilters() };
-                      newFilters.favorites_only = e.currentTarget.checked;
-                      props.onFiltersChange?.(newFilters);
-                    }}
-                  />
-                  Show favorites only
-                </label>
-              </div>
-
-              {/* Search Type */}
-              <div class="search-filters__group">
-                <label class="search-filters__label">Search Type</label>
+                <label class="search-filters__label">Genre</label>
                 <select
                   class="search-filters__select"
-                  value={currentFilters().search_type || "websearch"}
-                  onChange={(e) =>
-                    handleFilterChange("search_type", e.currentTarget.value)
-                  }
+                  value={currentFilters().genre || ""}
+                  onChange={(e) => {
+                    const value = e.currentTarget.value;
+                    const newFilters = { ...currentFilters() };
+                    if (value === "") {
+                      newFilters.genre = "";
+                    } else {
+                      newFilters.genre = value;
+                    }
+                    props.onFiltersChange?.(newFilters);
+                  }}
                 >
-                  <For each={searchTypes}>
-                    {(type) => (
-                      <option value={type.value} title={type.description}>
-                        {type.label}
+                  <option value="">All Genres</option>
+                  <For each={props.filterOptions?.genres}>
+                    {(option) => (
+                      <option value={option.value}>
+                        {option.label}
+                        <Show
+                          when={props.showCounts && option.count !== undefined}
+                        >
+                          ({option.count})
+                        </Show>
                       </option>
                     )}
                   </For>
                 </select>
               </div>
+            </Show>
 
-              {/* Sort Options */}
-              <div class="search-filters__group">
-                <label class="search-filters__label">Sort By</label>
-                <select
-                  class="search-filters__select"
-                  value={currentFilters().sortBy || "relevance"}
-                  onChange={(e) => {
-                    const newFilters = { ...currentFilters() };
-                    newFilters.sortBy = e.currentTarget.value;
-                    props.onFiltersChange?.(newFilters);
-                  }}
-                >
-                  <For each={sortOptions}>
-                    {(option) => (
-                      <option value={option.value}>{option.label}</option>
-                    )}
-                  </For>
-                </select>
-              </div>
-
-              {/* Sort Direction */}
-              <div class="search-filters__group">
-                <label class="search-filters__label">Sort Direction</label>
-                <select
-                  class="search-filters__select"
-                  value={currentFilters().sortOrder || "desc"}
-                  onChange={(e) => {
-                    const newFilters = { ...currentFilters() };
-                    newFilters.sortOrder = e.currentTarget.value;
-                    props.onFiltersChange?.(newFilters);
-                  }}
-                >
-                  <option value="desc">Descending</option>
-                  <option value="asc">Ascending</option>
-                </select>
-              </div>
-            </div>
-          </Show>
-
-          <Show when={searchMode() === "structured"}>
-            <div class="search-filters__structured">
-              <div class="search-filters__group">
-                <label class="search-filters__label">
-                  Structured Query
-                  <textarea
-                    class="search-filters__textarea"
-                    value={structuredQuery()}
-                    onInput={(e) =>
-                      handleStructuredQueryChange(e.currentTarget.value)
+            {/* Manual Filters */}
+            <div class="search-filters__group">
+              <label class="search-filters__label">Manual Filters</label>
+              <div class="search-filters__manual-grid">
+                <input
+                  type="text"
+                  class="search-filters__input"
+                  value={currentFilters().genre || ""}
+                  onInput={(e) =>
+                    handleFilterChange("genre", e.currentTarget.value)
+                  }
+                  placeholder="Genre (e.g. jazz, rock)"
+                />
+                <input
+                  type="text"
+                  class="search-filters__input"
+                  value={currentFilters().year || ""}
+                  onInput={(e) => {
+                    const value = e.currentTarget.value;
+                    if (value === "" || !isNaN(Number(value))) {
+                      const newFilters = { ...currentFilters() };
+                      newFilters.year = value === "" ? "" : Number(value);
+                      props.onFiltersChange?.(newFilters);
                     }
-                    placeholder="e.g. genre:jazz rating_min:4 favorites_only:true"
-                    rows={3}
-                  />
-                </label>
-                <div class="search-filters__help">
-                  Use key:value format. Examples: genre:jazz, rating_min:4,
-                  year:2023, favorites_only:true
-                </div>
+                  }}
+                  placeholder="Year (e.g. 2023)"
+                />
+                <input
+                  type="text"
+                  class="search-filters__input"
+                  value={currentFilters().key_signature || ""}
+                  onInput={(e) => {
+                    const value = e.currentTarget.value;
+                    handleFilterChange("key_signature", value || null);
+                  }}
+                  placeholder="Key (e.g. C, Am)"
+                />
+                <input
+                  type="text"
+                  class="search-filters__input"
+                  value={currentFilters().bpm_min || ""}
+                  onInput={(e) => {
+                    const value = e.currentTarget.value;
+                    if (value === "" || !isNaN(Number(value))) {
+                      handleFilterChange(
+                        "bpm_min",
+                        value === "" ? null : Number(value)
+                      );
+                    }
+                  }}
+                  placeholder="Min BPM"
+                />
               </div>
             </div>
-          </Show>
+
+            {/* Rating Filter */}
+            <div class="search-filters__group">
+              <label class="search-filters__label">Rating</label>
+              <div class="search-filters__range">
+                <input
+                  type="text"
+                  class="search-filters__input search-filters__input--small"
+                  value={currentFilters().rating_min || ""}
+                  onInput={(e) => {
+                    const value = e.currentTarget.value;
+                    if (
+                      value === "" ||
+                      (!isNaN(Number(value)) &&
+                        Number(value) >= 1 &&
+                        Number(value) <= 5)
+                    ) {
+                      const newFilters = { ...currentFilters() };
+                      newFilters.rating_min = value === "" ? "" : Number(value);
+                      props.onFiltersChange?.(newFilters);
+                    }
+                  }}
+                  placeholder="Min"
+                />
+                <span class="search-filters__range-separator">to</span>
+                <input
+                  type="text"
+                  class="search-filters__input search-filters__input--small"
+                  value={currentFilters().rating_max || ""}
+                  onInput={(e) => {
+                    const value = e.currentTarget.value;
+                    if (
+                      value === "" ||
+                      (!isNaN(Number(value)) &&
+                        Number(value) >= 1 &&
+                        Number(value) <= 5)
+                    ) {
+                      const newFilters = { ...currentFilters() };
+                      newFilters.rating_max = value === "" ? "" : Number(value);
+                      props.onFiltersChange?.(newFilters);
+                    }
+                  }}
+                  placeholder="Max"
+                />
+              </div>
+            </div>
+
+            {/* Favorites Filter */}
+            <div class="search-filters__group">
+              <label class="search-filters__checkbox-label">
+                <input
+                  type="checkbox"
+                  class="search-filters__checkbox"
+                  checked={currentFilters().favorites_only || false}
+                  onChange={(e) => {
+                    const newFilters = { ...currentFilters() };
+                    newFilters.favorites_only = e.currentTarget.checked;
+                    props.onFiltersChange?.(newFilters);
+                  }}
+                />
+                Show favorites only
+              </label>
+            </div>
+
+            {/* Search Type */}
+            <div class="search-filters__group">
+              <label class="search-filters__label">Search Type</label>
+              <select
+                class="search-filters__select"
+                value={currentFilters().search_type || "websearch"}
+                onChange={(e) =>
+                  handleFilterChange("search_type", e.currentTarget.value)
+                }
+              >
+                <For each={searchTypes}>
+                  {(type) => (
+                    <option value={type.value} title={type.description}>
+                      {type.label}
+                    </option>
+                  )}
+                </For>
+              </select>
+            </div>
+
+            {/* Sort Options */}
+            <div class="search-filters__group">
+              <label class="search-filters__label">Sort By</label>
+              <select
+                class="search-filters__select"
+                value={currentFilters().sortBy || ""}
+                onChange={(e) => {
+                  const newFilters = { ...currentFilters() };
+                  newFilters.sortBy = e.currentTarget.value;
+                  props.onFiltersChange?.(newFilters);
+                }}
+              >
+                <For each={sortOptions}>
+                  {(option) => (
+                    <option value={option.value}>{option.label}</option>
+                  )}
+                </For>
+              </select>
+            </div>
+
+            {/* Sort Direction */}
+            <div class="search-filters__group">
+              <label class="search-filters__label">Sort Direction</label>
+              <select
+                class="search-filters__select"
+                value={currentFilters().sortOrder || ""}
+                onChange={(e) => {
+                  const newFilters = { ...currentFilters() };
+                  newFilters.sortOrder = e.currentTarget.value;
+                  props.onFiltersChange?.(newFilters);
+                }}
+              >
+                <option value="">No Direction</option>
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
+              </select>
+            </div>
+          </div>
 
           {/* Active Filters Display */}
           <Show when={hasActiveFilters()}>
@@ -620,6 +679,8 @@ export function SearchFilters(props: SearchFiltersProps) {
                         value !== null &&
                         value !== "" &&
                         value !== false &&
+                        !(key === "sortBy" && value === "") &&
+                        !(key === "sortOrder" && value === "") &&
                         !(Array.isArray(value) && value.length === 0)
                       }
                     >
@@ -658,9 +719,6 @@ export function SearchFilters(props: SearchFiltersProps) {
 
       <style>{`
         .search-filters {
-          background: white;
-          border: 1px solid #ddd;
-          border-radius: 8px;
           padding: 16px;
           margin-bottom: 16px;
         }
@@ -674,9 +732,8 @@ export function SearchFilters(props: SearchFiltersProps) {
 
         .search-filters__title {
           margin: 0;
-          font-size: 18px;
+          font-size: 16px;
           font-weight: 600;
-          color: #333;
         }
 
         .search-filters__count {
@@ -692,18 +749,12 @@ export function SearchFilters(props: SearchFiltersProps) {
 
         .search-filters__clear-button,
         .search-filters__toggle-button {
-          padding: 4px 8px;
+          padding: 6px 12px;
           border: 1px solid #ccc;
           border-radius: 4px;
           background: white;
           cursor: pointer;
           font-size: 12px;
-        }
-
-        .search-filters__clear-button {
-          background: #dc3545;
-          color: white;
-          border-color: #dc3545;
         }
 
         .search-filters__loading {
@@ -718,27 +769,7 @@ export function SearchFilters(props: SearchFiltersProps) {
           gap: 16px;
         }
 
-        .search-filters__mode-toggle {
-          display: flex;
-          gap: 4px;
-          background: #f5f5f5;
-          padding: 4px;
-          border-radius: 4px;
-        }
 
-        .search-filters__mode-button {
-          padding: 8px 16px;
-          border: none;
-          border-radius: 4px;
-          background: transparent;
-          cursor: pointer;
-          font-size: 14px;
-        }
-
-        .search-filters__mode-button.active {
-          background: #007bff;
-          color: white;
-        }
 
         .search-filters__group {
           margin-bottom: 16px;
@@ -749,14 +780,13 @@ export function SearchFilters(props: SearchFiltersProps) {
           margin-bottom: 4px;
           font-size: 14px;
           font-weight: 500;
-          color: #333;
         }
 
         .search-filters__input,
         .search-filters__select,
         .search-filters__textarea {
           width: 100%;
-          padding: 8px;
+          padding: 6px;
           border: 1px solid #ccc;
           border-radius: 4px;
           font-size: 14px;
@@ -766,7 +796,7 @@ export function SearchFilters(props: SearchFiltersProps) {
         .search-filters__input:focus,
         .search-filters__select:focus,
         .search-filters__textarea:focus {
-          border-color: #007bff;
+          border-color: #000;
         }
 
         .search-filters__textarea {
@@ -780,26 +810,42 @@ export function SearchFilters(props: SearchFiltersProps) {
           color: #666;
         }
 
+        .search-filters__quick-category {
+          margin-bottom: 1rem;
+        }
+
+        .search-filters__quick-category:last-child {
+          margin-bottom: 0;
+        }
+
+        .search-filters__category-title {
+          font-size: 12px;
+          font-weight: 500;
+          color: black;
+          margin: 0 0 0.5rem 0;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
         .search-filters__quick-filters {
           display: flex;
-          gap: 8px;
+          gap: 6px;
           flex-wrap: wrap;
         }
 
         .search-filters__quick-filter {
           padding: 4px 8px;
           border: 1px solid #ccc;
-          border-radius: 16px;
+          border-radius: 12px;
           background: white;
           cursor: pointer;
           font-size: 12px;
-          transition: all 0.2s;
         }
 
         .search-filters__quick-filter.active {
-          background: #007bff;
+          background: black;
           color: white;
-          border-color: #007bff;
+          border-color: black;
         }
 
         .search-filters__manual-grid {
@@ -808,11 +854,9 @@ export function SearchFilters(props: SearchFiltersProps) {
           gap: 8px;
         }
 
-
-
         .search-filters__input--small {
-          width: auto;
-          flex: 1;
+          width: 60px;
+          flex: 0 0 60px;
         }
 
         .search-filters__range {
@@ -848,23 +892,24 @@ export function SearchFilters(props: SearchFiltersProps) {
           display: flex;
           align-items: center;
           gap: 4px;
-          background: #007bff;
-          color: white;
+          background: black;
           padding: 4px 8px;
-          border-radius: 16px;
+          border-radius: 12px;
           font-size: 12px;
         }
 
         .search-filters__active-key {
           opacity: 0.8;
+          color: white !important;
         }
 
         .search-filters__active-value {
           font-weight: 500;
+          color: white !important;
         }
 
         .search-filters__active-remove {
-          background: rgba(255, 255, 255, 0.2);
+          background: rgba(255, 255, 255, 0.3);
           border: none;
           color: white;
           width: 16px;
@@ -874,6 +919,12 @@ export function SearchFilters(props: SearchFiltersProps) {
           font-size: 12px;
           line-height: 1;
         }
+
+        .search-filters__active-remove:hover {
+          background: rgba(255, 255, 255, 0.5);
+        }
+
+
       `}</style>
     </div>
   );
