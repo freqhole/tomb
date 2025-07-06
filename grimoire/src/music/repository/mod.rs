@@ -442,7 +442,7 @@ impl MusicRepository {
         .bind(&params.client_id)
         .bind(params.is_public.unwrap_or(false))
         .bind(params.is_collaborative.unwrap_or(false))
-        .bind(&params.metadata)
+        .bind(params.metadata.unwrap_or(serde_json::json!({})))
         .fetch_one(&self.pool)
         .await?;
 

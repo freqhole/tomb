@@ -143,6 +143,30 @@ const MusicIcon = () => (
   </svg>
 );
 
+const EditIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+  </svg>
+);
+
+const DeleteIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+  </svg>
+);
+
+const DragIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+  </svg>
+);
+
+const MoreIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+  </svg>
+);
+
 function ZuneDemoContent() {
   const context = useSearchContext();
   const [currentView, setCurrentView] = createSignal<
@@ -165,6 +189,16 @@ function ZuneDemoContent() {
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
+  // Playlist management state
+  const [showPlaylistModal, setShowPlaylistModal] = createSignal(false);
+  const [playlistModalMode, setPlaylistModalMode] = createSignal<
+    "create" | "edit" | "add-songs"
+  >("create");
+  const [selectedSongs, setSelectedSongs] = createSignal<Song[]>([]);
+  const [editingPlaylist, setEditingPlaylist] = createSignal<Playlist | null>(
+    null
+  );
+
   // Player state
   const [currentSong, setCurrentSong] = createSignal<Song | null>(null);
   const [isPlaying, setIsPlaying] = createSignal(false);
@@ -186,6 +220,13 @@ function ZuneDemoContent() {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchResults, setSearchResults] = createSignal<Song[]>([]);
   const [isSearchActive, setIsSearchActive] = createSignal(false);
+
+  // Playlist management modal state
+  const [playlistForm, setPlaylistForm] = createSignal({
+    title: "",
+    description: "",
+    is_public: false,
+  });
 
   // Animation states
   const [viewTransition, setViewTransition] = createSignal<
@@ -567,6 +608,194 @@ function ZuneDemoContent() {
     }
   };
 
+  // Playlist Management Functions
+  const openCreatePlaylistModal = (songsToAdd?: Song[]) => {
+    setPlaylistModalMode("create");
+    setSelectedSongs(songsToAdd || []);
+    setPlaylistForm({ title: "", description: "", is_public: false });
+    setEditingPlaylist(null);
+    setShowPlaylistModal(true);
+  };
+
+  const openEditPlaylistModal = (playlist: Playlist) => {
+    setPlaylistModalMode("edit");
+    setEditingPlaylist(playlist);
+    setPlaylistForm({
+      title: playlist.title,
+      description: playlist.description || "",
+      is_public: playlist.is_public,
+    });
+    setShowPlaylistModal(true);
+  };
+
+  const openAddSongsModal = (playlist: Playlist, songs: Song[]) => {
+    setPlaylistModalMode("add-songs");
+    setEditingPlaylist(playlist);
+    setSelectedSongs(songs);
+    setShowPlaylistModal(true);
+  };
+
+  const closePlaylistModal = () => {
+    setShowPlaylistModal(false);
+    setSelectedSongs([]);
+    setEditingPlaylist(null);
+    setPlaylistForm({ title: "", description: "", is_public: false });
+  };
+
+  const createPlaylist = async () => {
+    if (!playlistForm().title.trim()) return;
+
+    try {
+      const response = await fetch("/api/media/playlists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: playlistForm().title,
+          description: playlistForm().description || null,
+          is_public: playlistForm().is_public,
+          is_collaborative: false,
+          song_ids: selectedSongs().map((s) => s.id),
+        }),
+      });
+
+      if (response.ok) {
+        closePlaylistModal();
+        if (currentView() === "playlists") {
+          fetchData("playlists");
+        }
+      }
+    } catch (err) {
+      setError("Failed to create playlist");
+    }
+  };
+
+  const updatePlaylist = async () => {
+    if (!editingPlaylist() || !playlistForm().title.trim()) return;
+
+    try {
+      const response = await fetch(
+        `/api/media/playlists/${editingPlaylist()!.id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: playlistForm().title,
+            description: playlistForm().description || null,
+            is_public: playlistForm().is_public,
+            is_collaborative: false,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        closePlaylistModal();
+        if (currentView() === "playlists") {
+          fetchData("playlists");
+        }
+      }
+    } catch (err) {
+      setError("Failed to update playlist");
+    }
+  };
+
+  const addSongsToPlaylist = async () => {
+    if (!editingPlaylist() || selectedSongs().length === 0) return;
+
+    try {
+      const response = await fetch(
+        `/api/media/playlists/${editingPlaylist()!.id}/songs`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            song_ids: selectedSongs().map((s) => s.id),
+          }),
+        }
+      );
+
+      if (response.ok) {
+        closePlaylistModal();
+        // Refresh playlist songs if we're viewing this playlist
+        if (currentPlaylist()?.id === editingPlaylist()!.id) {
+          viewPlaylist(currentPlaylist()!);
+        }
+      }
+    } catch (err) {
+      setError("Failed to add songs to playlist");
+    }
+  };
+
+  const removeSongFromPlaylist = async (playlist: Playlist, songId: string) => {
+    try {
+      const response = await fetch(
+        `/api/media/playlists/${playlist.id}/songs`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            song_ids: [songId],
+          }),
+        }
+      );
+
+      if (response.ok) {
+        // Refresh playlist songs if we're viewing this playlist
+        if (currentPlaylist()?.id === playlist.id) {
+          viewPlaylist(playlist);
+        }
+      }
+    } catch (err) {
+      setError("Failed to remove song from playlist");
+    }
+  };
+
+  const reorderPlaylistSongs = async (
+    playlist: Playlist,
+    songIds: string[]
+  ) => {
+    try {
+      const response = await fetch(
+        `/api/media/playlists/${playlist.id}/reorder`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            song_ids: songIds,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        // Refresh playlist songs
+        viewPlaylist(playlist);
+      }
+    } catch (err) {
+      setError("Failed to reorder playlist");
+    }
+  };
+
+  const deletePlaylist = async (playlist: Playlist) => {
+    try {
+      const response = await fetch(`/api/media/playlists/${playlist.id}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        // Clear current playlist if it was deleted
+        if (currentPlaylist()?.id === playlist.id) {
+          setCurrentPlaylist(null);
+          setPlaylistSongs([]);
+        }
+        // Refresh playlists
+        if (currentView() === "playlists") {
+          fetchData("playlists");
+        }
+      }
+    } catch (err) {
+      setError("Failed to delete playlist");
+    }
+  };
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -853,15 +1082,43 @@ function ZuneDemoContent() {
               <div class="zune-filter-list">
                 <For each={playlists()}>
                   {(playlist) => (
-                    <button
-                      class={`zune-filter-item ${currentPlaylist()?.id === playlist.id ? "active" : ""}`}
-                      onClick={() => viewPlaylist(playlist)}
-                    >
-                      {playlist.title}
-                      <span class="zune-filter-count">
-                        {playlist.song_count || 0}
-                      </span>
-                    </button>
+                    <div class="zune-filter-item-container">
+                      <button
+                        class={`zune-filter-item ${currentPlaylist()?.id === playlist.id ? "active" : ""}`}
+                        onClick={() => viewPlaylist(playlist)}
+                      >
+                        {playlist.title}
+                        <span class="zune-filter-count">
+                          {playlist.song_count || 0}
+                        </span>
+                      </button>
+                      <div class="zune-filter-actions">
+                        <button
+                          class="zune-action-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditPlaylistModal(playlist);
+                          }}
+                          title="Edit playlist"
+                        >
+                          <EditIcon />
+                        </button>
+                        <button
+                          class="zune-action-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (
+                              confirm(`Delete playlist "${playlist.title}"?`)
+                            ) {
+                              deletePlaylist(playlist);
+                            }
+                          }}
+                          title="Delete playlist"
+                        >
+                          <DeleteIcon />
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </For>
               </div>
@@ -971,6 +1228,15 @@ function ZuneDemoContent() {
               >
                 <PlayIcon />
                 play all
+              </button>
+            </Show>
+            <Show when={currentView() === "playlists" && !currentPlaylist()}>
+              <button
+                class="zune-play-all-btn"
+                onClick={() => openCreatePlaylistModal()}
+              >
+                <AddIcon />
+                create playlist
               </button>
             </Show>
           </div>
@@ -1153,8 +1419,33 @@ function ZuneDemoContent() {
                               }}
                               title="Add to queue"
                             >
+                              <QueueIcon />
+                            </button>
+                            <button
+                              class="zune-action-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openCreatePlaylistModal([song]);
+                              }}
+                              title="Add to playlist"
+                            >
                               <AddIcon />
                             </button>
+                            <Show when={currentPlaylist()}>
+                              <button
+                                class="zune-action-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeSongFromPlaylist(
+                                    currentPlaylist()!,
+                                    song.id
+                                  );
+                                }}
+                                title="Remove from playlist"
+                              >
+                                <DeleteIcon />
+                              </button>
+                            </Show>
                           </div>
                         </div>
                       )}
@@ -1369,6 +1660,125 @@ function ZuneDemoContent() {
               }}
               class="zune-volume-slider"
             />
+          </div>
+        </div>
+      </Show>
+
+      {/* Playlist Management Modal */}
+      <Show when={showPlaylistModal()}>
+        <div class="zune-modal-overlay" onClick={closePlaylistModal}>
+          <div class="zune-modal" onClick={(e) => e.stopPropagation()}>
+            <div class="zune-modal-header">
+              <h3>
+                {playlistModalMode() === "create"
+                  ? "Create Playlist"
+                  : playlistModalMode() === "edit"
+                    ? "Edit Playlist"
+                    : "Add to Playlist"}
+              </h3>
+              <button class="zune-modal-close" onClick={closePlaylistModal}>
+                <CloseIcon />
+              </button>
+            </div>
+            <div class="zune-modal-content">
+              <Show when={playlistModalMode() !== "add-songs"}>
+                <div class="zune-form-group">
+                  <label>Title</label>
+                  <input
+                    type="text"
+                    value={playlistForm().title}
+                    onInput={(e) =>
+                      setPlaylistForm({
+                        ...playlistForm(),
+                        title: e.currentTarget.value,
+                      })
+                    }
+                    placeholder="Enter playlist title"
+                    class="zune-input"
+                  />
+                </div>
+                <div class="zune-form-group">
+                  <label>Description (optional)</label>
+                  <textarea
+                    value={playlistForm().description}
+                    onInput={(e) =>
+                      setPlaylistForm({
+                        ...playlistForm(),
+                        description: e.currentTarget.value,
+                      })
+                    }
+                    placeholder="Enter playlist description"
+                    class="zune-textarea"
+                    rows="3"
+                  />
+                </div>
+                <div class="zune-form-group">
+                  <label class="zune-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={playlistForm().is_public}
+                      onChange={(e) =>
+                        setPlaylistForm({
+                          ...playlistForm(),
+                          is_public: e.currentTarget.checked,
+                        })
+                      }
+                    />
+                    Make public
+                  </label>
+                </div>
+              </Show>
+              <Show when={selectedSongs().length > 0}>
+                <div class="zune-form-group">
+                  <label>
+                    {playlistModalMode() === "add-songs"
+                      ? "Adding"
+                      : "Songs to add"}{" "}
+                    ({selectedSongs().length})
+                  </label>
+                  <div class="zune-selected-songs">
+                    <For each={selectedSongs()}>
+                      {(song) => (
+                        <div class="zune-selected-song">
+                          <span class="zune-song-title">{song.title}</span>
+                          <span class="zune-song-artist">
+                            {song.artist || "Unknown Artist"}
+                          </span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+            </div>
+            <div class="zune-modal-actions">
+              <button class="zune-btn-secondary" onClick={closePlaylistModal}>
+                Cancel
+              </button>
+              <Show when={playlistModalMode() === "create"}>
+                <button
+                  class="zune-btn-primary"
+                  onClick={createPlaylist}
+                  disabled={!playlistForm().title.trim()}
+                >
+                  Create
+                </button>
+              </Show>
+              <Show when={playlistModalMode() === "edit"}>
+                <button
+                  class="zune-btn-primary"
+                  onClick={updatePlaylist}
+                  disabled={!playlistForm().title.trim()}
+                >
+                  Save
+                </button>
+              </Show>
+              <Show when={playlistModalMode() === "add-songs"}>
+                <button class="zune-btn-primary" onClick={addSongsToPlaylist}>
+                  Add Songs
+                </button>
+              </Show>
+            </div>
           </div>
         </div>
       </Show>
@@ -2283,6 +2693,219 @@ function ZuneDemoContent() {
 
           .zune-player-progress {
             max-width: 100%;
+          }
+        }
+
+        /* Modal Styles */
+        .zune-modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.8);
+          backdrop-filter: blur(10px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          animation: fadeIn 0.2s ease;
+        }
+
+        .zune-modal {
+          background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+          border-radius: 12px;
+          padding: 0;
+          max-width: 500px;
+          width: 90%;
+          max-height: 80vh;
+          overflow: hidden;
+          animation: slideUp 0.3s ease;
+        }
+
+        .zune-modal-header {
+          padding: 1.5rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
+        .zune-modal-header h3 {
+          margin: 0;
+          font-size: 1.25rem;
+          font-weight: 600;
+          color: #ffffff;
+        }
+
+        .zune-modal-close {
+          background: none;
+          border: none;
+          color: rgba(255, 255, 255, 0.7);
+          cursor: pointer;
+          padding: 8px;
+          border-radius: 6px;
+          transition: all 0.2s ease;
+        }
+
+        .zune-modal-close:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+        }
+
+        .zune-modal-content {
+          padding: 1.5rem;
+          max-height: 50vh;
+          overflow-y: auto;
+        }
+
+        .zune-modal-actions {
+          padding: 1rem 1.5rem;
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          display: flex;
+          gap: 0.75rem;
+          justify-content: flex-end;
+        }
+
+        .zune-form-group {
+          margin-bottom: 1.5rem;
+        }
+
+        .zune-form-group label {
+          display: block;
+          margin-bottom: 0.5rem;
+          font-weight: 500;
+          color: #ffffff;
+          font-size: 0.9rem;
+        }
+
+        .zune-input, .zune-textarea {
+          width: 100%;
+          padding: 0.75rem;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 6px;
+          color: #ffffff;
+          font-size: 0.9rem;
+          transition: all 0.2s ease;
+        }
+
+        .zune-input:focus, .zune-textarea:focus {
+          outline: none;
+          border-color: #ff0080;
+          box-shadow: 0 0 0 2px rgba(255, 0, 128, 0.2);
+        }
+
+        .zune-checkbox-label {
+          display: flex !important;
+          align-items: center;
+          gap: 0.5rem;
+          cursor: pointer;
+        }
+
+        .zune-checkbox-label input[type="checkbox"] {
+          width: auto;
+          margin: 0;
+        }
+
+        .zune-selected-songs {
+          max-height: 150px;
+          overflow-y: auto;
+          background: rgba(0, 0, 0, 0.2);
+          border-radius: 6px;
+          padding: 0.75rem;
+        }
+
+        .zune-selected-song {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.5rem 0;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .zune-selected-song:last-child {
+          border-bottom: none;
+        }
+
+        .zune-song-title {
+          font-weight: 500;
+          color: #ffffff;
+          font-size: 0.9rem;
+        }
+
+        .zune-song-artist {
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 0.8rem;
+        }
+
+        .zune-btn-primary, .zune-btn-secondary {
+          padding: 0.75rem 1.5rem;
+          border-radius: 6px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          border: none;
+          font-size: 0.9rem;
+        }
+
+        .zune-btn-primary {
+          background: linear-gradient(135deg, #ff0080 0%, #ff4081 100%);
+          color: #ffffff;
+        }
+
+        .zune-btn-primary:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(255, 0, 128, 0.3);
+        }
+
+        .zune-btn-primary:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .zune-btn-secondary {
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+        }
+
+        .zune-btn-secondary:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+
+        .zune-filter-item-container {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+
+        .zune-filter-item-container .zune-filter-item {
+          flex: 1;
+        }
+
+        .zune-filter-actions {
+          display: none;
+          gap: 0.25rem;
+          padding-left: 0.5rem;
+        }
+
+        .zune-filter-item-container:hover .zune-filter-actions {
+          display: flex;
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(30px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
           }
         }
       `}</style>

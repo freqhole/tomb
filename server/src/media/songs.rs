@@ -633,16 +633,29 @@ pub async fn create_playlist(
     Extension(db): Extension<DatabaseConnection>,
     Json(req): Json<CreatePlaylistRequest>,
 ) -> Result<Json<PlaylistResponse>, WebauthnError> {
+    tracing::debug!("Creating playlist with request: {:?}", req);
+
     let repository = MusicRepository::new(db.pool().clone());
     let service = PlaylistService::new(repository);
 
-    let song_ids = req.song_ids.clone();
+    let song_ids = req.song_ids.clone().unwrap_or_default();
     let create_params = CreatePlaylist::from(req);
-    let (playlist, _added_songs) = service
-        .create_playlist_with_songs(create_params, song_ids, Some("web".to_string()))
-        .await
-        .map_err(|_| WebauthnError::BadRequest)?;
 
+    tracing::debug!(
+        "Creating playlist with params: {:?}, song_ids: {:?}",
+        create_params,
+        song_ids
+    );
+
+    let (playlist, _added_songs) = service
+        .create_playlist_with_songs(create_params, Some(song_ids), Some("web".to_string()))
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create playlist: {:?}", e);
+            WebauthnError::BadRequest
+        })?;
+
+    tracing::debug!("Successfully created playlist: {:?}", playlist);
     Ok(Json(PlaylistResponse::from(playlist)))
 }
 
