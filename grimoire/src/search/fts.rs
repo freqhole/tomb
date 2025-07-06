@@ -187,7 +187,11 @@ impl SearchService {
     pub async fn search_music(&self, query: &SearchQuery) -> Result<SearchResult, SearchError> {
         let start_time = Instant::now();
 
-        if query.query.is_none() && query.structured_search.is_none() {
+        // Only return early if there's no query AND no filters
+        if query.query.is_none()
+            && query.structured_search.is_none()
+            && !query.filters.has_any_filters()
+        {
             return Ok(SearchResult {
                 total_count: 0,
                 results: vec![],
@@ -209,41 +213,79 @@ impl SearchService {
         let offset = ((query.pagination.page - 1) * query.pagination.page_size) as i32;
         let limit = query.pagination.page_size as i32;
 
-        let rows = sqlx::query_as::<_, MusicSearchRow>(
-            r#"
-            SELECT
-                result_type, id, title, subtitle, description,
-                media_blob_id, thumbnail_blob_id, search_rank,
-                metadata, created_at, updated_at
-            FROM music_search($1, $2, $3, $4, $5)
-            "#,
-        )
-        .bind(query.query.as_deref())
-        .bind(search_type)
-        .bind(query.structured_search.as_deref())
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        // If filters are present, use search_songs for better filter support
+        let (results, total_count) = if query.filters.has_any_filters() {
+            // Use search_songs which supports all filters
+            let songs = self.search_songs(query).await?;
 
-        let results: Vec<SearchResultItem> = rows
-            .into_iter()
-            .map(|row| SearchResultItem {
-                id: row.id,
-                result_type: row.result_type,
-                title: row.title,
-                subtitle: Some(row.subtitle),
-                description: row.description,
-                thumbnail_blob_id: row.thumbnail_blob_id,
-                media_blob_id: row.media_blob_id,
-                relevance_score: row.search_rank,
-                metadata: row.metadata.unwrap_or_default(),
-                created_at: row.created_at,
-                updated_at: row.updated_at,
-            })
-            .collect();
+            // Convert songs to SearchResultItem format
+            let search_results: Vec<SearchResultItem> = songs
+                .into_iter()
+                .map(|song| SearchResultItem {
+                    id: song.id,
+                    result_type: "song".to_string(),
+                    title: song.title,
+                    subtitle: song.artist.clone(),
+                    description: song.album.clone(),
+                    thumbnail_blob_id: song.thumbnail_blob_id,
+                    media_blob_id: Some(song.media_blob_id),
+                    relevance_score: song.search_rank,
+                    metadata: serde_json::json!({
+                        "artist": song.artist,
+                        "album": song.album,
+                        "genre": song.genre,
+                        "year": song.year,
+                        "rating": song.rating,
+                        "is_favorite": song.is_favorite,
+                        "tags": song.tags
+                    }),
+                    created_at: song.created_at,
+                    updated_at: song.updated_at,
+                })
+                .collect();
 
-        let total_count = results.len() as u64;
+            let count = search_results.len() as u64;
+            (search_results, count)
+        } else {
+            // Use the original music_search function for text queries without filters
+            let rows = sqlx::query_as::<_, MusicSearchRow>(
+                r#"
+                SELECT
+                    result_type, id, title, subtitle, description,
+                    media_blob_id, thumbnail_blob_id, search_rank,
+                    metadata, created_at, updated_at
+                FROM music_search($1, $2, $3, $4, $5)
+                "#,
+            )
+            .bind(query.query.as_deref())
+            .bind(search_type)
+            .bind(query.structured_search.as_deref())
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+            let search_results: Vec<SearchResultItem> = rows
+                .into_iter()
+                .map(|row| SearchResultItem {
+                    id: row.id,
+                    result_type: row.result_type,
+                    title: row.title,
+                    subtitle: Some(row.subtitle),
+                    description: row.description,
+                    thumbnail_blob_id: row.thumbnail_blob_id,
+                    media_blob_id: row.media_blob_id,
+                    relevance_score: row.search_rank,
+                    metadata: row.metadata.unwrap_or_default(),
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                })
+                .collect();
+
+            let count = search_results.len() as u64;
+            (search_results, count)
+        };
+
         let total_pages = (total_count as f64 / query.pagination.page_size as f64).ceil() as u32;
 
         let facets = self.get_facets(query).await?;

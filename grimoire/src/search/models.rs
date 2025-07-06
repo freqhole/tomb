@@ -306,3 +306,32 @@ impl SearchQuery {
         Ok(())
     }
 }
+
+impl SearchFilters {
+    /// Check if any filters are set (useful for determining if a filter-only search is valid)
+    pub fn has_any_filters(&self) -> bool {
+        self.artist.is_some()
+            || self.album.is_some()
+            || self.album_artist.is_some()
+            || self.genre.is_some()
+            || self.title_search.is_some()
+            || self.year.is_some()
+            || self.year_min.is_some()
+            || self.year_max.is_some()
+            || self.rating_min.is_some()
+            || self.rating_max.is_some()
+            || self.bpm_min.is_some()
+            || self.bpm_max.is_some()
+            || self.duration_min.is_some()
+            || self.duration_max.is_some()
+            || self.favorites_only.is_some()
+            || self.has_thumbnail.is_some()
+            || self.has_waveform.is_some()
+            || self.tags.is_some()
+            || self.key_signature.is_some()
+            || self.media_blob_id.is_some()
+            || self.created_after.is_some()
+            || self.updated_after.is_some()
+            || self.metadata_filter.is_some()
+    }
+}
