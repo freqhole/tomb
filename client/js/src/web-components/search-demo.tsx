@@ -105,22 +105,29 @@ function SearchDemoContent() {
     }
   });
 
-  // Handle mode switching
+  // Create a debounced search function to prevent cascading calls
+  const [searchTimeout, setSearchTimeout] = createSignal<number | null>(null);
+
+  const debouncedSearch = (delay: number = 300) => {
+    const currentTimeout = searchTimeout();
+    if (currentTimeout) {
+      clearTimeout(currentTimeout);
+    }
+
+    const newTimeout = setTimeout(() => {
+      handleSearch();
+    }, delay);
+
+    setSearchTimeout(newTimeout);
+  };
+
+  // Handle mode switching (without automatic search triggering)
   createEffect(() => {
     const mode = searchMode();
     console.log("🔄 Search mode changed to:", mode);
 
-    // When switching to filters mode, trigger search if filters are active
-    if (mode === "filters") {
-      if (context.state.hasActiveFilters()) {
-        console.log(
-          "🎛️ Switching to filters mode with active filters, triggering search"
-        );
-        handleSearch();
-      }
-    }
     // When switching to search mode, clear results if no query
-    else if (mode === "search") {
+    if (mode === "search") {
       const currentQuery = context.state.query();
       if (!currentQuery.trim()) {
         setSearchResults([]);
@@ -132,9 +139,15 @@ function SearchDemoContent() {
   const handleSearch = async (query?: string) => {
     const searchQuery = query || context.state.query();
 
-    // In filters-only mode, allow search even without a query
+    // In filters-only mode, check if we have active filters
     // In search mode, require a query
     if (searchMode() === "search" && !searchQuery.trim()) return;
+
+    if (searchMode() === "filters" && !context.state.hasActiveFilters()) {
+      console.log("🎛️ No active filters, clearing results");
+      setSearchResults([]);
+      return;
+    }
 
     setIsSearching(true);
     console.log("🔍 Performing search:", searchQuery);
@@ -383,72 +396,128 @@ function SearchDemoContent() {
                 filters={{
                   genre: context.state.filters().genre,
                   artist: context.state.filters().artist,
-                  yearFrom: context.state.filters().year?.toString() || "",
-                  rating_min:
-                    context.state.filters().rating_min?.toString() || "",
-                  rating_max:
-                    context.state.filters().rating_max?.toString() || "",
+                  year: context.state.filters().year,
+                  rating_min: context.state.filters().rating_min,
+                  rating_max: context.state.filters().rating_max,
                   favorites_only: context.state.filters().favorites_only,
+                  sortBy: context.state.sortBy(),
+                  sortOrder: context.state.sortDirection(),
                 }}
                 onFiltersChange={(filters) => {
-                  console.log("Filters changed:", filters);
+                  console.log("🎛️ Filters changed:", filters);
 
-                  // Check if this is a "clear all" action (empty object)
-                  const isClearAll = Object.keys(filters).length === 0;
+                  // Check if this is a "clear all" operation (null or empty object)
+                  const isClearAll =
+                    filters === null ||
+                    (filters && Object.keys(filters).length === 0);
 
                   if (isClearAll) {
                     // Clear all filters
                     console.log("🧹 Clearing all filters");
                     context.state.clearFilters();
+                    setSearchResults([]);
                   } else {
-                    // Apply filters to search context
-                    if (filters.genre !== undefined)
-                      context.state.updateFilter("genre", filters.genre || "");
-                    if (filters.artist !== undefined)
-                      context.state.updateFilter(
-                        "artist",
-                        filters.artist || ""
-                      );
-                    if (filters.yearFrom !== undefined)
-                      context.state.updateFilter(
-                        "year",
-                        filters.yearFrom ? parseInt(filters.yearFrom) : null
-                      );
-                    if (filters.rating_min !== undefined)
-                      context.state.updateFilter(
-                        "rating_min",
-                        filters.rating_min ? parseInt(filters.rating_min) : null
-                      );
-                    if (filters.rating_max !== undefined)
-                      context.state.updateFilter(
-                        "rating_max",
-                        filters.rating_max ? parseInt(filters.rating_max) : null
-                      );
-                    if (filters.favorites_only !== undefined)
-                      context.state.updateFilter(
-                        "favorites_only",
-                        filters.favorites_only
-                      );
-                  }
+                    // Apply filters to search context (batch update)
+                    Object.keys(filters).forEach((key) => {
+                      const value = filters[key];
+                      // Handle sort parameters separately
+                      if (key === "sortBy") {
+                        context.state.setSortBy(value || "relevance");
+                      } else if (key === "sortOrder") {
+                        context.state.setSortDirection(value || "desc");
+                      } else {
+                        // Clean up filter values - only set meaningful values
+                        if (
+                          value === null ||
+                          value === undefined ||
+                          value === ""
+                        ) {
+                          context.state.updateFilter(key, null);
+                        } else {
+                          context.state.updateFilter(key, value);
+                        }
+                      }
+                    });
 
-                  // Trigger search with new filters
-                  if (
-                    searchMode() === "filters" ||
-                    context.state.query().trim()
-                  ) {
-                    console.log(
-                      "🎛️ Filters changed, re-running search with filters:",
-                      isClearAll ? "CLEARED" : filters
-                    );
-                    handleSearch();
-                  } else {
-                    // If no query in search mode, just log that filters are applied
-                    console.log(
-                      "🎛️ Filters applied, but no search query to execute. Current filters:",
-                      isClearAll ? "CLEARED" : filters
-                    );
+                    // Debounced search to prevent cascading calls
+                    if (searchMode() === "filters") {
+                      if (context.state.hasActiveFilters()) {
+                        console.log("🎛️ Debouncing filter search");
+                        debouncedSearch();
+                      } else {
+                        console.log("🎛️ No active filters, clearing results");
+                        setSearchResults([]);
+                      }
+                    } else if (context.state.query().trim()) {
+                      console.log(
+                        "🎛️ Debouncing search with query and filters"
+                      );
+                      debouncedSearch();
+                    }
                   }
                 }}
+                quickFilters={[
+                  {
+                    key: "favorites_only",
+                    value: true,
+                    label: "Favorites Only",
+                    description: "Show only your favorite songs",
+                  },
+                  {
+                    key: "rating_min",
+                    value: 4,
+                    label: "High Rated",
+                    description: "Songs rated 4+ stars",
+                  },
+                  {
+                    key: "rating_min",
+                    value: 3,
+                    label: "Good Rated",
+                    description: "Songs rated 3+ stars",
+                  },
+                  {
+                    key: "has_thumbnail",
+                    value: true,
+                    label: "Has Artwork",
+                    description: "Songs with album artwork",
+                  },
+                  {
+                    key: "genre",
+                    value: "jazz",
+                    label: "Jazz",
+                    description: "Jazz music",
+                  },
+                  {
+                    key: "genre",
+                    value: "classical",
+                    label: "Classical",
+                    description: "Classical music",
+                  },
+                  {
+                    key: "genre",
+                    value: "rock",
+                    label: "Rock",
+                    description: "Rock music",
+                  },
+                  {
+                    key: "year_min",
+                    value: 2020,
+                    label: "Recent",
+                    description: "Music from 2020 onwards",
+                  },
+                  {
+                    key: "year_max",
+                    value: 1999,
+                    label: "Vintage",
+                    description: "Music from 1999 or earlier",
+                  },
+                  {
+                    key: "bpm_min",
+                    value: 120,
+                    label: "Upbeat",
+                    description: "Songs with 120+ BPM",
+                  },
+                ]}
               />
             </div>
           </Show>

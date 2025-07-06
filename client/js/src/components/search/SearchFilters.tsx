@@ -15,13 +15,20 @@ export interface SearchFiltersProps {
   /** External filters (when not using internal state) */
   filters?: Record<string, any>;
   /** External filter change handler (when not using internal state) */
-  onFiltersChange?: (filters: Record<string, any>) => void;
+  onFiltersChange?: (filters: Record<string, any> | null) => void;
   /** Available filter options */
   filterOptions?: {
     genres?: FilterOption[];
     types?: FilterOption[];
     [key: string]: FilterOption[] | undefined;
   };
+  /** Quick filter suggestions */
+  quickFilters?: Array<{
+    key: string;
+    value: any;
+    label: string;
+    description?: string;
+  }>;
   /** Whether filters are loading */
   loading?: boolean;
   /** Additional CSS classes */
@@ -56,11 +63,11 @@ export function SearchFilters(props: SearchFiltersProps) {
       const filters = searchState.filters();
       return {
         query: searchState.query(),
-        genre: filters.genre,
-        year: filters.year,
-        rating_min: filters.rating_min,
-        rating_max: filters.rating_max,
-        favorites_only: filters.favorites_only,
+        genre: filters.genre || "",
+        year: filters.year || "",
+        rating_min: filters.rating_min || "",
+        rating_max: filters.rating_max || "",
+        favorites_only: filters.favorites_only || false,
         types: [],
         sortBy: searchState.sortBy(),
         sortOrder: searchState.sortDirection(),
@@ -120,7 +127,12 @@ export function SearchFilters(props: SearchFiltersProps) {
       const newFilters = { ...currentFilters() };
 
       if (value === "" || value === null || value === undefined) {
-        delete newFilters[filterKey];
+        // For clearing, we want to set it to the default value, not delete
+        if (filterKey === "favorites_only") {
+          newFilters[filterKey] = false;
+        } else {
+          delete newFilters[filterKey];
+        }
       } else {
         newFilters[filterKey] = value;
       }
@@ -168,7 +180,19 @@ export function SearchFilters(props: SearchFiltersProps) {
       searchState.setSortBy("relevance");
       searchState.setSortDirection("desc");
     } else {
-      props.onFiltersChange?.({});
+      // Set to default/empty values instead of null
+      const clearedFilters = {
+        query: "",
+        genre: "",
+        artist: "",
+        year: "",
+        rating_min: "",
+        rating_max: "",
+        favorites_only: false,
+        sortBy: "relevance",
+        sortOrder: "desc",
+      };
+      props.onFiltersChange?.(clearedFilters);
     }
     setStructuredQuery("");
   };
@@ -182,6 +206,7 @@ export function SearchFilters(props: SearchFiltersProps) {
         value !== undefined &&
         value !== null &&
         value !== "" &&
+        value !== false &&
         (Array.isArray(value) ? value.length > 0 : true)
       );
     });
@@ -196,16 +221,43 @@ export function SearchFilters(props: SearchFiltersProps) {
         value !== undefined &&
         value !== null &&
         value !== "" &&
+        value !== false &&
         (Array.isArray(value) ? value.length > 0 : true)
       );
     }).length;
   };
 
-  // Quick filter suggestions
-  const quickFilters = [
-    { key: "favorites_only", value: true, label: "Favorites" },
-    { key: "rating_min", value: 4, label: "High Rated (4+)" },
-    { key: "rating_min", value: 3, label: "Good Rated (3+)" },
+  // Quick filter suggestions (use props or defaults)
+  const quickFilters = () =>
+    props.quickFilters || [
+      { key: "favorites_only", value: true, label: "Favorites" },
+      { key: "rating_min", value: 4, label: "High Rated (4+)" },
+      { key: "rating_min", value: 3, label: "Good Rated (3+)" },
+    ];
+
+  // Search type options
+  const searchTypes = [
+    {
+      value: "websearch",
+      label: "Web Search",
+      description: "Natural language with operators",
+    },
+    {
+      value: "plainto",
+      label: "Plain Text",
+      description: "Simple text matching",
+    },
+    { value: "phrase", label: "Phrase", description: "Exact phrase matching" },
+  ];
+
+  // Sort options
+  const sortOptions = [
+    { value: "relevance", label: "Relevance" },
+    { value: "created_at", label: "Date Created" },
+    { value: "title", label: "Title" },
+    { value: "artist", label: "Artist" },
+    { value: "album", label: "Album" },
+    { value: "rating", label: "Rating" },
   ];
 
   return (
@@ -292,7 +344,7 @@ export function SearchFilters(props: SearchFiltersProps) {
               <div class="search-filters__group">
                 <label class="search-filters__label">Quick Filters</label>
                 <div class="search-filters__quick-filters">
-                  <For each={quickFilters}>
+                  <For each={quickFilters()}>
                     {(filter) => (
                       <button
                         class={`search-filters__quick-filter ${
@@ -307,6 +359,7 @@ export function SearchFilters(props: SearchFiltersProps) {
                           handleFilterChange(filter.key, newValue);
                         }}
                         type="button"
+                        title={filter.description}
                       >
                         {filter.label}
                       </button>
@@ -322,9 +375,16 @@ export function SearchFilters(props: SearchFiltersProps) {
                   <select
                     class="search-filters__select"
                     value={currentFilters().genre || ""}
-                    onChange={(e) =>
-                      handleFilterChange("genre", e.currentTarget.value)
-                    }
+                    onChange={(e) => {
+                      const value = e.currentTarget.value;
+                      const newFilters = { ...currentFilters() };
+                      if (value === "") {
+                        newFilters.genre = "";
+                      } else {
+                        newFilters.genre = value;
+                      }
+                      props.onFiltersChange?.(newFilters);
+                    }}
                   >
                     <option value="">All Genres</option>
                     <For each={props.filterOptions?.genres}>
@@ -359,13 +419,43 @@ export function SearchFilters(props: SearchFiltersProps) {
                     placeholder="Genre (e.g. jazz, rock)"
                   />
                   <input
-                    type="number"
+                    type="text"
                     class="search-filters__input"
                     value={currentFilters().year || ""}
-                    onInput={(e) =>
-                      handleFilterChange("year", e.currentTarget.value)
-                    }
+                    onInput={(e) => {
+                      const value = e.currentTarget.value;
+                      if (value === "" || !isNaN(Number(value))) {
+                        const newFilters = { ...currentFilters() };
+                        newFilters.year = value === "" ? "" : Number(value);
+                        props.onFiltersChange?.(newFilters);
+                      }
+                    }}
                     placeholder="Year (e.g. 2023)"
+                  />
+                  <input
+                    type="text"
+                    class="search-filters__input"
+                    value={currentFilters().key_signature || ""}
+                    onInput={(e) => {
+                      const value = e.currentTarget.value;
+                      handleFilterChange("key_signature", value || null);
+                    }}
+                    placeholder="Key (e.g. C, Am)"
+                  />
+                  <input
+                    type="text"
+                    class="search-filters__input"
+                    value={currentFilters().bpm_min || ""}
+                    onInput={(e) => {
+                      const value = e.currentTarget.value;
+                      if (value === "" || !isNaN(Number(value))) {
+                        handleFilterChange(
+                          "bpm_min",
+                          value === "" ? null : Number(value)
+                        );
+                      }
+                    }}
+                    placeholder="Min BPM"
                   />
                 </div>
               </div>
@@ -375,27 +465,45 @@ export function SearchFilters(props: SearchFiltersProps) {
                 <label class="search-filters__label">Rating</label>
                 <div class="search-filters__range">
                   <input
-                    type="number"
+                    type="text"
                     class="search-filters__input search-filters__input--small"
                     value={currentFilters().rating_min || ""}
-                    onInput={(e) =>
-                      handleFilterChange("rating_min", e.currentTarget.value)
-                    }
+                    onInput={(e) => {
+                      const value = e.currentTarget.value;
+                      if (
+                        value === "" ||
+                        (!isNaN(Number(value)) &&
+                          Number(value) >= 1 &&
+                          Number(value) <= 5)
+                      ) {
+                        const newFilters = { ...currentFilters() };
+                        newFilters.rating_min =
+                          value === "" ? "" : Number(value);
+                        props.onFiltersChange?.(newFilters);
+                      }
+                    }}
                     placeholder="Min"
-                    min="1"
-                    max="5"
                   />
                   <span class="search-filters__range-separator">to</span>
                   <input
-                    type="number"
+                    type="text"
                     class="search-filters__input search-filters__input--small"
                     value={currentFilters().rating_max || ""}
-                    onInput={(e) =>
-                      handleFilterChange("rating_max", e.currentTarget.value)
-                    }
+                    onInput={(e) => {
+                      const value = e.currentTarget.value;
+                      if (
+                        value === "" ||
+                        (!isNaN(Number(value)) &&
+                          Number(value) >= 1 &&
+                          Number(value) <= 5)
+                      ) {
+                        const newFilters = { ...currentFilters() };
+                        newFilters.rating_max =
+                          value === "" ? "" : Number(value);
+                        props.onFiltersChange?.(newFilters);
+                      }
+                    }}
                     placeholder="Max"
-                    min="1"
-                    max="5"
                   />
                 </div>
               </div>
@@ -407,15 +515,71 @@ export function SearchFilters(props: SearchFiltersProps) {
                     type="checkbox"
                     class="search-filters__checkbox"
                     checked={currentFilters().favorites_only || false}
-                    onChange={(e) =>
-                      handleFilterChange(
-                        "favorites_only",
-                        e.currentTarget.checked
-                      )
-                    }
+                    onChange={(e) => {
+                      const newFilters = { ...currentFilters() };
+                      newFilters.favorites_only = e.currentTarget.checked;
+                      props.onFiltersChange?.(newFilters);
+                    }}
                   />
                   Show favorites only
                 </label>
+              </div>
+
+              {/* Search Type */}
+              <div class="search-filters__group">
+                <label class="search-filters__label">Search Type</label>
+                <select
+                  class="search-filters__select"
+                  value={currentFilters().search_type || "websearch"}
+                  onChange={(e) =>
+                    handleFilterChange("search_type", e.currentTarget.value)
+                  }
+                >
+                  <For each={searchTypes}>
+                    {(type) => (
+                      <option value={type.value} title={type.description}>
+                        {type.label}
+                      </option>
+                    )}
+                  </For>
+                </select>
+              </div>
+
+              {/* Sort Options */}
+              <div class="search-filters__group">
+                <label class="search-filters__label">Sort By</label>
+                <select
+                  class="search-filters__select"
+                  value={currentFilters().sortBy || "relevance"}
+                  onChange={(e) => {
+                    const newFilters = { ...currentFilters() };
+                    newFilters.sortBy = e.currentTarget.value;
+                    props.onFiltersChange?.(newFilters);
+                  }}
+                >
+                  <For each={sortOptions}>
+                    {(option) => (
+                      <option value={option.value}>{option.label}</option>
+                    )}
+                  </For>
+                </select>
+              </div>
+
+              {/* Sort Direction */}
+              <div class="search-filters__group">
+                <label class="search-filters__label">Sort Direction</label>
+                <select
+                  class="search-filters__select"
+                  value={currentFilters().sortOrder || "desc"}
+                  onChange={(e) => {
+                    const newFilters = { ...currentFilters() };
+                    newFilters.sortOrder = e.currentTarget.value;
+                    props.onFiltersChange?.(newFilters);
+                  }}
+                >
+                  <option value="desc">Descending</option>
+                  <option value="asc">Ascending</option>
+                </select>
               </div>
             </div>
           </Show>
@@ -452,7 +616,11 @@ export function SearchFilters(props: SearchFiltersProps) {
                   {([key, value]) => (
                     <Show
                       when={
-                        value !== undefined && value !== null && value !== ""
+                        value !== undefined &&
+                        value !== null &&
+                        value !== "" &&
+                        value !== false &&
+                        !(Array.isArray(value) && value.length === 0)
                       }
                     >
                       <div class="search-filters__active-chip">
@@ -462,7 +630,18 @@ export function SearchFilters(props: SearchFiltersProps) {
                         </span>
                         <button
                           class="search-filters__active-remove"
-                          onClick={() => handleFilterChange(key, null)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // Directly update the filters object and call onFiltersChange
+                            const newFilters = { ...currentFilters() };
+                            if (key === "favorites_only") {
+                              newFilters[key] = false;
+                            } else {
+                              newFilters[key] = "";
+                            }
+                            props.onFiltersChange?.(newFilters);
+                          }}
                           type="button"
                         >
                           ×
@@ -628,6 +807,8 @@ export function SearchFilters(props: SearchFiltersProps) {
           grid-template-columns: 1fr 1fr;
           gap: 8px;
         }
+
+
 
         .search-filters__input--small {
           width: auto;

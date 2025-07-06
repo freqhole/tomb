@@ -173,7 +173,24 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
   // Filter management
   const updateFilter = (key: keyof SearchFilters, value: any) => {
     const current = filters();
-    const updated = { ...current, [key]: value };
+    let cleanedValue = value;
+
+    // Handle clearing values properly
+    if (value === "" || value === null || value === undefined) {
+      if (key === "favorites_only") {
+        cleanedValue = false;
+      } else if (
+        key === "year" ||
+        key === "rating_min" ||
+        key === "rating_max"
+      ) {
+        cleanedValue = null;
+      } else {
+        cleanedValue = "";
+      }
+    }
+
+    const updated = { ...current, [key]: cleanedValue };
     setFilters(updated);
   };
 
@@ -223,20 +240,42 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
   // Helper methods
   const getMusicSearchOptions = (): MusicSearchOptions => {
     const currentFilters = filters();
-    const searchOptions = {
+    const searchOptions: MusicSearchOptions = {
       q: query(),
-      artist: currentFilters.artist || undefined,
-      album: currentFilters.album || undefined,
-      genre: currentFilters.genre || undefined,
-      year: currentFilters.year || undefined,
-      rating_min: currentFilters.rating_min || undefined,
-      rating_max: currentFilters.rating_max || undefined,
-      favorites_only: currentFilters.favorites_only || undefined,
       page: currentPage(),
       page_size: pageSize(),
       sort_by: sortBy() as SortBy,
       sort_direction: sortDirection(),
     };
+
+    // Only include filters that have meaningful values
+    if (currentFilters.artist && currentFilters.artist.trim()) {
+      searchOptions.artist = currentFilters.artist;
+    }
+    if (currentFilters.album && currentFilters.album.trim()) {
+      searchOptions.album = currentFilters.album;
+    }
+    if (currentFilters.genre && currentFilters.genre.trim()) {
+      searchOptions.genre = currentFilters.genre;
+    }
+    if (currentFilters.year !== null && currentFilters.year !== undefined) {
+      searchOptions.year = currentFilters.year;
+    }
+    if (
+      currentFilters.rating_min !== null &&
+      currentFilters.rating_min !== undefined
+    ) {
+      searchOptions.rating_min = currentFilters.rating_min;
+    }
+    if (
+      currentFilters.rating_max !== null &&
+      currentFilters.rating_max !== undefined
+    ) {
+      searchOptions.rating_max = currentFilters.rating_max;
+    }
+    if (currentFilters.favorites_only === true) {
+      searchOptions.favorites_only = true;
+    }
 
     console.log("🎛️ getMusicSearchOptions - current filters:", currentFilters);
     console.log("🎛️ getMusicSearchOptions - generated options:", searchOptions);
@@ -246,46 +285,80 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
 
   const getSongsSearchOptions = (): SongsSearchOptions => {
     const currentFilters = filters();
-    return {
+    const searchOptions: SongsSearchOptions = {
       q: query(),
-      artist: currentFilters.artist || undefined,
-      album: currentFilters.album || undefined,
-      genre: currentFilters.genre || undefined,
-      year: currentFilters.year || undefined,
-      rating_min: currentFilters.rating_min || undefined,
-      rating_max: currentFilters.rating_max || undefined,
-      favorites_only: currentFilters.favorites_only || undefined,
       page: currentPage(),
       page_size: pageSize(),
       sort_by: sortBy() as SortBy,
       sort_direction: sortDirection(),
     };
+
+    // Only include filters that have meaningful values
+    if (currentFilters.artist && currentFilters.artist.trim()) {
+      searchOptions.artist = currentFilters.artist;
+    }
+    if (currentFilters.album && currentFilters.album.trim()) {
+      searchOptions.album = currentFilters.album;
+    }
+    if (currentFilters.genre && currentFilters.genre.trim()) {
+      searchOptions.genre = currentFilters.genre;
+    }
+    if (currentFilters.year !== null && currentFilters.year !== undefined) {
+      searchOptions.year = currentFilters.year;
+    }
+    if (
+      currentFilters.rating_min !== null &&
+      currentFilters.rating_min !== undefined
+    ) {
+      searchOptions.rating_min = currentFilters.rating_min;
+    }
+    if (
+      currentFilters.rating_max !== null &&
+      currentFilters.rating_max !== undefined
+    ) {
+      searchOptions.rating_max = currentFilters.rating_max;
+    }
+    if (currentFilters.favorites_only === true) {
+      searchOptions.favorites_only = true;
+    }
+
+    return searchOptions;
   };
 
   const hasActiveFilters = (): boolean => {
     const currentFilters = filters();
     return (
-      currentFilters.artist !== defaultFilters.artist ||
-      currentFilters.album !== defaultFilters.album ||
-      currentFilters.genre !== defaultFilters.genre ||
-      currentFilters.year !== defaultFilters.year ||
-      currentFilters.rating_min !== defaultFilters.rating_min ||
-      currentFilters.rating_max !== defaultFilters.rating_max ||
-      currentFilters.favorites_only !== defaultFilters.favorites_only
+      (currentFilters.artist && currentFilters.artist.trim() !== "") ||
+      (currentFilters.album && currentFilters.album.trim() !== "") ||
+      (currentFilters.genre && currentFilters.genre.trim() !== "") ||
+      (currentFilters.year !== null && currentFilters.year !== undefined) ||
+      (currentFilters.rating_min !== null &&
+        currentFilters.rating_min !== undefined) ||
+      (currentFilters.rating_max !== null &&
+        currentFilters.rating_max !== undefined) ||
+      currentFilters.favorites_only === true
     );
   };
 
   const getFilterCount = (): number => {
     const currentFilters = filters();
     let count = 0;
-    if (currentFilters.artist !== defaultFilters.artist) count++;
-    if (currentFilters.album !== defaultFilters.album) count++;
-    if (currentFilters.genre !== defaultFilters.genre) count++;
-    if (currentFilters.year !== defaultFilters.year) count++;
-    if (currentFilters.rating_min !== defaultFilters.rating_min) count++;
-    if (currentFilters.rating_max !== defaultFilters.rating_max) count++;
-    if (currentFilters.favorites_only !== defaultFilters.favorites_only)
+    if (currentFilters.artist && currentFilters.artist.trim() !== "") count++;
+    if (currentFilters.album && currentFilters.album.trim() !== "") count++;
+    if (currentFilters.genre && currentFilters.genre.trim() !== "") count++;
+    if (currentFilters.year !== null && currentFilters.year !== undefined)
       count++;
+    if (
+      currentFilters.rating_min !== null &&
+      currentFilters.rating_min !== undefined
+    )
+      count++;
+    if (
+      currentFilters.rating_max !== null &&
+      currentFilters.rating_max !== undefined
+    )
+      count++;
+    if (currentFilters.favorites_only === true) count++;
     return count;
   };
 
