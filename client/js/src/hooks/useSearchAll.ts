@@ -99,6 +99,9 @@ export function useSearchAll(props: UseSearchAllProps): UseSearchAllReturn {
       state.setLastSearchDomain(state.domain());
     }
 
+    // Synchronize the search hook's query with the state query
+    search.setQuery(query);
+
     // Perform the search
     await search.search(options);
   };
@@ -113,6 +116,9 @@ export function useSearchAll(props: UseSearchAllProps): UseSearchAllReturn {
       state.setLastSearchQuery(query);
       state.setLastSearchDomain(state.domain());
     }
+
+    // Synchronize the search hook's query with the state query
+    search.setQuery(query);
 
     // Perform the search
     await search.searchSongs(options);

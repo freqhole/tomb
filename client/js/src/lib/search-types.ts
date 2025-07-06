@@ -70,8 +70,8 @@ export const SearchResultItemSchema = z.object({
   media_blob_id: z.string().nullish(),
   relevance_score: z.number(),
   metadata: z.record(z.any()),
-  created_at: z.string(),
-  updated_at: z.string(),
+  created_at: z.coerce.date(),
+  updated_at: z.coerce.date(),
 });
 
 // Search suggestion schema

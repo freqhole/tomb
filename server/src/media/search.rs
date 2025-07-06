@@ -111,8 +111,10 @@ pub struct SearchResultResponse {
     /// Additional metadata
     pub metadata: HashMap<String, serde_json::Value>,
     /// Creation timestamp
+    #[serde(with = "time::serde::iso8601")]
     pub created_at: OffsetDateTime,
     /// Last update timestamp
+    #[serde(with = "time::serde::iso8601")]
     pub updated_at: OffsetDateTime,
 }
 
@@ -182,8 +184,10 @@ pub struct SongResultResponse {
     /// Search relevance score
     pub search_rank: f32,
     /// Creation timestamp
+    #[serde(with = "time::serde::iso8601")]
     pub created_at: OffsetDateTime,
     /// Last update timestamp
+    #[serde(with = "time::serde::iso8601")]
     pub updated_at: OffsetDateTime,
 }
 

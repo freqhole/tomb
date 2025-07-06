@@ -187,6 +187,24 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
     ],
   },
 
+  "search-demo": {
+    name: "search-demo",
+    title: "Search Demo - Modular Search Components",
+    description: "🔍 Search Demo with Autocomplete, Filters, and Results",
+    element: "search-demo",
+    attributes: {
+      "api-base-url": "http://localhost:8080",
+      "auto-connect": "true",
+    },
+    instructions: [
+      "Make sure your server is running on <code>localhost:8080</code>",
+      "Phase 3: Modular search components with autocomplete suggestions",
+      "Features standalone SearchBox, SearchSuggestions, and SearchFilters",
+      "Components are hook-driven and easily portable to other applications",
+      "Try searching and using the filter panel to see the system in action",
+    ],
+  },
+
   "product-data-grid-demo": {
     name: "product-data-grid-demo",
     title: "Product Catalog Grid Demo",
@@ -281,6 +299,7 @@ function generateStandaloneFiles(): import("vite").Plugin {
           "freqhole-demo.js": "freqhole-demo",
           "websocket-thumbnail-demo.js": "websocket-thumbnail-demo",
           "unified-sync-demo.js": "unified-sync-demo",
+          "search-demo.js": "search-demo",
         };
 
         const templateKey = nameMapping[chunk.fileName];
@@ -355,6 +374,7 @@ export default defineConfig({
         "websocket-thumbnail-demo":
           "./src/web-components/websocket-thumbnail-demo.tsx",
         "unified-sync-demo": "./src/web-components/unified-sync-demo.tsx",
+        "search-demo": "./src/web-components/search-demo.tsx",
         "all-components": "./src/web-components/index.tsx",
       },
       output: {
@@ -370,6 +390,7 @@ export default defineConfig({
             "freqhole-demo": "freqhole-demo.js",
             "websocket-thumbnail-demo": "websocket-thumbnail-demo.js",
             "unified-sync-demo": "unified-sync-demo.js",
+            "search-demo": "search-demo.js",
             "all-components": "all-components.js",
           };
           return nameMap[chunkInfo.name] || "[name].js";

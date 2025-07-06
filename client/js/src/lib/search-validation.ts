@@ -42,13 +42,17 @@ export function createPartialArraySchema<T>(
         {
           errors: errors.map((e) => ({
             index: e.index,
+            actualItem: e.item, // Show the actual invalid item
             issues: e.error.issues.map((issue) => ({
               path: issue.path.join("."),
               message: issue.message,
               code: issue.code,
+              ...("received" in issue && { received: issue.received }),
+              ...("expected" in issue && { expected: issue.expected }),
             })),
           })),
           sampleInvalidItem: errors[0]?.item,
+          allInvalidItems: errors.map((e) => e.item), // Show all invalid items for debugging
         }
       );
     }
