@@ -18,13 +18,13 @@ import type {
   MusicSearchOptions,
   SongsSearchOptions,
   SuggestionsOptions,
-} from "./search-types.js";
+} from "./search/types.js";
 import {
   SearchResultSchema,
   SongsSearchResultSchema,
   SuggestionsResultSchema,
-} from "./search-types.js";
-import { searchValidation } from "./search-validation.js";
+} from "./search/types.js";
+import { searchValidation } from "./search/validation.js";
 
 // Error handling
 export class ApiError extends Error {
@@ -372,6 +372,10 @@ export class ApiClient {
   ): Promise<SearchResult> {
     const params = { q: query, ...options };
 
+    console.log("🔍 API searchMusic called with params:", params);
+    console.log("🔍 Query:", query);
+    console.log("🔍 Options:", options);
+
     try {
       const response = await this.makeRequest<unknown>(
         "GET",
@@ -453,6 +457,39 @@ export class ApiClient {
           error.status,
           error.responseText,
           "/api/music/search/suggestions"
+        );
+      }
+      throw error;
+    }
+  }
+
+  async filterMusic(
+    options: Omit<MusicSearchOptions, "q"> = {}
+  ): Promise<SearchResult> {
+    const params = { ...options };
+
+    console.log("🎛️ API filterMusic called with params:", params);
+    console.log("🎛️ Filter options:", options);
+
+    try {
+      const response = await this.makeRequest<unknown>(
+        "GET",
+        "/api/music/filter",
+        { params }
+      );
+
+      return searchValidation.validateResponse(
+        SearchResultSchema,
+        response,
+        "Music filter"
+      ) as SearchResult;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw new ApiError(
+          `Music filter failed: ${error.message}`,
+          error.status,
+          error.responseText,
+          "/api/music/filter"
         );
       }
       throw error;

@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   createPartialArraySchema,
   DEFAULT_ZOD_CONFIG,
-} from "./search-validation.js";
+} from "./validation.js";
 
 // Search domains for multi-domain support
 export const SearchDomainSchema = z.enum([

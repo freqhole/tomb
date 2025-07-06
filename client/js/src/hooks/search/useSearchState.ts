@@ -4,7 +4,7 @@ import type {
   MusicSearchOptions,
   SongsSearchOptions,
   SortBy,
-} from "../../lib/search-types.js";
+} from "../../lib/search/types.js";
 
 export interface SearchStateProps {
   initialQuery?: string;
@@ -223,7 +223,7 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
   // Helper methods
   const getMusicSearchOptions = (): MusicSearchOptions => {
     const currentFilters = filters();
-    return {
+    const searchOptions = {
       q: query(),
       artist: currentFilters.artist || undefined,
       album: currentFilters.album || undefined,
@@ -237,6 +237,11 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
       sort_by: sortBy() as SortBy,
       sort_direction: sortDirection(),
     };
+
+    console.log("🎛️ getMusicSearchOptions - current filters:", currentFilters);
+    console.log("🎛️ getMusicSearchOptions - generated options:", searchOptions);
+
+    return searchOptions;
   };
 
   const getSongsSearchOptions = (): SongsSearchOptions => {
@@ -260,26 +265,27 @@ export function useSearchState(props: SearchStateProps = {}): SearchStateHook {
   const hasActiveFilters = (): boolean => {
     const currentFilters = filters();
     return (
-      currentFilters.artist !== "" ||
-      currentFilters.album !== "" ||
-      currentFilters.genre !== "" ||
-      currentFilters.year !== null ||
-      currentFilters.rating_min !== null ||
-      currentFilters.rating_max !== null ||
-      currentFilters.favorites_only !== false
+      currentFilters.artist !== defaultFilters.artist ||
+      currentFilters.album !== defaultFilters.album ||
+      currentFilters.genre !== defaultFilters.genre ||
+      currentFilters.year !== defaultFilters.year ||
+      currentFilters.rating_min !== defaultFilters.rating_min ||
+      currentFilters.rating_max !== defaultFilters.rating_max ||
+      currentFilters.favorites_only !== defaultFilters.favorites_only
     );
   };
 
   const getFilterCount = (): number => {
     const currentFilters = filters();
     let count = 0;
-    if (currentFilters.artist) count++;
-    if (currentFilters.album) count++;
-    if (currentFilters.genre) count++;
-    if (currentFilters.year !== null) count++;
-    if (currentFilters.rating_min !== null) count++;
-    if (currentFilters.rating_max !== null) count++;
-    if (currentFilters.favorites_only) count++;
+    if (currentFilters.artist !== defaultFilters.artist) count++;
+    if (currentFilters.album !== defaultFilters.album) count++;
+    if (currentFilters.genre !== defaultFilters.genre) count++;
+    if (currentFilters.year !== defaultFilters.year) count++;
+    if (currentFilters.rating_min !== defaultFilters.rating_min) count++;
+    if (currentFilters.rating_max !== defaultFilters.rating_max) count++;
+    if (currentFilters.favorites_only !== defaultFilters.favorites_only)
+      count++;
     return count;
   };
 

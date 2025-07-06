@@ -6,7 +6,7 @@ import type {
   MusicSearchOptions,
   SongsSearchOptions,
   SearchDomain,
-} from "../../lib/search-types.js";
+} from "../../lib/search/types.js";
 
 export interface UseSearchProps {
   apiClient: ApiClient;

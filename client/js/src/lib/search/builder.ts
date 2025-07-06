@@ -1,4 +1,4 @@
-import type { ApiClient } from "./api-client.js";
+import type { ApiClient } from "../api-client.js";
 import type {
   SearchResult,
   SongsSearchResult,
@@ -6,7 +6,7 @@ import type {
   MusicSearchOptions,
   SongsSearchOptions,
   SuggestionsOptions,
-} from "./search-types.js";
+} from "./types.js";
 
 // Base search builder class
 export class SearchBuilder {

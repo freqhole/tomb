@@ -8,6 +8,7 @@
 //! The media system is designed to work with the existing authentication
 //! and analytics systems to provide secure, trackable file sharing.
 
+pub mod filters;
 pub mod models;
 pub mod repository;
 pub mod search;
@@ -101,4 +102,5 @@ pub fn build_media_routes() -> axum::Router {
     axum::Router::new()
         .nest("/api/media", songs::create_routes())
         .nest("/api/music", search::create_search_routes())
+        .nest("/api/music", filters::create_filter_routes())
 }

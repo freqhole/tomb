@@ -35,4 +35,4 @@ export type {
   SearchResult as ApiSearchResult,
   SearchResult,
   SongsSearchResult,
-} from "../../lib/search-types.js";
+} from "../../lib/search/types.js";

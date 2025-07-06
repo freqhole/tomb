@@ -1,6 +1,9 @@
 // Search Hooks - Phase 2: SolidJS Integration
 // Export all search-related hooks for easy importing
 
+// Music domain-specific hooks and utilities
+export * as Music from "./music/index.js";
+
 export { useSearch } from "./useSearch.js";
 export type { UseSearchProps, UseSearchReturn } from "./useSearch.js";
 
@@ -34,4 +37,16 @@ export type {
   MusicSearchOptions,
   SongsSearchOptions,
   SuggestionsOptions,
-} from "../../lib/search-types.js";
+} from "../../lib/search/types.js";
+
+// Re-export music filter types for convenience
+export type {
+  FilterOption,
+  AllFiltersResponse,
+  DefaultFilterOptions,
+  UseMusicFiltersProps,
+  UseMusicFiltersReturn,
+} from "./music/index.js";
+
+// Re-export music filter utilities
+export { useMusicFilters, createMusicFilterClient } from "./music/index.js";

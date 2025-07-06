@@ -1,4 +1,6 @@
 // Search API specifications and types
+// Music domain-specific search and filters
+export * as Music from "./music/index.js";
 export type {
   SearchDomain,
   SearchType,
@@ -13,7 +15,7 @@ export type {
   SongSearchResult,
   SearchSuggestion,
   SearchClientConfig,
-} from "./search-types.js";
+} from "./types.js";
 
 export {
   SearchDomainSchema,
@@ -29,10 +31,10 @@ export {
   SongSearchResultSchema,
   SearchSuggestionSchema,
   DEFAULT_SEARCH_CLIENT_CONFIG,
-} from "./search-types.js";
+} from "./types.js";
 
 // Search validation utilities
-export type { ZodErrorConfig } from "./search-validation.js";
+export type { ZodErrorConfig } from "./validation.js";
 
 export {
   DEFAULT_ZOD_CONFIG,
@@ -41,23 +43,20 @@ export {
   SearchValidation,
   searchValidation,
   createValidatedResponseSchema,
-} from "./search-validation.js";
+} from "./validation.js";
 
 // Search builder for fluent API
-export type {
-  SearchBuilderChain,
-  MusicSearchBuilderChain,
-} from "./search-builder.js";
+export type { SearchBuilderChain, MusicSearchBuilderChain } from "./builder.js";
 
 export {
   SearchBuilder,
   MusicSearchBuilder,
   createSearchBuilder,
   createMusicSearchBuilder,
-} from "./search-builder.js";
+} from "./builder.js";
 
 // Re-export enhanced ApiClient with search methods
-export { ApiClient, ApiError } from "./api-client.js";
+export { ApiClient, ApiError } from "../api-client.js";
 
 // Utility functions for common search patterns
 export function createSearchQuery(
@@ -138,3 +137,16 @@ export class SearchEmptyResultError extends Error {
     this.name = "SearchEmptyResultError";
   }
 }
+
+// Re-export music filter types and client for convenience
+export type {
+  FilterOption,
+  FilterParams,
+  AllFiltersResponse,
+  MusicFilterClient,
+} from "./music/index.js";
+
+export {
+  createMusicFilterClient,
+  createDefaultMusicFilterClient,
+} from "./music/index.js";
