@@ -937,8 +937,47 @@ pub async fn create_playlist_from_album(
     Ok(Json(PlaylistResponse::from(playlist)))
 }
 
+/// Get songs by artist
+pub async fn get_artist_songs(
+    Extension(db): Extension<DatabaseConnection>,
+    Path(artist): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<SongListResponse>, WebauthnError> {
+    let repository = MusicRepository::new(db.pool().clone());
+    let service = PlaylistService::new(repository);
+
+    let limit = params
+        .get("limit")
+        .and_then(|l| l.parse::<i64>().ok())
+        .or(Some(1000));
+
+    let query = SongQuery {
+        artist: Some(artist),
+        limit,
+        ..Default::default()
+    };
+
+    // For now, we'll use a direct SQL query since query_songs doesn't work properly
+    let songs = sqlx::query_as::<_, Song>(
+        "SELECT * FROM songs WHERE artist = $1 AND deleted_at IS NULL ORDER BY album, track_number, title LIMIT $2"
+    )
+    .bind(&query.artist)
+    .bind(limit.unwrap_or(1000))
+    .fetch_all(db.pool())
+    .await
+    .map_err(|_| WebauthnError::DatabaseError)?;
+
+    let song_responses: Vec<SongResponse> = songs.into_iter().map(SongResponse::from).collect();
+    let total = song_responses.len();
+
+    Ok(Json(SongListResponse {
+        songs: song_responses,
+        total,
+    }))
+}
+
 /// Create the router for song and playlist routes
-pub fn create_routes() -> axum::Router {
+pub fn create_routes() -> Router {
     Router::new()
         // Song routes
         .route("/songs", get(list_songs))
@@ -946,13 +985,13 @@ pub fn create_routes() -> axum::Router {
         .route("/songs/{song_id}", put(update_song))
         // Artist routes
         .route("/artists", get(list_artists))
+        .route("/artists/{artist}/songs", get(get_artist_songs))
         // Playlist routes
         .route("/playlists", get(list_playlists))
         .route("/playlists", post(create_playlist))
         .route("/playlists/{playlist_id}", get(get_playlist))
         .route("/playlists/{playlist_id}", put(update_playlist))
         .route("/playlists/{playlist_id}", delete(delete_playlist))
-        // Playlist song management
         .route("/playlists/{playlist_id}/songs", get(get_playlist_songs))
         .route(
             "/playlists/{playlist_id}/songs",
@@ -962,12 +1001,11 @@ pub fn create_routes() -> axum::Router {
             "/playlists/{playlist_id}/songs",
             delete(remove_songs_from_playlist),
         )
-        // Playlist sorting and management
         .route(
-            "/playlists/{playlist_id}/move-song",
-            post(move_song_in_playlist),
+            "/playlists/{playlist_id}/songs/move",
+            put(move_song_in_playlist),
         )
-        .route("/playlists/{playlist_id}/reorder", post(reorder_playlist))
+        .route("/playlists/{playlist_id}/reorder", put(reorder_playlist))
         // Enhanced views and summaries
         .route("/playlists/summaries", get(get_playlist_summaries))
         .route("/albums", get(get_album_summaries))

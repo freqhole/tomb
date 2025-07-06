@@ -156,6 +156,12 @@ function ZuneDemoContent() {
     null
   );
   const [playlistSongs, setPlaylistSongs] = createSignal<PlaylistSong[]>([]);
+  const [currentArtist, setCurrentArtist] = createSignal<ArtistSummary | null>(
+    null
+  );
+  const [artistSongs, setArtistSongs] = createSignal<Song[]>([]);
+  const [currentAlbum, setCurrentAlbum] = createSignal<Album | null>(null);
+  const [albumSongs, setAlbumSongs] = createSignal<Song[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
@@ -311,6 +317,7 @@ function ZuneDemoContent() {
     if (newView === currentView()) return;
 
     setViewTransition("exiting");
+
     setTimeout(() => {
       setCurrentView(newView);
       setViewTransition("entering");
@@ -319,11 +326,16 @@ function ZuneDemoContent() {
       setSelectedArtist(null);
       setSelectedAlbum(null);
       setCurrentPlaylist(null);
+      setCurrentArtist(null);
+      setCurrentAlbum(null);
+      setArtistSongs([]);
+      setAlbumSongs([]);
+      setPlaylistSongs([]);
 
       setTimeout(() => {
         setViewTransition("idle");
       }, 200);
-    }, 200);
+    }, 100);
   };
 
   // Player controls
@@ -373,6 +385,71 @@ function ZuneDemoContent() {
     }
   };
 
+  const viewArtist = async (artist: ArtistSummary) => {
+    try {
+      const response = await fetch(
+        `/api/media/artists/${encodeURIComponent(artist.artist)}/songs?limit=1000`
+      );
+      const data = await response.json();
+      const songs = data.songs || [];
+
+      setCurrentArtist(artist);
+      setArtistSongs(songs);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load artist songs"
+      );
+    }
+  };
+
+  const viewAlbum = async (album: Album) => {
+    try {
+      const albumParam = encodeURIComponent(album.album || "");
+      const artistParam = album.artist
+        ? `&artist=${encodeURIComponent(album.artist)}`
+        : "";
+      const response = await fetch(
+        `/api/media/albums/${albumParam}/tracks?${artistParam}`
+      );
+      const data = await response.json();
+      const songs = data.tracks || [];
+
+      setCurrentAlbum(album);
+      setAlbumSongs(
+        songs.map((track: any) => ({
+          id: track.song_id,
+          title: track.title,
+          artist: track.artist,
+          album: album.album,
+          track_number: track.track_number,
+          disc_number: track.disc_number,
+          duration_seconds: track.duration
+            ? parseFloat(
+                track.duration
+                  .split(":")
+                  .reduce((acc: number, time: string) => 60 * acc + +time)
+              )
+            : null,
+          genre: track.genre,
+          year: track.year,
+          rating: track.rating,
+          is_favorite: track.is_favorite,
+          display_title: track.title,
+          detailed_display_title: `${track.title} - ${track.artist}`,
+          media_blob_id: "temp", // We don't have this in track response
+          thumbnail_blob_id: null,
+          waveform_blob_id: null,
+          thumbnail_blob_ids: null,
+          created_at: new Date().toISOString(),
+        }))
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load album tracks"
+      );
+    }
+  };
+
   const playPlaylist = async (playlist: Playlist) => {
     try {
       const response = await fetch(`/api/media/playlists/${playlist.id}/songs`);
@@ -396,6 +473,97 @@ function ZuneDemoContent() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load playlist");
+    }
+  };
+
+  const playArtist = async (artist: ArtistSummary) => {
+    try {
+      const response = await fetch(
+        `/api/media/artists/${encodeURIComponent(artist.artist)}/songs?limit=1000`
+      );
+      const data = await response.json();
+      const songs = data.songs || [];
+
+      if (songs.length > 0) {
+        setCurrentArtist(artist);
+        setArtistSongs(songs);
+
+        const newQueue: QueueItem[] = songs.map(
+          (song: Song, index: number) => ({
+            song,
+            id: `artist-${artist.artist}-${index}`,
+          })
+        );
+
+        setPlayQueue(newQueue);
+        setCurrentQueueIndex(0);
+        playSong(songs[0], false);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load artist songs"
+      );
+    }
+  };
+
+  const playAlbum = async (album: Album) => {
+    try {
+      const albumParam = encodeURIComponent(album.album || "");
+      const artistParam = album.artist
+        ? `&artist=${encodeURIComponent(album.artist)}`
+        : "";
+      const response = await fetch(
+        `/api/media/albums/${albumParam}/tracks?${artistParam}`
+      );
+      const data = await response.json();
+      const tracks = data.tracks || [];
+
+      if (tracks.length > 0) {
+        const songs = tracks.map((track: any) => ({
+          id: track.song_id,
+          title: track.title,
+          artist: track.artist,
+          album: album.album,
+          track_number: track.track_number,
+          disc_number: track.disc_number,
+          duration_seconds: track.duration
+            ? parseFloat(
+                track.duration
+                  .split(":")
+                  .reduce((acc: number, time: string) => 60 * acc + +time)
+              )
+            : null,
+          genre: track.genre,
+          year: track.year,
+          rating: track.rating,
+          is_favorite: track.is_favorite,
+          display_title: track.title,
+          detailed_display_title: `${track.title} - ${track.artist}`,
+          media_blob_id: "temp",
+          thumbnail_blob_id: null,
+          waveform_blob_id: null,
+          thumbnail_blob_ids: null,
+          created_at: new Date().toISOString(),
+        }));
+
+        setCurrentAlbum(album);
+        setAlbumSongs(songs);
+
+        const newQueue: QueueItem[] = songs.map(
+          (song: Song, index: number) => ({
+            song,
+            id: `album-${album.album}-${index}`,
+          })
+        );
+
+        setPlayQueue(newQueue);
+        setCurrentQueueIndex(0);
+        playSong(songs[0], false);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load album tracks"
+      );
     }
   };
 
@@ -587,6 +755,12 @@ function ZuneDemoContent() {
     if (currentPlaylist()) {
       return playlistSongs().map((item) => item.song);
     }
+    if (currentArtist()) {
+      return artistSongs();
+    }
+    if (currentAlbum()) {
+      return albumSongs();
+    }
     return getFilteredSongs();
   };
 
@@ -673,69 +847,10 @@ function ZuneDemoContent() {
       <div class="zune-main">
         {/* Left Sidebar */}
         <div class="zune-sidebar">
-          <Show when={currentView() === "artists"}>
-            <div class="zune-filter-section">
-              {/* <h3>artists</h3> */}
-              <div class="zune-filter-list">
-                <button
-                  class={`zune-filter-item ${selectedArtist() === null ? "active" : ""}`}
-                  onClick={() => setSelectedArtist(null)}
-                >
-                  all artists
-                </button>
-                <For each={artists()}>
-                  {(artist) => (
-                    <button
-                      class={`zune-filter-item ${selectedArtist() === artist.artist ? "active" : ""}`}
-                      onClick={() => setSelectedArtist(artist.artist)}
-                    >
-                      {artist.artist}
-                      <span class="zune-filter-count">{artist.song_count}</span>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </div>
-          </Show>
-
-          <Show when={currentView() === "albums"}>
-            <div class="zune-filter-section">
-              {/* <h3>albums</h3> */}
-              <div class="zune-filter-list">
-                <button
-                  class={`zune-filter-item ${selectedAlbum() === null ? "active" : ""}`}
-                  onClick={() => setSelectedAlbum(null)}
-                >
-                  all albums
-                </button>
-                <For each={albums()}>
-                  {(album) => (
-                    <button
-                      class={`zune-filter-item ${selectedAlbum() === album.album ? "active" : ""}`}
-                      onClick={() => setSelectedAlbum(album.album)}
-                    >
-                      {album.album}
-                      <span class="zune-filter-count">{album.track_count}</span>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </div>
-          </Show>
-
           <Show when={currentView() === "playlists"}>
-            <div class="zune-filter-section">
+            <div class="zune-filter-sidebar">
               {/* <h3>playlists</h3> */}
               <div class="zune-filter-list">
-                <button
-                  class={`zune-filter-item ${currentPlaylist() === null ? "active" : ""}`}
-                  onClick={() => {
-                    setCurrentPlaylist(null);
-                    setPlaylistSongs([]);
-                  }}
-                >
-                  all playlists
-                </button>
                 <For each={playlists()}>
                   {(playlist) => (
                     <button
@@ -745,6 +860,46 @@ function ZuneDemoContent() {
                       {playlist.title}
                       <span class="zune-filter-count">
                         {playlist.song_count || 0}
+                      </span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
+
+          <Show when={currentView() === "artists"}>
+            <div class="zune-filter-sidebar">
+              <div class="zune-filter-list">
+                <For each={artists()}>
+                  {(artist) => (
+                    <button
+                      class={`zune-filter-item ${currentArtist()?.artist === artist.artist ? "active" : ""}`}
+                      onClick={() => viewArtist(artist)}
+                    >
+                      {artist.artist}
+                      <span class="zune-filter-count">
+                        {artist.song_count || 0}
+                      </span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
+
+          <Show when={currentView() === "albums"}>
+            <div class="zune-filter-sidebar">
+              <div class="zune-filter-list">
+                <For each={albums()}>
+                  {(album) => (
+                    <button
+                      class={`zune-filter-item ${currentAlbum()?.album === album.album ? "active" : ""}`}
+                      onClick={() => viewAlbum(album)}
+                    >
+                      {album.album || "Unknown Album"}
+                      <span class="zune-filter-count">
+                        {album.track_count || 0}
                       </span>
                     </button>
                   )}
@@ -768,7 +923,14 @@ function ZuneDemoContent() {
                 </Show>
               </Show>
               <Show when={!isSearchActive()}>
-                <Show when={currentView() === "music" || currentPlaylist()}>
+                <Show
+                  when={
+                    currentView() === "music" ||
+                    currentPlaylist() ||
+                    currentArtist() ||
+                    currentAlbum()
+                  }
+                >
                   {getCurrentSongs().length} songs
                 </Show>
                 <Show
@@ -776,10 +938,10 @@ function ZuneDemoContent() {
                 >
                   {playlists().length} playlists
                 </Show>
-                <Show when={currentView() === "albums"}>
+                <Show when={currentView() === "albums" && !currentAlbum()}>
                   {albums().length} albums
                 </Show>
-                <Show when={currentView() === "artists"}>
+                <Show when={currentView() === "artists" && !currentArtist()}>
                   {artists().length} artists
                 </Show>
               </Show>
@@ -788,6 +950,24 @@ function ZuneDemoContent() {
               <button
                 class="zune-play-all-btn"
                 onClick={() => playPlaylist(currentPlaylist()!)}
+              >
+                <PlayIcon />
+                play all
+              </button>
+            </Show>
+            <Show when={currentArtist()}>
+              <button
+                class="zune-play-all-btn"
+                onClick={() => playArtist(currentArtist()!)}
+              >
+                <PlayIcon />
+                play all
+              </button>
+            </Show>
+            <Show when={currentAlbum()}>
+              <button
+                class="zune-play-all-btn"
+                onClick={() => playAlbum(currentAlbum()!)}
               >
                 <PlayIcon />
                 play all
@@ -812,7 +992,14 @@ function ZuneDemoContent() {
 
             <Show when={!loading() && !error()}>
               {/* Songs Table */}
-              <Show when={currentView() === "music" || currentPlaylist()}>
+              <Show
+                when={
+                  currentView() === "music" ||
+                  currentPlaylist() ||
+                  currentArtist() ||
+                  currentAlbum()
+                }
+              >
                 {/* Grouped Suggestions Table - show first when searching */}
                 <Show when={shouldShowSuggestions()}>
                   <div class="zune-suggestions-table">
@@ -977,13 +1164,14 @@ function ZuneDemoContent() {
               </Show>
 
               {/* Artists Grid */}
-              <Show when={currentView() === "artists"}>
+              <Show when={currentView() === "artists" && !currentArtist()}>
                 <div class="zune-grid">
                   <For each={artists()}>
                     {(artist) => (
                       <div
                         class="zune-grid-card"
-                        onClick={() => setSelectedArtist(artist.artist)}
+                        onClick={() => viewArtist(artist)}
+                        onDblClick={() => playArtist(artist)}
                       >
                         <div class="zune-grid-icon">
                           <MusicIcon />
@@ -998,13 +1186,14 @@ function ZuneDemoContent() {
               </Show>
 
               {/* Albums Grid */}
-              <Show when={currentView() === "albums"}>
+              <Show when={currentView() === "albums" && !currentAlbum()}>
                 <div class="zune-grid">
                   <For each={albums()}>
                     {(album) => (
                       <div
                         class="zune-grid-card"
-                        onClick={() => setSelectedAlbum(album.album)}
+                        onClick={() => viewAlbum(album)}
+                        onDblClick={() => playAlbum(album)}
                       >
                         <div class="zune-grid-icon">
                           <MusicIcon />
