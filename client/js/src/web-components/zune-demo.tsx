@@ -155,6 +155,20 @@ const DeleteIcon = () => (
   </svg>
 );
 
+const FreqholeIcon = () => (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 500 500"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      d="M250 405L125 155L375 155L303.611 340.714L250 405Z"
+      fill="#FF00FF"
+    />
+  </svg>
+);
 const DragIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
     <path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
@@ -999,26 +1013,26 @@ function ZuneDemoContent() {
     return categoryNames[category] || category;
   };
 
-  const getViewTitle = () => {
-    if (currentPlaylist()) {
-      return currentPlaylist()!.title;
-    }
+  // const getViewTitle = () => {
+  //   if (currentPlaylist()) {
+  //     return currentPlaylist()!.title;
+  //   }
 
-    switch (currentView()) {
-      case "music":
-        return selectedArtist() || selectedAlbum()
-          ? `${selectedArtist() || selectedAlbum()}`
-          : "music";
-      case "artists":
-        return "artists";
-      case "albums":
-        return "albums";
-      case "playlists":
-        return "playlists";
-      default:
-        return "music";
-    }
-  };
+  //   switch (currentView()) {
+  //     case "music":
+  //       return selectedArtist() || selectedAlbum()
+  //         ? `${selectedArtist() || selectedAlbum()}`
+  //         : "music";
+  //     case "artists":
+  //       return "artists";
+  //     case "albums":
+  //       return "albums";
+  //     case "playlists":
+  //       return "playlists";
+  //     default:
+  //       return "music";
+  //   }
+  // };
 
   const getCurrentSongs = () => {
     if (currentPlaylist()) {
@@ -1051,12 +1065,43 @@ function ZuneDemoContent() {
       <div class="zune-header">
         <div class="zune-branding">
           <div class="zune-logo">
-            <div class="zune-logo-square"></div>
-            <span class="zune-logo-text">freqhole</span>
+            <span class="zune-logo-text">
+              freqh
+              <FreqholeIcon />
+              le
+            </span>
           </div>
+
+          <nav class="zune-nav">
+            <button
+              class={`zune-nav-item ${currentView() === "music" ? "active" : ""}`}
+              onClick={() => changeView("music")}
+            >
+              music
+            </button>
+            <button
+              class={`zune-nav-item ${currentView() === "artists" ? "active" : ""}`}
+              onClick={() => changeView("artists")}
+            >
+              artists
+            </button>
+            <button
+              class={`zune-nav-item ${currentView() === "albums" ? "active" : ""}`}
+              onClick={() => changeView("albums")}
+            >
+              albums
+            </button>
+            <button
+              class={`zune-nav-item ${currentView() === "playlists" ? "active" : ""}`}
+              onClick={() => changeView("playlists")}
+            >
+              playlists
+            </button>
+          </nav>
+
           <div class="zune-search-container">
             <SearchBox
-              placeholder="search your music..."
+              placeholder="search music..."
               useInternalState={false}
               query={searchQuery()}
               onQueryChange={(query) => {
@@ -1083,33 +1128,6 @@ function ZuneDemoContent() {
             </Show>
           </div>
         </div>
-
-        <nav class="zune-nav">
-          <button
-            class={`zune-nav-item ${currentView() === "music" ? "active" : ""}`}
-            onClick={() => changeView("music")}
-          >
-            music
-          </button>
-          <button
-            class={`zune-nav-item ${currentView() === "artists" ? "active" : ""}`}
-            onClick={() => changeView("artists")}
-          >
-            artists
-          </button>
-          <button
-            class={`zune-nav-item ${currentView() === "albums" ? "active" : ""}`}
-            onClick={() => changeView("albums")}
-          >
-            albums
-          </button>
-          <button
-            class={`zune-nav-item ${currentView() === "playlists" ? "active" : ""}`}
-            onClick={() => changeView("playlists")}
-          >
-            playlists
-          </button>
-        </nav>
       </div>
 
       {/* Main Content */}
@@ -1461,64 +1479,68 @@ function ZuneDemoContent() {
                             >
                               <QueueIcon />
                             </button>
-                            <div
-                              class="zune-playlist-dropdown-container"
-                              style={{
-                                position: "relative",
-                                overflow: "visible",
-                              }}
-                            >
-                              <button
-                                class="zune-action-btn"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  await ensurePlaylistsLoaded();
-                                  setShowPlaylistDropdown(
-                                    showPlaylistDropdown() === song.id
-                                      ? null
-                                      : song.id
-                                  );
+
+                            <Show when={!currentPlaylist()}>
+                              <div
+                                class="zune-playlist-dropdown-container"
+                                style={{
+                                  position: "relative",
+                                  overflow: "visible",
                                 }}
-                                title="Add to playlist"
                               >
-                                <AddIcon />
-                              </button>
-                              <Show when={showPlaylistDropdown() === song.id}>
-                                <div class="zune-playlist-dropdown">
-                                  <button
-                                    class="zune-dropdown-item"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openCreatePlaylistModal([song]);
-                                      setShowPlaylistDropdown(null);
-                                    }}
-                                  >
-                                    <AddIcon />
-                                    Create New Playlist
-                                  </button>
-                                  <div class="zune-dropdown-divider"></div>
-                                  <For each={playlists()}>
-                                    {(playlist) => (
-                                      <button
-                                        class="zune-dropdown-item"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          addSongToExistingPlaylist(
-                                            song,
-                                            playlist
-                                          );
-                                        }}
-                                      >
-                                        {playlist.title}
-                                        <span class="zune-playlist-count">
-                                          {playlist.song_count || 0}
-                                        </span>
-                                      </button>
-                                    )}
-                                  </For>
-                                </div>
-                              </Show>
-                            </div>
+                                <button
+                                  class="zune-action-btn"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    await ensurePlaylistsLoaded();
+                                    setShowPlaylistDropdown(
+                                      showPlaylistDropdown() === song.id
+                                        ? null
+                                        : song.id
+                                    );
+                                  }}
+                                  title="Add to playlist"
+                                >
+                                  <AddIcon />
+                                </button>
+                                <Show when={showPlaylistDropdown() === song.id}>
+                                  <div class="zune-playlist-dropdown">
+                                    <button
+                                      class="zune-dropdown-item"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openCreatePlaylistModal([song]);
+                                        setShowPlaylistDropdown(null);
+                                      }}
+                                    >
+                                      <AddIcon />
+                                      Create New Playlist
+                                    </button>
+                                    <div class="zune-dropdown-divider"></div>
+                                    <For each={playlists()}>
+                                      {(playlist) => (
+                                        <button
+                                          class="zune-dropdown-item"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            addSongToExistingPlaylist(
+                                              song,
+                                              playlist
+                                            );
+                                          }}
+                                        >
+                                          {playlist.title}
+                                          <span class="zune-playlist-count">
+                                            {playlist.song_count || 0}
+                                          </span>
+                                        </button>
+                                      )}
+                                    </For>
+                                  </div>
+                                </Show>
+                              </div>
+                            </Show>
+
                             <Show when={currentPlaylist()}>
                               <button
                                 class="zune-action-btn"
@@ -1901,6 +1923,7 @@ function ZuneDemoContent() {
           padding: 1.5rem 2rem;
           position: sticky;
           top: 0px;
+          z-index: 1;
         }
 
         .zune-branding {
@@ -2039,7 +2062,8 @@ function ZuneDemoContent() {
         .zune-main {
           display: flex;
           flex: 1;
-          height: calc(100vh - 240px);
+
+          margin-bottom: 86px;
         }
 
         /* Sidebar */
@@ -2213,7 +2237,6 @@ function ZuneDemoContent() {
           flex-direction: column;
           background: rgba(255, 255, 255, 0.02);
           border-radius: 8px;
-          overflow: hidden;
         }
 
         .zune-table-header {
@@ -2544,6 +2567,7 @@ function ZuneDemoContent() {
           align-items: center;
           gap: 1rem;
           min-width: 250px;
+          width: 100%;
         }
 
         .zune-artwork-placeholder {
@@ -2646,6 +2670,7 @@ function ZuneDemoContent() {
           overflow: hidden;
           cursor: pointer;
           transition: height 0.2s ease;
+          min-width: 100px;
         }
 
         .zune-progress-bar:hover {
@@ -3070,6 +3095,7 @@ function ZuneDemoContent() {
 
         .zune-table-cell--actions {
           overflow: visible !important;
+          display: flex;
         }
       `}</style>
     </div>
