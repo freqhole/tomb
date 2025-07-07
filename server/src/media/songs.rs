@@ -350,6 +350,9 @@ pub struct AlbumTrackResponse {
     pub year: Option<i32>,
     pub rating: Option<i32>,
     pub is_favorite: bool,
+    pub media_blob_id: String,
+    pub thumbnail_id: Option<String>,
+    pub waveform_id: Option<String>,
     pub track_display: String,
 }
 
@@ -368,6 +371,9 @@ impl From<AlbumTrack> for AlbumTrackResponse {
             year: track.year,
             rating: track.rating,
             is_favorite: track.is_favorite,
+            media_blob_id: track.media_blob_id,
+            thumbnail_id: track.thumbnail_id,
+            waveform_id: track.waveform_id,
             track_display,
         }
     }

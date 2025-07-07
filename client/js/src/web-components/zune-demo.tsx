@@ -260,7 +260,7 @@ function ZuneDemoContent() {
     try {
       switch (view) {
         case "music":
-          const songsResponse = await fetch("/api/media/songs?limit=100");
+          const songsResponse = await fetch("/api/media/songs?limit=1000");
           const songsData = await songsResponse.json();
           setSongs(songsData.songs || []);
           break;
@@ -273,7 +273,7 @@ function ZuneDemoContent() {
 
         case "playlists":
           const playlistsResponse = await fetch(
-            "/api/media/playlists?limit=100"
+            "/api/media/playlists?limit=1000"
           );
           const playlistsData = await playlistsResponse.json();
           setPlaylists(playlistsData.playlists || []);
@@ -296,7 +296,9 @@ function ZuneDemoContent() {
   const ensurePlaylistsLoaded = async () => {
     if (playlists().length === 0) {
       try {
-        const playlistsResponse = await fetch("/api/media/playlists?limit=100");
+        const playlistsResponse = await fetch(
+          "/api/media/playlists?limit=1000"
+        );
         const playlistsData = await playlistsResponse.json();
         setPlaylists(playlistsData.playlists || []);
       } catch (err) {
@@ -508,9 +510,9 @@ function ZuneDemoContent() {
           is_favorite: track.is_favorite,
           display_title: track.title,
           detailed_display_title: `${track.title} - ${track.artist}`,
-          media_blob_id: "temp", // We don't have this in track response
-          thumbnail_blob_id: null,
-          waveform_blob_id: null,
+          media_blob_id: track.media_blob_id,
+          thumbnail_blob_id: track.thumbnail_id,
+          waveform_blob_id: track.waveform_id,
           thumbnail_blob_ids: null,
           created_at: new Date().toISOString(),
         }))
@@ -611,9 +613,9 @@ function ZuneDemoContent() {
           is_favorite: track.is_favorite,
           display_title: track.title,
           detailed_display_title: `${track.title} - ${track.artist}`,
-          media_blob_id: "temp",
-          thumbnail_blob_id: null,
-          waveform_blob_id: null,
+          media_blob_id: track.media_blob_id,
+          thumbnail_blob_id: track.thumbnail_id,
+          waveform_blob_id: track.waveform_id,
           thumbnail_blob_ids: null,
           created_at: new Date().toISOString(),
         }));
@@ -2062,17 +2064,21 @@ function ZuneDemoContent() {
         .zune-main {
           display: flex;
           flex: 1;
+          min-height: 0;
+        }
 
-          margin-bottom: 86px;
+        .zune-sidebar, .zune-center {
+          height: calc(100dvh - 124px);
+          padding: 2rem 2rem 86px 2rem;
         }
 
         /* Sidebar */
         .zune-sidebar {
           width: 300px;
           background: rgba(0, 0, 0, 0.2);
-          padding: 2rem;
           overflow-y: auto;
           scrollbar-width: thin;
+          min-height: 0;
         }
 
         .zune-filter-section h3 {
@@ -2125,9 +2131,9 @@ function ZuneDemoContent() {
         /* Center Content */
         .zune-center {
           flex: 1;
-          padding: 2rem;
           overflow-y: auto;
           display: flex;
+          min-height: 0;
           flex-direction: column;
         }
 
@@ -2249,6 +2255,10 @@ function ZuneDemoContent() {
           color: rgba(255, 255, 255, 0.7);
           text-transform: uppercase;
           letter-spacing: 0.5px;
+          position: sticky;
+          top: 0;
+          background: rgba(0, 0, 0, 0.9);
+          z-index: 1;
         }
 
         .zune-suggestions-table .zune-table-header {
@@ -2547,7 +2557,7 @@ function ZuneDemoContent() {
           bottom: 0;
           left: 0;
           right: 0;
-          background: rgba(0, 0, 0, 0.9);
+          background: rgba(0, 0, 0, 0.5);
           backdrop-filter: blur(20px);
           padding: 1rem 2rem;
           display: flex;
@@ -3096,6 +3106,7 @@ function ZuneDemoContent() {
         .zune-table-cell--actions {
           overflow: visible !important;
           display: flex;
+          gap: 8px;
         }
       `}</style>
     </div>
