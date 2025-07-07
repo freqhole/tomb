@@ -2067,7 +2067,7 @@ function ZuneDemoContent() {
           min-height: 0;
         }
 
-        .zune-sidebar, .zune-center {
+        .zune-sidebar, .zune-center, .zune-queue {
           height: calc(100dvh - 124px);
           padding: 2rem 2rem 86px 2rem;
         }
