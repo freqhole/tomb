@@ -501,13 +501,14 @@ Migrate remaining components from zoony.tsx:
 - [x] Set up Vite dev environment ✅
 - [x] Install and configure Tailwind CSS ✅
 - [x] Create 12-column responsive grid layout ✅
+- [x] Verify Tailwind v4 colors and animations working ✅
 
 ### 7.2 Week 2: UI Library Foundation
 
-- [ ] Build foundational UI components (Button, Input, Modal, Loading) 🚧 **CURRENT**
-- [ ] Implement Metro UI animations and transitions
-- [ ] Create generic Panel and ResizablePane components
-- [ ] Build player controls and footer with UI components
+- [ ] Create generic Panel and ResizablePane components 🚧 **CURRENT**
+- [ ] Build Modal/Popover and Menu components
+- [ ] Implement Metro UI animations and loading states
+- [ ] Build player controls and footer layout
 
 ### 7.3 Week 3: API & Views Integration
 
