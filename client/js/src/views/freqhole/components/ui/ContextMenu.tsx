@@ -1,0 +1,206 @@
+import { JSX, Show, createSignal, onMount, onCleanup } from "solid-js";
+
+export interface MenuAction {
+  label: string;
+  icon?: JSX.Element;
+  onClick: () => void;
+  disabled?: boolean;
+  destructive?: boolean;
+}
+
+export interface ContextMenuProps {
+  x: number;
+  y: number;
+  isOpen: boolean;
+  onClose: () => void;
+  actions: MenuAction[];
+  children?: JSX.Element;
+}
+
+export function ContextMenu(props: ContextMenuProps) {
+  const [menuRef, setMenuRef] = createSignal<HTMLDivElement>();
+  const [position, setPosition] = createSignal({ x: props.x, y: props.y });
+
+  // Calculate constrained position
+  const calculateConstrainedPosition = () => {
+    const menu = menuRef();
+    if (!menu) return { x: props.x, y: props.y };
+
+    const rect = menu.getBoundingClientRect();
+
+    // If menu hasn't been measured yet, return original position
+    if (rect.width === 0 || rect.height === 0) {
+      return { x: props.x, y: props.y };
+    }
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let x = props.x;
+    let y = props.y;
+
+    // Constrain to viewport with 10px padding
+    if (x + rect.width > viewportWidth - 10) {
+      x = viewportWidth - rect.width - 10;
+    }
+    if (x < 10) {
+      x = 10;
+    }
+    if (y + rect.height > viewportHeight - 10) {
+      y = viewportHeight - rect.height - 10;
+    }
+    if (y < 10) {
+      y = 10;
+    }
+
+    return { x, y };
+  };
+
+  // Update position when props change
+  const updatePosition = () => {
+    setPosition({ x: props.x, y: props.y });
+
+    // Force position update after next render
+    requestAnimationFrame(() => {
+      const constrainedPos = calculateConstrainedPosition();
+      setPosition(constrainedPos);
+    });
+  };
+
+  // Watch for prop changes
+  onMount(() => {
+    if (props.isOpen) {
+      updatePosition();
+    }
+  });
+
+  onMount(() => {
+    if (!props.isOpen) return;
+
+    // Handle click outside to close
+    const handleClickOutside = (event: MouseEvent) => {
+      const menu = menuRef();
+      if (menu && !menu.contains(event.target as Node)) {
+        props.onClose();
+      }
+    };
+
+    // Handle escape key to close
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        props.onClose();
+      }
+    };
+
+    // Small delay to prevent button click from immediately triggering close
+    const timeoutId = setTimeout(() => {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleEscape);
+    }, 50);
+
+    onCleanup(() => {
+      clearTimeout(timeoutId);
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    });
+  });
+
+  const handleAction = (action: MenuAction) => {
+    if (!action.disabled) {
+      action.onClick();
+      props.onClose();
+    }
+  };
+
+  return (
+    <Show when={props.isOpen}>
+      <div
+        ref={(el) => {
+          setMenuRef(el);
+          if (el && props.isOpen) {
+            // Update position once menu is rendered
+            requestAnimationFrame(() => {
+              const constrainedPos = calculateConstrainedPosition();
+              setPosition(constrainedPos);
+            });
+          }
+        }}
+        class="fixed z-50 min-w-48 bg-dark-200 border border-dark-300 shadow-xl metro-slide-up"
+        style={{
+          left: `${position().x}px`,
+          top: `${position().y}px`,
+        }}
+      >
+        {/* Custom content (like text input for playlist naming) */}
+        <Show when={props.children}>
+          <div class="p-2 border-b border-dark-300">{props.children}</div>
+        </Show>
+
+        {/* Menu actions */}
+        <div class="py-1">
+          {props.actions.map((action, index) => (
+            <button
+              key={index}
+              class={`w-full px-4 py-3 text-left border border-transparent transition-all duration-200 flex items-center space-x-3 ${
+                action.disabled
+                  ? "text-gray-500 cursor-not-allowed"
+                  : action.destructive
+                    ? "text-red-400 hover:bg-red-900 hover:border-red-600"
+                    : "text-white hover:bg-primary-500 hover:border-primary-300 metro-button-hover"
+              }`}
+              onClick={() => handleAction(action)}
+              disabled={action.disabled}
+            >
+              <Show when={action.icon}>
+                <span class="flex-shrink-0">{action.icon}</span>
+              </Show>
+              <span class="text-sm font-medium">{action.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </Show>
+  );
+}
+
+// Hook for managing context menu state
+export function useContextMenu() {
+  const [isOpen, setIsOpen] = createSignal(false);
+  const [position, setPosition] = createSignal({ x: 0, y: 0 });
+
+  const open = (x: number, y: number) => {
+    setPosition({ x, y });
+    setIsOpen(true);
+  };
+
+  const close = () => {
+    setIsOpen(false);
+  };
+
+  const handleContextMenu = (event: MouseEvent) => {
+    event.preventDefault();
+    open(event.clientX, event.clientY);
+  };
+
+  const handleButtonClick = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+
+    // Position menu at bottom-left of button
+    const x = rect.left;
+    const y = rect.bottom + 4;
+
+    open(x, y);
+  };
+
+  return {
+    isOpen,
+    position,
+    open,
+    close,
+    handleContextMenu,
+    handleButtonClick,
+  };
+}

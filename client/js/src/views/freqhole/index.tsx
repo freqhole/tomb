@@ -1,8 +1,54 @@
 import { Panel } from "./components/layout/Panel";
+import {
+  ContextMenu,
+  useContextMenu,
+  type MenuAction,
+} from "./components/ui/ContextMenu";
 
 export function Freqhole() {
+  const contextMenu = useContextMenu();
+
+  // Demo context menu actions
+  const menuActions: MenuAction[] = [
+    {
+      label: "Play",
+      icon: (
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      ),
+      onClick: () => console.log("Play clicked"),
+    },
+    {
+      label: "Add to Queue",
+      icon: (
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+        </svg>
+      ),
+      onClick: () => console.log("Add to queue clicked"),
+    },
+    {
+      label: "Add to Playlist",
+      onClick: () => console.log("Add to playlist clicked"),
+    },
+    {
+      label: "Disabled Action",
+      onClick: () => console.log("Should not fire"),
+      disabled: true,
+    },
+    {
+      label: "Delete",
+      onClick: () => console.log("Delete clicked"),
+      destructive: true,
+    },
+  ];
+
   return (
-    <div class="h-screen w-screen bg-black text-white font-metro flex flex-col">
+    <div
+      class="h-screen w-screen bg-black text-white font-metro flex flex-col"
+      onContextMenu={contextMenu.handleContextMenu}
+    >
       {/* Header */}
       <header class="h-16 bg-black flex items-center justify-between px-6">
         <h1 class="text-xl font-semibold text-primary-500 hover:text-primary-400 transition-colors">
@@ -92,7 +138,16 @@ export function Freqhole() {
                 <button class="lg:hidden px-3 py-1 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm metro-button-hover">
                   Context
                 </button>
-                <button class="px-3 py-1 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm metro-button-hover">
+                <button
+                  class="px-3 py-1 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm metro-button-hover"
+                  onClick={(e) => {
+                    if (contextMenu.isOpen()) {
+                      contextMenu.close();
+                    } else {
+                      contextMenu.handleButtonClick(e);
+                    }
+                  }}
+                >
                   View Options
                 </button>
               </div>
@@ -100,32 +155,36 @@ export function Freqhole() {
           >
             <div class="space-y-6">
               <div class="text-gray-400 mb-4">
-                Infinite scrolling content will go here
+                Right-click anywhere OR click "View Options" button to test
+                context menu!
               </div>
 
-              {/* Tailwind v4 Tests */}
+              {/* Context Menu Demo */}
               <div class="space-y-4">
-                <h3 class="text-white font-bold">Responsive Panel Demo:</h3>
+                <h3 class="text-white font-bold">Context Menu Demo:</h3>
                 <div class="text-primary-500 text-xl font-bold metro-slide-up">
-                  Responsive layout working! ✨
+                  Context menu system working! ✨
                 </div>
                 <div class="text-green-500 font-medium">
-                  ✅ Mobile: Main panel only (12 cols)
+                  ✅ Viewport-aware positioning
                 </div>
                 <div class="text-green-500 font-medium">
-                  ✅ Tablet: Left + Main (3+9 cols)
+                  ✅ Click outside to close
                 </div>
                 <div class="text-green-500 font-medium">
-                  ✅ Desktop: Left + Context + Main (3+3+6 cols)
+                  ✅ Escape key to close
                 </div>
                 <div class="text-green-500 font-medium">
-                  ✅ No layout shift with border-box sizing
+                  ✅ Custom content support (playlist input)
                 </div>
                 <div class="text-green-500 font-medium">
-                  ✅ Metro hover animations with pulse effect
+                  ✅ Metro hover animations
                 </div>
                 <div class="text-green-500 font-medium">
-                  ✅ Smooth 200ms transitions
+                  ✅ Destructive actions styling
+                </div>
+                <div class="text-yellow-500 font-medium">
+                  🖱️ Try right-clicking near window edges!
                 </div>
               </div>
             </div>
@@ -137,6 +196,27 @@ export function Freqhole() {
       <footer class="h-0 bg-black transition-all duration-300">
         {/* Player controls will go here */}
       </footer>
+
+      {/* Context Menu */}
+      <ContextMenu
+        x={contextMenu.position().x}
+        y={contextMenu.position().y}
+        isOpen={contextMenu.isOpen()}
+        onClose={contextMenu.close}
+        actions={menuActions}
+      >
+        {/* Demo playlist input - shows on first menu item */}
+        <div class="flex items-center space-x-2">
+          <input
+            type="text"
+            placeholder="New playlist name..."
+            class="flex-1 px-2 py-1 bg-dark-300 text-white text-sm border border-transparent focus:border-primary-300 focus:outline-none"
+          />
+          <button class="px-2 py-1 bg-primary-500 text-white text-xs hover:bg-primary-600 transition-colors">
+            Create
+          </button>
+        </div>
+      </ContextMenu>
     </div>
   );
 }
