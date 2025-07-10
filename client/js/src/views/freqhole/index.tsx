@@ -1,5 +1,4 @@
-import { createSignal, onMount } from "solid-js";
-import { Panel } from "./components/layout/Panel";
+import { createSignal, onMount, Show, For } from "solid-js";
 import {
   ContextMenu,
   useContextMenu,
@@ -10,12 +9,14 @@ import { useAuth } from "../../hooks/auth";
 import { AuthModal } from "./components/auth/AuthModal";
 import { Header } from "./components/header";
 import { Player, QueueViewer } from "./components/player";
-import { FreqholeProvider } from "./context";
+import { FreqholeProvider, useFreqhole } from "./context";
+import { PlayIcon, AddIcon, QueueIcon, EditIcon } from "./components/icons";
 
-export function Freqhole() {
+function FreqholeContent() {
   const contextMenu = useContextMenu();
   const modal = useModal();
   const popover = usePopover();
+  const freqhole = useFreqhole();
 
   // Auth state and modal
   const [showAuthModal, setShowAuthModal] = createSignal(false);
@@ -28,13 +29,7 @@ export function Freqhole() {
     },
   });
 
-  // View state for header navigation
-  const [currentView, setCurrentView] = createSignal<
-    "music" | "artists" | "albums" | "playlists"
-  >("music");
-  const [searchQuery, setSearchQuery] = createSignal("");
-
-  // Check auth status on mount (silent to avoid loading spinner)
+  // Initialize freqhole and check auth on mount
   onMount(async () => {
     console.log("Mount: Initial auth state:", {
       isAuthenticated: auth.isAuthenticated,
@@ -58,8 +53,171 @@ export function Freqhole() {
 
     if (!isAuthenticated) {
       setShowAuthModal(true);
+    } else {
+      // Initialize freqhole data
+      freqhole.actions.initialize();
     }
   });
+
+  // Get current view data
+  const getCurrentViewData = () => {
+    const currentView = freqhole.music.state.currentView();
+    switch (currentView) {
+      case "music":
+        return freqhole.music.state.isSearchActive()
+          ? freqhole.music.state.searchResults()
+          : freqhole.music.state.songs();
+      case "artists":
+        return freqhole.music.state.artists();
+      case "albums":
+        return freqhole.music.state.albums();
+      case "playlists":
+        return freqhole.music.state.playlists();
+      default:
+        return [];
+    }
+  };
+
+  const handleSearch = (query: string) => {
+    if (query.trim()) {
+      freqhole.music.actions.performSearch(query);
+    } else {
+      freqhole.music.actions.clearSearch();
+    }
+  };
+
+  const handlePlayItem = (item: any) => {
+    const currentView = freqhole.music.state.currentView();
+    switch (currentView) {
+      case "music":
+        freqhole.actions.playAndQueue(item);
+        break;
+      case "artists":
+        freqhole.actions.playArtistAndView(item);
+        break;
+      case "albums":
+        freqhole.actions.playAlbumAndView(item);
+        break;
+      case "playlists":
+        freqhole.actions.playPlaylistAndView(item);
+        break;
+    }
+  };
+
+  const formatDuration = (seconds: number | undefined) => {
+    if (!seconds) return "--:--";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const renderMusicItem = (song: any) => (
+    <div
+      class="flex items-center p-3 border border-transparent hover:bg-dark-200 hover:border-primary-300 cursor-pointer transition-all duration-200 metro-item-hover"
+      onClick={() => handlePlayItem(song)}
+    >
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between">
+          <div class="flex-1 min-w-0">
+            <h3 class="text-white font-medium truncate">{song.title}</h3>
+            <p class="text-gray-400 text-sm truncate">
+              {song.artist} {song.album && `• ${song.album}`}
+            </p>
+          </div>
+          <div class="flex items-center space-x-2 ml-4">
+            <span class="text-gray-400 text-sm">
+              {formatDuration(song.duration_seconds)}
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2 ml-4">
+        <button
+          class="p-2 hover:bg-primary-500 hover:border-primary-300 border border-transparent rounded transition-all duration-200 metro-button-hover"
+          onClick={(e) => {
+            e.stopPropagation();
+            handlePlayItem(song);
+          }}
+          title="Play"
+        >
+          <PlayIcon className="w-4 h-4 text-white" />
+        </button>
+        <button
+          class="p-2 hover:bg-primary-500 hover:border-primary-300 border border-transparent rounded transition-all duration-200 metro-button-hover"
+          onClick={(e) => {
+            e.stopPropagation();
+            freqhole.player.addToQueue(song);
+          }}
+          title="Add to Queue"
+        >
+          <QueueIcon className="w-4 h-4 text-white" />
+        </button>
+        <button
+          class="p-2 hover:bg-primary-500 hover:border-primary-300 border border-transparent rounded transition-all duration-200 metro-button-hover"
+          onClick={(e) => {
+            e.stopPropagation();
+            freqhole.actions.addToPlaylistWithModal([song]);
+          }}
+          title="Add to Playlist"
+        >
+          <AddIcon className="w-4 h-4 text-white" />
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderListItem = (item: any) => {
+    const currentView = freqhole.music.state.currentView();
+
+    if (currentView === "music") {
+      return renderMusicItem(item);
+    }
+
+    // Generic item renderer for artists, albums, playlists
+    return (
+      <div
+        class="flex items-center p-3 border border-transparent hover:bg-dark-200 hover:border-primary-300 cursor-pointer transition-all duration-200 metro-item-hover"
+        onClick={() => handlePlayItem(item)}
+      >
+        <div class="flex-1 min-w-0">
+          <h3 class="text-white font-medium truncate">
+            {item.title || item.artist || item.album || "Unknown"}
+          </h3>
+          <p class="text-gray-400 text-sm truncate">
+            {currentView === "artists" &&
+              `${item.song_count} songs • ${item.album_count} albums`}
+            {currentView === "albums" &&
+              `${item.artist} • ${item.track_count} tracks`}
+            {currentView === "playlists" && `${item.song_count || 0} songs`}
+          </p>
+        </div>
+        <div class="flex items-center space-x-2 ml-4">
+          <button
+            class="p-2 hover:bg-primary-500 hover:border-primary-300 border border-transparent rounded transition-all duration-200 metro-button-hover"
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePlayItem(item);
+            }}
+            title="Play"
+          >
+            <PlayIcon className="w-4 h-4 text-white" />
+          </button>
+          {currentView === "playlists" && (
+            <button
+              class="p-2 hover:bg-primary-500 hover:border-primary-300 border border-transparent rounded transition-all duration-200 metro-button-hover"
+              onClick={(e) => {
+                e.stopPropagation();
+                freqhole.view.actions.openEditPlaylistModal(item);
+              }}
+              title="Edit"
+            >
+              <EditIcon className="w-4 h-4 text-white" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   // Demo context menu actions
   const menuActions: MenuAction[] = [
@@ -111,135 +269,113 @@ export function Freqhole() {
         {/* Header */}
         <div class="h-16">
           <Header
-            currentView={currentView()}
-            onViewChange={setCurrentView}
-            searchQuery={searchQuery()}
-            onSearchQueryChange={setSearchQuery}
-            onSearch={(query) => {
-              console.log("Search:", query);
-              // TODO: Implement search functionality
-            }}
-            onClearSearch={() => {
-              setSearchQuery("");
-              // TODO: Clear search results
-            }}
+            currentView={freqhole.music.state.currentView()}
+            onViewChange={(view) => freqhole.music.actions.changeView(view)}
+            searchQuery={freqhole.music.state.searchQuery()}
+            onSearchQueryChange={() => {}} // Handled by SearchBox
+            onSearch={handleSearch}
+            onClearSearch={() => freqhole.music.actions.clearSearch()}
             searchContext={{
               state: {
-                setQuery: setSearchQuery,
+                setQuery: () => {}, // Handled by SearchBox
               },
             }}
           />
         </div>
 
         {/* Main Content Area */}
-        <main class="flex-1 grid grid-cols-12 gap-6 overflow-hidden">
-          {/* Left Panel - Hidden on mobile */}
-          <div class="hidden md:block col-span-12 md:col-span-3">
-            <Panel title="List Panel" subtitle="Dynamic content area">
-              <div class="space-y-1">
-                <div class="p-4 border border-transparent hover:bg-primary-500 hover:border-primary-300 cursor-pointer transition-all duration-200 metro-fade-in metro-item-hover">
-                  Sample Item 1
+        <main class="flex-1 overflow-hidden p-6">
+          <div class="h-full flex flex-col">
+            {/* Loading State */}
+            <Show when={freqhole.isLoading()}>
+              <div class="flex items-center justify-center py-8">
+                <div class="text-gray-400">Loading...</div>
+              </div>
+            </Show>
+
+            {/* Error State */}
+            <Show when={freqhole.getError()}>
+              <div class="flex items-center justify-between bg-red-900/20 border border-red-500/30 p-4 rounded mb-4">
+                <div class="text-red-400">{freqhole.getError()}</div>
+                <button
+                  class="px-3 py-1 bg-red-500 text-white hover:bg-red-600 transition-colors text-sm"
+                  onClick={() => freqhole.actions.clearAllErrors()}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </Show>
+
+            {/* View Title */}
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center space-x-4">
+                <h2 class="text-xl font-bold text-white">
+                  {freqhole.music.state.isSearchActive()
+                    ? `Search Results (${freqhole.music.state.searchResults().length})`
+                    : `${freqhole.music.state.currentView().charAt(0).toUpperCase() + freqhole.music.state.currentView().slice(1)} (${getCurrentViewData().length})`}
+                </h2>
+                <Show when={freqhole.music.state.isSearchActive()}>
+                  <span class="text-sm text-gray-400">
+                    for "{freqhole.music.state.searchQuery()}"
+                  </span>
+                </Show>
+              </div>
+
+              <div class="flex items-center space-x-2">
+                <Show when={freqhole.music.state.currentView() === "playlists"}>
+                  <button
+                    class="px-3 py-1 bg-primary-500 text-white border border-transparent hover:bg-primary-600 hover:border-primary-300 transition-all duration-200 text-sm metro-button-hover"
+                    onClick={() =>
+                      freqhole.view.actions.openCreatePlaylistModal()
+                    }
+                  >
+                    Create Playlist
+                  </button>
+                </Show>
+              </div>
+            </div>
+
+            {/* Content List */}
+            <div class="flex-1 overflow-auto">
+              <Show
+                when={!freqhole.isLoading() && getCurrentViewData().length > 0}
+                fallback={
+                  <div class="flex items-center justify-center py-8">
+                    <div class="text-gray-400">
+                      {freqhole.music.state.isSearchActive()
+                        ? "No search results found"
+                        : "No items found"}
+                    </div>
+                  </div>
+                }
+              >
+                <div class="space-y-1">
+                  <For each={getCurrentViewData()}>
+                    {(item) => renderListItem(item)}
+                  </For>
                 </div>
-                <div class="p-4 border border-transparent hover:bg-primary-500 hover:border-primary-300 cursor-pointer transition-all duration-200 metro-fade-in metro-item-hover">
-                  Sample Item 2
-                </div>
-                <div class="p-4 border border-transparent hover:bg-primary-500 hover:border-primary-300 cursor-pointer transition-all duration-200 metro-fade-in metro-item-hover">
-                  Sample Item 3
-                </div>
-                <div class="p-4 border border-transparent hover:bg-primary-500 hover:border-primary-300 cursor-pointer transition-all duration-200 metro-fade-in metro-item-hover">
-                  Sample Item 4
+              </Show>
+            </div>
+
+            {/* Now Playing Indicator */}
+            <Show when={freqhole.player.currentSong()}>
+              <div class="mt-4 p-3 bg-primary-500/20 border border-primary-500/50 rounded">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center space-x-3">
+                    <div class="w-2 h-2 bg-primary-500 rounded-full animate-pulse"></div>
+                    <div>
+                      <div class="text-white font-medium">
+                        {freqhole.player.currentSong()?.title}
+                      </div>
+                      <div class="text-gray-400 text-sm">
+                        {freqhole.player.currentSong()?.artist}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="text-primary-400 text-sm">Now Playing</div>
                 </div>
               </div>
-            </Panel>
-          </div>
-
-          {/* Middle Panel - Hidden on mobile */}
-          <div class="hidden lg:block col-span-12 lg:col-span-3">
-            <Panel
-              title="Context Panel"
-              subtitle="Details and controls"
-              isLoading={true}
-            >
-              <div class="text-sm text-gray-500">
-                Context content will go here
-              </div>
-            </Panel>
-          </div>
-
-          {/* Main Panel - Full width on mobile */}
-          <div class="col-span-12 md:col-span-9 lg:col-span-6">
-            <Panel
-              title="Main Content"
-              subtitle="Primary content area"
-              headerActions={
-                <div class="flex items-center space-x-2">
-                  {/* Mobile panel toggles */}
-                  <button class="md:hidden px-3 py-1 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm metro-button-hover">
-                    List
-                  </button>
-                  <button class="lg:hidden px-3 py-1 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm metro-button-hover">
-                    Context
-                  </button>
-                  <button
-                    class="px-3 py-1 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm metro-button-hover"
-                    onClick={(e) => {
-                      if (contextMenu.isOpen()) {
-                        contextMenu.close();
-                      } else {
-                        contextMenu.handleButtonClick(e);
-                      }
-                    }}
-                  >
-                    View Options
-                  </button>
-                  <button
-                    class="px-3 py-1 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm metro-button-hover"
-                    onClick={popover.handleButtonClick}
-                  >
-                    Popover
-                  </button>
-                  <button
-                    class="px-3 py-1 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm metro-button-hover"
-                    onClick={modal.open}
-                  >
-                    Modal
-                  </button>
-                </div>
-              }
-            >
-              <div class="space-y-6">
-                <div class="text-gray-400 mb-4">
-                  Test our UI components: Right-click for context menu, click
-                  buttons for Modal/Popover!
-                </div>
-
-                {/* UI Components Demo */}
-                <div class="space-y-4">
-                  <h3 class="text-white font-bold">UI Components Demo:</h3>
-                  <div class="text-primary-500 text-xl font-bold metro-slide-up">
-                    Modal, Popover & Context Menu working! ✨
-                  </div>
-                  <div class="text-green-500 font-medium">
-                    ✅ Context Menu: Right-click or "View Options"
-                  </div>
-                  <div class="text-green-500 font-medium">
-                    ✅ Modal: Full-screen overlay with backdrop
-                  </div>
-                  <div class="text-green-500 font-medium">
-                    ✅ Popover: Anchored positioning with auto-placement
-                  </div>
-                  <div class="text-green-500 font-medium">
-                    ✅ Click-away and escape key support
-                  </div>
-                  <div class="text-green-500 font-medium">
-                    ✅ Metro animations and styling
-                  </div>
-                  <div class="text-yellow-500 font-medium">
-                    🖱️ Try all three UI patterns!
-                  </div>
-                </div>
-              </div>
-            </Panel>
+            </Show>
           </div>
         </main>
 
@@ -343,7 +479,108 @@ export function Freqhole() {
           onClose={() => setShowAuthModal(false)}
           onAuthSuccess={() => setShowAuthModal(false)}
         />
+
+        {/* Playlist Modal */}
+        <Modal
+          isOpen={freqhole.view.state.showPlaylistModal()}
+          onClose={() => freqhole.view.actions.closePlaylistModal()}
+          title={
+            freqhole.view.state.playlistModalMode() === "create"
+              ? "Create Playlist"
+              : freqhole.view.state.playlistModalMode() === "edit"
+                ? "Edit Playlist"
+                : "Add Songs to Playlist"
+          }
+          size="md"
+        >
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-2">
+                Playlist Name
+              </label>
+              <input
+                type="text"
+                class="w-full px-3 py-2 bg-dark-300 text-white border border-gray-600 rounded focus:border-primary-500 focus:outline-none"
+                value={freqhole.view.state.playlistForm().title}
+                onInput={(e) =>
+                  freqhole.view.actions.updatePlaylistForm({
+                    title: e.target.value,
+                  })
+                }
+                placeholder="Enter playlist name..."
+              />
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-2">
+                Description (Optional)
+              </label>
+              <textarea
+                class="w-full px-3 py-2 bg-dark-300 text-white border border-gray-600 rounded focus:border-primary-500 focus:outline-none"
+                value={freqhole.view.state.playlistForm().description}
+                onInput={(e) =>
+                  freqhole.view.actions.updatePlaylistForm({
+                    description: e.target.value,
+                  })
+                }
+                placeholder="Enter playlist description..."
+                rows="3"
+              />
+            </div>
+
+            <div class="flex items-center">
+              <input
+                type="checkbox"
+                id="public-playlist"
+                class="w-4 h-4 text-primary-500 bg-dark-300 border-gray-600 rounded focus:ring-primary-500"
+                checked={freqhole.view.state.playlistForm().is_public}
+                onChange={(e) =>
+                  freqhole.view.actions.updatePlaylistForm({
+                    is_public: e.target.checked,
+                  })
+                }
+              />
+              <label for="public-playlist" class="ml-2 text-sm text-gray-300">
+                Make playlist public
+              </label>
+            </div>
+
+            <div class="flex space-x-3 pt-4">
+              <button
+                class="px-4 py-2 bg-primary-500 text-white border border-transparent hover:bg-primary-600 hover:border-primary-300 transition-all duration-200 metro-button-hover"
+                onClick={() => {
+                  if (freqhole.view.state.playlistModalMode() === "create") {
+                    freqhole.actions.createPlaylistWithModal();
+                  } else if (
+                    freqhole.view.state.playlistModalMode() === "edit"
+                  ) {
+                    freqhole.actions.updatePlaylistWithModal();
+                  }
+                }}
+                disabled={!freqhole.view.state.playlistForm().title.trim()}
+              >
+                {freqhole.view.state.playlistModalMode() === "create"
+                  ? "Create Playlist"
+                  : "Update Playlist"}
+              </button>
+              <button
+                class="px-4 py-2 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 metro-button-hover"
+                onClick={() => freqhole.view.actions.closePlaylistModal()}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </Modal>
       </div>
+    </FreqholeProvider>
+  );
+}
+
+export function Freqhole() {
+  return (
+    <FreqholeProvider>
+      <FreqholeContent />
     </FreqholeProvider>
   );
 }

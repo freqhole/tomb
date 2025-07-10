@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Import organized Freqhole styles */
+@import "./styles/index.css";
+
 @theme {
   /* Override default theme with our custom colors */
 
@@ -28,6 +31,7 @@
 
   /* Metro UI font family */
   --font-family-metro: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-metro: "Segoe UI", system-ui, -apple-system, sans-serif;
 
   /* Custom animations */
   --animate-fade-in: fadeIn 0.3s ease-out;
@@ -53,6 +57,10 @@
     margin: 0;
     padding: 0;
     overflow: hidden;
+  }
+
+  .font-metro {
+    font-family: var(--font-metro);
   }
 
   html {

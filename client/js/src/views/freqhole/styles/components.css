@@ -1,0 +1,322 @@
+/* Freqhole Component Styles */
+
+/* Button Styles */
+.freqhole-button {
+  @apply px-4 py-2 border border-transparent transition-all duration-200 font-medium text-sm;
+}
+
+.freqhole-button-primary {
+  @apply bg-primary-500 text-white hover:bg-primary-600 hover:border-primary-300;
+}
+
+.freqhole-button-secondary {
+  @apply bg-dark-200 text-white hover:bg-primary-500 hover:border-primary-300;
+}
+
+.freqhole-button-danger {
+  @apply bg-red-500 text-white hover:bg-red-600 hover:border-red-300;
+}
+
+.freqhole-button-icon {
+  @apply p-2 rounded border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200;
+}
+
+.freqhole-button-small {
+  @apply px-3 py-1 text-xs;
+}
+
+.freqhole-button-large {
+  @apply px-6 py-3 text-base;
+}
+
+.freqhole-button:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* Input Styles */
+.freqhole-input {
+  @apply w-full px-3 py-2 bg-dark-300 text-white border border-gray-600 rounded focus:border-primary-500 focus:outline-none placeholder-gray-400;
+}
+
+.freqhole-input-search {
+  @apply px-4 py-2 bg-dark-300 text-white border border-gray-600 rounded-lg focus:border-primary-500 focus:outline-none placeholder-gray-400;
+}
+
+.freqhole-textarea {
+  @apply w-full px-3 py-2 bg-dark-300 text-white border border-gray-600 rounded focus:border-primary-500 focus:outline-none placeholder-gray-400 resize-none;
+}
+
+.freqhole-checkbox {
+  @apply w-4 h-4 text-primary-500 bg-dark-300 border-gray-600 rounded focus:ring-primary-500;
+}
+
+/* Item List Styles */
+.freqhole-item {
+  @apply flex items-center p-3 border border-transparent hover:bg-dark-200 hover:border-primary-300 cursor-pointer transition-all duration-200;
+}
+
+.freqhole-item-selected {
+  @apply bg-primary-500/20 border-primary-500/50;
+}
+
+.freqhole-item-content {
+  @apply flex-1 min-w-0;
+}
+
+.freqhole-item-title {
+  @apply text-white font-medium truncate;
+}
+
+.freqhole-item-subtitle {
+  @apply text-gray-400 text-sm truncate;
+}
+
+.freqhole-item-actions {
+  @apply flex items-center space-x-2 ml-4;
+}
+
+.freqhole-item-meta {
+  @apply text-gray-400 text-sm;
+}
+
+/* Navigation Styles */
+.freqhole-nav {
+  @apply h-16 bg-dark-100 border-b border-gray-700 flex items-center justify-between px-6;
+}
+
+.freqhole-nav-tabs {
+  @apply flex items-center space-x-1;
+}
+
+.freqhole-nav-tab {
+  @apply px-4 py-2 text-sm font-medium transition-all duration-200 text-gray-400 hover:text-white;
+}
+
+.freqhole-nav-tab-active {
+  @apply text-primary-400 border-b-2 border-primary-400;
+}
+
+.freqhole-nav-actions {
+  @apply flex items-center space-x-4;
+}
+
+/* Header Styles */
+.freqhole-header {
+  @apply flex items-center justify-between mb-4;
+}
+
+.freqhole-header-title {
+  @apply text-xl font-bold text-white;
+}
+
+.freqhole-header-subtitle {
+  @apply text-sm text-gray-400;
+}
+
+.freqhole-header-actions {
+  @apply flex items-center space-x-2;
+}
+
+/* Status Styles */
+.freqhole-status-loading {
+  @apply flex items-center justify-center py-8;
+}
+
+.freqhole-status-error {
+  @apply flex items-center justify-between bg-red-900/20 border border-red-500/30 p-4 rounded mb-4;
+}
+
+.freqhole-status-error-text {
+  @apply text-red-400;
+}
+
+.freqhole-status-empty {
+  @apply flex items-center justify-center py-8;
+}
+
+.freqhole-status-empty-text {
+  @apply text-gray-400;
+}
+
+/* Now Playing Styles */
+.freqhole-now-playing {
+  @apply mt-4 p-3 bg-primary-500/20 border border-primary-500/50 rounded;
+}
+
+.freqhole-now-playing-content {
+  @apply flex items-center justify-between;
+}
+
+.freqhole-now-playing-info {
+  @apply flex items-center space-x-3;
+}
+
+.freqhole-now-playing-indicator {
+  @apply w-2 h-2 bg-primary-500 rounded-full animate-pulse;
+}
+
+.freqhole-now-playing-title {
+  @apply text-white font-medium;
+}
+
+.freqhole-now-playing-artist {
+  @apply text-gray-400 text-sm;
+}
+
+.freqhole-now-playing-label {
+  @apply text-primary-400 text-sm;
+}
+
+/* Modal Styles */
+.freqhole-modal-content {
+  @apply space-y-4;
+}
+
+.freqhole-modal-field {
+  @apply space-y-2;
+}
+
+.freqhole-modal-label {
+  @apply block text-sm font-medium text-gray-300;
+}
+
+.freqhole-modal-actions {
+  @apply flex space-x-3 pt-4;
+}
+
+.freqhole-modal-checkbox-group {
+  @apply flex items-center space-x-2;
+}
+
+.freqhole-modal-info {
+  @apply text-sm text-gray-400;
+}
+
+/* Selection Styles */
+.freqhole-selection-checkbox {
+  @apply w-5 h-5 flex items-center justify-center mr-3;
+}
+
+.freqhole-selection-actions {
+  @apply flex items-center space-x-2;
+}
+
+.freqhole-selection-count {
+  @apply text-sm text-gray-400;
+}
+
+/* Metro UI Enhancements */
+.metro-fade-in {
+  animation: metroFadeIn 0.3s ease-out;
+}
+
+.metro-slide-up {
+  animation: metroSlideUp 0.3s ease-out;
+}
+
+.metro-item-hover {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.metro-item-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.metro-button-hover {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.metro-button-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.metro-scale-hover {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.metro-scale-hover:hover {
+  transform: scale(1.05);
+}
+
+/* Animations */
+@keyframes metroFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes metroSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive Utilities */
+@media (max-width: 768px) {
+  .freqhole-nav {
+    @apply px-4;
+  }
+
+  .freqhole-nav-tabs {
+    @apply space-x-0;
+  }
+
+  .freqhole-nav-tab {
+    @apply px-2 py-2 text-xs;
+  }
+
+  .freqhole-item {
+    @apply p-2;
+  }
+
+  .freqhole-item-actions {
+    @apply space-x-1;
+  }
+
+  .freqhole-button-icon {
+    @apply p-1;
+  }
+
+  .freqhole-input-search {
+    @apply w-48;
+  }
+}
+
+/* Dark Theme Variations */
+.freqhole-dark {
+  /* Custom dark theme overrides can go here */
+}
+
+/* Accessibility */
+.freqhole-focus-visible:focus-visible {
+  @apply outline-2 outline-offset-2 outline-primary-400;
+}
+
+/* Custom Scrollbar */
+.freqhole-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.freqhole-scrollbar::-webkit-scrollbar-track {
+  @apply bg-dark-300;
+}
+
+.freqhole-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-gray-600 rounded;
+}
+
+.freqhole-scrollbar::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-500;
+}
