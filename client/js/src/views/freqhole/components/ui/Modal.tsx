@@ -29,8 +29,6 @@ export function Modal(props: ModalProps) {
 
   const size = () => props.size || "md";
   const showCloseButton = () => props.showCloseButton ?? true;
-  const closeOnBackdrop = () => props.closeOnBackdrop ?? true;
-  const closeOnEscape = () => props.closeOnEscape ?? true;
 
   const sizeClasses = {
     sm: "max-w-md",

@@ -1,3 +1,4 @@
+import { createSignal, onMount } from "solid-js";
 import { Panel } from "./components/layout/Panel";
 import {
   ContextMenu,
@@ -5,11 +6,33 @@ import {
   type MenuAction,
 } from "./components/ui/ContextMenu";
 import { Modal, Popover, useModal, usePopover } from "./components/ui/Modal";
+import { useAuth } from "../../hooks/auth";
+import { AuthModal } from "./components/auth/AuthModal";
+import { UserMenu } from "./components/auth/UserMenu";
 
 export function Freqhole() {
   const contextMenu = useContextMenu();
   const modal = useModal();
   const popover = usePopover();
+
+  // Auth state and modal
+  const [showAuthModal, setShowAuthModal] = createSignal(false);
+  const auth = useAuth({
+    onAuthSuccess: () => {
+      console.log("Auth successful!");
+    },
+    onLogout: () => {
+      console.log("Logged out");
+    },
+  });
+
+  // Check auth status on mount
+  onMount(async () => {
+    const isAuthenticated = await auth.checkAuthStatus();
+    if (!isAuthenticated) {
+      setShowAuthModal(true);
+    }
+  });
 
   // Demo context menu actions
   const menuActions: MenuAction[] = [
@@ -74,22 +97,26 @@ export function Freqhole() {
           </button>
         </nav>
 
-        {/* Mobile menu button */}
-        <button class="md:hidden text-primary-500 hover:text-primary-400 transition-colors">
-          <svg
-            class="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 6h16M4 12h16M4 18h16"
-            />
-          </svg>
-        </button>
+        {/* User Menu and Mobile menu */}
+        <div class="flex items-center space-x-3">
+          <UserMenu />
+
+          <button class="md:hidden text-primary-500 hover:text-primary-400 transition-colors">
+            <svg
+              class="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 6h16M4 12h16M4 18h16"
+              />
+            </svg>
+          </button>
+        </div>
       </header>
 
       {/* Main Content Area */}
@@ -294,6 +321,13 @@ export function Freqhole() {
           </div>
         </div>
       </Popover>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal()}
+        onClose={() => setShowAuthModal(false)}
+        onAuthSuccess={() => setShowAuthModal(false)}
+      />
     </div>
   );
 }

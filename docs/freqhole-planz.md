@@ -18,3 +18,15 @@ so yeah, i think the major phases would be like:
 2. get tailwind packages and config setup. add some simple tailwind classes to freqhole.tsx to demo it working
 3. start working on the core structure, so header, footer, and three center cols using tailwind styles. start defining a good set of base dark theme colors and styles. i'd like the primary color pallette to be `black`, `white`, and `magenta` (tho it would be `fuchsia` in tailwind). the third column will usually contain a table, so it should take up the most (and remaining) screen width; the first two columns should take, roughly half the screen. perhaps
 4. adapt the infinite scroll setup for 3 different main view types (all with sticky position headers): a simple list with row click handlers (displaying for example, artist names), a grid view of square tiles that might have image or placeholder image backgrounds with foreground text (but the text has background to ensure high contrast). and then a table view that has smart column sizing and a bunch of other features like selection, drag and drop re-ordering, row selection but also individual buttons (and a `...` menu), right click context, etc.
+
+---
+
+okay, so i forgot about the user auth stuff. there's a `webauthn-auth` component in client/js/src/web-components/webauthn-component.tsx that does the api and ui logic for logins. i'd like to adapt this to use the modal component we just setup in freqhole/
+
+we'll probably need to soon add a context wrapper so that we can share complex state across many components, i'm not sure if we need that now or before the auth stuff, so let me know what you think.
+
+i'd like for the freqhole component to be able to check if auth is needed on load; there should be existing code to do a fetch request to see if there's an active user session, if no we need to show a login modal. there should also be a little square icon in the top right in the header that, when clicked, opens a menu with option to log out.
+
+i'd like to do this next. so please update the plan.
+
+then i'd like to decompose zoony.tsx in this way: let's temporarily re-write client/js/src/views/freqhole/main.tsx to render <Zoony /> instead of <Freqhole />. then let's start decomposing and pulling stuff out of it, while keeping it working; like if we pull out header in zoony.tsx into new components, render those new components in zoony. then we can decompose everything while making sure all the stuff we built up there stays working. then after we're done decomposing, we can start composing and adapting all these new components for use in `<Freqhole />`. can you update the plan with this info?

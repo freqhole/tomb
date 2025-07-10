@@ -124,9 +124,8 @@ export function ContextMenu(props: ContextMenuProps) {
 
         {/* Menu actions */}
         <div class="py-1">
-          {props.actions.map((action, index) => (
+          {props.actions.map((action, _index) => (
             <button
-              key={index}
               class={`w-full px-4 py-3 text-left border border-transparent transition-all duration-200 flex items-center space-x-3 ${
                 action.disabled
                   ? "text-gray-500 cursor-not-allowed"

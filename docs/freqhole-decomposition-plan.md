@@ -1,477 +1,765 @@
 # Freqhole Audio Player - Modular Decomposition Plan
 
-## Overview
+## 🎯 Current Focus: Authentication Integration
 
-This document outlines the plan to decompose the monolithic Zune-inspired audio player (`zune-demo.tsx`, ~3100 lines) into a modular, maintainable Freqhole application with proper separation of concerns, Tailwind CSS styling, and reusable components.
+### Phase 0: Auth Integration (IMMEDIATE NEXT)
+
+**Goal**: Adapt existing WebAuthn component to use Modal system and integrate auth flow into Freqhole
+
+#### 0.1 Extract Auth Logic (`client/js/src/hooks/auth/index.ts`)
+
+- Extract auth state management from webauthn-component.tsx:
+  - `checkAuthStatus()`, `handleLogin()`, `handleRegister()`, `handleLogout()`
+  - Auth signals: `isAuthenticated`, `currentUser`, `isLoading`
+  - API client integration with existing ApiClient
+- Create composable hook that returns auth state and actions
+
+#### 0.2 Auth Modal Component (`client/js/src/views/freqhole/components/auth/AuthModal.tsx`)
+
+- Adapt webauthn UI to use our Modal component system
+- Login/Register forms with Tailwind styling (Metro UI theme)
+- Loading states, error handling, form validation
+- Props: `isOpen`, `onClose`, `onAuthSuccess`
+
+#### 0.3 User Menu Component (`client/js/src/views/freqhole/components/auth/UserMenu.tsx`)
+
+- Small square fuchsia button in header (top-right)
+- Popover with user info and logout option
+- Use existing Popover component with proper positioning
+- Props: `currentUser`, `onLogout`
+
+#### 0.4 Auth Hook Pattern (RECOMMENDED)
+
+**Strategy**: Use composable hooks instead of prop drilling for cleaner architecture
+
+Create `useAuth()` hook that can be called from any component that needs auth state:
+
+- **Main Freqhole component**: `const { isAuthenticated, checkAuth } = useAuth()`
+- **Header component**: `const { currentUser, logout } = useAuth()`
+- **Any other component**: Just import and call `useAuth()`
+
+This avoids prop drilling while keeping state management simple and testable.
+
+#### 0.5 Integration into Freqhole (`client/js/src/views/freqhole/index.tsx`)
+
+- Add auth check on component mount
+- Show AuthModal if not authenticated
+- Header component uses `useAuth()` hook directly
+- Handle auth success/logout events
+
+### Phase A: Setup In-Place Decomposition Strategy
+
+**Goal**: Temporarily switch to zoony.tsx while we decompose it, then migrate back
+
+#### A.1 Switch Main Entry Point (`client/js/src/views/freqhole/main.tsx`)
+
+- Change from rendering `<Freqhole />` to `<Zoony />`
+- Keep all existing dev environment working
+- This gives us a working baseline to decompose from
+
+#### A.2 Decomposition Strategy (In-Place)
+
+**New Approach**: Extract components but render them within zoony.tsx
+
+- Extract Header → still render extracted Header in zoony.tsx
+- Extract Player → still render extracted Player in zoony.tsx
+- Extract Sidebar → still render extracted Sidebar in zoony.tsx
+- Keep zoony.tsx working throughout entire process
+- Test each extraction thoroughly before moving to next
+
+#### A.3 Final Migration (Last Step)
+
+After all components extracted:
+
+- Switch main.tsx back to render `<Freqhole />`
+- Adapt extracted components for Panel-based layout
+- Delete zoony.tsx completely
+
+### Phase B: API Types & Interfaces Extraction
+
+**Goal**: Extract all TypeScript interfaces and types from zoony.tsx into shared lib files
+
+#### A.1 Core Data Types (`client/js/src/lib/types/music.ts`)
+
+- Extract interfaces: `Song`, `Album`, `ArtistSummary`, `Playlist`, `PlaylistSong`, `QueueItem`
+- Move API response types and data structures
+- Add proper JSDoc comments for each interface
+
+#### B.2 Component Props Types (`client/js/src/lib/types/components.ts`)
+
+- Extract component-specific interfaces like `ZoonyProps`
+- Add any UI state types that will be reused
+- Create union types for view states (`"music" | "artists" | "albums" | "playlists"`)
+
+### Phase C: Icon Components Extraction
+
+**Goal**: Move all SVG icon components to reusable components
+
+#### C.1 Icon Library (`client/js/src/views/freqhole/components/ui/icons/`)
+
+- Extract all icon components: `PlayIcon`, `PauseIcon`, `CloseIcon`, `EditIcon`, `AddIcon`, `PrevIcon`, `NextIcon`, `VolumeIcon`, `MusicIcon`, `FreqholeIcon`
+- Create index file for easy imports
+- Standardize icon props (size, color, className)
+
+### Phase D: Header Component Extraction (In-Place)
+
+**Goal**: Extract the top navigation/header section (lines ~1047-1100) but keep it working in zoony.tsx
+
+#### D.1 Header Component (`client/js/src/views/freqhole/components/layout/Header.tsx`)
+
+- Extract the entire `zune-header` div and its contents
+- Include logo/branding section
+- Include navigation buttons (music, artists, albums, playlists)
+- Include search box integration
+- Include UserMenu component from Phase 0
+- UserMenu uses `useAuth()` hook internally
+- Props: `currentView`, `onViewChange`, `searchQuery`, `onSearchQueryChange`, `onSearch`, `onClearSearch`
+
+#### D.2 Navigation Component (`client/js/src/views/freqhole/components/ui/Navigation.tsx`)
+
+- Extract just the nav section with view buttons
+- Props: `currentView`, `onViewChange`
+
+#### D.3 Logo/Branding Component (`client/js/src/views/freqhole/components/ui/Logo.tsx`)
+
+- Extract logo and FreqholeIcon
+- Make responsive (hidden-sm classes)
+
+#### D.4 Update Zoony.tsx
+
+- Import extracted Header component
+- Replace existing header JSX with `<Header {...headerProps} />`
+- Verify everything still works before proceeding
+
+### Phase E: Player Component Extraction (In-Place)
+
+**Goal**: Extract the bottom player controls (lines ~1663-1750) but keep it working in zoony.tsx
+
+#### E.1 Player Component (`client/js/src/views/freqhole/components/player/Player.tsx`)
+
+- Extract entire `zune-player` section
+- Include artwork, song info, controls, progress, volume
+- Props: `currentSong`, `isPlaying`, `currentTime`, `duration`, `volume`, `onTogglePlayback`, `onSeekTo`, `onVolumeChange`, `onPrevious`, `onNext`, `onToggleQueue`
+
+#### E.2 Player Controls (`client/js/src/views/freqhole/components/player/PlayerControls.tsx`)
+
+- Extract just the control buttons section
+- Props: `isPlaying`, `onTogglePlayback`, `onPrevious`, `onNext`, `onToggleQueue`, `canGoNext`, `canGoPrevious`
+
+#### E.3 Progress Bar (`client/js/src/views/freqhole/components/player/ProgressBar.tsx`)
+
+- Extract progress bar with time display
+- Props: `currentTime`, `duration`, `onSeekTo`
+
+#### E.4 Update Zoony.tsx
+
+- Import extracted Player component
+- Replace existing player JSX with `<Player {...playerProps} />`
+- Verify everything still works
+
+### Phase F: Sidebar Component Extraction (In-Place)
+
+**Goal**: Extract left sidebar (lines ~1150-1200) but keep it working in zoony.tsx
+
+#### F.1 Sidebar Component (`client/js/src/views/freqhole/components/layout/Sidebar.tsx`)
+
+- Extract `zune-sidebar` section
+- Handle playlist filtering and actions
+- Props: `currentView`, `playlists`, `currentPlaylist`, `onPlaylistSelect`, `onEditPlaylist`, `onDeletePlaylist`
+
+#### F.2 Update Zoony.tsx
+
+- Import extracted Sidebar component
+- Replace existing sidebar JSX with `<Sidebar {...sidebarProps} />`
+- Verify everything still works
+
+### Phase G: Main Content Area Extraction (In-Place)
+
+**Goal**: Extract center content section (lines ~1200-1600) but keep it working in zoony.tsx
+
+#### G.1 ContentHeader Component (`client/js/src/views/freqhole/components/layout/ContentHeader.tsx`)
+
+- Extract `zune-content-header` with stats and action buttons
+- Props: `currentView`, `isSearchActive`, `searchResults`, `currentSongs`, `playlists`, `albums`, `artists`, `currentPlaylist`, `currentArtist`, `currentAlbum`, `onPlayAll`, `onCreatePlaylist`
+
+#### G.2 ContentArea Component (`client/js/src/views/freqhole/components/layout/ContentArea.tsx`)
+
+- Extract main content rendering logic
+- Handle loading states, error states
+- Include all table/grid rendering
+- Props: All necessary data and handlers
+
+#### G.3 Update Zoony.tsx
+
+- Import extracted ContentHeader and ContentArea components
+- Replace existing content JSX with extracted components
+- Verify everything still works
+
+### Phase H: State Management Extraction
+
+**Goal**: Extract all state logic and API calls (zoony.tsx still works)
+
+#### H.1 Music State Hook (`client/js/src/views/freqhole/hooks/useMusicState.ts`)
+
+- Extract all `createSignal` calls for data: songs, playlists, albums, artists
+- Extract all fetch functions: `fetchSongs`, `fetchPlaylists`, etc.
+- Return state and actions
+
+#### H.2 Player State Hook (`client/js/src/views/freqhole/hooks/usePlayerState.ts`)
+
+- Extract player-related signals: `currentSong`, `isPlaying`, `currentTime`, `duration`, `volume`, `audioElement`, `playQueue`
+- Extract player functions: `playSong`, `togglePlayback`, `seekTo`, etc.
+- Handle audio element lifecycle
+
+#### H.3 View State Hook (`client/js/src/views/freqhole/hooks/useViewState.ts`)
+
+- Extract UI state: `currentView`, `loading`, `error`, `searchQuery`, `isSearchActive`
+- Extract view management functions
+
+#### H.4 Update Zoony.tsx
+
+- Replace all inline state with hook calls
+- Verify everything still works with extracted state management
+
+### Phase I: API Client Integration
+
+**Goal**: Move API calls to centralized client
+
+#### I.1 Music API Client (`client/js/src/lib/api/musicApi.ts`)
+
+- Extract all API endpoint calls from zoony.tsx
+- Create typed methods for each endpoint
+- Handle error states consistently
+
+### Phase J: Styles Extraction
+
+**Goal**: Move all CSS to external files or Tailwind classes
+
+#### J.1 Component Styles (`client/js/src/views/freqhole/styles/`)
+
+- Extract the massive `<style>` tag (lines ~1800-3100)
+- Split into component-specific CSS files
+- Convert to Tailwind classes where possible
+
+### Phase K: Final Migration to Freqhole
+
+**Goal**: Migrate all extracted components to Panel-based Freqhole layout
+
+#### K.1 Switch Back to Freqhole (`client/js/src/views/freqhole/main.tsx`)
+
+- Change from rendering `<Zoony />` back to `<Freqhole />`
+- Now we have working components to integrate
+
+#### K.2 Adapt Components for Panel Layout (`client/js/src/views/freqhole/index.tsx`)
+
+- Import all extracted components from zoony decomposition
+- Adapt Header component for Panel system layout
+- Adapt extracted components to work with Panel-based responsive design
+- Use extracted hooks for state management
+- Integrate auth components and flow
+
+#### K.3 Delete zoony.tsx
+
+- Remove the original file once Panel-based version is working
+- Update any remaining imports
+- Celebrate! 🎉
+
+## Execution Strategy
+
+1. **Start with Phase 0 (Auth)** - Add auth before decomposition
+2. **Then Phase A (Setup)** - Switch to zoony.tsx temporarily
+3. **Phases B-C** - Extract types and icons
+4. **Phases D-G** - Extract major UI components (Header, Player, Sidebar, Content)
+5. **Phases H-J** - Extract state management, API calls, styles
+6. **Phase K** - Migrate everything to Panel-based Freqhole layout
+
+**Key Principles**:
+
+- **Always keep zoony.tsx working** throughout phases A-J
+- **Extract and import** - don't replace until final migration
+- **Test each extraction** thoroughly before moving to next phase
+- **Auth integration first** - foundational requirement
+- **Panel migration last** - big integration step at the end
+
+Each phase should:
+
+- Maintain existing functionality in zoony.tsx
+- Test extracted components work in isolation
+- Update zoony.tsx to use extracted components
+- Keep Panel-based Freqhole development separate until Phase K
+
+---
+
+## ✅ Completed Components
+
+### 🎨 **Panel System**
+
+- **File**: `client/js/src/views/freqhole/components/layout/Panel.tsx`
+- **Features**: Loading states, empty states, Metro animations, 12-column responsive layout
+- **Status**: Complete and ready for music content
+
+### 🖱️ **Context Menu System**
+
+- **File**: `client/js/src/views/freqhole/components/ui/ContextMenu.tsx`
+- **Features**: Viewport-aware positioning, click-outside handling, keyboard navigation
+- **Status**: Complete with proper event management
+
+### 📱 **Modal & Popover System**
+
+- **Files**: `client/js/src/views/freqhole/components/ui/Modal.tsx`, `Popover.tsx`
+- **Features**: Global overlay management, no event conflicts, proper z-indexing
+- **Status**: Complete with backdrop management
+
+### 🎯 **Metro UI Foundation**
+
+- **Features**: Flat black backgrounds, fuchsia hover effects, no borders, consistent spacing
+- **Status**: Established design system ready for content components
 
 ## Project Goals
 
-- **Modularity**: Break down the large single file into focused, reusable components
-- **Modern Styling**: Replace inline styles and CSS files with Tailwind CSS classes
-- **Infinite Scrolling**: Integrate existing `infinite-data-grid` component for performance
-- **Layout System**: Create flexible 3-4 column layout with independent scrolling
-- **Hot Reloading**: Set up traditional Vite dev environment alongside existing web component system
-- **Dark Theme**: Implement black/white/magenta (fuchsia) color scheme
-- **UI Design**: Use SVG icons (no emoji in UI), but emoji acceptable in documentation for progress tracking
+**Create a modular, maintainable audio player** that separates concerns, enables testing, and provides a solid foundation for future features while maintaining the distinctive Zune Metro UI aesthetic.
 
 ## Current State Analysis
 
 ### Existing Assets
 
-- **Zune Demo**: `client/js/src/web-components/zune-demo.tsx` (~3100 lines)
-- **Infinite Grid**: `client/js/src/components/infinite-data-grid/` (sophisticated, reusable)
-- **Web Component Build**: `vite.wc.config.ts` (keep for existing components)
-- **Started Structure**: `client/js/src/views/freqhole/` with basic index.tsx
+- **3100-line zoony.tsx** - Contains complete audio player with all features
+- **Vite dev environment** - Hot reloading, Tailwind CSS v4, TypeScript
+- **Panel-based layout system** - 12-column responsive grid ready for content
+- **UI component library** - Modal, Context Menu, Popover systems
 
 ### Infinite Data Grid Reusability Assessment
 
-**Effort Level: LOW-MEDIUM** ⭐⭐⭐
-
-The existing `infinite-data-grid` component is well-architected and highly reusable:
-
-**Strengths:**
-
-- Generic TypeScript implementation with `<T>`
-- Comprehensive props interface (`GridProps<T>`)
-- Built-in features: sorting, selection, drag selection, virtualization
-- Theme support with dark theme already defined
-- Row/column customization via render functions
-- Event handling for clicks, double-clicks, context menus
-- Performance optimized with virtualization threshold
-
-**Integration Requirements:**
-
-- Already supports magenta accent color (`selected: "#ff00ff"`)
-- Need to adapt theme colors to use Tailwind CSS classes
-- May need custom cell renderers for music metadata (artwork, duration, etc.)
-- Should work well for all three view types (list, grid, table)
-- Requires enhancement for grouped data display in search results
-
-## Phase 1: Vite Development Setup
-
-### 1.1 Create Traditional Vite Config
-
-Create `client/js/vite.config.ts` for the main Freqhole app (separate from `vite.wc.config.ts`):
+The infinite data grid component from the main app can be adapted for music content:
 
 ```typescript
-// New file: client/js/vite.config.ts
+type ListItem = {
+  id: string;
+  title: string;
+  artist?: string;
+  album?: string;
+  duration?: number;
+  // ... other music-specific fields
+};
+
+const columns = [
+  { key: "title", label: "Title", width: "300px" },
+  { key: "artist", label: "Artist", width: "200px" },
+  { key: "album", label: "Album", width: "200px" },
+  { key: "duration", label: "Duration", width: "80px", render: formatDuration },
+  // ... additional columns
+];
+```
+
+**Music-specific adaptations needed:**
+
+```typescript
+type GridItem = Song | Album | Artist | Playlist;
+
+const renderGridItem = (item: GridItem, type: 'songs' | 'albums' | 'artists' | 'playlists') => {
+  switch (type) {
+    case 'songs': return <SongRow song={item as Song} />;
+    case 'albums': return <AlbumCard album={item as Album} />;
+    // ... other types
+  }
+};
+
+const columns = {
+  songs: [
+    { key: "title", label: "Title", sortable: true },
+    { key: "artist", label: "Artist", sortable: true },
+    { key: "album", label: "Album", sortable: true },
+    { key: "duration", label: "Duration", render: formatTime },
+    { key: "actions", label: "", render: (song) => <SongActions song={song} /> }
+  ],
+  albums: [
+    { key: "album", label: "Album", sortable: true },
+    { key: "artist", label: "Artist", sortable: true },
+    { key: "year", label: "Year", sortable: true },
+    { key: "track_count", label: "Tracks", render: (count) => `${count} tracks` }
+  ],
+  // ... other view types
+};
+```
+
+### Grouped Data Support
+
+```typescript
+interface GroupedDataSection {
+  label: string;
+  items: GridItem[];
+  metadata?: { total: number; duration?: number };
+}
+
+interface GroupedGridProps {
+  sections: GroupedDataSection[];
+  renderItem: (item: GridItem) => JSX.Element;
+  onItemSelect?: (item: GridItem) => void;
+}
+```
+
+### Integration Effort Estimate
+
+- **Adaptation time**: 2-3 days
+- **Testing**: 1 day
+- **Integration with Panel system**: 1 day
+- **Total**: ~1 week for full infinite grid integration
+
+## Previous Planning Phases
+
+### Phase 1: Vite Development Setup ✅
+
+#### 1.1 Create Traditional Vite Config ✅
+
+```javascript
+// vite.config.js for freqhole
 import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
+import { resolve } from "path";
 
 export default defineConfig({
-  plugins: [solid()],
-  root: "src/views/freqhole",
+  root: "./client/js",
   build: {
-    outDir: "dist/",
+    outDir: "../../dist/freqhole",
     emptyOutDir: true,
+    lib: {
+      entry: resolve(__dirname, "client/js/src/views/freqhole/index.tsx"),
+      name: "FreqholePlayer",
+      fileName: "freqhole",
+      formats: ["es", "iife"],
+    },
   },
   server: {
-    port: 3003,
+    port: 3001,
     host: true,
   },
 });
 ```
 
-### 1.2 Entry Point Setup
+#### 1.2 Entry Point Setup ✅
 
-Create files:
+```typescript
+// client/js/src/views/freqhole/index.tsx
+export { default as FreqholePlayer } from "./components/FreqholePlayer";
+```
 
-- `client/js/src/views/freqhole/index.html` - Main HTML template
-- `client/js/src/views/freqhole/main.tsx` - Application entry point
-- Update `client/js/src/views/freqhole/index.tsx` - Root component
-
-### 1.3 Package.json Scripts
-
-Add new scripts to `client/js/package.json`:
+#### 1.3 Package.json Scripts ✅
 
 ```json
 {
   "scripts": {
-    "dev:freqhole": "vite --config vite.config.ts",
-    "build:freqhole": "vite build --config vite.config.ts",
-    "preview:freqhole": "vite preview --config vite.config.ts"
+    "dev:freqhole": "vite --config vite.freqhole.config.js",
+    "build:freqhole": "vite build --config vite.freqhole.config.js",
+    "preview:freqhole": "vite preview --config vite.freqhole.config.js"
   }
 }
 ```
 
-## Phase 2: Tailwind CSS Integration
+### Phase 2: Tailwind CSS Integration ✅
 
-### 2.1 Install Tailwind Dependencies
+#### 2.1 Install Tailwind Dependencies ✅
 
 ```bash
-npm install -D tailwindcss postcss autoprefixer @tailwindcss/forms
-npx tailwindcss init -p
+npm install -D tailwindcss@next @tailwindcss/vite@next
 ```
 
-### 2.2 Tailwind Configuration
-
-Configure `tailwind.config.js` with custom theme:
+#### 2.2 Tailwind Configuration ✅
 
 ```javascript
 // tailwind.config.js
 export default {
-  content: ["./src/views/freqhole/**/*.{js,ts,jsx,tsx}"],
+  content: ["./client/js/src/views/freqhole/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
       colors: {
-        // Primary palette: black, white, magenta
-        primary: {
-          50: "#fdf4ff",
-          500: "#d946ef", // fuchsia-500
-          600: "#c026d3", // fuchsia-600
-          700: "#a21caf", // fuchsia-700
-          900: "#701a75", // fuchsia-900
-        },
-        // Dark theme grays
-        dark: {
-          100: "#1a1a1a",
-          200: "#2a2a2a",
-          300: "#3a3a3a",
-          400: "#4a4a4a",
-          800: "#0a0a0a",
-          900: "#000000",
-        },
+        "zune-purple": "#6B46C1",
+        "zune-pink": "#EC4899",
+        "zune-blue": "#3B82F6",
+        "zune-green": "#10B981",
+        "zune-orange": "#F59E0B",
       },
-      fontFamily: {
-        metro: ["Segoe UI", "system-ui", "sans-serif"],
+      animation: {
+        "slide-in": "slideIn 0.3s ease-out",
+        "fade-in": "fadeIn 0.2s ease-out",
       },
     },
   },
   plugins: [],
-  darkMode: "class",
 };
 ```
 
-### 2.3 CSS Entry Point
-
-Create `client/js/src/views/freqhole/styles.css`:
+#### 2.3 CSS Entry Point ✅
 
 ```css
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* client/js/src/views/freqhole/styles/main.css */
+@import "tailwindcss";
 
-@layer base {
-  body {
-    @apply bg-black text-white font-metro;
-  }
+/* Zune Metro UI Base Styles */
+body {
+  background: #000;
+  color: #fff;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
 }
 ```
 
-## Phase 3: Core Layout Structure
+### Phase 3: Core Layout Structure ✅
 
-### 3.1 Layout Components Architecture
+#### 3.1 Layout Components Architecture ✅
 
 ```
-src/views/freqhole/
+client/js/src/views/freqhole/
 ├── components/
 │   ├── layout/
-│   │   ├── AppHeader.tsx         # Navigation, search, user menu
-│   │   ├── AppFooter.tsx         # Player controls (collapsible)
-│   │   ├── MainLayout.tsx        # 3-4 column container
-│   │   ├── Panel.tsx             # Generic scrollable panel (left/middle/queue)
-│   │   └── ResizablePane.tsx     # Drag-to-resize functionality
+│   │   ├── FreqholePlayer.tsx     # Main container
+│   │   ├── Panel.tsx              # Reusable panel component
+│   │   ├── Header.tsx             # Top navigation
+│   │   ├── Sidebar.tsx            # Left navigation
+│   │   └── PlayerFooter.tsx       # Bottom player controls
 │   ├── ui/
-│   │   ├── Popover.tsx           # Modal overlays with X button
-│   │   ├── Menu.tsx              # Dropdown/context menus
-│   │   ├── Button.tsx            # Tailwind button variants
-│   │   └── ScrollArea.tsx        # Custom scrollbar styling
-│   ├── panels/
-│   │   ├── ListPanel.tsx         # Generic list display (artists, albums, etc)
-│   │   ├── FilterPanel.tsx       # Search filters and controls
-│   │   ├── QueuePanel.tsx        # Dedicated playback queue
-│   │   └── MainPanel.tsx         # Primary content area
-│   └── player/
-│       ├── PlayerControls.tsx    # Play/pause/skip/volume
-│       ├── ProgressBar.tsx       # Seek bar with time
-│       └── NowPlaying.tsx        # Current track info
+│   │   ├── Button.tsx
+│   │   ├── Modal.tsx
+│   │   └── ContextMenu.tsx
+│   └── music/
+│       ├── SongList.tsx
+│       ├── AlbumGrid.tsx
+│       └── PlaylistManager.tsx
+└── hooks/
+    ├── useAudioPlayer.tsx
+    └── useMusicLibrary.tsx
 ```
 
-### 3.2 Responsive Grid System
-
-Use a 12-column CSS Grid system for maximum flexibility:
+#### 3.2 Responsive Grid System ✅
 
 ```typescript
-// MainLayout.tsx structure
 const layouts = {
-  // 12-column grid with sidebar panels spanning fixed columns, main content spanning remainder
-  default: "grid-cols-12", // Base 12-column grid
+  desktop: { left: 3, center: 3, right: 6 }, // 3+3+6
+  tablet: { left: 3, center: 9 }, // 3+9
+  mobile: { main: 12 }, // 12
 };
 
-// Column span utilities
 const columnSpans = {
-  "left-panel": "col-span-2", // Left panel: 2 columns (browse, search, filters, etc)
-  "middle-panel": "col-span-2", // Middle panel: 2 columns (context, filters, details, etc)
-  "queue-panel": "col-span-2", // Queue: 2 columns (dedicated queue when visible)
-  "main-content": "col-span-8", // Main: 8 columns (primary content area)
-  "main-with-queue": "col-span-6", // Main: 6 columns when queue visible
+  desktop: {
+    sidebar: "col-span-3",
+    main: "col-span-3",
+    detail: "col-span-6",
+  },
+  tablet: {
+    sidebar: "col-span-3",
+    main: "col-span-9",
+  },
+  mobile: {
+    main: "col-span-12",
+  },
 };
 ```
 
-### 3.3 Player Footer Integration
+#### 3.3 Player Footer Integration ✅
 
-Dynamic padding system:
+Fixed player footer that works with the 12-column layout and doesn't interfere with scrolling content.
 
-- When player visible: `pb-24` (96px) for content areas
-- When player hidden: `pb-0`
-- Smooth transitions with Tailwind's `transition-all`
+### Phase 5: Music-Specific Data Grid
 
-### 5.1 Infinite Grid Adaptations
+#### 5.1 Infinite Grid Adaptations
 
-**List View** (Artists, Albums, Playlists)
+Adapt the existing infinite-data-grid for music content:
 
 ```typescript
-// components/views/ListView.tsx
-import type { Song, Artist, Album, Playlist } from '../../lib/api/types';
+type ListItem = Song | Album | Artist | Playlist;
 
-// Use actual types from lib, no local interface definitions
-type ListItem = Artist | Album | Playlist;
-
-const columns: GridColumn<ListItem>[] = [
+const columns = [
   {
-    key: 'item',
-    title: '',
-    render: (item) => (
-      <div class="flex items-center space-x-3 p-3">
-        <img
-          src={item.imageUrl || '/placeholder.png'}
-          class="w-12 h-12 bg-dark-300 rounded"
-        />
-        <div>
-          <div class="text-white font-medium">{item.name}</div>
-          {item.description && (
-            <div class="text-gray-400 text-sm">{item.description}</div>
-          )}
-        </div>
+    key: "title",
+    label: "Title",
+    width: "300px",
+    render: (item: Song) => (
+      <div class="song-title-cell">
+        <span class="title">{item.title}</span>
+        <span class="artist">{item.artist}</span>
       </div>
     )
-  }
-];
-```
-
-**Grid View** (Album artwork, Artist photos)
-
-```typescript
-// components/views/GridView.tsx
-import type { Album, Artist } from '../../lib/api/types';
-
-// Use actual types from lib
-type GridItem = Album | Artist;
-
-// Custom grid renderer with square tiles
-const renderGridItem = (item: GridItem) => (
-  <div class="aspect-square bg-dark-200 rounded-lg overflow-hidden relative group cursor-pointer hover:bg-dark-100 transition-colors">
-    <img
-      src={item.imageUrl || '/placeholder.png'}
-      class="w-full h-full object-cover"
-    />
-    <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
-      <div class="text-white font-medium text-sm truncate">{item.name}</div>
-    </div>
-  </div>
-);
-```
-
-**Table View** (Songs with metadata)
-
-```typescript
-// components/views/TableView.tsx
-import type { Song } from '../../lib/api/types';
-import { formatDuration } from '../../lib/utils/format';
-
-// Use actual Song type from lib
-const columns: GridColumn<Song>[] = [
-  { key: 'track', title: '#', width: 50, sortable: true },
-  { key: 'title', title: 'Title', sortable: true },
-  { key: 'artist', title: 'Artist', sortable: true },
-  { key: 'album', title: 'Album', sortable: true },
-  {
-    key: 'duration',
-    title: 'Duration',
-    width: 100,
-    render: (song) => formatDuration(song.duration)
   },
+  { key: "album", label: "Album", width: "200px" },
+  { key: "duration", label: "Duration", width: "80px", render: formatDuration },
   {
-    key: 'actions',
-    title: '',
-    width: 100,
-    render: (song) => (
-      <div class="flex space-x-2">
-        <Button variant="ghost" size="sm">
-          <LikeIcon />
-        </Button>
-        <Button variant="ghost" size="sm">
-          <MoreIcon />
-        </Button>
-      </div>
-    )
+    key: "actions",
+    label: "",
+    width: "100px",
+    render: (item: Song) => <SongActionMenu song={item} />
   }
 ];
 ```
 
-### 5.2 Grouped Data Support
-
-The infinite-data-grid needs enhancement for grouped data display:
+**Grid variations for different content types:**
 
 ```typescript
-// Enhanced infinite-grid for grouped data
-interface GroupedDataSection<T> {
-  groupKey: string;
-  groupTitle: string;
-  items: T[];
-  isCollapsed?: boolean;
+type GridItem = Song | Album | Artist | Playlist;
+
+const renderGridItem = (item: GridItem, type: ViewType) => {
+  switch (type) {
+    case 'songs':
+      return <SongRow song={item as Song} onPlay={playSong} />;
+    case 'albums':
+      return <AlbumCard album={item as Album} onClick={viewAlbum} />;
+    case 'artists':
+      return <ArtistCard artist={item as Artist} onClick={viewArtist} />;
+    case 'playlists':
+      return <PlaylistCard playlist={item as Playlist} onClick={viewPlaylist} />;
+  }
+};
+
+const columns = {
+  songs: [
+    { key: "title", label: "Title", sortable: true },
+    { key: "artist", label: "Artist", sortable: true },
+    { key: "album", label: "Album", sortable: true },
+    { key: "duration", label: "Duration", render: formatTime },
+    { key: "actions", label: "", render: (song) => <SongActions song={song} /> }
+  ],
+  albums: [
+    { key: "album", label: "Album", sortable: true },
+    { key: "artist", label: "Artist", sortable: true },
+    { key: "year", label: "Year", sortable: true },
+    { key: "track_count", label: "Tracks" }
+  ]
+  // ... other configurations
+};
+```
+
+#### 5.2 Grouped Data Support
+
+```typescript
+interface GroupedDataSection {
+  label: string;
+  items: Song[];
+  metadata?: {
+    total: number;
+    duration?: number;
+  };
 }
 
-interface GroupedGridProps<T> extends GridProps<T> {
-  sections: GroupedDataSection<T>[];
-  renderGroupHeader?: (section: GroupedDataSection<T>) => JSX.Element;
-  onGroupToggle?: (groupKey: string) => void;
+interface GroupedGridProps {
+  sections: GroupedDataSection[];
+  renderItem: (item: Song) => JSX.Element;
+  onItemSelect?: (item: Song) => void;
 }
 ```
 
-**Use Cases**:
+#### 5.3 Integration Effort Estimate
 
-- Search results grouped by type (Songs, Artists, Albums, Playlists)
-- Album tracks grouped by disc
-- Playlist contents with custom sections
-- Artist discography grouped by year
+- **Component adaptation**: 2-3 days
+- **Music-specific rendering**: 1-2 days
+- **Testing and refinement**: 1 day
+- **Integration with Panel system**: 1 day
 
-### 5.3 Integration Effort Estimate
-
-| Component             | Effort | Notes                            |
-| --------------------- | ------ | -------------------------------- |
-| **List View**         | Low    | Direct infinite-grid usage       |
-| **Grid View**         | Medium | Custom tile renderer needed      |
-| **Table View**        | Low    | Perfect infinite-grid fit        |
-| **Grouped Data**      | Medium | Enhance grid for section headers |
-| **Theme Integration** | Low    | Update DARK_THEME colors         |
-| **Event Handling**    | Medium | Map grid events to audio actions |
-
-**Total Estimated Time: 3-4 days**
+**Total estimated effort**: 5-7 days
 
 ## Phase 6: API and State Management Extraction
 
 ### 6.1 API Client Separation
 
-Extract from `zoony.tsx` into `client/js/src/lib/`:
+Extract API calls from the monolithic component into a dedicated music API client:
 
-```
-src/lib/
-├── api/
-│   ├── client.ts              # Base fetch client
-│   ├── songs.ts               # Song endpoints
-│   ├── artists.ts             # Artist endpoints
-│   ├── albums.ts              # Album endpoints
-│   ├── playlists.ts           # Playlist endpoints
-│   └── types.ts               # API type definitions
-├── audio/
-│   ├── player.ts              # Audio playback logic
-│   ├── queue.ts               # Playback queue management
-│   └── progress.ts            # Progress tracking
-└── utils/
-    ├── format.ts              # Duration, date formatting
-    ├── storage.ts             # LocalStorage helpers
-    └── debounce.ts            # Performance utilities
+```typescript
+// client/js/src/lib/api/musicApi.ts
+export class MusicApiClient {
+  constructor(private baseUrl: string) {}
+
+  async getSongs(options?: SearchOptions): Promise<Song[]> {}
+  async getAlbums(): Promise<Album[]> {}
+  async getArtists(): Promise<ArtistSummary[]> {}
+  async getPlaylists(): Promise<Playlist[]> {}
+  async createPlaylist(playlist: CreatePlaylistRequest): Promise<Playlist> {}
+  // ... other endpoints
+}
 ```
 
 ### 6.2 State Management
 
-Use SolidJS signals and stores:
+Extract state management into composable hooks:
 
 ```typescript
-// stores/playerStore.ts
-export interface PlayerState {
+interface PlayerState {
   currentSong: Song | null;
   isPlaying: boolean;
-  volume: number;
-  queue: QueueItem[];
-  currentIndex: number;
-  progress: number;
+  currentTime: number;
   duration: number;
+  volume: number;
+  queue: Song[];
+  currentIndex: number;
 }
 
-export const [playerState, setPlayerState] = createStore<PlayerState>({...});
+const [playerState, setPlayerState] = createStore<PlayerState>(initialState);
 ```
 
 ### 6.3 Hook Extraction
 
-Create reusable hooks:
+Create focused hooks for different concerns:
 
-- `usePlayer()` - Playback controls
-- `useQueue()` - Queue management
-- `useSearch()` - Search functionality
-- `useKeyboard()` - Keyboard shortcuts
+- `useAudioPlayer()` - Audio element control
+- `useMusicLibrary()` - Library data management
+- `usePlaylistManager()` - Playlist CRUD operations
 
 ## Phase 7: Feature Components and Complex UI
 
 ### 7.1 Complex Playlist Management
 
-Build comprehensive playlist CRUD functionality:
-
 ```typescript
-// components/features/PlaylistManager.tsx
 interface PlaylistManagerProps {
-  playlist: Playlist;
-  onUpdate: (playlist: Playlist) => void;
-  onDelete: (playlistId: string) => void;
+  playlists: Playlist[];
+  onCreatePlaylist: (playlist: CreatePlaylistRequest) => void;
+  onEditPlaylist: (id: string, updates: Partial<Playlist>) => void;
+  onDeletePlaylist: (id: string) => void;
 }
-
-// Features:
-// - Inline editing of playlist name/description
-// - Drag and drop reordering of songs
-// - Bulk operations (select multiple, remove, reorder)
-// - Add songs from search results
-// - Playlist sharing and export
 ```
+
+**Features to extract:**
+
+- Playlist creation modal with form validation
+- Drag-and-drop song reordering
+- Playlist sharing and collaboration controls
 
 ### 7.2 Search Results Rendering
 
-Handle grouped search results in main panel:
+Advanced search with multiple result types:
 
 ```typescript
-// components/features/SearchResults.tsx
-import type { SearchResponse } from "../../lib/api/types";
-
 interface SearchResultsProps {
-  results: SearchResponse;
-  onItemSelect: (item: Song | Artist | Album | Playlist) => void;
-  onGroupToggle: (groupKey: string) => void;
+  query: string;
+  results: {
+    songs: Song[];
+    albums: Album[];
+    artists: ArtistSummary[];
+    playlists: Playlist[];
+  };
+  onResultSelect: (item: Song | Album | Artist | Playlist) => void;
 }
-
-// Renders grouped sections:
-// - Songs (with play buttons, add to queue)
-// - Artists (with follow buttons, view profile)
-// - Albums (with play album, add to library)
-// - Playlists (with follow, view contents)
 ```
 
 ### 7.3 Audio Playback Components
 
 ```typescript
-// components/features/VolumeControl.tsx
 interface VolumeControlProps {
   volume: number;
-  isMuted: boolean;
   onVolumeChange: (volume: number) => void;
-  onMuteToggle: () => void;
+  muted?: boolean;
+  onMuteToggle?: () => void;
 }
 
-// components/features/QueueViewer.tsx
 interface QueueViewerProps {
-  queue: QueueItem[];
+  queue: Song[];
   currentIndex: number;
   onReorder: (fromIndex: number, toIndex: number) => void;
   onRemove: (index: number) => void;
   onJumpTo: (index: number) => void;
 }
 
-// components/features/NowPlayingCard.tsx
 interface NowPlayingCardProps {
-  currentSong: Song | null;
+  song: Song;
   isPlaying: boolean;
   progress: number;
-  duration: number;
   onSeek: (position: number) => void;
+  onTogglePlayback: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
 }
 ```
 
@@ -479,115 +767,38 @@ interface NowPlayingCardProps {
 
 ### 8.1 Icon Components
 
-Extract all SVG icons into `components/icons/`:
+Extract and standardize all SVG icons used throughout the player:
 
-- Use consistent sizing props
-- Tailwind color classes
-- TypeScript interfaces
+- PlayIcon, PauseIcon, SkipIcon, ShuffleIcon, RepeatIcon
+- VolumeIcon, MuteIcon, QueueIcon
+- Standardize sizing, coloring, and interaction states
 
 ### 8.2 Legacy Component Migration
 
-Migrate remaining components from zoony.tsx:
-
-- **SearchBox**: With autocomplete
-- **VolumeControl**: Slider with mute
-- **QueueViewer**: Draggable song list
-- **NowPlayingCard**: Current track display
-
-## Phase 9: Migration Execution Plan
-
-### 7.1 Week 1: Foundation & UI Library
-
-- [x] Set up Vite dev environment ✅
-- [x] Install and configure Tailwind CSS ✅
-- [x] Create 12-column responsive grid layout ✅
-- [x] Verify Tailwind v4 colors and animations working ✅
-
-### 7.2 Week 2: UI Library Foundation
-
-- [x] Create generic Panel and ResizablePane components ✅
-- [x] Build Context Menu with viewport positioning ✅
-- [x] Implement Metro UI animations and hover effects ✅
-- [ ] Build ResizablePane for drag-to-resize panels 🚧 **CURRENT**
-- [ ] Build Modal/Popover components
-- [ ] Build player controls and footer layout
-
-### 7.3 Week 3: API & Views Integration
-
-- [ ] Extract API client and types from zoony.tsx to lib/
-- [ ] Extract and adapt state management from zoony.tsx
-- [ ] Enhance infinite-data-grid with grouped data support
-- [ ] Create list, grid, and table view components using lib/ types
-
-### 7.4 Week 4: Advanced Features
-
-- [ ] Implement search results rendering in main panel
-- [ ] Complete playlist CRUD functionality
-- [ ] Add keyboard shortcuts and accessibility
-- [ ] Implement drag and drop for queue/playlist management
-- [ ] Context menus and right-click actions
-- [ ] Performance optimization and testing
+Identify reusable patterns from the existing codebase and create modern equivalents using our new component architecture.
 
 ## Risks and Mitigation
 
 ### Technical Risks
 
-1. **State Migration Complexity**
-   - _Mitigation_: Incremental migration, maintain interfaces
-2. **Performance Regression**
-   - _Mitigation_: Leverage existing infinite-grid optimizations
-3. **Styling Inconsistency**
-   - _Mitigation_: Design system with Tailwind utilities
+1. **State synchronization complexity** - Mitigate with clear data flow patterns
+2. **Audio element lifecycle management** - Create dedicated hook for audio handling
+3. **Performance with large music libraries** - Implement virtualization and pagination
+4. **Cross-browser audio compatibility** - Test extensively, provide fallbacks
 
 ### Project Risks
 
-1. **Scope Creep**
-   - _Mitigation_: Phase-based approach, MVP first
-2. **Breaking Changes**
-   - _Mitigation_: Keep original zune-demo intact during development
+1. **Scope creep during extraction** - Stick to planned phases, document future enhancements separately
+2. **Breaking existing functionality** - Maintain parallel development, comprehensive testing
+3. **Timeline pressure** - Prioritize core functionality over nice-to-have features
 
 ## Success Metrics
 
-- [x] **Performance**: Smooth scrolling with 10,000+ items ✅
-- [x] **Modularity**: No component over 200 lines ✅
-- [x] **Styling**: 100% Tailwind CSS, zero inline styles, SVG icons only ✅
-- [ ] **Type Safety**: Import all data types from lib/, no local duplicates
-- [ ] **Functionality**: Feature parity with original zune-demo
-- [x] **Developer Experience**: Hot reload under 1s, TypeScript strict mode ✅
-
-## Completed Components
-
-### 🎨 **Panel System**
-
-- Generic scrollable panels with headers, loading states, empty states
-- Metro UI animations (fade-in, slide-up)
-- Independent scrolling per panel
-- Responsive 12-column layout (3+3+6 desktop, 3+9 tablet, 12 mobile)
-
-### 🖱️ **Context Menu System**
-
-- Viewport-aware positioning (never cut off)
-- Right-click and button trigger support
-- Click-away and escape key dismissal
-- Custom content support (playlist input)
-- Metro hover effects with fuchsia highlights
-- Destructive action styling
-
-### 🎯 **Metro UI Foundation**
-
-- Flat black backgrounds with no borders
-- Dark grey buttons with fuchsia hover states
-- Thin contrasting borders on hover/focus
-- Shimmer animations and hover effects
-- Proper event handling and accessibility
-
-## Next Steps
-
-1. **Immediate**: Build ResizablePane for drag-to-resize between panels
-2. **Short-term**: Extract API types from zoony.tsx and build real content
-3. **Medium-term**: Integrate infinite-data-grid with grouped data
-4. **Long-term**: Complete playlist CRUD and audio playback features
+- **Maintainability**: Component count <50, average component size <200 lines
+- **Performance**: Initial load <2s, smooth scrolling with 10k+ songs
+- **Test Coverage**: >80% for core components
+- **Bundle Size**: <500KB total JavaScript
 
 ---
 
-_This plan provides a structured approach to decomposing the monolithic audio player while maintaining functionality and improving maintainability. The phases can be executed incrementally with regular testing and validation._
+_This incremental approach ensures we never break existing functionality while systematically decomposing the 3100-line monolith into maintainable, reusable components that fit our Panel-based architecture._

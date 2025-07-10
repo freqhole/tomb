@@ -400,16 +400,6 @@ async fn handle_range_request(
         header::CACHE_CONTROL,
         "public, max-age=3600".parse().unwrap(),
     );
-    headers.insert(
-        header::HeaderName::from_static("access-control-allow-origin"),
-        "*".parse().unwrap(),
-    );
-    headers.insert(
-        header::HeaderName::from_static("access-control-expose-headers"),
-        "Content-Length, Content-Range, Accept-Ranges"
-            .parse()
-            .unwrap(),
-    );
 
     // Add filename if available
     add_filename_header(&mut headers, blob);
@@ -470,18 +460,6 @@ async fn build_blob_response(
         "public, max-age=3600, immutable".parse().unwrap(),
     );
 
-    // Add CORS headers for browser compatibility
-    headers.insert(
-        header::HeaderName::from_static("access-control-allow-origin"),
-        "*".parse().unwrap(),
-    );
-    headers.insert(
-        header::HeaderName::from_static("access-control-expose-headers"),
-        "Content-Length, Content-Range, Accept-Ranges"
-            .parse()
-            .unwrap(),
-    );
-
     // Add filename if available
     add_filename_header(&mut headers, blob);
 
@@ -520,18 +498,6 @@ fn build_streaming_response(
 
     // Add range support headers - critical for video streaming
     headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-
-    // Add CORS headers for browser compatibility
-    headers.insert(
-        header::HeaderName::from_static("access-control-allow-origin"),
-        "*".parse().unwrap(),
-    );
-    headers.insert(
-        header::HeaderName::from_static("access-control-expose-headers"),
-        "Content-Length, Content-Range, Accept-Ranges"
-            .parse()
-            .unwrap(),
-    );
 
     // Browser-friendly cache headers for video
     headers.insert(

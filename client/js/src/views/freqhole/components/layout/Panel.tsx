@@ -78,7 +78,6 @@ function LoadingState() {
     <div class="p-4 space-y-3">
       {Array.from({ length: 6 }).map((_, i) => (
         <div
-          key={i}
           class="h-12 bg-dark-300 rounded loading-shimmer"
           style={{ "animation-delay": `${i * 0.1}s` }}
         />

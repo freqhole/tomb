@@ -31,7 +31,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 tower = "0.5"
 mime_guess = "2.0"
 httpdate = "1.0"
-tower-http = { version = "0.6", features = ["fs", "compression-gzip", "compression-br", "set-header", "trace"] }
+tower-http = { version = "0.6", features = ["fs", "compression-gzip", "compression-br", "set-header", "trace", "cors"] }
 tower-sessions = "0.14"
 tower-sessions-sqlx-store = { version = "0.15", features = ["postgres"] }
 tracing = "0.1"

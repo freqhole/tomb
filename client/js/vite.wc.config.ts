@@ -87,24 +87,6 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
     ],
   },
 
-  "sync-demo": {
-    name: "sync-demo",
-    title: "Sync Demo - Media Blob Sync System",
-    description: "🔄 Media Blob Sync System - End-to-End Component Testing",
-    element: "sync-demo",
-    attributes: {
-      "api-base-url": "http://localhost:8080",
-      "client-id": "standalone-demo",
-      "auto-connect": "true",
-    },
-    instructions: [
-      "Make sure your API server is running on <code>http://localhost:8080</code>",
-      "Components will auto-connect and show real sync status",
-      "Try starting a sync operation to see live progress updates",
-      "Note: Polling has been removed in favor of WebSocket notifications",
-    ],
-  },
-
   "infinite-data-grid": {
     name: "infinite-data-grid",
     title: "Employee Data Grid Demo",
@@ -145,25 +127,6 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
       body { margin: 0; padding: 0; overflow: hidden; }
       .container { max-width: none; margin: 0; }
     `,
-  },
-
-  "websocket-thumbnail-demo": {
-    name: "websocket-thumbnail-demo",
-    title: "WebSocket Thumbnail Demo",
-    description: "🖼️ WebSocket Thumbnail Binary Data Demo",
-    element: "websocket-thumbnail-demo",
-    attributes: {
-      "ws-url": "ws://localhost:8080/ws",
-      "api-base-url": "http://localhost:8080",
-      title: "WebSocket Thumbnail Demo",
-    },
-    instructions: [
-      "Make sure your server is running on <code>localhost:8080</code>",
-      "This demo shows how thumbnail binary data flows through WebSocket",
-      "Click Connect → Load Blobs → Get Thumbnails to see the pattern",
-      "Only shows media blobs that have thumbnails (small binary data)",
-      "Perfect for understanding the sync system's thumbnail data flow",
-    ],
   },
 
   "unified-sync-demo": {
@@ -336,11 +299,9 @@ function generateStandaloneFiles(): import("vite").Plugin {
           "websocket-components.js": "websocket",
           "websocket-demo.js": "websocket-demo",
           "websocket-feed-demo.js": "websocket-feed-demo",
-          "sync-demo.js": "sync-demo",
           "infinite-data-grid.js": "infinite-data-grid",
           "product-data-grid-demo.js": "product-data-grid-demo",
           "freqhole-demo.js": "freqhole-demo",
-          "websocket-thumbnail-demo.js": "websocket-thumbnail-demo",
           "unified-sync-demo.js": "unified-sync-demo",
           "search-demo.js": "search-demo",
           "zune-demo.js": "zune-demo",
@@ -410,13 +371,10 @@ export default defineConfig({
         websocket: "./src/web-components/websocket-handler.tsx",
         "websocket-demo": "./src/web-components/websocket-demo.tsx",
         "websocket-feed-demo": "./src/web-components/websocket-feed-demo.tsx",
-        "sync-demo": "./src/web-components/sync-demo.tsx",
         "infinite-data-grid": "./src/web-components/infinite-data-grid.tsx",
         "product-data-grid-demo":
           "./src/web-components/product-data-grid-demo.tsx",
         "freqhole-demo": "./src/web-components/freqhole-demo.tsx",
-        "websocket-thumbnail-demo":
-          "./src/web-components/websocket-thumbnail-demo.tsx",
         "unified-sync-demo": "./src/web-components/unified-sync-demo.tsx",
         "search-demo": "./src/web-components/search-demo.tsx",
         "zune-demo": "./src/web-components/zune-demo.tsx",
@@ -429,11 +387,9 @@ export default defineConfig({
             websocket: "websocket-components.js",
             "websocket-demo": "websocket-demo.js",
             "websocket-feed-demo": "websocket-feed-demo.js",
-            "sync-demo": "sync-demo.js",
             "infinite-data-grid": "infinite-data-grid.js",
             "product-data-grid-demo": "product-data-grid-demo.js",
             "freqhole-demo": "freqhole-demo.js",
-            "websocket-thumbnail-demo": "websocket-thumbnail-demo.js",
             "unified-sync-demo": "unified-sync-demo.js",
             "search-demo": "search-demo.js",
             "zune-demo": "zune-demo.js",
