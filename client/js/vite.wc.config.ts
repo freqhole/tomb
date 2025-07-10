@@ -282,6 +282,31 @@ ${template.instructions.join("\n        ")}
     }
     ${template.styles || ""}
   </style>
+  <script>
+  // this is evil
+  /*
+  (() => {
+  console.log("zomg patch fetch!");
+    const rewriteURL = url =>
+      typeof url === "string" && window.location.origin !== "http://localhost:8080" && url.startsWith("http://localhost:8080")
+        ? url.replace("http://localhost:8080", window.location.origin)
+        : url;
+
+    // Monkey patch fetch
+    const origFetch = window.fetch;
+    window.fetch = function(url, ...args) {
+    console.log("zomg patch fetch, ",url, " with:",rewriteURL(url));
+      return origFetch.call(this, rewriteURL(url), ...args);
+    };
+
+    // Monkey patch XMLHttpRequest
+    const origOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url, ...args) {
+      return origOpen.call(this, method, rewriteURL(url), ...args);
+    };
+  })();
+  */
+  </script>
 </head>
 <body>
   <div class="container">

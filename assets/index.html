@@ -5,25 +5,60 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>WebAuthn Server</title>
         <link rel="stylesheet" href="/minimal.css" />
+        <script>
+            // this is evil
+            /*
+            (() => {
+                console.log("zomg patch fetch!");
+                const rewriteURL = (url) =>
+                    typeof url === "string" &&
+                    window.location.origin !== "http://localhost:8080" &&
+                    url.startsWith("http://localhost:8080")
+                        ? url.replace(
+                              "http://localhost:8080",
+                              window.location.origin,
+                          )
+                        : url;
+
+                // Monkey patch fetch
+                const origFetch = window.fetch;
+                window.fetch = function (url, ...args) {
+                    console.log(
+                        "zomg patch fetch, ",
+                        url,
+                        " with:",
+                        rewriteURL(url),
+                    );
+                    return origFetch.call(this, rewriteURL(url), ...args);
+                };
+
+                // Monkey patch XMLHttpRequest
+                const origOpen = XMLHttpRequest.prototype.open;
+                XMLHttpRequest.prototype.open = function (
+                    method,
+                    url,
+                    ...args
+                ) {
+                    return origOpen.call(
+                        this,
+                        method,
+                        rewriteURL(url),
+                        ...args,
+                    );
+                };
+            })();
+            */
+        </script>
     </head>
     <body>
-        <h1>🔐 WebAuthn Server</h1>
-        <p>Modern passwordless authentication with Web Components</p>
+        <h1>F R E Q H O L E</h1>
 
         <webauthn-auth base-url="http://localhost:8080" theme="dark">
         </webauthn-auth>
 
         <div>
-            <h2>Explore</h2>
+            <h2>D E M O Z</h2>
             <ul>
-                <li><a href="/public/welcome.html">Public Area</a></li>
-                <li><a href="/private/dashboard.html">Private Area</a></li>
-                <li><a href="/public/readme.txt">Documentation</a></li>
-                <li>
-                    <a href="/private/secret-document.txt"
-                        >Confidential Document</a
-                    >
-                </li>
                 <li>
                     <a href="/public/websocket-demo.html">Websocket Demo</a>
                 </li>
@@ -34,7 +69,7 @@
                 </li>
                 <li>
                     <a href="/private/file-upload-demo.html"
-                        >🚀 Smart File Upload Demo</a
+                        >AnotherFileUploadDemo</a
                     >
                     <small
                         style="
@@ -89,16 +124,20 @@
                         >search-demo-standalone</a
                     >
                 </li>
-            </ul>
-            <p>Private content requires WebAuthn authentication.</p>
-        </div>
-
-        <div>
-            <h2>Frontend Options</h2>
-            <ul>
-                <li><a href="/">Web Component</a> (this page)</li>
-                <li><a href="/wasm.html">WASM Frontend</a></li>
-                <li><a href="/private/auth.html">Legacy Frontend</a></li>
+                <li>
+                    <a href="/client/js/zune-demo-standalone.html"
+                        >zune-demo-standalone</a
+                    >
+                    <small
+                        style="
+                            color: #6b7280;
+                            display: block;
+                            margin-left: 1rem;
+                        "
+                    >
+                        M E T R O S E X U A L · U I
+                    </small>
+                </li>
             </ul>
         </div>
 

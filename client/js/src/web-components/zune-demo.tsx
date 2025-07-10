@@ -1015,27 +1015,6 @@ function ZuneDemoContent() {
     return categoryNames[category] || category;
   };
 
-  // const getViewTitle = () => {
-  //   if (currentPlaylist()) {
-  //     return currentPlaylist()!.title;
-  //   }
-
-  //   switch (currentView()) {
-  //     case "music":
-  //       return selectedArtist() || selectedAlbum()
-  //         ? `${selectedArtist() || selectedAlbum()}`
-  //         : "music";
-  //     case "artists":
-  //       return "artists";
-  //     case "albums":
-  //       return "albums";
-  //     case "playlists":
-  //       return "playlists";
-  //     default:
-  //       return "music";
-  //   }
-  // };
-
   const getCurrentSongs = () => {
     if (currentPlaylist()) {
       return playlistSongs().map((item) => item.song);
@@ -1068,9 +1047,9 @@ function ZuneDemoContent() {
         <div class="zune-branding">
           <div class="zune-logo">
             <span class="zune-logo-text">
-              freqh
+              <span class="hidden-sm">freqh</span>
               <FreqholeIcon />
-              le
+              <span class="hidden-sm">le</span>
             </span>
           </div>
 
@@ -2754,8 +2733,14 @@ function ZuneDemoContent() {
             padding: 1rem;
           }
 
+          .hidden-sm {
+            display: none;
+          }
+
+
+
           .zune-branding {
-            flex-direction: column;
+
             gap: 1rem;
             margin-bottom: 1rem;
           }
@@ -2782,6 +2767,7 @@ function ZuneDemoContent() {
           .zune-sidebar {
             width: 100%;
             padding: 1rem;
+            height: auto;
           }
 
           .zune-center {
