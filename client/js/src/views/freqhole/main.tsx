@@ -1,7 +1,7 @@
 import { render } from "solid-js/web";
-// import { Freqhole } from "./index";
+import { Freqhole } from "./index";
 import "./styles.css";
-import Zoony from "./zoony";
+// import Zoony from "./zoony";
 
 const root = document.getElementById("root");
 
@@ -13,4 +13,4 @@ if (!root) {
 root.innerHTML = "";
 
 // Render the app
-render(() => <Zoony />, root);
+render(() => <Freqhole />, root);

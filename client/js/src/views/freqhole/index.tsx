@@ -8,7 +8,9 @@ import {
 import { Modal, Popover, useModal, usePopover } from "./components/ui/Modal";
 import { useAuth } from "../../hooks/auth";
 import { AuthModal } from "./components/auth/AuthModal";
-import { UserMenu } from "./components/auth/UserMenu";
+import { Header } from "./components/header";
+import { Player } from "./components/player";
+import { usePlayerQueue } from "./hooks";
 
 export function Freqhole() {
   const contextMenu = useContextMenu();
@@ -25,6 +27,18 @@ export function Freqhole() {
       console.log("Logged out");
     },
   });
+
+  // Player and queue state
+  const playerQueue = usePlayerQueue({
+    initialVolume: 0.5,
+    autoNext: true,
+  });
+
+  // View state for header navigation
+  const [currentView, setCurrentView] = createSignal<
+    "music" | "artists" | "albums" | "playlists"
+  >("music");
+  const [searchQuery, setSearchQuery] = createSignal("");
 
   // Check auth status on mount (silent to avoid loading spinner)
   onMount(async () => {
@@ -95,48 +109,27 @@ export function Freqhole() {
       onContextMenu={contextMenu.handleContextMenu}
     >
       {/* Header */}
-      <header class="h-16 bg-black flex items-center justify-between px-6">
-        <h1 class="text-xl font-semibold text-primary-500 hover:text-primary-400 transition-colors">
-          F R E Q H O L E
-        </h1>
-
-        {/* Navigation Links */}
-        <nav class="hidden md:flex items-center space-x-2">
-          <button class="px-4 py-2 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm font-medium metro-button-hover">
-            Artists
-          </button>
-          <button class="px-4 py-2 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm font-medium metro-button-hover">
-            Albums
-          </button>
-          <button class="px-4 py-2 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm font-medium metro-button-hover">
-            Songs
-          </button>
-          <button class="px-4 py-2 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm font-medium metro-button-hover">
-            Playlists
-          </button>
-        </nav>
-
-        {/* User Menu and Mobile menu */}
-        <div class="flex items-center space-x-3">
-          <UserMenu />
-
-          <button class="md:hidden text-primary-500 hover:text-primary-400 transition-colors">
-            <svg
-              class="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M4 6h16M4 12h16M4 18h16"
-              />
-            </svg>
-          </button>
-        </div>
-      </header>
+      <div class="h-16">
+        <Header
+          currentView={currentView()}
+          onViewChange={setCurrentView}
+          searchQuery={searchQuery()}
+          onSearchQueryChange={setSearchQuery}
+          onSearch={(query) => {
+            console.log("Search:", query);
+            // TODO: Implement search functionality
+          }}
+          onClearSearch={() => {
+            setSearchQuery("");
+            // TODO: Clear search results
+          }}
+          searchContext={{
+            state: {
+              setQuery: setSearchQuery,
+            },
+          }}
+        />
+      </div>
 
       {/* Main Content Area */}
       <main class="flex-1 grid grid-cols-12 gap-6 overflow-hidden">
@@ -250,9 +243,29 @@ export function Freqhole() {
         </div>
       </main>
 
-      {/* Footer Player (hidden for now) */}
-      <footer class="h-0 bg-black transition-all duration-300">
-        {/* Player controls will go here */}
+      {/* Footer Player */}
+      <footer class="h-auto bg-black transition-all duration-300">
+        <Player
+          currentSong={playerQueue.currentSong()}
+          isPlaying={playerQueue.isPlaying()}
+          currentTime={playerQueue.currentTime()}
+          duration={playerQueue.duration()}
+          volume={playerQueue.volume()}
+          currentQueueIndex={playerQueue.currentQueueIndex()}
+          playQueue={playerQueue.playQueue()}
+          showQueue={playerQueue.showQueue()}
+          canGoNext={playerQueue.canGoNext()}
+          canGoPrevious={playerQueue.canGoPrevious()}
+          isLoading={playerQueue.isLoading()}
+          error={playerQueue.error()}
+          onTogglePlayback={playerQueue.togglePlayback}
+          onPlayPrevious={playerQueue.playPrevious}
+          onPlayNext={playerQueue.playNext}
+          onSeekTo={playerQueue.seekTo}
+          onVolumeChange={playerQueue.changeVolume}
+          onToggleQueue={playerQueue.toggleQueue}
+          formatTime={playerQueue.formatTime}
+        />
       </footer>
 
       {/* Context Menu */}

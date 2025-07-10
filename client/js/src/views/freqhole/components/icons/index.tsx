@@ -44,13 +44,14 @@ export const MusicIcon = () => (
 );
 
 // Header Icons
-export const FreqholeIcon = () => (
+export const FreqholeIcon = (props: { class?: string }) => (
   <svg
     width="20"
     height="20"
     viewBox="0 0 500 500"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
+    class={props.class}
   >
     <path
       d="M250 405L125 155L375 155L303.611 340.714L250 405Z"

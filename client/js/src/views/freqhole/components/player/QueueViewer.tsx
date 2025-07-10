@@ -16,29 +16,45 @@ export interface QueueViewerProps {
 export const QueueViewer = (props: QueueViewerProps) => {
   return (
     <Show when={props.show}>
-      <div class="zune-queue">
-        <div class="zune-queue-header">
-          <h3>queue</h3>
-          <div class="zune-queue-controls">
-            <button onClick={props.onClear}>clear</button>
-            <button onClick={props.onClose}>
+      <div class="w-80 bg-black/30 flex flex-col animate-slideInRight">
+        <div class="p-6 flex justify-between items-center bg-black/20">
+          <h3 class="m-0 text-white text-lg font-medium lowercase">queue</h3>
+          <div class="flex gap-2">
+            <button
+              onClick={props.onClear}
+              class="bg-white/10 border-none text-white px-2 py-2 rounded cursor-pointer text-xs transition-colors duration-300 flex items-center gap-1 hover:bg-primary-500"
+            >
+              clear
+            </button>
+            <button
+              onClick={props.onClose}
+              class="bg-white/10 border-none text-white px-2 py-2 rounded cursor-pointer text-xs transition-colors duration-300 flex items-center gap-1 hover:bg-primary-500"
+            >
               <CloseIcon />
             </button>
           </div>
         </div>
-        <div class="zune-queue-list">
+        <div class="flex-1 overflow-y-auto p-4">
           <For each={props.queue}>
             {(item, index) => (
               <div
-                class={`zune-queue-item ${index() === props.currentIndex ? "current" : ""}`}
+                class={`flex items-center justify-between p-3 cursor-pointer transition-colors duration-300 rounded mb-2 ${
+                  index() === props.currentIndex
+                    ? "bg-primary-500/20"
+                    : "hover:bg-white/10"
+                }`}
                 onClick={() => props.onJumpToIndex(index())}
               >
-                <div class="zune-queue-info">
-                  <h4>{item.song.title}</h4>
-                  <p>{item.song.artist}</p>
+                <div class="flex-1">
+                  <h4 class="m-0 text-sm font-medium text-white">
+                    {item.song.title}
+                  </h4>
+                  <p class="mt-1 mb-0 text-xs text-white/70">
+                    {item.song.artist}
+                  </p>
                 </div>
                 <button
-                  class="zune-queue-remove"
+                  class="bg-none border-none text-white/50 cursor-pointer p-1 transition-colors duration-300 flex items-center hover:text-primary-500"
                   onClick={(e) => {
                     e.stopPropagation();
                     props.onRemoveFromQueue(item.id);
@@ -51,7 +67,7 @@ export const QueueViewer = (props: QueueViewerProps) => {
             )}
           </For>
           <Show when={props.queue.length === 0}>
-            <div class="zune-queue-empty">queue is empty</div>
+            <div class="text-center p-8 text-white/50">queue is empty</div>
           </Show>
         </div>
       </div>
