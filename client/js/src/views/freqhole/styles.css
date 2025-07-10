@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-black text-white font-metro;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  html {
+    font-size: 16px;
+  }
+
+  /* Custom scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-dark-200;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-dark-400 rounded;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary-500;
+  }
+
+  /* Firefox scrollbar styling */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #4a4a4a #2a2a2a;
+  }
+}
+
+@layer components {
+  /* Metro UI inspired animations */
+  .metro-fade-in {
+    animation: metro-fade-in 0.3s ease-out;
+  }
+
+  .metro-slide-up {
+    animation: metro-slide-up 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  }
+
+  .metro-slide-right {
+    animation: metro-slide-right 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  }
+
+  /* Panel hover effects */
+  .panel-hover {
+    @apply transition-all duration-200 ease-out;
+  }
+
+  .panel-hover:hover {
+    @apply bg-dark-100 transform scale-[1.02];
+  }
+
+  /* Button variants */
+  .btn-metro {
+    @apply px-4 py-2 font-medium transition-all duration-200 ease-out;
+    @apply border border-transparent rounded;
+  }
+
+  .btn-metro-primary {
+    @apply btn-metro bg-primary-500 text-white;
+    @apply hover:bg-primary-600 hover:shadow-lg hover:shadow-primary-500/25;
+  }
+
+  .btn-metro-secondary {
+    @apply btn-metro bg-dark-300 text-white;
+    @apply hover:bg-dark-200 border-dark-400;
+  }
+
+  .btn-metro-ghost {
+    @apply btn-metro bg-transparent text-gray-300;
+    @apply hover:bg-dark-300 hover:text-white;
+  }
+}
+
+@layer utilities {
+  /* Glass morphism effects for Metro UI */
+  .glass {
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    background-color: rgba(26, 26, 26, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.125);
+  }
+
+  /* Text selection */
+  .no-select {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
+
+  /* Focus styles */
+  .focus-outline {
+    @apply focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-opacity-50;
+  }
+}
+
+/* Keyframes for Metro animations */
+@keyframes metro-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes metro-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes metro-slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Loading states */
+.loading-shimmer {
+  background: linear-gradient(
+    90deg,
+    #1a1a1a 25%,
+    #2a2a2a 50%,
+    #1a1a1a 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
