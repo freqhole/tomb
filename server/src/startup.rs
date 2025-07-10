@@ -51,8 +51,13 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(config: AppConfig) -> Result<Self, Box<dyn std::error::Error>> {
-        // Build WebAuthn configuration from config
-        let rp_origin = Url::parse(&config.webauthn.rp_origin)?;
+        // For backwards compatibility, create default WebAuthn instance with first origin
+        let default_origin = config
+            .webauthn
+            .rp_origins
+            .first()
+            .unwrap_or(&config.webauthn.rp_origin);
+        let rp_origin = Url::parse(default_origin)?;
         let builder = WebauthnBuilder::new(&config.webauthn.rp_id, &rp_origin)?;
 
         // Configure WebAuthn with settings from config
@@ -246,6 +251,29 @@ impl AppState {
             maintenance_scheduler,
             notification_infrastructure,
         })
+    }
+
+    /// Create a WebAuthn instance for a specific origin
+    /// This allows supporting multiple domains (ngrok, tailscale, etc.)
+    pub fn create_webauthn_for_origin(
+        &self,
+        origin: &str,
+    ) -> Result<Webauthn, Box<dyn std::error::Error>> {
+        // Validate that the origin is in our allowed list
+        let allowed_origins = if !self.config.webauthn.rp_origins.is_empty() {
+            &self.config.webauthn.rp_origins
+        } else {
+            &vec![self.config.webauthn.rp_origin.clone()]
+        };
+
+        if !allowed_origins.contains(&origin.to_string()) {
+            return Err(format!("Origin '{}' not in allowed WebAuthn origins", origin).into());
+        }
+
+        let rp_origin = Url::parse(origin)?;
+        let builder = WebauthnBuilder::new(&self.config.webauthn.rp_id, &rp_origin)?;
+        let builder = builder.rp_name(&self.config.webauthn.rp_name);
+        Ok(builder.build()?)
     }
 
     /// Gracefully shutdown the application, stopping all background workers

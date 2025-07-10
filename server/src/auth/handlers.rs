@@ -3,7 +3,7 @@ use crate::error::WebauthnError;
 use crate::startup::AppState;
 use axum::{
     extract::{Extension, Json, Path, Query},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,32 @@ use tower_sessions::Session;
 
 // 1. Import the prelude - this contains everything needed for the server to function.
 use webauthn_rs::prelude::*;
+
+/// Helper function to get WebAuthn instance for the request origin
+fn get_webauthn_for_request(
+    app_state: &AppState,
+    request_origin: Option<&str>,
+) -> Result<Webauthn, WebauthnError> {
+    // Try to get origin from request header
+    let origin = if let Some(origin) = request_origin {
+        origin
+    } else {
+        // Fallback to first configured origin or legacy single origin
+        if !app_state.config.webauthn.rp_origins.is_empty() {
+            &app_state.config.webauthn.rp_origins[0]
+        } else {
+            &app_state.config.webauthn.rp_origin
+        }
+    };
+
+    app_state.create_webauthn_for_origin(origin).map_err(|e| {
+        error!(
+            "Failed to create WebAuthn instance for origin '{}': {}",
+            origin, e
+        );
+        WebauthnError::InvalidRPOrigin
+    })
+}
 
 #[derive(Deserialize)]
 pub struct RegisterStartQuery {
@@ -68,6 +94,7 @@ pub async fn start_register(
     session: Session,
     Path(username): Path<String>,
     Query(params): Query<RegisterStartQuery>,
+    headers: HeaderMap,
 ) -> Result<impl IntoResponse, WebauthnError> {
     info!("Start register for username: {}", username);
 
@@ -199,7 +226,11 @@ pub async fn start_register(
         .map(|sk| sk.cred_id().clone())
         .collect();
 
-    let res = match app_state.webauthn.start_passkey_registration(
+    // Get WebAuthn instance for the request origin
+    let origin_str = headers.get("origin").and_then(|h| h.to_str().ok());
+    let webauthn = get_webauthn_for_request(&app_state, origin_str)?;
+
+    let res = match webauthn.start_passkey_registration(
         user_unique_id,
         &username,
         &username,
@@ -240,6 +271,7 @@ pub async fn start_register(
 pub async fn finish_register(
     Extension(app_state): Extension<AppState>,
     session: Session,
+    headers: HeaderMap,
     Json(reg): Json<RegisterPublicKeyCredential>,
 ) -> Result<impl IntoResponse, WebauthnError> {
     let (username, _user_unique_id, reg_state, invite_code, is_account_linking): (
@@ -264,10 +296,11 @@ pub async fn finish_register(
 
     let _ = session.remove_value("reg_state").await;
 
-    match app_state
-        .webauthn
-        .finish_passkey_registration(&reg, &reg_state)
-    {
+    // Get WebAuthn instance for the request origin
+    let origin_str = headers.get("origin").and_then(|h| h.to_str().ok());
+    let webauthn = get_webauthn_for_request(&app_state, origin_str)?;
+
+    match webauthn.finish_passkey_registration(&reg, &reg_state) {
         Ok(sk) => {
             let auth_repo = AuthRepository::new(&app_state.database);
 
@@ -409,6 +442,7 @@ pub async fn start_authentication(
     Extension(app_state): Extension<AppState>,
     session: Session,
     Path(username): Path<String>,
+    headers: HeaderMap,
 ) -> Result<impl IntoResponse, WebauthnError> {
     info!("Start Authentication for username: {}", username);
 
@@ -433,10 +467,11 @@ pub async fn start_authentication(
         return Err(WebauthnError::UserHasNoCredentials);
     }
 
-    let res = match app_state
-        .webauthn
-        .start_passkey_authentication(&allow_credentials)
-    {
+    // Get WebAuthn instance for the request origin
+    let origin_str = headers.get("origin").and_then(|h| h.to_str().ok());
+    let webauthn = get_webauthn_for_request(&app_state, origin_str)?;
+
+    let res = match webauthn.start_passkey_authentication(&allow_credentials) {
         Ok((rcr, auth_state)) => {
             // Note that due to the session store in use being a server side memory store, this is
             // safe to store the auth_state into the session since it is not client controlled and
@@ -540,6 +575,7 @@ pub async fn auth_status(
 pub async fn finish_authentication(
     Extension(app_state): Extension<AppState>,
     session: Session,
+    headers: HeaderMap,
     Json(auth): Json<PublicKeyCredential>,
 ) -> Result<impl IntoResponse, WebauthnError> {
     let (user_unique_id, auth_state): (Uuid, PasskeyAuthentication) = session
@@ -549,10 +585,11 @@ pub async fn finish_authentication(
 
     let _ = session.remove_value("auth_state").await;
 
-    let res = match app_state
-        .webauthn
-        .finish_passkey_authentication(&auth, &auth_state)
-    {
+    // Get WebAuthn instance for the request origin
+    let origin_str = headers.get("origin").and_then(|h| h.to_str().ok());
+    let webauthn = get_webauthn_for_request(&app_state, origin_str)?;
+
+    let res = match webauthn.finish_passkey_authentication(&auth, &auth_state) {
         Ok(auth_result) => {
             // Get the user's current credentials
             let auth_repo = AuthRepository::new(&app_state.database);

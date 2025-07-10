@@ -43,7 +43,11 @@
   "webauthn": {
     "rp_id": "localhost", // Relying Party ID - MUST match your domain (CANNOT CHANGE after deployment!)
     "rp_name": "WebAuthn Demo", // Human-readable name shown to users during authentication
-    "rp_origin": "http://localhost:8080" // Complete origin URL (must match actual server URL)
+    "rp_origins": [ // Multiple allowed origins for multi-domain setups (ngrok, tailscale, etc.)
+      "http://localhost:8080",
+      "https://myapp.ngrok.io",
+      "https://myserver.tailscale.net"
+    ],
   },
 
   // HTTP server configuration

@@ -36,6 +36,10 @@
   "webauthn": {
     "rp_id": "localhost",
     "rp_name": "WebAuthn Demo",
+    "rp_origins": [
+      "http://localhost:8080",
+      "http://localhost:3003"
+    ],
     "rp_origin": "http://localhost:8080"
   },
   "server": {

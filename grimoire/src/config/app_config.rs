@@ -138,7 +138,10 @@ pub struct WebAuthnConfig {
     /// Relying Party name (display name)
     #[serde(default = "default_rp_name")]
     pub rp_name: String,
-    /// Relying Party origin URL
+    /// Relying Party origin URLs (supports multiple domains)
+    #[serde(default = "default_rp_origins")]
+    pub rp_origins: Vec<String>,
+    /// Legacy single origin (deprecated, use rp_origins instead)
     #[serde(default = "default_rp_origin")]
     pub rp_origin: String,
 }
@@ -540,6 +543,10 @@ fn default_cors_allowed_origins() -> Vec<String> {
     ]
 }
 
+fn default_rp_origins() -> Vec<String> {
+    vec!["http://localhost:8080".to_string()]
+}
+
 fn default_session_max_age() -> i64 {
     3600
 }
@@ -730,6 +737,7 @@ impl AppConfig {
             webauthn: WebAuthnConfig {
                 rp_id: default_rp_id(),
                 rp_name: default_rp_name(),
+                rp_origins: default_rp_origins(),
                 rp_origin: default_rp_origin(),
             },
             server: ServerConfig {
@@ -801,10 +809,22 @@ impl AppConfig {
             errors.push("WebAuthn RP ID cannot be empty".to_string());
         }
 
-        if !self.webauthn.rp_origin.starts_with("http://")
-            && !self.webauthn.rp_origin.starts_with("https://")
-        {
-            errors.push("WebAuthn RP origin must be a valid HTTP/HTTPS URL".to_string());
+        // Validate rp_origins (preferred) or fallback to rp_origin
+        let origins_to_validate = if !self.webauthn.rp_origins.is_empty() {
+            &self.webauthn.rp_origins
+        } else {
+            &vec![self.webauthn.rp_origin.clone()]
+        };
+
+        for origin in origins_to_validate {
+            if origin.is_empty() {
+                errors.push("WebAuthn RP origin cannot be empty".to_string());
+            } else if !origin.starts_with("http://") && !origin.starts_with("https://") {
+                errors.push(format!(
+                    "WebAuthn RP origin '{}' must be a valid HTTP/HTTPS URL",
+                    origin
+                ));
+            }
         }
 
         // Validate database configuration
@@ -973,6 +993,7 @@ impl Default for AppConfig {
             webauthn: WebAuthnConfig {
                 rp_id: default_rp_id(),
                 rp_name: default_rp_name(),
+                rp_origins: default_rp_origins(),
                 rp_origin: default_rp_origin(),
             },
             server: ServerConfig {

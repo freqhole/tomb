@@ -24,6 +24,8 @@ pub enum WebauthnError {
     DatabaseError,
     #[error("Bad Request")]
     BadRequest,
+    #[error("Invalid RP Origin")]
+    InvalidRPOrigin,
     #[error("Deserialising Session failed: {0}")]
     InvalidSessionState(#[from] tower_sessions::session::Error),
     #[error("Database operation failed: {0}")]
@@ -44,6 +46,9 @@ impl IntoResponse for WebauthnError {
             WebauthnError::UserAlreadyExists => (StatusCode::CONFLICT, "Username already exists"),
             WebauthnError::DatabaseError => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Database error occurred")
+            }
+            WebauthnError::InvalidRPOrigin => {
+                (StatusCode::BAD_REQUEST, "Invalid Relying Party origin")
             }
             WebauthnError::InvalidSessionState(_) => {
                 (StatusCode::BAD_REQUEST, "Invalid session state")
