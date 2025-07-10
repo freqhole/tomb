@@ -1,8 +1,6 @@
-use axum::{
-    body::Body, extract::Extension, http::Request, middleware as axum_middleware, middleware::Next,
-    response::Response,
-};
+use axum::{extract::Extension, middleware as axum_middleware};
 use clap::Parser;
+use tower_http::cors::CorsLayer;
 
 use std::net::ToSocketAddrs;
 use tower_sessions::{
@@ -20,65 +18,6 @@ use server::startup::AppState;
 use server::static_filez::build_assets_fallback_service;
 use server::storage::SessionStore;
 use server::thumbnails::build_routes as build_thumbnail_routes;
-
-// Simple CORS middleware for dynamic origins
-async fn cors_middleware(request: Request<Body>, next: Next) -> Response {
-    let allowed_origins = [
-        "http://localhost:3003",
-        "http://127.0.0.1:3003",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173", // Vite default
-        "http://127.0.0.1:5173",
-    ];
-
-    let origin = request.headers().get("origin").cloned();
-    let method = request.method().clone();
-
-    // Handle preflight OPTIONS requests
-    if method == axum::http::Method::OPTIONS {
-        if let Some(origin_header) = &origin {
-            if let Ok(origin_str) = origin_header.to_str() {
-                if allowed_origins.contains(&origin_str) {
-                    return Response::builder()
-                        .status(200)
-                        .header("access-control-allow-origin", origin_header.clone())
-                        .header("access-control-allow-credentials", "true")
-                        .header(
-                            "access-control-allow-methods",
-                            "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-                        )
-                        .header(
-                            "access-control-allow-headers",
-                            "content-type, authorization, accept, origin, x-requested-with",
-                        )
-                        .header("access-control-max-age", "86400")
-                        .body(Body::empty())
-                        .unwrap();
-                }
-            }
-        }
-    }
-
-    let mut response = next.run(request).await;
-
-    // Add CORS headers to actual responses
-    if let Some(origin_header) = origin {
-        if let Ok(origin_str) = origin_header.to_str() {
-            if allowed_origins.contains(&origin_str) {
-                response
-                    .headers_mut()
-                    .insert("access-control-allow-origin", origin_header.clone());
-                response
-                    .headers_mut()
-                    .insert("access-control-allow-credentials", "true".parse().unwrap());
-                response.headers_mut().insert("access-control-expose-headers", "content-length, content-range, accept-ranges, content-type, cache-control, content-disposition".parse().unwrap());
-            }
-        }
-    }
-
-    response
-}
 
 #[macro_use]
 extern crate tracing;
@@ -273,6 +212,10 @@ async fn main() {
 
     info!("🚀 Starting {} v{}", config.app.name, config.app.version);
     info!("🌍 Environment: {}", config.app.environment);
+    info!(
+        "🔗 CORS allowed origins: {:?}",
+        config.server.cors.allowed_origins
+    );
 
     // Create the app state with configuration
     let app_state = AppState::new(config.clone())
@@ -347,8 +290,43 @@ async fn main() {
         .layer(Extension(config.clone()))
         .layer(Extension(app_state.database.clone()))
         .layer(Extension(app_state.clone()))
-        .layer(axum_middleware::from_fn(security_logging))
-        .layer(axum_middleware::from_fn(cors_middleware));
+        .layer(
+            CorsLayer::new()
+                .allow_origin(
+                    config
+                        .server
+                        .cors
+                        .allowed_origins
+                        .iter()
+                        .map(|s| s.parse().unwrap())
+                        .collect::<Vec<axum::http::HeaderValue>>(),
+                )
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::PATCH,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers([
+                    axum::http::HeaderName::from_static("content-type"),
+                    axum::http::HeaderName::from_static("authorization"),
+                    axum::http::HeaderName::from_static("accept"),
+                    axum::http::HeaderName::from_static("origin"),
+                    axum::http::HeaderName::from_static("x-requested-with"),
+                ])
+                .allow_credentials(true)
+                .expose_headers([
+                    axum::http::HeaderName::from_static("content-length"),
+                    axum::http::HeaderName::from_static("content-range"),
+                    axum::http::HeaderName::from_static("accept-ranges"),
+                    axum::http::HeaderName::from_static("content-type"),
+                    axum::http::HeaderName::from_static("cache-control"),
+                    axum::http::HeaderName::from_static("content-disposition"),
+                ]),
+        )
+        .layer(axum_middleware::from_fn(security_logging));
 
     // Add access logging middleware if enabled
     if let Some(logger) = access_logger {

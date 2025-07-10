@@ -1,6 +1,52 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "WebAuthn Server Configuration",
+  "properties": {
+    "analytics": {
+      "description": "Analytics configuration",
+      "type": "object"
+    },
+    "app": {
+      "description": "Application settings",
+      "type": "object"
+    },
+    "database": {
+      "description": "Database connection settings",
+      "type": "object"
+    },
+    "development": {
+      "description": "Development options",
+      "type": "object"
+    },
+    "features": {
+      "description": "Feature flags",
+      "type": "object"
+    },
+    "logging": {
+      "description": "Logging configuration",
+      "type": "object"
+    },
+    "server": {
+      "description": "Server configuration",
+      "type": "object"
+    },
+    "sessions": {
+      "description": "Session management",
+      "type": "object"
+    },
+    "static_files": {
+      "description": "Static file serving",
+      "type": "object"
+    },
+    "storage": {
+      "description": "Storage backends",
+      "type": "object"
+    },
+    "webauthn": {
+      "description": "WebAuthn configuration",
+      "type": "object"
+    }
+  },
   "title": "AppConfig",
   "type": "object"
 }

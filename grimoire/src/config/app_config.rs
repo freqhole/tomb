@@ -152,6 +152,25 @@ pub struct ServerConfig {
     /// Server port to bind to
     #[serde(default = "default_server_port")]
     pub port: u16,
+    /// CORS configuration
+    #[serde(default)]
+    pub cors: CorsConfig,
+}
+
+/// CORS (Cross-Origin Resource Sharing) configuration
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CorsConfig {
+    /// List of allowed origins for CORS requests
+    #[serde(default = "default_cors_allowed_origins")]
+    pub allowed_origins: Vec<String>,
+}
+
+impl Default for CorsConfig {
+    fn default() -> Self {
+        Self {
+            allowed_origins: default_cors_allowed_origins(),
+        }
+    }
 }
 
 /// Media and file upload configuration
@@ -512,6 +531,15 @@ fn default_server_port() -> u16 {
     8080
 }
 
+fn default_cors_allowed_origins() -> Vec<String> {
+    vec![
+        "http://localhost:3000".to_string(),
+        "http://127.0.0.1:3000".to_string(),
+        "http://localhost:5173".to_string(),
+        "http://127.0.0.1:5173".to_string(),
+    ]
+}
+
 fn default_session_max_age() -> i64 {
     3600
 }
@@ -707,6 +735,7 @@ impl AppConfig {
             server: ServerConfig {
                 host: default_server_host(),
                 port: default_server_port(),
+                cors: CorsConfig::default(),
             },
             sessions: SessionConfig {
                 max_age_seconds: default_session_max_age(),
@@ -949,6 +978,7 @@ impl Default for AppConfig {
             server: ServerConfig {
                 host: default_server_host(),
                 port: default_server_port(),
+                cors: CorsConfig::default(),
             },
             sessions: SessionConfig {
                 max_age_seconds: default_session_max_age(),

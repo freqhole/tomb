@@ -49,7 +49,19 @@
   // HTTP server configuration
   "server": {
     "host": "0.0.0.0", // Interface to bind to (0.0.0.0 = all interfaces, 127.0.0.1 = localhost only)
-    "port": 8080 // Port to listen on
+    "port": 8080, // Port to listen on
+
+    // CORS (Cross-Origin Resource Sharing) configuration
+    "cors": {
+      "allowed_origins": [
+        "http://localhost:3003", // Freqhole dev server
+        "http://127.0.0.1:3003",
+        "http://localhost:3000", // Common React/Next.js dev port
+        "http://127.0.0.1:3000",
+        "http://localhost:5173", // Vite dev server default
+        "http://127.0.0.1:5173"
+      ]
+    }
   },
 
   // Session management settings

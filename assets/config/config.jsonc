@@ -40,7 +40,17 @@
   },
   "server": {
     "host": "0.0.0.0",
-    "port": 8080
+    "port": 8080,
+    "cors": {
+      "allowed_origins": [
+        "http://localhost:3003",
+        "http://127.0.0.1:3003",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+      ]
+    }
   },
   "sessions": {
     // Session timeout in seconds. Set to 0 or negative value for sessions that never expire.
@@ -50,7 +60,7 @@
     "http_only": true
   },
   "logging": {
-    "level": "info"
+    "level": "debug"
   },
   "analytics": {
     "metrics": {
