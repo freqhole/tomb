@@ -240,6 +240,39 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
     setVolume(clampedVolume);
   };
 
+  // Seek to specific time in seconds
+  const seekToTime = (seconds: number) => {
+    const audio = audioElement();
+    if (!audio || !duration()) return;
+
+    const clampedTime = Math.max(0, Math.min(seconds, duration()));
+    audio.currentTime = clampedTime;
+    setCurrentTime(clampedTime);
+  };
+
+  // Mute/unmute
+  const toggleMute = () => {
+    const audio = audioElement();
+    if (!audio) return;
+
+    if (audio.volume > 0) {
+      audio.volume = 0;
+    } else {
+      audio.volume = volume();
+    }
+  };
+
+  // Stop playback
+  const stop = () => {
+    const audio = audioElement();
+    if (!audio) return;
+
+    audio.pause();
+    audio.currentTime = 0;
+    setIsPlaying(false);
+    setCurrentTime(0);
+  };
+
   // Play next song in queue
   const playNext = () => {
     const queue = playQueue();
@@ -264,6 +297,28 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
         playSong(prevSong.song, false);
       }
     }
+  };
+
+  // Move to next song in queue (without playing)
+  const moveToNext = () => {
+    const queue = playQueue();
+    const currentIndex = currentQueueIndex();
+    if (currentIndex < queue.length - 1) {
+      setCurrentQueueIndex(currentIndex + 1);
+      return queue[currentIndex + 1];
+    }
+    return null;
+  };
+
+  // Move to previous song in queue (without playing)
+  const moveToPrevious = () => {
+    const queue = playQueue();
+    const currentIndex = currentQueueIndex();
+    if (currentIndex > 0) {
+      setCurrentQueueIndex(currentIndex - 1);
+      return queue[currentIndex - 1];
+    }
+    return null;
   };
 
   // Add song to queue
@@ -294,7 +349,7 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
     options.onQueueChange?.([]);
   };
 
-  // Jump to specific queue index
+  // Jump to specific queue index (with playing)
   const jumpToIndex = (index: number) => {
     const queue = playQueue();
     if (index >= 0 && index < queue.length) {
@@ -304,6 +359,16 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
         playSong(song.song, false);
       }
     }
+  };
+
+  // Jump to specific index in queue (without playing)
+  const jumpToIndexSilent = (index: number) => {
+    const queue = playQueue();
+    if (index >= 0 && index < queue.length) {
+      setCurrentQueueIndex(index);
+      return queue[index];
+    }
+    return null;
   };
 
   // Set queue from playlist
@@ -320,6 +385,19 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
 
     if (newQueue.length > 0 && newQueue[0]) {
       playSong(newQueue[0].song, false);
+    }
+  };
+
+  // Add song to queue if empty (for single song play)
+  const addToQueueIfEmpty = (song: Song) => {
+    if (playQueue().length === 0) {
+      const queueItem: QueueItem = {
+        song,
+        id: `queue-${song.id}-${Date.now()}`,
+      };
+      setPlayQueue([queueItem]);
+      setCurrentQueueIndex(0);
+      options.onQueueChange?.([queueItem]);
     }
   };
 
@@ -379,6 +457,12 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
     return (cur / dur) * 100;
   };
 
+  // Check if audio is ready to play
+  const isReady = () => {
+    const audio = audioElement();
+    return audio && audio.readyState >= 2; // HAVE_CURRENT_DATA
+  };
+
   return {
     // Player state
     currentSong,
@@ -399,7 +483,10 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
     playSong,
     togglePlayback,
     seekTo,
+    seekToTime,
     changeVolume,
+    toggleMute,
+    stop,
     playNext,
     playPrevious,
 
@@ -408,14 +495,19 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
     removeFromQueue,
     clearQueue,
     jumpToIndex,
+    jumpToIndexSilent,
+    moveToNext,
+    moveToPrevious,
     setQueueFromPlaylist,
     setQueueFromArtist,
     setQueueFromAlbum,
+    addToQueueIfEmpty,
     toggleQueue,
 
     // Utilities
     formatTime,
     getProgress,
+    isReady,
     canGoNext,
     canGoPrevious,
     getCurrentQueueItem,
@@ -424,5 +516,9 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
     setShowQueue,
     setCurrentQueueIndex,
     setVolume,
+    setCurrentSong,
+    setIsPlaying,
+    setCurrentTime,
+    setDuration,
   };
 };
