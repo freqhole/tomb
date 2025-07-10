@@ -122,6 +122,8 @@ export const API_SPEC = {
       responseSchema: z.object({
         authenticated: z.boolean(),
         user_id: z.string().optional(),
+        role: z.string().optional(),
+        username: z.string().optional(),
       }),
     },
   },

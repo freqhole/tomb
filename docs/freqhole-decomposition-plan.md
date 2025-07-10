@@ -1,73 +1,63 @@
 # Freqhole Audio Player - Modular Decomposition Plan
 
-## 🎯 Current Focus: Authentication Integration
+## 🎯 Current Focus: A.2 Decomposition Strategy
 
-### Phase 0: Auth Integration (IMMEDIATE NEXT)
+### Phase A.2: Decomposition Strategy (In-Place) - NEXT
 
-**Goal**: Adapt existing WebAuthn component to use Modal system and integrate auth flow into Freqhole
+**Goal**: Extract Header and Player components while keeping zoony.tsx working
 
-#### 0.1 Extract Auth Logic (`client/js/src/hooks/auth/index.ts`)
+#### A.2.1 Header Component Extraction (`client/js/src/views/freqhole/components/header/Header.tsx`)
 
-- Extract auth state management from webauthn-component.tsx:
-  - `checkAuthStatus()`, `handleLogin()`, `handleRegister()`, `handleLogout()`
-  - Auth signals: `isAuthenticated`, `currentUser`, `isLoading`
-  - API client integration with existing ApiClient
-- Create composable hook that returns auth state and actions
+**Strategy**: Extract header JSX and logic from zoony.tsx into separate component
 
-#### 0.2 Auth Modal Component (`client/js/src/views/freqhole/components/auth/AuthModal.tsx`)
+- Extract header section (logo, navigation, search, user menu)
+- Keep all existing functionality intact
+- Props: `currentTrack`, `onSearch`, `onViewChange`, `currentView`
+- Use existing auth integration from Phase 0
+- Test thoroughly before moving to player
 
-- Adapt webauthn UI to use our Modal component system
-- Login/Register forms with Tailwind styling (Metro UI theme)
-- Loading states, error handling, form validation
-- Props: `isOpen`, `onClose`, `onAuthSuccess`
+**File structure**:
 
-#### 0.3 User Menu Component (`client/js/src/views/freqhole/components/auth/UserMenu.tsx`)
+```
+client/js/src/views/freqhole/components/header/
+├── Header.tsx          # Main header component
+├── Navigation.tsx      # Navigation buttons (optional sub-component)
+├── SearchBar.tsx       # Search input (optional sub-component)
+└── index.ts           # Barrel export
+```
 
-- Small square fuchsia button in header (top-right)
-- Popover with user info and logout option
-- Use existing Popover component with proper positioning
-- Props: `currentUser`, `onLogout`
+#### A.2.2 Player Component Extraction (`client/js/src/views/freqhole/components/player/Player.tsx`)
 
-#### 0.4 Auth Hook Pattern (RECOMMENDED)
+**Strategy**: Extract player JSX and logic from zoony.tsx into separate component
 
-**Strategy**: Use composable hooks instead of prop drilling for cleaner architecture
+- Extract player section (controls, progress, queue, now playing)
+- Keep all existing functionality intact
+- Props: `currentTrack`, `isPlaying`, `progress`, `queue`, `onPlayPause`, `onNext`, `onPrevious`, `onSeek`
+- Handle all player state management
+- Test thoroughly after extraction
 
-Create `useAuth()` hook that can be called from any component that needs auth state:
+**File structure**:
 
-- **Main Freqhole component**: `const { isAuthenticated, checkAuth } = useAuth()`
-- **Header component**: `const { currentUser, logout } = useAuth()`
-- **Any other component**: Just import and call `useAuth()`
+```
+client/js/src/views/freqhole/components/player/
+├── Player.tsx          # Main player component
+├── PlayerControls.tsx  # Play/pause/next/prev buttons
+├── ProgressBar.tsx     # Progress bar and time display
+├── QueueViewer.tsx     # Queue display and management
+├── NowPlayingCard.tsx  # Current track display
+└── index.ts           # Barrel export
+```
 
-This avoids prop drilling while keeping state management simple and testable.
+#### A.2.3 Integration Testing
 
-#### 0.5 Integration into Freqhole (`client/js/src/views/freqhole/index.tsx`)
+After each extraction:
 
-- Add auth check on component mount
-- Show AuthModal if not authenticated
-- Header component uses `useAuth()` hook directly
-- Handle auth success/logout events
+1. Verify zoony.tsx still works exactly the same
+2. Test all functionality in extracted components
+3. Ensure no regressions in existing features
+4. Update imports in zoony.tsx to use new components
 
-### Phase A: Setup In-Place Decomposition Strategy
-
-**Goal**: Temporarily switch to zoony.tsx while we decompose it, then migrate back
-
-#### A.1 Switch Main Entry Point (`client/js/src/views/freqhole/main.tsx`)
-
-- Change from rendering `<Freqhole />` to `<Zoony />`
-- Keep all existing dev environment working
-- This gives us a working baseline to decompose from
-
-#### A.2 Decomposition Strategy (In-Place)
-
-**New Approach**: Extract components but render them within zoony.tsx
-
-- Extract Header → still render extracted Header in zoony.tsx
-- Extract Player → still render extracted Player in zoony.tsx
-- Extract Sidebar → still render extracted Sidebar in zoony.tsx
-- Keep zoony.tsx working throughout entire process
-- Test each extraction thoroughly before moving to next
-
-#### A.3 Final Migration (Last Step)
+### Phase A.3: Final Migration (Last Step)
 
 After all components extracted:
 
@@ -79,306 +69,243 @@ After all components extracted:
 
 **Goal**: Extract all TypeScript interfaces and types from zoony.tsx into shared lib files
 
-#### A.1 Core Data Types (`client/js/src/lib/types/music.ts`)
+#### B.1 Core Data Types (`client/js/src/lib/types/music.ts`)
 
-- Extract interfaces: `Song`, `Album`, `ArtistSummary`, `Playlist`, `PlaylistSong`, `QueueItem`
-- Move API response types and data structures
-- Add proper JSDoc comments for each interface
+- Extract: `Track`, `Album`, `Artist`, `Playlist`, `Queue` interfaces
+- Music-related enums and utility types
 
 #### B.2 Component Props Types (`client/js/src/lib/types/components.ts`)
 
-- Extract component-specific interfaces like `ZoonyProps`
-- Add any UI state types that will be reused
-- Create union types for view states (`"music" | "artists" | "albums" | "playlists"`)
+- Extract: Component prop interfaces
+- UI state types, event handler types
 
 ### Phase C: Icon Components Extraction
 
-**Goal**: Move all SVG icon components to reusable components
+**Goal**: Create reusable icon components for consistent styling
 
 #### C.1 Icon Library (`client/js/src/views/freqhole/components/ui/icons/`)
 
-- Extract all icon components: `PlayIcon`, `PauseIcon`, `CloseIcon`, `EditIcon`, `AddIcon`, `PrevIcon`, `NextIcon`, `VolumeIcon`, `MusicIcon`, `FreqholeIcon`
-- Create index file for easy imports
-- Standardize icon props (size, color, className)
+- Extract SVG icons into individual components
+- Consistent sizing, theming, and hover states
 
-### Phase D: Header Component Extraction (In-Place)
+### Phase D: State Management Extraction
 
-**Goal**: Extract the top navigation/header section (lines ~1047-1100) but keep it working in zoony.tsx
+**Goal**: Extract all state management logic into custom hooks
 
-#### D.1 Header Component (`client/js/src/views/freqhole/components/layout/Header.tsx`)
+#### D.1 Music State Hook (`client/js/src/views/freqhole/hooks/useMusicState.ts`)
 
-- Extract the entire `zune-header` div and its contents
-- Include logo/branding section
-- Include navigation buttons (music, artists, albums, playlists)
-- Include search box integration
-- Include UserMenu component from Phase 0
-- UserMenu uses `useAuth()` hook internally
-- Props: `currentView`, `onViewChange`, `searchQuery`, `onSearchQueryChange`, `onSearch`, `onClearSearch`
+- Extract: Track management, playlist operations, library state
+- Return: `{ tracks, playlists, addToPlaylist, removeTrack, ... }`
 
-#### D.2 Navigation Component (`client/js/src/views/freqhole/components/ui/Navigation.tsx`)
+#### D.2 Player State Hook (`client/js/src/views/freqhole/hooks/usePlayerState.ts`)
 
-- Extract just the nav section with view buttons
-- Props: `currentView`, `onViewChange`
+- Extract: Playback state, queue management, audio controls
+- Return: `{ currentTrack, isPlaying, progress, queue, play, pause, next, ... }`
 
-#### D.3 Logo/Branding Component (`client/js/src/views/freqhole/components/ui/Logo.tsx`)
+#### D.3 View State Hook (`client/js/src/views/freqhole/hooks/useViewState.ts`)
 
-- Extract logo and FreqholeIcon
-- Make responsive (hidden-sm classes)
+- Extract: UI state, modal states, view switching
+- Return: `{ currentView, showModal, toggleSidebar, ... }`
 
-#### D.4 Update Zoony.tsx
+#### D.4 Update Components
 
-- Import extracted Header component
-- Replace existing header JSX with `<Header {...headerProps} />`
-- Verify everything still works before proceeding
+- Replace direct state access with hook calls
+- Maintain all existing functionality
 
-### Phase E: Player Component Extraction (In-Place)
+### Phase E: API Client Integration
 
-**Goal**: Extract the bottom player controls (lines ~1663-1750) but keep it working in zoony.tsx
+**Goal**: Integrate with existing API infrastructure
 
-#### E.1 Player Component (`client/js/src/views/freqhole/components/player/Player.tsx`)
+#### E.1 Music API Client (`client/js/src/lib/api/musicApi.ts`)
 
-- Extract entire `zune-player` section
-- Include artwork, song info, controls, progress, volume
-- Props: `currentSong`, `isPlaying`, `currentTime`, `duration`, `volume`, `onTogglePlayback`, `onSeekTo`, `onVolumeChange`, `onPrevious`, `onNext`, `onToggleQueue`
+- Integrate with existing ApiClient pattern
+- Music-specific endpoints and data fetching
 
-#### E.2 Player Controls (`client/js/src/views/freqhole/components/player/PlayerControls.tsx`)
+### Phase F: Styles Extraction
 
-- Extract just the control buttons section
-- Props: `isPlaying`, `onTogglePlayback`, `onPrevious`, `onNext`, `onToggleQueue`, `canGoNext`, `canGoPrevious`
+**Goal**: Organize component styles for maintainability
 
-#### E.3 Progress Bar (`client/js/src/views/freqhole/components/player/ProgressBar.tsx`)
+#### F.1 Component Styles (`client/js/src/views/freqhole/styles/`)
 
-- Extract progress bar with time display
-- Props: `currentTime`, `duration`, `onSeekTo`
-
-#### E.4 Update Zoony.tsx
-
-- Import extracted Player component
-- Replace existing player JSX with `<Player {...playerProps} />`
-- Verify everything still works
-
-### Phase F: Sidebar Component Extraction (In-Place)
-
-**Goal**: Extract left sidebar (lines ~1150-1200) but keep it working in zoony.tsx
-
-#### F.1 Sidebar Component (`client/js/src/views/freqhole/components/layout/Sidebar.tsx`)
-
-- Extract `zune-sidebar` section
-- Handle playlist filtering and actions
-- Props: `currentView`, `playlists`, `currentPlaylist`, `onPlaylistSelect`, `onEditPlaylist`, `onDeletePlaylist`
-
-#### F.2 Update Zoony.tsx
-
-- Import extracted Sidebar component
-- Replace existing sidebar JSX with `<Sidebar {...sidebarProps} />`
-- Verify everything still works
-
-### Phase G: Main Content Area Extraction (In-Place)
-
-**Goal**: Extract center content section (lines ~1200-1600) but keep it working in zoony.tsx
-
-#### G.1 ContentHeader Component (`client/js/src/views/freqhole/components/layout/ContentHeader.tsx`)
-
-- Extract `zune-content-header` with stats and action buttons
-- Props: `currentView`, `isSearchActive`, `searchResults`, `currentSongs`, `playlists`, `albums`, `artists`, `currentPlaylist`, `currentArtist`, `currentAlbum`, `onPlayAll`, `onCreatePlaylist`
-
-#### G.2 ContentArea Component (`client/js/src/views/freqhole/components/layout/ContentArea.tsx`)
-
-- Extract main content rendering logic
-- Handle loading states, error states
-- Include all table/grid rendering
-- Props: All necessary data and handlers
-
-#### G.3 Update Zoony.tsx
-
-- Import extracted ContentHeader and ContentArea components
-- Replace existing content JSX with extracted components
-- Verify everything still works
-
-### Phase H: State Management Extraction
-
-**Goal**: Extract all state logic and API calls (zoony.tsx still works)
-
-#### H.1 Music State Hook (`client/js/src/views/freqhole/hooks/useMusicState.ts`)
-
-- Extract all `createSignal` calls for data: songs, playlists, albums, artists
-- Extract all fetch functions: `fetchSongs`, `fetchPlaylists`, etc.
-- Return state and actions
-
-#### H.2 Player State Hook (`client/js/src/views/freqhole/hooks/usePlayerState.ts`)
-
-- Extract player-related signals: `currentSong`, `isPlaying`, `currentTime`, `duration`, `volume`, `audioElement`, `playQueue`
-- Extract player functions: `playSong`, `togglePlayback`, `seekTo`, etc.
-- Handle audio element lifecycle
-
-#### H.3 View State Hook (`client/js/src/views/freqhole/hooks/useViewState.ts`)
-
-- Extract UI state: `currentView`, `loading`, `error`, `searchQuery`, `isSearchActive`
-- Extract view management functions
-
-#### H.4 Update Zoony.tsx
-
-- Replace all inline state with hook calls
-- Verify everything still works with extracted state management
-
-### Phase I: API Client Integration
-
-**Goal**: Move API calls to centralized client
-
-#### I.1 Music API Client (`client/js/src/lib/api/musicApi.ts`)
-
-- Extract all API endpoint calls from zoony.tsx
-- Create typed methods for each endpoint
-- Handle error states consistently
-
-### Phase J: Styles Extraction
-
-**Goal**: Move all CSS to external files or Tailwind classes
-
-#### J.1 Component Styles (`client/js/src/views/freqhole/styles/`)
-
-- Extract the massive `<style>` tag (lines ~1800-3100)
-- Split into component-specific CSS files
-- Convert to Tailwind classes where possible
-
-### Phase K: Final Migration to Freqhole
-
-**Goal**: Migrate all extracted components to Panel-based Freqhole layout
-
-#### K.1 Switch Back to Freqhole (`client/js/src/views/freqhole/main.tsx`)
-
-- Change from rendering `<Zoony />` back to `<Freqhole />`
-- Now we have working components to integrate
-
-#### K.2 Adapt Components for Panel Layout (`client/js/src/views/freqhole/index.tsx`)
-
-- Import all extracted components from zoony decomposition
-- Adapt Header component for Panel system layout
-- Adapt extracted components to work with Panel-based responsive design
-- Use extracted hooks for state management
-- Integrate auth components and flow
-
-#### K.3 Delete zoony.tsx
-
-- Remove the original file once Panel-based version is working
-- Update any remaining imports
-- Celebrate! 🎉
+- Extract component-specific styles
+- Maintain existing Metro UI theme
 
 ## Execution Strategy
 
-1. **Start with Phase 0 (Auth)** - Add auth before decomposition
-2. **Then Phase A (Setup)** - Switch to zoony.tsx temporarily
-3. **Phases B-C** - Extract types and icons
-4. **Phases D-G** - Extract major UI components (Header, Player, Sidebar, Content)
-5. **Phases H-J** - Extract state management, API calls, styles
-6. **Phase K** - Migrate everything to Panel-based Freqhole layout
+### Priority Order
 
-**Key Principles**:
+1. **Phase A.2**: Header and Player extraction (IMMEDIATE NEXT)
+2. **Phase A.3**: Final migration to Freqhole layout
+3. **Phase B**: Types extraction
+4. **Phase C**: Icon components
+5. **Phase D**: State management hooks
+6. **Phase E**: API integration
+7. **Phase F**: Styles organization
 
-- **Always keep zoony.tsx working** throughout phases A-J
-- **Extract and import** - don't replace until final migration
-- **Test each extraction** thoroughly before moving to next phase
-- **Auth integration first** - foundational requirement
-- **Panel migration last** - big integration step at the end
+### Key Principles
 
-Each phase should:
+- **Never break existing functionality**
+- **Test thoroughly after each extraction**
+- **Keep zoony.tsx working throughout**
+- **Maintain all existing features**
+- **Gradual, incremental changes**
 
-- Maintain existing functionality in zoony.tsx
-- Test extracted components work in isolation
-- Update zoony.tsx to use extracted components
-- Keep Panel-based Freqhole development separate until Phase K
+### Testing Strategy
 
----
+- Manual testing after each component extraction
+- Verify all player functionality works
+- Test responsive behavior
+- Ensure no visual regressions
+
+## ✅ Completed Phases
+
+### Phase 0: Auth Integration ✅
+
+**Goal**: Adapt existing WebAuthn component to use Modal system and integrate auth flow into Freqhole
+
+#### 0.1 Extract Auth Logic (`client/js/src/hooks/auth/index.ts`) ✅
+
+- Extracted auth state management from webauthn-component.tsx:
+  - `checkAuthStatus()`, `handleLogin()`, `handleRegister()`, `handleLogout()`
+  - Auth signals: `isAuthenticated`, `currentUser`, `isLoading`
+  - API client integration with existing ApiClient
+- Created composable hook that returns auth state and actions
+
+#### 0.2 Auth Modal Component (`client/js/src/views/freqhole/components/auth/AuthModal.tsx`) ✅
+
+- Adapted webauthn UI to use Modal component system
+- Login/Register forms with Tailwind styling (Metro UI theme)
+- Loading states, error handling, form validation
+- Props: `isOpen`, `onClose`, `onAuthSuccess`
+
+#### 0.3 User Menu Component (`client/js/src/views/freqhole/components/auth/UserMenu.tsx`) ✅
+
+- Small square fuchsia button in header (top-right)
+- Popover with user info and logout option
+- Uses existing Popover component with proper positioning
+- Props: `currentUser`, `onLogout`
+
+#### 0.4 Auth Hook Pattern (RECOMMENDED) ✅
+
+**Strategy**: Use composable hooks instead of prop drilling for cleaner architecture
+
+Created `useAuth()` hook that can be called from any component that needs auth state:
+
+- **Main Freqhole component**: `const { isAuthenticated, checkAuth } = useAuth()`
+- **Header component**: `const { currentUser, logout } = useAuth()`
+- **Any other component**: Just import and call `useAuth()`
+
+This avoids prop drilling while keeping state management simple and testable.
+
+#### 0.5 Integration into Freqhole (`client/js/src/views/freqhole/index.tsx`) ✅
+
+- Added auth check on component mount
+- Shows AuthModal if not authenticated
+- Header component uses `useAuth()` hook directly
+- Handles auth success/logout events
+
+### Phase A.1: Switch Main Entry Point ✅
+
+**Goal**: Temporarily switch to zoony.tsx while we decompose it, then migrate back
+
+#### A.1 Switch Main Entry Point (`client/js/src/views/freqhole/main.tsx`) ✅
+
+- Changed from rendering `<Freqhole />` to `<Zoony />`
+- Kept all existing dev environment working
+- This gives us a working baseline to decompose from
 
 ## ✅ Completed Components
 
 ### 🎨 **Panel System**
 
-- **File**: `client/js/src/views/freqhole/components/layout/Panel.tsx`
-- **Features**: Loading states, empty states, Metro animations, 12-column responsive layout
-- **Status**: Complete and ready for music content
+- Responsive grid layout with breakpoint-aware column spans
+- Drag-and-drop panel reordering
+- Panel minimize/maximize functionality
+- Integrated with existing Metro UI theme
 
 ### 🖱️ **Context Menu System**
 
-- **File**: `client/js/src/views/freqhole/components/ui/ContextMenu.tsx`
-- **Features**: Viewport-aware positioning, click-outside handling, keyboard navigation
-- **Status**: Complete with proper event management
+- Right-click context menus for tracks, playlists, albums
+- Keyboard navigation support
+- Proper z-index management and positioning
+- Integrated with existing action system
 
 ### 📱 **Modal & Popover System**
 
-- **Files**: `client/js/src/views/freqhole/components/ui/Modal.tsx`, `Popover.tsx`
-- **Features**: Global overlay management, no event conflicts, proper z-indexing
-- **Status**: Complete with backdrop management
+- Reusable Modal component with backdrop and animations
+- Popover component for tooltips and dropdown menus
+- Proper focus management and accessibility
+- Used by auth system and context menus
 
 ### 🎯 **Metro UI Foundation**
 
-- **Features**: Flat black backgrounds, fuchsia hover effects, no borders, consistent spacing
-- **Status**: Established design system ready for content components
+- Consistent color scheme and typography
+- Responsive design patterns
+- Component library integration
+- Tailwind CSS optimization
 
 ## Project Goals
 
-**Create a modular, maintainable audio player** that separates concerns, enables testing, and provides a solid foundation for future features while maintaining the distinctive Zune Metro UI aesthetic.
+**Primary Goal**: Transform the monolithic zoony.tsx into a modular, maintainable component architecture while preserving all existing functionality and integrating with the established Metro UI theme.
 
 ## Current State Analysis
 
 ### Existing Assets
 
-- **3100-line zoony.tsx** - Contains complete audio player with all features
-- **Vite dev environment** - Hot reloading, Tailwind CSS v4, TypeScript
-- **Panel-based layout system** - 12-column responsive grid ready for content
-- **UI component library** - Modal, Context Menu, Popover systems
+- **zoony.tsx**: Complete music player implementation (~2000+ lines)
+- **Metro UI Components**: Panel, Modal, Popover, Context Menu systems
+- **Infinite Data Grid**: Reusable virtualized grid for large datasets
+- **API Integration**: WebAuthn authentication, music API endpoints
+- **Responsive Layout**: Tailwind CSS with custom Metro theme
 
 ### Infinite Data Grid Reusability Assessment
 
-The infinite data grid component from the main app can be adapted for music content:
+**Current Implementation** (in data-grid-test.tsx):
 
 ```typescript
 type ListItem = {
   id: string;
   title: string;
-  artist?: string;
-  album?: string;
-  duration?: number;
-  // ... other music-specific fields
+  artist: string;
+  album: string;
+  duration: string;
+  genre: string;
 };
 
 const columns = [
-  { key: "title", label: "Title", width: "300px" },
-  { key: "artist", label: "Artist", width: "200px" },
-  { key: "album", label: "Album", width: "200px" },
-  { key: "duration", label: "Duration", width: "80px", render: formatDuration },
-  // ... additional columns
+  { key: "title", header: "Title", width: 200 },
+  { key: "artist", header: "Artist", width: 150 },
+  { key: "album", header: "Album", width: 150 },
+  { key: "duration", header: "Duration", width: 80 },
+  { key: "genre", header: "Genre", width: 100 },
 ];
 ```
 
-**Music-specific adaptations needed:**
+**Freqhole Requirements**:
 
 ```typescript
-type GridItem = Song | Album | Artist | Playlist;
+type GridItem = Track | Album | Artist | Playlist;
 
-const renderGridItem = (item: GridItem, type: 'songs' | 'albums' | 'artists' | 'playlists') => {
-  switch (type) {
-    case 'songs': return <SongRow song={item as Song} />;
-    case 'albums': return <AlbumCard album={item as Album} />;
-    // ... other types
-  }
+const renderGridItem = (
+  item: GridItem,
+  type: "track" | "album" | "artist" | "playlist",
+) => {
+  // Custom rendering logic for each type
+  // Album covers, play buttons, context menus
+  // Rich metadata display
 };
 
 const columns = {
-  songs: [
-    { key: "title", label: "Title", sortable: true },
-    { key: "artist", label: "Artist", sortable: true },
-    { key: "album", label: "Album", sortable: true },
-    { key: "duration", label: "Duration", render: formatTime },
-    { key: "actions", label: "", render: (song) => <SongActions song={song} /> }
+  track: [
+    { key: "title", header: "Title", width: 250 },
+    { key: "artist", header: "Artist", width: 200 },
+    { key: "album", header: "Album", width: 200 },
+    { key: "duration", header: "Duration", width: 100 },
+    { key: "genre", header: "Genre", width: 120 },
+    { key: "year", header: "Year", width: 80 },
+    { key: "bitrate", header: "Quality", width: 100 },
   ],
-  albums: [
-    { key: "album", label: "Album", sortable: true },
-    { key: "artist", label: "Artist", sortable: true },
-    { key: "year", label: "Year", sortable: true },
-    { key: "track_count", label: "Tracks", render: (count) => `${count} tracks` }
-  ],
-  // ... other view types
+  // ... other types
 };
 ```
 
@@ -386,24 +313,36 @@ const columns = {
 
 ```typescript
 interface GroupedDataSection {
-  label: string;
+  title: string;
   items: GridItem[];
-  metadata?: { total: number; duration?: number };
+  type: "track" | "album" | "artist" | "playlist";
 }
 
 interface GroupedGridProps {
   sections: GroupedDataSection[];
-  renderItem: (item: GridItem) => JSX.Element;
-  onItemSelect?: (item: GridItem) => void;
+  onItemSelect: (item: GridItem) => void;
 }
 ```
 
 ### Integration Effort Estimate
 
-- **Adaptation time**: 2-3 days
-- **Testing**: 1 day
-- **Integration with Panel system**: 1 day
-- **Total**: ~1 week for full infinite grid integration
+**Low Effort** (1-2 days):
+
+- Column configuration adaptation
+- Basic item rendering
+- Selection handling
+
+**Medium Effort** (3-5 days):
+
+- Custom item renderers for each type
+- Context menu integration
+- Drag-and-drop support
+
+**High Effort** (1-2 weeks):
+
+- Grouped data display
+- Advanced filtering/sorting
+- Performance optimization for large libraries
 
 ## Previous Planning Phases
 
@@ -411,21 +350,28 @@ interface GroupedGridProps {
 
 #### 1.1 Create Traditional Vite Config ✅
 
-```javascript
-// vite.config.js for freqhole
+**File**: `vite.config.freqhole.ts`
+
+```typescript
 import { defineConfig } from "vite";
+import solidPlugin from "vite-plugin-solid";
 import { resolve } from "path";
 
 export default defineConfig({
-  root: "./client/js",
+  plugins: [solidPlugin()],
+  root: "client/js",
   build: {
     outDir: "../../dist/freqhole",
     emptyOutDir: true,
-    lib: {
-      entry: resolve(__dirname, "client/js/src/views/freqhole/index.tsx"),
-      name: "FreqholePlayer",
-      fileName: "freqhole",
-      formats: ["es", "iife"],
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "client/js/src/views/freqhole/main.tsx"),
+      },
+    },
+  },
+  resolve: {
+    alias: {
+      "@": resolve(__dirname, "client/js/src"),
     },
   },
   server: {
@@ -437,9 +383,12 @@ export default defineConfig({
 
 #### 1.2 Entry Point Setup ✅
 
+**File**: `client/js/src/views/freqhole/main.tsx`
+
 ```typescript
-// client/js/src/views/freqhole/index.tsx
-export { default as FreqholePlayer } from "./components/FreqholePlayer";
+import { render } from "solid-js/web";
+import { Freqhole } from "./index";
+import "./styles.css";
 ```
 
 #### 1.3 Package.json Scripts ✅
@@ -447,9 +396,9 @@ export { default as FreqholePlayer } from "./components/FreqholePlayer";
 ```json
 {
   "scripts": {
-    "dev:freqhole": "vite --config vite.freqhole.config.js",
-    "build:freqhole": "vite build --config vite.freqhole.config.js",
-    "preview:freqhole": "vite preview --config vite.freqhole.config.js"
+    "dev:freqhole": "vite --config vite.config.freqhole.ts",
+    "build:freqhole": "vite build --config vite.config.freqhole.ts",
+    "preview:freqhole": "vite preview --config vite.config.freqhole.ts"
   }
 }
 ```
@@ -459,27 +408,29 @@ export { default as FreqholePlayer } from "./components/FreqholePlayer";
 #### 2.1 Install Tailwind Dependencies ✅
 
 ```bash
-npm install -D tailwindcss@next @tailwindcss/vite@next
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
 ```
 
 #### 2.2 Tailwind Configuration ✅
 
+**File**: `tailwind.config.js`
+
 ```javascript
-// tailwind.config.js
-export default {
+module.exports = {
   content: ["./client/js/src/views/freqhole/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
       colors: {
-        "zune-purple": "#6B46C1",
-        "zune-pink": "#EC4899",
-        "zune-blue": "#3B82F6",
-        "zune-green": "#10B981",
-        "zune-orange": "#F59E0B",
-      },
-      animation: {
-        "slide-in": "slideIn 0.3s ease-out",
-        "fade-in": "fadeIn 0.2s ease-out",
+        "metro-blue": "#0078d4",
+        "metro-purple": "#8764b8",
+        "metro-teal": "#00bcb4",
+        "metro-orange": "#ff8c00",
+        "metro-red": "#e74c3c",
+        "metro-green": "#00cc88",
+        "metro-gray": "#666666",
+        "metro-dark": "#1a1a1a",
+        "metro-light": "#f4f4f4",
       },
     },
   },
@@ -489,15 +440,17 @@ export default {
 
 #### 2.3 CSS Entry Point ✅
 
-```css
-/* client/js/src/views/freqhole/styles/main.css */
-@import "tailwindcss";
+**File**: `client/js/src/views/freqhole/styles.css`
 
-/* Zune Metro UI Base Styles */
+```css
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
 body {
-  background: #000;
-  color: #fff;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #1a1a1a;
+  color: #ffffff;
 }
 ```
 
@@ -505,198 +458,180 @@ body {
 
 #### 3.1 Layout Components Architecture ✅
 
-```
-client/js/src/views/freqhole/
-├── components/
-│   ├── layout/
-│   │   ├── FreqholePlayer.tsx     # Main container
-│   │   ├── Panel.tsx              # Reusable panel component
-│   │   ├── Header.tsx             # Top navigation
-│   │   ├── Sidebar.tsx            # Left navigation
-│   │   └── PlayerFooter.tsx       # Bottom player controls
-│   ├── ui/
-│   │   ├── Button.tsx
-│   │   ├── Modal.tsx
-│   │   └── ContextMenu.tsx
-│   └── music/
-│       ├── SongList.tsx
-│       ├── AlbumGrid.tsx
-│       └── PlaylistManager.tsx
-└── hooks/
-    ├── useAudioPlayer.tsx
-    └── useMusicLibrary.tsx
-```
+**File**: `client/js/src/views/freqhole/components/layout/`
+
+- `MainLayout.tsx`: Overall app container
+- `Header.tsx`: Top navigation and search
+- `Sidebar.tsx`: Left navigation panel
+- `ContentArea.tsx`: Main content display
+- `PlayerFooter.tsx`: Bottom player controls
+
+**Features**:
+
+- Responsive grid layout
+- Flexible panel system
+- Integrated with Metro UI theme
+- Keyboard navigation support
 
 #### 3.2 Responsive Grid System ✅
 
 ```typescript
 const layouts = {
-  desktop: { left: 3, center: 3, right: 6 }, // 3+3+6
-  tablet: { left: 3, center: 9 }, // 3+9
-  mobile: { main: 12 }, // 12
+  lg: { cols: 12, rows: 8 },
+  md: { cols: 8, rows: 6 },
+  sm: { cols: 4, rows: 4 },
 };
 
 const columnSpans = {
-  desktop: {
-    sidebar: "col-span-3",
-    main: "col-span-3",
-    detail: "col-span-6",
-  },
-  tablet: {
-    sidebar: "col-span-3",
-    main: "col-span-9",
-  },
-  mobile: {
-    main: "col-span-12",
-  },
+  header: { lg: 12, md: 8, sm: 4 },
+  sidebar: { lg: 2, md: 2, sm: 4 },
+  content: { lg: 10, md: 6, sm: 4 },
+  player: { lg: 12, md: 8, sm: 4 },
 };
 ```
 
 #### 3.3 Player Footer Integration ✅
 
-Fixed player footer that works with the 12-column layout and doesn't interfere with scrolling content.
+Integrated player controls with:
+
+- Play/pause/next/previous buttons
+- Progress bar with scrubbing
+- Volume controls
+- Queue management
+- Now playing display
 
 ### Phase 5: Music-Specific Data Grid
 
 #### 5.1 Infinite Grid Adaptations
 
-Adapt the existing infinite-data-grid for music content:
+**Track List View**:
 
 ```typescript
-type ListItem = Song | Album | Artist | Playlist;
+type ListItem = Track;
 
 const columns = [
-  {
-    key: "title",
-    label: "Title",
-    width: "300px",
-    render: (item: Song) => (
-      <div class="song-title-cell">
-        <span class="title">{item.title}</span>
-        <span class="artist">{item.artist}</span>
-      </div>
-    )
-  },
-  { key: "album", label: "Album", width: "200px" },
-  { key: "duration", label: "Duration", width: "80px", render: formatDuration },
-  {
-    key: "actions",
-    label: "",
-    width: "100px",
-    render: (item: Song) => <SongActionMenu song={item} />
-  }
+  { key: "title", header: "Title", width: 250 },
+  { key: "artist", header: "Artist", width: 200 },
+  { key: "album", header: "Album", width: 200 },
+  { key: "duration", header: "Duration", width: 100 },
+  { key: "genre", header: "Genre", width: 120 },
+  { key: "year", header: "Year", width: 80 },
+  { key: "bitrate", header: "Quality", width: 100 },
+  { key: "playCount", header: "Plays", width: 80 },
+  { key: "dateAdded", header: "Added", width: 120 },
+  { key: "rating", header: "Rating", width: 100 },
 ];
 ```
 
-**Grid variations for different content types:**
+**Album Grid View**:
 
 ```typescript
-type GridItem = Song | Album | Artist | Playlist;
+type GridItem = Album;
 
-const renderGridItem = (item: GridItem, type: ViewType) => {
-  switch (type) {
-    case 'songs':
-      return <SongRow song={item as Song} onPlay={playSong} />;
-    case 'albums':
-      return <AlbumCard album={item as Album} onClick={viewAlbum} />;
-    case 'artists':
-      return <ArtistCard artist={item as Artist} onClick={viewArtist} />;
-    case 'playlists':
-      return <PlaylistCard playlist={item as Playlist} onClick={viewPlaylist} />;
-  }
-};
+const renderGridItem = (album: Album) => (
+  <div class="album-card">
+    <img src={album.coverUrl} alt={album.title} />
+    <h3>{album.title}</h3>
+    <p>{album.artist}</p>
+    <p>{album.year}</p>
+  </div>
+);
 
-const columns = {
-  songs: [
-    { key: "title", label: "Title", sortable: true },
-    { key: "artist", label: "Artist", sortable: true },
-    { key: "album", label: "Album", sortable: true },
-    { key: "duration", label: "Duration", render: formatTime },
-    { key: "actions", label: "", render: (song) => <SongActions song={song} /> }
-  ],
-  albums: [
-    { key: "album", label: "Album", sortable: true },
-    { key: "artist", label: "Artist", sortable: true },
-    { key: "year", label: "Year", sortable: true },
-    { key: "track_count", label: "Tracks" }
-  ]
-  // ... other configurations
-};
+const columns = [
+  { key: 'cover', header: '', width: 200 },
+  { key: 'title', header: 'Album', width: 200 },
+  { key: 'artist', header: 'Artist', width: 150 },
+  { key: 'year', header: 'Year', width: 80 },
+  { key: 'trackCount', header: 'Tracks', width: 80 },
+  { key: 'duration', header: 'Duration', width: 100 }
+];
 ```
 
 #### 5.2 Grouped Data Support
 
 ```typescript
 interface GroupedDataSection {
-  label: string;
-  items: Song[];
-  metadata?: {
-    total: number;
-    duration?: number;
-  };
+  title: string;
+  items: Track[];
+  type: "album" | "artist" | "genre" | "year";
+  sortKey?: string;
 }
 
 interface GroupedGridProps {
   sections: GroupedDataSection[];
-  renderItem: (item: Song) => JSX.Element;
-  onItemSelect?: (item: Song) => void;
+  onItemSelect: (item: Track) => void;
+  groupBy: "album" | "artist" | "genre" | "year";
 }
 ```
 
 #### 5.3 Integration Effort Estimate
 
-- **Component adaptation**: 2-3 days
-- **Music-specific rendering**: 1-2 days
-- **Testing and refinement**: 1 day
-- **Integration with Panel system**: 1 day
+**Immediate** (Current Phase):
 
-**Total estimated effort**: 5-7 days
+- Basic track list rendering
+- Album grid view
+- Selection and playback integration
+
+**Next Phase**:
+
+- Grouped data display
+- Advanced sorting/filtering
+- Context menu integration
+- Drag-and-drop playlist management
 
 ## Phase 6: API and State Management Extraction
 
 ### 6.1 API Client Separation
 
-Extract API calls from the monolithic component into a dedicated music API client:
+**File**: `client/js/src/lib/api/musicApi.ts`
 
 ```typescript
-// client/js/src/lib/api/musicApi.ts
-export class MusicApiClient {
+class MusicApiClient {
   constructor(private baseUrl: string) {}
 
-  async getSongs(options?: SearchOptions): Promise<Song[]> {}
-  async getAlbums(): Promise<Album[]> {}
-  async getArtists(): Promise<ArtistSummary[]> {}
-  async getPlaylists(): Promise<Playlist[]> {}
-  async createPlaylist(playlist: CreatePlaylistRequest): Promise<Playlist> {}
-  // ... other endpoints
+  async getSongs(): Promise<Track[]> {
+    /* ... */
+  }
+  async getAlbums(): Promise<Album[]> {
+    /* ... */
+  }
+  async getArtists(): Promise<Artist[]> {
+    /* ... */
+  }
+  async getPlaylists(): Promise<Playlist[]> {
+    /* ... */
+  }
+  async createPlaylist(name: string): Promise<Playlist> {
+    /* ... */
+  }
 }
 ```
 
 ### 6.2 State Management
 
-Extract state management into composable hooks:
+**File**: `client/js/src/views/freqhole/hooks/usePlayerState.ts`
 
 ```typescript
 interface PlayerState {
-  currentSong: Song | null;
+  currentTrack: Track | null;
   isPlaying: boolean;
-  currentTime: number;
-  duration: number;
+  progress: number;
   volume: number;
-  queue: Song[];
-  currentIndex: number;
+  queue: Track[];
+  shuffle: boolean;
+  repeat: "none" | "one" | "all";
 }
 
-const [playerState, setPlayerState] = createStore<PlayerState>(initialState);
+const [playerState, setPlayerState] = createSignal<PlayerState>(initialState);
 ```
 
 ### 6.3 Hook Extraction
 
-Create focused hooks for different concerns:
+Extract state management into composable hooks:
 
-- `useAudioPlayer()` - Audio element control
-- `useMusicLibrary()` - Library data management
-- `usePlaylistManager()` - Playlist CRUD operations
+- `usePlayerState()`: Playback controls and state
+- `useMusicLibrary()`: Library data and operations
+- `usePlaylistManager()`: Playlist CRUD operations
 
 ## Phase 7: Feature Components and Complex UI
 
@@ -705,32 +640,35 @@ Create focused hooks for different concerns:
 ```typescript
 interface PlaylistManagerProps {
   playlists: Playlist[];
-  onCreatePlaylist: (playlist: CreatePlaylistRequest) => void;
-  onEditPlaylist: (id: string, updates: Partial<Playlist>) => void;
+  onCreatePlaylist: (name: string) => void;
+  onUpdatePlaylist: (id: string, updates: Partial<Playlist>) => void;
   onDeletePlaylist: (id: string) => void;
+  onAddToPlaylist: (playlistId: string, trackIds: string[]) => void;
 }
 ```
 
-**Features to extract:**
+**Features**:
 
-- Playlist creation modal with form validation
-- Drag-and-drop song reordering
-- Playlist sharing and collaboration controls
+- Drag-and-drop track reordering
+- Batch operations (add/remove multiple tracks)
+- Playlist sharing and collaboration
+- Smart playlist creation with rules
 
 ### 7.2 Search Results Rendering
-
-Advanced search with multiple result types:
 
 ```typescript
 interface SearchResultsProps {
   query: string;
   results: {
-    songs: Song[];
+    tracks: Track[];
     albums: Album[];
-    artists: ArtistSummary[];
+    artists: Artist[];
     playlists: Playlist[];
   };
-  onResultSelect: (item: Song | Album | Artist | Playlist) => void;
+  onSelectTrack: (track: Track) => void;
+  onSelectAlbum: (album: Album) => void;
+  onSelectArtist: (artist: Artist) => void;
+  onSelectPlaylist: (playlist: Playlist) => void;
 }
 ```
 
@@ -740,24 +678,24 @@ interface SearchResultsProps {
 interface VolumeControlProps {
   volume: number;
   onVolumeChange: (volume: number) => void;
-  muted?: boolean;
-  onMuteToggle?: () => void;
+  muted: boolean;
+  onMuteToggle: () => void;
 }
 
 interface QueueViewerProps {
-  queue: Song[];
+  queue: Track[];
   currentIndex: number;
   onReorder: (fromIndex: number, toIndex: number) => void;
-  onRemove: (index: number) => void;
-  onJumpTo: (index: number) => void;
+  onRemoveFromQueue: (index: number) => void;
+  onJumpToTrack: (index: number) => void;
 }
 
 interface NowPlayingCardProps {
-  song: Song;
+  track: Track;
   isPlaying: boolean;
   progress: number;
+  onTogglePlay: () => void;
   onSeek: (position: number) => void;
-  onTogglePlayback: () => void;
   onNext: () => void;
   onPrevious: () => void;
 }
@@ -767,38 +705,46 @@ interface NowPlayingCardProps {
 
 ### 8.1 Icon Components
 
-Extract and standardize all SVG icons used throughout the player:
+Extract SVG icons into reusable components:
 
-- PlayIcon, PauseIcon, SkipIcon, ShuffleIcon, RepeatIcon
-- VolumeIcon, MuteIcon, QueueIcon
-- Standardize sizing, coloring, and interaction states
+- `PlayIcon`, `PauseIcon`, `NextIcon`, `PrevIcon`
+- `ShuffleIcon`, `RepeatIcon`, `VolumeIcon`
+- `SearchIcon`, `MenuIcon`, `CloseIcon`
+- Consistent sizing and theming
 
 ### 8.2 Legacy Component Migration
 
-Identify reusable patterns from the existing codebase and create modern equivalents using our new component architecture.
+Migrate existing components to new architecture:
+
+- Update import paths
+- Maintain backward compatibility
+- Gradual migration strategy
 
 ## Risks and Mitigation
 
 ### Technical Risks
 
-1. **State synchronization complexity** - Mitigate with clear data flow patterns
-2. **Audio element lifecycle management** - Create dedicated hook for audio handling
-3. **Performance with large music libraries** - Implement virtualization and pagination
-4. **Cross-browser audio compatibility** - Test extensively, provide fallbacks
+1. **Performance Regression**: Large component tree could impact performance
+   - _Mitigation_: Implement proper memoization and lazy loading
+
+2. **State Management Complexity**: Complex state sharing between components
+   - _Mitigation_: Use proven patterns (hooks, context) and keep state localized
+
+3. **Testing Complexity**: More components mean more testing surface area
+   - _Mitigation_: Focus on integration tests and critical user flows
 
 ### Project Risks
 
-1. **Scope creep during extraction** - Stick to planned phases, document future enhancements separately
-2. **Breaking existing functionality** - Maintain parallel development, comprehensive testing
-3. **Timeline pressure** - Prioritize core functionality over nice-to-have features
+1. **Scope Creep**: Temptation to add new features during refactoring
+   - _Mitigation_: Strict focus on decomposition, feature additions come later
+
+2. **Timeline Pressure**: Stakeholder expectations for quick delivery
+   - _Mitigation_: Incremental delivery with working versions at each phase
 
 ## Success Metrics
 
-- **Maintainability**: Component count <50, average component size <200 lines
-- **Performance**: Initial load <2s, smooth scrolling with 10k+ songs
-- **Test Coverage**: >80% for core components
-- **Bundle Size**: <500KB total JavaScript
-
----
-
-_This incremental approach ensures we never break existing functionality while systematically decomposing the 3100-line monolith into maintainable, reusable components that fit our Panel-based architecture._
+- **Functional Parity**: All existing features work identically
+- **Code Organization**: Clear separation of concerns and modular architecture
+- **Performance**: No regression in load times or runtime performance
+- **Developer Experience**: Easier to understand, modify, and extend
+- **Test Coverage**: Comprehensive testing of all components

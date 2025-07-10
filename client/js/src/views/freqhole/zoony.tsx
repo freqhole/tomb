@@ -7,6 +7,19 @@ import {
 } from "../../components/search/SearchContext.js";
 import { SearchBox } from "../../components/search/SearchBox.js";
 import { ApiClient } from "../../lib/api-client.js";
+import { Header } from "./components/header";
+import { Player } from "./components/player";
+import {
+  AddIcon,
+  CloseIcon,
+  EditIcon,
+  DeleteIcon,
+  DragIcon,
+  MoreIcon,
+  QueueIcon,
+  MusicIcon,
+  PlayIcon,
+} from "./components/icons";
 
 interface ZoonyProps {
   /** API base URL */
@@ -88,98 +101,7 @@ const createApiClient = (baseUrl: string): ApiClient => {
   return new ApiClient({ baseUrl });
 };
 
-// SVG Icons
-const PlayIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M8 5v14l11-7z" />
-  </svg>
-);
-
-const PauseIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-  </svg>
-);
-
-const PrevIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-  </svg>
-);
-
-const NextIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-  </svg>
-);
-
-const QueueIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z" />
-  </svg>
-);
-
-const AddIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
-  </svg>
-);
-
-const CloseIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-  </svg>
-);
-
-const VolumeIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
-  </svg>
-);
-
-const MusicIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-  </svg>
-);
-
-const EditIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-  </svg>
-);
-
-const DeleteIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-  </svg>
-);
-
-const FreqholeIcon = () => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 500 500"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-  >
-    <path
-      d="M250 405L125 155L375 155L303.611 340.714L250 405Z"
-      fill="#FF00FF"
-    />
-  </svg>
-);
-const DragIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
-  </svg>
-);
-
-const MoreIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
-  </svg>
-);
+// SVG Icons are now imported from centralized icons file
 
 function ZoonyContent() {
   const context = useSearchContext();
@@ -1081,73 +1003,21 @@ function ZoonyContent() {
   return (
     <div class="zune-demo">
       {/* Header */}
-      <div class="zune-header">
-        <div class="zune-branding">
-          <div class="zune-logo">
-            <span class="zune-logo-text">
-              <span class="hidden-sm">freqh</span>
-              <FreqholeIcon />
-              <span class="hidden-sm">le</span>
-            </span>
-          </div>
-
-          <nav class="zune-nav">
-            <button
-              class={`zune-nav-item ${currentView() === "music" ? "active" : ""}`}
-              onClick={() => changeView("music")}
-            >
-              music
-            </button>
-            <button
-              class={`zune-nav-item ${currentView() === "artists" ? "active" : ""}`}
-              onClick={() => changeView("artists")}
-            >
-              artists
-            </button>
-            <button
-              class={`zune-nav-item ${currentView() === "albums" ? "active" : ""}`}
-              onClick={() => changeView("albums")}
-            >
-              albums
-            </button>
-            <button
-              class={`zune-nav-item ${currentView() === "playlists" ? "active" : ""}`}
-              onClick={() => changeView("playlists")}
-            >
-              playlists
-            </button>
-          </nav>
-
-          <div class="zune-search-container">
-            <SearchBox
-              placeholder="search music..."
-              useInternalState={false}
-              query={searchQuery()}
-              onQueryChange={(query) => {
-                setSearchQuery(query);
-                context.state.setQuery(query);
-                if (!query.trim()) {
-                  setIsSearchActive(false);
-                  setSearchResults([]);
-                }
-              }}
-              onSearch={handleSearch}
-              autoSearch={true}
-              debounceMs={300}
-              class="zune-search-box"
-            />
-            <Show when={searchQuery().trim()}>
-              <button
-                class="zune-search-clear"
-                onClick={clearSearch}
-                title="Clear search"
-              >
-                <CloseIcon />
-              </button>
-            </Show>
-          </div>
-        </div>
-      </div>
+      <Header
+        currentView={currentView()}
+        onViewChange={changeView}
+        searchQuery={searchQuery()}
+        onSearchQueryChange={(query) => {
+          setSearchQuery(query);
+          if (!query.trim()) {
+            setIsSearchActive(false);
+            setSearchResults([]);
+          }
+        }}
+        onSearch={handleSearch}
+        onClearSearch={clearSearch}
+        searchContext={context}
+      />
 
       {/* Main Content */}
       <div class="zune-main">
@@ -1701,97 +1571,27 @@ function ZoonyContent() {
       </div>
 
       {/* Player */}
-      <Show when={currentSong()}>
-        <div class="zune-player">
-          <div class="zune-player-info">
-            <div class="zune-player-artwork">
-              <Show
-                when={currentSong()?.thumbnail_blob_id}
-                fallback={
-                  <div class="zune-artwork-placeholder small">
-                    <MusicIcon />
-                  </div>
-                }
-              >
-                <img
-                  src={`http://localhost:8080/api/blobs/${currentSong()?.thumbnail_blob_id}`}
-                  alt={currentSong()?.title}
-                  class="zune-artwork-image small"
-                />
-              </Show>
-            </div>
-            <div class="zune-player-text">
-              <h4 class="zune-player-title">{currentSong()?.title}</h4>
-              <p class="zune-player-artist">{currentSong()?.artist}</p>
-            </div>
-          </div>
-
-          <div class="zune-player-controls">
-            <button
-              class="zune-control-btn"
-              onClick={playPrevious}
-              disabled={currentQueueIndex() === 0}
-            >
-              <PrevIcon />
-            </button>
-            <button class="zune-control-btn primary" onClick={togglePlayback}>
-              {isPlaying() ? <PauseIcon /> : <PlayIcon />}
-            </button>
-            <button
-              class="zune-control-btn"
-              onClick={playNext}
-              disabled={currentQueueIndex() >= playQueue().length - 1}
-            >
-              <NextIcon />
-            </button>
-            <button
-              class="zune-control-btn"
-              onClick={() => setShowQueue(!showQueue())}
-              title="Show Queue"
-            >
-              <QueueIcon />
-            </button>
-          </div>
-
-          <div class="zune-player-progress">
-            <span class="zune-time">{formatTime(currentTime())}</span>
-            <div
-              class="zune-progress-bar"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const percentage = ((e.clientX - rect.left) / rect.width) * 100;
-                seekTo(percentage);
-              }}
-            >
-              <div
-                class="zune-progress-fill"
-                style={{
-                  width: `${duration() > 0 ? (currentTime() / duration()) * 100 : 0}%`,
-                }}
-              ></div>
-            </div>
-            <span class="zune-time">{formatTime(duration())}</span>
-          </div>
-
-          <div class="zune-player-volume">
-            <VolumeIcon />
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={volume()}
-              onInput={(e) => {
-                const newVolume = parseFloat(e.currentTarget.value);
-                setVolume(newVolume);
-                const audio = audioElement();
-                if (audio) audio.volume = newVolume;
-              }}
-              class="zune-volume-slider"
-            />
-          </div>
-        </div>
-      </Show>
+      <Player
+        currentSong={currentSong()}
+        isPlaying={isPlaying()}
+        currentTime={currentTime()}
+        duration={duration()}
+        volume={volume()}
+        currentQueueIndex={currentQueueIndex()}
+        playQueue={playQueue()}
+        showQueue={showQueue()}
+        onTogglePlayback={togglePlayback}
+        onPlayPrevious={playPrevious}
+        onPlayNext={playNext}
+        onSeekTo={seekTo}
+        onVolumeChange={(newVolume) => {
+          setVolume(newVolume);
+          const audio = audioElement();
+          if (audio) audio.volume = newVolume;
+        }}
+        onToggleQueue={() => setShowQueue(!showQueue())}
+        formatTime={formatTime}
+      />
 
       {/* Click outside handler to close dropdown */}
       <Show when={showPlaylistDropdown()}>
