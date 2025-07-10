@@ -1,4 +1,5 @@
 import { JSX, Show, createSignal, onMount, onCleanup } from "solid-js";
+import { useGlobalOverlay } from "./useGlobalOverlay";
 
 export interface MenuAction {
   label: string;
@@ -74,34 +75,18 @@ export function ContextMenu(props: ContextMenuProps) {
     }
   });
 
+  const overlay = useGlobalOverlay("context-menu");
+
   onMount(() => {
-    if (!props.isOpen) return;
-
-    // Handle click outside to close
-    const handleClickOutside = (event: MouseEvent) => {
-      const menu = menuRef();
-      if (menu && !menu.contains(event.target as Node)) {
-        props.onClose();
-      }
-    };
-
-    // Handle escape key to close
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        props.onClose();
-      }
-    };
-
-    // Small delay to prevent button click from immediately triggering close
-    const timeoutId = setTimeout(() => {
-      document.addEventListener("mousedown", handleClickOutside);
-      document.addEventListener("keydown", handleEscape);
-    }, 50);
+    if (props.isOpen && menuRef()) {
+      // Activate this overlay in the global system
+      overlay.activate(menuRef()!, props.onClose);
+    } else if (!props.isOpen) {
+      overlay.deactivate();
+    }
 
     onCleanup(() => {
-      clearTimeout(timeoutId);
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
+      overlay.deactivate();
     });
   });
 
@@ -118,7 +103,8 @@ export function ContextMenu(props: ContextMenuProps) {
         ref={(el) => {
           setMenuRef(el);
           if (el && props.isOpen) {
-            // Update position once menu is rendered
+            // Activate overlay and update position
+            overlay.activate(el, props.onClose);
             requestAnimationFrame(() => {
               const constrainedPos = calculateConstrainedPosition();
               setPosition(constrainedPos);
@@ -185,7 +171,6 @@ export function useContextMenu() {
   const handleButtonClick = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
 
     // Position menu at bottom-left of button

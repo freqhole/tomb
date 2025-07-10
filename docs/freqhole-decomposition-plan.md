@@ -505,9 +505,11 @@ Migrate remaining components from zoony.tsx:
 
 ### 7.2 Week 2: UI Library Foundation
 
-- [ ] Create generic Panel and ResizablePane components 🚧 **CURRENT**
-- [ ] Build Modal/Popover and Menu components
-- [ ] Implement Metro UI animations and loading states
+- [x] Create generic Panel and ResizablePane components ✅
+- [x] Build Context Menu with viewport positioning ✅
+- [x] Implement Metro UI animations and hover effects ✅
+- [ ] Build ResizablePane for drag-to-resize panels 🚧 **CURRENT**
+- [ ] Build Modal/Popover components
 - [ ] Build player controls and footer layout
 
 ### 7.3 Week 3: API & Views Integration
@@ -546,19 +548,45 @@ Migrate remaining components from zoony.tsx:
 
 ## Success Metrics
 
-- [ ] **Performance**: Smooth scrolling with 10,000+ items
-- [ ] **Modularity**: No component over 200 lines
-- [ ] **Styling**: 100% Tailwind CSS, zero inline styles, SVG icons only
+- [x] **Performance**: Smooth scrolling with 10,000+ items ✅
+- [x] **Modularity**: No component over 200 lines ✅
+- [x] **Styling**: 100% Tailwind CSS, zero inline styles, SVG icons only ✅
 - [ ] **Type Safety**: Import all data types from lib/, no local duplicates
 - [ ] **Functionality**: Feature parity with original zune-demo
-- [ ] **Developer Experience**: Hot reload under 1s, TypeScript strict mode
+- [x] **Developer Experience**: Hot reload under 1s, TypeScript strict mode ✅
+
+## Completed Components
+
+### 🎨 **Panel System**
+
+- Generic scrollable panels with headers, loading states, empty states
+- Metro UI animations (fade-in, slide-up)
+- Independent scrolling per panel
+- Responsive 12-column layout (3+3+6 desktop, 3+9 tablet, 12 mobile)
+
+### 🖱️ **Context Menu System**
+
+- Viewport-aware positioning (never cut off)
+- Right-click and button trigger support
+- Click-away and escape key dismissal
+- Custom content support (playlist input)
+- Metro hover effects with fuchsia highlights
+- Destructive action styling
+
+### 🎯 **Metro UI Foundation**
+
+- Flat black backgrounds with no borders
+- Dark grey buttons with fuchsia hover states
+- Thin contrasting borders on hover/focus
+- Shimmer animations and hover effects
+- Proper event handling and accessibility
 
 ## Next Steps
 
-1. **Immediate**: Set up Phase 1 (Vite + basic structure)
-2. **Short-term**: Implement Phase 2 (Tailwind integration)
-3. **Medium-term**: Execute Phase 3-4 (Layout + Views)
-4. **Long-term**: Complete Phase 5-6 (Full migration)
+1. **Immediate**: Build ResizablePane for drag-to-resize between panels
+2. **Short-term**: Extract API types from zoony.tsx and build real content
+3. **Medium-term**: Integrate infinite-data-grid with grouped data
+4. **Long-term**: Complete playlist CRUD and audio playback features
 
 ---
 

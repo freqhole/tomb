@@ -4,9 +4,12 @@ import {
   useContextMenu,
   type MenuAction,
 } from "./components/ui/ContextMenu";
+import { Modal, Popover, useModal, usePopover } from "./components/ui/Modal";
 
 export function Freqhole() {
   const contextMenu = useContextMenu();
+  const modal = useModal();
+  const popover = usePopover();
 
   // Demo context menu actions
   const menuActions: MenuAction[] = [
@@ -150,41 +153,50 @@ export function Freqhole() {
                 >
                   View Options
                 </button>
+                <button
+                  class="px-3 py-1 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm metro-button-hover"
+                  onClick={popover.handleButtonClick}
+                >
+                  Popover
+                </button>
+                <button
+                  class="px-3 py-1 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 text-sm metro-button-hover"
+                  onClick={modal.open}
+                >
+                  Modal
+                </button>
               </div>
             }
           >
             <div class="space-y-6">
               <div class="text-gray-400 mb-4">
-                Right-click anywhere OR click "View Options" button to test
-                context menu!
+                Test our UI components: Right-click for context menu, click
+                buttons for Modal/Popover!
               </div>
 
-              {/* Context Menu Demo */}
+              {/* UI Components Demo */}
               <div class="space-y-4">
-                <h3 class="text-white font-bold">Context Menu Demo:</h3>
+                <h3 class="text-white font-bold">UI Components Demo:</h3>
                 <div class="text-primary-500 text-xl font-bold metro-slide-up">
-                  Context menu system working! ✨
+                  Modal, Popover & Context Menu working! ✨
                 </div>
                 <div class="text-green-500 font-medium">
-                  ✅ Viewport-aware positioning
+                  ✅ Context Menu: Right-click or "View Options"
                 </div>
                 <div class="text-green-500 font-medium">
-                  ✅ Click outside to close
+                  ✅ Modal: Full-screen overlay with backdrop
                 </div>
                 <div class="text-green-500 font-medium">
-                  ✅ Escape key to close
+                  ✅ Popover: Anchored positioning with auto-placement
                 </div>
                 <div class="text-green-500 font-medium">
-                  ✅ Custom content support (playlist input)
+                  ✅ Click-away and escape key support
                 </div>
                 <div class="text-green-500 font-medium">
-                  ✅ Metro hover animations
-                </div>
-                <div class="text-green-500 font-medium">
-                  ✅ Destructive actions styling
+                  ✅ Metro animations and styling
                 </div>
                 <div class="text-yellow-500 font-medium">
-                  🖱️ Try right-clicking near window edges!
+                  🖱️ Try all three UI patterns!
                 </div>
               </div>
             </div>
@@ -217,6 +229,71 @@ export function Freqhole() {
           </button>
         </div>
       </ContextMenu>
+
+      {/* Modal Demo */}
+      <Modal
+        isOpen={modal.isOpen()}
+        onClose={modal.close}
+        title="Demo Modal"
+        size="md"
+      >
+        <div class="space-y-4">
+          <p class="text-gray-300">
+            This is a modal dialog with backdrop blur and Metro styling.
+          </p>
+
+          <div class="space-y-3">
+            <h4 class="text-white font-medium">Modal Features:</h4>
+            <ul class="space-y-2 text-sm text-gray-400">
+              <li>✅ Backdrop blur and dark overlay</li>
+              <li>✅ Escape key and click-outside to close</li>
+              <li>✅ Body scroll prevention</li>
+              <li>✅ Multiple sizes (sm, md, lg, xl, full)</li>
+              <li>✅ Metro animations</li>
+            </ul>
+          </div>
+
+          <div class="flex space-x-3 pt-4">
+            <button
+              class="px-4 py-2 bg-primary-500 text-white border border-transparent hover:bg-primary-600 hover:border-primary-300 transition-all duration-200 metro-button-hover"
+              onClick={modal.close}
+            >
+              Close Modal
+            </button>
+            <button class="px-4 py-2 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 metro-button-hover">
+              Another Action
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Popover Demo */}
+      <Popover
+        isOpen={popover.isOpen()}
+        onClose={popover.close}
+        anchorElement={popover.anchorElement()}
+        placement="auto"
+        showArrow={true}
+      >
+        <div class="space-y-3 min-w-64">
+          <h4 class="text-white font-medium">Popover Menu</h4>
+          <p class="text-sm text-gray-400">
+            Smart positioning that adapts to viewport edges.
+          </p>
+
+          <div class="space-y-2">
+            <button class="w-full px-3 py-2 text-left border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 metro-button-hover">
+              Settings
+            </button>
+            <button class="w-full px-3 py-2 text-left border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 metro-button-hover">
+              Preferences
+            </button>
+            <button class="w-full px-3 py-2 text-left border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 metro-button-hover">
+              About
+            </button>
+          </div>
+        </div>
+      </Popover>
     </div>
   );
 }
