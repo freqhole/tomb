@@ -385,7 +385,10 @@ async fn main() {
 
     info!("🌐 Server listening on {}", addr);
     info!("🔗 WebAuthn RP ID: {}", config.webauthn.rp_id);
-    info!("🔗 WebAuthn Origin: {}", config.webauthn.rp_origin);
+    info!(
+        "🔗 WebAuthn Origin: {}",
+        config.webauthn.rp_origins.join(",")
+    );
     info!(
         "📁 Assets directory: {}",
         config.static_files.assets_directory

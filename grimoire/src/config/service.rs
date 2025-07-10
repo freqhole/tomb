@@ -340,11 +340,7 @@ impl ConfigService {
         // Generate environment variables
         let mut content = String::new();
 
-        content.push_str("# WebAuthn Server Environment Variables\n");
-        content.push_str("# Generated from configuration\n\n");
-
         if with_examples {
-            content.push_str("# Configuration and secrets file paths\n");
             content.push_str("# CONFIG_PATH=assets/config/config.jsonc\n");
             content.push_str("# SECRETS_PATH=assets/config/config.secrets.jsonc\n\n");
         }
@@ -356,8 +352,8 @@ impl ConfigService {
         content.push_str(&format!("WEBAUTHN_RP_ID={}\n", config.webauthn.rp_id));
         content.push_str(&format!("WEBAUTHN_RP_NAME={}\n", config.webauthn.rp_name));
         content.push_str(&format!(
-            "WEBAUTHN_RP_ORIGIN={}\n",
-            config.webauthn.rp_origin
+            "WEBAUTHN_RP_ORIGINS={}\n",
+            config.webauthn.rp_origins.join(",")
         ));
 
         Ok(content)

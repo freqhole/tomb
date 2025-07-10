@@ -52,11 +52,7 @@ pub struct AppState {
 impl AppState {
     pub async fn new(config: AppConfig) -> Result<Self, Box<dyn std::error::Error>> {
         // For backwards compatibility, create default WebAuthn instance with first origin
-        let default_origin = config
-            .webauthn
-            .rp_origins
-            .first()
-            .unwrap_or(&config.webauthn.rp_origin);
+        let default_origin = config.webauthn.rp_origins.first().unwrap();
         let rp_origin = Url::parse(default_origin)?;
         let builder = WebauthnBuilder::new(&config.webauthn.rp_id, &rp_origin)?;
 
@@ -263,7 +259,7 @@ impl AppState {
         let allowed_origins = if !self.config.webauthn.rp_origins.is_empty() {
             &self.config.webauthn.rp_origins
         } else {
-            &vec![self.config.webauthn.rp_origin.clone()]
+            &vec!["http://localhost:8080".to_string()]
         };
 
         if !allowed_origins.contains(&origin.to_string()) {

@@ -141,9 +141,6 @@ pub struct WebAuthnConfig {
     /// Relying Party origin URLs (supports multiple domains)
     #[serde(default = "default_rp_origins")]
     pub rp_origins: Vec<String>,
-    /// Legacy single origin (deprecated, use rp_origins instead)
-    #[serde(default = "default_rp_origin")]
-    pub rp_origin: String,
 }
 
 /// HTTP server configuration
@@ -523,9 +520,6 @@ fn default_rp_id() -> String {
 fn default_rp_name() -> String {
     "WebAuthn Demo".to_string()
 }
-fn default_rp_origin() -> String {
-    "http://localhost:8080".to_string()
-}
 
 fn default_server_host() -> String {
     "0.0.0.0".to_string()
@@ -738,7 +732,6 @@ impl AppConfig {
                 rp_id: default_rp_id(),
                 rp_name: default_rp_name(),
                 rp_origins: default_rp_origins(),
-                rp_origin: default_rp_origin(),
             },
             server: ServerConfig {
                 host: default_server_host(),
@@ -813,7 +806,7 @@ impl AppConfig {
         let origins_to_validate = if !self.webauthn.rp_origins.is_empty() {
             &self.webauthn.rp_origins
         } else {
-            &vec![self.webauthn.rp_origin.clone()]
+            &vec![]
         };
 
         for origin in origins_to_validate {
@@ -994,7 +987,6 @@ impl Default for AppConfig {
                 rp_id: default_rp_id(),
                 rp_name: default_rp_name(),
                 rp_origins: default_rp_origins(),
-                rp_origin: default_rp_origin(),
             },
             server: ServerConfig {
                 host: default_server_host(),

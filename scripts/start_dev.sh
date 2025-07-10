@@ -25,7 +25,7 @@ if [ ! -f "assets/config/config.jsonc" ]; then
     echo -e "${BLUE}📝 Please review and edit assets/config/config.jsonc for your setup${NC}"
     echo -e "${BLUE}💡 Key settings to check:${NC}"
     echo -e "${BLUE}  • Database connection (host, port, username, database)${NC}"
-    echo -e "${BLUE}  • WebAuthn settings (rp_id, rp_origin)${NC}"
+    echo -e "${BLUE}  • WebAuthn settings (rp_ids, rp_origins)${NC}"
     echo -e "${BLUE}  • Server port and host${NC}"
     echo ""
 fi

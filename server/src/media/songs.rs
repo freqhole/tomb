@@ -962,8 +962,8 @@ pub async fn get_artist_songs(
     Path(artist): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SongListResponse>, WebauthnError> {
-    let repository = MusicRepository::new(db.pool().clone());
-    let service = PlaylistService::new(repository);
+    // let repository = MusicRepository::new(db.pool().clone());
+    // let service = PlaylistService::new(repository);
 
     let limit = params
         .get("limit")

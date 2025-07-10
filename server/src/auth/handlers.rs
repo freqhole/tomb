@@ -30,8 +30,11 @@ fn get_webauthn_for_request(
         if !app_state.config.webauthn.rp_origins.is_empty() {
             &app_state.config.webauthn.rp_origins[0]
         } else {
-            &app_state.config.webauthn.rp_origin
+            "http://localhost:8080"
         }
+        // else {
+        //     &app_state.config.webauthn.rp_origin
+        // }
     };
 
     app_state.create_webauthn_for_origin(origin).map_err(|e| {

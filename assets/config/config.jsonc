@@ -39,8 +39,7 @@
     "rp_origins": [
       "http://localhost:8080",
       "http://localhost:3003"
-    ],
-    "rp_origin": "http://localhost:8080"
+    ]
   },
   "server": {
     "host": "0.0.0.0",
