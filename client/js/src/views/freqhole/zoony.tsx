@@ -1972,6 +1972,10 @@ function ZoonyContent() {
           text-transform: lowercase;
         }
 
+        .zune-logo-text svg {
+          display: inline;
+        }
+
         .zune-search-container {
           flex: 1;
           max-width: 400px;
