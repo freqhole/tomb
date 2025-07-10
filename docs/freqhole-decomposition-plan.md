@@ -1,151 +1,10 @@
 # Freqhole Audio Player - Modular Decomposition Plan
 
-## 🎯 Current Focus: Phase B - API Types & Interfaces Extraction
+## 🎯 Current Focus: Phase D - State Management Extraction
 
-### Phase B: API Types & Zod Schema Extraction (NEXT PRIORITY)
+### Phase D: State Management Extraction (NEXT PRIORITY)
 
-**Goal**: Extract all fetch() calls from zoony.tsx and integrate with existing ApiClient patterns using Zod schemas
-
-#### B.1 Extend ApiClient with Music Methods (`client/js/src/lib/music/`)
-
-- Extract all fetch() calls from zoony.tsx and add as methods to existing ApiClient
-- Create Zod schemas as source of truth for types (using z.infer)
-- Implement graceful collection parsing (omit invalid items, don't fail whole collection)
-- Add verbose logging for parse failures with configurable log levels
-- Follow existing ApiClient patterns (searchMusic, searchSongs, etc.)
-
-**File structure**:
-
-```
-client/js/src/lib/music/
-├── schemas/
-│   ├── song.ts           # Song schema + z.infer types
-│   ├── album.ts          # Album schema + z.infer types
-│   ├── artist.ts         # Artist schema + z.infer types
-│   ├── playlist.ts       # Playlist schema + z.infer types
-│   ├── queue.ts          # Queue schema + z.infer types
-│   └── index.ts          # Re-export all schemas & types
-├── validation.ts         # Graceful parsing utilities (like search/validation.ts)
-├── api-methods.ts        # Music API methods to extend ApiClient
-├── types.ts              # Re-export all z.infer types
-└── index.ts              # Main barrel export
-```
-
-#### B.2 Extend ApiClient Class
-
-- Add music methods to existing ApiClient class in `api-client.ts`
-- Follow existing patterns from `searchMusic`, `searchSongs`, etc.
-- Use graceful validation like existing search methods
-- Maintain consistency with existing error handling and timeout patterns
-
-#### B.3 Fetch Call Extraction
-
-**Extract all fetch() calls from zoony.tsx**:
-
-- Search for all `fetch("/api/...` calls in zoony.tsx
-- Add corresponding methods to ApiClient class
-- Replace with typed API client methods
-- Follow existing ApiClient patterns and error handling
-
-**Before (zoony.tsx)**:
-
-```typescript
-const response = await fetch("/api/songs");
-const songsData = await response.json();
-```
-
-**After (using extended ApiClient)**:
-
-```typescript
-import { apiClient } from "../../lib/api-client.js";
-const songs = await apiClient.getSongs(); // Returns Song[] with runtime validation
-```
-
-#### B.4 Graceful Collection Parsing Pattern
-
-```typescript
-// music/validation.ts (following existing search/validation.ts pattern)
-export const musicValidation = {
-  validateResponse<T>(
-    schema: z.ZodSchema<T>,
-    data: unknown,
-    context: string,
-  ): T {
-    const result = schema.safeParse(data);
-    if (result.success) {
-      return result.data;
-    }
-
-    console.error(`${context} validation failed:`, result.error);
-    throw new Error(`Invalid ${context} response format`);
-  },
-
-  parseCollection<T>(
-    schema: z.ZodSchema<T>,
-    data: unknown[],
-    context: string,
-  ): T[] {
-    const results: T[] = [];
-
-    data.forEach((item, index) => {
-      const parsed = schema.safeParse(item);
-      if (parsed.success) {
-        results.push(parsed.data);
-      } else {
-        console.warn(`Failed to parse ${context} at index ${index}:`, {
-          error: parsed.error,
-          data: item,
-        });
-      }
-    });
-
-    return results;
-  },
-};
-```
-
-#### B.5 Schema Examples
-
-```typescript
-// schemas/song.ts
-export const SongSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  artist: z.string(),
-  album: z.string().nullish(),
-  duration: z.number(),
-  genre: z.string().nullish(),
-  year: z.number().nullish(),
-  bitrate: z.number().nullish(),
-  playCount: z.number().default(0),
-  url: z.string().url(),
-});
-
-export type Song = z.infer<typeof SongSchema>;
-```
-
-**Benefits**:
-
-- 🔍 Runtime validation with compile-time types
-- 🛡️ Graceful error handling in collections
-- 📊 Detailed logging for debugging data issues
-- 🎯 Single source of truth for data structures
-- 🚀 Better developer experience with IntelliSense
-- 🔄 Easy schema evolution and migration
-
-### Phase C: Icon Components Extraction
-
-**Goal**: Create reusable icon components for consistent styling
-
-#### C.1 Icon Library (`client/js/src/views/freqhole/components/ui/icons/`)
-
-- Extract SVG icons into individual components
-- Consistent sizing, theming, and hover states
-- Props for customization (size, color, className)
-
-### Phase D: State Management Extraction
-
-**Goal**: Extract all state management logic into custom hooks
+**Goal**: Extract all state management logic into custom hooks for better organization and reusability
 
 #### D.1 Music State Hook (`client/js/src/views/freqhole/hooks/useMusicState.ts`)
 
@@ -177,18 +36,6 @@ export type Song = z.infer<typeof SongSchema>;
 - Update all components to use extended ApiClient methods
 - Replace direct fetch() calls in zoony.tsx with API client methods
 - Ensure backward compatibility during transition
-
-**Integration Examples**:
-
-```typescript
-// Before (in zoony.tsx):
-const response = await fetch("/api/songs");
-const songs = await response.json();
-
-// After (using extended ApiClient):
-import { apiClient } from "../../lib/api-client.js";
-const songs = await apiClient.getSongs();
-```
 
 #### E.2 Error Handling & Logging
 
@@ -257,17 +104,15 @@ client/js/src/views/freqhole/hooks/
 
 ### Priority Order
 
-1. **Phase B**: API Types & Zod Schema Extraction (IMMEDIATE NEXT)
-   - B.1: Create Zod schemas and music validation utilities
-   - B.2: Extract fetch() calls from zoony.tsx
-   - B.3: Add music methods to existing ApiClient class
-   - B.4: Replace zoony.tsx fetch calls with ApiClient methods
-2. **Phase C**: Icon components
-3. **Phase D**: State management hooks
-4. **Phase E**: API integration and cleanup
-5. **Phase F**: Styles organization
-6. **Phase G**: IndexedDB persistence
-7. **Phase H**: Advanced state management hooks
+1. **Phase D**: State Management Extraction (IMMEDIATE NEXT)
+   - D.1: Extract state management hooks from zoony.tsx
+   - D.2: Create reusable player, music, and view state hooks
+   - D.3: Update components to use new hook patterns
+   - D.4: Test and validate all functionality
+2. **Phase E**: API integration and cleanup
+3. **Phase F**: Styles organization
+4. **Phase G**: IndexedDB persistence
+5. **Phase H**: Advanced state management hooks
 
 ### Key Principles
 
@@ -276,11 +121,10 @@ client/js/src/views/freqhole/hooks/
 - **Keep zoony.tsx working throughout**
 - **Maintain all existing features**
 - **Gradual, incremental changes**
-- **Schemas as single source of truth**
-- **Graceful error handling in collections**
-- **Verbose logging for debugging**
-- **Integrate with existing ApiClient patterns**
-- **Maintain consistency with existing search methods**
+- **Modular state management**
+- **Reusable hook patterns**
+- **Clean component separation**
+- **Maintain all existing functionality**
 
 ### Testing Strategy
 
@@ -296,6 +140,7 @@ client/js/src/views/freqhole/hooks/
 - **Performance**: No regression in load times or runtime performance
 - **Developer Experience**: Easier to understand, modify, and extend
 - **Maintainability**: Easier to add new features and fix bugs
+- **Hook Reusability**: State logic can be shared across components
 
 ## Project Goals
 
@@ -385,7 +230,75 @@ const columns = {
 
 ---
 
+---
+
 ## ✅ Completed Phases
+
+### Phase C: Icon Components Extraction (COMPLETE) ✅
+
+**Goal**: Create reusable icon components for consistent styling
+
+**Completed Tasks**:
+
+1. ✅ **Enhanced Icon Architecture** - BaseIcon wrapper with customizable props
+2. ✅ **Modular Organization** - Separate files for player, navigation, and utility icons
+3. ✅ **50+ High-Quality Icons** - Comprehensive icon library with consistent design
+4. ✅ **Dynamic Icon System** - Registry-based usage with `<Icon name="play" />`
+5. ✅ **Interactive Components** - `IconButton` with variants and hover states
+6. ✅ **Accessibility Support** - Built-in ARIA labels and semantic markup
+7. ✅ **TypeScript Integration** - Full type safety with `IconProps` interface
+8. ✅ **Backward Compatibility** - Legacy import paths still work
+9. ✅ **Theming Support** - Consistent sizing, colors, and transitions
+10. ✅ **Fixed Circular Imports** - Resolved "Cannot access before initialization" error
+
+**File Structure**:
+
+```
+components/ui/icons/
+├── index.tsx        # Main exports + type definitions
+├── player.tsx       # Player control icons (Play, Pause, Volume, etc.)
+├── navigation.tsx   # Navigation icons (Music, Albums, Search, etc.)
+└── registry.tsx     # Dynamic registry + utility icons
+```
+
+**Key Features**:
+
+- **Customizable Props**: `size`, `color`, `className`, `aria-label`
+- **Preset Sizes**: `IconSizes.xs` (12px) through `IconSizes["2xl"]` (32px)
+- **Interactive Buttons**: `<IconButton name="favorite" onClick={handleClick} />`
+- **Dynamic Usage**: `<Icon name="shuffle" size={20} color="#FF00FF" />`
+- **Performance**: Tree-shaking friendly with individual exports
+
+### Phase B: API Types & Zod Schema Extraction (COMPLETE) ✅
+
+**Goal**: Extract all fetch() calls from zoony.tsx and integrate with existing ApiClient patterns using Zod schemas
+
+**Completed Tasks**:
+
+1. ✅ **Zod Schemas Created** - Song, Album, Artist, Playlist schemas with z.infer types
+2. ✅ **API Client Extended** - Added 11 music methods to existing ApiClient
+3. ✅ **Fetch Calls Extracted** - Replaced all 17 fetch() calls in zoony.tsx
+4. ✅ **Graceful Validation** - Collections omit invalid items instead of failing
+5. ✅ **Runtime Type Safety** - Zod validation with compile-time TypeScript types
+6. ✅ **Server Alignment** - Schemas match actual server response structures
+7. ✅ **Logging Infrastructure** - Verbose logging for parse failures
+8. ✅ **Error Handling** - Consistent with existing ApiClient patterns
+
+**API Methods Available**:
+
+- `apiClient.getSongs()`, `apiClient.getArtists()`, `apiClient.getAlbums()`
+- `apiClient.getPlaylists()`, `apiClient.createPlaylist()`, `apiClient.updatePlaylist()`
+- `apiClient.getPlaylistSongs()`, `apiClient.addSongsToPlaylist()`, etc.
+
+**File Structure**:
+
+```
+client/js/src/lib/music/
+├── schemas/          # Zod schemas + z.infer types
+├── validation.ts     # Graceful parsing utilities
+├── api-methods.ts    # Music API methods
+└── types.ts          # Re-exported types
+```
 
 ### Phase A.3: Final Migration (COMPLETE) ✅
 
