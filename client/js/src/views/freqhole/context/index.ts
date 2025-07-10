@@ -1,4 +1,8 @@
-export { FreqholeProvider, useMusicPlayer } from "./FreqholeContext";
+export {
+  FreqholeProvider,
+  useMusicPlayer,
+  useFreqhole,
+} from "./FreqholeContext";
 export type {
   FreqholeContextType,
   FreqholeProviderProps,
