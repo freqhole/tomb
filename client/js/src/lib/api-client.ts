@@ -25,6 +25,7 @@ import {
   SuggestionsResultSchema,
 } from "./search/types.js";
 import { searchValidation } from "./search/validation.js";
+import { musicApiMethods } from "./music/api-methods.js";
 
 // Error handling
 export class ApiError extends Error {
@@ -495,6 +496,66 @@ export class ApiClient {
       throw error;
     }
   }
+
+  // Music API methods - Songs
+  async getSongs(limit?: number) {
+    return musicApiMethods.getSongs.call(this, limit);
+  }
+
+  // Music API methods - Artists
+  async getArtists() {
+    return musicApiMethods.getArtists.call(this);
+  }
+
+  async getArtistSongs(artist: string, limit?: number) {
+    return musicApiMethods.getArtistSongs.call(this, artist, limit);
+  }
+
+  // Music API methods - Albums
+  async getAlbums() {
+    return musicApiMethods.getAlbums.call(this);
+  }
+
+  async getAlbumTracks(album: string, artist?: string) {
+    return musicApiMethods.getAlbumTracks.call(this, album, artist);
+  }
+
+  // Music API methods - Playlists
+  async getPlaylists(limit?: number) {
+    return musicApiMethods.getPlaylists.call(this, limit);
+  }
+
+  async getPlaylistSongs(playlistId: string) {
+    return musicApiMethods.getPlaylistSongs.call(this, playlistId);
+  }
+
+  async createPlaylist(request: any) {
+    return musicApiMethods.createPlaylist.call(this, request);
+  }
+
+  async updatePlaylist(playlistId: string, request: any) {
+    return musicApiMethods.updatePlaylist.call(this, playlistId, request);
+  }
+
+  async addSongsToPlaylist(playlistId: string, songIds: string[]) {
+    return musicApiMethods.addSongsToPlaylist.call(this, playlistId, songIds);
+  }
+
+  async removeSongsFromPlaylist(playlistId: string, songIds: string[]) {
+    return musicApiMethods.removeSongsFromPlaylist.call(
+      this,
+      playlistId,
+      songIds
+    );
+  }
+
+  async deletePlaylist(playlistId: string) {
+    return musicApiMethods.deletePlaylist.call(this, playlistId);
+  }
+
+  async getPlaylistSummaries() {
+    return musicApiMethods.getPlaylistSummaries.call(this);
+  }
 }
 
 // Default client instance
@@ -521,3 +582,17 @@ export type {
 } from "./api-spec.js";
 
 export { API_SPEC } from "./api-spec.js";
+
+// Re-export music types for convenience
+export type {
+  Song,
+  Album,
+  ArtistSummary,
+  Playlist,
+  CreatePlaylistRequest,
+  UpdatePlaylistRequest,
+  SongListResponse,
+  PlaylistListResponse,
+  ArtistsListResponse,
+  AlbumListResponse,
+} from "./music/schemas/index.js";

@@ -6,7 +6,15 @@ import {
   useSearchContext,
 } from "../../components/search/SearchContext.js";
 
-import { ApiClient } from "../../lib/api-client.js";
+import { apiClient } from "../../lib/api-client.js";
+import type {
+  Song,
+  Album,
+  ArtistSummary,
+  Playlist,
+  PlaylistSong,
+  QueueItem,
+} from "../../lib/music/types.js";
 import { Header } from "./components/header";
 import { Player } from "./components/player";
 import {
@@ -26,78 +34,15 @@ interface ZoonyProps {
   autoConnect?: boolean;
 }
 
-interface Song {
-  id: string;
-  title: string;
-  artist?: string;
-  album?: string;
-  album_artist?: string;
-  track_number?: number;
-  disc_number?: number;
-  duration_seconds?: number;
-  genre?: string;
-  year?: number;
-  bpm?: number;
-  key_signature?: string;
-  rating?: number;
-  is_favorite: boolean;
-  tags: string[];
-  display_title: string;
-  detailed_display_title: string;
-  created_at: string;
-  media_blob_id: string;
-  thumbnail_blob_id?: string;
-  waveform_blob_id?: string;
-  thumbnail_blob_ids: string[];
-}
+// Using Song interface from API schema
 
-interface PlaylistSong {
-  position: number;
-  song: Song;
-  added_at: string;
-}
+// Using ArtistSummary interface from API schema
 
-interface QueueItem {
-  song: Song;
-  id: string;
-}
+// Using Playlist interface from API schema
 
-interface ArtistSummary {
-  artist: string;
-  song_count: number;
-  album_count: number;
-  total_duration: number;
-  genres: string[];
-  avg_rating?: number;
-  favorite_count: number;
-}
+// Using Album interface from API schema
 
-interface Playlist {
-  id: string;
-  title: string;
-  description?: string;
-  is_public: boolean;
-  is_collaborative: boolean;
-  song_count?: number;
-  created_at: string;
-}
-
-interface Album {
-  album: string;
-  artist: string;
-  year?: number;
-  track_count: number;
-  disc_count: number;
-  total_duration: number;
-  genres: string[];
-  avg_rating?: number;
-  favorite_count: number;
-  album_thumbnail_id?: string;
-}
-
-const createApiClient = (baseUrl: string): ApiClient => {
-  return new ApiClient({ baseUrl });
-};
+// Remove unused ApiClient constructor
 
 // SVG Icons are now imported from centralized icons file
 
@@ -180,43 +125,50 @@ function ZoonyContent() {
     try {
       switch (view) {
         case "music":
-          const songsResponse = await fetch(
-            "http://localhost:8080/api/media/songs?limit=1000",
-            {
-              credentials: "include",
-            }
+          const songs = await apiClient.getSongs(1000);
+          setSongs(
+            songs.map((song) => ({
+              ...song,
+              is_favorite: song.favorite || false,
+              tags: [],
+              display_title: song.title,
+              detailed_display_title: `${song.artist} - ${song.title}`,
+              created_at: song.created_at || new Date().toISOString(),
+              media_blob_id: song.id,
+              thumbnail_blob_ids: [],
+            }))
           );
-          const songsData = await songsResponse.json();
-          setSongs(songsData.songs || []);
           break;
 
         case "artists":
-          const artistsResponse = await fetch(
-            "http://localhost:8080/api/media/artists",
-            { credentials: "include" }
+          const artists = await apiClient.getArtists();
+          setArtists(
+            artists.map((artist) => ({
+              ...artist,
+              avg_rating: artist.avg_rating || undefined,
+            }))
           );
-          const artistsData = await artistsResponse.json();
-          setArtists(artistsData.artists || []);
           break;
 
         case "playlists":
-          const playlistsResponse = await fetch(
-            "http://localhost:8080/api/media/playlists?limit=1000",
-            {
-              credentials: "include",
-            }
+          const playlists = await apiClient.getPlaylists(1000);
+          setPlaylists(
+            playlists.map((playlist) => ({
+              ...playlist,
+              description: playlist.description || undefined,
+            }))
           );
-          const playlistsData = await playlistsResponse.json();
-          setPlaylists(playlistsData.playlists || []);
           break;
 
         case "albums":
-          const albumsResponse = await fetch(
-            "http://localhost:8080/api/media/albums",
-            { credentials: "include" }
+          const albums = await apiClient.getAlbums();
+          setAlbums(
+            albums.map((album) => ({
+              ...album,
+              year: album.year || undefined,
+              avg_rating: album.avg_rating || undefined,
+            }))
           );
-          const albumsData = await albumsResponse.json();
-          setAlbums(albumsData || []);
           break;
       }
     } catch (err) {
@@ -230,12 +182,13 @@ function ZoonyContent() {
   const ensurePlaylistsLoaded = async () => {
     if (playlists().length === 0) {
       try {
-        const playlistsResponse = await fetch(
-          "http://localhost:8080/api/media/playlists?limit=1000",
-          { credentials: "include" }
+        const playlists = await apiClient.getPlaylists(1000);
+        setPlaylists(
+          playlists.map((playlist) => ({
+            ...playlist,
+            description: playlist.description || undefined,
+          }))
         );
-        const playlistsData = await playlistsResponse.json();
-        setPlaylists(playlistsData.playlists || []);
       } catch (err) {
         console.error("Failed to load playlists:", err);
       }
@@ -383,15 +336,24 @@ function ZoonyContent() {
 
   const viewPlaylist = async (playlist: Playlist) => {
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/media/playlists/${playlist.id}/songs`,
-        { credentials: "include" }
-      );
-      const data = await response.json();
-      const songs = data.songs || [];
-
+      const songs = await apiClient.getPlaylistSongs(playlist.id);
       setCurrentPlaylist(playlist);
-      setPlaylistSongs(songs);
+      setPlaylistSongs(
+        songs.map((song, index) => ({
+          position: index + 1,
+          song: {
+            ...song,
+            is_favorite: song.favorite || false,
+            tags: [],
+            display_title: song.title,
+            detailed_display_title: `${song.artist} - ${song.title}`,
+            created_at: song.created_at || new Date().toISOString(),
+            media_blob_id: song.id,
+            thumbnail_blob_ids: [],
+          },
+          added_at: new Date().toISOString(),
+        }))
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load playlist");
     }
@@ -399,15 +361,20 @@ function ZoonyContent() {
 
   const viewArtist = async (artist: ArtistSummary) => {
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/media/artists/${encodeURIComponent(artist.artist)}/songs?limit=1000`,
-        { credentials: "include" }
-      );
-      const data = await response.json();
-      const songs = data.songs || [];
-
+      const songs = await apiClient.getArtistSongs(artist.artist, 1000);
       setCurrentArtist(artist);
-      setArtistSongs(songs);
+      setArtistSongs(
+        songs.map((song) => ({
+          ...song,
+          is_favorite: song.favorite || false,
+          tags: [],
+          display_title: song.title,
+          detailed_display_title: `${song.artist} - ${song.title}`,
+          created_at: song.created_at || new Date().toISOString(),
+          media_blob_id: song.id,
+          thumbnail_blob_ids: [],
+        }))
+      );
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load artist songs"
@@ -417,16 +384,10 @@ function ZoonyContent() {
 
   const viewAlbum = async (album: Album) => {
     try {
-      const albumParam = encodeURIComponent(album.album || "");
-      const artistParam = album.artist
-        ? `&artist=${encodeURIComponent(album.artist)}`
-        : "";
-      const response = await fetch(
-        `http://localhost:8080/api/media/albums/${albumParam}/tracks?${artistParam}`,
-        { credentials: "include" }
+      const songs = await apiClient.getAlbumTracks(
+        album.album || "",
+        album.artist
       );
-      const data = await response.json();
-      const songs = data.tracks || [];
 
       setCurrentAlbum(album);
       setAlbumSongs(
@@ -466,13 +427,7 @@ function ZoonyContent() {
 
   const playPlaylist = async (playlist: Playlist) => {
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/media/playlists/${playlist.id}/songs`,
-        { credentials: "include" }
-      );
-      const data = await response.json();
-      const songs = data.songs || [];
-
+      const songs = await apiClient.getPlaylistSongs(playlist.id);
       if (songs.length > 0) {
         setCurrentPlaylist(playlist);
         setPlaylistSongs(songs);
@@ -495,13 +450,7 @@ function ZoonyContent() {
 
   const playArtist = async (artist: ArtistSummary) => {
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/media/artists/${encodeURIComponent(artist.artist)}/songs?limit=1000`,
-        { credentials: "include" }
-      );
-      const data = await response.json();
-      const songs = data.songs || [];
-
+      const songs = await apiClient.getArtistSongs(artist.artist, 1000);
       if (songs.length > 0) {
         setCurrentArtist(artist);
         setArtistSongs(songs);
@@ -526,16 +475,10 @@ function ZoonyContent() {
 
   const playAlbum = async (album: Album) => {
     try {
-      const albumParam = encodeURIComponent(album.album || "");
-      const artistParam = album.artist
-        ? `&artist=${encodeURIComponent(album.artist)}`
-        : "";
-      const response = await fetch(
-        `http://localhost:8080/api/media/albums/${albumParam}/tracks?${artistParam}`,
-        { credentials: "include" }
+      const tracks = await apiClient.getAlbumTracks(
+        album.album || "",
+        album.artist
       );
-      const data = await response.json();
-      const tracks = data.tracks || [];
 
       if (tracks.length > 0) {
         const songs = tracks.map((track: any) => ({
@@ -619,28 +562,16 @@ function ZoonyContent() {
     if (!playlistForm().title.trim()) return;
 
     try {
-      const response = await fetch(
-        "http://localhost:8080/api/media/playlists",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            title: playlistForm().title,
-            description: playlistForm().description || null,
-            is_public: playlistForm().is_public,
-            is_collaborative: false,
-            song_ids: selectedSongs().map((s) => s.id),
-          }),
-        }
-      );
+      await apiClient.createPlaylist({
+        title: playlistForm().title,
+        description: playlistForm().description || null,
+        is_public: playlistForm().is_public,
+      });
 
-      if (response.ok) {
-        closePlaylistModal();
-        if (currentView() === "playlists") {
-          fetchData("playlists");
-        }
-      }
+      closePlaylistModal();
+      // Refresh playlists
+      fetchData("playlists");
+      setSelectedSongs([]);
     } catch (err) {
       setError("Failed to create playlist");
     }
@@ -650,27 +581,15 @@ function ZoonyContent() {
     if (!editingPlaylist() || !playlistForm().title.trim()) return;
 
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/media/playlists/${editingPlaylist()!.id}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            title: playlistForm().title,
-            description: playlistForm().description || null,
-            is_public: playlistForm().is_public,
-            is_collaborative: false,
-          }),
-        }
-      );
+      await apiClient.updatePlaylist(editingPlaylist()!.id, {
+        title: playlistForm().title,
+        description: playlistForm().description || null,
+        is_public: playlistForm().is_public,
+      });
 
-      if (response.ok) {
-        closePlaylistModal();
-        if (currentView() === "playlists") {
-          fetchData("playlists");
-        }
-      }
+      closePlaylistModal();
+      // Refresh playlists
+      fetchData("playlists");
     } catch (err) {
       setError("Failed to update playlist");
     }
@@ -680,25 +599,16 @@ function ZoonyContent() {
     if (!editingPlaylist() || selectedSongs().length === 0) return;
 
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/media/playlists/${editingPlaylist()!.id}/songs`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            song_ids: selectedSongs().map((s) => s.id),
-          }),
-        }
+      await apiClient.addSongsToPlaylist(
+        editingPlaylist()!.id,
+        selectedSongs().map((s) => s.id)
       );
-
-      if (response.ok) {
-        closePlaylistModal();
-        // Refresh playlist songs if we're viewing this playlist
-        if (currentPlaylist()?.id === editingPlaylist()!.id) {
-          viewPlaylist(currentPlaylist()!);
-        }
+      closePlaylistModal();
+      // Refresh playlist songs if we're viewing this playlist
+      if (currentPlaylist()?.id === editingPlaylist()!.id) {
+        viewPlaylist(currentPlaylist()!);
       }
+      setSelectedSongs([]);
     } catch (err) {
       setError("Failed to add songs to playlist");
     }
@@ -706,24 +616,13 @@ function ZoonyContent() {
 
   const removeSongFromPlaylist = async (playlist: Playlist, songId: string) => {
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/media/playlists/${playlist.id}/songs`,
-        {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            song_ids: [songId],
-          }),
-        }
-      );
-
-      if (response.ok) {
-        // Refresh playlist songs if we're viewing this playlist
-        if (currentPlaylist()?.id === playlist.id) {
-          viewPlaylist(playlist);
-        }
+      await apiClient.removeSongsFromPlaylist(playlist.id, [songId]);
+      // Refresh playlist songs if we're viewing this playlist
+      if (currentPlaylist()?.id === playlist.id) {
+        viewPlaylist(playlist);
       }
+      // Refresh playlists
+      fetchData("playlists");
     } catch (err) {
       setError("Failed to remove song from playlist");
     }
@@ -733,23 +632,10 @@ function ZoonyContent() {
 
   const addSongToExistingPlaylist = async (song: Song, playlist: Playlist) => {
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/media/playlists/${playlist.id}/songs`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            song_ids: [song.id],
-          }),
-        }
-      );
-
-      if (response.ok) {
-        setShowPlaylistDropdown(null);
-        // Show success feedback
-        console.log(`Added "${song.title}" to playlist "${playlist.title}"`);
-      }
+      await apiClient.addSongsToPlaylist(playlist.id, [song.id]);
+      setShowPlaylistDropdown(null);
+      // Show success feedback
+      console.log(`Added "${song.title}" to playlist "${playlist.title}"`);
     } catch (err) {
       setError("Failed to add song to playlist");
     }
@@ -757,25 +643,14 @@ function ZoonyContent() {
 
   const deletePlaylist = async (playlist: Playlist) => {
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/media/playlists/${playlist.id}`,
-        {
-          method: "DELETE",
-          credentials: "include",
-        }
-      );
-
-      if (response.ok) {
-        // Clear current playlist if it was deleted
-        if (currentPlaylist()?.id === playlist.id) {
-          setCurrentPlaylist(null);
-          setPlaylistSongs([]);
-        }
-        // Refresh playlists
-        if (currentView() === "playlists") {
-          fetchData("playlists");
-        }
+      await apiClient.deletePlaylist(playlist.id);
+      // Clear current playlist if it was deleted
+      if (currentPlaylist()?.id === playlist.id) {
+        setCurrentPlaylist(null);
+        setPlaylistSongs([]);
       }
+      // Refresh playlists
+      fetchData("playlists");
     } catch (err) {
       setError("Failed to delete playlist");
     }

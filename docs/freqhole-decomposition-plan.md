@@ -1,81 +1,137 @@
 # Freqhole Audio Player - Modular Decomposition Plan
 
-## 🎯 Current Focus: A.3 Final Testing & Cleanup
+## 🎯 Current Focus: Phase B - API Types & Interfaces Extraction
 
-### Phase A.3: Final Migration (COMPLETE) ✅
+### Phase B: API Types & Zod Schema Extraction (NEXT PRIORITY)
 
-**Goal**: Complete migration to Panel-based Freqhole layout and cleanup
+**Goal**: Extract all fetch() calls from zoony.tsx and integrate with existing ApiClient patterns using Zod schemas
 
-**Completed Tasks**:
+#### B.1 Extend ApiClient with Music Methods (`client/js/src/lib/music/`)
 
-1. ✅ **Integrated all components** into Panel layout with FreqholeProvider
-2. ✅ **Implemented context-based state management** (no more prop drilling!)
-3. ✅ **Full Tailwind conversion** with minimal custom CSS
-4. ✅ **Auth integration** working with Header component
-5. ✅ **Player/queue functionality** working with context hooks
-6. ✅ **Clean component architecture** with separation of concerns
-
-**Migration Status**: ✅ Complete and ready for production!
-
-### Phase A.4: IndexedDB Persistence (NEXT PRIORITY)
-
-**Goal**: Add persistent state management for seamless user experience
-
-#### A.4.1 Player State Persistence (`client/js/src/views/freqhole/hooks/usePersistedPlayer.ts`)
-
-- Save current song, playback position, volume, and queue to IndexedDB
-- Restore player state on page refresh/reload
-- Handle edge cases (song no longer available, corrupted data)
-- Background sync to prevent data loss during playback
-
-#### A.4.2 Queue Persistence (`client/js/src/views/freqhole/hooks/usePersistedQueue.ts`)
-
-- Persist entire play queue and current index
-- Save queue context (playlist, artist, album that generated the queue)
-- Handle queue restoration with proper fallbacks
-- Smart queue updates (avoid overwriting user changes)
-
-#### A.4.3 User Preferences Persistence
-
-- Save volume preferences, repeat/shuffle modes
-- UI state (sidebar visibility, queue visibility)
-- Last viewed section (music/artists/albums/playlists)
-- Search history and preferences
+- Extract all fetch() calls from zoony.tsx and add as methods to existing ApiClient
+- Create Zod schemas as source of truth for types (using z.infer)
+- Implement graceful collection parsing (omit invalid items, don't fail whole collection)
+- Add verbose logging for parse failures with configurable log levels
+- Follow existing ApiClient patterns (searchMusic, searchSongs, etc.)
 
 **File structure**:
 
 ```
-client/js/src/views/freqhole/hooks/
-├── persistence/
-│   ├── usePersistedPlayer.ts    # Player state persistence
-│   ├── usePersistedQueue.ts     # Queue state persistence
-│   ├── useUserPreferences.ts    # UI preferences
-│   └── indexedDbUtils.ts        # IndexedDB utilities
-└── index.ts                     # Updated barrel export
+client/js/src/lib/music/
+├── schemas/
+│   ├── song.ts           # Song schema + z.infer types
+│   ├── album.ts          # Album schema + z.infer types
+│   ├── artist.ts         # Artist schema + z.infer types
+│   ├── playlist.ts       # Playlist schema + z.infer types
+│   ├── queue.ts          # Queue schema + z.infer types
+│   └── index.ts          # Re-export all schemas & types
+├── validation.ts         # Graceful parsing utilities (like search/validation.ts)
+├── api-methods.ts        # Music API methods to extend ApiClient
+├── types.ts              # Re-export all z.infer types
+└── index.ts              # Main barrel export
 ```
 
-### Phase A.5: State Management Hooks (OPTIONAL)
+#### B.2 Extend ApiClient Class
 
-**Goal**: Further extract state management into custom hooks
+- Add music methods to existing ApiClient class in `api-client.ts`
+- Follow existing patterns from `searchMusic`, `searchSongs`, etc.
+- Use graceful validation like existing search methods
+- Maintain consistency with existing error handling and timeout patterns
 
-- Extract player/queue logic into `usePlayerQueue` hook
-- Create `useMusicLibrary` hook for data management
-- Simplify component props and state management
-- Improve testability and reusability
+#### B.3 Fetch Call Extraction
 
-### Phase B: API Types & Interfaces Extraction
+**Extract all fetch() calls from zoony.tsx**:
 
-**Goal**: Extract all TypeScript interfaces and types from zoony.tsx into shared lib files
+- Search for all `fetch("/api/...` calls in zoony.tsx
+- Add corresponding methods to ApiClient class
+- Replace with typed API client methods
+- Follow existing ApiClient patterns and error handling
 
-#### B.1 Core Data Types (`client/js/src/lib/types/music.ts`)
+**Before (zoony.tsx)**:
 
-- Extract: `Track`, `Album`, `Artist`, `Playlist`, `Queue` interfaces
-- Music-related enums and utility types
+```typescript
+const response = await fetch("/api/songs");
+const songsData = await response.json();
+```
 
-#### B.2 Component Props Types (`client/js/src/lib/types/components.ts`)
+**After (using extended ApiClient)**:
 
-- Extract: Component prop interfaces
-- UI state types, event handler types
+```typescript
+import { apiClient } from "../../lib/api-client.js";
+const songs = await apiClient.getSongs(); // Returns Song[] with runtime validation
+```
+
+#### B.4 Graceful Collection Parsing Pattern
+
+```typescript
+// music/validation.ts (following existing search/validation.ts pattern)
+export const musicValidation = {
+  validateResponse<T>(
+    schema: z.ZodSchema<T>,
+    data: unknown,
+    context: string,
+  ): T {
+    const result = schema.safeParse(data);
+    if (result.success) {
+      return result.data;
+    }
+
+    console.error(`${context} validation failed:`, result.error);
+    throw new Error(`Invalid ${context} response format`);
+  },
+
+  parseCollection<T>(
+    schema: z.ZodSchema<T>,
+    data: unknown[],
+    context: string,
+  ): T[] {
+    const results: T[] = [];
+
+    data.forEach((item, index) => {
+      const parsed = schema.safeParse(item);
+      if (parsed.success) {
+        results.push(parsed.data);
+      } else {
+        console.warn(`Failed to parse ${context} at index ${index}:`, {
+          error: parsed.error,
+          data: item,
+        });
+      }
+    });
+
+    return results;
+  },
+};
+```
+
+#### B.5 Schema Examples
+
+```typescript
+// schemas/song.ts
+export const SongSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  artist: z.string(),
+  album: z.string().nullish(),
+  duration: z.number(),
+  genre: z.string().nullish(),
+  year: z.number().nullish(),
+  bitrate: z.number().nullish(),
+  playCount: z.number().default(0),
+  url: z.string().url(),
+});
+
+export type Song = z.infer<typeof SongSchema>;
+```
+
+**Benefits**:
+
+- 🔍 Runtime validation with compile-time types
+- 🛡️ Graceful error handling in collections
+- 📊 Detailed logging for debugging data issues
+- 🎯 Single source of truth for data structures
+- 🚀 Better developer experience with IntelliSense
+- 🔄 Easy schema evolution and migration
 
 ### Phase C: Icon Components Extraction
 
@@ -85,6 +141,7 @@ client/js/src/views/freqhole/hooks/
 
 - Extract SVG icons into individual components
 - Consistent sizing, theming, and hover states
+- Props for customization (size, color, className)
 
 ### Phase D: State Management Extraction
 
@@ -112,12 +169,33 @@ client/js/src/views/freqhole/hooks/
 
 ### Phase E: API Client Integration
 
-**Goal**: Integrate with existing API infrastructure
+**Goal**: Complete integration of music API methods with existing ApiClient
 
-#### E.1 Music API Client (`client/js/src/lib/api/musicApi.ts`)
+#### E.1 Music API Integration (`client/js/src/lib/api-client.ts`)
 
-- Integrate with existing ApiClient pattern
-- Music-specific endpoints and data fetching
+- Integrate music methods into existing ApiClient class
+- Update all components to use extended ApiClient methods
+- Replace direct fetch() calls in zoony.tsx with API client methods
+- Ensure backward compatibility during transition
+
+**Integration Examples**:
+
+```typescript
+// Before (in zoony.tsx):
+const response = await fetch("/api/songs");
+const songs = await response.json();
+
+// After (using extended ApiClient):
+import { apiClient } from "../../lib/api-client.js";
+const songs = await apiClient.getSongs();
+```
+
+#### E.2 Error Handling & Logging
+
+- Use existing ApiError class and error handling patterns
+- Leverage existing timeout and validation infrastructure
+- Follow existing logging patterns from search methods
+- Graceful degradation when API calls fail
 
 ### Phase F: Styles Extraction
 
@@ -127,18 +205,69 @@ client/js/src/views/freqhole/hooks/
 
 - Extract component-specific styles
 - Maintain existing Metro UI theme
+- Organize CSS for better maintainability
+
+### Phase G: IndexedDB Persistence (MOVED FROM A.4)
+
+**Goal**: Add persistent state management for seamless user experience
+
+#### G.1 Player State Persistence (`client/js/src/views/freqhole/hooks/usePersistedPlayer.ts`)
+
+- Save current song, playback position, volume, and queue to IndexedDB
+- Restore player state on page refresh/reload
+- Handle edge cases (song no longer available, corrupted data)
+- Background sync to prevent data loss during playback
+
+#### G.2 Queue Persistence (`client/js/src/views/freqhole/hooks/usePersistedQueue.ts`)
+
+- Persist entire play queue and current index
+- Save queue context (playlist, artist, album that generated the queue)
+- Handle queue restoration with proper fallbacks
+- Smart queue updates (avoid overwriting user changes)
+
+#### G.3 User Preferences Persistence
+
+- Save volume preferences, repeat/shuffle modes
+- UI state (sidebar visibility, queue visibility)
+- Last viewed section (music/artists/albums/playlists)
+- Search history and preferences
+
+**File structure**:
+
+```
+client/js/src/views/freqhole/hooks/
+├── persistence/
+│   ├── usePersistedPlayer.ts    # Player state persistence
+│   ├── usePersistedQueue.ts     # Queue state persistence
+│   ├── useUserPreferences.ts    # UI preferences
+│   └── indexedDbUtils.ts        # IndexedDB utilities
+└── index.ts                     # Updated barrel export
+```
+
+### Phase H: State Management Hooks (OPTIONAL)
+
+**Goal**: Further extract state management into custom hooks
+
+- Extract player/queue logic into `usePlayerQueue` hook
+- Create `useMusicLibrary` hook for data management
+- Simplify component props and state management
+- Improve testability and reusability
 
 ## Execution Strategy
 
 ### Priority Order
 
-1. **Phase A.2**: Header and Player extraction (IMMEDIATE NEXT)
-2. **Phase A.3**: Final migration to Freqhole layout
-3. **Phase B**: Types extraction
-4. **Phase C**: Icon components
-5. **Phase D**: State management hooks
-6. **Phase E**: API integration
-7. **Phase F**: Styles organization
+1. **Phase B**: API Types & Zod Schema Extraction (IMMEDIATE NEXT)
+   - B.1: Create Zod schemas and music validation utilities
+   - B.2: Extract fetch() calls from zoony.tsx
+   - B.3: Add music methods to existing ApiClient class
+   - B.4: Replace zoony.tsx fetch calls with ApiClient methods
+2. **Phase C**: Icon components
+3. **Phase D**: State management hooks
+4. **Phase E**: API integration and cleanup
+5. **Phase F**: Styles organization
+6. **Phase G**: IndexedDB persistence
+7. **Phase H**: Advanced state management hooks
 
 ### Key Principles
 
@@ -147,6 +276,11 @@ client/js/src/views/freqhole/hooks/
 - **Keep zoony.tsx working throughout**
 - **Maintain all existing features**
 - **Gradual, incremental changes**
+- **Schemas as single source of truth**
+- **Graceful error handling in collections**
+- **Verbose logging for debugging**
+- **Integrate with existing ApiClient patterns**
+- **Maintain consistency with existing search methods**
 
 ### Testing Strategy
 
@@ -158,16 +292,117 @@ client/js/src/views/freqhole/hooks/
 ### Success Metrics
 
 - **Functional Parity**: All existing features work identically
-- **Persistence**: Player state survives page refreshes
+- **Code Organization**: Clear separation of concerns and modular architecture
 - **Performance**: No regression in load times or runtime performance
-- **User Experience**: Seamless playback resumption and queue management
-- **Data Integrity**: Reliable state persistence without corruption
+- **Developer Experience**: Easier to understand, modify, and extend
+- **Maintainability**: Easier to add new features and fix bugs
+
+## Project Goals
+
+**Primary Goal**: Transform the monolithic zoony.tsx into a modular, maintainable component architecture while preserving all existing functionality and integrating with the established Metro UI theme.
+
+## Current State Analysis
+
+### Existing Assets
+
+- **zoony.tsx**: Complete music player implementation (~2000+ lines)
+- **Metro UI Components**: Panel, Modal, Popover, Context Menu systems
+- **Infinite Data Grid**: Reusable virtualized grid for large datasets
+- **API Integration**: WebAuthn authentication, music API endpoints
+- **Responsive Layout**: Tailwind CSS with custom Metro theme
+
+### Infinite Data Grid Reusability Assessment
+
+**Current Implementation** (in data-grid-test.tsx):
+
+```typescript
+type ListItem = {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  duration: string;
+  genre: string;
+};
+
+const columns = [
+  { key: "title", header: "Title", width: 200 },
+  { key: "artist", header: "Artist", width: 150 },
+  { key: "album", header: "Album", width: 150 },
+  { key: "duration", header: "Duration", width: 80 },
+  { key: "genre", header: "Genre", width: 100 },
+];
+```
+
+**Freqhole Requirements**:
+
+```typescript
+type GridItem = Track | Album | Artist | Playlist;
+
+const renderGridItem = (
+  item: GridItem,
+  type: "track" | "album" | "artist" | "playlist",
+) => {
+  // Custom rendering logic for each type
+  // Album covers, play buttons, context menus
+  // Rich metadata display
+};
+
+const columns = {
+  track: [
+    { key: "title", header: "Title", width: 250 },
+    { key: "artist", header: "Artist", width: 200 },
+    { key: "album", header: "Album", width: 200 },
+    { key: "duration", header: "Duration", width: 100 },
+    { key: "genre", header: "Genre", width: 120 },
+    { key: "year", header: "Year", width: 80 },
+    { key: "bitrate", header: "Quality", width: 100 },
+  ],
+  // ... other types
+};
+```
+
+## Risks and Mitigation
+
+### Technical Risks
+
+1. **Performance Regression**: Large component tree could impact performance
+   - _Mitigation_: Implement proper memoization and lazy loading
+
+2. **State Management Complexity**: Complex state sharing between components
+   - _Mitigation_: Use proven patterns (hooks, context) and keep state localized
+
+3. **Testing Complexity**: More components mean more testing surface area
+   - _Mitigation_: Focus on integration tests and critical user flows
+
+### Project Risks
+
+1. **Scope Creep**: Temptation to add new features during refactoring
+   - _Mitigation_: Strict focus on decomposition, feature additions come later
+
+2. **Timeline Pressure**: Stakeholder expectations for quick delivery
+   - _Mitigation_: Incremental delivery with working versions at each phase
+
+---
 
 ## ✅ Completed Phases
 
-### Phase A.3: Final Migration (95% COMPLETE) ✅
+### Phase A.3: Final Migration (COMPLETE) ✅
 
-**Goal**: Migrate all extracted components to Panel-based Freqhole layout
+**Goal**: Complete migration to Panel-based Freqhole layout and cleanup
+
+**Completed Tasks**:
+
+1. ✅ **Integrated all components** into Panel layout with FreqholeProvider
+2. ✅ **Implemented context-based state management** (no more prop drilling!)
+3. ✅ **Full Tailwind conversion** with minimal custom CSS
+4. ✅ **Auth integration** working with Header component
+5. ✅ **Player/queue functionality** working with context hooks
+6. ✅ **Clean component architecture** with separation of concerns
+7. ✅ **FreqholeProvider context** - eliminates prop drilling, scales for future state
+8. ✅ **Consolidated hooks** - complete usePlayerQueue with all utility functions
+
+**Migration Status**: ✅ Complete and ready for production!
 
 #### A.3.1 Switch Main Entry Point ✅
 
@@ -193,6 +428,16 @@ client/js/src/views/freqhole/hooks/
 - ✅ Maintained responsive design and Metro UI aesthetic
 - ✅ Added proper SearchBox styling integration
 
+#### A.3.4 FreqholeProvider Context Architecture ✅
+
+**Completed**: Scalable context-based state management
+
+- ✅ Created FreqholeProvider wrapping entire app
+- ✅ Eliminated 15+ props from Player component
+- ✅ Context-aware components (Player, QueueViewer use `useMusicPlayer()`)
+- ✅ Future-ready for additional global state (search, library, preferences)
+- ✅ Type-safe context with proper error handling
+
 **File structure**:
 
 ```
@@ -201,11 +446,11 @@ client/js/src/views/freqhole/components/
 │   ├── Header.tsx          # Full Tailwind conversion
 │   └── index.ts
 ├── player/
-│   ├── Player.tsx          # Full Tailwind conversion
-│   ├── QueueViewer.tsx     # Full Tailwind conversion
+│   ├── Player.tsx          # Context-aware, no props needed
+│   ├── QueueViewer.tsx     # Context-aware, no props needed
 │   └── index.ts
 └── icons/
-    └── index.tsx          # Centralized icons
+    └── index.tsx          # Centralized icons with class prop support
 ```
 
 **Benefits Achieved**:
@@ -215,6 +460,9 @@ client/js/src/views/freqhole/components/
 - ⚡ Reduced CSS bundle size
 - 🔧 Easier maintenance and customization
 - 🎯 Better integration with Panel layout system
+- 🧹 Clean components with no prop drilling
+- 🔄 Reusable hooks accessible anywhere in app
+- 📈 Scalable architecture ready for future features
 
 ### Phase A.2: Decomposition Strategy ✅
 
@@ -276,22 +524,24 @@ client/js/src/views/freqhole/components/icons/
 
 #### A.2.4 Player Queue Hooks ✅
 
-**Completed**: Queue management hooks for better state organization
+**Completed**: Consolidated hook architecture for optimal state management
 
-- ✅ `useQueue.ts` - Queue management logic
-- ✅ `usePlayer.ts` - Audio player state management
-- ✅ `usePlayerQueue.ts` - Combined player and queue functionality
-- ✅ All TypeScript errors fixed and hooks ready for integration
+- ✅ `usePlayerQueue.ts` - Complete player + queue functionality (consolidated from 3 hooks)
+- ✅ All utility functions restored: `stop()`, `toggleMute()`, `seekToTime()`, `moveToNext()`, etc.
+- ✅ Context integration with FreqholeProvider
 - ✅ Type-safe interfaces for Song, QueueItem, Playlist, etc.
+- ✅ Eliminated redundant code (removed duplicate useQueue.ts and usePlayer.ts)
 
 **File structure**:
 
 ```
-client/js/src/views/freqhole/hooks/
-├── useQueue.ts         # Queue management
-├── usePlayer.ts        # Player state management
-├── usePlayerQueue.ts   # Combined functionality (TypeScript compliant)
-└── index.ts           # Barrel export
+client/js/src/views/freqhole/
+├── hooks/
+│   ├── usePlayerQueue.ts   # Complete solution (30+ functions)
+│   └── index.ts           # Barrel export
+└── context/
+    ├── FreqholeContext.tsx # Global state provider
+    └── index.ts           # Context exports
 ```
 
 #### A.2.5 Code Quality & TypeScript Compliance ✅
@@ -389,106 +639,6 @@ This avoids prop drilling while keeping state management simple and testable.
 - Responsive design patterns
 - Component library integration
 - Tailwind CSS optimization
-
-## Project Goals
-
-**Primary Goal**: Transform the monolithic zoony.tsx into a modular, maintainable component architecture while preserving all existing functionality and integrating with the established Metro UI theme.
-
-## Current State Analysis
-
-### Existing Assets
-
-- **zoony.tsx**: Complete music player implementation (~2000+ lines)
-- **Metro UI Components**: Panel, Modal, Popover, Context Menu systems
-- **Infinite Data Grid**: Reusable virtualized grid for large datasets
-- **API Integration**: WebAuthn authentication, music API endpoints
-- **Responsive Layout**: Tailwind CSS with custom Metro theme
-
-### Infinite Data Grid Reusability Assessment
-
-**Current Implementation** (in data-grid-test.tsx):
-
-```typescript
-type ListItem = {
-  id: string;
-  title: string;
-  artist: string;
-  album: string;
-  duration: string;
-  genre: string;
-};
-
-const columns = [
-  { key: "title", header: "Title", width: 200 },
-  { key: "artist", header: "Artist", width: 150 },
-  { key: "album", header: "Album", width: 150 },
-  { key: "duration", header: "Duration", width: 80 },
-  { key: "genre", header: "Genre", width: 100 },
-];
-```
-
-**Freqhole Requirements**:
-
-```typescript
-type GridItem = Track | Album | Artist | Playlist;
-
-const renderGridItem = (
-  item: GridItem,
-  type: "track" | "album" | "artist" | "playlist",
-) => {
-  // Custom rendering logic for each type
-  // Album covers, play buttons, context menus
-  // Rich metadata display
-};
-
-const columns = {
-  track: [
-    { key: "title", header: "Title", width: 250 },
-    { key: "artist", header: "Artist", width: 200 },
-    { key: "album", header: "Album", width: 200 },
-    { key: "duration", header: "Duration", width: 100 },
-    { key: "genre", header: "Genre", width: 120 },
-    { key: "year", header: "Year", width: 80 },
-    { key: "bitrate", header: "Quality", width: 100 },
-  ],
-  // ... other types
-};
-```
-
-### Grouped Data Support
-
-```typescript
-interface GroupedDataSection {
-  title: string;
-  items: GridItem[];
-  type: "track" | "album" | "artist" | "playlist";
-}
-
-interface GroupedGridProps {
-  sections: GroupedDataSection[];
-  onItemSelect: (item: GridItem) => void;
-}
-```
-
-### Integration Effort Estimate
-
-**Low Effort** (1-2 days):
-
-- Column configuration adaptation
-- Basic item rendering
-- Selection handling
-
-**Medium Effort** (3-5 days):
-
-- Custom item renderers for each type
-- Context menu integration
-- Drag-and-drop support
-
-**High Effort** (1-2 weeks):
-
-- Grouped data display
-- Advanced filtering/sorting
-- Performance optimization for large libraries
 
 ## Previous Planning Phases
 
@@ -865,32 +1015,3 @@ Migrate existing components to new architecture:
 - Update import paths
 - Maintain backward compatibility
 - Gradual migration strategy
-
-## Risks and Mitigation
-
-### Technical Risks
-
-1. **Performance Regression**: Large component tree could impact performance
-   - _Mitigation_: Implement proper memoization and lazy loading
-
-2. **State Management Complexity**: Complex state sharing between components
-   - _Mitigation_: Use proven patterns (hooks, context) and keep state localized
-
-3. **Testing Complexity**: More components mean more testing surface area
-   - _Mitigation_: Focus on integration tests and critical user flows
-
-### Project Risks
-
-1. **Scope Creep**: Temptation to add new features during refactoring
-   - _Mitigation_: Strict focus on decomposition, feature additions come later
-
-2. **Timeline Pressure**: Stakeholder expectations for quick delivery
-   - _Mitigation_: Incremental delivery with working versions at each phase
-
-## Success Metrics
-
-- **Functional Parity**: All existing features work identically
-- **Code Organization**: Clear separation of concerns and modular architecture
-- **Performance**: No regression in load times or runtime performance
-- **Developer Experience**: Easier to understand, modify, and extend
-- **Test Coverage**: Comprehensive testing of all components

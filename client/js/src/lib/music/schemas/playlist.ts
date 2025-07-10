@@ -1,0 +1,103 @@
+import { z } from "zod";
+
+// UUID string pattern validation
+const UuidSchema = z.string().uuid();
+
+export const PlaylistSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  description: z.string().nullable(),
+  is_public: z.boolean(),
+  is_collaborative: z.boolean(),
+  song_count: z.number().nullable(),
+  visibility: z.string(),
+  created_at: z.string(),
+});
+
+export type Playlist = z.infer<typeof PlaylistSchema>;
+
+// Response schemas for API endpoints
+export const PlaylistListResponseSchema = z.object({
+  playlists: z.array(PlaylistSchema),
+  total: z.number(),
+});
+
+export type PlaylistListResponse = z.infer<typeof PlaylistListResponseSchema>;
+
+// Playlist creation request
+export const CreatePlaylistRequestSchema = z.object({
+  title: z.string(),
+  description: z.string().nullable(),
+  is_public: z.boolean(),
+  is_collaborative: z.boolean(),
+  song_ids: z.array(z.string()).optional(),
+});
+
+export type CreatePlaylistRequest = z.infer<typeof CreatePlaylistRequestSchema>;
+
+// Playlist update request
+export const UpdatePlaylistRequestSchema = z.object({
+  title: z.string().optional(),
+  description: z.string().nullable().optional(),
+  is_public: z.boolean().optional(),
+  is_collaborative: z.boolean().optional(),
+});
+
+export type UpdatePlaylistRequest = z.infer<typeof UpdatePlaylistRequestSchema>;
+
+// Add songs to playlist request
+export const AddSongsToPlaylistRequestSchema = z.object({
+  song_ids: z.array(z.string()),
+});
+
+export type AddSongsToPlaylistRequest = z.infer<
+  typeof AddSongsToPlaylistRequestSchema
+>;
+
+// Remove songs from playlist request
+export const RemoveSongsFromPlaylistRequestSchema = z.object({
+  song_ids: z.array(z.string()),
+});
+
+export type RemoveSongsFromPlaylistRequest = z.infer<
+  typeof RemoveSongsFromPlaylistRequestSchema
+>;
+
+// Move song in playlist request
+export const MoveSongRequestSchema = z.object({
+  song_id: z.string(),
+  to_position: z.number(),
+});
+
+export type MoveSongRequest = z.infer<typeof MoveSongRequestSchema>;
+
+// Reorder playlist request
+export const ReorderPlaylistRequestSchema = z.object({
+  song_ids: z.array(z.string()),
+});
+
+export type ReorderPlaylistRequest = z.infer<
+  typeof ReorderPlaylistRequestSchema
+>;
+
+// Create playlist from album request
+export const CreatePlaylistFromAlbumRequestSchema = z.object({
+  title: z.string(),
+  is_public: z.boolean(),
+});
+
+export type CreatePlaylistFromAlbumRequest = z.infer<
+  typeof CreatePlaylistFromAlbumRequestSchema
+>;
+
+// Playlist summary response
+export const PlaylistSummaryResponseSchema = z.object({
+  playlist: PlaylistSchema,
+  song_count: z.number(),
+  total_duration: z.number(),
+  song_preview: z.array(z.string()),
+});
+
+export type PlaylistSummaryResponse = z.infer<
+  typeof PlaylistSummaryResponseSchema
+>;
