@@ -1,3 +1,3 @@
 export function Freqhole() {
-  return <h1>F R E Q H O L E</h1>;
+  return <h1>hello freqhole!</h1>;
 }
