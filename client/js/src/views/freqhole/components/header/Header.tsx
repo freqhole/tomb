@@ -6,8 +6,8 @@ import { UserMenu } from "../auth/UserMenu";
 import { FreqholeIcon, CloseIcon } from "../icons";
 
 export interface HeaderProps {
-  currentView: string;
-  onViewChange: (view: string) => void;
+  currentView: "music" | "artists" | "albums" | "playlists";
+  onViewChange: (view: "music" | "artists" | "albums" | "playlists") => void;
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
   onSearch: (query: string) => void;

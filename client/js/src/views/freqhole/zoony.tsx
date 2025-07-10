@@ -5,7 +5,7 @@ import {
   SearchProvider,
   useSearchContext,
 } from "../../components/search/SearchContext.js";
-import { SearchBox } from "../../components/search/SearchBox.js";
+
 import { ApiClient } from "../../lib/api-client.js";
 import { Header } from "./components/header";
 import { Player } from "./components/player";
@@ -14,11 +14,9 @@ import {
   CloseIcon,
   EditIcon,
   DeleteIcon,
-  DragIcon,
-  MoreIcon,
   QueueIcon,
-  MusicIcon,
   PlayIcon,
+  MusicIcon,
 } from "./components/icons";
 
 interface ZoonyProps {
@@ -608,12 +606,7 @@ function ZoonyContent() {
     setShowPlaylistModal(true);
   };
 
-  const openAddSongsModal = (playlist: Playlist, songs: Song[]) => {
-    setPlaylistModalMode("add-songs");
-    setEditingPlaylist(playlist);
-    setSelectedSongs(songs);
-    setShowPlaylistModal(true);
-  };
+  // Removed unused function openAddSongsModal
 
   const closePlaylistModal = () => {
     setShowPlaylistModal(false);
@@ -736,31 +729,7 @@ function ZoonyContent() {
     }
   };
 
-  const reorderPlaylistSongs = async (
-    playlist: Playlist,
-    songIds: string[]
-  ) => {
-    try {
-      const response = await fetch(
-        `http://localhost:8080/api/media/playlists/${playlist.id}/reorder`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            song_ids: songIds,
-          }),
-        }
-      );
-
-      if (response.ok) {
-        // Refresh playlist songs
-        viewPlaylist(playlist);
-      }
-    } catch (err) {
-      setError("Failed to reorder playlist");
-    }
-  };
+  // Removed unused function reorderPlaylistSongs
 
   const addSongToExistingPlaylist = async (song: Song, playlist: Playlist) => {
     try {
@@ -1580,6 +1549,8 @@ function ZoonyContent() {
         currentQueueIndex={currentQueueIndex()}
         playQueue={playQueue()}
         showQueue={showQueue()}
+        canGoNext={currentQueueIndex() < playQueue().length - 1}
+        canGoPrevious={currentQueueIndex() > 0}
         onTogglePlayback={togglePlayback}
         onPlayPrevious={playPrevious}
         onPlayNext={playNext}

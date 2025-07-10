@@ -10,15 +10,7 @@ import {
   MusicIcon,
 } from "../icons";
 
-export interface Song {
-  id: string;
-  title: string;
-  artist?: string;
-  album?: string;
-  duration_seconds?: number;
-  thumbnail_blob_id?: string;
-  media_blob_id: string;
-}
+import { Song, QueueItem } from "../../hooks";
 
 export interface PlayerProps {
   currentSong: Song | null;
@@ -27,8 +19,12 @@ export interface PlayerProps {
   duration: number;
   volume: number;
   currentQueueIndex: number;
-  playQueue: Song[];
+  playQueue: QueueItem[];
   showQueue: boolean;
+  canGoNext: boolean;
+  canGoPrevious: boolean;
+  isLoading?: boolean;
+  error?: string | null;
   onTogglePlayback: () => void;
   onPlayPrevious: () => void;
   onPlayNext: () => void;
@@ -69,7 +65,7 @@ export const Player = (props: PlayerProps) => {
           <button
             class="zune-control-btn"
             onClick={props.onPlayPrevious}
-            disabled={props.currentQueueIndex === 0}
+            disabled={!props.canGoPrevious}
           >
             <PrevIcon />
           </button>
@@ -82,7 +78,7 @@ export const Player = (props: PlayerProps) => {
           <button
             class="zune-control-btn"
             onClick={props.onPlayNext}
-            disabled={props.currentQueueIndex >= props.playQueue.length - 1}
+            disabled={!props.canGoNext}
           >
             <NextIcon />
           </button>
@@ -94,6 +90,19 @@ export const Player = (props: PlayerProps) => {
             <QueueIcon />
           </button>
         </div>
+
+        {/* Loading/Error States */}
+        <Show when={props.isLoading}>
+          <div class="zune-player-loading">
+            <div class="zune-spinner"></div>
+          </div>
+        </Show>
+
+        <Show when={props.error}>
+          <div class="zune-player-error">
+            <span class="zune-error-text">{props.error}</span>
+          </div>
+        </Show>
 
         <div class="zune-player-progress">
           <span class="zune-time">{props.formatTime(props.currentTime)}</span>

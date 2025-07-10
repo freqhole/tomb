@@ -1,69 +1,34 @@
 # Freqhole Audio Player - Modular Decomposition Plan
 
-## 🎯 Current Focus: A.2 Decomposition Strategy
+## 🎯 Current Focus: A.3 Final Migration
 
-### Phase A.2: Decomposition Strategy (In-Place) - NEXT
+### Phase A.3: Final Migration (Last Step) - NEXT
 
-**Goal**: Extract Header and Player components while keeping zoony.tsx working
-
-#### A.2.1 Header Component Extraction (`client/js/src/views/freqhole/components/header/Header.tsx`)
-
-**Strategy**: Extract header JSX and logic from zoony.tsx into separate component
-
-- Extract header section (logo, navigation, search, user menu)
-- Keep all existing functionality intact
-- Props: `currentTrack`, `onSearch`, `onViewChange`, `currentView`
-- Use existing auth integration from Phase 0
-- Test thoroughly before moving to player
-
-**File structure**:
-
-```
-client/js/src/views/freqhole/components/header/
-├── Header.tsx          # Main header component
-├── Navigation.tsx      # Navigation buttons (optional sub-component)
-├── SearchBar.tsx       # Search input (optional sub-component)
-└── index.ts           # Barrel export
-```
-
-#### A.2.2 Player Component Extraction (`client/js/src/views/freqhole/components/player/Player.tsx`)
-
-**Strategy**: Extract player JSX and logic from zoony.tsx into separate component
-
-- Extract player section (controls, progress, queue, now playing)
-- Keep all existing functionality intact
-- Props: `currentTrack`, `isPlaying`, `progress`, `queue`, `onPlayPause`, `onNext`, `onPrevious`, `onSeek`
-- Handle all player state management
-- Test thoroughly after extraction
-
-**File structure**:
-
-```
-client/js/src/views/freqhole/components/player/
-├── Player.tsx          # Main player component
-├── PlayerControls.tsx  # Play/pause/next/prev buttons
-├── ProgressBar.tsx     # Progress bar and time display
-├── QueueViewer.tsx     # Queue display and management
-├── NowPlayingCard.tsx  # Current track display
-└── index.ts           # Barrel export
-```
-
-#### A.2.3 Integration Testing
-
-After each extraction:
-
-1. Verify zoony.tsx still works exactly the same
-2. Test all functionality in extracted components
-3. Ensure no regressions in existing features
-4. Update imports in zoony.tsx to use new components
-
-### Phase A.3: Final Migration (Last Step)
+**Goal**: Migrate all extracted components to Panel-based Freqhole layout
 
 After all components extracted:
 
 - Switch main.tsx back to render `<Freqhole />`
 - Adapt extracted components for Panel-based layout
 - Delete zoony.tsx completely
+- Test all functionality in new layout
+
+**Integration Tasks**:
+
+1. Update `client/js/src/views/freqhole/index.tsx` to use extracted components
+2. Adapt Header component for Panel system layout
+3. Integrate Player component with Panel responsive design
+4. Test all auth, player, and queue functionality
+5. Remove zoony.tsx after successful migration
+
+### Phase A.4: State Management Hooks (OPTIONAL)
+
+**Goal**: Further extract state management into custom hooks
+
+- Extract player/queue logic into `usePlayerQueue` hook
+- Create `useMusicLibrary` hook for data management
+- Simplify component props and state management
+- Improve testability and reusability
 
 ### Phase B: API Types & Interfaces Extraction
 
@@ -158,6 +123,95 @@ After all components extracted:
 - Ensure no visual regressions
 
 ## ✅ Completed Phases
+
+### Phase A.2: Decomposition Strategy ✅
+
+**Goal**: Extract Header and Player components while keeping zoony.tsx working
+
+#### A.2.1 Header Component Extraction ✅
+
+**Completed**: `client/js/src/views/freqhole/components/header/Header.tsx`
+
+- ✅ Extracted header section (logo, navigation, search, user menu)
+- ✅ Maintained all existing functionality
+- ✅ Props: `currentView`, `onViewChange`, `searchQuery`, `onSearch`, `onClearSearch`, `searchContext`
+- ✅ Integrated auth system (UserMenu component)
+- ✅ Updated zoony.tsx to use Header component
+- ✅ All functionality tested and working
+
+**File structure**:
+
+```
+client/js/src/views/freqhole/components/header/
+├── Header.tsx          # Main header component
+└── index.ts           # Barrel export
+```
+
+#### A.2.2 Player Component Extraction ✅
+
+**Completed**: `client/js/src/views/freqhole/components/player/Player.tsx`
+
+- ✅ Extracted player section (controls, progress, volume, now playing)
+- ✅ Maintained all existing functionality
+- ✅ Props: `currentSong`, `isPlaying`, `currentTime`, `duration`, `volume`, `currentQueueIndex`, `playQueue`, etc.
+- ✅ Updated zoony.tsx to use Player component
+- ✅ All player functionality tested and working
+
+**File structure**:
+
+```
+client/js/src/views/freqhole/components/player/
+├── Player.tsx          # Main player component
+├── QueueViewer.tsx     # Queue display and management
+└── index.ts           # Barrel export
+```
+
+#### A.2.3 Icons Centralization ✅
+
+**Completed**: `client/js/src/views/freqhole/components/icons/index.tsx`
+
+- ✅ Centralized all SVG icons into single file
+- ✅ Updated all components to use centralized icons
+- ✅ Removed duplicate icon definitions
+- ✅ Improved maintainability and consistency
+
+**File structure**:
+
+```
+client/js/src/views/freqhole/components/icons/
+└── index.tsx          # All SVG icons
+```
+
+#### A.2.4 Player Queue Hooks ✅
+
+**Completed**: Queue management hooks for better state organization
+
+- ✅ `useQueue.ts` - Queue management logic
+- ✅ `usePlayer.ts` - Audio player state management
+- ✅ `usePlayerQueue.ts` - Combined player and queue functionality
+- ✅ All TypeScript errors fixed and hooks ready for integration
+- ✅ Type-safe interfaces for Song, QueueItem, Playlist, etc.
+
+**File structure**:
+
+```
+client/js/src/views/freqhole/hooks/
+├── useQueue.ts         # Queue management
+├── usePlayer.ts        # Player state management
+├── usePlayerQueue.ts   # Combined functionality (TypeScript compliant)
+└── index.ts           # Barrel export
+```
+
+#### A.2.5 Code Quality & TypeScript Compliance ✅
+
+**Completed**: Fixed all TypeScript errors and cleaned up code
+
+- ✅ Fixed undefined array access in `usePlayerQueue.ts`
+- ✅ Corrected type definitions for `onViewChange` prop
+- ✅ Added missing `canGoNext` and `canGoPrevious` props to Player
+- ✅ Removed unused imports (`SearchBox`, `DragIcon`, `MoreIcon`)
+- ✅ Removed unused functions (`openAddSongsModal`, `reorderPlaylistSongs`)
+- ✅ All TypeScript strict mode compliant
 
 ### Phase 0: Auth Integration ✅
 
