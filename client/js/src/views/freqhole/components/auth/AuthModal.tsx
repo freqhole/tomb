@@ -27,6 +27,14 @@ export const AuthModal = (props: AuthModalProps) => {
     },
   });
 
+  // Debug: Log what AuthModal sees
+  console.log("AuthModal auth state:", {
+    isAuthenticated: auth.isAuthenticated,
+    currentUser: auth.currentUser,
+    isLoading: auth.isLoading,
+    error: auth.error,
+  });
+
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
 
@@ -155,10 +163,9 @@ export const AuthModal = (props: AuthModalProps) => {
               when={mode() === "login"}
               fallback={
                 <>
-                  This app uses WebAuthn for secure, passwordless
-                  authentication. You'll use your device's built-in security
-                  (fingerprint, face recognition, or security key) to create and
-                  access your account.
+                  FREQHOLE uses passwordless authentication. You'll use your
+                  device's built-in security (fingerprint, face recognition, or
+                  security key) to create and access your account.
                 </>
               }
             >

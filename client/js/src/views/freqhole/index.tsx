@@ -26,9 +26,28 @@ export function Freqhole() {
     },
   });
 
-  // Check auth status on mount
+  // Check auth status on mount (silent to avoid loading spinner)
   onMount(async () => {
-    const isAuthenticated = await auth.checkAuthStatus();
+    console.log("Mount: Initial auth state:", {
+      isAuthenticated: auth.isAuthenticated,
+      currentUser: auth.currentUser,
+      isLoading: auth.isLoading,
+      error: auth.error,
+    });
+
+    // Reset loading state in case it's stuck
+    auth.clearError();
+    auth.resetLoadingState();
+
+    const isAuthenticated = await auth.checkAuthStatusSilent();
+
+    console.log("Mount: After auth check:", {
+      isAuthenticated: auth.isAuthenticated,
+      currentUser: auth.currentUser,
+      isLoading: auth.isLoading,
+      error: auth.error,
+    });
+
     if (!isAuthenticated) {
       setShowAuthModal(true);
     }

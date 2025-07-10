@@ -1,6 +1,7 @@
 /* @jsxImportSource solid-js */
-import { createSignal, createMemo } from "solid-js";
+import { createMemo } from "solid-js";
 import { ApiClient, ApiError } from "../../lib/api-client.js";
+import { createStore } from "solid-js/store";
 
 // WebAuthn types
 type UserVerificationRequirement = "required" | "preferred" | "discouraged";
@@ -48,13 +49,15 @@ export interface UseAuthOptions {
   onLogout?: () => void;
 }
 
-export const useAuth = (options: UseAuthOptions = {}) => {
-  // Auth state signals
-  const [isAuthenticated, setIsAuthenticated] = createSignal(false);
-  const [currentUser, setCurrentUser] = createSignal<string | null>(null);
-  const [isLoading, setIsLoading] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
+// Global auth store (shared across all components)
+const [authStore, setAuthStore] = createStore({
+  isAuthenticated: false,
+  currentUser: null as string | null,
+  isLoading: false,
+  error: null as string | null,
+});
 
+export const useAuth = (options: UseAuthOptions = {}) => {
   // API client
   const apiClient = createMemo(
     () =>
@@ -71,35 +74,60 @@ export const useAuth = (options: UseAuthOptions = {}) => {
           ? err.message
           : "An unknown error occurred";
 
-    setError(errorMessage);
+    setAuthStore("error", errorMessage);
     options.onAuthError?.(errorMessage);
   };
 
   const clearError = () => {
-    setError(null);
+    setAuthStore("error", null);
+  };
+
+  const resetLoadingState = () => {
+    setAuthStore("isLoading", false);
   };
 
   const checkAuthStatus = async (): Promise<boolean> => {
+    setAuthStore("isLoading", true);
+    setAuthStore("error", null);
+
     try {
       const status = await apiClient().authStatus();
-      setIsAuthenticated(status.authenticated);
-      setCurrentUser(status.user_id || null);
+      setAuthStore("isAuthenticated", status.authenticated);
+      setAuthStore("currentUser", status.username || null);
       return status.authenticated;
     } catch (err) {
-      setIsAuthenticated(false);
-      setCurrentUser(null);
+      setAuthStore("isAuthenticated", false);
+      setAuthStore("currentUser", null);
+      return false;
+    } finally {
+      setAuthStore("isLoading", false);
+    }
+  };
+
+  const checkAuthStatusSilent = async (): Promise<boolean> => {
+    try {
+      const status = await apiClient().authStatus();
+      setAuthStore("isAuthenticated", status.authenticated);
+      setAuthStore("currentUser", status.username || null);
+      return status.authenticated;
+    } catch (err) {
+      setAuthStore("isAuthenticated", false);
+      setAuthStore("currentUser", null);
       return false;
     }
   };
 
-  const register = async (username: string, inviteCode: string): Promise<void> => {
+  const register = async (
+    username: string,
+    inviteCode: string
+  ): Promise<void> => {
     if (!username || !inviteCode) {
       handleError(new Error("Please enter both username and invite code"));
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
+    setAuthStore("isLoading", true);
+    setAuthStore("error", null);
 
     try {
       // Start registration
@@ -170,7 +198,7 @@ export const useAuth = (options: UseAuthOptions = {}) => {
     } catch (err) {
       handleError(err);
     } finally {
-      setIsLoading(false);
+      setAuthStore("isLoading", false);
     }
   };
 
@@ -180,8 +208,8 @@ export const useAuth = (options: UseAuthOptions = {}) => {
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
+    setAuthStore("isLoading", true);
+    setAuthStore("error", null);
 
     try {
       // Start login
@@ -251,44 +279,48 @@ export const useAuth = (options: UseAuthOptions = {}) => {
     } catch (err) {
       handleError(err);
     } finally {
-      setIsLoading(false);
+      setAuthStore("isLoading", false);
     }
   };
 
   const logout = async (): Promise<void> => {
-    setIsLoading(true);
-    setError(null);
+    setAuthStore("isLoading", true);
+    setAuthStore("error", null);
 
     try {
       await apiClient().logout();
-      setIsAuthenticated(false);
-      setCurrentUser(null);
+      setAuthStore("isAuthenticated", false);
+      setAuthStore("currentUser", null);
       options.onLogout?.();
     } catch (err) {
       handleError(err);
     } finally {
-      setIsLoading(false);
+      setAuthStore("isLoading", false);
     }
   };
 
-  // Return state and actions
-  const state: AuthState = {
-    get isAuthenticated() { return isAuthenticated(); },
-    get currentUser() { return currentUser(); },
-    get isLoading() { return isLoading(); },
-    get error() { return error(); },
-  };
-
-  const actions: AuthActions = {
+  // Return store and actions directly
+  return {
+    // State as store properties (access directly)
+    get isAuthenticated() {
+      return authStore.isAuthenticated;
+    },
+    get currentUser() {
+      return authStore.currentUser;
+    },
+    get isLoading() {
+      return authStore.isLoading;
+    },
+    get error() {
+      return authStore.error;
+    },
+    // Actions
     checkAuthStatus,
+    checkAuthStatusSilent,
     login,
     register,
     logout,
     clearError,
-  };
-
-  return {
-    ...state,
-    ...actions,
+    resetLoadingState,
   };
 };

@@ -9,15 +9,20 @@ export interface UserMenuProps {
 
 export const UserMenu = (props: UserMenuProps) => {
   const [isOpen, setIsOpen] = createSignal(false);
-  const auth = useAuth({
-    onLogout: () => {
-      setIsOpen(false);
-      props.onLogout?.();
-    },
+  const auth = useAuth();
+
+  // Debug: Log what UserMenu sees
+  console.log("UserMenu auth state:", {
+    isAuthenticated: auth.isAuthenticated,
+    currentUser: auth.currentUser,
+    isLoading: auth.isLoading,
+    error: auth.error,
   });
 
   const handleLogout = async () => {
     await auth.logout();
+    setIsOpen(false);
+    props.onLogout?.();
   };
 
   const UserIcon = () => (
@@ -32,10 +37,13 @@ export const UserMenu = (props: UserMenuProps) => {
     </svg>
   );
 
+  const [buttonRef, setButtonRef] = createSignal<HTMLButtonElement>();
+
   return (
     <Show when={auth.isAuthenticated}>
       <div class="relative">
         <button
+          ref={setButtonRef}
           onClick={() => setIsOpen(!isOpen())}
           class="w-8 h-8 bg-fuchsia-600 hover:bg-fuchsia-700 text-white rounded-lg flex items-center justify-center transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-fuchsia-500 focus:ring-offset-2 focus:ring-offset-black"
           title={`Signed in as ${auth.currentUser || "User"}`}
@@ -46,6 +54,7 @@ export const UserMenu = (props: UserMenuProps) => {
         <Popover
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}
+          anchorElement={buttonRef()}
           placement="bottom"
         >
           <div class="w-64 bg-gray-900 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
@@ -78,13 +87,6 @@ export const UserMenu = (props: UserMenuProps) => {
                   {auth.isLoading ? "Signing out..." : "Sign Out"}
                 </span>
               </button>
-            </div>
-
-            {/* Footer Info */}
-            <div class="px-4 py-2 border-t border-gray-700 bg-gray-800/30">
-              <p class="text-xs text-gray-500">
-                WebAuthn authenticated session
-              </p>
             </div>
           </div>
         </Popover>
