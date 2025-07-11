@@ -94,13 +94,13 @@ function FreqholeContent() {
         freqhole.actions.playAndQueue(item);
         break;
       case "artists":
-        freqhole.actions.playArtistAndView(item);
+        freqhole.actions.playArtist(item);
         break;
       case "albums":
-        freqhole.actions.playAlbumAndView(item);
+        freqhole.actions.playAlbum(item);
         break;
       case "playlists":
-        freqhole.actions.playPlaylistAndView(item);
+        freqhole.actions.playPlaylist(item);
         break;
     }
   };
@@ -291,7 +291,7 @@ function FreqholeContent() {
         {/* Main Content Area */}
         <main class="flex-1 overflow-hidden p-6">
           <div class="h-full flex flex-col">
-            {/* Loading State */}
+            {/* Loading State - Only show for view operations, not player operations */}
             <Show when={freqhole.isLoading()}>
               <div class="flex items-center justify-center py-8">
                 <div class="text-gray-400">Loading...</div>

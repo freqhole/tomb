@@ -69,51 +69,60 @@ export const useFreqholeState = () => {
     view.actions.openCreatePlaylistModal(songs);
   };
 
-  // Play playlist and view its details
+  // Play playlist - pure player action, no view changes
+  const playPlaylist = async (playlist: Playlist) => {
+    // Just play the playlist, don't change views or load playlist details
+    await player.playPlaylist(playlist);
+  };
+
+  // Play playlist and view its details (intentional cross-cutting workflow)
   const playPlaylistAndView = async (playlist: Playlist) => {
-    const currentView = music.state.currentView();
+    // First start playing (immediate feedback)
+    await player.playPlaylist(playlist);
 
+    // Then navigate to playlist view only if we're already on playlists view
+    const currentView = music.state.currentView();
     if (currentView === "playlists") {
-      // Only view if we're already on playlists view to avoid unnecessary loading
-      await Promise.all([
-        music.actions.viewPlaylist(playlist),
-        player.playPlaylist(playlist),
-      ]);
-    } else {
-      // Just play without changing view to avoid re-rendering current list
-      await player.playPlaylist(playlist);
+      // Only load playlist details if we're staying in playlists view
+      await music.actions.viewPlaylist(playlist);
     }
   };
 
-  // Play artist and view their songs
+  // Play artist - pure player action, no view changes
+  const playArtist = async (artist: ArtistSummary) => {
+    // Just play the artist's songs, don't change views or load artist details
+    await player.playArtist(artist);
+  };
+
+  // Play artist and view their songs (intentional cross-cutting workflow)
   const playArtistAndView = async (artist: ArtistSummary) => {
-    const currentView = music.state.currentView();
+    // First start playing (immediate feedback)
+    await player.playArtist(artist);
 
+    // Then navigate to artist view only if we're already on artists view
+    const currentView = music.state.currentView();
     if (currentView === "artists") {
-      // Only view if we're already on artists view to avoid unnecessary loading
-      await Promise.all([
-        music.actions.viewArtist(artist),
-        player.playArtist(artist),
-      ]);
-    } else {
-      // Just play without changing view to avoid re-rendering current list
-      await player.playArtist(artist);
+      // Only load artist details if we're staying in artists view
+      await music.actions.viewArtist(artist);
     }
   };
 
-  // Play album and view its tracks
-  const playAlbumAndView = async (album: Album) => {
-    const currentView = music.state.currentView();
+  // Play album - pure player action, no view changes
+  const playAlbum = async (album: Album) => {
+    // Just play the album, don't change views or load album details
+    await player.playAlbum(album);
+  };
 
+  // Play album and view its tracks (intentional cross-cutting workflow)
+  const playAlbumAndView = async (album: Album) => {
+    // First start playing (immediate feedback)
+    await player.playAlbum(album);
+
+    // Then navigate to album view only if we're already on albums view
+    const currentView = music.state.currentView();
     if (currentView === "albums") {
-      // Only view if we're already on albums view to avoid unnecessary loading
-      await Promise.all([
-        music.actions.viewAlbum(album),
-        player.playAlbum(album),
-      ]);
-    } else {
-      // Just play without changing view to avoid re-rendering current list
-      await player.playAlbum(album);
+      // Only load album details if we're staying in albums view
+      await music.actions.viewAlbum(album);
     }
   };
 
@@ -184,9 +193,14 @@ export const useFreqholeState = () => {
     }, 100);
   };
 
-  // Get combined loading state
+  // Get view-only loading state (player loading doesn't affect view)
   const isLoading = () => {
-    return music.state.loading() || player.isLoading();
+    return music.state.loading();
+  };
+
+  // Get player-only loading state
+  const isPlayerLoading = () => {
+    return player.isLoading();
   };
 
   // Get combined error state
@@ -206,8 +220,9 @@ export const useFreqholeState = () => {
     player,
     view,
 
-    // Combined state
-    isLoading,
+    // Scoped loading states
+    isLoading, // View loading only
+    isPlayerLoading, // Player loading only
     getError,
 
     // Combined actions
@@ -216,8 +231,13 @@ export const useFreqholeState = () => {
       initialize,
       cleanup,
 
-      // Playback
+      // Playback (pure player actions - no view changes)
       playAndQueue,
+      playPlaylist,
+      playArtist,
+      playAlbum,
+
+      // Cross-cutting workflows (intentional player + view coupling)
       playPlaylistAndView,
       playArtistAndView,
       playAlbumAndView,

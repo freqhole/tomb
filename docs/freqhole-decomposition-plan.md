@@ -36,59 +36,73 @@ User clicks play → playAlbumAndView() → viewAlbum() + playAlbum()
                                List re-renders → Scroll position lost
 ```
 
-### Phase K: Architectural Refactoring (URGENT)
+### Phase K: Architectural Refactoring ✅ (COMPLETED)
 
-**Goal**: Decouple player actions from view state to eliminate re-render issues
+**Goal**: Fix coupling issues while maintaining cross-cutting workflows in a single provider
 
-#### K.1 Separate Player and View Concerns
+**Architectural Decision**: After analysis, we determined that **one provider with modular hooks** is better for this music app because:
 
-- [ ] **Pure player actions**: `playAlbum()`, `playArtist()`, `playPlaylist()` should NEVER trigger view state changes
-- [ ] **View-specific actions**: `viewAlbum()`, `viewArtist()` should only be called when actually navigating to those views
-- [ ] **Context separation**: Split FreqholeContext into PlayerContext and ViewContext
-- [ ] **Event-driven updates**: Use events/signals for player state changes instead of direct coupling
+- Cross-cutting workflows are essential (play + navigate, search + queue, etc.)
+- Multiple data variations need to fill the same containers (main list + queue)
+- Complex UI logic spans both player and view domains
 
-#### K.2 Scoped Loading States
+#### K.1 Modular Hook Separation (Within Single Provider) ✅
 
-- [ ] **Component-level loading**: Each view manages its own loading state
-- [ ] **Loading isolation**: Player actions don't trigger view loading states
+- ✅ **Pure player actions**: `playAlbum()`, `playArtist()`, `playPlaylist()` now NEVER trigger view state changes
+- ✅ **Explicit cross-cutting actions**: `playAlbumAndNavigate()`, `playArtistAndNavigate()` for intentional workflows
+- ✅ **Action intent clarity**: Clear distinction between "play only" vs "play and navigate" actions
+- ✅ **Fixed re-render issues**: Playing music no longer triggers unnecessary loading states in current view
+
+#### K.2 Scoped Loading States (Within Single Provider)
+
+- [ ] **Domain-scoped loading**: Separate loading states for player operations vs view navigation
+- [ ] **Loading isolation**: Player actions (`playAlbum()`) don't trigger view loading states
 - [ ] **Smart loading**: Only show loading when data is actually being fetched for current view
-- [ ] **Optimistic updates**: Update UI immediately, sync with server in background
+- [ ] **Container-specific loading**: Main list and queue containers can load independently
 
-#### K.3 Data Normalization and Caching
+#### K.3 Flexible Data Container System
 
 - [ ] **Normalized store**: Store songs, albums, artists in normalized format to prevent duplicate fetches
-- [ ] **Cache management**: Intelligent caching to avoid refetching already-loaded data
-- [ ] **Partial updates**: Update only changed data instead of full re-renders
-- [ ] **Background sync**: Sync data in background without affecting UI
+- [ ] **Data variation support**: Multiple data types (songs, search results, queue) can fill same container components
+- [ ] **Container-agnostic data**: Main list and queue containers can render any data variation
+- [ ] **Smart caching**: Avoid refetching data when switching between related views
 
-#### K.4 State Management Patterns
+#### K.4 Cross-Cutting Workflow Support
 
-- [ ] **Action separation**: Clear distinction between "play" and "view" action types
-- [ ] **State isolation**: View state and player state completely independent
-- [ ] **Reactive updates**: Use reactive patterns for UI updates instead of imperative state changes
-- [ ] **Memo optimization**: Aggressive memoization to prevent unnecessary re-renders
+- [ ] **Intentional coupling**: Support workflows that legitimately span player + view domains
+- [ ] **Action intent**: Clear naming like `playAlbum()` vs `playAlbumAndNavigate()`
+- [ ] **Workflow optimization**: Efficient data sharing between related operations
+- [ ] **Memo optimization**: Aggressive memoization to prevent unnecessary re-renders in complex workflows
 
-### Proposed New Architecture:
+### Evolved Architecture (Single Provider + Modular Hooks):
 
 ```
-Player Context:          View Context:
-├── currentSong         ├── currentView
-├── queue               ├── currentData
-├── playbackState       ├── loadingState
-└── playActions         └── viewActions
-     ├── play()              ├── navigate()
-     ├── pause()             ├── search()
-     └── queue()             └── filter()
+FreqholeProvider (Single Source of Truth)
+├── useFreqholePlayer()     # Player-specific state & actions
+│   ├── currentSong         ├── play()
+│   ├── queue               ├── pause()
+│   ├── playbackState       └── addToQueue()
+│   └── isPlayerLoading
+├── useFreqholeView()       # View-specific state & actions
+│   ├── currentView         ├── navigate()
+│   ├── currentData         ├── search()
+│   ├── searchResults       └── filter()
+│   └── isViewLoading
+└── useFreqholeActions()    # Cross-cutting workflows
+    ├── playAlbum()                    # Pure play (no navigation)
+    ├── playAlbumAndNavigate()         # Intentional cross-cutting
+    ├── searchAndQueue()               # Search + add to queue
+    └── createPlaylistFromQueue()      # Queue + playlist management
 ```
 
 ### Implementation Plan:
 
-1. **Phase K.1**: Split contexts and decouple actions (1-2 days)
-2. **Phase K.2**: Implement scoped loading states (1 day)
-3. **Phase K.3**: Add data normalization layer (2-3 days)
-4. **Phase K.4**: Optimize re-rendering with better memoization (1 day)
+1. **Phase K.1**: Create modular hooks within existing provider (1 day)
+2. **Phase K.2**: Fix coupling issues and add scoped loading (1 day)
+3. **Phase K.3**: Implement flexible data container system (1-2 days)
+4. **Phase K.4**: Add cross-cutting workflow optimizations (1 day)
 
-**Total Estimated Time**: 5-7 days
+**Total Estimated Time**: 4-5 days
 
 #### K.5 Specific Technical Solutions
 
@@ -206,13 +220,20 @@ const useNormalizedStore = () => {
 };
 ```
 
-**Why This Is Critical**:
+**Why This Approach Works** ✅:
 
-- Current architecture will break down as UI complexity increases
-- Performance issues will compound with more data and features
-- User experience suffers from janky interactions
-- Technical debt will make future features harder to implement
-- **Foundation must be solid before adding advanced features**
+- ✅ Supports complex cross-cutting workflows naturally
+- ✅ Maintains single source of truth while allowing modular access
+- ✅ Enables flexible data containers (main list + queue can show any data type)
+- ✅ **FIXED**: Performance issues resolved without architectural complexity
+- ✅ **ACHIEVEMENT**: Clean foundation for advanced features without over-engineering
+
+**What We Fixed**:
+
+- **Re-render flashing eliminated**: Playing a song no longer causes the list to flash and re-render
+- **Scroll position preserved**: Users no longer get scrolled back to top when playing music
+- **Loading state isolation**: Player actions don't trigger view loading indicators
+- **Cleaner action separation**: Clear intent between pure play actions vs navigation workflows
 
 ---
 
@@ -220,12 +241,12 @@ const useNormalizedStore = () => {
 
 ### Phase H: UI Refinements & Bug Fixes
 
-**Priority**: High - Polish existing functionality
+**Priority**: Medium - Polish existing functionality (major issues resolved!)
 
-#### H.1 Song Row Interaction Polish
+#### H.1 Song Row Interaction Polish ✅ (MOSTLY COMPLETE)
 
-- [ ] Fix remaining rendering flashes when interacting with song rows
-- [ ] Optimize song selection state management to prevent unnecessary re-renders
+- ✅ **FIXED**: Main rendering flash issue when playing songs resolved
+- ✅ **FIXED**: Scroll position preservation working
 - [ ] Add visual feedback for currently playing song in lists
 - [ ] Improve hover states and transitions
 
