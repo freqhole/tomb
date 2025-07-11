@@ -304,6 +304,217 @@
   @apply outline-2 outline-offset-2 outline-primary-400;
 }
 
+/* Player Styles - Zune Demo Style */
+.zune-player {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px);
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  z-index: 1000;
+  animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.zune-player-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 250px;
+  width: 100%;
+}
+
+.zune-artwork-placeholder {
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(135deg, #333 0%, #555 100%);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.zune-artwork-image {
+  width: 50px;
+  height: 50px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.zune-player-text {
+  flex: 1;
+}
+
+.zune-player-title {
+  font-size: 1rem;
+  font-weight: 500;
+  margin: 0;
+  color: #ffffff;
+}
+
+.zune-player-artist {
+  font-size: 0.9rem;
+  font-weight: 300;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.zune-player-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.zune-control-btn {
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zune-control-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.1);
+}
+
+.zune-control-btn.primary {
+  background: linear-gradient(135deg, #ff0080 0%, #ff4081 100%);
+  width: 52px;
+  height: 52px;
+}
+
+.zune-control-btn.primary:hover {
+  background: linear-gradient(135deg, #ff1a8a 0%, #ff5a8a 100%);
+}
+
+.zune-control-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.zune-player-progress {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  max-width: 400px;
+}
+
+.zune-time {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 300;
+  min-width: 40px;
+}
+
+.zune-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: height 0.2s ease;
+  min-width: 100px;
+}
+
+.zune-progress-bar:hover {
+  height: 8px;
+}
+
+.zune-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff0080 0%, #ff4081 100%);
+  transition: width 0.1s ease;
+}
+
+.zune-player-volume {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.zune-volume-slider {
+  width: 100px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 2px;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.zune-volume-slider::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  background: #ff0080;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  appearance: none;
+}
+
+.zune-volume-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #ff0080;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* Responsive Player */
+@media (max-width: 768px) {
+  .zune-player {
+    padding: 1rem;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .zune-player-info {
+    min-width: auto;
+  }
+
+  .zune-player-progress {
+    max-width: 100%;
+  }
+
+  .zune-control-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .zune-control-btn.primary {
+    width: 48px;
+    height: 48px;
+  }
+}
+
 /* Custom Scrollbar */
 .freqhole-scrollbar::-webkit-scrollbar {
   width: 8px;

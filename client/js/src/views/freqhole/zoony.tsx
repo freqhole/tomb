@@ -17,6 +17,7 @@ import type {
 } from "../../lib/music/types.js";
 import { Header } from "./components/header";
 import { Player } from "./components/player";
+import { FreqholeProvider, useFreqhole } from "./context/FreqholeContext";
 import {
   AddIcon,
   CloseIcon,
@@ -48,642 +49,95 @@ interface ZoonyProps {
 
 function ZoonyContent() {
   const context = useSearchContext();
-  const [currentView, setCurrentView] = createSignal<
-    "music" | "artists" | "albums" | "playlists"
-  >("music");
-  const [songs, setSongs] = createSignal<Song[]>([]);
-  const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
-  const [albums, setAlbums] = createSignal<Album[]>([]);
-  const [artists, setArtists] = createSignal<ArtistSummary[]>([]);
-  const [currentPlaylist, setCurrentPlaylist] = createSignal<Playlist | null>(
-    null
-  );
-  const [playlistSongs, setPlaylistSongs] = createSignal<PlaylistSong[]>([]);
-  const [currentArtist, setCurrentArtist] = createSignal<ArtistSummary | null>(
-    null
-  );
-  const [artistSongs, setArtistSongs] = createSignal<Song[]>([]);
-  const [currentAlbum, setCurrentAlbum] = createSignal<Album | null>(null);
-  const [albumSongs, setAlbumSongs] = createSignal<Song[]>([]);
-  const [loading, setLoading] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
+  const freqhole = useFreqhole();
 
-  // Playlist management state
-  const [showPlaylistModal, setShowPlaylistModal] = createSignal(false);
-  const [playlistModalMode, setPlaylistModalMode] = createSignal<
-    "create" | "edit" | "add-songs"
-  >("create");
-  const [selectedSongs, setSelectedSongs] = createSignal<Song[]>([]);
-  const [editingPlaylist, setEditingPlaylist] = createSignal<Playlist | null>(
-    null
-  );
-  const [showPlaylistDropdown, setShowPlaylistDropdown] = createSignal<
-    string | null
-  >(null);
+  // Use the new context-based state
+  const { music, player, view } = freqhole;
 
-  // Player state
-  const [currentSong, setCurrentSong] = createSignal<Song | null>(null);
-  const [isPlaying, setIsPlaying] = createSignal(false);
-  const [currentTime, setCurrentTime] = createSignal(0);
-  const [duration, setDuration] = createSignal(0);
-  const [volume, setVolume] = createSignal(0.7);
-  const [audioElement, setAudioElement] = createSignal<HTMLAudioElement | null>(
-    null
-  );
-
-  // Play queue
-  const [playQueue, setPlayQueue] = createSignal<QueueItem[]>([]);
-  const [currentQueueIndex, setCurrentQueueIndex] = createSignal(0);
-  const [showQueue, setShowQueue] = createSignal(false);
-
-  // Filters and search
-  const [selectedArtist, setSelectedArtist] = createSignal<string | null>(null);
-  const [selectedAlbum, setSelectedAlbum] = createSignal<string | null>(null);
+  // Local state for compatibility with existing UI
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchResults, setSearchResults] = createSignal<Song[]>([]);
   const [isSearchActive, setIsSearchActive] = createSignal(false);
 
-  // Playlist management modal state
-  const [playlistForm, setPlaylistForm] = createSignal({
-    title: "",
-    description: "",
-    is_public: false,
-  });
-
-  // Animation states
-  const [viewTransition, setViewTransition] = createSignal<
-    "entering" | "exiting" | "idle"
-  >("idle");
-
-  // const apiClient = createApiClient("http://localhost:8080");
-
-  // Fetch data based on current view
-  const fetchData = async (view: string) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      switch (view) {
-        case "music":
-          const songs = await apiClient.getSongs(1000);
-          setSongs(
-            songs.map((song) => ({
-              ...song,
-              is_favorite: song.favorite || false,
-              tags: [],
-              display_title: song.title,
-              detailed_display_title: `${song.artist} - ${song.title}`,
-              created_at: song.created_at || new Date().toISOString(),
-              media_blob_id: song.id,
-              thumbnail_blob_ids: [],
-            }))
-          );
-          break;
-
-        case "artists":
-          const artists = await apiClient.getArtists();
-          setArtists(
-            artists.map((artist) => ({
-              ...artist,
-              avg_rating: artist.avg_rating || undefined,
-            }))
-          );
-          break;
-
-        case "playlists":
-          const playlists = await apiClient.getPlaylists(1000);
-          setPlaylists(
-            playlists.map((playlist) => ({
-              ...playlist,
-              description: playlist.description || undefined,
-            }))
-          );
-          break;
-
-        case "albums":
-          const albums = await apiClient.getAlbums();
-          setAlbums(
-            albums.map((album) => ({
-              ...album,
-              year: album.year || undefined,
-              avg_rating: album.avg_rating || undefined,
-            }))
-          );
-          break;
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch data");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Ensure playlists are loaded for dropdown functionality
-  const ensurePlaylistsLoaded = async () => {
-    if (playlists().length === 0) {
-      try {
-        const playlists = await apiClient.getPlaylists(1000);
-        setPlaylists(
-          playlists.map((playlist) => ({
-            ...playlist,
-            description: playlist.description || undefined,
-          }))
-        );
-      } catch (err) {
-        console.error("Failed to load playlists:", err);
-      }
-    }
-  };
-
-  // Initialize audio element
-  onMount(() => {
-    const audio = new Audio();
-    setAudioElement(audio);
-
-    audio.addEventListener("loadedmetadata", () => {
-      setDuration(audio.duration);
-    });
-
-    audio.addEventListener("timeupdate", () => {
-      setCurrentTime(audio.currentTime);
-    });
-
-    audio.addEventListener("ended", () => {
-      setIsPlaying(false);
-      setCurrentTime(0);
-      playNext();
-    });
-
-    fetchData(currentView());
-    ensurePlaylistsLoaded(); // Load playlists on mount
+  // Initialize on mount
+  onMount(async () => {
+    await freqhole.actions.initialize();
   });
 
   onCleanup(() => {
-    const audio = audioElement();
-    if (audio) {
-      audio.pause();
-      audio.src = "";
-    }
+    freqhole.actions.cleanup();
   });
 
-  // Queue management
-  const addToQueue = (song: Song) => {
-    // Check if song is already in queue
-    const existingItem = playQueue().find((item) => item.song.id === song.id);
-    if (existingItem) return;
+  // Use the context-based actions
+  const viewPlaylist = (playlist: Playlist) =>
+    music.actions.viewPlaylist(playlist);
+  const viewArtist = (artist: ArtistSummary) =>
+    music.actions.viewArtist(artist);
+  const viewAlbum = (album: Album) => music.actions.viewAlbum(album);
+  const playPlaylist = (playlist: Playlist) =>
+    freqhole.actions.playPlaylistAndView(playlist);
+  const playArtist = (artist: ArtistSummary) =>
+    freqhole.actions.playArtistAndView(artist);
+  const playAlbum = (album: Album) => freqhole.actions.playAlbumAndView(album);
+  const playSong = (song: Song) => freqhole.actions.playAndQueue(song);
 
-    const queueItem: QueueItem = {
-      song,
-      id: `queue-${song.id}-${Date.now()}`,
-    };
-    setPlayQueue((prev) => [...prev, queueItem]);
-  };
-
-  const playNext = () => {
-    const queue = playQueue();
-    const currentIndex = currentQueueIndex();
-    if (currentIndex < queue.length - 1) {
-      setCurrentQueueIndex(currentIndex + 1);
-      const nextSong = queue[currentIndex + 1];
-      if (nextSong) {
-        playSong(nextSong.song, false);
-      }
-    }
-  };
-
-  const playPrevious = () => {
-    const queue = playQueue();
-    const currentIndex = currentQueueIndex();
-    if (currentIndex > 0) {
-      setCurrentQueueIndex(currentIndex - 1);
-      const prevSong = queue[currentIndex - 1];
-      if (prevSong) {
-        playSong(prevSong.song, false);
-      }
-    }
-  };
-
-  const removeFromQueue = (queueId: string) => {
-    setPlayQueue((prev) => prev.filter((item) => item.id !== queueId));
-  };
-
-  const clearQueue = () => {
-    setPlayQueue([]);
-    setCurrentQueueIndex(0);
-  };
-
-  // Handle view changes with animation
-  const changeView = (
-    newView: "music" | "artists" | "albums" | "playlists"
-  ) => {
-    if (newView === currentView()) return;
-
-    setViewTransition("exiting");
-
-    setTimeout(() => {
-      setCurrentView(newView);
-      setViewTransition("entering");
-      fetchData(newView);
-      // Clear selections when changing views
-      setSelectedArtist(null);
-      setSelectedAlbum(null);
-      setCurrentPlaylist(null);
-      setCurrentArtist(null);
-      setCurrentAlbum(null);
-      setArtistSongs([]);
-      setAlbumSongs([]);
-      setPlaylistSongs([]);
-
-      setTimeout(() => {
-        setViewTransition("idle");
-      }, 200);
-    }, 100);
-  };
-
-  // Player controls
-  const togglePlayback = () => {
-    const audio = audioElement();
-    if (!audio || !currentSong()) return;
-
-    if (isPlaying()) {
-      audio.pause();
-      setIsPlaying(false);
-    } else {
-      audio.play();
-      setIsPlaying(true);
-    }
-  };
-
-  const playSong = (song: Song, addToQueueIfEmpty = true) => {
-    const audio = audioElement();
-    if (!audio) return;
-
-    setCurrentSong(song);
-    audio.src = `http://localhost:8080/api/blobs/${song.media_blob_id}`;
-    audio.volume = volume();
-    audio.play();
-    setIsPlaying(true);
-
-    if (addToQueueIfEmpty && playQueue().length === 0) {
-      const queueItem: QueueItem = {
-        song,
-        id: `queue-${song.id}-${Date.now()}`,
-      };
-      setPlayQueue([queueItem]);
-      setCurrentQueueIndex(0);
-    }
-  };
-
-  const viewPlaylist = async (playlist: Playlist) => {
-    try {
-      const songs = await apiClient.getPlaylistSongs(playlist.id);
-      setCurrentPlaylist(playlist);
-      setPlaylistSongs(
-        songs.map((song, index) => ({
-          position: index + 1,
-          song: {
-            ...song,
-            is_favorite: song.favorite || false,
-            tags: [],
-            display_title: song.title,
-            detailed_display_title: `${song.artist} - ${song.title}`,
-            created_at: song.created_at || new Date().toISOString(),
-            media_blob_id: song.id,
-            thumbnail_blob_ids: [],
-          },
-          added_at: new Date().toISOString(),
-        }))
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load playlist");
-    }
-  };
-
-  const viewArtist = async (artist: ArtistSummary) => {
-    try {
-      const songs = await apiClient.getArtistSongs(artist.artist, 1000);
-      setCurrentArtist(artist);
-      setArtistSongs(
-        songs.map((song) => ({
-          ...song,
-          is_favorite: song.favorite || false,
-          tags: [],
-          display_title: song.title,
-          detailed_display_title: `${song.artist} - ${song.title}`,
-          created_at: song.created_at || new Date().toISOString(),
-          media_blob_id: song.id,
-          thumbnail_blob_ids: [],
-        }))
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load artist songs"
-      );
-    }
-  };
-
-  const viewAlbum = async (album: Album) => {
-    try {
-      const songs = await apiClient.getAlbumTracks(
-        album.album || "",
-        album.artist
-      );
-
-      setCurrentAlbum(album);
-      setAlbumSongs(
-        songs.map((track: any) => ({
-          id: track.song_id,
-          title: track.title,
-          artist: track.artist,
-          album: album.album,
-          track_number: track.track_number,
-          disc_number: track.disc_number,
-          duration_seconds: track.duration
-            ? parseFloat(
-                track.duration
-                  .split(":")
-                  .reduce((acc: number, time: string) => 60 * acc + +time)
-              )
-            : null,
-          genre: track.genre,
-          year: track.year,
-          rating: track.rating,
-          is_favorite: track.is_favorite,
-          display_title: track.title,
-          detailed_display_title: `${track.title} - ${track.artist}`,
-          media_blob_id: track.media_blob_id,
-          thumbnail_blob_id: track.thumbnail_id,
-          waveform_blob_id: track.waveform_id,
-          thumbnail_blob_ids: null,
-          created_at: new Date().toISOString(),
-        }))
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load album tracks"
-      );
-    }
-  };
-
-  const playPlaylist = async (playlist: Playlist) => {
-    try {
-      const songs = await apiClient.getPlaylistSongs(playlist.id);
-      if (songs.length > 0) {
-        setCurrentPlaylist(playlist);
-        setPlaylistSongs(songs);
-
-        const newQueue: QueueItem[] = songs.map(
-          (item: PlaylistSong, index: number) => ({
-            song: item.song,
-            id: `playlist-${playlist.id}-${index}`,
-          })
-        );
-
-        setPlayQueue(newQueue);
-        setCurrentQueueIndex(0);
-        playSong(songs[0].song, false);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load playlist");
-    }
-  };
-
-  const playArtist = async (artist: ArtistSummary) => {
-    try {
-      const songs = await apiClient.getArtistSongs(artist.artist, 1000);
-      if (songs.length > 0) {
-        setCurrentArtist(artist);
-        setArtistSongs(songs);
-
-        const newQueue: QueueItem[] = songs.map(
-          (song: Song, index: number) => ({
-            song,
-            id: `artist-${artist.artist}-${index}`,
-          })
-        );
-
-        setPlayQueue(newQueue);
-        setCurrentQueueIndex(0);
-        playSong(songs[0], false);
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load artist songs"
-      );
-    }
-  };
-
-  const playAlbum = async (album: Album) => {
-    try {
-      const tracks = await apiClient.getAlbumTracks(
-        album.album || "",
-        album.artist
-      );
-
-      if (tracks.length > 0) {
-        const songs = tracks.map((track: any) => ({
-          id: track.song_id,
-          title: track.title,
-          artist: track.artist,
-          album: album.album,
-          track_number: track.track_number,
-          disc_number: track.disc_number,
-          duration_seconds: track.duration
-            ? parseFloat(
-                track.duration
-                  .split(":")
-                  .reduce((acc: number, time: string) => 60 * acc + +time)
-              )
-            : null,
-          genre: track.genre,
-          year: track.year,
-          rating: track.rating,
-          is_favorite: track.is_favorite,
-          display_title: track.title,
-          detailed_display_title: `${track.title} - ${track.artist}`,
-          media_blob_id: track.media_blob_id,
-          thumbnail_blob_id: track.thumbnail_id,
-          waveform_blob_id: track.waveform_id,
-          thumbnail_blob_ids: null,
-          created_at: new Date().toISOString(),
-        }));
-
-        setCurrentAlbum(album);
-        setAlbumSongs(songs);
-
-        const newQueue: QueueItem[] = songs.map(
-          (song: Song, index: number) => ({
-            song,
-            id: `album-${album.album}-${index}`,
-          })
-        );
-
-        setPlayQueue(newQueue);
-        setCurrentQueueIndex(0);
-        playSong(songs[0], false);
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load album tracks"
-      );
-    }
-  };
-
-  // Playlist Management Functions
+  // Playlist Management Functions - use context-based actions
   const openCreatePlaylistModal = (songsToAdd?: Song[]) => {
-    setPlaylistModalMode("create");
-    setSelectedSongs(songsToAdd || []);
-    setPlaylistForm({ title: "", description: "", is_public: false });
-    setEditingPlaylist(null);
-    setShowPlaylistModal(true);
+    view.actions.openCreatePlaylistModal(songsToAdd || []);
   };
 
   const openEditPlaylistModal = (playlist: Playlist) => {
-    setPlaylistModalMode("edit");
-    setEditingPlaylist(playlist);
-    setPlaylistForm({
-      title: playlist.title,
-      description: playlist.description || "",
-      is_public: playlist.is_public,
-    });
-    setShowPlaylistModal(true);
+    view.actions.openEditPlaylistModal(playlist);
   };
 
-  // Removed unused function openAddSongsModal
-
   const closePlaylistModal = () => {
-    setShowPlaylistModal(false);
-    setSelectedSongs([]);
-    setEditingPlaylist(null);
-    setPlaylistForm({ title: "", description: "", is_public: false });
+    view.actions.closePlaylistModal();
   };
 
   const createPlaylist = async () => {
-    if (!playlistForm().title.trim()) return;
-
-    try {
-      await apiClient.createPlaylist({
-        title: playlistForm().title,
-        description: playlistForm().description || null,
-        is_public: playlistForm().is_public,
-      });
-
-      closePlaylistModal();
-      // Refresh playlists
-      fetchData("playlists");
-      setSelectedSongs([]);
-    } catch (err) {
-      setError("Failed to create playlist");
-    }
+    await freqhole.actions.createPlaylistWithModal();
   };
 
   const updatePlaylist = async () => {
-    if (!editingPlaylist() || !playlistForm().title.trim()) return;
-
-    try {
-      await apiClient.updatePlaylist(editingPlaylist()!.id, {
-        title: playlistForm().title,
-        description: playlistForm().description || null,
-        is_public: playlistForm().is_public,
-      });
-
-      closePlaylistModal();
-      // Refresh playlists
-      fetchData("playlists");
-    } catch (err) {
-      setError("Failed to update playlist");
-    }
+    await freqhole.actions.updatePlaylistWithModal();
   };
 
   const addSongsToPlaylist = async () => {
-    if (!editingPlaylist() || selectedSongs().length === 0) return;
-
-    try {
-      await apiClient.addSongsToPlaylist(
-        editingPlaylist()!.id,
-        selectedSongs().map((s) => s.id)
-      );
-      closePlaylistModal();
-      // Refresh playlist songs if we're viewing this playlist
-      if (currentPlaylist()?.id === editingPlaylist()!.id) {
-        viewPlaylist(currentPlaylist()!);
-      }
-      setSelectedSongs([]);
-    } catch (err) {
-      setError("Failed to add songs to playlist");
-    }
+    await freqhole.actions.addSongsToPlaylistWithModal();
   };
 
   const removeSongFromPlaylist = async (playlist: Playlist, songId: string) => {
-    try {
-      await apiClient.removeSongsFromPlaylist(playlist.id, [songId]);
-      // Refresh playlist songs if we're viewing this playlist
-      if (currentPlaylist()?.id === playlist.id) {
-        viewPlaylist(playlist);
-      }
-      // Refresh playlists
-      fetchData("playlists");
-    } catch (err) {
-      setError("Failed to remove song from playlist");
-    }
+    await music.actions.removeSongFromPlaylist(playlist.id, songId);
   };
 
-  // Removed unused function reorderPlaylistSongs
-
   const addSongToExistingPlaylist = async (song: Song, playlist: Playlist) => {
-    try {
-      await apiClient.addSongsToPlaylist(playlist.id, [song.id]);
-      setShowPlaylistDropdown(null);
-      // Show success feedback
-      console.log(`Added "${song.title}" to playlist "${playlist.title}"`);
-    } catch (err) {
-      setError("Failed to add song to playlist");
-    }
+    await music.actions.addSongsToPlaylist(playlist.id, [song]);
+    view.actions.closePlaylistDropdown();
   };
 
   const deletePlaylist = async (playlist: Playlist) => {
-    try {
-      await apiClient.deletePlaylist(playlist.id);
-      // Clear current playlist if it was deleted
-      if (currentPlaylist()?.id === playlist.id) {
-        setCurrentPlaylist(null);
-        setPlaylistSongs([]);
-      }
-      // Refresh playlists
-      fetchData("playlists");
-    } catch (err) {
-      setError("Failed to delete playlist");
-    }
+    await music.actions.deletePlaylist(playlist.id);
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  const seekTo = (percentage: number) => {
-    const audio = audioElement();
-    if (!audio) return;
-
-    audio.currentTime = (percentage / 100) * duration();
-  };
-
-  // Data filtering
+  // Data filtering - use context-based data
   const getFilteredSongs = () => {
     // If we're in search mode and have search results, use those
     if (isSearchActive() && searchResults().length > 0) {
       return searchResults();
     }
 
-    let filtered = songs();
+    let filtered = music.state.songs();
 
-    if (selectedArtist()) {
-      filtered = filtered.filter((song) => song.artist === selectedArtist());
+    if (music.state.selectedArtist()) {
+      filtered = filtered.filter(
+        (song) => song.artist === music.state.selectedArtist()
+      );
     }
 
-    if (selectedAlbum()) {
-      filtered = filtered.filter((song) => song.album === selectedAlbum());
+    if (music.state.selectedAlbum()) {
+      filtered = filtered.filter(
+        (song) => song.album === music.state.selectedAlbum()
+      );
     }
 
     if (searchQuery().trim() && !isSearchActive()) {
@@ -703,20 +157,27 @@ function ZoonyContent() {
   const handleSuggestionSelect = (suggestion: string) => {
     setSearchQuery(suggestion);
     context.state.setQuery(suggestion);
-    changeView("music");
+    music.actions.changeView("music");
     performSearch(suggestion);
   };
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
     context.state.setQuery(query);
-    changeView("music");
+    music.actions.changeView("music");
     if (query.trim()) {
       performSearch(query);
     } else {
       setIsSearchActive(false);
       setSearchResults([]);
     }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery("");
+    setIsSearchActive(false);
+    setSearchResults([]);
+    context.state.setQuery("");
   };
 
   const performSearch = async (query: string) => {
@@ -819,16 +280,19 @@ function ZoonyContent() {
     return categoryNames[category] || category;
   };
 
+  // Data helper functions
   const getCurrentSongs = () => {
-    if (currentPlaylist()) {
-      return playlistSongs().map((item) => item.song);
+    // If viewing a specific playlist, artist, or album, show those songs
+    if (music.state.currentPlaylist()) {
+      return music.state.playlistSongs().map((ps) => ps.song);
     }
-    if (currentArtist()) {
-      return artistSongs();
+    if (music.state.currentArtist()) {
+      return music.state.artistSongs();
     }
-    if (currentAlbum()) {
-      return albumSongs();
+    if (music.state.currentAlbum()) {
+      return music.state.albumSongs();
     }
+    // Otherwise show filtered songs
     return getFilteredSongs();
   };
 
@@ -848,14 +312,16 @@ function ZoonyContent() {
     <div class="zune-demo">
       {/* Header */}
       <Header
-        currentView={currentView()}
-        onViewChange={changeView}
+        currentView={music.state.currentView()}
+        onViewChange={music.actions.changeView}
         searchQuery={searchQuery()}
         onSearchQueryChange={(query) => {
           setSearchQuery(query);
           if (!query.trim()) {
             setIsSearchActive(false);
             setSearchResults([]);
+          } else {
+            performSearch(query);
           }
         }}
         onSearch={handleSearch}
@@ -867,15 +333,15 @@ function ZoonyContent() {
       <div class="zune-main">
         {/* Left Sidebar */}
         <div class="zune-sidebar">
-          <Show when={currentView() === "playlists"}>
+          <Show when={music.state.currentView() === "playlists"}>
             <div class="zune-filter-sidebar">
-              {/* <h3>playlists</h3> */}
+              <h3>playlists</h3>
               <div class="zune-filter-list">
-                <For each={playlists()}>
+                <For each={music.state.playlists()}>
                   {(playlist) => (
                     <div class="zune-filter-item-container">
                       <button
-                        class={`zune-filter-item ${currentPlaylist()?.id === playlist.id ? "active" : ""}`}
+                        class={`zune-filter-item ${music.state.currentPlaylist()?.id === playlist.id ? "active" : ""}`}
                         onClick={() => viewPlaylist(playlist)}
                       >
                         {playlist.title}
@@ -916,13 +382,13 @@ function ZoonyContent() {
             </div>
           </Show>
 
-          <Show when={currentView() === "artists"}>
+          <Show when={music.state.currentView() === "artists"}>
             <div class="zune-filter-sidebar">
               <div class="zune-filter-list">
-                <For each={artists()}>
+                <For each={music.state.artists()}>
                   {(artist) => (
                     <button
-                      class={`zune-filter-item ${currentArtist()?.artist === artist.artist ? "active" : ""}`}
+                      class={`zune-filter-item ${music.state.currentArtist()?.artist === artist.artist ? "active" : ""}`}
                       onClick={() => viewArtist(artist)}
                     >
                       {artist.artist}
@@ -936,16 +402,16 @@ function ZoonyContent() {
             </div>
           </Show>
 
-          <Show when={currentView() === "albums"}>
+          <Show when={music.state.currentView() === "albums"}>
             <div class="zune-filter-sidebar">
               <div class="zune-filter-list">
-                <For each={albums()}>
+                <For each={music.state.albums()}>
                   {(album) => (
                     <button
-                      class={`zune-filter-item ${currentAlbum()?.album === album.album ? "active" : ""}`}
+                      class={`zune-filter-item ${music.state.currentAlbum()?.album === album.album ? "active" : ""}`}
                       onClick={() => viewAlbum(album)}
                     >
-                      {album.album || "Unknown Album"}
+                      {album.album}
                       <span class="zune-filter-count">
                         {album.track_count || 0}
                       </span>
@@ -994,67 +460,81 @@ function ZoonyContent() {
                 </Show>
               </Show>
             </div>
-            <Show when={currentPlaylist()}>
+            <Show when={music.state.currentPlaylist()}>
               <button
                 class="zune-play-all-btn"
-                onClick={() => playPlaylist(currentPlaylist()!)}
+                onClick={() => playPlaylist(music.state.currentPlaylist()!)}
               >
                 <PlayIcon />
                 play all
               </button>
             </Show>
-            <Show when={currentArtist()}>
+            <Show when={music.state.currentArtist()}>
               <button
                 class="zune-play-all-btn"
-                onClick={() => playArtist(currentArtist()!)}
+                onClick={() => playArtist(music.state.currentArtist()!)}
               >
                 <PlayIcon />
                 play all
               </button>
             </Show>
-            <Show when={currentAlbum()}>
+            <Show when={music.state.currentAlbum()}>
               <button
                 class="zune-play-all-btn"
-                onClick={() => playAlbum(currentAlbum()!)}
+                onClick={() => playAlbum(music.state.currentAlbum()!)}
               >
                 <PlayIcon />
                 play all
               </button>
             </Show>
-            <Show when={currentView() === "playlists" && !currentPlaylist()}>
+            <Show
+              when={
+                music.state.currentView() === "playlists" &&
+                !music.state.currentPlaylist()
+              }
+            >
               <button
                 class="zune-play-all-btn"
                 onClick={() => openCreatePlaylistModal()}
               >
                 <AddIcon />
-                create playlist
+                <span>Create Playlist</span>
               </button>
             </Show>
           </div>
 
-          <div class={`zune-content-area ${viewTransition()}`}>
-            <Show when={loading()}>
+          <div class={`zune-content-area ${view.state.viewTransition()}`}>
+            <Show when={freqhole.isLoading()}>
               <div class="zune-loading">
                 <div class="zune-loading-spinner"></div>
-                <p>loading...</p>
+                <p>Loading...</p>
               </div>
             </Show>
 
-            <Show when={error()}>
+            <Show when={freqhole.getError()}>
               <div class="zune-error">
-                <p>error: {error()}</p>
-                <button onClick={() => fetchData(currentView())}>retry</button>
+                <p>Error: {freqhole.getError()}</p>
+                <button
+                  onClick={() =>
+                    music.actions.fetchData(music.state.currentView())
+                  }
+                >
+                  Try Again
+                </button>
               </div>
             </Show>
 
-            <Show when={!loading() && !error()}>
-              {/* Songs Table */}
+            <Show when={!freqhole.isLoading() && !freqhole.getError()}>
+              {/* Music Table */}
               <Show
                 when={
-                  currentView() === "music" ||
-                  currentPlaylist() ||
-                  currentArtist() ||
-                  currentAlbum()
+                  (music.state.currentView() === "music" &&
+                    !music.state.currentArtist() &&
+                    !music.state.currentAlbum() &&
+                    !music.state.currentPlaylist()) ||
+                  music.state.currentPlaylist() ||
+                  music.state.currentArtist() ||
+                  music.state.currentAlbum()
                 }
               >
                 {/* Grouped Suggestions Table - show first when searching */}
@@ -1148,13 +628,14 @@ function ZoonyContent() {
                     <For each={getCurrentSongs()}>
                       {(song, index) => (
                         <div
-                          class={`zune-table-row ${currentSong()?.id === song.id ? "playing" : ""}`}
+                          class={`zune-table-row ${player.currentSong()?.id === song.id ? "playing" : ""}`}
                           onDblClick={() => playSong(song)}
                         >
                           <div class="zune-table-cell zune-table-cell--play">
                             <Show
                               when={
-                                currentSong()?.id === song.id && isPlaying()
+                                player.currentSong()?.id === song.id &&
+                                player.isPlaying()
                               }
                               fallback={
                                 <span class="zune-track-number">
@@ -1173,7 +654,7 @@ function ZoonyContent() {
                             <div class="zune-song-title-cell">
                               <Show when={song.thumbnail_blob_id}>
                                 <img
-                                  src={`http://localhost:8080/api/blobs/${song.thumbnail_blob_id}`}
+                                  src={`${apiClient.getBaseUrl()}/api/blobs/${song.thumbnail_blob_id}`}
                                   alt={song.title}
                                   class="zune-song-thumbnail"
                                 />
@@ -1198,7 +679,7 @@ function ZoonyContent() {
                           </div>
                           <div class="zune-table-cell zune-table-cell--duration">
                             {song.duration_seconds
-                              ? formatTime(song.duration_seconds)
+                              ? player.formatTime(song.duration_seconds)
                               : "--:--"}
                           </div>
                           <div class="zune-table-cell zune-table-cell--actions">
@@ -1225,9 +706,10 @@ function ZoonyContent() {
                                   class="zune-action-btn"
                                   onClick={async (e) => {
                                     e.stopPropagation();
-                                    await ensurePlaylistsLoaded();
-                                    setShowPlaylistDropdown(
-                                      showPlaylistDropdown() === song.id
+                                    await music.actions.ensurePlaylistsLoaded();
+                                    view.actions.setShowPlaylistDropdown(
+                                      view.state.showPlaylistDropdown() ===
+                                        song.id
                                         ? null
                                         : song.id
                                     );
@@ -1236,21 +718,28 @@ function ZoonyContent() {
                                 >
                                   <AddIcon />
                                 </button>
-                                <Show when={showPlaylistDropdown() === song.id}>
+                                <Show
+                                  when={
+                                    view.state.showPlaylistDropdown() ===
+                                    song.id
+                                  }
+                                >
                                   <div class="zune-playlist-dropdown">
                                     <button
                                       class="zune-dropdown-item"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         openCreatePlaylistModal([song]);
-                                        setShowPlaylistDropdown(null);
+                                        view.actions.setShowPlaylistDropdown(
+                                          null
+                                        );
                                       }}
                                     >
                                       <AddIcon />
                                       Create New Playlist
                                     </button>
                                     <div class="zune-dropdown-divider"></div>
-                                    <For each={playlists()}>
+                                    <For each={music.state.playlists()}>
                                       {(playlist) => (
                                         <button
                                           class="zune-dropdown-item"
@@ -1274,13 +763,13 @@ function ZoonyContent() {
                               </div>
                             </Show>
 
-                            <Show when={currentPlaylist()}>
+                            <Show when={music.state.currentPlaylist()}>
                               <button
                                 class="zune-action-btn"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   removeSongFromPlaylist(
-                                    currentPlaylist()!,
+                                    music.state.currentPlaylist()!,
                                     song.id
                                   );
                                 }}
@@ -1298,9 +787,14 @@ function ZoonyContent() {
               </Show>
 
               {/* Artists Grid */}
-              <Show when={currentView() === "artists" && !currentArtist()}>
+              <Show
+                when={
+                  music.state.currentView() === "artists" &&
+                  !music.state.currentArtist()
+                }
+              >
                 <div class="zune-grid">
-                  <For each={artists()}>
+                  <For each={music.state.artists()}>
                     {(artist) => (
                       <div
                         class="zune-grid-card"
@@ -1320,9 +814,14 @@ function ZoonyContent() {
               </Show>
 
               {/* Albums Grid */}
-              <Show when={currentView() === "albums" && !currentAlbum()}>
+              <Show
+                when={
+                  music.state.currentView() === "albums" &&
+                  !music.state.currentAlbum()
+                }
+              >
                 <div class="zune-grid">
-                  <For each={albums()}>
+                  <For each={music.state.albums()}>
                     {(album) => (
                       <div
                         class="zune-grid-card"
@@ -1342,9 +841,14 @@ function ZoonyContent() {
               </Show>
 
               {/* Playlists Grid */}
-              <Show when={currentView() === "playlists" && !currentPlaylist()}>
+              <Show
+                when={
+                  music.state.currentView() === "playlists" &&
+                  !music.state.currentPlaylist()
+                }
+              >
                 <div class="zune-grid">
-                  <For each={playlists()}>
+                  <For each={music.state.playlists()}>
                     {(playlist) => (
                       <div
                         class="zune-grid-card"
@@ -1415,47 +919,25 @@ function ZoonyContent() {
       </div>
 
       {/* Player */}
-      <Player
-        currentSong={currentSong()}
-        isPlaying={isPlaying()}
-        currentTime={currentTime()}
-        duration={duration()}
-        volume={volume()}
-        currentQueueIndex={currentQueueIndex()}
-        playQueue={playQueue()}
-        showQueue={showQueue()}
-        canGoNext={currentQueueIndex() < playQueue().length - 1}
-        canGoPrevious={currentQueueIndex() > 0}
-        onTogglePlayback={togglePlayback}
-        onPlayPrevious={playPrevious}
-        onPlayNext={playNext}
-        onSeekTo={seekTo}
-        onVolumeChange={(newVolume) => {
-          setVolume(newVolume);
-          const audio = audioElement();
-          if (audio) audio.volume = newVolume;
-        }}
-        onToggleQueue={() => setShowQueue(!showQueue())}
-        formatTime={formatTime}
-      />
+      <Player />
 
       {/* Click outside handler to close dropdown */}
-      <Show when={showPlaylistDropdown()}>
+      <Show when={view.state.showPlaylistDropdown()}>
         <div
           class="zune-dropdown-backdrop"
-          onClick={() => setShowPlaylistDropdown(null)}
+          onClick={() => view.actions.setShowPlaylistDropdown(null)}
         />
       </Show>
 
       {/* Playlist Management Modal */}
-      <Show when={showPlaylistModal()}>
+      <Show when={view.state.showPlaylistModal()}>
         <div class="zune-modal-overlay" onClick={closePlaylistModal}>
           <div class="zune-modal" onClick={(e) => e.stopPropagation()}>
             <div class="zune-modal-header">
               <h3>
-                {playlistModalMode() === "create"
+                {view.state.playlistModalMode() === "create"
                   ? "Create Playlist"
-                  : playlistModalMode() === "edit"
+                  : view.state.playlistModalMode() === "edit"
                     ? "Edit Playlist"
                     : "Add to Playlist"}
               </h3>
@@ -1464,15 +946,15 @@ function ZoonyContent() {
               </button>
             </div>
             <div class="zune-modal-content">
-              <Show when={playlistModalMode() !== "add-songs"}>
+              <Show when={view.state.playlistModalMode() !== "add-songs"}>
                 <div class="zune-form-group">
                   <label>Title</label>
                   <input
                     type="text"
-                    value={playlistForm().title}
+                    value={view.state.playlistForm().title}
                     onInput={(e) =>
-                      setPlaylistForm({
-                        ...playlistForm(),
+                      view.actions.setPlaylistForm({
+                        ...view.state.playlistForm(),
                         title: e.currentTarget.value,
                       })
                     }
@@ -1483,10 +965,10 @@ function ZoonyContent() {
                 <div class="zune-form-group">
                   <label>Description (optional)</label>
                   <textarea
-                    value={playlistForm().description}
+                    value={view.state.playlistForm().description}
                     onInput={(e) =>
-                      setPlaylistForm({
-                        ...playlistForm(),
+                      view.actions.setPlaylistForm({
+                        ...view.state.playlistForm(),
                         description: e.currentTarget.value,
                       })
                     }
@@ -1499,10 +981,10 @@ function ZoonyContent() {
                   <label class="zune-checkbox-label">
                     <input
                       type="checkbox"
-                      checked={playlistForm().is_public}
+                      checked={view.state.playlistForm().is_public}
                       onChange={(e) =>
-                        setPlaylistForm({
-                          ...playlistForm(),
+                        view.actions.setPlaylistForm({
+                          ...view.state.playlistForm(),
                           is_public: e.currentTarget.checked,
                         })
                       }
@@ -1511,16 +993,16 @@ function ZoonyContent() {
                   </label>
                 </div>
               </Show>
-              <Show when={selectedSongs().length > 0}>
+              <Show when={view.state.selectedSongs().length > 0}>
                 <div class="zune-form-group">
                   <label>
-                    {playlistModalMode() === "add-songs"
+                    {view.state.playlistModalMode() === "add-songs"
                       ? "Adding"
                       : "Songs to add"}{" "}
-                    ({selectedSongs().length})
+                    ({view.state.selectedSongs().length})
                   </label>
                   <div class="zune-selected-songs">
-                    <For each={selectedSongs()}>
+                    <For each={view.state.selectedSongs()}>
                       {(song) => (
                         <div class="zune-selected-song">
                           <span class="zune-song-title">{song.title}</span>
@@ -1538,25 +1020,25 @@ function ZoonyContent() {
               <button class="zune-btn-secondary" onClick={closePlaylistModal}>
                 Cancel
               </button>
-              <Show when={playlistModalMode() === "create"}>
+              <Show when={view.state.playlistModalMode() === "create"}>
                 <button
                   class="zune-btn-primary"
                   onClick={createPlaylist}
-                  disabled={!playlistForm().title.trim()}
+                  disabled={!view.state.playlistForm().title.trim()}
                 >
                   Create
                 </button>
               </Show>
-              <Show when={playlistModalMode() === "edit"}>
+              <Show when={view.state.playlistModalMode() === "edit"}>
                 <button
                   class="zune-btn-primary"
                   onClick={updatePlaylist}
-                  disabled={!playlistForm().title.trim()}
+                  disabled={!view.state.playlistForm().title.trim()}
                 >
                   Save
                 </button>
               </Show>
-              <Show when={playlistModalMode() === "add-songs"}>
+              <Show when={view.state.playlistModalMode() === "add-songs"}>
                 <button class="zune-btn-primary" onClick={addSongsToPlaylist}>
                   Add Songs
                 </button>
@@ -2798,11 +2280,12 @@ function Zoony(props: ZoonyProps) {
       searchOptions={{
         enableSuggestions: true,
         enableHistory: false,
-        autoSearch: false,
-        integrationMode: "standalone",
+        maxSuggestions: 10,
       }}
     >
-      <ZoonyContent />
+      <FreqholeProvider options={{ apiBaseUrl: props.apiBaseUrl }}>
+        <ZoonyContent />
+      </FreqholeProvider>
     </SearchProvider>
   );
 }

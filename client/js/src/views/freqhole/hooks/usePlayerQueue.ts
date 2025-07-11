@@ -59,6 +59,7 @@ export interface UsePlayerQueueOptions {
   initialVolume?: number;
   autoPlay?: boolean;
   autoNext?: boolean;
+  apiBaseUrl?: string;
   onSongEnd?: () => void;
   onSongStart?: (song: Song) => void;
   onPlayStateChange?: (isPlaying: boolean) => void;
@@ -66,6 +67,7 @@ export interface UsePlayerQueueOptions {
 }
 
 export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
+  const apiBaseUrl = options.apiBaseUrl || "http://localhost:8080";
   // Player state
   const [currentSong, setCurrentSong] = createSignal<Song | null>(null);
   const [isPlaying, setIsPlaying] = createSignal(false);
@@ -177,7 +179,7 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
     setError(null);
     setIsLoading(true);
 
-    audio.src = `http://localhost:8080/api/blobs/${song.media_blob_id}`;
+    audio.src = `${apiBaseUrl}/api/blobs/${song.media_blob_id}`;
     audio.volume = volume();
 
     audio

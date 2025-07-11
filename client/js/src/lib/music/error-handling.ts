@@ -227,10 +227,9 @@ export class MusicApiErrorHandler {
     fallback: T,
     context: MusicErrorContext
   ): Promise<T> {
-    return this.handleWithRetry(operation, context).catch((error) => {
+    return this.handleWithRetry(operation, context).catch((_error) => {
       this.logger.logWarning(`Operation failed, using fallback value`, {
         ...context,
-        fallback,
       });
       return fallback;
     });

@@ -101,6 +101,11 @@ export class ApiClient {
     this.credentials = credentials;
   }
 
+  // Getter for baseUrl
+  getBaseUrl(): string {
+    return this.baseUrl;
+  }
+
   // Private method to build URL with path parameters and query parameters
   private buildUrl(
     path: string,

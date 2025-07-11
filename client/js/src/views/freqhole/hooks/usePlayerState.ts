@@ -29,6 +29,7 @@ export const usePlayerState = () => {
     initialVolume: 0.7,
     autoPlay: true,
     autoNext: true,
+    apiBaseUrl: apiClient.getBaseUrl(),
   });
 
   const [playerError, setPlayerError] = createSignal<string | null>(null);
@@ -41,7 +42,7 @@ export const usePlayerState = () => {
     album: song.album,
     duration_seconds: song.duration_seconds,
     thumbnail_blob_id: song.thumbnail_blob_id,
-    media_blob_id: song.id,
+    media_blob_id: song.media_blob_id || song.id,
   });
 
   // Transform album track data
@@ -58,7 +59,7 @@ export const usePlayerState = () => {
         )
       : undefined,
     thumbnail_blob_id: track.thumbnail_id,
-    media_blob_id: track.media_blob_id,
+    media_blob_id: track.media_blob_id || track.song_id,
   });
 
   // Play entire playlist

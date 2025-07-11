@@ -31,44 +31,48 @@ export const Header = (props: HeaderProps) => {
 
         <nav class="flex gap-2 overflow-x-auto scrollbar-none">
           <button
-            class={`px-8 py-4 bg-transparent border-none text-lg font-normal cursor-pointer transition-all duration-500 lowercase whitespace-nowrap relative overflow-hidden ${
+            class={`px-8 py-4 bg-transparent border-none text-lg font-normal cursor-pointer transition-all duration-500 lowercase whitespace-nowrap relative overflow-hidden group ${
               props.currentView === "music"
                 ? "text-primary-500 bg-primary-500/10 font-medium"
                 : "text-white/60 hover:text-white hover:bg-white/5"
             }`}
             onClick={() => props.onViewChange("music")}
           >
-            music
+            <span class="relative z-10">music</span>
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent to-white/5 transform translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-500 ease-out"></div>
           </button>
           <button
-            class={`px-8 py-4 bg-transparent border-none text-lg font-normal cursor-pointer transition-all duration-500 lowercase whitespace-nowrap relative overflow-hidden ${
+            class={`px-8 py-4 bg-transparent border-none text-lg font-normal cursor-pointer transition-all duration-500 lowercase whitespace-nowrap relative overflow-hidden group ${
               props.currentView === "artists"
                 ? "text-primary-500 bg-primary-500/10 font-medium"
                 : "text-white/60 hover:text-white hover:bg-white/5"
             }`}
             onClick={() => props.onViewChange("artists")}
           >
-            artists
+            <span class="relative z-10">artists</span>
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent to-white/5 transform translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-500 ease-out"></div>
           </button>
           <button
-            class={`px-8 py-4 bg-transparent border-none text-lg font-normal cursor-pointer transition-all duration-500 lowercase whitespace-nowrap relative overflow-hidden ${
+            class={`px-8 py-4 bg-transparent border-none text-lg font-normal cursor-pointer transition-all duration-500 lowercase whitespace-nowrap relative overflow-hidden group ${
               props.currentView === "albums"
                 ? "text-primary-500 bg-primary-500/10 font-medium"
                 : "text-white/60 hover:text-white hover:bg-white/5"
             }`}
             onClick={() => props.onViewChange("albums")}
           >
-            albums
+            <span class="relative z-10">albums</span>
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent to-white/5 transform translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-500 ease-out"></div>
           </button>
           <button
-            class={`px-8 py-4 bg-transparent border-none text-lg font-normal cursor-pointer transition-all duration-500 lowercase whitespace-nowrap relative overflow-hidden ${
+            class={`px-8 py-4 bg-transparent border-none text-lg font-normal cursor-pointer transition-all duration-500 lowercase whitespace-nowrap relative overflow-hidden group ${
               props.currentView === "playlists"
                 ? "text-primary-500 bg-primary-500/10 font-medium"
                 : "text-white/60 hover:text-white hover:bg-white/5"
             }`}
             onClick={() => props.onViewChange("playlists")}
           >
-            playlists
+            <span class="relative z-10">playlists</span>
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent to-white/5 transform translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-500 ease-out"></div>
           </button>
         </nav>
 
