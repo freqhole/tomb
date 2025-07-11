@@ -107,7 +107,7 @@ export const Player = () => {
 
         {/* Volume Control */}
         <div class="flex items-center gap-2">
-          <VolumeIcon class="text-white/70" />
+          <VolumeIcon className="text-white/70" />
           <input
             type="range"
             min="0"
