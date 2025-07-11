@@ -172,7 +172,7 @@ export function SearchBox(props: SearchBoxProps) {
         break;
       case "Enter":
         e.preventDefault();
-        console.log("🔍 SearchBox Enter key pressed");
+
         if (
           showDropdown() &&
           selectedIndex() >= 0 &&
@@ -187,7 +187,7 @@ export function SearchBox(props: SearchBoxProps) {
           // Handle regular search using input value
           const inputValue = inputRef()?.value?.trim() || "";
           const query = inputValue || currentQuery().trim();
-          console.log("🔍 Enter key search with query:", query);
+
           if (query) {
             handleQueryChange(query);
             handleSearchClick();
@@ -206,7 +206,7 @@ export function SearchBox(props: SearchBoxProps) {
   const handleSearchClick = () => {
     const inputValue = inputRef()?.value?.trim() || "";
     const query = inputValue || currentQuery().trim();
-    console.log("🔍 SearchBox search with query:", query);
+
     if (query) {
       // Update the query state to match input value
       handleQueryChange(query);
