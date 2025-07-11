@@ -35,10 +35,18 @@ import type {
  */
 export const musicApiMethods = {
   // Songs API methods
-  async getSongs(this: ApiClient, limit?: number): Promise<Song[]> {
+  async getSongs(
+    this: ApiClient,
+    options?: {
+      limit?: number;
+      offset?: number;
+      page?: number;
+      page_size?: number;
+    }
+  ): Promise<{ songs: Song[]; pagination: any }> {
     return musicApiUtils.withGracefulCollection(
       async () => {
-        const params = limit ? { limit } : {};
+        const params = options || {};
         const response = await this.makeRequest<unknown>(
           "GET",
           "/api/media/songs",
@@ -51,25 +59,46 @@ export const musicApiMethods = {
           "Songs"
         );
 
-        return musicValidation.parseCollection(
+        const songs = musicValidation.parseCollection(
           SongSchema,
           validatedResponse.songs || [],
           "Songs"
         ) as Song[];
+
+        const pagination = {
+          total: validatedResponse.total,
+          page: validatedResponse.page,
+          page_size: validatedResponse.page_size,
+          total_pages: validatedResponse.total_pages,
+          has_next: validatedResponse.has_next,
+          has_prev: validatedResponse.has_prev,
+        };
+
+        return { songs, pagination };
       },
       "/api/media/songs",
       "getSongs",
-      limit ? { limit } : {}
+      options || {}
     );
   },
 
   // Artists API methods
-  async getArtists(this: ApiClient): Promise<ArtistSummary[]> {
+  async getArtists(
+    this: ApiClient,
+    options?: {
+      limit?: number;
+      offset?: number;
+      page?: number;
+      page_size?: number;
+    }
+  ): Promise<{ artists: ArtistSummary[]; pagination: any }> {
     return musicApiUtils.withGracefulCollection(
       async () => {
+        const params = options || {};
         const response = await this.makeRequest<unknown>(
           "GET",
-          "/api/media/artists"
+          "/api/media/artists",
+          { params }
         );
 
         const validatedResponse = musicValidation.validateResponse(
@@ -78,14 +107,26 @@ export const musicApiMethods = {
           "Artists"
         );
 
-        return musicValidation.parseCollection(
+        const artists = musicValidation.parseCollection(
           ArtistSummarySchema,
           validatedResponse.artists || [],
           "Artists"
         ) as ArtistSummary[];
+
+        const pagination = {
+          total: validatedResponse.total,
+          page: validatedResponse.page,
+          page_size: validatedResponse.page_size,
+          total_pages: validatedResponse.total_pages,
+          has_next: validatedResponse.has_next,
+          has_prev: validatedResponse.has_prev,
+        };
+
+        return { artists, pagination };
       },
       "/api/media/artists",
-      "getArtists"
+      "getArtists",
+      options || {}
     );
   },
 
@@ -217,10 +258,18 @@ export const musicApiMethods = {
   },
 
   // Playlists API methods
-  async getPlaylists(this: ApiClient, limit?: number): Promise<Playlist[]> {
+  async getPlaylists(
+    this: ApiClient,
+    options?: {
+      limit?: number;
+      offset?: number;
+      page?: number;
+      page_size?: number;
+    }
+  ): Promise<{ playlists: Playlist[]; pagination: any }> {
     return musicApiUtils.withGracefulCollection(
       async () => {
-        const params = limit ? { limit } : {};
+        const params = options || {};
         const response = await this.makeRequest<unknown>(
           "GET",
           "/api/media/playlists",
@@ -233,15 +282,26 @@ export const musicApiMethods = {
           "Playlists"
         );
 
-        return musicValidation.parseCollection(
+        const playlists = musicValidation.parseCollection(
           PlaylistSchema,
           validatedResponse.playlists || [],
           "Playlists"
         ) as Playlist[];
+
+        const pagination = {
+          total: validatedResponse.total,
+          page: validatedResponse.page,
+          page_size: validatedResponse.page_size,
+          total_pages: validatedResponse.total_pages,
+          has_next: validatedResponse.has_next,
+          has_prev: validatedResponse.has_prev,
+        };
+
+        return { playlists, pagination };
       },
       "/api/media/playlists",
       "getPlaylists",
-      limit ? { limit } : {}
+      options || {}
     );
   },
 

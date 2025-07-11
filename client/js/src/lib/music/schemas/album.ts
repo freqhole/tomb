@@ -22,6 +22,11 @@ export type Album = z.infer<typeof AlbumSchema>;
 export const AlbumListResponseSchema = z.object({
   albums: z.array(AlbumSchema),
   total: z.number(),
+  page: z.number().optional(),
+  page_size: z.number().optional(),
+  total_pages: z.number().optional(),
+  has_next: z.boolean(),
+  has_prev: z.boolean(),
 });
 
 export type AlbumListResponse = z.infer<typeof AlbumListResponseSchema>;

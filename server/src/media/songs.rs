@@ -25,7 +25,12 @@ use crate::error::WebauthnError;
 #[derive(Debug, Serialize)]
 pub struct SongListResponse {
     pub songs: Vec<SongResponse>,
-    pub total: usize,
+    pub total: i64,
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+    pub total_pages: Option<i32>,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 /// Song response for API
@@ -132,11 +137,16 @@ impl From<PlaylistWithCount> for PlaylistResponse {
 #[derive(Debug, Serialize)]
 pub struct PlaylistListResponse {
     pub playlists: Vec<PlaylistResponse>,
-    pub total: usize,
+    pub total: i64,
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+    pub total_pages: Option<i32>,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 /// Song query parameters for API
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct SongQueryParams {
     pub favorites: Option<bool>,
     pub artist: Option<String>,
@@ -147,11 +157,103 @@ pub struct SongQueryParams {
     pub title_search: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
     pub media_blob_id: Option<String>,
+}
+
+// Pagination utilities
+
+/// Calculate pagination metadata
+pub fn calculate_pagination(
+    total: i64,
+    page: Option<i32>,
+    page_size: Option<i32>,
+    offset: Option<i64>,
+    limit: Option<i64>,
+) -> (Option<i32>, Option<i32>, Option<i32>, bool, bool, i64, i64) {
+    // Determine effective page_size
+    let effective_page_size = if let Some(ps) = page_size {
+        ps.max(1).min(1000) // Limit page size between 1 and 1000
+    } else if let Some(l) = limit {
+        l.max(1).min(1000) as i32
+    } else {
+        100 // Default page size
+    };
+
+    // Determine effective page and offset
+    let (effective_page, effective_offset) = if let Some(p) = page {
+        let page_num = p.max(1);
+        let calculated_offset = ((page_num - 1) * effective_page_size) as i64;
+        (Some(page_num), calculated_offset)
+    } else if let Some(o) = offset {
+        let offset_val = o.max(0);
+        let calculated_page = (offset_val / effective_page_size as i64) + 1;
+        (Some(calculated_page as i32), offset_val)
+    } else {
+        (Some(1), 0)
+    };
+
+    let total_pages = if total > 0 {
+        Some(((total as f64) / (effective_page_size as f64)).ceil() as i32)
+    } else {
+        Some(0)
+    };
+
+    let has_next = if let (Some(page_num), Some(total_p)) = (effective_page, total_pages) {
+        page_num < total_p
+    } else {
+        effective_offset + (effective_page_size as i64) < total
+    };
+
+    let has_prev = if let Some(page_num) = effective_page {
+        page_num > 1
+    } else {
+        effective_offset > 0
+    };
+
+    (
+        effective_page,
+        Some(effective_page_size),
+        total_pages,
+        has_next,
+        has_prev,
+        effective_offset,
+        effective_page_size as i64,
+    )
+}
+
+/// Convert page-based parameters to offset/limit for database queries
+pub fn resolve_pagination_params(params: &SongQueryParams) -> (Option<i64>, Option<i64>) {
+    let (_, _, _, _, _, offset, limit) = calculate_pagination(
+        0, // total doesn't matter for this calculation
+        params.page,
+        params.page_size,
+        params.offset,
+        params.limit,
+    );
+    (Some(offset), Some(limit))
+}
+
+/// Convert page-based parameters to offset/limit for playlist queries
+pub fn resolve_playlist_pagination_params(
+    params: &PlaylistQueryParams,
+) -> (Option<i64>, Option<i64>) {
+    let (_, _, _, _, _, offset, limit) = calculate_pagination(
+        0, // total doesn't matter for this calculation
+        params.page,
+        params.page_size,
+        params.offset,
+        params.limit,
+    );
+    (Some(offset), Some(limit))
 }
 
 impl From<SongQueryParams> for SongQuery {
     fn from(params: SongQueryParams) -> Self {
+        // Resolve pagination parameters (page/page_size take precedence over offset/limit)
+        let (resolved_offset, resolved_limit) = resolve_pagination_params(&params);
+
         Self {
             // Basic filters
             artist: params.artist,
@@ -192,9 +294,9 @@ impl From<SongQueryParams> for SongQuery {
             // Media blob filter
             media_blob_id: params.media_blob_id,
 
-            // Pagination
-            limit: params.limit,
-            offset: params.offset,
+            // Pagination (use resolved values)
+            limit: resolved_limit,
+            offset: resolved_offset,
 
             // Ordering
             order_by: None,
@@ -204,22 +306,57 @@ impl From<SongQueryParams> for SongQuery {
 }
 
 /// Playlist query parameters for API
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct PlaylistQueryParams {
     pub public_only: Option<bool>,
     pub title_search: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+}
+
+/// Artist query parameters for API
+#[derive(Debug, Deserialize, Clone)]
+pub struct ArtistQueryParams {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+}
+
+/// Album query parameters for API
+#[derive(Debug, Deserialize, Clone)]
+pub struct AlbumQueryParams {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+}
+
+/// Album list response with pagination metadata
+#[derive(Debug, Serialize)]
+pub struct AlbumListResponse {
+    pub albums: Vec<AlbumSummaryResponse>,
+    pub total: i64,
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+    pub total_pages: Option<i32>,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 impl From<PlaylistQueryParams> for PlaylistQuery {
     fn from(params: PlaylistQueryParams) -> Self {
+        // Resolve pagination parameters (page/page_size take precedence over offset/limit)
+        let (resolved_offset, resolved_limit) = resolve_playlist_pagination_params(&params);
+
         Self {
             public_only: params.public_only,
             client_id: None,
             title_search: params.title_search,
-            limit: params.limit,
-            offset: params.offset,
+            limit: resolved_limit,
+            offset: resolved_offset,
             ..Default::default()
         }
     }
@@ -445,7 +582,12 @@ pub struct ArtistSummary {
 #[derive(Debug, Serialize)]
 pub struct ArtistsListResponse {
     pub artists: Vec<ArtistSummary>,
-    pub total: usize,
+    pub total: i64,
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+    pub total_pages: Option<i32>,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 // Route handlers
@@ -456,20 +598,40 @@ pub async fn list_songs(
     Query(params): Query<SongQueryParams>,
 ) -> Result<Json<SongListResponse>, WebauthnError> {
     let repository = MusicRepository::new(db.pool().clone());
+    let repository2 = MusicRepository::new(db.pool().clone());
     let service = PlaylistService::new(repository);
 
-    let query = SongQuery::from(params);
+    // Get total count for pagination metadata
+    let total_count = repository2
+        .get_song_count()
+        .await
+        .map_err(|_| WebauthnError::DatabaseError)?;
+
+    let query = SongQuery::from(params.clone());
     let songs = service
         .query_songs(query)
         .await
         .map_err(|_| WebauthnError::DatabaseError)?;
 
     let song_responses: Vec<SongResponse> = songs.into_iter().map(SongResponse::from).collect();
-    let total = song_responses.len();
+
+    // Calculate pagination metadata
+    let (page, page_size, total_pages, has_next, has_prev, _, _) = calculate_pagination(
+        total_count,
+        params.page,
+        params.page_size,
+        params.offset,
+        params.limit,
+    );
 
     Ok(Json(SongListResponse {
         songs: song_responses,
-        total,
+        total: total_count,
+        page,
+        page_size,
+        total_pages,
+        has_next,
+        has_prev,
     }))
 }
 
@@ -539,10 +701,28 @@ pub async fn update_song(
 /// List artists with summaries
 pub async fn list_artists(
     Extension(db): Extension<DatabaseConnection>,
+    Query(params): Query<ArtistQueryParams>,
 ) -> Result<Json<ArtistsListResponse>, WebauthnError> {
     let _repository = MusicRepository::new(db.pool().clone());
 
-    // Get all artists with their statistics
+    // Get total count of unique artists for pagination metadata
+    let total_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(DISTINCT s.artist) FROM songs s WHERE s.artist IS NOT NULL",
+    )
+    .fetch_one(db.pool())
+    .await
+    .map_err(|e| WebauthnError::SqlxError(e))?;
+
+    // Calculate pagination parameters
+    let (_, _, _, _, _, offset, limit) = calculate_pagination(
+        total_count,
+        params.page,
+        params.page_size,
+        params.offset,
+        params.limit,
+    );
+
+    // Get artists with their statistics with pagination
     let artists_data = sqlx::query!(
         r#"
         SELECT
@@ -557,7 +737,10 @@ pub async fn list_artists(
         WHERE s.artist IS NOT NULL
         GROUP BY s.artist
         ORDER BY s.artist ASC
-        "#
+        LIMIT $1 OFFSET $2
+        "#,
+        limit,
+        offset
     )
     .fetch_all(db.pool())
     .await
@@ -581,9 +764,24 @@ pub async fn list_artists(
         })
         .collect();
 
-    let total = artists.len();
+    // Calculate pagination metadata
+    let (page, page_size, total_pages, has_next, has_prev, _, _) = calculate_pagination(
+        total_count,
+        params.page,
+        params.page_size,
+        params.offset,
+        params.limit,
+    );
 
-    Ok(Json(ArtistsListResponse { artists, total }))
+    Ok(Json(ArtistsListResponse {
+        artists,
+        total: total_count,
+        page,
+        page_size,
+        total_pages,
+        has_next,
+        has_prev,
+    }))
 }
 
 /// List playlists
@@ -592,9 +790,16 @@ pub async fn list_playlists(
     Query(params): Query<PlaylistQueryParams>,
 ) -> Result<Json<PlaylistListResponse>, WebauthnError> {
     let repository = MusicRepository::new(db.pool().clone());
+    let repository2 = MusicRepository::new(db.pool().clone());
     let service = PlaylistService::new(repository);
 
-    let query = PlaylistQuery::from(params);
+    // Get total count for pagination metadata
+    let total_count = repository2
+        .get_playlist_count()
+        .await
+        .map_err(|_| WebauthnError::DatabaseError)?;
+
+    let query = PlaylistQuery::from(params.clone());
     let playlists = service
         .query_playlists(query)
         .await
@@ -602,11 +807,24 @@ pub async fn list_playlists(
 
     let playlist_responses: Vec<PlaylistResponse> =
         playlists.into_iter().map(PlaylistResponse::from).collect();
-    let total = playlist_responses.len();
+
+    // Calculate pagination metadata
+    let (page, page_size, total_pages, has_next, has_prev, _, _) = calculate_pagination(
+        total_count,
+        params.page,
+        params.page_size,
+        params.offset,
+        params.limit,
+    );
 
     Ok(Json(PlaylistListResponse {
         playlists: playlist_responses,
-        total,
+        total: total_count,
+        page,
+        page_size,
+        total_pages,
+        has_next,
+        has_prev,
     }))
 }
 
@@ -871,23 +1089,41 @@ pub async fn get_playlist_summaries(
 /// Get album summaries
 pub async fn get_album_summaries(
     Extension(db): Extension<DatabaseConnection>,
-    Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<AlbumSummaryResponse>>, WebauthnError> {
+    Query(params): Query<AlbumQueryParams>,
+) -> Result<Json<AlbumListResponse>, WebauthnError> {
     tracing::debug!("get_album_summaries called with params: {:?}", params);
 
-    let repository = MusicRepository::new(db.pool().clone());
-    let service = PlaylistService::new(repository);
+    let _repository = MusicRepository::new(db.pool().clone());
+    let _service = PlaylistService::new(_repository);
 
-    let limit = params
-        .get("limit")
-        .and_then(|l| l.parse::<i64>().ok())
-        .or(Some(20));
+    // Get total count of unique albums for pagination metadata
+    let total_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(DISTINCT s.album) FROM songs s WHERE s.album IS NOT NULL",
+    )
+    .fetch_one(db.pool())
+    .await
+    .map_err(|e| WebauthnError::SqlxError(e))?;
 
-    tracing::debug!("Using limit: {:?}", limit);
+    // Calculate pagination parameters
+    let (_, _, _, _, _, offset, limit) = calculate_pagination(
+        total_count,
+        params.page,
+        params.page_size,
+        params.offset,
+        params.limit,
+    );
 
-    let albums = service.get_album_summaries(limit).await.map_err(|e| {
+    // Get albums directly with pagination since service doesn't support offset
+    let albums = sqlx::query_as::<_, AlbumSummary>(
+        "SELECT * FROM album_summary ORDER BY year DESC NULLS LAST, album LIMIT $1 OFFSET $2",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| {
         tracing::error!("Error getting album summaries: {:?}", e);
-        WebauthnError::DatabaseError
+        WebauthnError::SqlxError(e)
     })?;
 
     tracing::debug!("Got {} albums from service", albums.len());
@@ -895,9 +1131,26 @@ pub async fn get_album_summaries(
     let responses: Vec<AlbumSummaryResponse> =
         albums.into_iter().map(AlbumSummaryResponse::from).collect();
 
+    // Calculate pagination metadata
+    let (page, page_size, total_pages, has_next, has_prev, _, _) = calculate_pagination(
+        total_count,
+        params.page,
+        params.page_size,
+        params.offset,
+        params.limit,
+    );
+
     tracing::debug!("Converted to {} responses", responses.len());
 
-    Ok(Json(responses))
+    Ok(Json(AlbumListResponse {
+        albums: responses,
+        total: total_count,
+        page,
+        page_size,
+        total_pages,
+        has_next,
+        has_prev,
+    }))
 }
 
 /// Get album tracks
@@ -960,38 +1213,56 @@ pub async fn create_playlist_from_album(
 pub async fn get_artist_songs(
     Extension(db): Extension<DatabaseConnection>,
     Path(artist): Path<String>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(params): Query<SongQueryParams>,
 ) -> Result<Json<SongListResponse>, WebauthnError> {
-    // let repository = MusicRepository::new(db.pool().clone());
-    // let service = PlaylistService::new(repository);
-
-    let limit = params
-        .get("limit")
-        .and_then(|l| l.parse::<i64>().ok())
-        .or(Some(1000));
-
-    let query = SongQuery {
-        artist: Some(artist),
-        limit,
-        ..Default::default()
-    };
-
-    // For now, we'll use a direct SQL query since query_songs doesn't work properly
-    let songs = sqlx::query_as::<_, Song>(
-        "SELECT * FROM songs WHERE artist = $1 AND deleted_at IS NULL ORDER BY album, track_number, title LIMIT $2"
+    // Get total count for this artist for pagination metadata
+    let total_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM songs WHERE artist = $1 AND deleted_at IS NULL",
     )
-    .bind(&query.artist)
-    .bind(limit.unwrap_or(1000))
+    .bind(&artist)
+    .fetch_one(db.pool())
+    .await
+    .map_err(|e| WebauthnError::SqlxError(e))?;
+
+    // Calculate pagination parameters
+    let (_, _, _, _, _, offset, limit) = calculate_pagination(
+        total_count,
+        params.page,
+        params.page_size,
+        params.offset,
+        params.limit,
+    );
+
+    // Get songs with pagination
+    let songs = sqlx::query_as::<_, Song>(
+        "SELECT * FROM songs WHERE artist = $1 AND deleted_at IS NULL ORDER BY album, track_number, title LIMIT $2 OFFSET $3"
+    )
+    .bind(&artist)
+    .bind(limit)
+    .bind(offset)
     .fetch_all(db.pool())
     .await
     .map_err(|_| WebauthnError::DatabaseError)?;
 
     let song_responses: Vec<SongResponse> = songs.into_iter().map(SongResponse::from).collect();
-    let total = song_responses.len();
+
+    // Calculate pagination metadata
+    let (page, page_size, total_pages, has_next, has_prev, _, _) = calculate_pagination(
+        total_count,
+        params.page,
+        params.page_size,
+        params.offset,
+        params.limit,
+    );
 
     Ok(Json(SongListResponse {
         songs: song_responses,
-        total,
+        total: total_count,
+        page,
+        page_size,
+        total_pages,
+        has_next,
+        has_prev,
     }))
 }
 

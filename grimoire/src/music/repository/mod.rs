@@ -1236,6 +1236,15 @@ impl MusicRepository {
         Ok(count)
     }
 
+    pub async fn get_playlist_count(&self) -> Result<i64> {
+        let count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM playlists WHERE deleted_at IS NULL")
+                .fetch_one(&self.pool)
+                .await?;
+
+        Ok(count)
+    }
+
     /// Get count of scan sessions
     pub async fn get_scan_session_count(&self) -> Result<i64> {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM music_scan_sessions")

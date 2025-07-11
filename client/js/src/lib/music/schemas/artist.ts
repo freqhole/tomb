@@ -16,6 +16,11 @@ export type ArtistSummary = z.infer<typeof ArtistSummarySchema>;
 export const ArtistsListResponseSchema = z.object({
   artists: z.array(ArtistSummarySchema),
   total: z.number(),
+  page: z.number().optional(),
+  page_size: z.number().optional(),
+  total_pages: z.number().optional(),
+  has_next: z.boolean(),
+  has_prev: z.boolean(),
 });
 
 export type ArtistsListResponse = z.infer<typeof ArtistsListResponseSchema>;

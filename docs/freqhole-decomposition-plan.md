@@ -2,6 +2,53 @@
 
 ## 🚧 Next Priorities & Todo Items
 
+### Phase L: API Pagination & Infinite Scroll Enhancement
+
+**Priority**: High - Performance & Scalability
+
+- [x] **Server-side pagination**: Add proper pagination support to media API endpoints
+  - [x] Enhance songs endpoint with `page`, `page_size`, `offset` parameters
+  - [x] Add pagination to artists, albums, playlists endpoints
+  - [x] Include total count and pagination metadata in responses
+  - [x] Maintain backward compatibility with existing `limit` parameter
+
+**🎯 MAJOR ACHIEVEMENT: Complete Server-Side Pagination System!**
+
+**Enhanced API Endpoints:**
+
+- **Songs endpoint** (`/api/media/songs`) - Full pagination with page/offset support
+- **Artists endpoint** (`/api/media/artists`) - New pagination with artist statistics
+- **Playlists endpoint** (`/api/media/playlists`) - Enhanced with pagination metadata
+- **Albums endpoint** (`/api/media/albums`) - Upgraded from basic limit to full pagination
+- **Artist songs** (`/api/media/artists/{artist}/songs`) - Complete pagination support
+
+**Comprehensive Pagination Features:**
+
+- **Dual parameter support**: Both `page`/`page_size` and `offset`/`limit` parameters
+- **Rich metadata**: `total`, `page`, `page_size`, `total_pages`, `has_next`, `has_prev`
+- **Smart defaults**: Reasonable limits (100 default, 1000 max) with proper validation
+- **Database optimization**: Proper SQL LIMIT/OFFSET with total count queries
+- **Type safety**: Updated client schemas with pagination metadata validation
+
+**Client-Side API Updates:**
+
+- **Enhanced API methods**: `getSongs()`, `getArtists()`, `getPlaylists()` now return `{items, pagination}`
+- **Backward compatibility**: Existing limit-only calls still work
+- **Type-safe responses**: Zod schemas updated with pagination metadata
+- **Flexible parameters**: Support both page-based and offset-based pagination
+
+- [ ] **Client-side infinite scroll**: Create lightweight infinite scroll solution
+  - [ ] Build `useInfiniteScroll` hook for automatic loading
+  - [ ] Integrate with existing list rendering (no grid monster)
+  - [ ] Add loading states and error handling
+  - [ ] Smooth scroll-to-load experience with proper thresholds
+
+- [ ] **Performance optimizations**:
+  - [ ] Virtual scrolling for very large lists (if needed)
+  - [ ] Debounced scroll handling
+  - [ ] Intelligent prefetching based on scroll velocity
+  - [ ] Memory management for large datasets
+
 ### Phase K.3: Flexible Data Container System
 
 **Priority**: Medium - Optimization for better data management

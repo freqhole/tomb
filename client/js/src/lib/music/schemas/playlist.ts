@@ -20,6 +20,11 @@ export type Playlist = z.infer<typeof PlaylistSchema>;
 export const PlaylistListResponseSchema = z.object({
   playlists: z.array(PlaylistSchema),
   total: z.number(),
+  page: z.number().optional(),
+  page_size: z.number().optional(),
+  total_pages: z.number().optional(),
+  has_next: z.boolean(),
+  has_prev: z.boolean(),
 });
 
 export type PlaylistListResponse = z.infer<typeof PlaylistListResponseSchema>;
