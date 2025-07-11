@@ -503,22 +503,45 @@ export class ApiClient {
   }
 
   // Music API methods - Songs
-  async getSongs(limit?: number) {
-    return musicApiMethods.getSongs.call(this, limit);
+  async getSongs(options?: {
+    limit?: number;
+    offset?: number;
+    page?: number;
+    page_size?: number;
+  }) {
+    return musicApiMethods.getSongs.call(this, options);
   }
 
   // Music API methods - Artists
-  async getArtists() {
-    return musicApiMethods.getArtists.call(this);
+  async getArtists(options?: {
+    limit?: number;
+    offset?: number;
+    page?: number;
+    page_size?: number;
+  }) {
+    return musicApiMethods.getArtists.call(this, options);
   }
 
-  async getArtistSongs(artist: string, limit?: number) {
-    return musicApiMethods.getArtistSongs.call(this, artist, limit);
+  async getArtistSongs(
+    artist: string,
+    options?: {
+      limit?: number;
+      offset?: number;
+      page?: number;
+      page_size?: number;
+    }
+  ) {
+    return musicApiMethods.getArtistSongs.call(this, artist, options);
   }
 
   // Music API methods - Albums
-  async getAlbums() {
-    return musicApiMethods.getAlbums.call(this);
+  async getAlbums(options?: {
+    limit?: number;
+    offset?: number;
+    page?: number;
+    page_size?: number;
+  }) {
+    return musicApiMethods.getAlbums.call(this, options);
   }
 
   async getAlbumTracks(album: string, artist?: string) {
@@ -526,8 +549,13 @@ export class ApiClient {
   }
 
   // Music API methods - Playlists
-  async getPlaylists(limit?: number) {
-    return musicApiMethods.getPlaylists.call(this, limit);
+  async getPlaylists(options?: {
+    limit?: number;
+    offset?: number;
+    page?: number;
+    page_size?: number;
+  }) {
+    return musicApiMethods.getPlaylists.call(this, options);
   }
 
   async getPlaylistSongs(playlistId: string) {

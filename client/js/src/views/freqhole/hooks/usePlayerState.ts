@@ -100,10 +100,12 @@ export const usePlayerState = () => {
   const playArtist = async (artist: ArtistSummary) => {
     try {
       setPlayerError(null);
-      const songs = await apiClient.getArtistSongs(artist.artist, 1000);
+      const result = await apiClient.getArtistSongs(artist.artist, {
+        limit: 1000,
+      });
 
-      if (songs.length > 0) {
-        const transformedSongs = songs.map(transformSong);
+      if (result.songs.length > 0) {
+        const transformedSongs = result.songs.map(transformSong);
         playerQueue.setQueueFromArtist(artist, transformedSongs);
       }
     } catch (err) {

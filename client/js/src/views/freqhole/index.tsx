@@ -61,7 +61,7 @@ function FreqholeContent() {
       setShowAuthModal(true);
     } else {
       // Initialize freqhole data
-      freqhole.actions.initialize();
+      await freqhole.actions.initialize();
     }
   });
 
@@ -339,22 +339,25 @@ function FreqholeContent() {
                       freqhole.view.actions.openCreatePlaylistModal()
                     }
                   >
-                    Create Playlist
+                    create playlist
                   </button>
                 </Show>
               </div>
             </div>
 
             {/* Content List */}
-            <div class="flex-1 overflow-auto">
+            <div
+              class="flex-1 overflow-auto"
+              ref={(el) => freqhole.music.actions.setScrollContainer(el)}
+            >
               <Show
                 when={!freqhole.isLoading() && currentViewData().length > 0}
                 fallback={
                   <div class="flex items-center justify-center py-8">
                     <div class="text-gray-400">
                       {freqhole.music.state.isSearchActive()
-                        ? "No search results found"
-                        : "No items found"}
+                        ? "no search results found"
+                        : "no items found"}
                     </div>
                   </div>
                 }
@@ -363,6 +366,120 @@ function FreqholeContent() {
                   <For each={currentViewData()}>
                     {(item) => renderListItem(item)}
                   </For>
+
+                  {/* Infinite scroll loading indicator */}
+                  <Show
+                    when={() => {
+                      const currentView = freqhole.music.state.currentView();
+
+                      switch (currentView) {
+                        case "music":
+                          return (
+                            freqhole.music.state.songsLoading() &&
+                            freqhole.music.state.songsHasMore()
+                          );
+                        case "artists":
+                          return (
+                            freqhole.music.state.artistsLoading() &&
+                            freqhole.music.state.artistsHasMore()
+                          );
+                        case "albums":
+                          return (
+                            freqhole.music.state.albumsLoading() &&
+                            freqhole.music.state.albumsHasMore()
+                          );
+                        case "playlists":
+                          return (
+                            freqhole.music.state.playlistsLoading() &&
+                            freqhole.music.state.playlistsHasMore()
+                          );
+                        default:
+                          return false;
+                      }
+                    }}
+                  >
+                    <div class="flex items-center justify-center py-4">
+                      <div class="text-gray-400 text-sm">loading more...</div>
+                    </div>
+                  </Show>
+
+                  {/* Load more button as fallback */}
+                  <Show
+                    when={() => {
+                      const currentView = freqhole.music.state.currentView();
+
+                      switch (currentView) {
+                        case "music":
+                          const songsHasMore =
+                            freqhole.music.state.songsHasMore();
+                          const songsLoading =
+                            freqhole.music.state.songsLoading();
+                          console.log("🔘 Songs load more button check:", {
+                            songsHasMore,
+                            songsLoading,
+                          });
+                          return songsHasMore && !songsLoading;
+                        case "artists":
+                          const artistsHasMore =
+                            freqhole.music.state.artistsHasMore();
+                          const artistsLoading =
+                            freqhole.music.state.artistsLoading();
+                          console.log("🔘 Artists load more button check:", {
+                            artistsHasMore,
+                            artistsLoading,
+                          });
+                          return artistsHasMore && !artistsLoading;
+                        case "albums":
+                          const albumsHasMore =
+                            freqhole.music.state.albumsHasMore();
+                          const albumsLoading =
+                            freqhole.music.state.albumsLoading();
+                          console.log("🔘 Albums load more button check:", {
+                            albumsHasMore,
+                            albumsLoading,
+                          });
+                          return albumsHasMore && !albumsLoading;
+                        case "playlists":
+                          const playlistsHasMore =
+                            freqhole.music.state.playlistsHasMore();
+                          const playlistsLoading =
+                            freqhole.music.state.playlistsLoading();
+                          console.log("🔘 Playlists load more button check:", {
+                            playlistsHasMore,
+                            playlistsLoading,
+                          });
+                          return playlistsHasMore && !playlistsLoading;
+                        default:
+                          return false;
+                      }
+                    }}
+                  >
+                    <div class="flex items-center justify-center py-4">
+                      <button
+                        class="px-4 py-2 bg-dark-200 text-white border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200 metro-button-hover"
+                        onClick={() => {
+                          const currentView =
+                            freqhole.music.state.currentView();
+                          switch (currentView) {
+                            case "music":
+                              freqhole.music.actions.loadMoreSongs();
+                              break;
+                            case "artists":
+                              freqhole.music.actions.loadMoreArtists();
+                              break;
+                            case "albums":
+                              freqhole.music.actions.loadMoreAlbums();
+                              break;
+                            case "playlists":
+                              freqhole.music.actions.loadMorePlaylists();
+                              break;
+                          }
+                        }}
+                      >
+                        load more
+                      </button>
+                    </div>
+                  </Show>
                 </div>
               </Show>
             </div>

@@ -44,42 +44,47 @@ export const musicApiMethods = {
       page_size?: number;
     }
   ): Promise<{ songs: Song[]; pagination: any }> {
-    return musicApiUtils.withGracefulCollection(
-      async () => {
-        const params = options || {};
-        const response = await this.makeRequest<unknown>(
-          "GET",
-          "/api/media/songs",
-          { params }
-        );
+    return musicApiUtils
+      .withGracefulPaginatedCollection(
+        async () => {
+          const params = options || {};
+          const response = await this.makeRequest<unknown>(
+            "GET",
+            "/api/media/songs",
+            { params }
+          );
 
-        const validatedResponse = musicValidation.validateResponse(
-          SongListResponseSchema,
-          response,
-          "Songs"
-        );
+          const validatedResponse = musicValidation.validateResponse(
+            SongListResponseSchema,
+            response,
+            "Songs"
+          );
 
-        const songs = musicValidation.parseCollection(
-          SongSchema,
-          validatedResponse.songs || [],
-          "Songs"
-        ) as Song[];
+          const songs = musicValidation.parseCollection(
+            SongSchema,
+            validatedResponse.songs || [],
+            "Songs"
+          ) as Song[];
 
-        const pagination = {
-          total: validatedResponse.total,
-          page: validatedResponse.page,
-          page_size: validatedResponse.page_size,
-          total_pages: validatedResponse.total_pages,
-          has_next: validatedResponse.has_next,
-          has_prev: validatedResponse.has_prev,
-        };
+          const pagination = {
+            total: validatedResponse.total,
+            page: validatedResponse.page,
+            page_size: validatedResponse.page_size,
+            total_pages: validatedResponse.total_pages,
+            has_next: validatedResponse.has_next,
+            has_prev: validatedResponse.has_prev,
+          };
 
-        return { songs, pagination };
-      },
-      "/api/media/songs",
-      "getSongs",
-      options || {}
-    );
+          return { items: songs, pagination };
+        },
+        "/api/media/songs",
+        "getSongs",
+        options || {}
+      )
+      .then((result) => ({
+        songs: result.items,
+        pagination: result.pagination,
+      }));
   },
 
   // Artists API methods
@@ -92,110 +97,176 @@ export const musicApiMethods = {
       page_size?: number;
     }
   ): Promise<{ artists: ArtistSummary[]; pagination: any }> {
-    return musicApiUtils.withGracefulCollection(
-      async () => {
-        const params = options || {};
-        const response = await this.makeRequest<unknown>(
-          "GET",
-          "/api/media/artists",
-          { params }
-        );
+    return musicApiUtils
+      .withGracefulPaginatedCollection(
+        async () => {
+          const params = options || {};
+          const response = await this.makeRequest<unknown>(
+            "GET",
+            "/api/media/artists",
+            { params }
+          );
 
-        const validatedResponse = musicValidation.validateResponse(
-          ArtistsListResponseSchema,
-          response,
-          "Artists"
-        );
+          const validatedResponse = musicValidation.validateResponse(
+            ArtistsListResponseSchema,
+            response,
+            "Artists"
+          );
 
-        const artists = musicValidation.parseCollection(
-          ArtistSummarySchema,
-          validatedResponse.artists || [],
-          "Artists"
-        ) as ArtistSummary[];
+          const artists = musicValidation.parseCollection(
+            ArtistSummarySchema,
+            validatedResponse.artists || [],
+            "Artists"
+          ) as ArtistSummary[];
 
-        const pagination = {
-          total: validatedResponse.total,
-          page: validatedResponse.page,
-          page_size: validatedResponse.page_size,
-          total_pages: validatedResponse.total_pages,
-          has_next: validatedResponse.has_next,
-          has_prev: validatedResponse.has_prev,
-        };
+          const pagination = {
+            total: validatedResponse.total,
+            page: validatedResponse.page,
+            page_size: validatedResponse.page_size,
+            total_pages: validatedResponse.total_pages,
+            has_next: validatedResponse.has_next,
+            has_prev: validatedResponse.has_prev,
+          };
 
-        return { artists, pagination };
-      },
-      "/api/media/artists",
-      "getArtists",
-      options || {}
-    );
+          return { items: artists, pagination };
+        },
+        "/api/media/artists",
+        "getArtists",
+        options || {}
+      )
+      .then((result) => ({
+        artists: result.items,
+        pagination: result.pagination,
+      }));
   },
 
   async getArtistSongs(
     this: ApiClient,
     artist: string,
-    limit?: number
-  ): Promise<Song[]> {
-    return musicApiUtils.withGracefulCollection(
-      async () => {
-        const params = limit ? { limit } : {};
-        const response = await this.makeRequest<unknown>(
-          "GET",
-          `/api/media/artists/${encodeURIComponent(artist)}/songs`,
-          { params }
-        );
+    options?: {
+      limit?: number;
+      offset?: number;
+      page?: number;
+      page_size?: number;
+    }
+  ): Promise<{ songs: Song[]; pagination: any }> {
+    return musicApiUtils
+      .withGracefulPaginatedCollection(
+        async () => {
+          const params = options || {};
+          const response = await this.makeRequest<unknown>(
+            "GET",
+            `/api/media/artists/${encodeURIComponent(artist)}/songs`,
+            { params }
+          );
 
-        const validatedResponse = musicValidation.validateResponse(
-          ArtistSongsResponseSchema,
-          response,
-          "Artist Songs"
-        );
+          const validatedResponse = musicValidation.validateResponse(
+            ArtistSongsResponseSchema,
+            response,
+            "Artist Songs"
+          );
 
-        return musicValidation.parseCollection(
-          SongSchema,
-          validatedResponse.songs || [],
-          "Artist Songs"
-        ) as Song[];
-      },
-      `/api/media/artists/${encodeURIComponent(artist)}/songs`,
-      "getArtistSongs",
-      { artist, limit }
-    );
+          const songs = musicValidation.parseCollection(
+            SongSchema,
+            validatedResponse.songs || [],
+            "Artist Songs"
+          ) as Song[];
+
+          // Create fake pagination metadata since artist songs might not be paginated yet
+          const pagination = {
+            total: songs.length,
+            page: 1,
+            page_size: songs.length,
+            total_pages: 1,
+            has_next: false,
+            has_prev: false,
+          };
+
+          return { items: songs, pagination };
+        },
+        `/api/media/artists/${encodeURIComponent(artist)}/songs`,
+        "getArtistSongs",
+        { artist, ...options }
+      )
+      .then((result) => ({
+        songs: result.items,
+        pagination: result.pagination,
+      }));
   },
 
   // Albums API methods
-  async getAlbums(this: ApiClient): Promise<Album[]> {
-    return musicApiUtils.withGracefulCollection(
-      async () => {
-        const response = await this.makeRequest<unknown>(
-          "GET",
-          "/api/media/albums"
-        );
+  async getAlbums(
+    this: ApiClient,
+    options?: {
+      limit?: number;
+      offset?: number;
+      page?: number;
+      page_size?: number;
+    }
+  ): Promise<{ albums: Album[]; pagination: any }> {
+    return musicApiUtils
+      .withGracefulPaginatedCollection(
+        async () => {
+          const params = options || {};
+          const response = await this.makeRequest<unknown>(
+            "GET",
+            "/api/media/albums",
+            { params }
+          );
 
-        // Handle direct array response (album summaries)
-        if (Array.isArray(response)) {
-          return musicValidation.parseCollection(
-            AlbumSchema,
+          // Handle direct array response (album summaries) - transform to paginated format
+          if (Array.isArray(response)) {
+            const albums = musicValidation.parseCollection(
+              AlbumSchema,
+              response,
+              "Album Summaries"
+            ) as Album[];
+
+            // Create fake pagination metadata for backward compatibility
+            const pagination = {
+              total: albums.length,
+              page: 1,
+              page_size: albums.length,
+              total_pages: 1,
+              has_next: false,
+              has_prev: false,
+            };
+
+            return { items: albums, pagination };
+          }
+
+          // Handle wrapped response
+          const validatedResponse = musicValidation.validateResponse(
+            AlbumListResponseSchema,
             response,
             "Album Summaries"
+          );
+
+          const albums = musicValidation.parseCollection(
+            AlbumSchema,
+            validatedResponse.albums || [],
+            "Album Summaries"
           ) as Album[];
-        }
 
-        // Handle wrapped response
-        const validatedResponse = musicValidation.validateResponse(
-          AlbumListResponseSchema,
-          response,
-          "Album Summaries"
-        );
+          const pagination = {
+            total: validatedResponse.total,
+            page: validatedResponse.page,
+            page_size: validatedResponse.page_size,
+            total_pages: validatedResponse.total_pages,
+            has_next: validatedResponse.has_next,
+            has_prev: validatedResponse.has_prev,
+          };
 
-        return musicValidation.parseCollection(
-          AlbumSchema,
-          validatedResponse.albums || [],
-          "Album Summaries"
-        ) as Album[];
-      },
-      "/api/media/albums",
-      "getAlbums"
-    );
+          return { items: albums, pagination };
+        },
+        "/api/media/albums",
+        "getAlbums",
+        options || {}
+      )
+      .then((result) => ({
+        albums: result.items,
+        pagination: result.pagination,
+      }));
   },
 
   async getAlbumTracks(
@@ -267,42 +338,47 @@ export const musicApiMethods = {
       page_size?: number;
     }
   ): Promise<{ playlists: Playlist[]; pagination: any }> {
-    return musicApiUtils.withGracefulCollection(
-      async () => {
-        const params = options || {};
-        const response = await this.makeRequest<unknown>(
-          "GET",
-          "/api/media/playlists",
-          { params }
-        );
+    return musicApiUtils
+      .withGracefulPaginatedCollection(
+        async () => {
+          const params = options || {};
+          const response = await this.makeRequest<unknown>(
+            "GET",
+            "/api/media/playlists",
+            { params }
+          );
 
-        const validatedResponse = musicValidation.validateResponse(
-          PlaylistListResponseSchema,
-          response,
-          "Playlists"
-        );
+          const validatedResponse = musicValidation.validateResponse(
+            PlaylistListResponseSchema,
+            response,
+            "Playlists"
+          );
 
-        const playlists = musicValidation.parseCollection(
-          PlaylistSchema,
-          validatedResponse.playlists || [],
-          "Playlists"
-        ) as Playlist[];
+          const playlists = musicValidation.parseCollection(
+            PlaylistSchema,
+            validatedResponse.playlists || [],
+            "Playlists"
+          ) as Playlist[];
 
-        const pagination = {
-          total: validatedResponse.total,
-          page: validatedResponse.page,
-          page_size: validatedResponse.page_size,
-          total_pages: validatedResponse.total_pages,
-          has_next: validatedResponse.has_next,
-          has_prev: validatedResponse.has_prev,
-        };
+          const pagination = {
+            total: validatedResponse.total,
+            page: validatedResponse.page,
+            page_size: validatedResponse.page_size,
+            total_pages: validatedResponse.total_pages,
+            has_next: validatedResponse.has_next,
+            has_prev: validatedResponse.has_prev,
+          };
 
-        return { playlists, pagination };
-      },
-      "/api/media/playlists",
-      "getPlaylists",
-      options || {}
-    );
+          return { items: playlists, pagination };
+        },
+        "/api/media/playlists",
+        "getPlaylists",
+        options || {}
+      )
+      .then((result) => ({
+        playlists: result.items,
+        pagination: result.pagination,
+      }));
   },
 
   async getPlaylistSongs(this: ApiClient, playlistId: string): Promise<Song[]> {

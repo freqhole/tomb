@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createSignal } from "solid-js";
+import { createSignal, createEffect, createMemo } from "solid-js";
 import { apiClient } from "../../../lib/api-client.js";
 import type { SearchResult } from "../../../lib/search/types.js";
 import type {
@@ -14,11 +14,21 @@ export interface MusicState {
   // Current view
   currentView: "music" | "artists" | "albums" | "playlists";
 
-  // Data collections
+  // Data collections with infinite scroll support
   songs: Song[];
   playlists: Playlist[];
   albums: Album[];
   artists: ArtistSummary[];
+
+  // Infinite scroll states
+  songsLoading: boolean;
+  songsHasMore: boolean;
+  playlistsLoading: boolean;
+  playlistsHasMore: boolean;
+  albumsLoading: boolean;
+  albumsHasMore: boolean;
+  artistsLoading: boolean;
+  artistsHasMore: boolean;
 
   // Current selections
   currentPlaylist: Playlist | null;
@@ -45,8 +55,15 @@ export interface MusicActions {
   changeView: (view: "music" | "artists" | "albums" | "playlists") => void;
 
   // Data fetching
-  fetchData: (view: string) => Promise<void>;
+  fetchData: () => Promise<void>;
   ensurePlaylistsLoaded: () => Promise<void>;
+
+  // Infinite scroll actions
+  loadMoreSongs: () => Promise<void>;
+  loadMoreArtists: () => Promise<void>;
+  loadMoreAlbums: () => Promise<void>;
+  loadMorePlaylists: () => Promise<void>;
+  resetCurrentView: () => void;
 
   // Playlist operations
   viewPlaylist: (playlist: Playlist) => Promise<void>;
@@ -80,19 +97,173 @@ export interface MusicActions {
   // Utility
   refreshCurrentView: () => Promise<void>;
   clearError: () => void;
+
+  // Unified container ref for infinite scroll
+  setScrollContainer: (el: HTMLElement | null) => void;
 }
 
 export const useMusicState = () => {
+  console.log(
+    "🎵 useMusicState hook created:",
+    Math.random().toString(36).substr(2, 4)
+  );
+
   // Current view state
   const [currentView, setCurrentView] = createSignal<
     "music" | "artists" | "albums" | "playlists"
   >("music");
 
-  // Data collections
-  const [songs, setSongs] = createSignal<Song[]>([]);
-  const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
-  const [albums, setAlbums] = createSignal<Album[]>([]);
-  const [artists, setArtists] = createSignal<ArtistSummary[]>([]);
+  // Manual pagination state
+  const [items, setItems] = createSignal<any[]>([]);
+  const [loading, setLoading] = createSignal(false);
+  const [pagination, setPagination] = createSignal<any>(null);
+  const [scrollContainer, setScrollContainer] =
+    createSignal<HTMLElement | null>(null);
+
+  // Derived state
+  const hasMore = createMemo(() => {
+    const pag = pagination();
+    return pag ? pag.has_next : true; // Allow initial load when no pagination yet
+  });
+
+  // Load more data
+  const loadMore = async () => {
+    const currentLoading = loading();
+    const currentHasMore = hasMore();
+    const currentPagination = pagination();
+
+    // Block if loading, or if we have pagination data and no more pages
+    if (currentLoading || (currentPagination && !currentHasMore)) {
+      console.log("🔄 Load more blocked:", {
+        loading: currentLoading,
+        hasMore: currentHasMore,
+        hasPagination: !!currentPagination,
+      });
+      return;
+    }
+
+    try {
+      console.log("🔄 Starting load more...");
+      setLoading(true);
+
+      const view = currentView();
+      const currentPagination = pagination();
+      const nextPage = currentPagination ? currentPagination.page + 1 : 1;
+
+      console.log(`🔄 Fetching ${view} page ${nextPage}`);
+
+      let result;
+      switch (view) {
+        case "music":
+          const songsResult = await apiClient.getSongs({
+            page: nextPage,
+            page_size: 50,
+          });
+          result = {
+            items: songsResult.songs.map(transformSong),
+            pagination: songsResult.pagination,
+          };
+          break;
+
+        case "artists":
+          const artistsResult = await apiClient.getArtists({
+            page: nextPage,
+            page_size: 50,
+          });
+          result = {
+            items: artistsResult.artists.map((artist) => ({
+              ...artist,
+              avg_rating: artist.avg_rating || undefined,
+            })),
+            pagination: artistsResult.pagination,
+          };
+          break;
+
+        case "albums":
+          const albumsResult = await apiClient.getAlbums({
+            page: nextPage,
+            page_size: 50,
+          });
+          result = {
+            items: albumsResult.albums.map((album) => ({
+              ...album,
+              album: album.album || "",
+              artist: album.artist || "",
+              year: album.year || undefined,
+              avg_rating: album.avg_rating || undefined,
+              total_duration: parseFloat(album.total_duration || "0") || 0,
+              genres: album.genres
+                ? album.genres.split(",").map((g) => g.trim())
+                : [],
+              album_thumbnail_id: album.album_thumbnail_id || undefined,
+            })),
+            pagination: albumsResult.pagination,
+          };
+          break;
+
+        case "playlists":
+          const playlistsResult = await apiClient.getPlaylists({
+            page: nextPage,
+            page_size: 50,
+          });
+          result = {
+            items: playlistsResult.playlists.map((playlist) => ({
+              ...playlist,
+              description: playlist.description || undefined,
+              song_count: playlist.song_count || undefined,
+            })),
+            pagination: playlistsResult.pagination,
+          };
+          break;
+
+        default:
+          throw new Error(`Unknown view: ${view}`);
+      }
+
+      // Append new items
+      setItems((prev) => [...prev, ...result.items]);
+      setPagination(result.pagination);
+
+      console.log(
+        `🔄 Loaded ${result.items.length} new items, ${items().length} total`
+      );
+    } catch (err) {
+      console.error("🔄 Load more error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Scroll handler
+  const handleScroll = () => {
+    const container = scrollContainer();
+    if (!container || loading() || !hasMore()) return;
+
+    const scrollHeight = container.scrollHeight;
+    const scrollTop = container.scrollTop;
+    const clientHeight = container.clientHeight;
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+
+    if (distanceFromBottom <= 200) {
+      loadMore();
+    }
+  };
+
+  // Set up scroll listener
+  createEffect(() => {
+    const container = scrollContainer();
+    if (container) {
+      container.addEventListener("scroll", handleScroll, { passive: true });
+      return () => container.removeEventListener("scroll", handleScroll);
+    }
+    return undefined;
+  });
+
+  // View-specific data accessors
+  const songs = () => (currentView() === "music" ? items() : []);
+  const artists = () => (currentView() === "artists" ? items() : []);
+  const albums = () => (currentView() === "albums" ? items() : []);
+  const playlists = () => (currentView() === "playlists" ? items() : []);
 
   // Current selections
   const [currentPlaylist, setCurrentPlaylist] = createSignal<Playlist | null>(
@@ -106,8 +277,8 @@ export const useMusicState = () => {
   const [currentAlbum, setCurrentAlbum] = createSignal<Album | null>(null);
   const [albumSongs, setAlbumSongs] = createSignal<Song[]>([]);
 
-  // Loading and error states
-  const [loading, setLoading] = createSignal(false);
+  // Loading and error states for other operations (not pagination)
+  const [otherLoading, setOtherLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
   // Search and filters
@@ -145,86 +316,25 @@ export const useMusicState = () => {
     media_blob_id: track.media_blob_id || track.song_id,
   });
 
-  // Fetch data based on current view
-  const fetchData = async (view: string) => {
-    setLoading(true);
+  // Fetch data based on current view (reset and load first page)
+  const fetchData = async () => {
     setError(null);
-
-    try {
-      switch (view) {
-        case "music":
-          const songsData = await apiClient.getSongs(1000);
-          setSongs(songsData.map(transformSong));
-          break;
-
-        case "artists":
-          const artistsData = await apiClient.getArtists();
-          setArtists(
-            artistsData.map((artist) => ({
-              ...artist,
-              avg_rating: artist.avg_rating || undefined,
-            }))
-          );
-          break;
-
-        case "playlists":
-          const playlistsData = await apiClient.getPlaylists(1000);
-          setPlaylists(
-            playlistsData.map((playlist) => ({
-              ...playlist,
-              description: playlist.description || undefined,
-              song_count: playlist.song_count || undefined,
-            }))
-          );
-          break;
-
-        case "albums":
-          const albumsData = await apiClient.getAlbums();
-          setAlbums(
-            albumsData.map((album) => ({
-              ...album,
-              album: album.album || "",
-              artist: album.artist || "",
-              year: album.year || undefined,
-              avg_rating: album.avg_rating || undefined,
-              total_duration: parseFloat(album.total_duration || "0") || 0,
-              genres: album.genres
-                ? album.genres.split(",").map((g) => g.trim())
-                : [],
-              album_thumbnail_id: album.album_thumbnail_id || undefined,
-            }))
-          );
-          break;
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch data");
-    } finally {
-      setLoading(false);
-    }
+    setItems([]);
+    setPagination(null);
+    await loadMore();
   };
 
   // Ensure playlists are loaded for dropdown functionality
   const ensurePlaylistsLoaded = async () => {
-    if (playlists().length === 0) {
-      try {
-        const playlistsData = await apiClient.getPlaylists(1000);
-        setPlaylists(
-          playlistsData.map((playlist) => ({
-            ...playlist,
-            description: playlist.description || undefined,
-            song_count: playlist.song_count || undefined,
-          }))
-        );
-      } catch (err) {
-        console.error("Failed to load playlists:", err);
-      }
+    if (playlists().length === 0 && currentView() === "playlists") {
+      await loadMore();
     }
   };
 
   // View playlist details
   const viewPlaylist = async (playlist: Playlist) => {
     try {
-      setLoading(true);
+      setOtherLoading(true);
       const songs = await apiClient.getPlaylistSongs(playlist.id);
       setCurrentPlaylist(playlist);
       setPlaylistSongs(
@@ -237,30 +347,32 @@ export const useMusicState = () => {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load playlist");
     } finally {
-      setLoading(false);
+      setOtherLoading(false);
     }
   };
 
   // View artist details
   const viewArtist = async (artist: ArtistSummary) => {
     try {
-      setLoading(true);
-      const songs = await apiClient.getArtistSongs(artist.artist, 1000);
+      setOtherLoading(true);
+      const result = await apiClient.getArtistSongs(artist.artist, {
+        limit: 1000,
+      });
       setCurrentArtist(artist);
-      setArtistSongs(songs.map(transformSong));
+      setArtistSongs(result.songs.map(transformSong));
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load artist songs"
       );
     } finally {
-      setLoading(false);
+      setOtherLoading(false);
     }
   };
 
   // View album details
   const viewAlbum = async (album: Album) => {
     try {
-      setLoading(true);
+      setOtherLoading(true);
       const tracks = await apiClient.getAlbumTracks(
         album.album || "",
         album.artist || ""
@@ -272,7 +384,7 @@ export const useMusicState = () => {
         err instanceof Error ? err.message : "Failed to load album tracks"
       );
     } finally {
-      setLoading(false);
+      setOtherLoading(false);
     }
   };
 
@@ -296,7 +408,7 @@ export const useMusicState = () => {
       });
 
       // Refresh playlists
-      await fetchData("playlists");
+      await fetchData();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to create playlist"
@@ -325,7 +437,7 @@ export const useMusicState = () => {
       });
 
       // Refresh playlists
-      await fetchData("playlists");
+      await fetchData();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to update playlist"
@@ -342,7 +454,7 @@ export const useMusicState = () => {
       await apiClient.deletePlaylist(id);
 
       // Refresh playlists
-      await fetchData("playlists");
+      await fetchData();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to delete playlist"
@@ -463,7 +575,7 @@ export const useMusicState = () => {
     if (newView === currentView()) return;
 
     setCurrentView(newView);
-    fetchData(newView);
+    fetchData();
 
     // Clear selections when changing views
     setSelectedArtist(null);
@@ -477,9 +589,15 @@ export const useMusicState = () => {
     clearSearch();
   };
 
+  // Reset current view data
+  const resetCurrentView = () => {
+    setItems([]);
+    setPagination(null);
+  };
+
   // Refresh current view
   const refreshCurrentView = async () => {
-    await fetchData(currentView());
+    await fetchData();
   };
 
   // Clear error
@@ -495,13 +613,40 @@ export const useMusicState = () => {
       playlists,
       albums,
       artists,
+
+      // Infinite scroll states - unified for current view
+      songsLoading: createMemo(() =>
+        currentView() === "music" ? loading() : false
+      ),
+      songsHasMore: createMemo(() =>
+        currentView() === "music" ? hasMore() : false
+      ),
+      playlistsLoading: createMemo(() =>
+        currentView() === "playlists" ? loading() : false
+      ),
+      playlistsHasMore: createMemo(() =>
+        currentView() === "playlists" ? hasMore() : false
+      ),
+      albumsLoading: createMemo(() =>
+        currentView() === "albums" ? loading() : false
+      ),
+      albumsHasMore: createMemo(() =>
+        currentView() === "albums" ? hasMore() : false
+      ),
+      artistsLoading: createMemo(() =>
+        currentView() === "artists" ? loading() : false
+      ),
+      artistsHasMore: createMemo(() =>
+        currentView() === "artists" ? hasMore() : false
+      ),
+
       currentPlaylist,
       playlistSongs,
       currentArtist,
       artistSongs,
       currentAlbum,
       albumSongs,
-      loading,
+      loading: otherLoading,
       error,
       selectedArtist,
       selectedAlbum,
@@ -515,6 +660,18 @@ export const useMusicState = () => {
       changeView,
       fetchData,
       ensurePlaylistsLoaded,
+
+      // Infinite scroll actions - unified
+      loadMoreSongs: () =>
+        currentView() === "music" ? loadMore() : Promise.resolve(),
+      loadMoreArtists: () =>
+        currentView() === "artists" ? loadMore() : Promise.resolve(),
+      loadMoreAlbums: () =>
+        currentView() === "albums" ? loadMore() : Promise.resolve(),
+      loadMorePlaylists: () =>
+        currentView() === "playlists" ? loadMore() : Promise.resolve(),
+      resetCurrentView,
+
       viewPlaylist,
       createPlaylist,
       updatePlaylist,
@@ -529,6 +686,9 @@ export const useMusicState = () => {
       setSelectedAlbum,
       refreshCurrentView,
       clearError,
+
+      // Unified container ref for infinite scroll
+      setScrollContainer,
     },
   };
 };

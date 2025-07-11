@@ -1,5 +1,4 @@
 /* @jsxImportSource solid-js */
-import { onMount } from "solid-js";
 import { useMusicState } from "./useMusicState";
 import { usePlayerState } from "./usePlayerState";
 import { useViewState } from "./useViewState";
@@ -29,19 +28,23 @@ export const useFreqholeState = () => {
   const player = usePlayerState();
   const view = useViewState();
 
-  // Initialize data on mount
-  onMount(async () => {
-    await initialize();
-  });
-
   // Combined initialization
   const initialize = async () => {
+    console.log("🚀 Freqhole initialize called");
     try {
+      const currentView = music.state.currentView();
+      console.log("🚀 Current view:", currentView);
+
       // Load initial data
-      await music.actions.fetchData(music.state.currentView());
+      console.log("🚀 Calling fetchData for view:", currentView);
+      await music.actions.fetchData();
+
+      console.log("🚀 Calling ensurePlaylistsLoaded");
       await music.actions.ensurePlaylistsLoaded();
+
+      console.log("🚀 Freqhole initialization complete");
     } catch (error) {
-      console.error("Failed to initialize Freqhole state:", error);
+      console.error("❌ Failed to initialize Freqhole state:", error);
     }
   };
 

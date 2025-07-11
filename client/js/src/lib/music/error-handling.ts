@@ -287,6 +287,40 @@ export const musicApiUtils = {
   },
 
   /**
+   * Wrap a paginated collection API call with graceful degradation
+   */
+  async withGracefulPaginatedCollection<T>(
+    operation: () => Promise<{ items: T[]; pagination: any }>,
+    endpoint: string,
+    operationName: string,
+    params?: Record<string, unknown>
+  ): Promise<{ items: T[]; pagination: any }> {
+    const context = musicErrorHandler.createContext(
+      endpoint,
+      operationName,
+      params
+    );
+
+    const fallback = {
+      items: [] as T[],
+      pagination: {
+        total: 0,
+        page: 1,
+        page_size: 50,
+        total_pages: 0,
+        has_next: false,
+        has_prev: false,
+      },
+    };
+
+    return musicErrorHandler.withGracefulDegradation(
+      operation,
+      fallback,
+      context
+    );
+  },
+
+  /**
    * Wrap an API call with a fallback value
    */
   async withFallback<T>(
