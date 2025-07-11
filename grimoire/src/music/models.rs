@@ -527,6 +527,11 @@ pub struct AlbumTrack {
 }
 
 impl AlbumTrack {
+    /// Get duration in seconds
+    pub fn duration_seconds(&self) -> Option<i64> {
+        self.duration.map(|d| d.microseconds / 1_000_000)
+    }
+
     /// Get formatted duration
     pub fn formatted_duration(&self) -> Option<String> {
         self.duration.map(|d| {

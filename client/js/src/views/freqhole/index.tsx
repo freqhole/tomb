@@ -187,7 +187,7 @@ function FreqholeContent() {
     return (
       <div
         class="flex items-center p-3 border border-transparent hover:bg-dark-200 hover:border-primary-300 cursor-pointer transition-all duration-200 metro-item-hover"
-        onClick={() => handlePlayItem(item)}
+        onDblClick={() => handlePlayItem(item)}
       >
         <div class="flex-1 min-w-0">
           <h3 class="text-white font-medium truncate">

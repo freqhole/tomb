@@ -345,7 +345,7 @@ pub struct AlbumTrackResponse {
     pub artist: Option<String>,
     pub disc_number: Option<i32>,
     pub track_number: Option<i32>,
-    pub duration: Option<String>,
+    pub duration: Option<i64>,
     pub genre: Option<String>,
     pub year: Option<i32>,
     pub rating: Option<i32>,
@@ -358,7 +358,7 @@ pub struct AlbumTrackResponse {
 
 impl From<AlbumTrack> for AlbumTrackResponse {
     fn from(track: AlbumTrack) -> Self {
-        let formatted_duration = track.formatted_duration();
+        let duration_seconds = track.duration_seconds();
         let track_display = track.track_display();
         Self {
             song_id: track.song_id,
@@ -366,7 +366,7 @@ impl From<AlbumTrack> for AlbumTrackResponse {
             artist: track.artist,
             disc_number: track.disc_number,
             track_number: track.track_number,
-            duration: formatted_duration,
+            duration: duration_seconds,
             genre: track.genre,
             year: track.year,
             rating: track.rating,

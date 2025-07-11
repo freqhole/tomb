@@ -71,26 +71,50 @@ export const useFreqholeState = () => {
 
   // Play playlist and view its details
   const playPlaylistAndView = async (playlist: Playlist) => {
-    await Promise.all([
-      music.actions.viewPlaylist(playlist),
-      player.playPlaylist(playlist),
-    ]);
+    const currentView = music.state.currentView();
+
+    if (currentView === "playlists") {
+      // Only view if we're already on playlists view to avoid unnecessary loading
+      await Promise.all([
+        music.actions.viewPlaylist(playlist),
+        player.playPlaylist(playlist),
+      ]);
+    } else {
+      // Just play without changing view to avoid re-rendering current list
+      await player.playPlaylist(playlist);
+    }
   };
 
   // Play artist and view their songs
   const playArtistAndView = async (artist: ArtistSummary) => {
-    await Promise.all([
-      music.actions.viewArtist(artist),
-      player.playArtist(artist),
-    ]);
+    const currentView = music.state.currentView();
+
+    if (currentView === "artists") {
+      // Only view if we're already on artists view to avoid unnecessary loading
+      await Promise.all([
+        music.actions.viewArtist(artist),
+        player.playArtist(artist),
+      ]);
+    } else {
+      // Just play without changing view to avoid re-rendering current list
+      await player.playArtist(artist);
+    }
   };
 
   // Play album and view its tracks
   const playAlbumAndView = async (album: Album) => {
-    await Promise.all([
-      music.actions.viewAlbum(album),
-      player.playAlbum(album),
-    ]);
+    const currentView = music.state.currentView();
+
+    if (currentView === "albums") {
+      // Only view if we're already on albums view to avoid unnecessary loading
+      await Promise.all([
+        music.actions.viewAlbum(album),
+        player.playAlbum(album),
+      ]);
+    } else {
+      // Just play without changing view to avoid re-rendering current list
+      await player.playAlbum(album);
+    }
   };
 
   // Create playlist with modal management
