@@ -1,5 +1,3 @@
-/* @jsxImportSource solid-js */
-
 // Base icon props interface
 export interface IconProps {
   size?: number | string;

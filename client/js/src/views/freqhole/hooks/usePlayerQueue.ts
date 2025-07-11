@@ -85,6 +85,9 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
   const [currentQueueIndex, setCurrentQueueIndex] = createSignal(0);
   const [showQueue, setShowQueue] = createSignal(false);
 
+  // Mini-player mode state
+  const [miniPlayerMode, setMiniPlayerMode] = createSignal(false);
+
   // Initialize audio element
   onMount(() => {
     const audio = new Audio();
@@ -452,6 +455,10 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
     setShowQueue(!showQueue());
   };
 
+  const toggleMiniPlayer = () => {
+    setMiniPlayerMode(!miniPlayerMode());
+  };
+
   const getProgress = () => {
     const dur = duration();
     const cur = currentTime();
@@ -480,6 +487,7 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
     playQueue,
     currentQueueIndex,
     showQueue,
+    miniPlayerMode,
 
     // Player actions
     playSong,
@@ -505,6 +513,7 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
     setQueueFromAlbum,
     addToQueueIfEmpty,
     toggleQueue,
+    toggleMiniPlayer,
 
     // Utilities
     formatTime,
@@ -516,6 +525,7 @@ export const usePlayerQueue = (options: UsePlayerQueueOptions = {}) => {
 
     // Setters (for external control)
     setShowQueue,
+    setMiniPlayerMode,
     setCurrentQueueIndex,
     setVolume,
     setCurrentSong,

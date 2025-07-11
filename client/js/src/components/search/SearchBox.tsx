@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 import { createSignal, onMount } from "solid-js";
 import type { JSX } from "solid-js";
 import { useSearchState } from "../../hooks/search/index.js";

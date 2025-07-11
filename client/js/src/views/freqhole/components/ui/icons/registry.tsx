@@ -1,5 +1,3 @@
-/* @jsxImportSource solid-js */
-
 // Import all icon components
 import {
   PlayIcon,

@@ -305,19 +305,19 @@
 }
 
 /* Player Styles - Zune Demo Style */
-.zune-player {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(20px);
-  padding: 1rem 2rem;
-  display: flex;
-  align-items: center;
-  gap: 2rem;
-  z-index: 1000;
-  animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+.freqhole-root .zune-player {
+  position: fixed !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  background: rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: blur(20px) !important;
+  padding: 1rem 2rem !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 2rem !important;
+  z-index: 1000 !important;
+  animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 @keyframes slideUp {
@@ -331,44 +331,44 @@
   }
 }
 
-.zune-player-info {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  min-width: 250px;
-  width: 100%;
+.freqhole-root .zune-player-info {
+  display: flex !important;
+  align-items: center !important;
+  gap: 1rem !important;
+  min-width: 250px !important;
+  width: 100% !important;
 }
 
-.zune-artwork-placeholder {
-  width: 50px;
-  height: 50px;
-  background: linear-gradient(135deg, #333 0%, #555 100%);
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.3);
+.freqhole-root .zune-artwork-placeholder {
+  width: 50px !important;
+  height: 50px !important;
+  background: linear-gradient(135deg, #333 0%, #555 100%) !important;
+  border-radius: 4px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: rgba(255, 255, 255, 0.3) !important;
 }
 
-.zune-artwork-image {
-  width: 50px;
-  height: 50px;
-  border-radius: 4px;
-  object-fit: cover;
+.freqhole-root .zune-artwork-image {
+  width: 50px !important;
+  height: 50px !important;
+  border-radius: 4px !important;
+  object-fit: cover !important;
 }
 
-.zune-player-text {
-  flex: 1;
+.freqhole-root .zune-player-text {
+  flex: 1 !important;
 }
 
-.zune-player-title {
-  font-size: 1rem;
-  font-weight: 500;
-  margin: 0;
-  color: #ffffff;
+.freqhole-root .zune-player-title {
+  font-size: 1rem !important;
+  font-weight: 500 !important;
+  margin: 0 !important;
+  color: #ffffff !important;
 }
 
-.zune-player-artist {
+.freqhole-root .zune-player-artist {
   font-size: 0.9rem;
   font-weight: 300;
   margin: 0;
@@ -530,4 +530,108 @@
 
 .freqhole-scrollbar::-webkit-scrollbar-thumb:hover {
   @apply bg-gray-500;
+}
+
+/* Queue Panel Specific Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  @apply bg-black/20;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-white/20 rounded-full;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  @apply bg-white/30;
+}
+
+/* Queue Panel Animations */
+.animate-slideInRight {
+  animation: slideInRight 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Queue Item Hover Effects */
+.queue-item-hover {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.queue-item-hover:hover {
+  transform: translateX(2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Queue Button Badge */
+.queue-badge {
+  animation: badgePulse 2s infinite;
+}
+
+@keyframes badgePulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+/* Improved Now Playing Indicator */
+.now-playing-pulse {
+  animation: nowPlayingPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes nowPlayingPulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+/* Help Modal Animations */
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }

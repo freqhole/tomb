@@ -1,5 +1,3 @@
-/* @jsxImportSource solid-js */
-
 // Legacy icon imports - redirects to new UI icons location
 // This file maintains backward compatibility while we transition to the new icon system
 

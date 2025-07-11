@@ -8,7 +8,12 @@ import { Modal, Popover, useModal, usePopover } from "./components/ui/Modal";
 import { useAuth } from "../../hooks/auth";
 import { AuthModal } from "./components/auth/AuthModal";
 import { Header } from "./components/header";
-import { Player, QueueViewer } from "./components/player";
+import {
+  Player,
+  QueueViewer,
+  KeyboardHelp,
+  MiniPlayer,
+} from "./components/player";
 import { FreqholeProvider, useFreqhole } from "./context";
 import { PlayIcon, AddIcon, QueueIcon, EditIcon } from "./components/icons";
 
@@ -372,6 +377,12 @@ function FreqholeContent() {
 
       {/* Queue Viewer */}
       <QueueViewer />
+
+      {/* Mini Player */}
+      <MiniPlayer />
+
+      {/* Keyboard Help */}
+      <KeyboardHelp />
 
       {/* Context Menu */}
       <ContextMenu

@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { Show } from "solid-js";
+import { Show, onMount, onCleanup } from "solid-js";
 import {
   PlayIcon,
   PauseIcon,
@@ -8,6 +8,7 @@ import {
   QueueIcon,
   VolumeIcon,
   MusicIcon,
+  ArrowDownIcon,
 } from "../icons";
 import { useMusicPlayer } from "../../context/FreqholeContext";
 import { apiClient } from "../../../../lib/api-client";
@@ -15,8 +16,64 @@ import { apiClient } from "../../../../lib/api-client";
 export const Player = () => {
   const player = useMusicPlayer();
 
+  // Keyboard shortcuts
+  onMount(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle shortcuts when not typing in an input
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      switch (e.code) {
+        case "Space":
+          e.preventDefault();
+          player.togglePlayback();
+          break;
+        case "KeyQ":
+          e.preventDefault();
+          player.toggleQueue();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          if (e.shiftKey) {
+            player.playPrevious();
+          } else {
+            // Seek backward 10 seconds
+            const currentTime = player.currentTime();
+            const newTime = Math.max(0, currentTime - 10);
+            player.seekToTime(newTime);
+          }
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          if (e.shiftKey) {
+            player.playNext();
+          } else {
+            // Seek forward 10 seconds
+            const currentTime = player.currentTime();
+            const duration = player.duration();
+            const newTime = Math.min(duration, currentTime + 10);
+            player.seekToTime(newTime);
+          }
+          break;
+        case "KeyM":
+          e.preventDefault();
+          player.toggleMiniPlayer();
+          break;
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => {
+      document.removeEventListener("keydown", handleKeyDown);
+    });
+  });
+
   return (
-    <Show when={player.currentSong()}>
+    <Show when={player.currentSong() && !player.miniPlayerMode()}>
       <div class="fixed bottom-0 left-0 right-0 bg-black/50 backdrop-blur-xl p-4 flex items-center gap-6 z-50 animate-slideUp">
         {/* Song Info */}
         <div class="flex items-center gap-4 min-w-60">
@@ -52,14 +109,14 @@ export const Player = () => {
             class="w-11 h-11 rounded-full bg-white/10 text-white border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-white/20 hover:scale-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             onClick={player.playPrevious}
             disabled={!player.canGoPrevious()}
-            title="Previous"
+            title="Previous (Shift + ←)"
           >
             <PrevIcon />
           </button>
           <button
             class="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 text-white border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:from-primary-400 hover:to-primary-500 hover:scale-105"
             onClick={player.togglePlayback}
-            title={player.isPlaying() ? "Pause" : "Play"}
+            title={`${player.isPlaying() ? "Pause" : "Play"} (Space)`}
           >
             {player.isPlaying() ? <PauseIcon /> : <PlayIcon />}
           </button>
@@ -67,22 +124,41 @@ export const Player = () => {
             class="w-11 h-11 rounded-full bg-white/10 text-white border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-white/20 hover:scale-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             onClick={player.playNext}
             disabled={!player.canGoNext()}
-            title="Next"
+            title="Next (Shift + →)"
           >
             <NextIcon />
           </button>
           <button
-            class="w-11 h-11 rounded-full bg-white/10 text-white border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-white/20 hover:scale-110"
+            class={`w-11 h-11 rounded-full text-white border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:scale-110 relative ${
+              player.showQueue()
+                ? "bg-primary-500/80 hover:bg-primary-500"
+                : "bg-white/10 hover:bg-white/20"
+            }`}
             onClick={player.toggleQueue}
-            title="Show Queue"
+            title={`${player.showQueue() ? "Hide" : "Show"} Queue (Q)`}
           >
             <QueueIcon />
+            {player.playQueue().length > 0 && (
+              <span class="absolute -top-1 -right-1 bg-primary-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium queue-badge">
+                {player.playQueue().length}
+              </span>
+            )}
+          </button>
+          <button
+            class="w-11 h-11 rounded-full bg-white/10 text-white border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-white/20 hover:scale-110"
+            onClick={player.toggleMiniPlayer}
+            title="Switch to mini player (M)"
+          >
+            <ArrowDownIcon />
           </button>
         </div>
 
         {/* Progress Bar */}
         <div class="flex items-center gap-3 flex-1 max-w-96">
-          <span class="text-sm text-white/70 font-light min-w-10">
+          <span
+            class="text-sm text-white/70 font-light min-w-10"
+            title="Current time"
+          >
             {player.formatTime(player.currentTime())}
           </span>
           <div
@@ -100,7 +176,10 @@ export const Player = () => {
               }}
             ></div>
           </div>
-          <span class="text-sm text-white/70 font-light min-w-10">
+          <span
+            class="text-sm text-white/70 font-light min-w-10"
+            title="Total duration"
+          >
             {player.formatTime(player.duration())}
           </span>
         </div>

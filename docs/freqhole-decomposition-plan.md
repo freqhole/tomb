@@ -1,50 +1,148 @@
 # Freqhole Audio Player - Modular Decomposition Plan
 
-## 🎯 Current Status: Player UI Complete! ✅
+## 🚧 Next Priorities & Todo Items
 
-**Latest Achievement**: Full-featured player UI with beautiful Tailwind styling, proper context management, and seamless audio playback!
+### Phase K.3: Flexible Data Container System
+
+**Priority**: Medium - Optimization for better data management
+
+- [ ] **Normalized store**: Store songs, albums, artists in normalized format to prevent duplicate fetches
+- [ ] **Data variation support**: Multiple data types (songs, search results, queue) can fill same container components
+- [ ] **Container-agnostic data**: Main list and queue containers can render any data variation
+- [ ] **Smart caching**: Avoid refetching data when switching between related views
+
+### Phase K.4: Cross-Cutting Workflow Support
+
+**Priority**: Medium - Enhanced workflows
+
+- [ ] **Intentional coupling**: Support workflows that legitimately span player + view domains
+- [ ] **Action intent**: Clear naming like `playAlbum()` vs `playAlbumAndNavigate()`
+- [ ] **Workflow optimization**: Efficient data sharing between related operations
+- [ ] **Memo optimization**: Aggressive memoization to prevent unnecessary re-renders in complex workflows
+
+### Phase H: UI Refinements & Bug Fixes
+
+**Priority**: Low - Polish existing functionality (MAJOR ISSUES RESOLVED! 🎉)
+
+#### H.1 Song Row Interaction Polish ✅ (COMPLETE!)
+
+- ✅ **CONFIRMED WORKING**: Main rendering flash issue when playing songs completely resolved
+- ✅ **CONFIRMED WORKING**: Scroll position preservation working perfectly
+- [ ] Add visual feedback for currently playing song in lists
+- [ ] Improve hover states and transitions
+
+#### H.2 Player UI Enhancements ✅ (COMPLETE!)
+
+- [x] Add keyboard shortcuts (spacebar for play/pause, arrow keys for seek)
+- [x] Implement queue panel toggle functionality
+- [x] Add mini-player mode for smaller screens
+
+**🎯 MAJOR ACHIEVEMENT: Enhanced Queue Panel & Player Experience!**
+
+**Queue Panel Enhancements:**
+
+- Enhanced visual states for queue toggle button with queue length badge
+- Persistent queue panel state (remembers open/closed preference)
+- Custom scrollbar styling and smooth animations
+- Responsive behavior (auto-hides on mobile, full-screen on small screens)
+- Improved queue item hover effects and now-playing indicators
+- Quick clear queue button with confirmation styling
+
+**Keyboard Shortcuts Added:**
+
+- `Space` - Play/pause toggle
+- `Q` - Toggle queue panel
+- `M` - Toggle mini-player mode
+- `←/→` - Seek backward/forward 10 seconds
+- `Shift + ←/→` - Previous/next track
+- `Shift + ?` - Show keyboard shortcuts help
+- `Esc` - Close queue panel or help modal
+
+**Mini-Player Mode:**
+
+- Compact floating player for smaller screens
+- Maintains full functionality in reduced footprint
+- Smooth toggle between full and mini modes
+- Responsive design with touch-friendly controls
+
+**Additional Features:**
+
+- Interactive keyboard shortcuts help panel
+- Enhanced tooltips with keyboard hints
+- Improved animations and micro-interactions
+- Better visual feedback for all player states
+
+#### H.3 Context Menu & Modal Polish
+
+- [ ] Remove or improve demo context menu and modal components
+- [ ] Streamline playlist management workflow
+- [ ] Add confirmation dialogs for destructive actions
+- [ ] Improve modal animations and transitions
+
+#### H.4 Search & Navigation Improvements
+
+- [ ] Optimize search result rendering
+- [ ] Add search history and suggestions
+- [ ] Improve view transition animations
+- [ ] Add breadcrumb navigation for nested views
+
+#### H.5 Mobile & Responsive Polish
+
+- [ ] Test and refine mobile player controls
+- [ ] Optimize touch interactions
+- [ ] Improve responsive layout breakpoints
+- [ ] Add swipe gestures for player controls
+
+### Phase I: Advanced Features (Optional)
+
+**Priority**: Low - Nice-to-have enhancements
+
+#### I.1 Playlist Features
+
+- [ ] Drag & drop song reordering
+- [ ] Playlist sharing and collaboration
+- [ ] Smart playlists with filters
+- [ ] Playlist artwork generation
+
+#### I.2 Audio Features
+
+- [ ] Equalizer with presets
+- [ ] Crossfade between tracks
+- [ ] Gapless playback
+- [ ] Audio normalization
+
+#### I.3 Discovery Features
+
+- [ ] Recently played tracking
+- [ ] Recommendations engine
+- [ ] Artist radio stations
+- [ ] Mood-based playlists
 
 ---
 
-## 🚨 CRITICAL: State Management Architecture Issues
+## ✅ COMPLETED ACHIEVEMENTS
 
-**Priority**: URGENT - Foundation needs fixing before adding more features
+### 🎯 Current Status: Major Architecture Issues RESOLVED! ✅
 
-### The Problem: Re-render Flashing and Lost Scroll Position
+**Latest Achievement**: Fixed critical re-render flashing and scroll position bugs through proper architectural separation!
 
-**Symptoms**:
-
-- When playing a song, entire lists flash and re-render
-- User gets scrolled back to top
-- Loading indicators appear unnecessarily
-- UI feels janky and unresponsive
-
-**Root Causes**:
-
-1. **Conflation of concerns**: "Playing" music triggers "viewing" data unnecessarily
-2. **Global loading states**: One action's loading affects unrelated UI components
-3. **Overfetching**: Playing a song fetches detailed track lists when not needed
-4. **Tight coupling**: Player actions and view state are inappropriately linked
-
-### Current Broken Flow:
-
-```
-User clicks play → playAlbumAndView() → viewAlbum() + playAlbum()
-                                    ↓
-                               setLoading(true) → Shows loading indicator
-                                    ↓
-                               List re-renders → Scroll position lost
-```
-
-### Phase K: Architectural Refactoring ✅ (COMPLETED)
+### Phase K: Architectural Refactoring ✅ (COMPLETED - MAJOR BUG FIXED!)
 
 **Goal**: Fix coupling issues while maintaining cross-cutting workflows in a single provider
 
-**Architectural Decision**: After analysis, we determined that **one provider with modular hooks** is better for this music app because:
+**Problem Solved**:
 
-- Cross-cutting workflows are essential (play + navigate, search + queue, etc.)
-- Multiple data variations need to fill the same containers (main list + queue)
-- Complex UI logic spans both player and view domains
+- ✅ Re-render flashing when playing songs - ELIMINATED
+- ✅ Scroll position jumping - FIXED
+- ✅ Unnecessary loading states - ISOLATED
+- ✅ Coupling between player and view operations - DECOUPLED
+
+**Root Cause Identified & Resolved**:
+
+- **Problem**: `freqhole.isLoading()` combined both `music.state.loading()` AND `player.isLoading()`
+- **Effect**: Player API calls triggered global loading state → list re-renders → scroll position lost
+- **Solution**: Scoped loading states - `freqhole.isLoading()` now only returns `music.state.loading()`
+- **Result**: Player operations are completely isolated from view rendering - smooth experience achieved!
 
 #### K.1 Modular Hook Separation (Within Single Provider) ✅
 
@@ -53,187 +151,14 @@ User clicks play → playAlbumAndView() → viewAlbum() + playAlbum()
 - ✅ **Action intent clarity**: Clear distinction between "play only" vs "play and navigate" actions
 - ✅ **Fixed re-render issues**: Playing music no longer triggers unnecessary loading states in current view
 
-#### K.2 Scoped Loading States (Within Single Provider)
+#### K.2 Scoped Loading States (Within Single Provider) ✅
 
-- [ ] **Domain-scoped loading**: Separate loading states for player operations vs view navigation
-- [ ] **Loading isolation**: Player actions (`playAlbum()`) don't trigger view loading states
-- [ ] **Smart loading**: Only show loading when data is actually being fetched for current view
-- [ ] **Container-specific loading**: Main list and queue containers can load independently
+- ✅ **Domain-scoped loading**: Separate loading states for player operations vs view navigation
+- ✅ **Loading isolation**: Player actions (`playAlbum()`) don't trigger view loading states
+- ✅ **Smart loading**: Only show loading when data is actually being fetched for current view
+- ✅ **FIXED**: Container-specific loading prevents re-renders in unrelated UI components
 
-#### K.3 Flexible Data Container System
-
-- [ ] **Normalized store**: Store songs, albums, artists in normalized format to prevent duplicate fetches
-- [ ] **Data variation support**: Multiple data types (songs, search results, queue) can fill same container components
-- [ ] **Container-agnostic data**: Main list and queue containers can render any data variation
-- [ ] **Smart caching**: Avoid refetching data when switching between related views
-
-#### K.4 Cross-Cutting Workflow Support
-
-- [ ] **Intentional coupling**: Support workflows that legitimately span player + view domains
-- [ ] **Action intent**: Clear naming like `playAlbum()` vs `playAlbumAndNavigate()`
-- [ ] **Workflow optimization**: Efficient data sharing between related operations
-- [ ] **Memo optimization**: Aggressive memoization to prevent unnecessary re-renders in complex workflows
-
-### Evolved Architecture (Single Provider + Modular Hooks):
-
-```
-FreqholeProvider (Single Source of Truth)
-├── useFreqholePlayer()     # Player-specific state & actions
-│   ├── currentSong         ├── play()
-│   ├── queue               ├── pause()
-│   ├── playbackState       └── addToQueue()
-│   └── isPlayerLoading
-├── useFreqholeView()       # View-specific state & actions
-│   ├── currentView         ├── navigate()
-│   ├── currentData         ├── search()
-│   ├── searchResults       └── filter()
-│   └── isViewLoading
-└── useFreqholeActions()    # Cross-cutting workflows
-    ├── playAlbum()                    # Pure play (no navigation)
-    ├── playAlbumAndNavigate()         # Intentional cross-cutting
-    ├── searchAndQueue()               # Search + add to queue
-    └── createPlaylistFromQueue()      # Queue + playlist management
-```
-
-### Implementation Plan:
-
-1. **Phase K.1**: Create modular hooks within existing provider (1 day)
-2. **Phase K.2**: Fix coupling issues and add scoped loading (1 day)
-3. **Phase K.3**: Implement flexible data container system (1-2 days)
-4. **Phase K.4**: Add cross-cutting workflow optimizations (1 day)
-
-**Total Estimated Time**: 4-5 days
-
-#### K.5 Specific Technical Solutions
-
-**Problem**: Current `playAlbumAndView()` always calls both `viewAlbum()` and `playAlbum()`
-
-**Solution**: Context-aware actions that only fetch data when needed
-
-```typescript
-// BEFORE (broken):
-const playAlbumAndView = async (album: Album) => {
-  await Promise.all([
-    music.actions.viewAlbum(album), // Always fetches! 🚨
-    player.playAlbum(album),
-  ]);
-};
-
-// AFTER (fixed):
-const playAlbum = async (album: Album) => {
-  // Only play, never change view state
-  await player.playAlbum(album);
-};
-
-const viewAndPlayAlbum = async (album: Album) => {
-  // Explicit action for when you want both
-  await music.actions.changeView("albums");
-  await music.actions.viewAlbum(album);
-  await player.playAlbum(album);
-};
-```
-
-**Problem**: Global loading state affects unrelated components
-
-**Solution**: Scoped loading with component-level state
-
-```typescript
-// BEFORE (broken):
-const [isLoading, setLoading] = createSignal(false); // Global! 🚨
-
-// AFTER (fixed):
-const useScopedLoading = () => {
-  const [isLoading, setLoading] = createSignal(false);
-  return {
-    isLoading,
-    withLoading: async <T>(fn: () => Promise<T>) => {
-      setLoading(true);
-      try {
-        return await fn();
-      } finally {
-        setLoading(false);
-      }
-    },
-  };
-};
-```
-
-**Problem**: Unnecessary re-renders due to reference changes
-
-**Solution**: Stable references and better memoization
-
-```typescript
-// BEFORE (broken):
-const currentViewData = () => {
-  // Creates new array every time! 🚨
-  return getData();
-};
-
-// AFTER (fixed):
-const currentViewData = createMemo(() => {
-  // Memoized, only updates when dependencies change
-  return getData();
-});
-
-const stableActions = createMemo(() => ({
-  play: (song: Song) => player.play(song),
-  queue: (song: Song) => player.addToQueue(song),
-})); // Stable reference, prevents child re-renders
-```
-
-**Problem**: Data fetching not normalized, causes duplicate requests
-
-**Solution**: Normalized data store with smart caching
-
-```typescript
-interface NormalizedMusicStore {
-  songs: Map<string, Song>;
-  albums: Map<string, Album>;
-  artists: Map<string, Artist>;
-
-  // Relational data
-  albumTracks: Map<string, string[]>; // albumId -> songIds
-  artistSongs: Map<string, string[]>; // artistId -> songIds
-}
-
-const useNormalizedStore = () => {
-  const [store, setStore] = createStore<NormalizedMusicStore>({
-    songs: new Map(),
-    albums: new Map(),
-    artists: new Map(),
-    albumTracks: new Map(),
-    artistSongs: new Map(),
-  });
-
-  const getAlbumTracks = async (albumId: string) => {
-    // Check cache first
-    if (store.albumTracks.has(albumId)) {
-      const songIds = store.albumTracks.get(albumId)!;
-      return songIds.map((id) => store.songs.get(id)!);
-    }
-
-    // Fetch and normalize
-    const tracks = await api.getAlbumTracks(albumId);
-    // ... normalize and cache
-    return tracks;
-  };
-};
-```
-
-**Why This Approach Works** ✅:
-
-- ✅ Supports complex cross-cutting workflows naturally
-- ✅ Maintains single source of truth while allowing modular access
-- ✅ Enables flexible data containers (main list + queue can show any data type)
-- ✅ **FIXED**: Performance issues resolved without architectural complexity
-- ✅ **ACHIEVEMENT**: Clean foundation for advanced features without over-engineering
-
-**What We Fixed**:
-
-- **Re-render flashing eliminated**: Playing a song no longer causes the list to flash and re-render
-- **Scroll position preserved**: Users no longer get scrolled back to top when playing music
-- **Loading state isolation**: Player actions don't trigger view loading indicators
-- **Cleaner action separation**: Clear intent between pure play actions vs navigation workflows
+**Total Implementation Time**: **COMPLETED IN 1 DAY!** 🚀
 
 ---
 
@@ -241,20 +166,55 @@ const useNormalizedStore = () => {
 
 ### Phase H: UI Refinements & Bug Fixes
 
-**Priority**: Medium - Polish existing functionality (major issues resolved!)
+**Priority**: Low - Polish existing functionality (MAJOR ISSUES RESOLVED! 🎉)
 
-#### H.1 Song Row Interaction Polish ✅ (MOSTLY COMPLETE)
+#### H.1 Song Row Interaction Polish ✅ (COMPLETE!)
 
-- ✅ **FIXED**: Main rendering flash issue when playing songs resolved
-- ✅ **FIXED**: Scroll position preservation working
+- ✅ **CONFIRMED WORKING**: Main rendering flash issue when playing songs completely resolved
+- ✅ **CONFIRMED WORKING**: Scroll position preservation working perfectly
 - [ ] Add visual feedback for currently playing song in lists
 - [ ] Improve hover states and transitions
 
-#### H.2 Player UI Enhancements
+#### H.2 Player UI Enhancements ✅ (COMPLETE!)
 
-- [ ] Add keyboard shortcuts (spacebar for play/pause, arrow keys for seek)
-- [ ] Implement queue panel toggle functionality
-- [ ] Add mini-player mode for smaller screens
+- [x] Add keyboard shortcuts (spacebar for play/pause, arrow keys for seek)
+- [x] Implement queue panel toggle functionality
+- [x] Add mini-player mode for smaller screens
+
+**🎯 MAJOR ACHIEVEMENT: Enhanced Queue Panel & Player Experience!**
+
+**Queue Panel Enhancements:**
+
+- Enhanced visual states for queue toggle button with queue length badge
+- Persistent queue panel state (remembers open/closed preference)
+- Custom scrollbar styling and smooth animations
+- Responsive behavior (auto-hides on mobile, full-screen on small screens)
+- Improved queue item hover effects and now-playing indicators
+- Quick clear queue button with confirmation styling
+
+**Keyboard Shortcuts Added:**
+
+- `Space` - Play/pause toggle
+- `Q` - Toggle queue panel
+- `M` - Toggle mini-player mode
+- `←/→` - Seek backward/forward 10 seconds
+- `Shift + ←/→` - Previous/next track
+- `Shift + ?` - Show keyboard shortcuts help
+- `Esc` - Close queue panel or help modal
+
+**Mini-Player Mode:**
+
+- Compact floating player for smaller screens
+- Maintains full functionality in reduced footprint
+- Smooth toggle between full and mini modes
+- Responsive design with touch-friendly controls
+
+**Additional Features:**
+
+- Interactive keyboard shortcuts help panel
+- Enhanced tooltips with keyboard hints
+- Improved animations and micro-interactions
+- Better visual feedback for all player states
 - [ ] Enhance progress bar interaction (show time tooltip on hover)
 
 #### H.3 Context Menu & Modal Polish

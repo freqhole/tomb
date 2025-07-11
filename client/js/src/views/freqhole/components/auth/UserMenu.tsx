@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 import { createSignal, Show } from "solid-js";
 import { useAuth } from "../../../../hooks/auth";
 import { Popover } from "../ui/Modal";
