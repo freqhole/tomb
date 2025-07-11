@@ -119,7 +119,7 @@ function FreqholeContent() {
 
   const renderMusicItem = (song: any) => (
     <div
-      class={`flex items-center p-3 border border-transparent hover:bg-dark-200 hover:border-primary-300 cursor-pointer transition-all duration-200 metro-item-hover ${
+      class={`flex items-center p-3 border border-transparent hover:bg-dark-200 cursor-pointer transition-all duration-200 metro-item-hover ${
         selectedSong() === song.id
           ? "bg-primary-500/20 border-primary-500/50"
           : ""
@@ -148,7 +148,7 @@ function FreqholeContent() {
       </div>
       <div class="flex items-center space-x-2 ml-4">
         <button
-          class="p-2 hover:bg-primary-500 hover:border-primary-300 border border-transparent rounded transition-all duration-200 metro-button-hover"
+          class="p-2 hover:bg-primary-500 border border-transparent rounded transition-all duration-200 metro-button-hover"
           onClick={(e) => {
             e.stopPropagation();
             handlePlayItem(song);
@@ -158,7 +158,7 @@ function FreqholeContent() {
           <PlayIcon className="w-4 h-4 text-white" />
         </button>
         <button
-          class="p-2 hover:bg-primary-500 hover:border-primary-300 border border-transparent rounded transition-all duration-200 metro-button-hover"
+          class="p-2 hover:bg-primary-500 border border-transparent rounded transition-all duration-200 metro-button-hover"
           onClick={(e) => {
             e.stopPropagation();
             freqhole.player.addToQueue(song);
@@ -168,7 +168,7 @@ function FreqholeContent() {
           <QueueIcon className="w-4 h-4 text-white" />
         </button>
         <button
-          class="p-2 hover:bg-primary-500 hover:border-primary-300 border border-transparent rounded transition-all duration-200 metro-button-hover"
+          class="p-2 hover:bg-primary-500 border border-transparent rounded transition-all duration-200 metro-button-hover"
           onClick={(e) => {
             e.stopPropagation();
             freqhole.actions.addToPlaylistWithModal([song]);
@@ -191,7 +191,7 @@ function FreqholeContent() {
     // Generic item renderer for artists, albums, playlists
     return (
       <div
-        class="flex items-center p-3 border border-transparent hover:bg-dark-200 hover:border-primary-300 cursor-pointer transition-all duration-200 metro-item-hover"
+        class="flex items-center p-3 border border-transparent hover:bg-dark-200 cursor-pointer transition-all duration-200 metro-item-hover"
         onDblClick={() => handlePlayItem(item)}
       >
         <div class="flex-1 min-w-0">
@@ -208,7 +208,7 @@ function FreqholeContent() {
         </div>
         <div class="flex items-center space-x-2 ml-4">
           <button
-            class="p-2 hover:bg-primary-500 hover:border-primary-300 border border-transparent rounded transition-all duration-200 metro-button-hover"
+            class="p-2 hover:bg-primary-500 border border-transparent rounded transition-all duration-200 metro-button-hover"
             onClick={(e) => {
               e.stopPropagation();
               handlePlayItem(item);
@@ -219,7 +219,7 @@ function FreqholeContent() {
           </button>
           {currentView === "playlists" && (
             <button
-              class="p-2 hover:bg-primary-500 hover:border-primary-300 border border-transparent rounded transition-all duration-200 metro-button-hover"
+              class="p-2 hover:bg-primary-500 border border-transparent rounded transition-all duration-200 metro-button-hover"
               onClick={(e) => {
                 e.stopPropagation();
                 freqhole.view.actions.openEditPlaylistModal(item);
@@ -277,7 +277,7 @@ function FreqholeContent() {
         onContextMenu={contextMenu.handleContextMenu}
       >
         {/* Header */}
-        <div class="h-16">
+        <div class="flex-shrink-0">
           <Header
             currentView={freqhole.music.state.currentView()}
             onViewChange={(view) => freqhole.music.actions.changeView(view)}
@@ -294,7 +294,7 @@ function FreqholeContent() {
         </div>
 
         {/* Main Content Area */}
-        <main class="flex-1 overflow-hidden p-6">
+        <main class="flex-1 overflow-hidden p-6 pt-4">
           <div class="h-full flex flex-col">
             {/* Loading State - Only show for view operations, not player operations */}
             <Show when={freqhole.isLoading()}>

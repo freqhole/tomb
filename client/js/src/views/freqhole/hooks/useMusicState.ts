@@ -1,6 +1,7 @@
 /* @jsxImportSource solid-js */
 import { createSignal } from "solid-js";
 import { apiClient } from "../../../lib/api-client.js";
+import type { SearchResult } from "../../../lib/search/types.js";
 import type {
   Song,
   Album,
@@ -409,15 +410,38 @@ export const useMusicState = () => {
       setSearchQuery(query);
       setIsSearchActive(true);
 
-      // For now, filter existing songs - could be enhanced with server-side search
-      const results = songs().filter(
-        (song) =>
-          song.title.toLowerCase().includes(query.toLowerCase()) ||
-          song.artist?.toLowerCase().includes(query.toLowerCase()) ||
-          song.album?.toLowerCase().includes(query.toLowerCase())
-      );
+      // Use API search and filter out suggestions from main content
+      const searchResult: SearchResult = await apiClient.searchMusic(query, {
+        page_size: 50,
+      });
 
-      setSearchResults(results);
+      // Convert search results to Song format, excluding suggestions
+      const songResults: Song[] = searchResult.results
+        .filter((result) => result.result_type === "song")
+        .map((result) => ({
+          id: result.id,
+          title: result.title,
+          artist: result.metadata?.artist || "",
+          album: result.metadata?.album || "",
+          album_artist: result.metadata?.album_artist,
+          track_number: result.metadata?.track_number,
+          disc_number: result.metadata?.disc_number,
+          genre: result.metadata?.genre,
+          year: result.metadata?.year,
+          bpm: result.metadata?.bpm,
+          key_signature: result.metadata?.key_signature,
+          rating: result.metadata?.rating,
+          is_favorite: result.metadata?.is_favorite || false,
+          tags: result.metadata?.tags || [],
+          duration_seconds: result.metadata?.duration_seconds,
+          thumbnail_blob_id: result.thumbnail_blob_id || undefined,
+          media_blob_id: result.media_blob_id || result.id,
+          waveform_blob_id: result.metadata?.waveform_blob_id || undefined,
+          created_at: result.created_at.toISOString(),
+          updated_at: result.updated_at.toISOString(),
+        }));
+
+      setSearchResults(songResults);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
     } finally {

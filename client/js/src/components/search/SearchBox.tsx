@@ -1,6 +1,8 @@
-import { createSignal, onMount } from "solid-js";
+import { createSignal, onMount, Show, For } from "solid-js";
 import type { JSX } from "solid-js";
 import { useSearchState } from "../../hooks/search/index.js";
+import { apiClient } from "../../lib/api-client.js";
+import type { SearchSuggestion } from "../../lib/search/types.js";
 
 export interface SearchBoxProps {
   /** Callback when search is triggered */
@@ -25,6 +27,14 @@ export interface SearchBoxProps {
   autoSearch?: boolean;
   /** Debounce delay for auto-search */
   debounceMs?: number;
+  /** Show suggestions dropdown */
+  showSuggestions?: boolean;
+  /** Callback when suggestion is selected */
+  onSuggestionSelect?: (suggestion: string) => void;
+  /** Max suggestions to show */
+  maxSuggestions?: number;
+  /** Callback when search is cleared */
+  onClear?: () => void;
 }
 
 export function SearchBox(props: SearchBoxProps) {
@@ -35,6 +45,14 @@ export function SearchBox(props: SearchBoxProps) {
 
   const [inputRef, setInputRef] = createSignal<HTMLInputElement>();
   const [searchTimeout, setSearchTimeout] = createSignal<number | undefined>();
+  const [suggestions, setSuggestions] = createSignal<SearchSuggestion[]>([]);
+  const [showDropdown, setShowDropdown] = createSignal(false);
+  const [selectedIndex, setSelectedIndex] = createSignal(-1);
+  const [suggestionsTimeout, setSuggestionsTimeout] = createSignal<
+    number | undefined
+  >();
+  const [suppressSuggestions, setSuppressSuggestions] = createSignal(false);
+  const [previousQuery, setPreviousQuery] = createSignal("");
 
   // Get current query value
   const currentQuery = () => {
@@ -52,6 +70,13 @@ export function SearchBox(props: SearchBoxProps) {
       props.onQueryChange?.(newQuery);
     }
 
+    // Auto-hide suggestions if query becomes empty
+    if (!newQuery.trim()) {
+      setSuggestions([]);
+      setShowDropdown(false);
+      setSelectedIndex(-1);
+    }
+
     // Handle auto-search with debounce
     if (props.autoSearch && newQuery.trim()) {
       const timeout = searchTimeout();
@@ -65,6 +90,11 @@ export function SearchBox(props: SearchBoxProps) {
 
       setSearchTimeout(newTimeout);
     }
+
+    // Handle suggestions (only if not suppressed)
+    if (props.showSuggestions && !suppressSuggestions()) {
+      handleSuggestionsChange(newQuery);
+    }
   };
 
   // Handle input change
@@ -75,20 +105,98 @@ export function SearchBox(props: SearchBoxProps) {
     handleQueryChange(value);
   };
 
+  // Fetch suggestions
+  const fetchSuggestions = async (query: string) => {
+    if (!query.trim() || !props.showSuggestions || suppressSuggestions()) {
+      setSuggestions([]);
+      setShowDropdown(false);
+      return;
+    }
+
+    try {
+      const result = await apiClient.getMusicSuggestions(query, {
+        limit: props.maxSuggestions || 8,
+      });
+      setSuggestions(result.suggestions || []);
+      setShowDropdown(result.suggestions.length > 0);
+    } catch (error) {
+      console.error("Failed to fetch suggestions:", error);
+      setSuggestions([]);
+      setShowDropdown(false);
+    }
+  };
+
+  // Handle suggestions with debounce
+  const handleSuggestionsChange = (query: string) => {
+    const timeout = suggestionsTimeout();
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+
+    // Don't fetch if query hasn't changed
+    if (query.trim() && query !== previousQuery()) {
+      const newTimeout = setTimeout(() => {
+        setPreviousQuery(query);
+        fetchSuggestions(query);
+      }, 150) as any;
+      setSuggestionsTimeout(newTimeout);
+    } else if (!query.trim()) {
+      setSuggestions([]);
+      setShowDropdown(false);
+      setPreviousQuery("");
+    }
+  };
+
   // Handle key down events
   const handleKeyDown: JSX.EventHandler<HTMLInputElement, KeyboardEvent> = (
     e
   ) => {
+    const suggestionsList = suggestions();
+
     switch (e.key) {
+      case "ArrowDown":
+        if (showDropdown() && suggestionsList.length > 0) {
+          e.preventDefault();
+          setSelectedIndex((prev) =>
+            prev < suggestionsList.length - 1 ? prev + 1 : 0
+          );
+        }
+        break;
+      case "ArrowUp":
+        if (showDropdown() && suggestionsList.length > 0) {
+          e.preventDefault();
+          setSelectedIndex((prev) =>
+            prev > 0 ? prev - 1 : suggestionsList.length - 1
+          );
+        }
+        break;
       case "Enter":
         e.preventDefault();
-        const query = currentQuery().trim();
-        if (query) {
-          props.onSearch?.(query);
-          inputRef()?.blur(); // Blur input after search
+        console.log("🔍 SearchBox Enter key pressed");
+        if (
+          showDropdown() &&
+          selectedIndex() >= 0 &&
+          selectedIndex() < suggestionsList.length
+        ) {
+          const selected = suggestionsList[selectedIndex()];
+
+          if (selected) {
+            handleSuggestionSelect(selected.text);
+          }
+        } else {
+          // Handle regular search using input value
+          const inputValue = inputRef()?.value?.trim() || "";
+          const query = inputValue || currentQuery().trim();
+          console.log("🔍 Enter key search with query:", query);
+          if (query) {
+            handleQueryChange(query);
+            handleSearchClick();
+          }
         }
         break;
       case "Escape":
+        setShowDropdown(false);
+        setSelectedIndex(-1);
         inputRef()?.blur();
         break;
     }
@@ -96,11 +204,58 @@ export function SearchBox(props: SearchBoxProps) {
 
   // Handle search button click
   const handleSearchClick = () => {
-    const query = currentQuery().trim();
+    const inputValue = inputRef()?.value?.trim() || "";
+    const query = inputValue || currentQuery().trim();
+    console.log("🔍 SearchBox search with query:", query);
     if (query) {
+      // Update the query state to match input value
+      handleQueryChange(query);
+      setShowDropdown(false);
+      setSuppressSuggestions(true);
+      setPreviousQuery(query);
+
       props.onSearch?.(query);
-      inputRef()?.blur(); // Blur input after search
+      inputRef()?.blur();
+
+      // Reset suppression after delay
+      setTimeout(() => {
+        setSuppressSuggestions(false);
+        setPreviousQuery("");
+      }, 1000);
     }
+  };
+
+  // Handle suggestion selection
+  const handleSuggestionSelect = (suggestion: string) => {
+    handleQueryChange(suggestion);
+    setShowDropdown(false);
+    setSelectedIndex(-1);
+    setSuppressSuggestions(true);
+    setPreviousQuery(suggestion);
+    props.onSuggestionSelect?.(suggestion);
+    inputRef()?.blur();
+
+    // Reset suppression after a delay to allow for new searches
+    setTimeout(() => {
+      setSuppressSuggestions(false);
+      setPreviousQuery("");
+    }, 1000);
+  };
+
+  // Handle input focus
+  const handleFocus = () => {
+    const query = currentQuery().trim();
+    if (query && suggestions().length > 0 && !suppressSuggestions()) {
+      setShowDropdown(true);
+    }
+  };
+
+  // Handle input blur (with delay to allow clicks)
+  const handleBlur = () => {
+    setTimeout(() => {
+      setShowDropdown(false);
+      setSelectedIndex(-1);
+    }, 150);
   };
 
   // Focus the input programmatically (for future use)
@@ -108,11 +263,7 @@ export function SearchBox(props: SearchBoxProps) {
   //   inputRef()?.focus();
   // };
 
-  // Clear the search (for future use)
-  // const clear = () => {
-  //   handleQueryChange("");
-  //   inputRef()?.focus();
-  // };
+  // Clear function removed - clearing is handled through onClear callback and auto-hide logic
 
   // Cleanup timeout on unmount
   onMount(() => {
@@ -133,6 +284,8 @@ export function SearchBox(props: SearchBoxProps) {
           value={currentQuery()}
           onInput={handleInputChange}
           onKeyDown={handleKeyDown}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           placeholder={props.placeholder || "Search..."}
           disabled={props.disabled}
           class="search-box__input"
@@ -151,6 +304,29 @@ export function SearchBox(props: SearchBoxProps) {
         )}
       </div>
 
+      {/* Suggestions Dropdown */}
+      <Show when={showDropdown() && suggestions().length > 0}>
+        <div class="search-suggestions">
+          <For each={suggestions()}>
+            {(suggestion, index) => (
+              <div
+                class={`search-suggestion ${
+                  index() === selectedIndex()
+                    ? "search-suggestion--selected"
+                    : ""
+                }`}
+                onClick={() => handleSuggestionSelect(suggestion.text)}
+              >
+                <span class="search-suggestion__text">{suggestion.text}</span>
+                <span class="search-suggestion__category">
+                  {suggestion.category}
+                </span>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+
       <style>{`
         .search-box {
           position: relative;
@@ -166,47 +342,128 @@ export function SearchBox(props: SearchBoxProps) {
         .search-box__input {
           flex: 1;
           padding: 8px 12px;
-          border: 1px solid #ccc;
-          border-radius: 4px;
+          border: 1px solid transparent;
+          border-radius: 8px;
           font-size: 14px;
           outline: none;
-          transition: border-color 0.2s, box-shadow 0.2s;
+          background: rgba(255, 255, 255, 0.1);
+          color: white;
+          transition: all 0.3s ease;
+        }
+
+        .search-box__input::placeholder {
+          color: rgba(255, 255, 255, 0.6);
         }
 
         .search-box__input:focus {
-          border-color: #007bff;
-          box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+          border-color: #d946ef;
+          box-shadow: 0 0 0 2px rgba(217, 70, 239, 0.25);
+          background: rgba(255, 255, 255, 0.15);
         }
 
         .search-box__input:disabled {
-          background-color: #f5f5f5;
+          background-color: rgba(255, 255, 255, 0.05);
           cursor: not-allowed;
+          color: rgba(255, 255, 255, 0.4);
         }
 
         .search-box__button {
           padding: 8px 16px;
-          border: 1px solid #007bff;
-          background-color: #007bff;
+          border: 1px solid #d946ef;
+          background-color: #d946ef;
           color: white;
-          border-radius: 4px;
+          border-radius: 8px;
           cursor: pointer;
           font-size: 14px;
-          transition: all 0.2s;
+          transition: all 0.3s ease;
         }
 
         .search-box__button:hover:not(:disabled) {
-          background-color: #0056b3;
-          border-color: #0056b3;
+          background-color: #c026d3;
+          border-color: #c026d3;
+          transform: translateY(-1px);
         }
 
         .search-box__button:disabled {
-          background-color: #6c757d;
-          border-color: #6c757d;
+          background-color: rgba(255, 255, 255, 0.1);
+          border-color: rgba(255, 255, 255, 0.1);
           cursor: not-allowed;
+          color: rgba(255, 255, 255, 0.4);
         }
 
         .search-box__button:active {
-          transform: translateY(1px);
+          transform: translateY(0px);
+        }
+
+        /* Suggestions Dropdown */
+        .search-suggestions {
+          position: absolute;
+          top: 100%;
+          left: 0;
+          right: 0;
+          background: rgba(0, 0, 0, 0.95);
+          backdrop-filter: blur(12px);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+          margin-top: 4px;
+          max-height: 240px;
+          overflow-y: auto;
+          z-index: 1000;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        .search-suggestion {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 16px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .search-suggestion:last-child {
+          border-bottom: none;
+        }
+
+        .search-suggestion:hover,
+        .search-suggestion--selected {
+          background: rgba(217, 70, 239, 0.2);
+          border-color: rgba(217, 70, 239, 0.3);
+        }
+
+        .search-suggestion__text {
+          color: white;
+          font-size: 14px;
+          font-weight: 400;
+        }
+
+        .search-suggestion__category {
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          background: rgba(255, 255, 255, 0.1);
+          padding: 2px 8px;
+          border-radius: 12px;
+        }
+
+        /* Scrollbar styling for suggestions */
+        .search-suggestions::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        .search-suggestions::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .search-suggestions::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 2px;
+        }
+
+        .search-suggestions::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.3);
         }
       `}</style>
     </div>

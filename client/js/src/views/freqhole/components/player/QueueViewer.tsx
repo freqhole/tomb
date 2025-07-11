@@ -63,7 +63,7 @@ export const QueueViewer = () => {
   return (
     <Show when={player.showQueue()}>
       <div
-        class={`${isSmallScreen() ? "fixed inset-0 z-50 bg-black/90" : "fixed top-0 right-0 bottom-0 w-80 z-40"} bg-black/40 backdrop-blur-sm flex flex-col animate-slideInRight shadow-2xl ${isSmallScreen() ? "" : "border-l border-white/10"}`}
+        class={`${isSmallScreen() ? "fixed inset-0 z-50 bg-black/90" : "fixed top-0 right-0 bottom-0 w-80 z-50"} bg-black/40 backdrop-blur-sm flex flex-col animate-slideInRight shadow-2xl ${isSmallScreen() ? "" : "border-l border-white/10"}`}
       >
         <div
           class={`p-6 flex justify-between items-center bg-black/30 border-b border-white/10 ${isSmallScreen() ? "pt-8" : ""}`}
