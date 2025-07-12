@@ -40,6 +40,11 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
       console.log("📝 Navigation: Playlist song removed event received");
       setRefreshPlaylists(refreshPlaylists() + 1);
     });
+
+    events.on("playlist:song-added", () => {
+      console.log("📝 Navigation: Playlist song added event received");
+      setRefreshPlaylists(refreshPlaylists() + 1);
+    });
   });
 
   // Fetch recent playlists from API (25 most recent)

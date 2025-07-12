@@ -51,6 +51,10 @@ export interface FreqholeEvents {
     songId: string;
     updatedPlaylist: any;
   };
+  "playlist:song-added": {
+    playlistId: string;
+    songCount: number;
+  };
 
   // Search events
   "search:query": { query: string };
@@ -62,6 +66,9 @@ export interface FreqholeEvents {
   "modal:close": { modal: string };
   "context-menu:open": { x: number; y: number; actions: any[] };
   "context-menu:close": {};
+  "playlist-selector:open": { x: number; y: number; songs: any[] };
+  "playlist-selector:close": {};
+  "selection:clear": {};
   "notification:show": {
     message: string;
     type?: "info" | "success" | "warning" | "error";

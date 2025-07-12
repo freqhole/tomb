@@ -1,9 +1,10 @@
-import { For, Show } from "solid-js";
+import { For, Show, createEffect, createSignal } from "solid-js";
 import { apiClient } from "../../../../../lib/api-client";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { useStore } from "../../../store";
 import { useInfiniteScroll } from "../../../hooks/useInfiniteScroll";
 import { useSongInteractions } from "../../../services/songInteractions";
+import { useSelection } from "../../../hooks/useSelection";
 import type { Song } from "../../../../../lib/music/schemas/song";
 import type { PaginationMetadata } from "../../../hooks/useInfiniteScroll";
 
@@ -19,6 +20,33 @@ export function SongTableView(
   const [] = useStore();
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
+
+  // Selection state
+  const selection = useSelection({
+    onSelectionChange: (selectedIds, selectedSongs) => {
+      console.log(`🎵 Selection changed: ${selectedIds.size} songs selected`);
+    },
+    onBulkAction: (action, selectedSongs) => {
+      console.log(
+        `🎵 Bulk action: ${action} for ${selectedSongs.length} songs`
+      );
+    },
+  });
+
+  // Track whether we have selections for bulk context menu
+  const [hasSelections, setHasSelections] = createSignal(false);
+
+  createEffect(() => {
+    setHasSelections(selection.selectedItems().size >= 2);
+  });
+
+  // Listen for selection clear events
+  createEffect(() => {
+    events.on("selection:clear", () => {
+      console.log("🎵 Clearing selection via event");
+      selection.clearSelection();
+    });
+  });
 
   // Create fetch function for infinite scroll
   const fetchSongs = async (
@@ -124,32 +152,88 @@ export function SongTableView(
             <For each={songs()}>
               {(song, index) => (
                 <div
-                  class="px-6 py-3 hover:bg-magenta-600/20 transition-colors cursor-pointer grid grid-cols-12 gap-4 items-center group border border-transparent"
-                  onDblClick={() => songInteractions.playSong(song, false)}
-                  onContextMenu={(e) =>
-                    songInteractions.handleRightClick(e, song)
+                  class={`px-6 py-3 hover:bg-magenta-600/20 transition-colors cursor-pointer grid grid-cols-12 gap-4 items-center group border border-transparent ${
+                    selection.isSelected(song.id)
+                      ? "bg-magenta-600/30 border-magenta-400/50"
+                      : ""
+                  }`}
+                  onClick={(e) => {
+                    if (e.detail === 1) {
+                      // Single click - handle selection
+                      if (e.shiftKey && selection.lastSelectedIndex() >= 0) {
+                        selection.selectRange(
+                          selection.lastSelectedIndex(),
+                          index(),
+                          songs()
+                        );
+                      } else {
+                        selection.handleRowClick(song, index(), e);
+                      }
+                    }
+                  }}
+                  onDblClick={(e) => {
+                    // Double click - play song (don't handle selection here)
+                    songInteractions.playSong(song, false);
+                  }}
+                  onMouseDown={(e) =>
+                    selection.handleRowMouseDown(song, index(), e)
                   }
+                  onContextMenu={(e) => {
+                    // If right-clicking on unselected song, select it first
+                    if (!selection.isSelected(song.id)) {
+                      selection.setSelectedItems(new Set([song.id]));
+                      selection.setLastSelectedIndex(index());
+                    }
+
+                    const selectedSongs = selection.getSelectedSongs(songs());
+                    if (selectedSongs.length > 1) {
+                      // Show bulk context menu
+                      songInteractions.handleBulkRightClick?.(
+                        e,
+                        selectedSongs
+                      ) || songInteractions.handleRightClick(e, song);
+                    } else {
+                      // Show single song context menu
+                      songInteractions.handleRightClick(e, song);
+                    }
+                  }}
                 >
-                  {/* Track Number / Play Button */}
+                  {/* Selection Checkbox / Track Number / Play Button */}
                   <div class="col-span-1 text-center">
-                    <div class="group-hover:hidden text-gray-400 text-sm">
-                      {index() + 1}
-                    </div>
-                    <button
-                      class="hidden group-hover:block text-gray-400 hover:text-magenta-400 transition-colors"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        songInteractions.playSong(song);
-                      }}
-                    >
-                      <svg
-                        class="w-4 h-4 mx-auto"
-                        fill="currentColor"
-                        viewBox="0 0 24 24"
+                    {/* Selection indicator */}
+                    <Show when={selection.isSelected(song.id)}>
+                      <div class="text-magenta-400 text-sm">
+                        <svg
+                          class="w-4 h-4 mx-auto"
+                          fill="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                        </svg>
+                      </div>
+                    </Show>
+
+                    {/* Track number (when not selected) */}
+                    <Show when={!selection.isSelected(song.id)}>
+                      <div class="group-hover:hidden text-gray-400 text-sm">
+                        {index() + 1}
+                      </div>
+                      <button
+                        class="hidden group-hover:block text-gray-400 hover:text-magenta-400 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          songInteractions.playSong(song);
+                        }}
                       >
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                    </button>
+                        <svg
+                          class="w-4 h-4 mx-auto"
+                          fill="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      </button>
+                    </Show>
                   </div>
 
                   {/* Title */}
@@ -257,6 +341,48 @@ export function SongTableView(
                 — end of songs —
               </div>
             </Show>
+          </div>
+        </div>
+      </Show>
+
+      {/* Selection Toolbar */}
+      <Show when={hasSelections()}>
+        <div class="fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-magenta-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-4 z-40 freqhole-selection-toolbar">
+          <span class="text-sm font-medium">
+            {selection.selectedItems().size} song
+            {selection.selectedItems().size !== 1 ? "s" : ""} selected
+          </span>
+
+          <div class="flex space-x-2">
+            <button
+              class="px-3 py-1 bg-magenta-700 hover:bg-magenta-800 rounded text-sm transition-colors"
+              onClick={() => {
+                const selectedSongs = selection.getSelectedSongs(songs());
+                selectedSongs.forEach((song) =>
+                  songInteractions.queueSong(song)
+                );
+                selection.clearSelection();
+              }}
+            >
+              Add to Queue
+            </button>
+
+            <button
+              class="px-3 py-1 bg-magenta-700 hover:bg-magenta-800 rounded text-sm transition-colors"
+              onClick={(e) => {
+                const selectedSongs = selection.getSelectedSongs(songs());
+                songInteractions.handlePlaylistSelectorClick(e, selectedSongs);
+              }}
+            >
+              Add to Playlist
+            </button>
+
+            <button
+              class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors"
+              onClick={() => selection.clearSelection()}
+            >
+              Clear
+            </button>
           </div>
         </div>
       </Show>

@@ -12,17 +12,17 @@
   color-scheme: dark;
 
   /* Custom properties for dynamic theming */
-  --freqhole-primary: theme('colors.primary.500');
-  --freqhole-primary-hover: theme('colors.primary.600');
-  --freqhole-primary-light: theme('colors.primary.300');
-  --freqhole-background: theme('colors.black');
-  --freqhole-surface: theme('colors.dark.100');
-  --freqhole-surface-elevated: theme('colors.dark.200');
-  --freqhole-text-primary: theme('colors.white');
-  --freqhole-text-secondary: theme('colors.gray.400');
-  --freqhole-text-tertiary: theme('colors.gray.500');
-  --freqhole-border: theme('colors.gray.700');
-  --freqhole-border-light: theme('colors.gray.600');
+  --freqhole-primary: theme("colors.primary.500");
+  --freqhole-primary-hover: theme("colors.primary.600");
+  --freqhole-primary-light: theme("colors.primary.300");
+  --freqhole-background: theme("colors.black");
+  --freqhole-surface: theme("colors.dark.100");
+  --freqhole-surface-elevated: theme("colors.dark.200");
+  --freqhole-text-primary: theme("colors.white");
+  --freqhole-text-secondary: theme("colors.gray.400");
+  --freqhole-text-tertiary: theme("colors.gray.500");
+  --freqhole-border: theme("colors.gray.700");
+  --freqhole-border-light: theme("colors.gray.600");
 
   /* Animation variables */
   --freqhole-transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -53,8 +53,8 @@
 /* High contrast mode support */
 @media (prefers-contrast: high) {
   .freqhole-root {
-    --freqhole-border: theme('colors.gray.400');
-    --freqhole-text-secondary: theme('colors.gray.200');
+    --freqhole-border: theme("colors.gray.400");
+    --freqhole-text-secondary: theme("colors.gray.200");
   }
 }
 
@@ -115,16 +115,28 @@
 
 /* Gradient utilities */
 .freqhole-gradient-primary {
-  background: linear-gradient(135deg, var(--freqhole-primary), var(--freqhole-primary-light));
+  background: linear-gradient(
+    135deg,
+    var(--freqhole-primary),
+    var(--freqhole-primary-light)
+  );
 }
 
 .freqhole-gradient-surface {
-  background: linear-gradient(135deg, var(--freqhole-surface), var(--freqhole-surface-elevated));
+  background: linear-gradient(
+    135deg,
+    var(--freqhole-surface),
+    var(--freqhole-surface-elevated)
+  );
 }
 
 /* Typography utilities */
 .freqhole-text-gradient {
-  background: linear-gradient(135deg, var(--freqhole-primary), var(--freqhole-primary-light));
+  background: linear-gradient(
+    135deg,
+    var(--freqhole-primary),
+    var(--freqhole-primary-light)
+  );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -199,4 +211,70 @@
 .freqhole-root {
   scrollbar-width: thin;
   scrollbar-color: var(--freqhole-border) var(--freqhole-surface);
+}
+
+/* Selection and drag selection styles */
+.song-drag-selecting {
+  cursor: crosshair !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.song-drag-selecting * {
+  cursor: crosshair !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+/* Selection visual feedback */
+.freqhole-selected {
+  @apply bg-magenta-600/30 border-magenta-400/50;
+}
+
+.freqhole-selection-checkbox {
+  @apply w-4 h-4 mx-auto text-magenta-400;
+}
+
+/* Bulk action toolbar animation */
+.freqhole-selection-toolbar {
+  @apply transform transition-all duration-300 ease-in-out;
+  animation: slideUpFade 0.3s ease-out;
+}
+
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 20px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* Context menu improvements */
+.freqhole-context-menu {
+  @apply freqhole-glass shadow-xl;
+  animation: contextMenuAppear 0.2s ease-out;
+}
+
+@keyframes contextMenuAppear {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Selection hints and feedback */
+.freqhole-selection-hint {
+  @apply text-xs text-gray-400 mt-2 text-center;
+}
+
+/* Multi-select modifier key hints */
+.freqhole-shortcut-hint {
+  @apply text-xs text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity;
 }

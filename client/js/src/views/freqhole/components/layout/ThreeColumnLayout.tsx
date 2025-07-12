@@ -5,6 +5,7 @@ import { Navigation } from "../navigation/Navigation";
 import { Content } from "../content/Content";
 import { Queue } from "../queue/Queue";
 import { PlayerWrapper } from "../player/PlayerWrapper";
+import { ContextMenuManager } from "../ui/ContextMenuManager";
 
 export function ThreeColumnLayout(props: any) {
   const [layout] = useLayout();
@@ -54,6 +55,9 @@ export function ThreeColumnLayout(props: any) {
       <div class="fixed bottom-0 left-0 right-0 z-50">
         <PlayerWrapper />
       </div>
+
+      {/* Global Context Menu */}
+      <ContextMenuManager />
     </div>
   );
 }

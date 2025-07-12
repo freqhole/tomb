@@ -10,6 +10,9 @@ export function useSongInteractions() {
   const [store] = useStore();
   const events = useGlobalEvents();
 
+  // Track last context menu position for playlist selector
+  let lastContextMenuPosition = { x: 0, y: 0 };
+
   // Song playback actions
   const playSong = (song: Song, replaceQueue: boolean = true) => {
     console.log(`🎵 Playing song: ${song.display_title}`, { replaceQueue });
@@ -119,10 +122,11 @@ export function useSongInteractions() {
         songs: [song],
       });
     } else {
-      // Open playlist selection modal
-      events.emit("modal:open", {
-        modal: "playlistModal",
-        data: { song },
+      // Open playlist selector at last context menu position
+      events.emit("playlist-selector:open", {
+        x: lastContextMenuPosition.x,
+        y: lastContextMenuPosition.y,
+        songs: [song],
       });
     }
   };
@@ -163,7 +167,13 @@ export function useSongInteractions() {
       {
         label: "Add to Playlist...",
         icon: "playlist-add",
-        action: () => addToPlaylist(song),
+        action: () => {
+          events.emit("playlist-selector:open", {
+            x: lastContextMenuPosition.x,
+            y: lastContextMenuPosition.y,
+            songs: [song],
+          });
+        },
       },
       { type: "separator" },
       {
@@ -199,7 +209,98 @@ export function useSongInteractions() {
 
   const handleRightClick = (event: MouseEvent, song: Song) => {
     event.preventDefault();
+
+    // Store position for potential playlist selector
+    lastContextMenuPosition = { x: event.clientX, y: event.clientY };
+
     const actions = createContextMenuActions(song);
+
+    events.emit("context-menu:open", {
+      x: event.clientX,
+      y: event.clientY,
+      actions,
+    });
+  };
+
+  const handlePlaylistSelectorClick = (event: MouseEvent, songs: Song[]) => {
+    event.preventDefault();
+
+    events.emit("playlist-selector:open", {
+      x: event.clientX,
+      y: event.clientY,
+      songs,
+    });
+  };
+
+  const createBulkContextMenuActions = (songs: Song[]) => {
+    const songCount = songs.length;
+
+    return [
+      {
+        label: `Play ${songCount} songs`,
+        icon: "play",
+        action: () => {
+          // Clear queue and add all selected songs
+          storeActions.clearQueue();
+          songs.forEach((song) => storeActions.addToQueue(song));
+          storeActions.setCurrentIndex(0);
+          if (songs.length > 0) {
+            storeActions.playSong(songs[0]);
+          }
+        },
+      },
+      {
+        label: `Add ${songCount} songs to Queue`,
+        icon: "queue-add",
+        action: () => {
+          songs.forEach((song) => queueSong(song));
+        },
+      },
+      { type: "separator" },
+      {
+        label: `Add ${songCount} songs to Playlist...`,
+        icon: "playlist-add",
+        action: () => {
+          events.emit("playlist-selector:open", {
+            x: lastContextMenuPosition.x,
+            y: lastContextMenuPosition.y,
+            songs,
+          });
+        },
+      },
+      { type: "separator" },
+      {
+        label: `Mark ${songCount} as Favorites`,
+        icon: "heart",
+        action: () => {
+          songs.forEach((song) => {
+            if (!song.is_favorite) {
+              toggleFavorite(song);
+            }
+          });
+        },
+      },
+      {
+        label: `Remove ${songCount} from Favorites`,
+        icon: "heart-filled",
+        action: () => {
+          songs.forEach((song) => {
+            if (song.is_favorite) {
+              toggleFavorite(song);
+            }
+          });
+        },
+      },
+    ];
+  };
+
+  const handleBulkRightClick = (event: MouseEvent, songs: Song[]) => {
+    event.preventDefault();
+
+    // Store position for potential playlist selector
+    lastContextMenuPosition = { x: event.clientX, y: event.clientY };
+
+    const actions = createBulkContextMenuActions(songs);
 
     events.emit("context-menu:open", {
       x: event.clientX,
@@ -236,8 +337,11 @@ export function useSongInteractions() {
 
     // UI helpers
     createContextMenuActions,
+    createBulkContextMenuActions,
     handleDoubleClick,
     handleRightClick,
+    handleBulkRightClick,
+    handlePlaylistSelectorClick,
 
     // Utilities
     formatDuration: (seconds: number | null): string => {
