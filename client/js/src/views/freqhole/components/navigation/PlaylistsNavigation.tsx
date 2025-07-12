@@ -1,4 +1,10 @@
-import { For, Show, createResource } from "solid-js";
+import {
+  For,
+  Show,
+  createResource,
+  createEffect,
+  createSignal,
+} from "solid-js";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { apiClient } from "../../../../lib/api-client";
 import type { Playlist } from "../../../../lib/music/schemas";
@@ -10,27 +16,58 @@ interface PlaylistsNavigationProps {
 
 export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
   const events = useGlobalEvents();
+  const [refreshPlaylists, setRefreshPlaylists] = createSignal(0);
+
+  // Listen for playlist operation events to refresh the navigation list
+  createEffect(() => {
+    events.on("playlist:deleted", ({ playlistTitle }) => {
+      console.log(
+        "📝 Navigation: Playlist deleted event received:",
+        playlistTitle
+      );
+      setRefreshPlaylists(refreshPlaylists() + 1);
+    });
+
+    events.on("playlist:created", ({ playlist }) => {
+      console.log(
+        "📝 Navigation: Playlist created event received:",
+        playlist.title
+      );
+      setRefreshPlaylists(refreshPlaylists() + 1);
+    });
+
+    events.on("playlist:song-removed", () => {
+      console.log("📝 Navigation: Playlist song removed event received");
+      setRefreshPlaylists(refreshPlaylists() + 1);
+    });
+  });
 
   // Fetch recent playlists from API (25 most recent)
-  const [playlistsResource] = createResource(async () => {
-    try {
-      console.log("📝 Fetching recent playlists for navigation...");
-      const response = await apiClient.getPlaylists({ page_size: 25 });
+  const [playlistsResource] = createResource(
+    () => {
+      const refreshCount = refreshPlaylists(); // Track refresh signal
+      return refreshCount; // Return refresh count as key
+    },
+    async () => {
+      try {
+        console.log("📝 Fetching recent playlists for navigation...");
+        const response = await apiClient.getPlaylists({ page_size: 25 });
 
-      // Sort by created_at descending (most recent first)
-      const sortedPlaylists = response.playlists.sort((a, b) => {
-        const dateA = new Date(a.created_at).getTime();
-        const dateB = new Date(b.created_at).getTime();
-        return dateB - dateA; // Most recent first
-      });
+        // Sort by created_at descending (most recent first)
+        const sortedPlaylists = response.playlists.sort((a, b) => {
+          const dateA = new Date(a.created_at).getTime();
+          const dateB = new Date(b.created_at).getTime();
+          return dateB - dateA; // Most recent first
+        });
 
-      console.log("📝 Recent playlists loaded:", sortedPlaylists.length);
-      return sortedPlaylists;
-    } catch (error) {
-      console.error("❌ Failed to load recent playlists:", error);
-      return [];
+        console.log("📝 Recent playlists loaded:", sortedPlaylists.length);
+        return sortedPlaylists;
+      } catch (error) {
+        console.error("❌ Failed to load recent playlists:", error);
+        return [];
+      }
     }
-  });
+  );
 
   const handleCreatePlaylist = () => {
     // Navigate to new playlist creation page instead of opening modal

@@ -13,7 +13,6 @@ interface ArtistSplitViewProps {
 export function ArtistSplitView(
   props: RouteSectionProps<unknown> & ArtistSplitViewProps = {} as any
 ) {
-  const [store] = useStore();
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
 

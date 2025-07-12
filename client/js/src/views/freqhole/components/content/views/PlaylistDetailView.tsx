@@ -44,6 +44,39 @@ export function PlaylistDetailView(
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = createSignal<number | null>(null);
   const [refreshSongs, setRefreshSongs] = createSignal(0);
+  const [refreshPlaylists, setRefreshPlaylists] = createSignal(0);
+
+  // Listen for playlist operation events to refresh UI
+  createEffect(() => {
+    events.on("playlist:deleted", ({ playlistId }) => {
+      console.log("📝 Playlist deleted event received:", playlistId);
+      // If we're currently viewing the deleted playlist, navigate away
+      if (selectedPlaylist()?.id === playlistId) {
+        console.log(
+          "📝 Currently viewing deleted playlist, navigating to list"
+        );
+        navigate("/playlists");
+      }
+      // Refresh playlists list
+      setRefreshPlaylists(refreshPlaylists() + 1);
+    });
+
+    events.on("playlist:song-removed", ({ playlistId, updatedPlaylist }) => {
+      console.log("📝 Playlist song removed event received:", playlistId);
+      // If we're currently viewing this playlist, update its song count
+      if (selectedPlaylist()?.id === playlistId) {
+        setSelectedPlaylist(updatedPlaylist);
+      }
+      // Refresh playlists list to update song counts
+      setRefreshPlaylists(refreshPlaylists() + 1);
+    });
+
+    events.on("playlist:created", () => {
+      console.log("📝 Playlist created event received");
+      // Refresh playlists list
+      setRefreshPlaylists(refreshPlaylists() + 1);
+    });
+  });
 
   // Detect if we're in "new playlist" mode or have a playlist ID in the route
   createEffect(() => {
@@ -105,7 +138,15 @@ export function PlaylistDetailView(
 
   // Fetch playlists from API (only when not creating new playlist and no specific ID)
   const [playlistsResource] = createResource(
-    () => !isNewPlaylist() && !params.id,
+    () => {
+      const refreshCount = refreshPlaylists(); // Track refresh signal
+      const isNew = isNewPlaylist();
+      const hasParamId = !!params.id;
+
+      return !isNew && !hasParamId
+        ? refreshCount // Return refresh count as key
+        : false;
+    },
     async () => {
       console.log("📝 Fetching playlists...");
       try {
@@ -122,14 +163,26 @@ export function PlaylistDetailView(
   // Fetch songs for selected playlist (only for existing playlists)
   const [playlistSongsResource] = createResource(
     () => {
-      refreshSongs(); // Track refresh signal
-      return selectedPlaylist()?.id && !isNewPlaylist()
-        ? selectedPlaylist()!.id
+      const refreshCount = refreshSongs(); // Track refresh signal
+      const playlistId = selectedPlaylist()?.id;
+      const isNew = isNewPlaylist();
+
+      return playlistId && !isNew
+        ? `${playlistId}-${refreshCount}` // Include refresh count in key
         : false;
     },
-    async (playlistId: string) => {
-      if (!playlistId) return [];
+    async (key: string) => {
+      if (!key) return [];
 
+      // Extract playlist ID from the key (format: "playlistId-refreshCount")
+      // Since playlist IDs are UUIDs with hyphens, split from the end to get the refresh count
+      const lastHyphenIndex = key.lastIndexOf("-");
+      const playlistId =
+        lastHyphenIndex > 0 ? key.substring(0, lastHyphenIndex) : key;
+      if (!playlistId) {
+        console.warn("⚠️ Invalid playlist key format:", key);
+        return [];
+      }
       console.log("🎵 Fetching songs for playlist:", playlistId);
       setLoadingPlaylistSongs(true);
 
@@ -195,6 +248,13 @@ export function PlaylistDetailView(
         is_collaborative: false,
       });
 
+      console.log("✅ Playlist created successfully:", newPlaylist.title);
+
+      // Emit event for other components to react to playlist creation
+      events.emit("playlist:created", {
+        playlist: newPlaylist,
+      });
+
       // Navigate to the new playlist
       navigate(`/playlist/${newPlaylist.id}`);
 
@@ -249,9 +309,21 @@ export function PlaylistDetailView(
     }
 
     try {
+      console.log("🗑️ Deleting playlist:", playlist.title);
+
       await apiClient.deletePlaylist(playlist.id);
+
+      console.log("🗑️ Playlist deleted successfully, emitting events...");
+
+      // Emit event for other components to react to playlist deletion
+      events.emit("playlist:deleted", {
+        playlistId: playlist.id,
+        playlistTitle: playlist.title,
+      });
+
       // Navigate back to playlists list
       navigate("/playlists");
+
       events.emit("notification:show", {
         type: "success",
         message: "Playlist deleted successfully",
@@ -324,17 +396,35 @@ export function PlaylistDetailView(
     const playlist = selectedPlaylist();
     if (!playlist) return;
 
+    console.log("🗑️ Removing song from playlist:", {
+      songTitle: song.title,
+      playlistTitle: playlist.title,
+      currentSongCount: playlist.song_count,
+    });
+
     try {
       await apiClient.removeSongsFromPlaylist(playlist.id, [song.id]);
 
-      // Update the selected playlist song count and refresh songs list
-      setSelectedPlaylist({
+      const updatedSongCount = Math.max(0, (playlist.song_count || 1) - 1);
+      const updatedPlaylist = {
         ...playlist,
-        song_count: (playlist.song_count || 1) - 1,
-      });
+        song_count: updatedSongCount,
+      };
+
+      // Update the selected playlist song count
+      setSelectedPlaylist(updatedPlaylist);
+
+      console.log("🗑️ Song removed successfully, triggering refresh...");
 
       // Trigger refresh of songs resource
       setRefreshSongs(refreshSongs() + 1);
+
+      // Emit event for other components to react to playlist changes
+      events.emit("playlist:song-removed", {
+        playlistId: playlist.id,
+        songId: song.id,
+        updatedPlaylist,
+      });
 
       events.emit("notification:show", {
         type: "success",
@@ -783,7 +873,8 @@ export function PlaylistDetailView(
                   when={
                     !editMode() &&
                     !isNewPlaylist() &&
-                    playlistSongsResource()?.length > 1
+                    playlistSongsResource() &&
+                    playlistSongsResource()!.length > 1
                   }
                 >
                   <span class="text-magenta-400 text-xs ml-4">

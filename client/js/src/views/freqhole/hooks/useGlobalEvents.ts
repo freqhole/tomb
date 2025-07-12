@@ -43,6 +43,15 @@ export interface FreqholeEvents {
   "playlist:add-songs": { playlistId: string; songs: any[] };
   "playlist:remove-songs": { playlistId: string; songIds: string[] };
 
+  // New playlist operation events
+  "playlist:created": { playlist: any };
+  "playlist:deleted": { playlistId: string; playlistTitle: string };
+  "playlist:song-removed": {
+    playlistId: string;
+    songId: string;
+    updatedPlaylist: any;
+  };
+
   // Search events
   "search:query": { query: string };
   "search:clear": {};

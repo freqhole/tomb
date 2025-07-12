@@ -368,7 +368,32 @@ export class ApiClient {
       );
     }
 
-    return response.json();
+    // For DELETE operations and other methods that might return empty responses,
+    // check if there's content before trying to parse JSON
+    const contentLength = response.headers.get("content-length");
+    const contentType = response.headers.get("content-type");
+
+    // If content-length is 0 or there's no content-type indicating JSON, return null
+    if (
+      contentLength === "0" ||
+      (!contentType?.includes("application/json") && method === "DELETE")
+    ) {
+      return null as T;
+    }
+
+    // Check if response body is empty by trying to peek at it
+    const text = await response.text();
+    if (!text.trim()) {
+      return null as T;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      // If JSON parsing fails but we have text, it might not be JSON
+      console.warn("Failed to parse response as JSON:", text);
+      return text as T;
+    }
   }
 
   // Search Methods - Music Domain
