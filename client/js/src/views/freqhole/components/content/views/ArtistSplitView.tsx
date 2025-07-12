@@ -2,9 +2,11 @@ import { For, Show, createSignal, createResource } from "solid-js";
 import { useStore, storeActions } from "../../../store";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { useSongInteractions } from "../../../services/songInteractions";
+import { useInfiniteScroll } from "../../../hooks/useInfiniteScroll";
 import { apiClient } from "../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { ArtistSummary, Song } from "../../../../../lib/music/schemas";
+import type { PaginationMetadata } from "../../../hooks/useInfiniteScroll";
 
 interface ArtistSplitViewProps {
   class?: string;
@@ -20,18 +22,35 @@ export function ArtistSplitView(
     createSignal<ArtistSummary | null>(null);
   const [loadingArtistSongs, setLoadingArtistSongs] = createSignal(false);
 
-  // Fetch artists from API
-  const [artistsResource] = createResource(async () => {
-    console.log("🎤 Fetching artists...");
-    try {
-      const response = await apiClient.getArtists({ page_size: 100 });
-      console.log("🎤 Artists loaded:", response.artists.length);
-      return response;
-    } catch (error) {
-      console.error("❌ Failed to load artists:", error);
-      return { artists: [], pagination: null };
-    }
+  // Create fetch function for infinite scroll
+  const fetchArtists = async (
+    page: number
+  ): Promise<{ items: ArtistSummary[]; pagination: PaginationMetadata }> => {
+    console.log(`🎤 Loading artists page ${page}`);
+
+    const response = await apiClient.getArtists({
+      page,
+      page_size: 50,
+    });
+
+    console.log(`🎤 Loaded ${response.artists.length} artists`, response);
+
+    return {
+      items: response.artists,
+      pagination: response.pagination,
+    };
+  };
+
+  // Use infinite scroll hook
+  const infiniteScroll = useInfiniteScroll(fetchArtists, {
+    threshold: 200,
+    enabled: true,
   });
+
+  // Extract state and actions
+  const artists = infiniteScroll.state.items;
+  const loading = infiniteScroll.state.loading;
+  const error = infiniteScroll.state.error;
 
   // Fetch songs for selected artist
   const [artistSongsResource] = createResource(
@@ -96,10 +115,6 @@ export function ArtistSplitView(
     });
   };
 
-  const handleSongDoubleClick = (song: Song) => {
-    events.emit("song:play", { song, replaceQueue: true });
-  };
-
   const formatDuration = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
@@ -119,28 +134,26 @@ export function ArtistSplitView(
         <div class="flex-shrink-0 p-6">
           <h1 class="text-2xl font-semibold text-white mb-2">artists</h1>
           <Show
-            when={!artistsResource.loading}
+            when={!loading() && !error()}
             fallback={
               <p class="text-magenta-300 text-sm">loading artists...</p>
             }
           >
-            <p class="text-magenta-300 text-sm">
-              {artistsResource()?.artists?.length || 0} artists
-            </p>
+            <p class="text-magenta-300 text-sm">{artists().length} artists</p>
           </Show>
         </div>
 
-        {/* Artist List - Scrollable */}
-        <div class="flex-1 overflow-y-auto">
+        {/* Artist List - Scrollable with Infinite Scroll */}
+        <div class="flex-1 overflow-y-auto" ref={infiniteScroll.containerRef}>
           <Show
-            when={!artistsResource.loading}
+            when={!loading() || artists().length > 0}
             fallback={
               <div class="px-6 py-4">
                 <div class="text-magenta-400">loading artists...</div>
               </div>
             }
           >
-            <For each={artistsResource()?.artists || []}>
+            <For each={artists()}>
               {(artist) => (
                 <div
                   class={`px-6 py-4 hover:bg-magenta-600/20 transition-colors cursor-pointer ${
@@ -157,6 +170,41 @@ export function ArtistSplitView(
                 </div>
               )}
             </For>
+
+            {/* Loading indicator */}
+            <Show when={loading()}>
+              <div class="px-6 py-4 text-center">
+                <div class="text-magenta-400 text-sm">
+                  loading more artists...
+                </div>
+              </div>
+            </Show>
+
+            {/* End of list indicator */}
+            <Show
+              when={
+                infiniteScroll.state.hasMore() === false && artists().length > 0
+              }
+            >
+              <div class="px-6 py-4 text-center">
+                <div class="text-gray-500 text-sm">— end of artists —</div>
+              </div>
+            </Show>
+          </Show>
+
+          {/* Error state */}
+          <Show when={error()}>
+            <div class="px-6 py-4 text-center">
+              <div class="text-red-400 text-sm mb-2">
+                failed to load artists
+              </div>
+              <button
+                class="text-magenta-400 hover:text-magenta-300 text-sm transition-colors"
+                onClick={() => infiniteScroll.retry()}
+              >
+                try again
+              </button>
+            </div>
           </Show>
         </div>
       </div>
@@ -247,7 +295,12 @@ export function ArtistSplitView(
                       {(song) => (
                         <div
                           class="p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group"
-                          onDblClick={() => handleSongDoubleClick(song)}
+                          onDblClick={() =>
+                            songInteractions.handleDoubleClick(song)
+                          }
+                          onContextMenu={(e) =>
+                            songInteractions.handleRightClick(e, song)
+                          }
                         >
                           <div class="flex items-center min-w-0">
                             <div class="flex-1 min-w-0 pr-3">
