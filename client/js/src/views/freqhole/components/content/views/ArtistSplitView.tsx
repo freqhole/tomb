@@ -1,8 +1,15 @@
-import { For, Show, createSignal, createResource } from "solid-js";
+import {
+  For,
+  Show,
+  createSignal,
+  createResource,
+  createEffect,
+} from "solid-js";
 import { useStore, storeActions } from "../../../store";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { useSongInteractions } from "../../../services/songInteractions";
 import { useInfiniteScroll } from "../../../hooks/useInfiniteScroll";
+import { useSelection } from "../../../hooks/useSelection";
 import { apiClient } from "../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { ArtistSummary, Song } from "../../../../../lib/music/schemas";
@@ -21,6 +28,23 @@ export function ArtistSplitView(
   const [selectedArtist, setSelectedArtist] =
     createSignal<ArtistSummary | null>(null);
   const [loadingArtistSongs, setLoadingArtistSongs] = createSignal(false);
+
+  // Selection state
+  const selection = useSelection({
+    onSelectionChange: (selectedIds, selectedSongs) => {
+      console.log(
+        `🎵 Artist view selection changed: ${selectedIds.size} songs selected`
+      );
+    },
+  });
+
+  // Listen for selection clear events
+  createEffect(() => {
+    events.on("selection:clear", () => {
+      console.log("🎵 Clearing artist view selection via event");
+      selection.clearSelection();
+    });
+  });
 
   // Create fetch function for infinite scroll
   const fetchArtists = async (
@@ -80,6 +104,8 @@ export function ArtistSplitView(
     setSelectedArtist(artist);
     storeActions.selectArtist(artist);
     events.emit("artist:selected", { artist });
+    // Clear selection when switching artists
+    selection.clearSelection();
   };
 
   const handlePlayAll = () => {
@@ -292,15 +318,54 @@ export function ArtistSplitView(
                 >
                   <div class="space-y-1">
                     <For each={artistSongsResource()?.songs || []}>
-                      {(song) => (
+                      {(song, index) => (
                         <div
-                          class="p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group"
+                          class={`p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group ${
+                            selection.isSelected(song.id)
+                              ? "bg-magenta-600/30 border-magenta-400/50"
+                              : ""
+                          }`}
+                          onClick={(e) => {
+                            if (
+                              e.shiftKey &&
+                              selection.lastSelectedIndex() >= 0
+                            ) {
+                              selection.selectRange(
+                                selection.lastSelectedIndex(),
+                                index(),
+                                artistSongsResource()?.songs || []
+                              );
+                            } else {
+                              selection.handleRowClick(song, index(), e);
+                            }
+                          }}
                           onDblClick={() =>
                             songInteractions.handleDoubleClick(song)
                           }
-                          onContextMenu={(e) =>
-                            songInteractions.handleRightClick(e, song)
+                          onMouseDown={(e) =>
+                            selection.handleRowMouseDown(song, index(), e)
                           }
+                          onContextMenu={(e) => {
+                            // If right-clicking on unselected song, select it first
+                            if (!selection.isSelected(song.id)) {
+                              selection.setSelectedItems(new Set([song.id]));
+                              selection.setLastSelectedIndex(index());
+                            }
+
+                            const selectedSongs = selection.getSelectedSongs(
+                              artistSongsResource()?.songs || []
+                            );
+                            if (selectedSongs.length > 1) {
+                              songInteractions.handleBulkRightClick(
+                                e,
+                                selectedSongs
+                              );
+                            } else {
+                              songInteractions.handleRightClick(e, song, {
+                                hideViewArtist: true,
+                              });
+                            }
+                          }}
                         >
                           <div class="flex items-center min-w-0">
                             <div class="flex-1 min-w-0 pr-3">

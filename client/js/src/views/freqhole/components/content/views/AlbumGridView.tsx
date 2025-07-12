@@ -1,7 +1,14 @@
-import { For, Show, createSignal, createResource } from "solid-js";
+import {
+  For,
+  Show,
+  createSignal,
+  createResource,
+  createEffect,
+} from "solid-js";
 import { useStore, storeActions } from "../../../store";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { useSongInteractions } from "../../../services/songInteractions";
+import { useSelection } from "../../../hooks/useSelection";
 import { apiClient } from "../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Album, Song } from "../../../../../lib/music/schemas";
@@ -20,6 +27,23 @@ export function AlbumGridView(
   const [selectedAlbum, setSelectedAlbum] = createSignal<Album | null>(null);
   const [loadingAlbumTracks, setLoadingAlbumTracks] = createSignal(false);
   const [viewMode, setViewMode] = createSignal<"grid" | "detail">("grid");
+
+  // Selection state
+  const selection = useSelection({
+    onSelectionChange: (selectedIds, selectedSongs) => {
+      console.log(
+        `🎵 Album view selection changed: ${selectedIds.size} songs selected`
+      );
+    },
+  });
+
+  // Listen for selection clear events
+  createEffect(() => {
+    events.on("selection:clear", () => {
+      console.log("🎵 Clearing album view selection via event");
+      selection.clearSelection();
+    });
+  });
 
   // Fetch albums from API
   const [albumsResource] = createResource(async () => {
@@ -64,12 +88,15 @@ export function AlbumGridView(
     setViewMode("detail");
     storeActions.selectAlbum(album);
     events.emit("album:selected", { album });
+    // Clear selection when switching albums
+    selection.clearSelection();
   };
 
   const handleBackToGrid = () => {
     setViewMode("grid");
     setSelectedAlbum(null);
-    storeActions.selectAlbum(null);
+    // Clear selection when going back to grid
+    selection.clearSelection();
   };
 
   const handlePlayAlbum = () => {
@@ -105,10 +132,6 @@ export function AlbumGridView(
         songInteractions.queueSong(song);
       });
     }
-  };
-
-  const handleTrackDoubleClick = (track: Song) => {
-    events.emit("song:play", { song: track, replaceQueue: true });
   };
 
   const formatDuration = (seconds: number) => {
@@ -399,10 +422,55 @@ export function AlbumGridView(
                       : []
                   }
                 >
-                  {(track) => (
+                  {(track, index) => (
                     <div
-                      class="flex items-center p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group"
-                      onDblClick={() => handleTrackDoubleClick(track)}
+                      class={`flex items-center p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group ${
+                        selection.isSelected(track.id)
+                          ? "bg-magenta-600/30 border-magenta-400/50"
+                          : ""
+                      }`}
+                      onClick={(e) => {
+                        if (e.shiftKey && selection.lastSelectedIndex() >= 0) {
+                          selection.selectRange(
+                            selection.lastSelectedIndex(),
+                            index(),
+                            Array.isArray(albumTracksResource())
+                              ? (albumTracksResource() as Song[])
+                              : []
+                          );
+                        } else {
+                          selection.handleRowClick(track, index(), e);
+                        }
+                      }}
+                      onDblClick={() =>
+                        songInteractions.handleDoubleClick(track)
+                      }
+                      onMouseDown={(e) =>
+                        selection.handleRowMouseDown(track, index(), e)
+                      }
+                      onContextMenu={(e) => {
+                        // If right-clicking on unselected song, select it first
+                        if (!selection.isSelected(track.id)) {
+                          selection.setSelectedItems(new Set([track.id]));
+                          selection.setLastSelectedIndex(index());
+                        }
+
+                        const selectedSongs = selection.getSelectedSongs(
+                          Array.isArray(albumTracksResource())
+                            ? (albumTracksResource() as Song[])
+                            : []
+                        );
+                        if (selectedSongs.length > 1) {
+                          songInteractions.handleBulkRightClick(
+                            e,
+                            selectedSongs
+                          );
+                        } else {
+                          songInteractions.handleRightClick(e, track, {
+                            hideViewAlbum: true,
+                          });
+                        }
+                      }}
                     >
                       {/* Track Number */}
                       <div class="w-8 text-magenta-400 text-sm flex-shrink-0">

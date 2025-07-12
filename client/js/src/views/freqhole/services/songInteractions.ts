@@ -131,8 +131,16 @@ export function useSongInteractions() {
     }
   };
 
-  const createContextMenuActions = (song: Song) => {
-    return [
+  const createContextMenuActions = (
+    song: Song,
+    context?: {
+      hideViewArtist?: boolean;
+      hideViewAlbum?: boolean;
+      hideRemoveFromPlaylist?: boolean;
+      currentPlaylistId?: string;
+    }
+  ) => {
+    const actions = [
       {
         label: "play",
         icon: "play",
@@ -182,45 +190,86 @@ export function useSongInteractions() {
           console.log("🎵 Event emitted successfully");
         },
       },
-      { type: "separator" },
-      {
-        label: "view artist",
-        icon: "artist",
-        action: () => viewArtist(song),
-        disabled: !song.artist,
-      },
-      {
-        label: "view album",
-        icon: "album",
-        action: () => viewAlbum(song),
-        disabled: !song.album,
-      },
-      { type: "separator" },
-      {
-        label: "song info",
-        icon: "info",
-        action: () => {
-          // Open song info modal
-          events.emit("modal:open", {
-            modal: "songInfoModal",
-            data: { song },
-          });
-        },
-      },
     ];
+
+    // Add conditional separator and navigation actions
+    const hasNavActions =
+      (!context?.hideViewArtist && song.artist) ||
+      (!context?.hideViewAlbum && song.album);
+
+    if (hasNavActions) {
+      actions.push({ type: "separator" });
+
+      if (!context?.hideViewArtist && song.artist) {
+        actions.push({
+          label: "view artist",
+          icon: "artist",
+          action: () => viewArtist(song),
+          disabled: !song.artist,
+        });
+      }
+
+      if (!context?.hideViewAlbum && song.album) {
+        actions.push({
+          label: "view album",
+          icon: "album",
+          action: () => viewAlbum(song),
+          disabled: !song.album,
+        });
+      }
+    }
+
+    // Add playlist removal option if in a playlist
+    if (context?.currentPlaylistId) {
+      actions.push({ type: "separator" });
+      actions.push({
+        label: "remove from playlist",
+        icon: "playlist-remove",
+        action: () => {
+          // This would need to be implemented
+          console.log("Remove from playlist:", context.currentPlaylistId);
+        },
+        destructive: true,
+      });
+    }
+
+    // Add separator and info action
+    actions.push({ type: "separator" });
+    actions.push({
+      label: "song info",
+      icon: "info",
+      action: () => {
+        // Open song info modal
+        events.emit("modal:open", {
+          modal: "songInfoModal",
+          data: { song },
+        });
+      },
+    });
+
+    return actions;
   };
 
   const handleDoubleClick = (song: Song) => {
     playSong(song, true);
   };
 
-  const handleRightClick = (event: MouseEvent, song: Song) => {
+  const handleRightClick = (
+    event: MouseEvent,
+    song: Song,
+    context?: {
+      hideViewArtist?: boolean;
+      hideViewAlbum?: boolean;
+      hideRemoveFromPlaylist?: boolean;
+      currentPlaylistId?: string;
+    }
+  ) => {
     event.preventDefault();
 
     // Store position for potential playlist selector
     lastContextMenuPosition = { x: event.clientX, y: event.clientY };
 
-    const actions = createContextMenuActions(song);
+    const actions = createContextMenuActions(song, context);
 
     events.emit("context-menu:open", {
       x: event.clientX,
