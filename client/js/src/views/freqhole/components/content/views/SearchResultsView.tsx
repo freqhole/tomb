@@ -297,9 +297,9 @@ export function SearchResultsView(
 
             <Show
               when={!searchResource.loading && !songsResource.loading}
-              fallback={<p class="text-magenta-300 text-sm">searching...</p>}
+              fallback={<p class="text-gray-300 text-sm">searching...</p>}
             >
-              <p class="text-magenta-300 text-sm mb-4">
+              <p class="text-gray-300 text-sm mb-4">
                 {getResultCounts().total} results found
               </p>
             </Show>
@@ -370,7 +370,7 @@ export function SearchResultsView(
                 fallback={
                   <div class="text-center py-12">
                     <div class="text-white text-xl mb-2">no results found</div>
-                    <div class="text-magenta-400">
+                    <div class="text-gray-400">
                       try a different search term or check your spelling
                     </div>
                   </div>
@@ -435,7 +435,7 @@ export function SearchResultsView(
                               {formatResultType(result.result_type || "song")}
                             </span>
                           </div>
-                          <div class="text-magenta-400 text-sm truncate">
+                          <div class="text-gray-300 text-sm truncate">
                             {result.subtitle || result.artist}
                             {result.description || result.album ? (
                               <span class="ml-2">

@@ -1184,7 +1184,7 @@ export function PlaylistDetailView(
                           <div class="text-white font-medium truncate group-hover:text-magenta-300 transition-colors">
                             {song.title}
                           </div>
-                          <div class="text-magenta-400 text-sm truncate">
+                          <div class="text-gray-300 text-sm truncate">
                             {song.artist} • {song.album || "Unknown Album"}
                           </div>
                         </div>

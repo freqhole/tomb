@@ -20,6 +20,38 @@ import { usePlayer, useQueue, useLayout, storeActions } from "../../store";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { apiClient } from "../../../../lib/api-client";
 
+// Media Session API helper
+const updateMediaSession = (song: any, isPlaying: boolean) => {
+  if ("mediaSession" in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: song.title,
+      artist: song.artist || "Unknown Artist",
+      album: song.album || "Unknown Album",
+      artwork: song.thumbnail_blob_id
+        ? [
+            {
+              src: `${apiClient.getBaseUrl()}/api/blobs/${song.thumbnail_blob_id}`,
+              sizes: "300x300",
+              type: "image/jpeg",
+            },
+          ]
+        : [],
+    });
+
+    navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+  }
+};
+
+// Page title helper
+const updatePageTitle = (song: any, isPlaying: boolean) => {
+  if (song) {
+    const status = isPlaying ? "▶️" : "⏸️";
+    document.title = `${status} ${song.title} - ${song.artist || "Unknown Artist"} | Freqhole`;
+  } else {
+    document.title = "Freqhole - Audio Player";
+  }
+};
+
 export const Player = () => {
   const [player] = usePlayer();
   const [queue] = useQueue();
@@ -149,6 +181,31 @@ export const Player = () => {
       storeActions.setPlayerState({ isPlaying: false });
     });
 
+    // Set up Media Session API handlers
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.setActionHandler("play", () => {
+        storeActions.setPlayerState({ isPlaying: true });
+      });
+
+      navigator.mediaSession.setActionHandler("pause", () => {
+        storeActions.setPlayerState({ isPlaying: false });
+      });
+
+      navigator.mediaSession.setActionHandler("previoustrack", () => {
+        playPrevious();
+      });
+
+      navigator.mediaSession.setActionHandler("nexttrack", () => {
+        playNext();
+      });
+
+      navigator.mediaSession.setActionHandler("seekto", (details) => {
+        if (details.seekTime) {
+          seekToTime(details.seekTime);
+        }
+      });
+    }
+
     return () => {
       audio.pause();
       audio.src = "";
@@ -220,6 +277,10 @@ export const Player = () => {
     });
 
     if (!audio || !song) return;
+
+    // Update page title and media session
+    updatePageTitle(song, playing);
+    updateMediaSession(song, playing);
 
     // Only handle play/pause if audio is already loaded for this song
     if (audio.src && audio.src.includes(song.media_blob_id)) {
@@ -324,8 +385,8 @@ export const Player = () => {
   return (
     <Show when={currentSong()}>
       <div class="fixed bottom-0 left-0 right-0 bg-black/90 backdrop-blur-xl p-4 flex items-center gap-6 z-50 border-t border-magenta-800/30">
-        {/* Song Info */}
-        <div class="flex items-center gap-4 min-w-60">
+        {/* Song Info - Expanded */}
+        <div class="flex items-center gap-4 flex-1 min-w-0">
           <div class="w-12 h-12 flex-shrink-0">
             <Show
               when={currentSong()?.thumbnail_blob_id}
@@ -346,14 +407,14 @@ export const Player = () => {
             <h4 class="text-white font-medium text-base truncate m-0">
               {currentSong()?.title}
             </h4>
-            <p class="text-magenta-300 font-light text-sm truncate m-0">
+            <p class="text-gray-300 font-light text-sm truncate m-0">
               {currentSong()?.artist || "Unknown Artist"}
             </p>
           </div>
         </div>
 
-        {/* Player Controls */}
-        <div class="flex items-center gap-3">
+        {/* Player Controls - Fixed Right */}
+        <div class="flex items-center gap-3 flex-shrink-0">
           <button
             class="w-10 h-10 rounded-full bg-magenta-950/50 text-magenta-300 border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-magenta-600/30 hover:text-white hover:scale-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             onClick={playPrevious}
@@ -377,26 +438,10 @@ export const Player = () => {
           >
             <NextIcon />
           </button>
-          <button
-            class={`w-10 h-10 rounded-full border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:scale-110 relative ${
-              queueOpen()
-                ? "bg-magenta-600 text-black hover:bg-magenta-500"
-                : "bg-magenta-950/50 text-magenta-300 hover:bg-magenta-600/30 hover:text-white"
-            }`}
-            onClick={toggleQueue}
-            title={`${queueOpen() ? "Hide" : "Show"} Queue (Q)`}
-          >
-            <QueueIcon />
-            {queueLength() > 0 && (
-              <span class="absolute -top-1 -right-1 bg-magenta-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
-                {queueLength()}
-              </span>
-            )}
-          </button>
         </div>
 
-        {/* Progress Bar */}
-        <div class="flex items-center gap-3 flex-1 max-w-96">
+        {/* Progress Bar - Fixed Width */}
+        <div class="flex items-center gap-3 w-80 flex-shrink-0">
           <span
             class="text-sm text-magenta-300 font-light min-w-10"
             title="Current time"
@@ -426,9 +471,9 @@ export const Player = () => {
           </span>
         </div>
 
-        {/* Volume Control */}
+        {/* Volume Control - Fixed Right */}
         <div
-          class="relative flex items-center"
+          class="relative flex items-center flex-shrink-0"
           onMouseEnter={showVolumeControls}
           onMouseLeave={hideVolumeControls}
         >
@@ -441,9 +486,9 @@ export const Player = () => {
           </button>
 
           <Show when={showVolumeSlider()}>
-            <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-black/90 backdrop-blur-xl border border-magenta-800/30 rounded-lg p-3 min-w-32 shadow-lg">
-              <div class="flex items-center gap-3">
-                <span class="text-xs text-magenta-300 min-w-8 font-medium">
+            <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-black/90 backdrop-blur-xl border border-magenta-800/30 rounded-lg p-3 w-16 shadow-lg">
+              <div class="flex flex-col items-center gap-3 h-32">
+                <span class="text-xs text-magenta-300 font-medium">
                   {Math.round(volume() * 100)}%
                 </span>
                 <input
@@ -456,9 +501,11 @@ export const Player = () => {
                     const newVolume = parseFloat(e.currentTarget.value);
                     changeVolume(newVolume);
                   }}
-                  class="flex-1 h-1.5 bg-magenta-800/50 border-none rounded-full outline-none appearance-none cursor-pointer hover:h-2 transition-all"
+                  class="flex-1 w-1.5 bg-magenta-800/50 border-none rounded-full outline-none appearance-none cursor-pointer hover:w-2 transition-all"
                   style={{
-                    background: `linear-gradient(to right, rgb(217 70 239) 0%, rgb(217 70 239) ${volume() * 100}%, rgba(139, 69, 19, 0.5) ${volume() * 100}%, rgba(139, 69, 19, 0.5) 100%)`,
+                    background: `linear-gradient(to top, rgb(217 70 239) 0%, rgb(217 70 239) ${volume() * 100}%, rgba(139, 69, 19, 0.5) ${volume() * 100}%, rgba(139, 69, 19, 0.5) 100%)`,
+                    "writing-mode": "bt-lr",
+                    "-webkit-appearance": "slider-vertical",
                   }}
                 />
               </div>
@@ -466,6 +513,26 @@ export const Player = () => {
               <div class="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-magenta-800/30"></div>
             </div>
           </Show>
+        </div>
+
+        {/* Queue Toggle - Last Item */}
+        <div class="flex items-center flex-shrink-0">
+          <button
+            class={`w-10 h-10 rounded-full border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:scale-110 relative ${
+              queueOpen()
+                ? "bg-magenta-600 text-black hover:bg-magenta-500"
+                : "bg-magenta-950/50 text-magenta-300 hover:bg-magenta-600/30 hover:text-white"
+            }`}
+            onClick={toggleQueue}
+            title={`${queueOpen() ? "Hide" : "Show"} Queue (Q)`}
+          >
+            <QueueIcon />
+            {queueLength() > 0 && (
+              <span class="absolute -top-1 -right-1 bg-magenta-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
+                {queueLength()}
+              </span>
+            )}
+          </button>
         </div>
       </div>
     </Show>

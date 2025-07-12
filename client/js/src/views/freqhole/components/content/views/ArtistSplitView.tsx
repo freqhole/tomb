@@ -165,11 +165,9 @@ export function ArtistSplitView(
           <h1 class="text-2xl font-semibold text-white mb-2">artists</h1>
           <Show
             when={!loading() && !error()}
-            fallback={
-              <p class="text-magenta-300 text-sm">loading artists...</p>
-            }
+            fallback={<p class="text-gray-300 text-sm">loading artists...</p>}
           >
-            <p class="text-magenta-300 text-sm">{artists().length} artists</p>
+            <p class="text-gray-300 text-sm">{artists().length} artists</p>
           </Show>
         </div>
 
@@ -179,7 +177,7 @@ export function ArtistSplitView(
             when={!loading() || artists().length > 0}
             fallback={
               <div class="px-6 py-4">
-                <div class="text-magenta-400">loading artists...</div>
+                <div class="text-gray-300">loading artists...</div>
               </div>
             }
           >
@@ -194,7 +192,7 @@ export function ArtistSplitView(
                   onClick={() => handleArtistClick(artist)}
                 >
                   <div class="text-white font-medium mb-1">{artist.artist}</div>
-                  <div class="text-magenta-400 text-sm">
+                  <div class="text-gray-300 text-sm">
                     {artist.song_count} songs · {artist.album_count} albums
                   </div>
                 </div>

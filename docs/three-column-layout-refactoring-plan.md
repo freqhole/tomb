@@ -1,32 +1,119 @@
 # Three-Column Layout Refactoring Plan
 
-edward's notes on next stuff:
+## 🎵 Current Progress Summary
 
-1. add to playlist from context menu (we were working on this recently, should be very close) DONE! ✅
+### ✅ COMPLETED TASKS (1-9):
 
-2. artists list needs infinite scroll to load more (than 100) when it gets to bottom. DONE! ✅
+1. **Context Menu Add to Playlist** ✅ - Working with playlist selector UI
+2. **Artists List Infinite Scroll** ✅ - Loads 50 at a time with scroll loading
+3. **Context Menus in All Views** ✅ - Shared songInteractions service with context-aware menus and multi-selection
+4. **Back Navigation & Layout** ✅ - Inline back buttons with titles, album art moved to right side
+5. **Fixed "Created Invalid Date"** ✅ - Robust date parsing with server format handling
+6. **Playlist Edit UI** ✅ - Delete only shows when not in edit mode, edit button is pencil icon, cancel button is X icon
+7. **Empty Playlist Descriptions** ✅ - Work fine, saved as null
+8. **Removed UI Clutter** ✅ - "drag to reorder" text and songs header row removed
+9. **Playlist Photo Upload** ✅ - New HTTP endpoint `/api/media/upload_media_blob` for files <10MB, photo upload UI in edit mode, background images with `cover` positioning from top, thumbnails in playlist lists and navigation
 
-3. add context menu to all song views (so in artists and albums and playlists views)-- is there a way to centralize into once place this song row handling somehow? but still allow for different compositions for the layout and style of a song row? DONE! ✅ - All views now use shared songInteractions service with context-aware menus and multi-selection
+### ✅ COMPLETED TASKS (10-12):
 
-4. < back to playlists no longer working. also could we not have it be on it's own row? just `<` button (with a title="back to all playlists") to the left of the main playlist title? could the. could the same treatment be applied to the `< back to albums`? also the album art image should be moved from the left to the right side. DONE! ✅ - Back buttons now inline with titles, album art moved to right side
+10. **macOS/iOS Media Controls Integration** ✅ - Updated window/document page title and Media Session API so media player controls in macOS/iOS show currently playing song + art
+11. **Player Layout Fix** ✅ - Shifted all controls to the right, made song title/artist cells expand and fill empty space (no more shifting with different song title lengths)
+12. **Reduce Magenta Overuse** ✅ - Reduced magenta font color usage, changed artist names and data to gray text (artist names in song lists, artist names in album grids, song artist + album in playlists)
 
-5. bug playlist showing `Created Invalid Date` DONE! ✅ - formatDate function now handles invalid dates gracefully
+### 🚀 NEXT PRIORITY TASK (13):
 
-6. only show the delete playlist button when in edit mode. make the edit button a pencil icon button. make the cancel button text `x`. DONE! ✅ - Delete only shows when not in edit mode, edit button is pencil icon, cancel button is X icon
+13. **IndexedDB Persistence Planning** - Consider Dexie.js for indexed DB persistence for queue and player state. Research liveQuery integration before implementation.
 
-7. empty (as in no text) playlist descriptions should be okay to save. DONE! ✅ - Empty descriptions are saved as null, no validation issues
+---
 
-8. remove `drag to reorder` text. also could yank the entire header row `songs` included. DONE! ✅ - Both drag to reorder text and songs header row removed
+## 📋 Implementation Details (Task #9 Complete)
 
-9. also implement photo upload and background rendering for a playlist. see uploadFile fn client/js/src/lib/file-upload.ts for http upload ref (don't use the websocket method) DONE! ✅ - New `/api/media/upload_media_blob` endpoint for <10MB files, playlist photos as backgrounds with `cover` positioning from top, thumbnails in playlist lists and navigation
+### Playlist Photo Upload System:
 
-10. update window/document page title and somehow set the favicon or something so the media player controls in mac os (and ios!) show the currently playing song + art.
+- **New HTTP endpoint**: `/api/media/upload_media_blob` for files <10MB (stores in database vs filesystem)
+- **Server-side**: Added proper multipart parsing, size validation, SHA256 hashing, thumbnail generation
+- **Client-side**: New `uploadMediaBlob()` method in FileUploadHandler, photo upload UI in playlist edit mode
+- **Background images**: Playlist photos display as full backgrounds with `background-size: cover` positioned from top
+- **Thumbnails everywhere**: Small thumbnails in playlist lists and navigation sidebar
+- **Database schema**: Updated to include `media_blob_id` and `thumbnail_blob_id` fields in playlists
+- **TypeScript fixes**: Comprehensive cleanup of 22+ TS errors across the codebase
 
-11. player, shift all the controls to the right, make the song title/artist cells expand and fill empty space. right now songs with titles that different length shift the player controls left or right.
+### Key Files & Patterns:
 
-12. less use of magenta font color. espically for things that are rendered data (like artist names in artists song list, artist name in album grid, songs artist + album in playlist)
+- **Photo upload**: `server/src/media/songs.rs` (`upload_media_blob` handler), `client/js/src/lib/file-upload.ts` (`uploadMediaBlob` method)
+- **Background styling**: `PlaylistDetailView.tsx` with dynamic background-image styles
+- **Multi-selection**: `hooks/useSelection.ts` - reusable across views
+- **Song interactions**: `services/songInteractions.ts` - shared context menu logic
+- **Media Session API**: `Player.tsx` with updateMediaSession() and updatePageTitle() functions
+- **Player layout**: Fixed flexbox layout with `flex-1` for song info, `flex-shrink-0` for controls
+- **Color consistency**: Changed magenta data text to gray across all views (AlbumGridView, ArtistSplitView, PlaylistDetailView, SearchResultsView)
 
-13. consider dexie js for indexed db persistence for queue and player state. don't write any code for this yet, let's come up with a plan first. i'd like to use the liveQuery stuff so need to work out those details first.
+---
+
+## 📋 IndexedDB Persistence Planning (Task #13)
+
+### Dexie.js Integration Strategy
+
+**Core Requirements:**
+
+- Persist queue state (current song, queue items, history)
+- Persist player state (volume, shuffle, repeat, playback position)
+- Real-time synchronization between tabs using liveQuery
+- Graceful fallback when IndexedDB unavailable
+
+**Database Schema Design:**
+
+```typescript
+// Dexie schema
+interface PlayerState {
+  id: "current"; // Single row
+  currentSong: Song | null;
+  isPlaying: boolean;
+  volume: number;
+  shuffle: boolean;
+  repeat: RepeatMode;
+  currentTime: number;
+  lastUpdated: Date;
+}
+
+interface QueueState {
+  id: "current"; // Single row
+  items: Song[];
+  currentIndex: number;
+  history: Song[];
+  lastUpdated: Date;
+}
+
+interface AppSettings {
+  id: string;
+  value: any;
+  lastUpdated: Date;
+}
+```
+
+**Implementation Plan:**
+
+1. **Setup Phase**: Install Dexie.js, create database schema, migration handling
+2. **Store Integration**: Create `usePersistentStore()` hook that wraps Solid Store
+3. **LiveQuery Integration**: Use `liveQuery()` to sync state between tabs automatically
+4. **Selective Persistence**: Only persist essential state (not UI state like modals)
+5. **Performance**: Debounce writes (especially currentTime updates)
+6. **Error Handling**: Graceful degradation when IndexedDB unavailable
+
+**Key Files to Create:**
+
+- `client/js/src/lib/persistence.ts` - Database setup and operations
+- `client/js/src/hooks/usePersistentStore.ts` - Store wrapper with persistence
+- `client/js/src/utils/storage.ts` - Storage utilities and fallbacks
+
+**Research Questions:**
+
+- How to handle liveQuery with SolidJS reactivity system?
+- Should we persist full queue or just queue metadata + rebuild from API?
+- How to handle schema migrations for future updates?
+- Performance impact of frequent currentTime updates?
+
+---
 
 ## 🚀 Phase 5: Advanced Features (NEXT)
 

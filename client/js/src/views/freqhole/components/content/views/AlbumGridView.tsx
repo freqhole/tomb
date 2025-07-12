@@ -259,10 +259,10 @@ export function AlbumGridView(
                       <div class="text-white font-medium mb-1 truncate group-hover:text-magenta-300 transition-colors">
                         {album.album || "Unknown Album"}
                       </div>
-                      <div class="text-magenta-400 text-sm truncate">
+                      <div class="text-gray-300 text-sm truncate">
                         {album.artist || "Unknown Artist"}
                       </div>
-                      <div class="text-magenta-500 text-xs mt-1">
+                      <div class="text-gray-400 text-xs mt-1">
                         {album.year && `${album.year} · `}
                         {album.track_count} track
                         {album.track_count !== 1 ? "s" : ""}
