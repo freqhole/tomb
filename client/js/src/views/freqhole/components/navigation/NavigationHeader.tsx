@@ -1,7 +1,9 @@
 import { useNavigate, useSearchParams } from "@solidjs/router";
-import { createSignal } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { storeActions } from "../../store";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
+import { SearchSuggestions } from "../../../../components/search/SearchSuggestions";
+import { apiClient } from "../../../../lib/api-client";
 
 export function NavigationHeader() {
   const navigate = useNavigate();
@@ -9,6 +11,8 @@ export function NavigationHeader() {
 
   const events = useGlobalEvents();
   const [query, setQuery] = createSignal((searchParams.q as string) || "");
+  const [showSuggestions, setShowSuggestions] = createSignal(false);
+  const [inputFocused, setInputFocused] = createSignal(false);
 
   const handleSearch = (searchQuery: string) => {
     setQuery(searchQuery);
@@ -28,7 +32,31 @@ export function NavigationHeader() {
     if (e.key === "Enter") {
       const target = e.target as HTMLInputElement;
       handleSearch(target.value);
+      setShowSuggestions(false);
     }
+  };
+
+  const handleSuggestionSelect = (suggestion: string) => {
+    setQuery(suggestion);
+    handleSearch(suggestion);
+    setShowSuggestions(false);
+  };
+
+  const handleInputFocus = () => {
+    setInputFocused(true);
+    setShowSuggestions(true);
+  };
+
+  const handleInputBlur = () => {
+    // Delay hiding suggestions to allow for suggestion clicks
+    setTimeout(() => {
+      setInputFocused(false);
+      setShowSuggestions(false);
+    }, 200);
+  };
+
+  const shouldShowSuggestions = () => {
+    return showSuggestions() && inputFocused() && query().trim().length > 0;
   };
 
   return (
@@ -46,6 +74,8 @@ export function NavigationHeader() {
           value={query()}
           onInput={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={handleInputFocus}
+          onBlur={handleInputBlur}
           class="w-full px-3 py-2 bg-gray-800 text-white rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-magenta-500 focus:bg-gray-700 hover:bg-gray-700 transition-all duration-200"
         />
 
@@ -67,7 +97,60 @@ export function NavigationHeader() {
             />
           </svg>
         </button>
+
+        {/* Search Suggestions */}
+        <Show when={shouldShowSuggestions()}>
+          <div class="absolute top-full left-0 right-0 mt-1 z-50">
+            <div class="bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+              <SearchSuggestions
+                query={query()}
+                onSuggestionSelect={handleSuggestionSelect}
+                useInternalSuggestions={true}
+                apiClient={apiClient}
+                show={shouldShowSuggestions()}
+                maxSuggestions={8}
+                showLoading={true}
+                class="freqhole-suggestions"
+                onBlur={() => setShowSuggestions(false)}
+              />
+            </div>
+          </div>
+        </Show>
       </div>
+
+      <style>{`
+        .freqhole-suggestions {
+          position: static !important;
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          border-radius: 0 !important;
+          max-height: none !important;
+        }
+
+        .freqhole-suggestions .search-suggestions__item {
+          padding: 8px 12px;
+          color: #d1d5db;
+          border-bottom: 1px solid #374151;
+        }
+
+        .freqhole-suggestions .search-suggestions__item:hover,
+        .freqhole-suggestions .search-suggestions__item--selected {
+          background-color: #6b21a8;
+          color: white;
+        }
+
+        .freqhole-suggestions .search-suggestions__group-header {
+          background-color: #4b5563;
+          color: #9ca3af;
+          border-bottom: 1px solid #374151;
+        }
+
+        .freqhole-suggestions .search-suggestions__loading {
+          color: #9ca3af;
+          background: transparent;
+        }
+      `}</style>
     </div>
   );
 }
