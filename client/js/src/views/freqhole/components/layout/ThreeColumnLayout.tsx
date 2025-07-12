@@ -20,7 +20,7 @@ export function ThreeColumnLayout(props: any) {
 
     return queueOpen
       ? "grid-cols-12 [&>*:nth-child(1)]:col-span-3 [&>*:nth-child(2)]:col-span-6 [&>*:nth-child(3)]:col-span-3"
-      : "grid-cols-12 [&>*:nth-child(1)]:col-span-4 [&>*:nth-child(2)]:col-span-8";
+      : "grid-cols-12 [&>*:nth-child(1)]:col-span-3 [&>*:nth-child(2)]:col-span-9";
   };
 
   // Listen for queue toggle events
@@ -30,21 +30,30 @@ export function ThreeColumnLayout(props: any) {
 
   return (
     <div class="h-screen flex flex-col bg-black text-white font-sans">
-      <div class={`grid flex-1 ${columnClasses()}`}>
+      {/* Main Content Grid - leaves space for player */}
+      <div class={`grid ${columnClasses()} h-full pb-20`}>
         {/* Navigation Column */}
-        <Navigation />
+        <div class="h-full overflow-y-auto">
+          <Navigation />
+        </div>
 
         {/* Content Column */}
-        <Content>{props.children}</Content>
+        <div class="h-full overflow-y-auto">
+          <Content>{props.children}</Content>
+        </div>
 
         {/* Queue Column (conditional) */}
         <Show when={layout.queueOpen}>
-          <Queue />
+          <div class="h-full overflow-y-auto">
+            <Queue />
+          </div>
         </Show>
       </div>
 
-      {/* Footer Player */}
-      <PlayerWrapper />
+      {/* Fixed Footer Player */}
+      <div class="fixed bottom-0 left-0 right-0 z-50">
+        <PlayerWrapper />
+      </div>
     </div>
   );
 }

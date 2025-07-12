@@ -28,8 +28,8 @@ export function NavigationSections(props: NavigationSectionsProps) {
             class={`w-full text-left p-2 rounded-lg text-sm transition-all duration-200 ${
               props.currentPath === item.path ||
               (props.currentPath === "/" && item.path === "/songs")
-                ? "bg-magenta-500/30 text-magenta-300"
-                : "text-gray-300 hover:bg-magenta-500/20 hover:text-white"
+                ? "bg-magenta-600/30 text-white"
+                : "text-white hover:bg-magenta-600/20"
             }`}
             onClick={() => handleNavClick(item.path, item.label)}
           >

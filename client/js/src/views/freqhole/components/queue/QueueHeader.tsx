@@ -27,7 +27,7 @@ export function QueueHeader(props: QueueHeaderProps) {
           <Show when={props.queueLength > 0}>
             <button
               onClick={props.onClear}
-              class="px-3 py-1 bg-gray-800 text-white text-xs rounded-lg hover:bg-red-500/80 focus:bg-red-600 transition-all duration-200"
+              class="px-3 py-1 bg-magenta-600 text-black font-medium text-xs rounded-lg hover:bg-magenta-500 border border-transparent hover:border-magenta-400 transition-all duration-200"
               title="clear queue"
             >
               clear
@@ -36,7 +36,7 @@ export function QueueHeader(props: QueueHeaderProps) {
 
           <button
             onClick={handleToggleQueue}
-            class="p-2 bg-gray-800 text-white rounded-lg hover:bg-magenta-500/20 focus:bg-magenta-500/30 transition-all duration-200"
+            class="p-2 text-gray-400 hover:text-white hover:bg-magenta-600/30 rounded-lg transition-all duration-200"
             title="close queue"
           >
             <svg

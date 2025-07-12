@@ -32,7 +32,7 @@ export function NavigationHeader() {
   };
 
   return (
-    <div class="p-4 bg-black/90">
+    <div class="p-4">
       <div class="mb-4">
         <h1 class="text-xl font-bold text-white lowercase">
           freq<span class="text-magenta-500">h</span>ole
@@ -46,7 +46,7 @@ export function NavigationHeader() {
           value={query()}
           onInput={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          class="w-full px-3 py-2 bg-gray-800 text-white rounded-lg placeholder-gray-400 border-none focus:outline-none focus:ring-2 focus:ring-magenta-500 focus:bg-gray-700 transition-all duration-200"
+          class="w-full px-3 py-2 bg-gray-800 text-white rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-magenta-500 focus:bg-gray-700 hover:bg-gray-700 transition-all duration-200"
         />
 
         <button

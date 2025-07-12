@@ -44,7 +44,7 @@ export function PlayerWrapper() {
   // For now, we'll use the existing Player component
   // TODO: Update existing Player to use store instead of old context
   return (
-    <div class="bg-black border-t border-gray-800">
+    <div class="bg-black">
       <div class="flex items-center justify-between p-4">
         <div class="flex items-center gap-4 flex-1">
           {/* Song Info */}
@@ -100,7 +100,7 @@ export function PlayerWrapper() {
         <div class="flex items-center gap-2">
           <button
             onClick={() => events.emit("queue:previous", {})}
-            class="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all duration-200"
+            class="p-2 text-gray-400 hover:text-white hover:bg-magenta-600/30 rounded-lg transition-all duration-200"
             disabled={queue.currentIndex <= 0}
           >
             <svg
@@ -122,7 +122,7 @@ export function PlayerWrapper() {
             onClick={() =>
               events.emit(player.isPlaying ? "player:pause" : "player:play", {})
             }
-            class="p-3 bg-magenta-500 text-white rounded-lg hover:bg-magenta-600 focus:bg-magenta-700 transition-all duration-200"
+            class="p-3 bg-magenta-600 text-black font-medium rounded-lg hover:bg-magenta-500 border border-transparent hover:border-magenta-400 focus:bg-magenta-700 transition-all duration-200"
             disabled={!player.currentSong}
           >
             {player.isPlaying ? (
@@ -148,7 +148,7 @@ export function PlayerWrapper() {
 
           <button
             onClick={() => events.emit("queue:next", {})}
-            class="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all duration-200"
+            class="p-2 text-gray-400 hover:text-white hover:bg-magenta-600/30 rounded-lg transition-all duration-200"
             disabled={queue.currentIndex >= queue.items.length - 1}
           >
             <svg
@@ -171,7 +171,7 @@ export function PlayerWrapper() {
         <div class="flex items-center gap-4 flex-1 justify-end">
           <button
             onClick={() => storeActions.toggleQueue()}
-            class="p-2 text-gray-400 hover:text-magenta-400 hover:bg-gray-800 rounded-lg transition-all duration-200"
+            class="p-2 text-gray-400 hover:text-white hover:bg-magenta-600/30 rounded-lg transition-all duration-200"
             title="toggle queue"
           >
             <svg

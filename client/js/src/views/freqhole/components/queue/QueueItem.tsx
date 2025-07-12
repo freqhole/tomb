@@ -18,15 +18,15 @@ export function QueueItem(props: QueueItemProps) {
 
   return (
     <div
-      class={`flex items-center p-3 cursor-pointer rounded-lg mb-2 group transition-all duration-200 ${
+      class={`flex items-center p-3 cursor-pointer rounded-lg group transition-all duration-200 border border-transparent ${
         props.isCurrentlyPlaying
-          ? "bg-magenta-500/30 text-magenta-300"
-          : "hover:bg-magenta-500/20 text-gray-300"
+          ? "bg-magenta-600/30 text-white"
+          : "hover:bg-magenta-600/20 text-white"
       }`}
       onClick={props.onPlay}
     >
       <div class="flex items-center gap-3 flex-1 min-w-0">
-        <div class="w-6 text-center text-xs text-gray-500">
+        <div class="w-6 text-center text-xs text-gray-400">
           {props.index + 1}
         </div>
 
@@ -47,21 +47,31 @@ export function QueueItem(props: QueueItemProps) {
           </Show>
         </div>
 
-        <div class="text-xs text-gray-500">
+        <div class="text-xs text-gray-400">
           {formatDuration(props.song.duration_seconds)}
         </div>
       </div>
 
       <button
-        class="opacity-0 group-hover:opacity-100 p-2 ml-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all duration-200"
+        class="opacity-0 group-hover:opacity-100 p-2 ml-2 text-gray-500 hover:text-red-400 hover:bg-red-500/20 rounded-lg transition-all duration-200"
         onClick={(e) => {
           e.stopPropagation();
           props.onRemove();
         }}
         title="remove from queue"
       >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        <svg
+          class="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M6 18L18 6M6 6l12 12"
+          />
         </svg>
       </button>
     </div>

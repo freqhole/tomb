@@ -7,6 +7,19 @@
   /* Override default theme with our custom colors */
 
   /* Custom color palette - black, white, magenta */
+  --color-magenta-50: #fdf4ff;
+  --color-magenta-100: #fae8ff;
+  --color-magenta-200: #f5d0fe;
+  --color-magenta-300: #f0abfc;
+  --color-magenta-400: #e879f9;
+  --color-magenta-500: #d946ef;
+  --color-magenta-600: #c026d3;
+  --color-magenta-700: #a21caf;
+  --color-magenta-800: #86198f;
+  --color-magenta-900: #701a75;
+  --color-magenta-950: #4a044e;
+
+  /* Keep primary as alias to magenta for compatibility */
   --color-primary-50: #fdf4ff;
   --color-primary-100: #fae8ff;
   --color-primary-200: #f5d0fe;
