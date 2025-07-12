@@ -48,13 +48,27 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
   // Use infinite scroll hook
   const infiniteScroll = useInfiniteScroll(fetchArtists, {
     threshold: 200,
-    enabled: true,
+    enabled: () => {
+      const isArtistsView = mobileView() === "artists";
+      console.log("🔄 Mobile infinite scroll enabled check:", {
+        mobileView: mobileView(),
+        isArtistsView,
+        enabled: isArtistsView,
+      });
+      return isArtistsView;
+    },
   });
 
   // Extract state and actions
   const artists = infiniteScroll.state.items;
   const loading = infiniteScroll.state.loading;
   const error = infiniteScroll.state.error;
+
+  // Debug container ref
+  console.log(
+    "🔄 Mobile infinite scroll container ref:",
+    infiniteScroll.containerRef
+  );
 
   // Fetch tracks for selected artist
   const [artistSongsResource] = createResource(
@@ -80,11 +94,13 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
     storeActions.selectArtist(artist);
     events.emit("artist:selected", { artist });
     // Switch to songs view on mobile
+    console.log("🔄 Mobile switching to songs view for artist:", artist.artist);
     setMobileView("songs");
   };
 
   const handleBackToArtists = () => {
     setSelectedArtist(null);
+    console.log("🔄 Mobile switching back to artists view");
     setMobileView("artists");
     storeActions.selectArtist(null);
   };
@@ -117,7 +133,7 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
     <div class={`h-full flex flex-col w-full max-w-full ${props.class || ""}`}>
       {/* Mobile Artists List */}
       <Show when={mobileView() === "artists"}>
-        <div class="flex-1 flex flex-col">
+        <div class="flex-1 flex flex-col h-full overflow-hidden">
           <div class="p-4 border-b border-magenta-800/30">
             <h1 class="text-2xl font-semibold text-white mb-2">artists</h1>
             <Show
@@ -128,7 +144,50 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
             </Show>
           </div>
 
-          <div class="flex-1 overflow-y-auto" ref={infiniteScroll.containerRef}>
+          <div
+            class="flex-1 overflow-y-auto min-h-0"
+            ref={(el) => {
+              console.log("🔄 Mobile container ref being set:", el);
+              if (el) {
+                // Add a small delay to ensure the element is fully rendered
+                setTimeout(() => {
+                  console.log("🔄 Mobile container dimensions:", {
+                    scrollHeight: el.scrollHeight,
+                    clientHeight: el.clientHeight,
+                    scrollTop: el.scrollTop,
+                    canScroll: el.scrollHeight > el.clientHeight,
+                    offsetHeight: el.offsetHeight,
+                    computedHeight: window.getComputedStyle(el).height,
+                  });
+                  infiniteScroll.containerRef(el);
+                }, 100);
+              }
+            }}
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              const scrollHeight = target.scrollHeight;
+              const scrollTop = target.scrollTop;
+              const clientHeight = target.clientHeight;
+              const distanceFromBottom =
+                scrollHeight - (scrollTop + clientHeight);
+
+              console.log("🔄 Mobile scroll event:", {
+                scrollHeight,
+                scrollTop,
+                clientHeight,
+                distanceFromBottom,
+                loading: loading(),
+                hasMore: infiniteScroll.state.hasMore(),
+                enabled: mobileView() === "artists",
+                threshold: 200,
+                shouldTrigger: distanceFromBottom <= 200,
+              });
+
+              if (distanceFromBottom <= 300) {
+                console.log("🔄 Mobile scroll near bottom - should trigger!");
+              }
+            }}
+          >
             <Show
               when={!loading() || artists().length > 0}
               fallback={
@@ -160,6 +219,21 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
               </div>
             </Show>
 
+            {/* Manual Load More Button for Testing */}
+            <Show when={!loading() && infiniteScroll.state.hasMore()}>
+              <div class="p-4 text-center">
+                <button
+                  class="px-6 py-3 bg-magenta-600 hover:bg-magenta-500 text-white rounded-lg transition-colors"
+                  onClick={() => {
+                    console.log("🔄 Manual load more clicked");
+                    infiniteScroll.actions.loadMore();
+                  }}
+                >
+                  Load More Artists ({artists().length} so far)
+                </button>
+              </div>
+            </Show>
+
             {/* End of list indicator */}
             <Show
               when={
@@ -178,7 +252,7 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
 
       {/* Mobile Artist Songs */}
       <Show when={mobileView() === "songs" && selectedArtist()}>
-        <div class="flex-1 flex flex-col">
+        <div class="flex-1 flex flex-col h-full overflow-hidden">
           <div class="p-4 border-b border-magenta-800/30">
             <div class="flex items-center gap-3 mb-2">
               <button
@@ -260,7 +334,7 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
             </div>
           </div>
 
-          <div class="flex-1 overflow-y-auto">
+          <div class="flex-1 overflow-y-auto min-h-0">
             <Show
               when={
                 !artistSongsResource.loading && artistSongsResource()?.songs
