@@ -1,6 +1,7 @@
 import { For, Show, createSignal, createResource } from "solid-js";
 import { useStore, storeActions } from "../../../store";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
+import { useSongInteractions } from "../../../services/songInteractions";
 import { apiClient } from "../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Album, Song } from "../../../../../lib/music/schemas";
@@ -14,6 +15,7 @@ export function AlbumGridView(
 ) {
   const [] = useStore();
   const events = useGlobalEvents();
+  const songInteractions = useSongInteractions();
 
   const [selectedAlbum, setSelectedAlbum] = createSignal<Album | null>(null);
   const [loadingAlbumTracks, setLoadingAlbumTracks] = createSignal(false);
@@ -73,10 +75,11 @@ export function AlbumGridView(
   const handlePlayAlbum = () => {
     const tracks = albumTracksResource();
     if (Array.isArray(tracks) && tracks.length > 0) {
-      events.emit("song:play", { song: tracks[0], replaceQueue: true });
+      // Play first track and replace queue
+      songInteractions.playSong(tracks[0], true);
       // Add rest of tracks to queue
       tracks.slice(1).forEach((song) => {
-        events.emit("song:queue", { song });
+        songInteractions.queueSong(song);
       });
     }
   };
@@ -86,10 +89,11 @@ export function AlbumGridView(
     if (Array.isArray(tracks) && tracks.length > 0) {
       // Create shuffled copy
       const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-      events.emit("song:play", { song: shuffled[0], replaceQueue: true });
+      // Play first shuffled track and replace queue
+      songInteractions.playSong(shuffled[0], true);
       // Add rest of shuffled tracks to queue
       shuffled.slice(1).forEach((song) => {
-        events.emit("song:queue", { song });
+        songInteractions.queueSong(song);
       });
     }
   };
@@ -98,13 +102,9 @@ export function AlbumGridView(
     const tracks = albumTracksResource();
     if (Array.isArray(tracks)) {
       tracks.forEach((song) => {
-        events.emit("song:queue", { song });
+        songInteractions.queueSong(song);
       });
     }
-  };
-
-  const handleTrackClick = (track: Song) => {
-    events.emit("song:play", { song: track, replaceQueue: false });
   };
 
   const handleTrackDoubleClick = (track: Song) => {
@@ -402,7 +402,6 @@ export function AlbumGridView(
                   {(track) => (
                     <div
                       class="flex items-center p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group"
-                      onClick={() => handleTrackClick(track)}
                       onDblClick={() => handleTrackDoubleClick(track)}
                     >
                       {/* Track Number */}

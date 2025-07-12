@@ -25,6 +25,7 @@ export const routes = (
       component={() => <div class="p-4 text-white">album detail view</div>}
     />
     <Route path="/playlists" component={PlaylistDetailView} />
+    <Route path="/playlists/new" component={PlaylistDetailView} />
     <Route path="/playlist/:id" component={PlaylistDetailView} />
     <Route path="/search" component={SearchResultsView} />
   </Route>

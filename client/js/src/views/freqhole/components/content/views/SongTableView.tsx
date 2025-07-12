@@ -125,7 +125,7 @@ export function SongTableView(
               {(song, index) => (
                 <div
                   class="px-6 py-3 hover:bg-magenta-600/20 transition-colors cursor-pointer grid grid-cols-12 gap-4 items-center group border border-transparent"
-                  onDblClick={() => songInteractions.playSong(song)}
+                  onDblClick={() => songInteractions.playSong(song, false)}
                   onContextMenu={(e) =>
                     songInteractions.handleRightClick(e, song)
                   }

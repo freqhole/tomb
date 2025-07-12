@@ -253,7 +253,6 @@ export function SearchResultsView(
   };
 
   const getResultCounts = () => {
-    const searchResults = searchResource();
     const songResults = songsResource();
 
     const songs = songResults?.songs?.length || 0;

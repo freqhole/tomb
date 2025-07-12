@@ -151,8 +151,7 @@ export const useLayout = () => {
   const [store, setStore] = useStore();
   return [
     store.layout,
-    (updates: Partial<FreqholeStore["layout"]>) =>
-      setStore("layout", updates),
+    (updates: Partial<FreqholeStore["layout"]>) => setStore("layout", updates),
   ] as const;
 };
 
@@ -169,8 +168,7 @@ export const usePlayer = () => {
   const [store, setStore] = useStore();
   return [
     store.player,
-    (updates: Partial<FreqholeStore["player"]>) =>
-      setStore("player", updates),
+    (updates: Partial<FreqholeStore["player"]>) => setStore("player", updates),
   ] as const;
 };
 
@@ -186,8 +184,7 @@ export const useSearch = () => {
   const [store, setStore] = useStore();
   return [
     store.search,
-    (updates: Partial<FreqholeStore["search"]>) =>
-      setStore("search", updates),
+    (updates: Partial<FreqholeStore["search"]>) => setStore("search", updates),
   ] as const;
 };
 
@@ -217,9 +214,11 @@ export const storeActions = {
   // Navigation actions
   setCurrentView: (view: FreqholeStore["navigation"]["currentView"]) =>
     setStore("navigation", "currentView", view),
-  selectArtist: (artist: any) => setStore("navigation", "selectedArtist", artist),
+  selectArtist: (artist: any) =>
+    setStore("navigation", "selectedArtist", artist),
   selectAlbum: (album: any) => setStore("navigation", "selectedAlbum", album),
-  selectPlaylist: (playlist: any) => setStore("navigation", "selectedPlaylist", playlist),
+  selectPlaylist: (playlist: any) =>
+    setStore("navigation", "selectedPlaylist", playlist),
 
   // Player actions
   playSong: (song: any) => {
@@ -231,6 +230,8 @@ export const storeActions = {
   togglePlay: () => setStore("player", "isPlaying", (prev) => !prev),
   setVolume: (volume: number) => setStore("player", "volume", volume),
   setCurrentTime: (time: number) => setStore("player", "currentTime", time),
+  setPlayerState: (updates: Partial<FreqholeStore["player"]>) =>
+    setStore("player", updates),
 
   // Queue actions
   addToQueue: (song: any) =>

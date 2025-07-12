@@ -1,6 +1,7 @@
 import { For, Show, createSignal, createResource } from "solid-js";
 import { useStore, storeActions } from "../../../store";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
+import { useSongInteractions } from "../../../services/songInteractions";
 import { apiClient } from "../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { ArtistSummary, Song } from "../../../../../lib/music/schemas";
@@ -12,8 +13,9 @@ interface ArtistSplitViewProps {
 export function ArtistSplitView(
   props: RouteSectionProps<unknown> & ArtistSplitViewProps = {} as any
 ) {
-  const [] = useStore();
+  const [store] = useStore();
   const events = useGlobalEvents();
+  const songInteractions = useSongInteractions();
 
   const [selectedArtist, setSelectedArtist] =
     createSignal<ArtistSummary | null>(null);
@@ -65,10 +67,11 @@ export function ArtistSplitView(
   const handlePlayAll = () => {
     const songs = artistSongsResource()?.songs || [];
     if (songs.length > 0) {
-      events.emit("song:play", { song: songs[0], replaceQueue: true });
+      // Play first song and replace queue
+      songInteractions.playSong(songs[0], true);
       // Add rest of songs to queue
       songs.slice(1).forEach((song) => {
-        events.emit("song:queue", { song });
+        songInteractions.queueSong(song);
       });
     }
   };
@@ -78,10 +81,11 @@ export function ArtistSplitView(
     if (songs.length > 0) {
       // Create shuffled copy
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      events.emit("song:play", { song: shuffled[0], replaceQueue: true });
+      // Play first shuffled song and replace queue
+      songInteractions.playSong(shuffled[0], true);
       // Add rest of shuffled songs to queue
       shuffled.slice(1).forEach((song) => {
-        events.emit("song:queue", { song });
+        songInteractions.queueSong(song);
       });
     }
   };
@@ -89,12 +93,8 @@ export function ArtistSplitView(
   const handleAddToQueue = () => {
     const songs = artistSongsResource()?.songs || [];
     songs.forEach((song) => {
-      events.emit("song:queue", { song });
+      songInteractions.queueSong(song);
     });
-  };
-
-  const handleSongClick = (song: Song) => {
-    events.emit("song:play", { song, replaceQueue: false });
   };
 
   const handleSongDoubleClick = (song: Song) => {
@@ -248,7 +248,6 @@ export function ArtistSplitView(
                       {(song) => (
                         <div
                           class="p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group"
-                          onClick={() => handleSongClick(song)}
                           onDblClick={() => handleSongDoubleClick(song)}
                         >
                           <div class="flex items-center min-w-0">

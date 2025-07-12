@@ -1,6 +1,13 @@
-import { For, Show, createSignal, createResource } from "solid-js";
+import {
+  For,
+  Show,
+  createSignal,
+  createResource,
+  createEffect,
+} from "solid-js";
 import { useStore, storeActions } from "../../../store";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
+import { useLocation, useNavigate, useParams } from "@solidjs/router";
 import { apiClient } from "../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Playlist, Song } from "../../../../../lib/music/schemas";
@@ -15,6 +22,9 @@ export function PlaylistDetailView(
 ) {
   const [] = useStore();
   const events = useGlobalEvents();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const params = useParams();
 
   const [selectedPlaylist, setSelectedPlaylist] = createSignal<Playlist | null>(
     null
@@ -23,23 +33,86 @@ export function PlaylistDetailView(
   const [editTitle, setEditTitle] = createSignal("");
   const [editDescription, setEditDescription] = createSignal("");
   const [loadingPlaylistSongs, setLoadingPlaylistSongs] = createSignal(false);
+  const [isNewPlaylist, setIsNewPlaylist] = createSignal(false);
 
-  // Fetch playlists from API
-  const [playlistsResource] = createResource(async () => {
-    console.log("📝 Fetching playlists...");
-    try {
-      const response = await apiClient.getPlaylists({ page_size: 100 });
-      console.log("📝 Playlists loaded:", response.playlists.length);
-      return response;
-    } catch (error) {
-      console.error("❌ Failed to load playlists:", error);
-      return { playlists: [], pagination: null };
+  // Detect if we're in "new playlist" mode or have a playlist ID in the route
+  createEffect(() => {
+    const isNew = location.pathname === "/playlists/new";
+    setIsNewPlaylist(isNew);
+
+    if (isNew) {
+      // Initialize new playlist mode
+      setSelectedPlaylist({
+        id: "",
+        title: "",
+        description: null,
+        song_count: 0,
+        is_public: false,
+        is_collaborative: false,
+        visibility: "private",
+        created_at: new Date().toISOString(),
+      });
+      setEditMode(true);
+      setEditTitle("");
+      setEditDescription("");
+    } else if (params.id) {
+      // Load specific playlist from route parameter
+      loadPlaylistById(params.id);
+    } else {
+      // Reset to playlist list view
+      setSelectedPlaylist(null);
+      setEditMode(false);
     }
   });
 
-  // Fetch songs for selected playlist
+  // Load specific playlist by ID
+  const loadPlaylistById = async (playlistId: string) => {
+    try {
+      console.log("📝 Loading playlist:", playlistId);
+      // Find playlist in cache first, or fetch all playlists
+      const response = await apiClient.getPlaylists({ page_size: 100 });
+      const playlist = response.playlists.find((p) => p.id === playlistId);
+
+      if (playlist) {
+        setSelectedPlaylist(playlist);
+        setEditTitle(playlist.title);
+        setEditDescription(playlist.description || "");
+        storeActions.selectPlaylist(playlist);
+        events.emit("playlist:selected", { playlist });
+        console.log("📝 Playlist loaded:", playlist.title);
+      } else {
+        console.warn("⚠️ Playlist not found:", playlistId);
+        // Navigate back to playlists list if not found
+        navigate("/playlists");
+      }
+    } catch (error) {
+      console.error("❌ Failed to load playlist:", error);
+      navigate("/playlists");
+    }
+  };
+
+  // Fetch playlists from API (only when not creating new playlist and no specific ID)
+  const [playlistsResource] = createResource(
+    () => !isNewPlaylist() && !params.id,
+    async () => {
+      console.log("📝 Fetching playlists...");
+      try {
+        const response = await apiClient.getPlaylists({ page_size: 100 });
+        console.log("📝 Playlists loaded:", response.playlists.length);
+        return response;
+      } catch (error) {
+        console.error("❌ Failed to load playlists:", error);
+        return { playlists: [], pagination: null };
+      }
+    }
+  );
+
+  // Fetch songs for selected playlist (only for existing playlists)
   const [playlistSongsResource] = createResource(
-    () => selectedPlaylist()?.id,
+    () =>
+      selectedPlaylist()?.id && !isNewPlaylist()
+        ? selectedPlaylist()!.id
+        : false,
     async (playlistId: string) => {
       if (!playlistId) return [];
 
@@ -60,11 +133,8 @@ export function PlaylistDetailView(
   );
 
   const handlePlaylistClick = (playlist: Playlist) => {
-    setSelectedPlaylist(playlist);
-    setEditTitle(playlist.title);
-    setEditDescription(playlist.description || "");
-    storeActions.selectPlaylist(playlist);
-    events.emit("playlist:selected", { playlist });
+    // Navigate to playlist route instead of just setting local state
+    navigate(`/playlist/${playlist.id}`);
   };
 
   const handleBackToList = () => {
@@ -76,9 +146,47 @@ export function PlaylistDetailView(
   const handleEditToggle = () => {
     if (editMode()) {
       // Save changes
-      handleSavePlaylist();
+      if (isNewPlaylist()) {
+        handleCreateNewPlaylist();
+      } else {
+        handleSavePlaylist();
+      }
     } else {
       setEditMode(true);
+    }
+  };
+
+  const handleCreateNewPlaylist = async () => {
+    const title = editTitle().trim();
+    if (!title) {
+      events.emit("notification:show", {
+        type: "error",
+        message: "Playlist title is required",
+      });
+      return;
+    }
+
+    try {
+      const newPlaylist = await apiClient.createPlaylist({
+        title,
+        description: editDescription() || null,
+        is_public: false,
+        is_collaborative: false,
+      });
+
+      // Navigate to the new playlist
+      navigate(`/playlist/${newPlaylist.id}`);
+
+      events.emit("notification:show", {
+        type: "success",
+        message: "Playlist created successfully",
+      });
+    } catch (error) {
+      console.error("❌ Failed to create playlist:", error);
+      events.emit("notification:show", {
+        type: "error",
+        message: "Failed to create playlist",
+      });
     }
   };
 
@@ -210,9 +318,13 @@ export function PlaylistDetailView(
     return new Date(dateStr).toLocaleDateString();
   };
 
+  const handleCancelNewPlaylist = () => {
+    navigate("/playlists");
+  };
+
   return (
     <div class={`h-full bg-black text-white ${props.class || ""}`}>
-      <Show when={!selectedPlaylist()}>
+      <Show when={!selectedPlaylist() && !isNewPlaylist() && !params.id}>
         {/* Playlist List View */}
         <div class="h-full flex flex-col">
           {/* Header */}
@@ -221,9 +333,7 @@ export function PlaylistDetailView(
               <h1 class="text-2xl font-semibold text-white">playlists</h1>
               <button
                 class="px-4 py-2 bg-magenta-600 hover:bg-magenta-500 rounded text-black font-medium transition-colors"
-                onClick={() =>
-                  events.emit("modal:open", { modal: "createPlaylist" })
-                }
+                onClick={() => navigate("/playlists/new")}
               >
                 + create playlist
               </button>
@@ -338,198 +448,255 @@ export function PlaylistDetailView(
 
             <div class="flex items-start justify-between">
               <div class="flex-1">
-                <Show when={!editMode()}>
-                  <h1 class="text-3xl font-bold text-white mb-2">
-                    {selectedPlaylist()?.title}
-                  </h1>
-                  <Show when={selectedPlaylist()?.description}>
-                    <p class="text-magenta-300 mb-4">
-                      {selectedPlaylist()?.description}
-                    </p>
+                {/* Playlist Info */}
+                <div class="mb-8">
+                  <Show when={!editMode()}>
+                    <h1 class="text-3xl font-bold text-white mb-2">
+                      {selectedPlaylist()?.title}
+                    </h1>
+                    <Show when={selectedPlaylist()?.description}>
+                      <p class="text-magenta-300 mb-4">
+                        {selectedPlaylist()?.description}
+                      </p>
+                    </Show>
                   </Show>
-                </Show>
 
-                <Show when={editMode()}>
-                  <input
-                    type="text"
-                    value={editTitle()}
-                    onInput={(e) => setEditTitle(e.currentTarget.value)}
-                    class="text-3xl font-bold text-white bg-transparent border-b border-magenta-400 mb-4 w-full focus:outline-none focus:border-magenta-300"
-                    placeholder="Playlist title"
-                  />
-                  <textarea
-                    value={editDescription()}
-                    onInput={(e) => setEditDescription(e.currentTarget.value)}
-                    class="text-magenta-300 bg-transparent border border-magenta-400 rounded p-2 mb-4 w-full focus:outline-none focus:border-magenta-300 resize-none"
-                    placeholder="Description (optional)"
-                    rows="2"
-                  />
-                </Show>
-
-                <div class="text-magenta-400 text-sm mb-6">
-                  {selectedPlaylist()?.song_count || 0} songs
-                  <span class="ml-4">
-                    Created {formatDate(selectedPlaylist()?.created_at || "")}
-                  </span>
-                  <Show when={selectedPlaylist()?.is_public}>
-                    <span class="ml-4 px-2 py-0.5 bg-magenta-600/30 rounded text-xs">
-                      public
-                    </span>
+                  <Show when={editMode()}>
+                    <input
+                      type="text"
+                      value={editTitle()}
+                      onInput={(e) => setEditTitle(e.currentTarget.value)}
+                      class="text-3xl font-bold text-white bg-transparent border-b border-magenta-400 mb-4 w-full focus:outline-none focus:border-magenta-300"
+                      placeholder="Playlist title"
+                      autofocus={isNewPlaylist()}
+                    />
+                    <textarea
+                      value={editDescription()}
+                      onInput={(e) => setEditDescription(e.currentTarget.value)}
+                      class="text-magenta-300 bg-transparent border border-magenta-400 rounded p-2 mb-4 w-full focus:outline-none focus:border-magenta-300 resize-none"
+                      placeholder="Description (optional)"
+                      rows="2"
+                    />
                   </Show>
-                </div>
 
-                {/* Action Buttons */}
-                <div class="flex space-x-3">
-                  <button
-                    class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 hover:border hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={handlePlayPlaylist}
-                    disabled={
-                      loadingPlaylistSongs() || !playlistSongsResource()?.length
-                    }
-                  >
-                    play all
-                  </button>
-                  <button
-                    class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 hover:border hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={handleShufflePlaylist}
-                    disabled={
-                      loadingPlaylistSongs() || !playlistSongsResource()?.length
-                    }
-                  >
-                    shuffle
-                  </button>
-                  <button
-                    class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 hover:border hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={handleAddPlaylistToQueue}
-                    disabled={
-                      loadingPlaylistSongs() || !playlistSongsResource()?.length
-                    }
-                  >
-                    add to queue
-                  </button>
+                  <Show when={!isNewPlaylist()}>
+                    <div class="text-magenta-400 text-sm mb-6">
+                      {selectedPlaylist()?.song_count || 0} songs
+                      <span class="ml-4">
+                        Created{" "}
+                        {formatDate(selectedPlaylist()?.created_at || "")}
+                      </span>
+                      <Show when={selectedPlaylist()?.is_public}>
+                        <span class="ml-4 px-2 py-0.5 bg-magenta-600/30 rounded text-xs">
+                          public
+                        </span>
+                      </Show>
+                    </div>
+                  </Show>
+
+                  <Show when={isNewPlaylist()}>
+                    <div class="text-magenta-400 text-sm mb-6">
+                      Enter a title and optional description for your new
+                      playlist
+                    </div>
+                  </Show>
+
+                  {/* Action Buttons - Only show for existing playlists with songs */}
+                  <Show when={!isNewPlaylist() && !editMode()}>
+                    <div class="flex space-x-3">
+                      <button
+                        class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 hover:border hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={handlePlayPlaylist}
+                        disabled={
+                          loadingPlaylistSongs() ||
+                          !playlistSongsResource()?.length
+                        }
+                      >
+                        play all
+                      </button>
+                      <button
+                        class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 hover:border hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={handleShufflePlaylist}
+                        disabled={
+                          loadingPlaylistSongs() ||
+                          !playlistSongsResource()?.length
+                        }
+                      >
+                        shuffle
+                      </button>
+                      <button
+                        class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 hover:border hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={handleAddPlaylistToQueue}
+                        disabled={
+                          loadingPlaylistSongs() ||
+                          !playlistSongsResource()?.length
+                        }
+                      >
+                        + add to queue
+                      </button>
+                    </div>
+                  </Show>
                 </div>
               </div>
 
               {/* Management buttons */}
               <div class="flex items-center space-x-2 ml-6">
-                <button
-                  class="px-4 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 hover:border hover:border-magenta-400 rounded text-white font-medium transition-all"
-                  onClick={handleEditToggle}
-                >
-                  {editMode() ? "save" : "edit"}
-                </button>
-                <Show when={!editMode()}>
+                <Show when={isNewPlaylist()}>
                   <button
-                    class="px-4 py-2 bg-red-600/50 hover:bg-red-600/70 hover:border hover:border-red-400 rounded text-white font-medium transition-all"
-                    onClick={handleDeletePlaylist}
+                    class="px-4 py-2 bg-magenta-600 hover:bg-magenta-500 hover:border hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleEditToggle}
+                    disabled={!editTitle().trim()}
                   >
-                    delete
+                    create playlist
                   </button>
+                  <button
+                    class="px-4 py-2 bg-gray-600/50 hover:bg-gray-600/70 hover:border hover:border-gray-400 rounded text-white font-medium transition-all"
+                    onClick={handleCancelNewPlaylist}
+                  >
+                    cancel
+                  </button>
+                </Show>
+                <Show when={!isNewPlaylist()}>
+                  <button
+                    class="px-4 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 hover:border hover:border-magenta-400 rounded text-white font-medium transition-all"
+                    onClick={handleEditToggle}
+                  >
+                    {editMode() ? "save" : "edit"}
+                  </button>
+                  <Show when={!editMode()}>
+                    <button
+                      class="px-4 py-2 bg-red-600/50 hover:bg-red-600/70 hover:border hover:border-red-400 rounded text-white font-medium transition-all"
+                      onClick={handleDeletePlaylist}
+                    >
+                      delete
+                    </button>
+                  </Show>
                 </Show>
               </div>
             </div>
           </div>
 
-          {/* Songs List */}
-          <div class="flex-1 overflow-y-auto p-6">
-            <h3 class="text-xl font-semibold text-white mb-4">
-              songs
-              <Show when={loadingPlaylistSongs()}>
-                <span class="text-magenta-400 text-sm ml-2">loading...</span>
-              </Show>
-            </h3>
-
-            <Show
-              when={!loadingPlaylistSongs() && playlistSongsResource()}
-              fallback={
-                <Show when={selectedPlaylist() && !loadingPlaylistSongs()}>
-                  <div class="text-center py-12">
-                    <div class="text-6xl mb-4">📝</div>
-                    <div class="text-white text-xl mb-2">no songs yet</div>
-                    <div class="text-magenta-400">
-                      add some songs to get started
-                    </div>
-                  </div>
-                </Show>
-              }
-            >
-              <div class="space-y-1">
-                <For each={playlistSongsResource() || []}>
-                  {(song, index) => (
-                    <div
-                      class="flex items-center p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group"
-                      onClick={() => handleSongClick(song)}
-                      onDblClick={() => handleSongDoubleClick(song)}
-                    >
-                      {/* Track Number */}
-                      <div class="w-8 text-magenta-400 text-sm flex-shrink-0">
-                        {index() + 1}
-                      </div>
-
-                      {/* Song Info */}
-                      <div class="flex-1 min-w-0 mx-4">
-                        <div class="text-white font-medium truncate group-hover:text-magenta-300 transition-colors">
-                          {song.title}
-                        </div>
-                        <div class="text-magenta-400 text-sm truncate">
-                          {song.artist} • {song.album || "Unknown Album"}
-                        </div>
-                      </div>
-
-                      {/* Duration */}
-                      <div class="text-magenta-400 text-sm flex-shrink-0 mr-4">
-                        {song.duration_seconds
-                          ? formatDuration(song.duration_seconds)
-                          : "—"}
-                      </div>
-
-                      {/* Actions */}
-                      <div class="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          class="p-1 rounded-full hover:bg-magenta-600/30 transition-colors"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            events.emit("song:queue", { song });
-                          }}
-                          title="Add to queue"
-                        >
-                          <svg
-                            class="w-4 h-4 text-magenta-400"
-                            fill="currentColor"
-                            viewBox="0 0 20 20"
-                          >
-                            <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
-                          </svg>
-                        </button>
-                        <button
-                          class="p-1 rounded-full hover:bg-red-600/30 transition-colors"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveSong(song);
-                          }}
-                          title="Remove from playlist"
-                        >
-                          <svg
-                            class="w-4 h-4 text-red-400"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M6 18L18 6M6 6l12 12"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </For>
+          {/* New Playlist Help Message */}
+          <Show when={isNewPlaylist()}>
+            <div class="flex-1 p-6">
+              <div class="text-center py-12">
+                <div class="text-6xl mb-4">🎵</div>
+                <div class="text-white text-xl mb-2">
+                  create your new playlist
+                </div>
+                <div class="text-magenta-400 mb-6">
+                  Enter a title above and click "create playlist" to get started
+                </div>
+                <div class="text-gray-500 text-sm">
+                  After creating your playlist, you can add songs from the music
+                  library
+                </div>
               </div>
-            </Show>
-          </div>
+            </div>
+          </Show>
+
+          {/* Songs List - Only show for existing playlists */}
+          <Show when={!isNewPlaylist()}>
+            <div class="flex-1 overflow-y-auto p-6">
+              <h3 class="text-xl font-semibold text-white mb-4">
+                songs
+                <Show when={loadingPlaylistSongs()}>
+                  <span class="text-magenta-400 text-sm ml-2">loading...</span>
+                </Show>
+              </h3>
+
+              <Show
+                when={!loadingPlaylistSongs() && playlistSongsResource()}
+                fallback={
+                  <Show when={selectedPlaylist() && !loadingPlaylistSongs()}>
+                    <div class="text-center py-12">
+                      <div class="text-6xl mb-4">📝</div>
+                      <div class="text-white text-xl mb-2">no songs yet</div>
+                      <div class="text-magenta-400">
+                        add some songs to get started
+                      </div>
+                    </div>
+                  </Show>
+                }
+              >
+                <div class="space-y-1">
+                  <For each={playlistSongsResource() || []}>
+                    {(song, index) => (
+                      <div
+                        class="flex items-center p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group"
+                        onClick={() => handleSongClick(song)}
+                        onDblClick={() => handleSongDoubleClick(song)}
+                      >
+                        {/* Track Number */}
+                        <div class="w-8 text-magenta-400 text-sm flex-shrink-0">
+                          {index() + 1}
+                        </div>
+
+                        {/* Song Info */}
+                        <div class="flex-1 min-w-0 mx-4">
+                          <div class="text-white font-medium truncate group-hover:text-magenta-300 transition-colors">
+                            {song.title}
+                          </div>
+                          <div class="text-magenta-400 text-sm truncate">
+                            {song.artist} • {song.album || "Unknown Album"}
+                          </div>
+                        </div>
+
+                        {/* Duration */}
+                        <div class="text-magenta-400 text-sm flex-shrink-0 mr-4">
+                          {song.duration_seconds
+                            ? formatDuration(song.duration_seconds)
+                            : "—"}
+                        </div>
+
+                        {/* Actions */}
+                        <div class="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            class="p-1 rounded-full hover:bg-magenta-600/30 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              events.emit("song:queue", { song });
+                            }}
+                            title="Add to queue"
+                          >
+                            <svg
+                              class="w-4 h-4 text-magenta-400"
+                              fill="currentColor"
+                              viewBox="0 0 20 20"
+                            >
+                              <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
+                            </svg>
+                          </button>
+                          <button
+                            class="p-1 rounded-full hover:bg-red-600/30 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveSong(song);
+                            }}
+                            title="Remove from playlist"
+                          >
+                            <svg
+                              class="w-4 h-4 text-red-400"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+          </Show>
         </div>
       </Show>
     </div>
