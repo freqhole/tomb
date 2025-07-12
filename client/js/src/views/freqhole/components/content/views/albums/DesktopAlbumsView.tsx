@@ -127,8 +127,14 @@ export function DesktopAlbumsView(
         album.artist || undefined
       );
       if (Array.isArray(tracks) && tracks.length > 0) {
-        events.emit("queue:replace", { songs: tracks });
-        events.emit("song:play", { song: tracks[0], replaceQueue: false });
+        // Play first track and replace queue
+        if (tracks[0]) {
+          songInteractions.playSong(tracks[0], true);
+        }
+        // Add rest of tracks to queue
+        tracks.slice(1).forEach((song) => {
+          songInteractions.queueSong(song);
+        });
       }
     } catch (error) {
       console.error("❌ Failed to play album from grid:", error);
