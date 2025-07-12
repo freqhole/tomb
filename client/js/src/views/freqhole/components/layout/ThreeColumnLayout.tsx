@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import { useLayout, storeActions } from "../../store";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { Navigation } from "../navigation/Navigation";
@@ -6,10 +6,13 @@ import { Content } from "../content/Content";
 import { Queue } from "../queue/Queue";
 import { PlayerWrapper } from "../player/PlayerWrapper";
 import { ContextMenuManager } from "../ui/ContextMenuManager";
+import { NavigationHeader } from "../navigation/NavigationHeader";
+import { MenuIcon } from "../ui/icons";
 
 export function ThreeColumnLayout(props: any) {
   const [layout] = useLayout();
   const events = useGlobalEvents();
+  const [mobileNavOpen, setMobileNavOpen] = createSignal(false);
 
   // Responsive layout logic
   const columnClasses = () => {
@@ -29,10 +32,88 @@ export function ThreeColumnLayout(props: any) {
     storeActions.toggleQueue();
   });
 
+  // Mobile navigation handlers
+  const handleMobileNavToggle = () => {
+    setMobileNavOpen(!mobileNavOpen());
+  };
+
+  const handleMobileNavClose = () => {
+    setMobileNavOpen(false);
+  };
+
   return (
     <div class="h-screen flex flex-col bg-black text-white font-sans">
-      {/* Main Content Grid - leaves space for player */}
-      <div class={`grid ${columnClasses()} h-full pb-20`}>
+      {/* Mobile Header - Sticky */}
+      <div class="md:hidden sticky top-0 z-40 bg-black/90 backdrop-blur-xl border-b border-magenta-800/30">
+        <div class="flex items-center justify-between px-4 py-3">
+          {/* Logo with Menu Button */}
+          <div class="flex items-center gap-2">
+            <span class="text-lg font-light text-white">
+              freq<span class="text-magenta-500">h</span>ole
+            </span>
+          </div>
+
+          {/* Hamburger Menu */}
+          <button
+            class="p-2 text-white hover:text-magenta-400 transition-colors"
+            onClick={handleMobileNavToggle}
+            title="Menu"
+          >
+            <MenuIcon className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Mobile Search Bar */}
+        <div class="px-4 pb-2">
+          <NavigationHeader />
+        </div>
+      </div>
+
+      {/* Mobile Navigation Overlay */}
+      <Show when={mobileNavOpen()}>
+        <div
+          class="md:hidden fixed inset-0 z-50 bg-black/50"
+          onClick={handleMobileNavClose}
+        >
+          <div class="absolute left-0 top-0 bottom-0 w-80 bg-black/95 backdrop-blur-xl border-r border-magenta-800/30 transform transition-transform duration-300 animate-slideInLeft">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-magenta-800/30">
+              <div class="flex items-center gap-2">
+                <span class="text-lg font-light text-white">
+                  freq<span class="text-magenta-500">h</span>ole
+                </span>
+              </div>
+              <button
+                class="p-2 text-white hover:text-magenta-400 transition-colors"
+                onClick={handleMobileNavClose}
+                title="Close"
+              >
+                <svg
+                  class="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div
+              class="h-full overflow-y-auto pb-20"
+              onClick={handleMobileNavClose}
+            >
+              <Navigation />
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      {/* Desktop Layout */}
+      <div class={`hidden md:grid ${columnClasses()} h-full pb-20`}>
         {/* Navigation Column */}
         <div class="h-full overflow-y-auto">
           <Navigation />
@@ -48,6 +129,22 @@ export function ThreeColumnLayout(props: any) {
           <div class="h-full overflow-y-auto">
             <Queue />
           </div>
+        </Show>
+      </div>
+
+      {/* Mobile Single Column Layout */}
+      <div class="md:hidden flex-1 overflow-hidden pb-20 w-full max-w-full">
+        <Show when={!mobileNavOpen()}>
+          <Show when={!layout.queueOpen}>
+            <div class="h-full overflow-y-auto w-full max-w-full">
+              <Content>{props.children}</Content>
+            </div>
+          </Show>
+          <Show when={layout.queueOpen}>
+            <div class="h-full overflow-y-auto w-full max-w-full">
+              <Queue />
+            </div>
+          </Show>
         </Show>
       </div>
 

@@ -5,6 +5,7 @@ import { useStore } from "../../../store";
 import { useInfiniteScroll } from "../../../hooks/useInfiniteScroll";
 import { useSongInteractions } from "../../../services/songInteractions";
 import { useSelection } from "../../../hooks/useSelection";
+import { MobileSongList } from "./MobileSongList";
 import type { Song } from "../../../../../lib/music/schemas/song";
 import type { PaginationMetadata } from "../../../hooks/useInfiniteScroll";
 
@@ -134,9 +135,12 @@ export function SongTableView(
         </div>
       </Show>
 
-      {/* Songs Table - Scrollable */}
+      {/* Desktop Songs Table - Scrollable */}
       <Show when={!error() || songs().length > 0}>
-        <div class="flex-1 overflow-y-auto" ref={infiniteScroll.containerRef}>
+        <div
+          class="hidden md:block flex-1 overflow-y-auto"
+          ref={infiniteScroll.containerRef}
+        >
           <div class="min-w-full">
             {/* Sticky Table Header */}
             <div class="sticky top-0 bg-black/95 backdrop-blur-sm px-6 py-3 text-xs text-gray-400 uppercase tracking-wider grid grid-cols-12 gap-4 z-10">
@@ -347,6 +351,20 @@ export function SongTableView(
               </div>
             </Show>
           </div>
+        </div>
+
+        {/* Mobile Songs List */}
+        <div
+          class="md:hidden flex-1 overflow-y-auto"
+          ref={infiniteScroll.containerRef}
+        >
+          <MobileSongList
+            songs={songs()}
+            loading={loading()}
+            hasMore={hasMore()}
+            onLoadMore={infiniteScroll.actions.loadMore}
+            class="p-4"
+          />
         </div>
       </Show>
 
