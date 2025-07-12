@@ -5,14 +5,14 @@ import {
   createResource,
   createEffect,
 } from "solid-js";
-import { useStore, storeActions } from "../../../store";
+import { storeActions } from "../../../store";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { useSongInteractions } from "../../../services/songInteractions";
 import { useInfiniteScroll } from "../../../hooks/useInfiniteScroll";
 import { useSelection } from "../../../hooks/useSelection";
 import { apiClient } from "../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
-import type { ArtistSummary, Song } from "../../../../../lib/music/schemas";
+import type { ArtistSummary } from "../../../../../lib/music/schemas";
 import type { PaginationMetadata } from "../../../hooks/useInfiniteScroll";
 
 interface ArtistSplitViewProps {
@@ -31,7 +31,7 @@ export function ArtistSplitView(
 
   // Selection state
   const selection = useSelection({
-    onSelectionChange: (selectedIds, selectedSongs) => {
+    onSelectionChange: (selectedIds) => {
       console.log(
         `🎵 Artist view selection changed: ${selectedIds.size} songs selected`
       );
@@ -112,7 +112,9 @@ export function ArtistSplitView(
     const songs = artistSongsResource()?.songs || [];
     if (songs.length > 0) {
       // Play first song and replace queue
-      songInteractions.playSong(songs[0], true);
+      if (songs[0]) {
+        songInteractions.playSong(songs[0], true);
+      }
       // Add rest of songs to queue
       songs.slice(1).forEach((song) => {
         songInteractions.queueSong(song);
@@ -126,7 +128,9 @@ export function ArtistSplitView(
       // Create shuffled copy
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
       // Play first shuffled song and replace queue
-      songInteractions.playSong(shuffled[0], true);
+      if (shuffled[0]) {
+        songInteractions.playSong(shuffled[0], true);
+      }
       // Add rest of shuffled songs to queue
       shuffled.slice(1).forEach((song) => {
         songInteractions.queueSong(song);
@@ -226,7 +230,7 @@ export function ArtistSplitView(
               </div>
               <button
                 class="text-magenta-400 hover:text-magenta-300 text-sm transition-colors"
-                onClick={() => infiniteScroll.retry()}
+                onClick={() => infiniteScroll.actions.reset()}
               >
                 try again
               </button>

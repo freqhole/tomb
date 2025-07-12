@@ -1,4 +1,4 @@
-import { Show, createEffect, onMount } from "solid-js";
+import { Show, createEffect } from "solid-js";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
 import { PlaylistSelectorMenu } from "./PlaylistSelectorMenu";
@@ -182,20 +182,12 @@ export function ContextMenuManager() {
       actions={playlistSelector()?.show ? [] : convertActions(actions())}
     >
       <Show when={playlistSelector()?.show}>
-        {() => {
-          console.log(
-            "📋 Rendering PlaylistSelectorMenu with songs:",
-            playlistSelector()?.songs
-          );
-          return (
-            <PlaylistSelectorMenu
-              songs={playlistSelector()!.songs}
-              onClose={handleClose}
-              onPlaylistSelected={handlePlaylistSelected}
-              onNewPlaylistCreated={handleNewPlaylistCreated}
-            />
-          );
-        }}
+        <PlaylistSelectorMenu
+          songs={playlistSelector()!.songs}
+          onClose={handleClose}
+          onPlaylistSelected={handlePlaylistSelected}
+          onNewPlaylistCreated={handleNewPlaylistCreated}
+        />
       </Show>
     </ContextMenu>
   );

@@ -18,15 +18,15 @@ edward's notes on next stuff:
 
 8. remove `drag to reorder` text. also could yank the entire header row `songs` included. DONE! ✅ - Both drag to reorder text and songs header row removed
 
-9. also implement photo upload and background rendering for a playlist. see uploadFile fn client/js/src/lib/file-upload.ts for http upload ref (don't use the websocket method) [IN PROGRESS]
+9. also implement photo upload and background rendering for a playlist. see uploadFile fn client/js/src/lib/file-upload.ts for http upload ref (don't use the websocket method) DONE! ✅ - New `/api/media/upload_media_blob` endpoint for <10MB files, playlist photos as backgrounds with `cover` positioning from top, thumbnails in playlist lists and navigation
 
 10. update window/document page title and somehow set the favicon or something so the media player controls in mac os (and ios!) show the currently playing song + art.
 
 11. player, shift all the controls to the right, make the song title/artist cells expand and fill empty space. right now songs with titles that different length shift the player controls left or right.
 
-12. consider dexie js for indexed db persistence for queue and player state.
+12. less use of magenta font color. espically for things that are rendered data (like artist names in artists song list, artist name in album grid, songs artist + album in playlist)
 
-13. less use of magenta font color. espically for things that are rendered data (like artist names in artists song list, artist name in album grid, songs artist + album in playlist)
+13. consider dexie js for indexed db persistence for queue and player state. don't write any code for this yet, let's come up with a plan first. i'd like to use the liveQuery stuff so need to work out those details first.
 
 ## 🚀 Phase 5: Advanced Features (NEXT)
 
@@ -310,6 +310,7 @@ audio.addEventListener("ended", () => playNext());
 - ✅ **#6**: Updated playlist buttons - Delete only shows when not in edit mode, edit button is pencil icon, cancel button is X icon
 - ✅ **#7**: Empty playlist descriptions - Work fine, saved as null
 - ✅ **#8**: Removed UI clutter - "drag to reorder" text and songs header row removed
+- ✅ **#9**: Playlist photo upload complete - New HTTP endpoint `/api/media/upload_media_blob` for files <10MB, photo upload UI in edit mode, background images with `cover` positioning from top, thumbnails in playlist lists and navigation
 
 **Key Infrastructure Added:**
 
@@ -318,6 +319,8 @@ audio.addEventListener("ended", () => playNext());
 - ✅ **Shared date utilities** in `utils/dateUtils.ts` with relative formatting ("2 hours ago", "yesterday", etc.)
 - ✅ **Playlist selector menu** with smart naming and recent playlists list
 - ✅ **Auto-clearing selections** after successful operations
+- ✅ **Media upload system** with new HTTP endpoint for small files, integrated with playlist management
+- ✅ **Enhanced TypeScript** with comprehensive error fixes and proper type definitions
 
 **Ready for Phase 5: Advanced Features!** 🎵
 

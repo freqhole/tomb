@@ -46,6 +46,7 @@ export function PlaylistSelectorMenu(props: PlaylistSelectorMenuProps) {
     if (props.songs.length === 0) return "New Playlist";
 
     const firstSong = props.songs[0];
+    if (!firstSong) return "New Playlist";
     if (firstSong.album) {
       return firstSong.album;
     } else if (firstSong.artist) {
@@ -185,7 +186,10 @@ export function PlaylistSelectorMenu(props: PlaylistSelectorMenuProps) {
       case "Enter":
         event.preventDefault();
         if (selectedIndex() >= 0 && selectedIndex() < playlists.length) {
-          handleAddToPlaylist(playlists[selectedIndex()]);
+          const playlist = playlists[selectedIndex()];
+          if (playlist) {
+            handleAddToPlaylist(playlist);
+          }
         } else if (selectedIndex() === -1) {
           handleNewPlaylistClick();
         }

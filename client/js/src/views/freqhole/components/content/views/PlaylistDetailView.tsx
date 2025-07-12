@@ -12,6 +12,7 @@ import { useLocation, useNavigate, useParams } from "@solidjs/router";
 import { useSongInteractions } from "../../../services/songInteractions";
 import { apiClient } from "../../../../../lib/api-client";
 import { formatRelativeDate } from "../../../utils/dateUtils";
+import { FileUploadHandler } from "../../../../../lib/file-upload";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Playlist, Song } from "../../../../../lib/music/schemas";
 
@@ -47,10 +48,12 @@ export function PlaylistDetailView(
   const [dragOverIndex, setDragOverIndex] = createSignal<number | null>(null);
   const [refreshSongs, setRefreshSongs] = createSignal(0);
   const [refreshPlaylists, setRefreshPlaylists] = createSignal(0);
+  const [uploadingPhoto, setUploadingPhoto] = createSignal(false);
+  const [uploadProgress, setUploadProgress] = createSignal(0);
 
   // Selection state
   const selection = useSelection({
-    onSelectionChange: (selectedIds, selectedSongs) => {
+    onSelectionChange: (selectedIds) => {
       console.log(
         `🎵 Playlist selection changed: ${selectedIds.size} songs selected`
       );
@@ -105,14 +108,16 @@ export function PlaylistDetailView(
     if (isNew) {
       // Initialize new playlist mode
       setSelectedPlaylist({
-        id: "",
-        title: "",
+        id: crypto.randomUUID(),
+        title: "New Playlist",
         description: null,
         song_count: 0,
         is_public: false,
         is_collaborative: false,
         visibility: "private",
         created_at: new Date().toISOString(),
+        media_blob_id: null,
+        thumbnail_blob_id: null,
       });
       setEditMode(true);
       setEditTitle("");
@@ -262,10 +267,12 @@ export function PlaylistDetailView(
 
     try {
       const newPlaylist = await apiClient.createPlaylist({
-        title,
+        title: editTitle(),
         description: editDescription() || null,
         is_public: false,
         is_collaborative: false,
+        media_blob_id: selectedPlaylist()?.media_blob_id || null,
+        thumbnail_blob_id: selectedPlaylist()?.thumbnail_blob_id || null,
       });
 
       console.log("✅ Playlist created successfully:", newPlaylist.title);
@@ -299,6 +306,8 @@ export function PlaylistDetailView(
       const updatedPlaylist = await apiClient.updatePlaylist(playlist.id, {
         title: editTitle(),
         description: editDescription() || null,
+        media_blob_id: playlist.media_blob_id || null,
+        thumbnail_blob_id: playlist.thumbnail_blob_id || null,
       });
 
       // Update local state
@@ -349,11 +358,86 @@ export function PlaylistDetailView(
         message: "Playlist deleted successfully",
       });
     } catch (error) {
-      console.error("❌ Failed to delete playlist:", error);
+      console.error("❌ Error deleting playlist:", error);
       events.emit("notification:show", {
         type: "error",
         message: "Failed to delete playlist",
       });
+    }
+  };
+
+  const handlePhotoUpload = async (event: Event) => {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      events.emit("notification:show", {
+        type: "error",
+        message: "Please select an image file",
+      });
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      events.emit("notification:show", {
+        type: "error",
+        message: "Image file too large. Maximum size is 10MB.",
+      });
+      return;
+    }
+
+    try {
+      setUploadingPhoto(true);
+      setUploadProgress(0);
+
+      const fileUploader = new FileUploadHandler({
+        baseUrl: apiClient.getBaseUrl(),
+        minFileSize: 0, // Allow smaller images
+        maxFileSize: 10 * 1024 * 1024, // 10MB
+      });
+
+      // Listen for upload progress
+      fileUploader.addEventListener("upload-progress", (event: any) => {
+        const progress = event.detail;
+        setUploadProgress(progress.progress);
+      });
+
+      console.log("📸 Uploading playlist photo:", file.name);
+
+      const uploadResult = await fileUploader.uploadMediaBlob(file, {
+        type: "playlist-photo",
+        playlistId: selectedPlaylist()?.id || "new",
+      });
+
+      console.log("✅ Photo uploaded successfully:", uploadResult.id);
+
+      // Update the playlist with the new photo
+      if (selectedPlaylist()) {
+        const updatedPlaylist = {
+          ...selectedPlaylist()!,
+          thumbnail_blob_id: uploadResult.id,
+        };
+        setSelectedPlaylist(updatedPlaylist);
+      }
+
+      events.emit("notification:show", {
+        type: "success",
+        message: "Photo uploaded successfully",
+      });
+    } catch (error) {
+      console.error("❌ Error uploading photo:", error);
+      events.emit("notification:show", {
+        type: "error",
+        message: "Failed to upload photo",
+      });
+    } finally {
+      setUploadingPhoto(false);
+      setUploadProgress(0);
+      input.value = ""; // Clear the input
     }
   };
 
@@ -656,23 +740,47 @@ export function PlaylistDetailView(
                       onClick={() => handlePlaylistClick(playlist)}
                     >
                       <div class="flex items-center justify-between">
-                        <div class="flex-1 min-w-0">
-                          <h3 class="text-white font-medium truncate mb-1">
-                            {playlist.title}
-                          </h3>
-                          <div class="text-magenta-400 text-sm">
-                            {playlist.song_count || 0} songs
-                            {playlist.description && (
-                              <span class="ml-2">• {playlist.description}</span>
-                            )}
-                          </div>
-                          <div class="text-magenta-500 text-xs mt-1">
-                            {formatRelativeDate(playlist.created_at)}
-                            {playlist.is_public && (
-                              <span class="ml-2 px-2 py-0.5 bg-magenta-600/30 rounded text-xs">
-                                public
-                              </span>
-                            )}
+                        <div class="flex items-center flex-1 min-w-0">
+                          <Show
+                            when={playlist.thumbnail_blob_id}
+                            fallback={
+                              <div class="w-12 h-12 bg-magenta-600/20 rounded flex items-center justify-center mr-3 flex-shrink-0">
+                                <svg
+                                  class="w-6 h-6 text-magenta-400"
+                                  fill="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                                </svg>
+                              </div>
+                            }
+                          >
+                            <img
+                              src={`${apiClient.getBaseUrl()}/api/blobs/${playlist.thumbnail_blob_id}`}
+                              alt={playlist.title}
+                              class="w-12 h-12 object-cover rounded mr-3 flex-shrink-0"
+                            />
+                          </Show>
+                          <div class="flex-1 min-w-0">
+                            <h3 class="text-white font-medium truncate mb-1">
+                              {playlist.title}
+                            </h3>
+                            <div class="text-magenta-400 text-sm">
+                              {playlist.song_count || 0} songs
+                              {playlist.description && (
+                                <span class="ml-2">
+                                  • {playlist.description}
+                                </span>
+                              )}
+                            </div>
+                            <div class="text-magenta-500 text-xs mt-1">
+                              {formatRelativeDate(playlist.created_at)}
+                              {playlist.is_public && (
+                                <span class="ml-2 px-2 py-0.5 bg-magenta-600/30 rounded text-xs">
+                                  public
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                         <div class="flex items-center space-x-2">
@@ -705,9 +813,24 @@ export function PlaylistDetailView(
 
       <Show when={selectedPlaylist()}>
         {/* Playlist Detail View */}
-        <div class="h-full flex flex-col">
+        <div
+          class="h-full flex flex-col relative"
+          style={{
+            ...(selectedPlaylist()?.thumbnail_blob_id && {
+              "background-image": `url('${apiClient.getBaseUrl()}/api/blobs/${selectedPlaylist()?.thumbnail_blob_id}')`,
+              "background-size": "cover",
+              "background-position": "top",
+              "background-repeat": "no-repeat",
+            }),
+          }}
+        >
+          {/* Background overlay */}
+          <Show when={selectedPlaylist()?.thumbnail_blob_id}>
+            <div class="absolute inset-0 bg-black/70 z-0"></div>
+          </Show>
+
           {/* Header with inline back button */}
-          <div class="flex-shrink-0 p-6 border-b border-magenta-800/30">
+          <div class="flex-shrink-0 p-6 border-b border-magenta-800/30 relative z-10">
             <div class="flex items-start justify-between">
               <div class="flex-1">
                 {/* Playlist Info */}
@@ -733,6 +856,34 @@ export function PlaylistDetailView(
                           />
                         </svg>
                       </button>
+
+                      <Show when={!isNewPlaylist()}>
+                        <button
+                          class="flex items-center text-magenta-400 hover:text-magenta-300 transition-colors"
+                          onClick={handleEditToggle}
+                          title={editMode() ? "save changes" : "edit playlist"}
+                        >
+                          <Show when={editMode()}>
+                            <svg
+                              class="w-5 h-5"
+                              fill="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </Show>
+                          <Show when={!editMode()}>
+                            <svg
+                              class="w-5 h-5"
+                              fill="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                            </svg>
+                          </Show>
+                        </button>
+                      </Show>
+
                       <h1 class="text-3xl font-bold text-white">
                         {selectedPlaylist()?.title}
                       </h1>
@@ -760,6 +911,62 @@ export function PlaylistDetailView(
                       placeholder="Description (optional)"
                       rows="2"
                     />
+
+                    {/* Photo Upload Section */}
+                    <div class="mb-4">
+                      <div class="flex items-center space-x-4">
+                        <div class="flex-shrink-0">
+                          <Show
+                            when={selectedPlaylist()?.thumbnail_blob_id}
+                            fallback={
+                              <div class="w-16 h-16 bg-magenta-600/20 border-2 border-dashed border-magenta-400 rounded flex items-center justify-center">
+                                <svg
+                                  class="w-6 h-6 text-magenta-400"
+                                  fill="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" />
+                                </svg>
+                              </div>
+                            }
+                          >
+                            <img
+                              src={`${apiClient.getBaseUrl()}/api/blobs/${selectedPlaylist()?.thumbnail_blob_id}`}
+                              alt="Playlist photo"
+                              class="w-16 h-16 object-cover rounded"
+                            />
+                          </Show>
+                        </div>
+                        <div class="flex-1">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            class="hidden"
+                            id="playlist-photo-upload"
+                            onChange={handlePhotoUpload}
+                          />
+                          <label
+                            for="playlist-photo-upload"
+                            class="inline-block px-3 py-2 bg-magenta-600/30 hover:bg-magenta-600/50 border border-magenta-400 rounded text-white font-medium transition-all cursor-pointer"
+                          >
+                            {uploadingPhoto() ? "Uploading..." : "Choose Photo"}
+                          </label>
+                          <Show when={uploadingPhoto()}>
+                            <div class="mt-2">
+                              <div class="w-full bg-magenta-900/50 rounded-full h-2">
+                                <div
+                                  class="bg-magenta-400 h-2 rounded-full transition-all"
+                                  style={`width: ${uploadProgress()}%`}
+                                />
+                              </div>
+                              <div class="text-xs text-magenta-300 mt-1">
+                                {uploadProgress()}% uploaded
+                              </div>
+                            </div>
+                          </Show>
+                        </div>
+                      </div>
+                    </div>
                   </Show>
 
                   <Show when={!isNewPlaylist()}>
@@ -841,22 +1048,6 @@ export function PlaylistDetailView(
                   </button>
                 </Show>
                 <Show when={!isNewPlaylist()}>
-                  <button
-                    class="px-3 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all flex items-center"
-                    onClick={handleEditToggle}
-                    title={editMode() ? "save changes" : "edit playlist"}
-                  >
-                    <Show when={editMode()}>save</Show>
-                    <Show when={!editMode()}>
-                      <svg
-                        class="w-4 h-4"
-                        fill="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                      </svg>
-                    </Show>
-                  </button>
                   <Show when={editMode()}>
                     <button
                       class="px-3 py-2 bg-gray-600/50 hover:bg-gray-600/70 border border-transparent hover:border-gray-400 rounded text-white font-medium transition-all flex items-center"
@@ -872,7 +1063,7 @@ export function PlaylistDetailView(
                       </svg>
                     </button>
                   </Show>
-                  <Show when={!editMode()}>
+                  <Show when={editMode()}>
                     <button
                       class="px-4 py-2 bg-red-600/50 hover:bg-red-600/70 border border-transparent hover:border-red-400 rounded text-white font-medium transition-all"
                       onClick={handleDeletePlaylist}
@@ -907,7 +1098,7 @@ export function PlaylistDetailView(
 
           {/* Songs List - Only show for existing playlists */}
           <Show when={!isNewPlaylist()}>
-            <div class="flex-1 overflow-y-auto p-6">
+            <div class="flex-1 overflow-y-auto p-6 relative z-10">
               <Show
                 when={!loadingPlaylistSongs() && playlistSongsResource()}
                 fallback={
@@ -931,7 +1122,9 @@ export function PlaylistDetailView(
                             ? "bg-magenta-600/40 border-t-2 border-magenta-400"
                             : draggedIndex() === index()
                               ? "opacity-50 bg-magenta-600/10"
-                              : "hover:bg-magenta-600/20"
+                              : selection.isSelected(song.id)
+                                ? "bg-magenta-600/30 border-magenta-400/50"
+                                : "hover:bg-magenta-600/20"
                         }`}
                         draggable={!editMode() && !isNewPlaylist()}
                         onDragStart={(e) => handleDragStart(e, index())}
@@ -962,11 +1155,6 @@ export function PlaylistDetailView(
                             songInteractions.handleRightClick(e, song);
                           }
                         }}
-                        class={`px-4 py-3 border-b border-gray-800 transition-colors cursor-pointer group ${
-                          selection.isSelected(song.id)
-                            ? "bg-magenta-600/30 border-magenta-400/50"
-                            : ""
-                        }`}
                       >
                         {/* Track Number / Drag Handle */}
                         <div class="w-8 text-magenta-400 text-sm flex-shrink-0 flex items-center">

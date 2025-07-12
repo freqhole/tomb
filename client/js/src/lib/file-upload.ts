@@ -461,6 +461,151 @@ export class FileUploadHandler extends EventTarget {
   }
 
   /**
+   * Upload a media blob for small files (under 10MB)
+   * Uses /api/upload_media_blob endpoint and stores in database
+   */
+  async uploadMediaBlob(
+    file: File,
+    metadata: Record<string, any> = {}
+  ): Promise<{
+    id: string;
+    sha256: string;
+    size: number;
+    mime: string;
+    created_at: string;
+  }> {
+    // Validate file size (must be under 10MB)
+    if (file.size >= 10 * 1024 * 1024) {
+      throw new UploadError(
+        UploadErrorType.FileTooLarge,
+        `File size ${this.formatFileSize(file.size)} exceeds maximum of 10MB for media blob upload`
+      );
+    }
+
+    if (file.size === 0) {
+      throw new UploadError(UploadErrorType.InvalidFile, "File is empty");
+    }
+
+    const uploadId = crypto.randomUUID();
+
+    try {
+      // Create abort controller for this upload
+      const abortController = new AbortController();
+      this.activeUploads.set(uploadId, abortController);
+
+      // Emit progress: preparing
+      this.emitProgress({
+        uploadId,
+        stage: "preparing",
+        progress: 0,
+        totalBytes: file.size,
+      });
+
+      // Create form data
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("filename", file.name);
+      if (file.type) {
+        formData.append("mime_type", file.type);
+      }
+      formData.append("metadata", JSON.stringify(metadata));
+
+      console.log("📦 Creating multipart form data:", {
+        filename: file.name,
+        size: file.size,
+        type: file.type,
+        metadata: metadata,
+      });
+
+      this.emitProgress({
+        uploadId,
+        stage: "uploading",
+        progress: 50,
+        totalBytes: file.size,
+      });
+
+      // Make upload request
+      console.log(
+        "📤 Making upload request to:",
+        `${this.config.baseUrl}/api/media/upload_media_blob`
+      );
+
+      const response = await fetch(
+        `${this.config.baseUrl}/api/media/upload_media_blob`,
+        {
+          method: "POST",
+          body: formData,
+          credentials: this.config.credentials ? "include" : "omit",
+          signal: abortController.signal,
+        }
+      );
+
+      console.log(
+        "📨 Upload response status:",
+        response.status,
+        response.statusText
+      );
+
+      this.emitProgress({
+        uploadId,
+        stage: "uploading",
+        progress: 90,
+        bytesUploaded: file.size,
+        totalBytes: file.size,
+      });
+
+      if (!response.ok) {
+        console.error("❌ Upload failed with status:", response.status);
+        try {
+          const errorText = await response.text();
+          console.error("❌ Error response body:", errorText);
+        } catch (e) {
+          console.error("❌ Could not read error response body:", e);
+        }
+        throw await this.handleErrorResponse(response);
+      }
+
+      const result = await response.json();
+
+      this.emitProgress({
+        uploadId,
+        stage: "completed",
+        progress: 100,
+        bytesUploaded: file.size,
+        totalBytes: file.size,
+      });
+
+      return {
+        id: result.id,
+        sha256: result.sha256,
+        size: result.size || file.size,
+        mime: result.mime || file.type,
+        created_at: result.created_at,
+      };
+    } catch (error) {
+      const uploadError =
+        error instanceof UploadError
+          ? error
+          : new UploadError(
+              UploadErrorType.ServerError,
+              error instanceof Error ? error.message : String(error),
+              error instanceof Error ? error : undefined
+            );
+
+      this.emitProgress({
+        uploadId,
+        stage: "error",
+        progress: 0,
+        error: uploadError,
+      });
+
+      throw uploadError;
+    } finally {
+      this.activeUploads.delete(uploadId);
+    }
+  }
+
+  /**
    * Static helper to check if a file should use HTTP upload
    */
   static shouldUseHttpUpload(file: File, minSize = 10 * 1024 * 1024): boolean {

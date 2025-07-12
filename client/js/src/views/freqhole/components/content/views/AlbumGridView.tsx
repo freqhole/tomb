@@ -30,7 +30,7 @@ export function AlbumGridView(
 
   // Selection state
   const selection = useSelection({
-    onSelectionChange: (selectedIds, selectedSongs) => {
+    onSelectionChange: (selectedIds) => {
       console.log(
         `🎵 Album view selection changed: ${selectedIds.size} songs selected`
       );
@@ -103,7 +103,9 @@ export function AlbumGridView(
     const tracks = albumTracksResource();
     if (Array.isArray(tracks) && tracks.length > 0) {
       // Play first track and replace queue
-      songInteractions.playSong(tracks[0], true);
+      if (tracks[0]) {
+        songInteractions.playSong(tracks[0], true);
+      }
       // Add rest of tracks to queue
       tracks.slice(1).forEach((song) => {
         songInteractions.queueSong(song);
@@ -117,7 +119,9 @@ export function AlbumGridView(
       // Create shuffled copy
       const shuffled = [...tracks].sort(() => Math.random() - 0.5);
       // Play first shuffled track and replace queue
-      songInteractions.playSong(shuffled[0], true);
+      if (shuffled[0]) {
+        songInteractions.playSong(shuffled[0], true);
+      }
       // Add rest of shuffled tracks to queue
       shuffled.slice(1).forEach((song) => {
         songInteractions.queueSong(song);

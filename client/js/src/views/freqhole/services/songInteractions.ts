@@ -3,6 +3,20 @@ import { storeActions, useStore } from "../store";
 import type { Song } from "../../../lib/music/schemas/song";
 import { apiClient } from "../../../lib/api-client";
 
+interface SongAction {
+  label: string;
+  icon: string;
+  action: () => void;
+  disabled?: boolean;
+  destructive?: boolean;
+}
+
+interface SeparatorAction {
+  type: "separator";
+}
+
+type MenuAction = SongAction | SeparatorAction;
+
 /**
  * Service for handling song interactions and integrating with the store
  */
@@ -139,7 +153,7 @@ export function useSongInteractions() {
       hideRemoveFromPlaylist?: boolean;
       currentPlaylistId?: string;
     }
-  ) => {
+  ): MenuAction[] => {
     const actions = [
       {
         label: "play",
@@ -166,7 +180,7 @@ export function useSongInteractions() {
         icon: "queue-add",
         action: () => queueSong(song),
       },
-      { type: "separator" },
+      { type: "separator" } as SeparatorAction,
       {
         label: song.is_favorite ? "remove from favorites" : "add to favorites",
         icon: song.is_favorite ? "heart-filled" : "heart",
@@ -198,7 +212,7 @@ export function useSongInteractions() {
       (!context?.hideViewAlbum && song.album);
 
     if (hasNavActions) {
-      actions.push({ type: "separator" });
+      actions.push({ type: "separator" } as SeparatorAction);
 
       if (!context?.hideViewArtist && song.artist) {
         actions.push({
@@ -206,7 +220,7 @@ export function useSongInteractions() {
           icon: "artist",
           action: () => viewArtist(song),
           disabled: !song.artist,
-        });
+        } as SongAction);
       }
 
       if (!context?.hideViewAlbum && song.album) {
@@ -215,13 +229,13 @@ export function useSongInteractions() {
           icon: "album",
           action: () => viewAlbum(song),
           disabled: !song.album,
-        });
+        } as SongAction);
       }
     }
 
     // Add playlist removal option if in a playlist
     if (context?.currentPlaylistId) {
-      actions.push({ type: "separator" });
+      actions.push({ type: "separator" } as SeparatorAction);
       actions.push({
         label: "remove from playlist",
         icon: "playlist-remove",
@@ -230,11 +244,11 @@ export function useSongInteractions() {
           console.log("Remove from playlist:", context.currentPlaylistId);
         },
         destructive: true,
-      });
+      } as SongAction);
     }
 
     // Add separator and info action
-    actions.push({ type: "separator" });
+    actions.push({ type: "separator" } as SeparatorAction);
     actions.push({
       label: "song info",
       icon: "info",

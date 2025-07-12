@@ -143,17 +143,41 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
                   onClick={() => handlePlaylistClick(playlist)}
                   title={playlist.title} // Show full title on hover
                 >
-                  <div class="truncate font-medium">
-                    {truncateTitle(playlist.title)}
-                  </div>
-                  <div class="text-xs text-gray-400">
-                    {formatSongCount(playlist.song_count || 0)}
-                    {playlist.created_at &&
-                      formatCompactRelativeDate(playlist.created_at) && (
-                        <span class="ml-2">
-                          • {formatCompactRelativeDate(playlist.created_at)}
-                        </span>
-                      )}
+                  <div class="flex items-center space-x-2">
+                    <Show
+                      when={playlist.thumbnail_blob_id}
+                      fallback={
+                        <div class="w-8 h-8 bg-magenta-600/20 rounded flex items-center justify-center flex-shrink-0">
+                          <svg
+                            class="w-4 h-4 text-magenta-400"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                          </svg>
+                        </div>
+                      }
+                    >
+                      <img
+                        src={`${import.meta.env.VITE_API_BASE_URL || "http://localhost:8080"}/api/blobs/${playlist.thumbnail_blob_id}`}
+                        alt={playlist.title}
+                        class="w-8 h-8 object-cover rounded flex-shrink-0"
+                      />
+                    </Show>
+                    <div class="flex-1 min-w-0">
+                      <div class="truncate font-medium">
+                        {truncateTitle(playlist.title)}
+                      </div>
+                      <div class="text-xs text-gray-400">
+                        {formatSongCount(playlist.song_count || 0)}
+                        {playlist.created_at &&
+                          formatCompactRelativeDate(playlist.created_at) && (
+                            <span class="ml-2">
+                              • {formatCompactRelativeDate(playlist.created_at)}
+                            </span>
+                          )}
+                      </div>
+                    </div>
                   </div>
                 </button>
               )}

@@ -687,6 +687,8 @@ impl PlaylistService {
             is_public,
             is_collaborative: Some(false),
             metadata: None,
+            media_blob_id: None,
+            thumbnail_blob_id: None,
         };
 
         let playlist = self.create_playlist(create_params).await?;

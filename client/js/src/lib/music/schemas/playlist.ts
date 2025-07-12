@@ -12,6 +12,8 @@ export const PlaylistSchema = z.object({
   song_count: z.number().nullable(),
   visibility: z.string(),
   created_at: z.string(),
+  media_blob_id: z.string().nullable(),
+  thumbnail_blob_id: z.string().nullable(),
 });
 
 export type Playlist = z.infer<typeof PlaylistSchema>;
@@ -36,6 +38,8 @@ export const CreatePlaylistRequestSchema = z.object({
   is_public: z.boolean(),
   is_collaborative: z.boolean(),
   song_ids: z.array(z.string()).optional(),
+  media_blob_id: z.string().nullable().optional(),
+  thumbnail_blob_id: z.string().nullable().optional(),
 });
 
 export type CreatePlaylistRequest = z.infer<typeof CreatePlaylistRequestSchema>;
@@ -46,6 +50,8 @@ export const UpdatePlaylistRequestSchema = z.object({
   description: z.string().nullable().optional(),
   is_public: z.boolean().optional(),
   is_collaborative: z.boolean().optional(),
+  media_blob_id: z.string().nullable().optional(),
+  thumbnail_blob_id: z.string().nullable().optional(),
 });
 
 export type UpdatePlaylistRequest = z.infer<typeof UpdatePlaylistRequestSchema>;

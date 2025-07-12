@@ -3,23 +3,27 @@
 //! This module provides REST API endpoints for managing songs and playlists.
 
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{DefaultBodyLimit, Extension, Multipart, Path, Query},
     http::StatusCode,
     response::Json,
     routing::{delete, get, post, put},
     Router,
 };
+use grimoire::config::AppConfig;
 use grimoire::music::{
     AlbumSummary, AlbumTrack, CreatePlaylist, MusicRepository, Playlist, PlaylistQuery,
     PlaylistService, PlaylistSummary, PlaylistWithCount, Song, SongQuery, UpdatePlaylist,
 };
+use grimoire::thumbnails::ThumbnailService;
 use grimoire::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use time::format_description::well_known::Rfc3339;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::error::WebauthnError;
+use crate::media::{CreateMediaBlob, MediaService};
 
 /// Song list response
 #[derive(Debug, Serialize)]
@@ -107,6 +111,8 @@ pub struct PlaylistResponse {
     pub song_count: Option<i64>,
     pub visibility: String,
     pub created_at: String,
+    pub media_blob_id: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
 }
 
 impl From<Playlist> for PlaylistResponse {
@@ -121,6 +127,8 @@ impl From<Playlist> for PlaylistResponse {
             song_count: None,
             visibility,
             created_at: playlist.created_at.to_string(),
+            media_blob_id: playlist.media_blob_id,
+            thumbnail_blob_id: playlist.thumbnail_blob_id,
         }
     }
 }
@@ -370,6 +378,8 @@ pub struct CreatePlaylistRequest {
     pub is_public: Option<bool>,
     pub is_collaborative: Option<bool>,
     pub song_ids: Option<Vec<Uuid>>,
+    pub media_blob_id: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
 }
 
 impl From<CreatePlaylistRequest> for CreatePlaylist {
@@ -381,6 +391,8 @@ impl From<CreatePlaylistRequest> for CreatePlaylist {
             is_public: req.is_public,
             is_collaborative: req.is_collaborative,
             metadata: None,
+            media_blob_id: req.media_blob_id,
+            thumbnail_blob_id: req.thumbnail_blob_id,
         }
     }
 }
@@ -392,6 +404,8 @@ pub struct UpdatePlaylistRequest {
     pub description: Option<String>,
     pub is_public: Option<bool>,
     pub is_collaborative: Option<bool>,
+    pub media_blob_id: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
 }
 
 impl From<UpdatePlaylistRequest> for UpdatePlaylist {
@@ -402,6 +416,8 @@ impl From<UpdatePlaylistRequest> for UpdatePlaylist {
             is_public: req.is_public,
             is_collaborative: req.is_collaborative,
             metadata: None,
+            media_blob_id: req.media_blob_id,
+            thumbnail_blob_id: req.thumbnail_blob_id,
         }
     }
 }
@@ -1266,6 +1282,213 @@ pub async fn get_artist_songs(
     }))
 }
 
+/// Upload media blob request structure
+#[derive(Debug, Deserialize)]
+pub struct UploadMediaBlobRequest {
+    pub filename: String,
+    pub mime_type: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// Upload media blob response structure
+#[derive(Debug, Serialize)]
+pub struct UploadMediaBlobResponse {
+    pub id: String,
+    pub sha256: String,
+    pub size: Option<i64>,
+    pub mime: Option<String>,
+    pub created_at: OffsetDateTime,
+    pub message: String,
+}
+
+/// Upload a media blob via HTTP (for files under 10MB)
+pub async fn upload_media_blob(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(config): Extension<AppConfig>,
+    mut multipart: Multipart,
+) -> Result<Json<UploadMediaBlobResponse>, StatusCode> {
+    let mut file_data: Option<Vec<u8>> = None;
+    let mut filename: Option<String> = None;
+    let mut mime_type: Option<String> = None;
+    let mut metadata: Option<serde_json::Value> = None;
+
+    // Parse multipart form data
+    info!("Starting multipart parsing for media blob upload");
+
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        error!("Failed to read multipart field: {}", e);
+        error!("Multipart parsing error details: {:?}", e);
+        StatusCode::BAD_REQUEST
+    })? {
+        let field_name = field.name().unwrap_or("").to_string();
+        info!("Processing multipart field: {}", field_name);
+
+        match field_name.as_str() {
+            "file" => {
+                let file_filename = field.file_name().map(|s| s.to_string());
+                let file_content_type = field.content_type().map(|s| s.to_string());
+
+                info!(
+                    "File field - filename: {:?}, content_type: {:?}",
+                    file_filename, file_content_type
+                );
+
+                let data = field.bytes().await.map_err(|e| {
+                    error!("Failed to read file data: {}", e);
+                    error!("File data read error details: {:?}", e);
+                    StatusCode::BAD_REQUEST
+                })?;
+
+                info!("Successfully read file data: {} bytes", data.len());
+
+                // Validate file size (must be under 10MB for blob storage)
+                if data.len() as u64 > config.media.max_blob_file_size {
+                    error!(
+                        "File size {} bytes exceeds maximum blob size {} bytes",
+                        data.len(),
+                        config.media.max_blob_file_size
+                    );
+                    return Err(StatusCode::PAYLOAD_TOO_LARGE);
+                }
+
+                file_data = Some(data.to_vec());
+                if filename.is_none() {
+                    filename = file_filename;
+                }
+                if mime_type.is_none() {
+                    mime_type = file_content_type;
+                }
+            }
+            "filename" => {
+                let text = field.text().await.map_err(|e| {
+                    error!("Failed to read filename field: {}", e);
+                    error!("Filename field error details: {:?}", e);
+                    StatusCode::BAD_REQUEST
+                })?;
+                info!("Filename field: {}", text);
+                filename = Some(text);
+            }
+            "mime_type" => {
+                let text = field.text().await.map_err(|e| {
+                    error!("Failed to read mime_type field: {}", e);
+                    error!("Mime type field error details: {:?}", e);
+                    StatusCode::BAD_REQUEST
+                })?;
+                info!("Mime type field: {}", text);
+                mime_type = Some(text);
+            }
+            "metadata" => {
+                let text = field.text().await.map_err(|e| {
+                    error!("Failed to read metadata field: {}", e);
+                    error!("Metadata field error details: {:?}", e);
+                    StatusCode::BAD_REQUEST
+                })?;
+                info!("Metadata field: {}", text);
+                metadata = Some(serde_json::from_str(&text).map_err(|e| {
+                    error!("Invalid metadata JSON: {}", e);
+                    StatusCode::BAD_REQUEST
+                })?);
+            }
+            _ => {
+                // Ignore unknown fields
+                warn!("Unknown multipart field: {}", field_name);
+                // Try to consume the field data to avoid issues
+                let _ = field.bytes().await;
+            }
+        }
+    }
+
+    info!("Multipart parsing completed");
+
+    // Validate required fields
+    let data = file_data.ok_or_else(|| {
+        error!("No file data provided");
+        StatusCode::BAD_REQUEST
+    })?;
+
+    let filename = filename.unwrap_or_else(|| "unnamed".to_string());
+
+    // Calculate SHA256 hash
+    let sha256 = {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&data);
+        format!("{:x}", hasher.finalize())
+    };
+
+    // Create media blob
+    let create_params = CreateMediaBlob {
+        data: Some(data.clone()),
+        sha256: sha256.clone(),
+        size: Some(data.len() as i64),
+        mime: mime_type.clone(),
+        source_client_id: Some("http-upload".to_string()),
+        local_path: None,
+        parent_blob_id: None,
+        blob_type: Some("original".to_string()),
+        metadata: metadata.unwrap_or_else(|| {
+            serde_json::json!({
+                "filename": filename,
+                "upload_method": "http"
+            })
+        }),
+    };
+
+    // Create media service and upload blob
+    let media_repository = crate::media::MediaRepository::new(&db);
+    let media_service = MediaService::new(media_repository);
+
+    let created_blob = media_service
+        .create_blob(create_params, &config.media)
+        .await
+        .map_err(|e| {
+            error!("Failed to create media blob: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Enqueue thumbnail generation if applicable
+    if let Some(ref mime) = created_blob.mime {
+        if mime.starts_with("image/") || mime.starts_with("video/") {
+            let thumbnail_service = ThumbnailService::new_with_defaults(&db);
+            match thumbnail_service
+                .auto_enqueue_for_media_blob(&created_blob.id)
+                .await
+            {
+                Ok(job_ids) => {
+                    info!(
+                        "🖼️ Enqueued {} thumbnail jobs for blob {}: {:?}",
+                        job_ids.len(),
+                        created_blob.id,
+                        job_ids
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "⚠️ Failed to enqueue thumbnail jobs for blob {}: {}",
+                        created_blob.id, e
+                    );
+                }
+            }
+        }
+    }
+
+    info!(
+        "✅ Successfully uploaded media blob {} via HTTP (size: {} bytes, mime: {:?})",
+        created_blob.id,
+        created_blob.size.unwrap_or(0),
+        created_blob.mime
+    );
+
+    Ok(Json(UploadMediaBlobResponse {
+        id: created_blob.id,
+        sha256: created_blob.sha256,
+        size: created_blob.size,
+        mime: created_blob.mime,
+        created_at: created_blob.created_at,
+        message: "Media blob uploaded successfully".to_string(),
+    }))
+}
+
 /// Create the router for song and playlist routes
 pub fn create_routes() -> Router {
     Router::new()
@@ -1303,6 +1526,11 @@ pub fn create_routes() -> Router {
         .route(
             "/albums/{album}/create-playlist",
             post(create_playlist_from_album),
+        )
+        // Media blob upload route (with increased body limit)
+        .route(
+            "/upload_media_blob",
+            post(upload_media_blob).layer(DefaultBodyLimit::max(10 * 1024 * 1024)), // 10MB limit for media blobs
         )
 }
 

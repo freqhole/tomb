@@ -667,6 +667,8 @@ pub struct CreatePlaylist {
     pub is_public: Option<bool>,
     pub is_collaborative: Option<bool>,
     pub metadata: Option<serde_json::Value>,
+    pub media_blob_id: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
 }
 
 impl CreatePlaylist {
@@ -698,6 +700,8 @@ pub struct UpdatePlaylist {
     pub is_public: Option<bool>,
     pub is_collaborative: Option<bool>,
     pub metadata: Option<serde_json::Value>,
+    pub media_blob_id: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
 }
 
 impl UpdatePlaylist {

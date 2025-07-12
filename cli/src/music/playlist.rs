@@ -78,6 +78,8 @@ pub async fn handle_create_playlist(
         is_public: Some(public),
         is_collaborative: Some(false),
         metadata: None,
+        media_blob_id: None,
+        thumbnail_blob_id: None,
     };
 
     let song_ids = if let Some(song_ids_str) = songs {
@@ -630,6 +632,8 @@ pub async fn handle_add_to_playlist_by_title(
                 is_public: Some(public),
                 is_collaborative: Some(false),
                 metadata: None,
+                media_blob_id: None,
+                thumbnail_blob_id: None,
             };
 
             match playlist_service

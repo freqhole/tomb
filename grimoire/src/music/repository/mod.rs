@@ -432,8 +432,8 @@ impl MusicRepository {
 
         let playlist = sqlx::query_as::<_, Playlist>(
             r#"
-            INSERT INTO playlists (title, description, client_id, is_public, is_collaborative, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO playlists (title, description, client_id, is_public, is_collaborative, metadata, media_blob_id, thumbnail_blob_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
             "#,
         )
@@ -443,6 +443,8 @@ impl MusicRepository {
         .bind(params.is_public.unwrap_or(false))
         .bind(params.is_collaborative.unwrap_or(false))
         .bind(params.metadata.unwrap_or(serde_json::json!({})))
+        .bind(&params.media_blob_id)
+        .bind(&params.thumbnail_blob_id)
         .fetch_one(&self.pool)
         .await?;
 
@@ -500,6 +502,16 @@ impl MusicRepository {
             sql.push_str(&format!(", metadata = ${}", bind_count));
         }
 
+        if params.media_blob_id.is_some() {
+            bind_count += 1;
+            sql.push_str(&format!(", media_blob_id = ${}", bind_count));
+        }
+
+        if params.thumbnail_blob_id.is_some() {
+            bind_count += 1;
+            sql.push_str(&format!(", thumbnail_blob_id = ${}", bind_count));
+        }
+
         bind_count += 1;
         sql.push_str(&format!(
             " WHERE id = ${} AND deleted_at IS NULL RETURNING *",
@@ -523,6 +535,12 @@ impl MusicRepository {
         }
         if let Some(metadata) = &params.metadata {
             query_builder = query_builder.bind(metadata);
+        }
+        if let Some(media_blob_id) = &params.media_blob_id {
+            query_builder = query_builder.bind(media_blob_id);
+        }
+        if let Some(thumbnail_blob_id) = &params.thumbnail_blob_id {
+            query_builder = query_builder.bind(thumbnail_blob_id);
         }
         query_builder = query_builder.bind(id);
 
@@ -1379,6 +1397,8 @@ mod tests {
             is_public: Some(true),
             is_collaborative: Some(false),
             metadata: None,
+            media_blob_id: None,
+            thumbnail_blob_id: None,
         };
 
         assert!(create_playlist.validate().is_ok());

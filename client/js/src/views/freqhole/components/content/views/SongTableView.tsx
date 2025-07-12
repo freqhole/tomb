@@ -23,7 +23,7 @@ export function SongTableView(
 
   // Selection state
   const selection = useSelection({
-    onSelectionChange: (selectedIds, selectedSongs) => {
+    onSelectionChange: (selectedIds) => {
       console.log(`🎵 Selection changed: ${selectedIds.size} songs selected`);
     },
     onBulkAction: (action, selectedSongs) => {
@@ -171,7 +171,7 @@ export function SongTableView(
                       }
                     }
                   }}
-                  onDblClick={(e) => {
+                  onDblClick={() => {
                     // Double click - play song (don't handle selection here)
                     songInteractions.playSong(song, false);
                   }}
