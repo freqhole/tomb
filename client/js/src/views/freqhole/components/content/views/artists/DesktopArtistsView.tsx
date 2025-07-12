@@ -219,19 +219,14 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
       {/* Right Panel - Artist Detail */}
       <div class="flex-1 min-w-0 flex flex-col">
         <Show when={selectedArtist()} fallback={<div class="flex-1"></div>}>
-          <div class="flex-1 overflow-y-auto p-6">
+          {/* Sticky Artist Header */}
+          <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm border-b border-magenta-800/30 p-6">
             <h2 class="text-3xl font-bold text-white mb-4">
               {selectedArtist()?.artist}
             </h2>
 
             {/* Artist Info */}
-            <div class="grid grid-cols-3 gap-6 mb-8">
-              <div class="bg-magenta-950/30 rounded-lg p-4">
-                <div class="text-magenta-300 text-sm mb-1">songs</div>
-                <div class="text-white text-2xl font-semibold">
-                  {selectedArtist()?.song_count || 0}
-                </div>
-              </div>
+            <div class="grid grid-cols-2 gap-6 mb-8">
               <div class="bg-magenta-950/30 rounded-lg p-4">
                 <div class="text-magenta-300 text-sm mb-1">albums</div>
                 <div class="text-white text-2xl font-semibold">
@@ -247,7 +242,7 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
             </div>
 
             {/* Quick Actions */}
-            <div class="flex space-x-3 mb-8">
+            <div class="flex space-x-3">
               <button
                 class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 border border-transparent hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={handlePlayAll}
@@ -276,9 +271,12 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
                 add to queue
               </button>
             </div>
+          </div>
 
+          {/* Scrollable Songs Content */}
+          <div class="flex-1 overflow-y-auto p-6">
             {/* Songs */}
-            <div class="space-y-6">
+            <div>
               <div>
                 <h3 class="text-xl font-semibold text-white mb-4">
                   songs

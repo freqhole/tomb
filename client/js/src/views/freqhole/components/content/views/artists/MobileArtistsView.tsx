@@ -2,7 +2,7 @@ import { For, Show, createSignal, createResource } from "solid-js";
 import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useSongInteractions } from "../../../../services/songInteractions";
-import { MobileSongList } from "../MobileSongList";
+import { MobileSongList } from "../songs/MobileSongList";
 import { apiClient } from "../../../../../../lib/api-client";
 import { storeActions } from "../../../../store";
 import type { ArtistSummary } from "../../../../../../lib/music/schemas";
@@ -48,27 +48,13 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
   // Use infinite scroll hook
   const infiniteScroll = useInfiniteScroll(fetchArtists, {
     threshold: 200,
-    enabled: () => {
-      const isArtistsView = mobileView() === "artists";
-      console.log("🔄 Mobile infinite scroll enabled check:", {
-        mobileView: mobileView(),
-        isArtistsView,
-        enabled: isArtistsView,
-      });
-      return isArtistsView;
-    },
+    enabled: () => mobileView() === "artists",
   });
 
   // Extract state and actions
   const artists = infiniteScroll.state.items;
   const loading = infiniteScroll.state.loading;
   const error = infiniteScroll.state.error;
-
-  // Debug container ref
-  console.log(
-    "🔄 Mobile infinite scroll container ref:",
-    infiniteScroll.containerRef
-  );
 
   // Fetch tracks for selected artist
   const [artistSongsResource] = createResource(
@@ -94,13 +80,11 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
     storeActions.selectArtist(artist);
     events.emit("artist:selected", { artist });
     // Switch to songs view on mobile
-    console.log("🔄 Mobile switching to songs view for artist:", artist.artist);
     setMobileView("songs");
   };
 
   const handleBackToArtists = () => {
     setSelectedArtist(null);
-    console.log("🔄 Mobile switching back to artists view");
     setMobileView("artists");
     storeActions.selectArtist(null);
   };
@@ -134,7 +118,7 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
       {/* Mobile Artists List */}
       <Show when={mobileView() === "artists"}>
         <div class="flex-1 flex flex-col h-full overflow-hidden">
-          <div class="p-4 border-b border-magenta-800/30">
+          <div class="p-3 border-b border-magenta-800/30">
             <h1 class="text-2xl font-semibold text-white mb-2">artists</h1>
             <Show
               when={!loading() && !error()}
@@ -146,47 +130,7 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
 
           <div
             class="flex-1 overflow-y-auto min-h-0"
-            ref={(el) => {
-              console.log("🔄 Mobile container ref being set:", el);
-              if (el) {
-                // Add a small delay to ensure the element is fully rendered
-                setTimeout(() => {
-                  console.log("🔄 Mobile container dimensions:", {
-                    scrollHeight: el.scrollHeight,
-                    clientHeight: el.clientHeight,
-                    scrollTop: el.scrollTop,
-                    canScroll: el.scrollHeight > el.clientHeight,
-                    offsetHeight: el.offsetHeight,
-                    computedHeight: window.getComputedStyle(el).height,
-                  });
-                  infiniteScroll.containerRef(el);
-                }, 100);
-              }
-            }}
-            onScroll={(e) => {
-              const target = e.currentTarget;
-              const scrollHeight = target.scrollHeight;
-              const scrollTop = target.scrollTop;
-              const clientHeight = target.clientHeight;
-              const distanceFromBottom =
-                scrollHeight - (scrollTop + clientHeight);
-
-              console.log("🔄 Mobile scroll event:", {
-                scrollHeight,
-                scrollTop,
-                clientHeight,
-                distanceFromBottom,
-                loading: loading(),
-                hasMore: infiniteScroll.state.hasMore(),
-                enabled: mobileView() === "artists",
-                threshold: 200,
-                shouldTrigger: distanceFromBottom <= 200,
-              });
-
-              if (distanceFromBottom <= 300) {
-                console.log("🔄 Mobile scroll near bottom - should trigger!");
-              }
-            }}
+            ref={infiniteScroll.containerRef}
           >
             <Show
               when={!loading() || artists().length > 0}
@@ -219,21 +163,6 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
               </div>
             </Show>
 
-            {/* Manual Load More Button for Testing */}
-            <Show when={!loading() && infiniteScroll.state.hasMore()}>
-              <div class="p-4 text-center">
-                <button
-                  class="px-6 py-3 bg-magenta-600 hover:bg-magenta-500 text-white rounded-lg transition-colors"
-                  onClick={() => {
-                    console.log("🔄 Manual load more clicked");
-                    infiniteScroll.actions.loadMore();
-                  }}
-                >
-                  Load More Artists ({artists().length} so far)
-                </button>
-              </div>
-            </Show>
-
             {/* End of list indicator */}
             <Show
               when={
@@ -253,7 +182,7 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
       {/* Mobile Artist Songs */}
       <Show when={mobileView() === "songs" && selectedArtist()}>
         <div class="flex-1 flex flex-col h-full overflow-hidden">
-          <div class="p-4 border-b border-magenta-800/30">
+          <div class="p-3 border-b border-magenta-800/30">
             <div class="flex items-center gap-3 mb-2">
               <button
                 class="p-1 text-gray-400 hover:text-white transition-colors flex-shrink-0"
@@ -349,23 +278,12 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
                 </div>
               }
             >
-              {(() => {
-                const songs = artistSongsResource()?.songs || [];
-                console.log(
-                  "🎵 Mobile songs being passed to MobileSongList:",
-                  songs
-                );
-                console.log("🎵 Songs length:", songs.length);
-                console.log("🎵 Loading state:", artistSongsResource.loading);
-                return (
-                  <MobileSongList
-                    songs={songs}
-                    loading={artistSongsResource.loading}
-                    hasMore={false}
-                    class="px-4"
-                  />
-                );
-              })()}
+              <MobileSongList
+                songs={artistSongsResource()?.songs || []}
+                loading={artistSongsResource.loading}
+                hasMore={false}
+                class="px-4"
+              />
             </Show>
           </div>
         </div>

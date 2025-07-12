@@ -1,9 +1,9 @@
 import { For, Show } from "solid-js";
-import { useSongInteractions } from "../../../services/songInteractions";
-import { useSelection } from "../../../hooks/useSelection";
-import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
-import { apiClient } from "../../../../../lib/api-client";
-import type { Song } from "../../../../../lib/music/schemas";
+import { useSongInteractions } from "../../../../services/songInteractions";
+import { useSelection } from "../../../../hooks/useSelection";
+import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
+import { apiClient } from "../../../../../../lib/api-client";
+import type { Song } from "../../../../../../lib/music/schemas";
 
 interface MobileSongListProps {
   songs: Song[];
@@ -19,7 +19,7 @@ export function MobileSongList(props: MobileSongListProps) {
 
   // Selection state
   const selection = useSelection({
-    onSelectionChange: (selectedIds) => {
+    onSelectionChange: (selectedIds: Set<string>) => {
       console.log(
         `🎵 Mobile song list selection changed: ${selectedIds.size} songs selected`
       );

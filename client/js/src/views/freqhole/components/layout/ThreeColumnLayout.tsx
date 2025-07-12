@@ -75,7 +75,7 @@ export function ThreeColumnLayout(props: any) {
           class="md:hidden fixed inset-0 z-50 bg-black/50"
           onClick={handleMobileNavClose}
         >
-          <div class="absolute left-0 top-0 bottom-0 w-80 bg-black/95 backdrop-blur-xl border-r border-magenta-800/30 transform transition-transform duration-300 animate-slideInLeft">
+          <div class="absolute left-0 top-0 bottom-0 bg-black/95 backdrop-blur-xl border-r border-magenta-800/30 transform transition-transform duration-300 animate-slideInLeft">
             <div class="flex items-center justify-between px-4 py-3 border-b border-magenta-800/30">
               <div class="flex items-center gap-2">
                 <span class="text-lg font-light text-white">
