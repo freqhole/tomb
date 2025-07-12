@@ -220,7 +220,7 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
       <div class="flex-1 min-w-0 flex flex-col">
         <Show when={selectedArtist()} fallback={<div class="flex-1"></div>}>
           {/* Sticky Artist Header */}
-          <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm border-b border-magenta-800/30 p-6">
+          <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm p-6">
             <h2 class="text-3xl font-bold text-white mb-4">
               {selectedArtist()?.artist}
             </h2>
@@ -278,14 +278,13 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
             {/* Songs */}
             <div>
               <div>
-                <h3 class="text-xl font-semibold text-white mb-4">
-                  songs
-                  <Show when={loadingArtistSongs()}>
+                <Show when={loadingArtistSongs()}>
+                  <h3 class="text-xl font-semibold text-white mb-4">
                     <span class="text-magenta-400 text-sm ml-2">
                       loading...
                     </span>
-                  </Show>
-                </h3>
+                  </h3>
+                </Show>
 
                 <Show
                   when={!loadingArtistSongs() && artistSongsResource()?.songs}

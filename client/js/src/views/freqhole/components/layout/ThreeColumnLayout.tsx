@@ -7,7 +7,7 @@ import { Queue } from "../queue/Queue";
 import { PlayerWrapper } from "../player/PlayerWrapper";
 import { ContextMenuManager } from "../ui/ContextMenuManager";
 import { NavigationHeader } from "../navigation/NavigationHeader";
-import { MenuIcon } from "../ui/icons";
+import { FreqholeIcon, MenuIcon } from "../ui/icons";
 
 export function ThreeColumnLayout(props: any) {
   const [layout] = useLayout();
@@ -44,12 +44,14 @@ export function ThreeColumnLayout(props: any) {
   return (
     <div class="h-screen flex flex-col bg-black text-white font-sans">
       {/* Mobile Header - Sticky */}
-      <div class="md:hidden sticky top-0 z-40 bg-black/90 backdrop-blur-xl border-b border-magenta-800/30">
+      <div class="md:hidden sticky top-0 z-40 bg-black/90 backdrop-blur-xl">
         <div class="flex items-center justify-between px-4 py-3">
           {/* Logo with Menu Button */}
           <div class="flex items-center gap-2">
-            <span class="text-lg font-light text-white">
-              freq<span class="text-magenta-500">h</span>ole
+            <span class="text-2xl font-light text-white lowercase">
+              <span>freqh</span>
+              <FreqholeIcon class="inline" />
+              <span>le</span>
             </span>
           </div>
 
@@ -76,10 +78,12 @@ export function ThreeColumnLayout(props: any) {
           onClick={handleMobileNavClose}
         >
           <div class="absolute left-0 top-0 bottom-0 bg-black/95 backdrop-blur-xl border-r border-magenta-800/30 transform transition-transform duration-300 animate-slideInLeft">
-            <div class="flex items-center justify-between px-4 py-3 border-b border-magenta-800/30">
+            <div class="flex items-center justify-between px-4 py-3">
               <div class="flex items-center gap-2">
-                <span class="text-lg font-light text-white">
-                  freq<span class="text-magenta-500">h</span>ole
+                <span class="text-2xl font-light text-white lowercase">
+                  <span>freqh</span>
+                  <FreqholeIcon class="inline" />
+                  <span>le</span>
                 </span>
               </div>
               <button

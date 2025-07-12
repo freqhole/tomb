@@ -303,7 +303,7 @@ export function MobileAlbumsView(
         {/* Detail View */}
         <div class="h-full flex flex-col">
           {/* Sticky Navigation Bar */}
-          <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm border-b border-magenta-800/30">
+          <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm">
             <div class="flex items-center justify-between p-4">
               <button
                 class="flex items-center text-magenta-400 hover:text-magenta-300 transition-colors"
@@ -440,12 +440,11 @@ export function MobileAlbumsView(
 
             {/* Track Listing */}
             <div class="p-6">
-              <h3 class="text-xl font-semibold text-white mb-4">
-                tracks
-                <Show when={loadingAlbumTracks()}>
+              <Show when={loadingAlbumTracks()}>
+                <h3 class="text-xl font-semibold text-white mb-4">
                   <span class="text-magenta-400 text-sm ml-2">loading...</span>
-                </Show>
-              </h3>
+                </h3>
+              </Show>
 
               <Show
                 when={

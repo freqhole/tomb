@@ -290,7 +290,7 @@ export function SearchResultsView(
       <Show when={currentQuery()} fallback={<div class="flex-1"></div>}>
         <div class="h-full flex flex-col">
           {/* Header */}
-          <div class="flex-shrink-0 p-6 border-b border-magenta-800/30">
+          <div class="flex-shrink-0 p-6">
             <h1 class="text-2xl font-semibold text-white mb-2">
               search results for "{currentQuery()}"
             </h1>

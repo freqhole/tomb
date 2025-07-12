@@ -72,11 +72,7 @@ export function useSelection(options: UseSelectionOptions = {}): SelectionHook {
     });
   };
 
-  const selectRange = (
-    startIndex: number,
-    endIndex: number,
-    songs: Song[]
-  ) => {
+  const selectRange = (startIndex: number, endIndex: number, songs: Song[]) => {
     const start = Math.min(startIndex, endIndex);
     const end = Math.max(startIndex, endIndex);
     const rangeItems = songs.slice(start, end + 1);
@@ -135,6 +131,10 @@ export function useSelection(options: UseSelectionOptions = {}): SelectionHook {
     index: number,
     event: MouseEvent
   ) => {
+    // Check if the element is draggable (for HTML5 drag and drop)
+    const target = event.target as HTMLElement;
+    const isDraggableElement = target?.closest('[draggable="true"]') !== null;
+
     // Prevent text selection during drag operations
     if (event.shiftKey || event.ctrlKey || event.metaKey) {
       event.preventDefault();
@@ -145,7 +145,8 @@ export function useSelection(options: UseSelectionOptions = {}): SelectionHook {
       event.button === 0 &&
       !event.metaKey &&
       !event.ctrlKey &&
-      !event.shiftKey
+      !event.shiftKey &&
+      !isDraggableElement // Don't interfere with HTML5 drag and drop
     ) {
       // Prevent text selection during drag
       event.preventDefault();

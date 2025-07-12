@@ -830,7 +830,7 @@ export function PlaylistDetailView(
           </Show>
 
           {/* Header with inline back button */}
-          <div class="flex-shrink-0 p-6 border-b border-magenta-800/30 relative z-10">
+          <div class="flex-shrink-0 p-6 relative z-10">
             <div class="flex items-start justify-between">
               <div class="flex-1">
                 {/* Playlist Info */}

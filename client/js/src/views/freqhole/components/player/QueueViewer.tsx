@@ -69,7 +69,6 @@ export const QueueViewer = () => {
           class={`p-6 flex justify-between items-center bg-black/30 border-b border-white/10 ${isSmallScreen() ? "pt-8" : ""}`}
         >
           <div class="flex items-center gap-3">
-            <h3 class="m-0 text-white text-lg font-medium lowercase">queue</h3>
             {player.playQueue().length > 0 && (
               <span class="px-2 py-1 bg-primary-500/80 text-white text-xs rounded-full font-medium">
                 {player.playQueue().length} song

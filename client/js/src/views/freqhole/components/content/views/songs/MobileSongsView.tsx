@@ -93,7 +93,7 @@ export function MobileSongsView(props: MobileSongsViewProps) {
   return (
     <div class={`h-full flex flex-col w-full max-w-full ${props.class || ""}`}>
       {/* Fixed Header */}
-      <div class="flex-shrink-0 p-3 border-b border-magenta-800/30">
+      <div class="flex-shrink-0 p-3">
         <h1 class="text-2xl font-semibold text-white mb-2">songs</h1>
         <Show
           when={!loading() && !error()}

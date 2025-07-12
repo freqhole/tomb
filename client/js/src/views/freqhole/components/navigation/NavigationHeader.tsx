@@ -4,6 +4,7 @@ import { storeActions } from "../../store";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { SearchSuggestions } from "../../../../components/search/SearchSuggestions";
 import { apiClient } from "../../../../lib/api-client";
+import { FreqholeIcon } from "../icons";
 
 export function NavigationHeader() {
   const navigate = useNavigate();
@@ -62,9 +63,11 @@ export function NavigationHeader() {
   return (
     <div class="p-3 md:p-4">
       <div class="hidden md:block mb-4">
-        <h1 class="text-xl font-bold text-white lowercase">
-          freq<span class="text-magenta-500">h</span>ole
-        </h1>
+        <span class="text-2xl font-light text-white lowercase">
+          <span>freqh</span>
+          <FreqholeIcon class="inline" />
+          <span>le</span>
+        </span>
       </div>
 
       <div class="relative">

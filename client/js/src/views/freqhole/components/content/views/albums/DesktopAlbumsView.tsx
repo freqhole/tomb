@@ -267,7 +267,7 @@ export function DesktopAlbumsView(
         {/* Detail View */}
         <div class="h-full flex flex-col">
           {/* Sticky Header with back button */}
-          <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm border-b border-magenta-800/30 p-6">
+          <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm p-6">
             <button
               class="flex items-center text-magenta-400 hover:text-magenta-300 transition-colors mb-4"
               onClick={handleBackToGrid}
@@ -390,12 +390,11 @@ export function DesktopAlbumsView(
 
           {/* Track Listing */}
           <div class="flex-1 overflow-y-auto p-6">
-            <h3 class="text-xl font-semibold text-white mb-4">
-              tracks
-              <Show when={loadingAlbumTracks()}>
+            <Show when={loadingAlbumTracks()}>
+              <h3 class="text-xl font-semibold text-white mb-4">
                 <span class="text-magenta-400 text-sm ml-2">loading...</span>
-              </Show>
-            </h3>
+              </h3>
+            </Show>
 
             <Show
               when={

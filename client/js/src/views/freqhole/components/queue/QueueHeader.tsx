@@ -15,7 +15,6 @@ export function QueueHeader(props: QueueHeaderProps) {
     <div class="p-4 bg-black/90">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <h3 class="text-lg font-semibold text-white">queue</h3>
           <Show when={props.queueLength > 0}>
             <span class="px-2 py-1 bg-magenta-500/30 text-magenta-300 text-xs rounded-full font-medium">
               {props.queueLength} song{props.queueLength !== 1 ? "s" : ""}
@@ -23,7 +22,7 @@ export function QueueHeader(props: QueueHeaderProps) {
           </Show>
         </div>
 
-        <div class="flex gap-2">
+        <div class="flex gap-6">
           <Show when={props.queueLength > 0}>
             <button
               onClick={props.onClear}

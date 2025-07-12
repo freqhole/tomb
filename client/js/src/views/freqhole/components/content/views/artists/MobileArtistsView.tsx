@@ -118,7 +118,7 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
       {/* Mobile Artists List */}
       <Show when={mobileView() === "artists"}>
         <div class="flex-1 flex flex-col h-full overflow-hidden">
-          <div class="p-3 border-b border-magenta-800/30">
+          <div class="p-3">
             <h1 class="text-2xl font-semibold text-white mb-2">artists</h1>
             <Show
               when={!loading() && !error()}
@@ -182,7 +182,7 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
       {/* Mobile Artist Songs */}
       <Show when={mobileView() === "songs" && selectedArtist()}>
         <div class="flex-1 flex flex-col h-full overflow-hidden">
-          <div class="p-3 border-b border-magenta-800/30">
+          <div class="p-3">
             <div class="flex items-center gap-3 mb-2">
               <button
                 class="p-1 text-gray-400 hover:text-white transition-colors flex-shrink-0"
