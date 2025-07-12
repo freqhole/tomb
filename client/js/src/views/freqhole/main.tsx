@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import { Freqhole } from "./index";
+import Freqhole from "./index";
 import "./styles.css";
 // import Zoony from "./zoony";
 

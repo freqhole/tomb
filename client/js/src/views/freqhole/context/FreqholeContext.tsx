@@ -1,10 +1,10 @@
 /* @jsxImportSource solid-js */
 import { createContext, useContext, ParentComponent, JSX } from "solid-js";
-import { useFreqholeState } from "../hooks";
+// import { useFreqholeState } from "../hooks"; // TODO: Replace with new store
 import type { UsePlayerQueueOptions } from "../hooks";
 
 // Create the context
-const FreqholeContext = createContext<ReturnType<typeof useFreqholeState>>();
+const FreqholeContext = createContext<any>(); // TODO: Type properly with new store
 
 export interface FreqholeProviderProps {
   children: JSX.Element;
@@ -15,7 +15,8 @@ export interface FreqholeProviderProps {
 export const FreqholeProvider: ParentComponent<FreqholeProviderProps> = (
   props
 ) => {
-  const freqholeState = useFreqholeState();
+  // TODO: Replace with new store
+  const freqholeState = {}; // Temporary placeholder
 
   return (
     <FreqholeContext.Provider value={freqholeState}>
@@ -43,4 +44,4 @@ export const useFreqhole = () => {
 };
 
 // Export types for convenience
-export type FreqholeContextType = ReturnType<typeof useFreqholeState>;
+export type FreqholeContextType = any; // TODO: Type properly with new store
