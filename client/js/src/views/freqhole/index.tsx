@@ -1,6 +1,11 @@
 import { Router } from "@solidjs/router";
 import { routes } from "./routes";
+import { StoreProvider } from "./store";
 
 export default function Freqhole() {
-  return <Router>{routes}</Router>;
+  return (
+    <StoreProvider>
+      <Router>{routes}</Router>
+    </StoreProvider>
+  );
 }

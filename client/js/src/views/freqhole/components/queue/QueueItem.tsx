@@ -1,0 +1,69 @@
+import { Show } from "solid-js";
+
+interface QueueItemProps {
+  song: any;
+  index: number;
+  isCurrentlyPlaying: boolean;
+  onPlay: () => void;
+  onRemove: () => void;
+}
+
+export function QueueItem(props: QueueItemProps) {
+  const formatDuration = (seconds: number | undefined) => {
+    if (!seconds) return "--:--";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  return (
+    <div
+      class={`flex items-center p-3 cursor-pointer rounded-lg mb-2 group transition-all duration-200 ${
+        props.isCurrentlyPlaying
+          ? "bg-magenta-500/30 text-magenta-300"
+          : "hover:bg-magenta-500/20 text-gray-300"
+      }`}
+      onClick={props.onPlay}
+    >
+      <div class="flex items-center gap-3 flex-1 min-w-0">
+        <div class="w-6 text-center text-xs text-gray-500">
+          {props.index + 1}
+        </div>
+
+        <div class="flex-1 min-w-0">
+          <h4 class="text-sm font-medium truncate">
+            {props.song.title || "Unknown Title"}
+          </h4>
+          <p class="text-xs text-gray-400 truncate">
+            {props.song.artist || "Unknown Artist"}
+          </p>
+          <Show when={props.isCurrentlyPlaying}>
+            <div class="flex items-center gap-1 mt-1">
+              <div class="w-2 h-2 bg-magenta-500 rounded-full animate-pulse"></div>
+              <span class="text-xs text-magenta-400 font-medium">
+                now playing
+              </span>
+            </div>
+          </Show>
+        </div>
+
+        <div class="text-xs text-gray-500">
+          {formatDuration(props.song.duration_seconds)}
+        </div>
+      </div>
+
+      <button
+        class="opacity-0 group-hover:opacity-100 p-2 ml-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all duration-200"
+        onClick={(e) => {
+          e.stopPropagation();
+          props.onRemove();
+        }}
+        title="remove from queue"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  );
+}
