@@ -84,6 +84,77 @@ function FreqholeContent() {
     }
   });
 
+  // Computed show/hide values for UI reactivity
+  const showLoadingIndicator = createMemo(() => {
+    const currentView = freqhole.music.state.currentView();
+    let loading = false;
+    let hasMore = false;
+
+    switch (currentView) {
+      case "music":
+        loading = freqhole.music.state.songsLoading();
+        hasMore = freqhole.music.state.songsHasMore();
+        break;
+      case "artists":
+        loading = freqhole.music.state.artistsLoading();
+        hasMore = freqhole.music.state.artistsHasMore();
+        break;
+      case "albums":
+        loading = freqhole.music.state.albumsLoading();
+        hasMore = freqhole.music.state.albumsHasMore();
+        break;
+      case "playlists":
+        loading = freqhole.music.state.playlistsLoading();
+        hasMore = freqhole.music.state.playlistsHasMore();
+        break;
+    }
+
+    const result = loading && hasMore;
+    console.log("🔄 Loading indicator computed:", {
+      currentView,
+      loading,
+      hasMore,
+      result,
+      timestamp: Date.now(),
+    });
+    return result;
+  });
+
+  const showLoadMoreButton = createMemo(() => {
+    const currentView = freqhole.music.state.currentView();
+    let loading = false;
+    let hasMore = false;
+
+    switch (currentView) {
+      case "music":
+        loading = freqhole.music.state.songsLoading();
+        hasMore = freqhole.music.state.songsHasMore();
+        break;
+      case "artists":
+        loading = freqhole.music.state.artistsLoading();
+        hasMore = freqhole.music.state.artistsHasMore();
+        break;
+      case "albums":
+        loading = freqhole.music.state.albumsLoading();
+        hasMore = freqhole.music.state.albumsHasMore();
+        break;
+      case "playlists":
+        loading = freqhole.music.state.playlistsLoading();
+        hasMore = freqhole.music.state.playlistsHasMore();
+        break;
+    }
+
+    const result = hasMore && !loading;
+    console.log("🔘 Load more button computed:", {
+      currentView,
+      loading,
+      hasMore,
+      result,
+      timestamp: Date.now(),
+    });
+    return result;
+  });
+
   const handleSearch = (query: string) => {
     if (query.trim()) {
       freqhole.music.actions.performSearch(query);
@@ -368,36 +439,7 @@ function FreqholeContent() {
                   </For>
 
                   {/* Infinite scroll loading indicator */}
-                  <Show
-                    when={() => {
-                      const currentView = freqhole.music.state.currentView();
-
-                      switch (currentView) {
-                        case "music":
-                          return (
-                            freqhole.music.state.songsLoading() &&
-                            freqhole.music.state.songsHasMore()
-                          );
-                        case "artists":
-                          return (
-                            freqhole.music.state.artistsLoading() &&
-                            freqhole.music.state.artistsHasMore()
-                          );
-                        case "albums":
-                          return (
-                            freqhole.music.state.albumsLoading() &&
-                            freqhole.music.state.albumsHasMore()
-                          );
-                        case "playlists":
-                          return (
-                            freqhole.music.state.playlistsLoading() &&
-                            freqhole.music.state.playlistsHasMore()
-                          );
-                        default:
-                          return false;
-                      }
-                    }}
-                  >
+                  <Show when={showLoadingIndicator}>
                     <div class="flex items-center justify-center py-4">
                       <div class="text-gray-400 text-sm">loading more...</div>
                     </div>
@@ -406,52 +448,12 @@ function FreqholeContent() {
                   {/* Load more button as fallback */}
                   <Show
                     when={() => {
-                      const currentView = freqhole.music.state.currentView();
-
-                      switch (currentView) {
-                        case "music":
-                          const songsHasMore =
-                            freqhole.music.state.songsHasMore();
-                          const songsLoading =
-                            freqhole.music.state.songsLoading();
-                          console.log("🔘 Songs load more button check:", {
-                            songsHasMore,
-                            songsLoading,
-                          });
-                          return songsHasMore && !songsLoading;
-                        case "artists":
-                          const artistsHasMore =
-                            freqhole.music.state.artistsHasMore();
-                          const artistsLoading =
-                            freqhole.music.state.artistsLoading();
-                          console.log("🔘 Artists load more button check:", {
-                            artistsHasMore,
-                            artistsLoading,
-                          });
-                          return artistsHasMore && !artistsLoading;
-                        case "albums":
-                          const albumsHasMore =
-                            freqhole.music.state.albumsHasMore();
-                          const albumsLoading =
-                            freqhole.music.state.albumsLoading();
-                          console.log("🔘 Albums load more button check:", {
-                            albumsHasMore,
-                            albumsLoading,
-                          });
-                          return albumsHasMore && !albumsLoading;
-                        case "playlists":
-                          const playlistsHasMore =
-                            freqhole.music.state.playlistsHasMore();
-                          const playlistsLoading =
-                            freqhole.music.state.playlistsLoading();
-                          console.log("🔘 Playlists load more button check:", {
-                            playlistsHasMore,
-                            playlistsLoading,
-                          });
-                          return playlistsHasMore && !playlistsLoading;
-                        default:
-                          return false;
-                      }
+                      const result = showLoadMoreButton();
+                      console.log("🎯 Show component when check:", {
+                        showLoadMoreButton: result,
+                        timestamp: Date.now(),
+                      });
+                      return result;
                     }}
                   >
                     <div class="flex items-center justify-center py-4">
@@ -476,10 +478,16 @@ function FreqholeContent() {
                           }
                         }}
                       >
-                        load more
+                        🔥 DEBUGGED LOAD MORE 🔥
                       </button>
                     </div>
                   </Show>
+
+                  {/* Debug: Always show current state */}
+                  <div class="flex items-center justify-center py-2 text-xs text-gray-500">
+                    DEBUG: hasMore={showLoadMoreButton() ? "true" : "false"},
+                    view={freqhole.music.state.currentView()}
+                  </div>
                 </div>
               </Show>
             </div>

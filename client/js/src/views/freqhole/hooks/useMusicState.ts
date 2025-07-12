@@ -614,31 +614,79 @@ export const useMusicState = () => {
       albums,
       artists,
 
-      // Infinite scroll states - unified for current view
-      songsLoading: createMemo(() =>
-        currentView() === "music" ? loading() : false
-      ),
-      songsHasMore: createMemo(() =>
-        currentView() === "music" ? hasMore() : false
-      ),
-      playlistsLoading: createMemo(() =>
-        currentView() === "playlists" ? loading() : false
-      ),
-      playlistsHasMore: createMemo(() =>
-        currentView() === "playlists" ? hasMore() : false
-      ),
-      albumsLoading: createMemo(() =>
-        currentView() === "albums" ? loading() : false
-      ),
-      albumsHasMore: createMemo(() =>
-        currentView() === "albums" ? hasMore() : false
-      ),
-      artistsLoading: createMemo(() =>
-        currentView() === "artists" ? loading() : false
-      ),
-      artistsHasMore: createMemo(() =>
-        currentView() === "artists" ? hasMore() : false
-      ),
+      // Infinite scroll states - using createMemo for proper reactivity
+      songsLoading: createMemo(() => {
+        const result = currentView() === "music" ? loading() : false;
+        console.log("🎵 songsLoading checked:", {
+          currentView: currentView(),
+          loading: loading(),
+          result,
+        });
+        return result;
+      }),
+      songsHasMore: createMemo(() => {
+        const result = currentView() === "music" ? hasMore() : false;
+        console.log("🎵 songsHasMore checked:", {
+          currentView: currentView(),
+          hasMore: hasMore(),
+          result,
+        });
+        return result;
+      }),
+      playlistsLoading: createMemo(() => {
+        const result = currentView() === "playlists" ? loading() : false;
+        console.log("📂 playlistsLoading checked:", {
+          currentView: currentView(),
+          loading: loading(),
+          result,
+        });
+        return result;
+      }),
+      playlistsHasMore: createMemo(() => {
+        const result = currentView() === "playlists" ? hasMore() : false;
+        console.log("📂 playlistsHasMore checked:", {
+          currentView: currentView(),
+          hasMore: hasMore(),
+          result,
+        });
+        return result;
+      }),
+      albumsLoading: createMemo(() => {
+        const result = currentView() === "albums" ? loading() : false;
+        console.log("💿 albumsLoading checked:", {
+          currentView: currentView(),
+          loading: loading(),
+          result,
+        });
+        return result;
+      }),
+      albumsHasMore: createMemo(() => {
+        const result = currentView() === "albums" ? hasMore() : false;
+        console.log("💿 albumsHasMore checked:", {
+          currentView: currentView(),
+          hasMore: hasMore(),
+          result,
+        });
+        return result;
+      }),
+      artistsLoading: createMemo(() => {
+        const result = currentView() === "artists" ? loading() : false;
+        console.log("🎤 artistsLoading checked:", {
+          currentView: currentView(),
+          loading: loading(),
+          result,
+        });
+        return result;
+      }),
+      artistsHasMore: createMemo(() => {
+        const result = currentView() === "artists" ? hasMore() : false;
+        console.log("🎤 artistsHasMore checked:", {
+          currentView: currentView(),
+          hasMore: hasMore(),
+          result,
+        });
+        return result;
+      }),
 
       currentPlaylist,
       playlistSongs,

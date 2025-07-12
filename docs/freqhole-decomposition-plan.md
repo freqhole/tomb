@@ -2,6 +2,28 @@
 
 ## 🚧 Next Priorities & Todo Items
 
+okay, let me describe what i'm imagining how a three column layout might work.
+
+the full-width header container, as it is now, will go away and it's contents will move into the left column container, which will groupings of top-level nav items. it should be, from top to bottom order:
+
+the freqhole logo
+the search box
+
+all music
+artists
+albums
+genres
+
+the main column would then render one of the nav selections. generally it will be groupings of songs. the groups should probably be defined and returned by the server so i think we need to work on the api more. i don't know if solid router would help here but i might consider it, i don't love routers, but what i'm looking to solve is all the state and data loading mess that ended up in the current code for rendering different views. i want to heavily re-factor all of that so that there's more modularization and separation of concerns and the logic for transitioning between views isn't so complex.
+
+the idea is that the main column will render a groups of smaller collections in different ways. for example, artists could render two columns inside the main column to show a list of all the artists in one col and then a list songs grouped by album on the left. albums could be just an image grid view of albums. "all music" would be like a table view of songs that could have column sorting.
+
+a list of playlists would be rendered in the nav column last, the playlist songs should be able to be resorted and removed.
+
+this is basically how apple music does it's layout, if you know how that works, i'm looking for something similar.
+
+i'd like to, in the future, work on more nav items for different ways to group collections of songs. i'd like for the main structure to get put into place first. for the main container there will be a few main components to render groupings as well as collections in different ways like image grids, lists, table, sortable table, and then also, in the future, like carousels, paragraphs of text, bigger images in like a header/background way (for like playlists, or album views, or artist page views).
+
 ### Phase L: API Pagination & Infinite Scroll Enhancement
 
 **Priority**: High - Performance & Scalability
