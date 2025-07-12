@@ -1,10 +1,7 @@
-import { Show } from "solid-js";
-
 interface QueueItemProps {
   song: any;
   index: number;
   isCurrentlyPlaying: boolean;
-  onPlay: () => void;
   onRemove: () => void;
 }
 
@@ -18,12 +15,11 @@ export function QueueItem(props: QueueItemProps) {
 
   return (
     <div
-      class={`flex items-center p-3 cursor-pointer rounded-lg group transition-all duration-200 border border-transparent ${
+      class={`flex items-center p-3 rounded-lg group transition-all duration-200 border border-transparent ${
         props.isCurrentlyPlaying
           ? "bg-magenta-600/30 text-white"
           : "hover:bg-magenta-600/20 text-white"
       }`}
-      onClick={props.onPlay}
     >
       <div class="flex items-center gap-3 flex-1 min-w-0">
         <div class="w-6 text-center text-xs text-gray-400">
@@ -37,14 +33,6 @@ export function QueueItem(props: QueueItemProps) {
           <p class="text-xs text-gray-400 truncate">
             {props.song.artist || "Unknown Artist"}
           </p>
-          <Show when={props.isCurrentlyPlaying}>
-            <div class="flex items-center gap-1 mt-1">
-              <div class="w-2 h-2 bg-magenta-500 rounded-full animate-pulse"></div>
-              <span class="text-xs text-magenta-400 font-medium">
-                now playing
-              </span>
-            </div>
-          </Show>
         </div>
 
         <div class="text-xs text-gray-400">

@@ -10,11 +10,11 @@ export function PlayerWrapper() {
   // Listen for player events and sync with store
   createEffect(() => {
     events.on("player:play", () => {
-      storeActions.togglePlay();
+      storeActions.setPlayerState({ isPlaying: true });
     });
 
     events.on("player:pause", () => {
-      storeActions.togglePlay();
+      storeActions.setPlayerState({ isPlaying: false });
     });
 
     events.on("player:volume", ({ volume }) => {

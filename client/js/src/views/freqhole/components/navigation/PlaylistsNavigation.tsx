@@ -115,7 +115,7 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
 
       <button
         onClick={handleCreatePlaylist}
-        class="w-full mt-3 p-2 bg-magenta-600 rounded-lg text-sm text-black font-medium hover:bg-magenta-500 hover:border hover:border-magenta-400 transition-all duration-200"
+        class="w-full mt-3 p-2 bg-magenta-600 rounded-lg text-sm text-black font-medium hover:bg-magenta-500 border border-transparent hover:border-magenta-400 transition-all duration-200"
       >
         + create playlist
       </button>

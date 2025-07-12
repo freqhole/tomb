@@ -13,9 +13,16 @@ export function useSongInteractions() {
   // Song playback actions
   const playSong = (song: Song, replaceQueue: boolean = true) => {
     console.log(`🎵 Playing song: ${song.display_title}`, { replaceQueue });
+    console.log(
+      `🎵 Before playSong - isPlaying: ${store.player.isPlaying}, currentSong: ${store.player.currentSong?.id}`
+    );
 
     // Update player state
     storeActions.playSong(song);
+
+    console.log(
+      `🎵 After playSong - isPlaying: ${store.player.isPlaying}, currentSong: ${store.player.currentSong?.id}`
+    );
 
     // Handle queue replacement or addition
     if (replaceQueue) {
@@ -30,8 +37,7 @@ export function useSongInteractions() {
       }
     }
 
-    // Emit player events for other components to handle
-    events.emit("player:play", {});
+    // Note: No need to emit player:play event since storeActions.playSong already sets isPlaying: true
   };
 
   const queueSong = (song: Song) => {

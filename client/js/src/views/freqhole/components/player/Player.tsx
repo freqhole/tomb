@@ -1,5 +1,12 @@
 /* @jsxImportSource solid-js */
-import { Show, onMount, onCleanup, createSignal, createEffect } from "solid-js";
+import {
+  Show,
+  onMount,
+  onCleanup,
+  createSignal,
+  createEffect,
+  untrack,
+} from "solid-js";
 import {
   PlayIcon,
   PauseIcon,
@@ -21,6 +28,13 @@ export const Player = () => {
 
   // Audio element and state
   const [audioElement, setAudioElement] = createSignal<HTMLAudioElement | null>(
+    null
+  );
+  const [showVolumeSlider, setShowVolumeSlider] = createSignal(false);
+  const [volumeHideTimeout, setVolumeHideTimeout] = createSignal<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const [lastLoadedSongId, setLastLoadedSongId] = createSignal<string | null>(
     null
   );
 
@@ -70,7 +84,23 @@ export const Player = () => {
 
   const changeVolume = (newVolume: number) => {
     storeActions.setVolume(newVolume);
-    events.emit("player:volume", { volume: newVolume });
+  };
+
+  const showVolumeControls = () => {
+    const timeout = volumeHideTimeout();
+    if (timeout) {
+      clearTimeout(timeout);
+      setVolumeHideTimeout(null);
+    }
+    setShowVolumeSlider(true);
+  };
+
+  const hideVolumeControls = () => {
+    const timeout = setTimeout(() => {
+      setShowVolumeSlider(false);
+      setVolumeHideTimeout(null);
+    }, 300);
+    setVolumeHideTimeout(timeout);
   };
 
   const seekTo = (percentage: number) => {
@@ -126,22 +156,44 @@ export const Player = () => {
     };
   });
 
-  // Watch for current song changes and load audio
+  // Watch for current song changes and load audio (ONLY track song changes)
   createEffect(() => {
     const song = currentSong();
     const audio = audioElement();
 
-    if (song && audio) {
-      console.log("🎵 Loading audio for song:", song.title);
-      audio.pause(); // Stop any currently playing audio
-      audio.src = `${apiClient.getBaseUrl()}/api/blobs/${song.media_blob_id}`;
-      audio.volume = volume();
+    console.log("🎵 Song effect triggered:", {
+      songId: song?.id,
+      songTitle: song?.title,
+      lastLoadedId: lastLoadedSongId(),
+      audioSrc: audio?.src,
+    });
 
-      // Wait for the audio to load before playing
-      if (isPlaying()) {
+    if (song && audio) {
+      // Only proceed if this is actually a different song
+      if (lastLoadedSongId() === song.id) {
+        console.log("🎵 Same song ID, skipping reload:", song.title);
+        return;
+      }
+
+      console.log("🎵 Loading NEW audio for song:", song.title);
+      setLastLoadedSongId(song.id);
+
+      audio.pause(); // Stop any currently playing audio
+      audio.currentTime = 0; // Reset to beginning for new songs only
+      audio.src = `${apiClient.getBaseUrl()}/api/blobs/${song.media_blob_id}`;
+
+      // Set volume without tracking it (use untrack to prevent reactivity)
+      const currentVol = untrack(() => volume());
+      audio.volume = currentVol;
+
+      // Wait for the audio to load before playing (only for new songs)
+      const shouldPlay = untrack(() => isPlaying());
+      if (shouldPlay) {
+        console.log("🎵 Setting up auto-play for new song");
         audio.addEventListener(
           "canplay",
           () => {
+            console.log("🎵 Audio can play, starting playback");
             audio.play().catch((err) => {
               console.error("Failed to play audio:", err);
               storeActions.setPlayerState({ isPlaying: false });
@@ -159,26 +211,48 @@ export const Player = () => {
     const song = currentSong();
     const playing = isPlaying();
 
+    console.log("🎮 Play/pause effect triggered:", {
+      songId: song?.id,
+      playing,
+      audioSrc: audio?.src,
+      audioPaused: audio?.paused,
+      audioCurrentTime: audio?.currentTime,
+    });
+
     if (!audio || !song) return;
 
     // Only handle play/pause if audio is already loaded for this song
     if (audio.src && audio.src.includes(song.media_blob_id)) {
+      console.log("🎮 Play/pause state change:", {
+        playing,
+        paused: audio.paused,
+        currentTime: audio.currentTime,
+      });
+
       if (playing && audio.paused) {
+        // Resume from current position, don't restart
+        console.log("🎮 Resuming playback from:", audio.currentTime);
         audio.play().catch((err) => {
           console.error("Failed to play audio:", err);
           storeActions.setPlayerState({ isPlaying: false });
         });
       } else if (!playing && !audio.paused) {
+        console.log("🎮 Pausing playback at:", audio.currentTime);
         audio.pause();
       }
+    } else {
+      console.log("🎮 Skipping play/pause - audio not loaded for current song");
     }
   });
 
-  // Watch for volume changes
+  // Watch for volume changes (separate from song loading)
   createEffect(() => {
+    const vol = volume();
     const audio = audioElement();
-    if (audio) {
-      audio.volume = volume();
+    if (audio && audio.src) {
+      // Only update volume if audio is already loaded
+      console.log("🔊 Updating volume to:", vol);
+      audio.volume = vol;
     }
   });
 
@@ -188,6 +262,13 @@ export const Player = () => {
     if (audio) {
       audio.pause();
       audio.src = "";
+    }
+
+    // Clear volume timeout
+    const timeout = volumeHideTimeout();
+    if (timeout) {
+      clearTimeout(timeout);
+      setVolumeHideTimeout(null);
     }
   });
 
@@ -346,23 +427,45 @@ export const Player = () => {
         </div>
 
         {/* Volume Control */}
-        <div class="flex items-center gap-2">
-          <VolumeIcon className="text-magenta-300" />
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={volume()}
-            onInput={(e) => {
-              const newVolume = parseFloat(e.currentTarget.value);
-              changeVolume(newVolume);
-            }}
-            class="w-24 h-1 bg-magenta-800/50 border-none rounded-full outline-none appearance-none cursor-pointer"
-            style={{
-              background: `linear-gradient(to right, rgb(217 70 239) 0%, rgb(217 70 239) ${volume() * 100}%, rgba(139, 69, 19, 0.5) ${volume() * 100}%, rgba(139, 69, 19, 0.5) 100%)`,
-            }}
-          />
+        <div
+          class="relative flex items-center"
+          onMouseEnter={showVolumeControls}
+          onMouseLeave={hideVolumeControls}
+        >
+          <button
+            class="p-2 rounded-full hover:bg-magenta-600/30 transition-colors"
+            onClick={() => setShowVolumeSlider(!showVolumeSlider())}
+            title={`Volume: ${Math.round(volume() * 100)}%`}
+          >
+            <VolumeIcon className="text-magenta-300 hover:text-white transition-colors" />
+          </button>
+
+          <Show when={showVolumeSlider()}>
+            <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-black/90 backdrop-blur-xl border border-magenta-800/30 rounded-lg p-3 min-w-32 shadow-lg">
+              <div class="flex items-center gap-3">
+                <span class="text-xs text-magenta-300 min-w-8 font-medium">
+                  {Math.round(volume() * 100)}%
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={volume()}
+                  onInput={(e) => {
+                    const newVolume = parseFloat(e.currentTarget.value);
+                    changeVolume(newVolume);
+                  }}
+                  class="flex-1 h-1.5 bg-magenta-800/50 border-none rounded-full outline-none appearance-none cursor-pointer hover:h-2 transition-all"
+                  style={{
+                    background: `linear-gradient(to right, rgb(217 70 239) 0%, rgb(217 70 239) ${volume() * 100}%, rgba(139, 69, 19, 0.5) ${volume() * 100}%, rgba(139, 69, 19, 0.5) 100%)`,
+                  }}
+                />
+              </div>
+              {/* Tooltip arrow */}
+              <div class="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-magenta-800/30"></div>
+            </div>
+          </Show>
         </div>
       </div>
     </Show>

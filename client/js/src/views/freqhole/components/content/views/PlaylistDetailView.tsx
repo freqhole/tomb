@@ -8,6 +8,7 @@ import {
 import { useStore, storeActions } from "../../../store";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { useLocation, useNavigate, useParams } from "@solidjs/router";
+import { useSongInteractions } from "../../../services/songInteractions";
 import { apiClient } from "../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Playlist, Song } from "../../../../../lib/music/schemas";
@@ -22,6 +23,7 @@ export function PlaylistDetailView(
 ) {
   const [] = useStore();
   const events = useGlobalEvents();
+  const songInteractions = useSongInteractions();
   const location = useLocation();
   const navigate = useNavigate();
   const params = useParams();
@@ -34,6 +36,14 @@ export function PlaylistDetailView(
   const [editDescription, setEditDescription] = createSignal("");
   const [loadingPlaylistSongs, setLoadingPlaylistSongs] = createSignal(false);
   const [isNewPlaylist, setIsNewPlaylist] = createSignal(false);
+  const [sortBy, setSortBy] = createSignal<
+    "recent" | "alphabetical" | "song_count"
+  >("recent");
+  const [originalTitle, setOriginalTitle] = createSignal("");
+  const [originalDescription, setOriginalDescription] = createSignal("");
+  const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = createSignal<number | null>(null);
+  const [refreshSongs, setRefreshSongs] = createSignal(0);
 
   // Detect if we're in "new playlist" mode or have a playlist ID in the route
   createEffect(() => {
@@ -77,6 +87,8 @@ export function PlaylistDetailView(
         setSelectedPlaylist(playlist);
         setEditTitle(playlist.title);
         setEditDescription(playlist.description || "");
+        setOriginalTitle(playlist.title);
+        setOriginalDescription(playlist.description || "");
         storeActions.selectPlaylist(playlist);
         events.emit("playlist:selected", { playlist });
         console.log("📝 Playlist loaded:", playlist.title);
@@ -109,10 +121,12 @@ export function PlaylistDetailView(
 
   // Fetch songs for selected playlist (only for existing playlists)
   const [playlistSongsResource] = createResource(
-    () =>
-      selectedPlaylist()?.id && !isNewPlaylist()
+    () => {
+      refreshSongs(); // Track refresh signal
+      return selectedPlaylist()?.id && !isNewPlaylist()
         ? selectedPlaylist()!.id
-        : false,
+        : false;
+    },
     async (playlistId: string) => {
       if (!playlistId) return [];
 
@@ -141,6 +155,13 @@ export function PlaylistDetailView(
     setSelectedPlaylist(null);
     setEditMode(false);
     storeActions.selectPlaylist(null);
+  };
+
+  const handleCancelEdit = () => {
+    // Reset to original values
+    setEditTitle(originalTitle());
+    setEditDescription(originalDescription());
+    setEditMode(false);
   };
 
   const handleEditToggle = () => {
@@ -195,17 +216,15 @@ export function PlaylistDetailView(
     if (!playlist) return;
 
     try {
-      await apiClient.updatePlaylist(playlist.id, {
+      const updatedPlaylist = await apiClient.updatePlaylist(playlist.id, {
         title: editTitle(),
         description: editDescription() || null,
       });
 
       // Update local state
-      setSelectedPlaylist({
-        ...playlist,
-        title: editTitle(),
-        description: editDescription() || null,
-      });
+      setSelectedPlaylist(updatedPlaylist);
+      setOriginalTitle(updatedPlaylist.title);
+      setOriginalDescription(updatedPlaylist.description || "");
 
       setEditMode(false);
       events.emit("notification:show", {
@@ -231,7 +250,8 @@ export function PlaylistDetailView(
 
     try {
       await apiClient.deletePlaylist(playlist.id);
-      handleBackToList();
+      // Navigate back to playlists list
+      navigate("/playlists");
       events.emit("notification:show", {
         type: "success",
         message: "Playlist deleted successfully",
@@ -248,11 +268,17 @@ export function PlaylistDetailView(
   const handlePlayPlaylist = () => {
     const songs = playlistSongsResource();
     if (songs && songs.length > 0) {
-      events.emit("song:play", { song: songs[0], replaceQueue: true });
-      // Add rest of songs to queue
-      songs.slice(1).forEach((song) => {
-        events.emit("song:queue", { song });
-      });
+      // Play first song and replace queue
+      const firstSong = songs[0];
+      if (firstSong) {
+        songInteractions.playSong(firstSong, true);
+        // Add rest of songs to queue
+        songs.slice(1).forEach((song) => {
+          if (song) {
+            songInteractions.queueSong(song);
+          }
+        });
+      }
     }
   };
 
@@ -261,11 +287,17 @@ export function PlaylistDetailView(
     if (songs && songs.length > 0) {
       // Create shuffled copy
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      events.emit("song:play", { song: shuffled[0], replaceQueue: true });
-      // Add rest of shuffled songs to queue
-      shuffled.slice(1).forEach((song) => {
-        events.emit("song:queue", { song });
-      });
+      // Play first shuffled song and replace queue
+      const firstShuffled = shuffled[0];
+      if (firstShuffled) {
+        songInteractions.playSong(firstShuffled, true);
+        // Add rest of shuffled songs to queue
+        shuffled.slice(1).forEach((song) => {
+          if (song) {
+            songInteractions.queueSong(song);
+          }
+        });
+      }
     }
   };
 
@@ -273,17 +305,19 @@ export function PlaylistDetailView(
     const songs = playlistSongsResource();
     if (songs) {
       songs.forEach((song) => {
-        events.emit("song:queue", { song });
+        if (song) {
+          songInteractions.queueSong(song);
+        }
       });
     }
   };
 
   const handleSongClick = (song: Song) => {
-    events.emit("song:play", { song, replaceQueue: false });
+    songInteractions.playSong(song, false);
   };
 
   const handleSongDoubleClick = (song: Song) => {
-    events.emit("song:play", { song, replaceQueue: true });
+    songInteractions.playSong(song, true);
   };
 
   const handleRemoveSong = async (song: Song) => {
@@ -293,7 +327,14 @@ export function PlaylistDetailView(
     try {
       await apiClient.removeSongsFromPlaylist(playlist.id, [song.id]);
 
-      // Note: In a real app, we'd want to refetch the resource or use a more sophisticated state management
+      // Update the selected playlist song count and refresh songs list
+      setSelectedPlaylist({
+        ...playlist,
+        song_count: (playlist.song_count || 1) - 1,
+      });
+
+      // Trigger refresh of songs resource
+      setRefreshSongs(refreshSongs() + 1);
 
       events.emit("notification:show", {
         type: "success",
@@ -318,8 +359,111 @@ export function PlaylistDetailView(
     return new Date(dateStr).toLocaleDateString();
   };
 
+  const handleDragStart = (e: DragEvent, index: number) => {
+    if (editMode() || isNewPlaylist()) return;
+    setDraggedIndex(index);
+    e.dataTransfer!.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: DragEvent, index: number) => {
+    if (editMode() || isNewPlaylist()) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = "move";
+    setDragOverIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = async (e: DragEvent, dropIndex: number) => {
+    if (editMode() || isNewPlaylist()) return;
+    e.preventDefault();
+    const dragIndex = draggedIndex();
+
+    if (dragIndex === null || dragIndex === dropIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    const songs = playlistSongsResource();
+    const playlist = selectedPlaylist();
+
+    if (!songs || !playlist) return;
+
+    try {
+      // Create reordered array
+      const reorderedSongs = [...songs];
+      const draggedSong = reorderedSongs[dragIndex];
+      if (!draggedSong) return;
+      reorderedSongs.splice(dragIndex, 1);
+      reorderedSongs.splice(dropIndex, 0, draggedSong);
+
+      // For now, let's try using the reorder endpoint or fall back to remove/add
+      const songIds = reorderedSongs.map((song) => song.id);
+
+      try {
+        // Try reorder endpoint first
+        await apiClient.makeRequest(
+          "PUT",
+          `/api/media/playlists/${playlist.id}/reorder`,
+          {
+            data: { song_ids: songIds },
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      } catch (reorderError) {
+        // If reorder endpoint doesn't exist, fall back to remove all and re-add
+        console.log(
+          "Reorder endpoint not available, using remove/add approach"
+        );
+        await apiClient.removeSongsFromPlaylist(
+          playlist.id,
+          songs.map((s) => s.id)
+        );
+        await apiClient.addSongsToPlaylist(playlist.id, songIds);
+      }
+
+      // Refresh the playlist songs
+      setRefreshSongs(refreshSongs() + 1);
+
+      events.emit("notification:show", {
+        type: "success",
+        message: "Playlist reordered successfully",
+      });
+    } catch (error) {
+      console.error("❌ Failed to reorder playlist:", error);
+      events.emit("notification:show", {
+        type: "error",
+        message: "Failed to reorder playlist",
+      });
+    }
+
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
   const handleCancelNewPlaylist = () => {
     navigate("/playlists");
+  };
+
+  const sortPlaylists = (playlists: Playlist[] | undefined) => {
+    if (!playlists) return [];
+    const sorted = [...playlists];
+    switch (sortBy()) {
+      case "recent":
+        return sorted.sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+      case "alphabetical":
+        return sorted.sort((a, b) => a.title.localeCompare(b.title));
+      case "song_count":
+        return sorted.sort((a, b) => (b.song_count || 0) - (a.song_count || 0));
+      default:
+        return sorted;
+    }
   };
 
   return (
@@ -338,16 +482,40 @@ export function PlaylistDetailView(
                 + create playlist
               </button>
             </div>
-            <Show
-              when={!playlistsResource.loading}
-              fallback={
-                <p class="text-magenta-300 text-sm">loading playlists...</p>
-              }
-            >
-              <p class="text-magenta-300 text-sm">
-                {playlistsResource()?.playlists?.length || 0} playlists
-              </p>
-            </Show>
+            <div class="flex items-center justify-between">
+              <Show
+                when={!playlistsResource.loading}
+                fallback={
+                  <p class="text-magenta-300 text-sm">loading playlists...</p>
+                }
+              >
+                <p class="text-magenta-300 text-sm">
+                  {playlistsResource()?.playlists?.length || 0} playlists
+                </p>
+              </Show>
+
+              <Show
+                when={
+                  !playlistsResource.loading &&
+                  playlistsResource() &&
+                  playlistsResource()!.playlists &&
+                  playlistsResource()!.playlists.length > 0
+                }
+              >
+                <div class="flex items-center space-x-2">
+                  <span class="text-magenta-400 text-sm">sort by:</span>
+                  <select
+                    class="bg-magenta-950/50 border border-magenta-600/30 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-magenta-400"
+                    value={sortBy()}
+                    onChange={(e) => setSortBy(e.currentTarget.value as any)}
+                  >
+                    <option value="recent">most recent</option>
+                    <option value="alphabetical">alphabetical</option>
+                    <option value="song_count">song count</option>
+                  </select>
+                </div>
+              </Show>
+            </div>
           </div>
 
           {/* Playlists List - Scrollable */}
@@ -367,7 +535,7 @@ export function PlaylistDetailView(
               }
             >
               <div class="space-y-4">
-                <For each={playlistsResource()?.playlists || []}>
+                <For each={sortPlaylists(playlistsResource()?.playlists)}>
                   {(playlist) => (
                     <div
                       class="p-4 bg-magenta-950/30 rounded-lg hover:bg-magenta-600/20 transition-colors cursor-pointer"
@@ -505,7 +673,7 @@ export function PlaylistDetailView(
                   <Show when={!isNewPlaylist() && !editMode()}>
                     <div class="flex space-x-3">
                       <button
-                        class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 hover:border hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 border border-transparent hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={handlePlayPlaylist}
                         disabled={
                           loadingPlaylistSongs() ||
@@ -515,7 +683,7 @@ export function PlaylistDetailView(
                         play all
                       </button>
                       <button
-                        class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 hover:border hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={handleShufflePlaylist}
                         disabled={
                           loadingPlaylistSongs() ||
@@ -525,7 +693,7 @@ export function PlaylistDetailView(
                         shuffle
                       </button>
                       <button
-                        class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 hover:border hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={handleAddPlaylistToQueue}
                         disabled={
                           loadingPlaylistSongs() ||
@@ -543,14 +711,14 @@ export function PlaylistDetailView(
               <div class="flex items-center space-x-2 ml-6">
                 <Show when={isNewPlaylist()}>
                   <button
-                    class="px-4 py-2 bg-magenta-600 hover:bg-magenta-500 hover:border hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="px-4 py-2 bg-magenta-600 hover:bg-magenta-500 border border-transparent hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={handleEditToggle}
                     disabled={!editTitle().trim()}
                   >
                     create playlist
                   </button>
                   <button
-                    class="px-4 py-2 bg-gray-600/50 hover:bg-gray-600/70 hover:border hover:border-gray-400 rounded text-white font-medium transition-all"
+                    class="px-4 py-2 bg-gray-600/50 hover:bg-gray-600/70 border border-transparent hover:border-gray-400 rounded text-white font-medium transition-all"
                     onClick={handleCancelNewPlaylist}
                   >
                     cancel
@@ -558,14 +726,22 @@ export function PlaylistDetailView(
                 </Show>
                 <Show when={!isNewPlaylist()}>
                   <button
-                    class="px-4 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 hover:border hover:border-magenta-400 rounded text-white font-medium transition-all"
+                    class="px-4 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all"
                     onClick={handleEditToggle}
                   >
                     {editMode() ? "save" : "edit"}
                   </button>
+                  <Show when={editMode()}>
+                    <button
+                      class="px-4 py-2 bg-gray-600/50 hover:bg-gray-600/70 border border-transparent hover:border-gray-400 rounded text-white font-medium transition-all"
+                      onClick={handleCancelEdit}
+                    >
+                      cancel
+                    </button>
+                  </Show>
                   <Show when={!editMode()}>
                     <button
-                      class="px-4 py-2 bg-red-600/50 hover:bg-red-600/70 hover:border hover:border-red-400 rounded text-white font-medium transition-all"
+                      class="px-4 py-2 bg-red-600/50 hover:bg-red-600/70 border border-transparent hover:border-red-400 rounded text-white font-medium transition-all"
                       onClick={handleDeletePlaylist}
                     >
                       delete
@@ -603,6 +779,17 @@ export function PlaylistDetailView(
                 <Show when={loadingPlaylistSongs()}>
                   <span class="text-magenta-400 text-sm ml-2">loading...</span>
                 </Show>
+                <Show
+                  when={
+                    !editMode() &&
+                    !isNewPlaylist() &&
+                    playlistSongsResource()?.length > 1
+                  }
+                >
+                  <span class="text-magenta-400 text-xs ml-4">
+                    drag to reorder
+                  </span>
+                </Show>
               </h3>
 
               <Show
@@ -623,13 +810,42 @@ export function PlaylistDetailView(
                   <For each={playlistSongsResource() || []}>
                     {(song, index) => (
                       <div
-                        class="flex items-center p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group"
+                        class={`flex items-center p-3 rounded transition-colors cursor-pointer group ${
+                          dragOverIndex() === index()
+                            ? "bg-magenta-600/40 border-t-2 border-magenta-400"
+                            : draggedIndex() === index()
+                              ? "opacity-50 bg-magenta-600/10"
+                              : "hover:bg-magenta-600/20"
+                        }`}
+                        draggable={!editMode() && !isNewPlaylist()}
+                        onDragStart={(e) => handleDragStart(e, index())}
+                        onDragOver={(e) => handleDragOver(e, index())}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, index())}
                         onClick={() => handleSongClick(song)}
                         onDblClick={() => handleSongDoubleClick(song)}
                       >
-                        {/* Track Number */}
-                        <div class="w-8 text-magenta-400 text-sm flex-shrink-0">
-                          {index() + 1}
+                        {/* Track Number / Drag Handle */}
+                        <div class="w-8 text-magenta-400 text-sm flex-shrink-0 flex items-center">
+                          <Show
+                            when={editMode()}
+                            fallback={
+                              <div
+                                class="cursor-grab active:cursor-grabbing opacity-60 hover:opacity-100 transition-opacity"
+                                title="Drag to reorder"
+                              >
+                                <svg
+                                  class="w-4 h-4"
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                >
+                                  <path d="M3 7a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 13a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
+                                </svg>
+                              </div>
+                            }
+                          >
+                            <span>{index() + 1}</span>
+                          </Show>
                         </div>
 
                         {/* Song Info */}
@@ -655,7 +871,7 @@ export function PlaylistDetailView(
                             class="p-1 rounded-full hover:bg-magenta-600/30 transition-colors"
                             onClick={(e) => {
                               e.stopPropagation();
-                              events.emit("song:queue", { song });
+                              songInteractions.queueSong(song);
                             }}
                             title="Add to queue"
                           >

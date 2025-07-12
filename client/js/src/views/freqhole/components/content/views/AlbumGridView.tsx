@@ -332,7 +332,7 @@ export function AlbumGridView(
                 {/* Action Buttons */}
                 <div class="flex space-x-3">
                   <button
-                    class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 hover:border hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 border border-transparent hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={handlePlayAlbum}
                     disabled={
                       loadingAlbumTracks() ||
@@ -344,7 +344,7 @@ export function AlbumGridView(
                     play album
                   </button>
                   <button
-                    class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 hover:border hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={handleShuffleAlbum}
                     disabled={
                       loadingAlbumTracks() ||
@@ -356,7 +356,7 @@ export function AlbumGridView(
                     shuffle
                   </button>
                   <button
-                    class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 hover:border hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={handleAddAlbumToQueue}
                     disabled={
                       loadingAlbumTracks() ||
