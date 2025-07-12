@@ -11,6 +11,7 @@ import { useSelection } from "../../../hooks/useSelection";
 import { useLocation, useNavigate, useParams } from "@solidjs/router";
 import { useSongInteractions } from "../../../services/songInteractions";
 import { apiClient } from "../../../../../lib/api-client";
+import { formatRelativeDate } from "../../../utils/dateUtils";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Playlist, Song } from "../../../../../lib/music/schemas";
 
@@ -226,6 +227,7 @@ export function PlaylistDetailView(
     setSelectedPlaylist(null);
     setEditMode(false);
     storeActions.selectPlaylist(null);
+    navigate("/playlists");
   };
 
   const handleCancelEdit = () => {
@@ -471,10 +473,6 @@ export function PlaylistDetailView(
     return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString();
-  };
-
   const handleDragStart = (e: DragEvent, index: number) => {
     if (editMode() || isNewPlaylist()) return;
     setDraggedIndex(index);
@@ -669,7 +667,7 @@ export function PlaylistDetailView(
                             )}
                           </div>
                           <div class="text-magenta-500 text-xs mt-1">
-                            Created {formatDate(playlist.created_at)}
+                            {formatRelativeDate(playlist.created_at)}
                             {playlist.is_public && (
                               <span class="ml-2 px-2 py-0.5 bg-magenta-600/30 rounded text-xs">
                                 public
@@ -708,36 +706,37 @@ export function PlaylistDetailView(
       <Show when={selectedPlaylist()}>
         {/* Playlist Detail View */}
         <div class="h-full flex flex-col">
-          {/* Header with back button */}
+          {/* Header with inline back button */}
           <div class="flex-shrink-0 p-6 border-b border-magenta-800/30">
-            <button
-              class="flex items-center text-magenta-400 hover:text-magenta-300 transition-colors mb-4"
-              onClick={handleBackToList}
-            >
-              <svg
-                class="w-5 h-5 mr-2"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M15 19l-7-7 7-7"
-                />
-              </svg>
-              back to playlists
-            </button>
-
             <div class="flex items-start justify-between">
               <div class="flex-1">
                 {/* Playlist Info */}
                 <div class="mb-8">
                   <Show when={!editMode()}>
-                    <h1 class="text-3xl font-bold text-white mb-2">
-                      {selectedPlaylist()?.title}
-                    </h1>
+                    <div class="flex items-center space-x-3 mb-2">
+                      <button
+                        class="flex items-center text-magenta-400 hover:text-magenta-300 transition-colors"
+                        onClick={handleBackToList}
+                        title="back to all playlists"
+                      >
+                        <svg
+                          class="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M15 19l-7-7 7-7"
+                          />
+                        </svg>
+                      </button>
+                      <h1 class="text-3xl font-bold text-white">
+                        {selectedPlaylist()?.title}
+                      </h1>
+                    </div>
                     <Show when={selectedPlaylist()?.description}>
                       <p class="text-magenta-300 mb-4">
                         {selectedPlaylist()?.description}
@@ -767,8 +766,9 @@ export function PlaylistDetailView(
                     <div class="text-magenta-400 text-sm mb-6">
                       {selectedPlaylist()?.song_count || 0} songs
                       <span class="ml-4">
-                        Created{" "}
-                        {formatDate(selectedPlaylist()?.created_at || "")}
+                        {formatRelativeDate(
+                          selectedPlaylist()?.created_at || ""
+                        )}
                       </span>
                       <Show when={selectedPlaylist()?.is_public}>
                         <span class="ml-4 px-2 py-0.5 bg-magenta-600/30 rounded text-xs">
@@ -842,23 +842,41 @@ export function PlaylistDetailView(
                 </Show>
                 <Show when={!isNewPlaylist()}>
                   <button
-                    class="px-4 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all"
+                    class="px-3 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all flex items-center"
                     onClick={handleEditToggle}
+                    title={editMode() ? "save changes" : "edit playlist"}
                   >
-                    {editMode() ? "save" : "edit"}
+                    <Show when={editMode()}>save</Show>
+                    <Show when={!editMode()}>
+                      <svg
+                        class="w-4 h-4"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                      </svg>
+                    </Show>
                   </button>
                   <Show when={editMode()}>
                     <button
-                      class="px-4 py-2 bg-gray-600/50 hover:bg-gray-600/70 border border-transparent hover:border-gray-400 rounded text-white font-medium transition-all"
+                      class="px-3 py-2 bg-gray-600/50 hover:bg-gray-600/70 border border-transparent hover:border-gray-400 rounded text-white font-medium transition-all flex items-center"
                       onClick={handleCancelEdit}
+                      title="cancel changes"
                     >
-                      cancel
+                      <svg
+                        class="w-4 h-4"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                      </svg>
                     </button>
                   </Show>
                   <Show when={!editMode()}>
                     <button
                       class="px-4 py-2 bg-red-600/50 hover:bg-red-600/70 border border-transparent hover:border-red-400 rounded text-white font-medium transition-all"
                       onClick={handleDeletePlaylist}
+                      title="delete playlist"
                     >
                       delete
                     </button>
@@ -890,25 +908,6 @@ export function PlaylistDetailView(
           {/* Songs List - Only show for existing playlists */}
           <Show when={!isNewPlaylist()}>
             <div class="flex-1 overflow-y-auto p-6">
-              <h3 class="text-xl font-semibold text-white mb-4">
-                songs
-                <Show when={loadingPlaylistSongs()}>
-                  <span class="text-magenta-400 text-sm ml-2">loading...</span>
-                </Show>
-                <Show
-                  when={
-                    !editMode() &&
-                    !isNewPlaylist() &&
-                    playlistSongsResource() &&
-                    playlistSongsResource()!.length > 1
-                  }
-                >
-                  <span class="text-magenta-400 text-xs ml-4">
-                    drag to reorder
-                  </span>
-                </Show>
-              </h3>
-
               <Show
                 when={!loadingPlaylistSongs() && playlistSongsResource()}
                 fallback={

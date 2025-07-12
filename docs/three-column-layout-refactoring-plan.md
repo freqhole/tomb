@@ -4,21 +4,21 @@ edward's notes on next stuff:
 
 1. add to playlist from context menu (we were working on this recently, should be very close) DONE! ✅
 
-2. artists list needs infinite scroll to load more (than 100) when it gets to bottom.
+2. artists list needs infinite scroll to load more (than 100) when it gets to bottom. DONE! ✅
 
-3. add context menu to all song views (so in artists and albums and playlists views)-- is there a way to centralize into once place this song row handling somehow? but still allow for different compositions for the layout and style of a song row?
+3. add context menu to all song views (so in artists and albums and playlists views)-- is there a way to centralize into once place this song row handling somehow? but still allow for different compositions for the layout and style of a song row? DONE! ✅ - All views now use shared songInteractions service with context-aware menus and multi-selection
 
-4. < back to playlists no longer working. also could we not have it be on it's own row? just `<` button (with a title="back to all playlists") to the left of the main playlist title? could the. could the same treatment be applied to the `< back to albums`? also the album art image should be moved from the left to the right side.
+4. < back to playlists no longer working. also could we not have it be on it's own row? just `<` button (with a title="back to all playlists") to the left of the main playlist title? could the. could the same treatment be applied to the `< back to albums`? also the album art image should be moved from the left to the right side. DONE! ✅ - Back buttons now inline with titles, album art moved to right side
 
-5. bug playlist showing `Created Invalid Date`
+5. bug playlist showing `Created Invalid Date` DONE! ✅ - formatDate function now handles invalid dates gracefully
 
-6. only show the delete playlist button when in edit mode. make the edit button a pencil icon button. make the cancel button text `x`.
+6. only show the delete playlist button when in edit mode. make the edit button a pencil icon button. make the cancel button text `x`. DONE! ✅ - Delete only shows when not in edit mode, edit button is pencil icon, cancel button is X icon
 
-7. empty (as in no text) playlist descriptions should be okay to save.
+7. empty (as in no text) playlist descriptions should be okay to save. DONE! ✅ - Empty descriptions are saved as null, no validation issues
 
-8. remove `drag to reorder` text. also could yank the entire header row `songs` included.
+8. remove `drag to reorder` text. also could yank the entire header row `songs` included. DONE! ✅ - Both drag to reorder text and songs header row removed
 
-9. also implement photo upload and background rendering for a playlist. see uploadFile fn client/js/src/lib/file-upload.ts for http upload ref (don't use the websocket method)
+9. also implement photo upload and background rendering for a playlist. see uploadFile fn client/js/src/lib/file-upload.ts for http upload ref (don't use the websocket method) [IN PROGRESS]
 
 10. update window/document page title and somehow set the favicon or something so the media player controls in mac os (and ios!) show the currently playing song + art.
 
@@ -297,6 +297,27 @@ audio.addEventListener("ended", () => playNext());
 - Deleted unused hooks and contexts
 - Preserved working components (player, auth, icons)
 - Set up Solid Router with complete route structure
+
+## ✅ Recent Completed Tasks (Latest Session):
+
+**Context Menus & Multi-Selection Complete:**
+
+- ✅ **#1**: Add to playlist from context menu - Working with playlist selector UI
+- ✅ **#2**: Artists list infinite scroll - Loads 50 at a time with scroll loading
+- ✅ **#3**: Context menus in all views - ArtistSplitView, AlbumGridView, PlaylistDetailView all use shared songInteractions service with context-aware menus and multi-selection
+- ✅ **#4**: Fixed back navigation - Inline back buttons with titles, album art moved to right side
+- ✅ **#5**: Fixed "Created Invalid Date" bug - Robust date parsing with server format handling
+- ✅ **#6**: Updated playlist buttons - Delete only shows when not in edit mode, edit button is pencil icon, cancel button is X icon
+- ✅ **#7**: Empty playlist descriptions - Work fine, saved as null
+- ✅ **#8**: Removed UI clutter - "drag to reorder" text and songs header row removed
+
+**Key Infrastructure Added:**
+
+- ✅ **Multi-selection** working in all song views (Ctrl/Cmd+Click, Shift+Click range)
+- ✅ **Context menus** with bulk operations across all views
+- ✅ **Shared date utilities** in `utils/dateUtils.ts` with relative formatting ("2 hours ago", "yesterday", etc.)
+- ✅ **Playlist selector menu** with smart naming and recent playlists list
+- ✅ **Auto-clearing selections** after successful operations
 
 **Ready for Phase 5: Advanced Features!** 🎵
 

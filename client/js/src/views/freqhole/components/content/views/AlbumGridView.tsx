@@ -277,56 +277,33 @@ export function AlbumGridView(
         <div class="h-full flex flex-col">
           {/* Header with back button */}
           <div class="flex-shrink-0 p-6 border-b border-magenta-800/30">
-            <button
-              class="flex items-center text-magenta-400 hover:text-magenta-300 transition-colors mb-4"
-              onClick={handleBackToGrid}
-            >
-              <svg
-                class="w-5 h-5 mr-2"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M15 19l-7-7 7-7"
-                />
-              </svg>
-              back to albums
-            </button>
-
             <div class="flex items-start space-x-6">
-              {/* Album Artwork Large */}
-              <div class="w-48 h-48 bg-magenta-800/30 rounded-lg overflow-hidden flex-shrink-0">
-                <Show
-                  when={getAlbumImageUrl(selectedAlbum()!)}
-                  fallback={
-                    <div class="w-full h-full flex items-center justify-center">
-                      <svg
-                        class="w-16 h-16 text-magenta-400"
-                        fill="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-                      </svg>
-                    </div>
-                  }
-                >
-                  <img
-                    src={getAlbumImageUrl(selectedAlbum()!)!}
-                    alt={`${selectedAlbum()?.album} by ${selectedAlbum()?.artist}`}
-                    class="w-full h-full object-cover"
-                  />
-                </Show>
-              </div>
-
               {/* Album Info */}
               <div class="flex-1">
-                <h1 class="text-3xl font-bold text-white mb-2">
-                  {selectedAlbum()?.album || "Unknown Album"}
-                </h1>
+                <div class="flex items-center space-x-3 mb-2">
+                  <button
+                    class="flex items-center text-magenta-400 hover:text-magenta-300 transition-colors"
+                    onClick={handleBackToGrid}
+                    title="back to all albums"
+                  >
+                    <svg
+                      class="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M15 19l-7-7 7-7"
+                      />
+                    </svg>
+                  </button>
+                  <h1 class="text-3xl font-bold text-white">
+                    {selectedAlbum()?.album || "Unknown Album"}
+                  </h1>
+                </div>
                 <h2 class="text-xl text-magenta-300 mb-4">
                   {selectedAlbum()?.artist || "Unknown Artist"}
                 </h2>
@@ -391,6 +368,30 @@ export function AlbumGridView(
                     add to queue
                   </button>
                 </div>
+              </div>
+
+              {/* Album Artwork Large - moved to right side */}
+              <div class="w-48 h-48 bg-magenta-800/30 rounded-lg overflow-hidden flex-shrink-0">
+                <Show
+                  when={getAlbumImageUrl(selectedAlbum()!)}
+                  fallback={
+                    <div class="w-full h-full flex items-center justify-center">
+                      <svg
+                        class="w-16 h-16 text-magenta-400"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                      </svg>
+                    </div>
+                  }
+                >
+                  <img
+                    src={getAlbumImageUrl(selectedAlbum()!)!}
+                    alt={`${selectedAlbum()?.album} by ${selectedAlbum()?.artist}`}
+                    class="w-full h-full object-cover"
+                  />
+                </Show>
               </div>
             </div>
           </div>

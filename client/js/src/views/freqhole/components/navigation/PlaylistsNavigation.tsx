@@ -7,6 +7,7 @@ import {
 } from "solid-js";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { apiClient } from "../../../../lib/api-client";
+import { formatCompactRelativeDate } from "../../utils/dateUtils";
 import type { Playlist } from "../../../../lib/music/schemas";
 
 interface PlaylistsNavigationProps {
@@ -147,6 +148,12 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
                   </div>
                   <div class="text-xs text-gray-400">
                     {formatSongCount(playlist.song_count || 0)}
+                    {playlist.created_at &&
+                      formatCompactRelativeDate(playlist.created_at) && (
+                        <span class="ml-2">
+                          • {formatCompactRelativeDate(playlist.created_at)}
+                        </span>
+                      )}
                   </div>
                 </button>
               )}
