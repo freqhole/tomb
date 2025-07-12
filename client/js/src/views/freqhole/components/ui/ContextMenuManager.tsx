@@ -33,6 +33,7 @@ export function ContextMenuManager() {
         menuActions
       );
       setActions(menuActions);
+      setPlaylistSelector(null); // Clear any existing playlist selector
       contextMenu.open(x, y);
     });
 
@@ -44,13 +45,16 @@ export function ContextMenuManager() {
 
     events.on("playlist-selector:open", ({ x, y, songs }) => {
       console.log(
-        "📋 Opening playlist selector at",
+        "📋 PLAYLIST SELECTOR EVENT RECEIVED at",
         { x, y },
         "for",
         songs.length,
         "songs"
       );
+      // Close any existing context menu first
+      setActions([]);
       setPlaylistSelector({ songs, show: true });
+      console.log("📋 Playlist selector state set, opening menu");
       contextMenu.open(x, y);
     });
 
@@ -118,6 +122,7 @@ export function ContextMenuManager() {
 
   // Convert action format from songInteractions to ContextMenu format
   const convertActions = (rawActions: any[]): any[] => {
+    console.log("📋 Converting actions:", rawActions);
     return rawActions
       .filter(
         (action) => action && (action.type === "separator" || action.label)
@@ -130,7 +135,19 @@ export function ContextMenuManager() {
         return {
           label: action.label,
           icon: createIcon(action.icon),
-          onClick: action.action || action.onClick,
+          onClick: () => {
+            console.log("📋 Context menu action clicked:", action.label);
+            console.log("📋 Action object:", action);
+            if (action.action) {
+              console.log("📋 Calling action.action()");
+              action.action();
+            } else if (action.onClick) {
+              console.log("📋 Calling action.onClick()");
+              action.onClick();
+            } else {
+              console.log("📋 No action or onClick found!");
+            }
+          },
           disabled: action.disabled || false,
           destructive: action.destructive || false,
         };
@@ -138,6 +155,7 @@ export function ContextMenuManager() {
   };
 
   const handleClose = () => {
+    console.log("📋 Closing context menu/playlist selector");
     contextMenu.close();
     setActions([]);
     setPlaylistSelector(null);
@@ -161,15 +179,23 @@ export function ContextMenuManager() {
       y={contextMenu.position().y}
       isOpen={contextMenu.isOpen()}
       onClose={handleClose}
-      actions={playlistSelector() ? [] : convertActions(actions())}
+      actions={playlistSelector()?.show ? [] : convertActions(actions())}
     >
       <Show when={playlistSelector()?.show}>
-        <PlaylistSelectorMenu
-          songs={playlistSelector()!.songs}
-          onClose={handleClose}
-          onPlaylistSelected={handlePlaylistSelected}
-          onNewPlaylistCreated={handleNewPlaylistCreated}
-        />
+        {() => {
+          console.log(
+            "📋 Rendering PlaylistSelectorMenu with songs:",
+            playlistSelector()?.songs
+          );
+          return (
+            <PlaylistSelectorMenu
+              songs={playlistSelector()!.songs}
+              onClose={handleClose}
+              onPlaylistSelected={handlePlaylistSelected}
+              onNewPlaylistCreated={handleNewPlaylistCreated}
+            />
+          );
+        }}
       </Show>
     </ContextMenu>
   );

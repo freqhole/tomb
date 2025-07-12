@@ -107,6 +107,9 @@ export function PlaylistSelectorMenu(props: PlaylistSelectorMenuProps) {
       // Emit playlist created event for other components
       events.emit("playlist:created", { playlist: newPlaylist });
 
+      // Clear selection after successful creation
+      events.emit("selection:clear", {});
+
       props.onClose();
     } catch (error) {
       console.error("Failed to create playlist:", error);
@@ -138,6 +141,9 @@ export function PlaylistSelectorMenu(props: PlaylistSelectorMenuProps) {
         playlistId: playlist.id,
         songCount: props.songs.length,
       });
+
+      // Clear selection after successful addition
+      events.emit("selection:clear", {});
 
       props.onClose();
     } catch (error) {

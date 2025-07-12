@@ -1,5 +1,33 @@
 # Three-Column Layout Refactoring Plan
 
+edward's notes on next stuff:
+
+1. add to playlist from context menu (we were working on this recently, should be very close) DONE! ✅
+
+2. artists list needs infinite scroll to load more (than 100) when it gets to bottom.
+
+3. add context menu to all song views (so in artists and albums and playlists views)-- is there a way to centralize into once place this song row handling somehow? but still allow for different compositions for the layout and style of a song row?
+
+4. < back to playlists no longer working. also could we not have it be on it's own row? just `<` button (with a title="back to all playlists") to the left of the main playlist title? could the. could the same treatment be applied to the `< back to albums`? also the album art image should be moved from the left to the right side.
+
+5. bug playlist showing `Created Invalid Date`
+
+6. only show the delete playlist button when in edit mode. make the edit button a pencil icon button. make the cancel button text `x`.
+
+7. empty (as in no text) playlist descriptions should be okay to save.
+
+8. remove `drag to reorder` text. also could yank the entire header row `songs` included.
+
+9. also implement photo upload and background rendering for a playlist. see uploadFile fn client/js/src/lib/file-upload.ts for http upload ref (don't use the websocket method)
+
+10. update window/document page title and somehow set the favicon or something so the media player controls in mac os (and ios!) show the currently playing song + art.
+
+11. player, shift all the controls to the right, make the song title/artist cells expand and fill empty space. right now songs with titles that different length shift the player controls left or right.
+
+12. consider dexie js for indexed db persistence for queue and player state.
+
+13. less use of magenta font color. espically for things that are rendered data (like artist names in artists song list, artist name in album grid, songs artist + album in playlist)
+
 ## 🚀 Phase 5: Advanced Features (NEXT)
 
 ### 5.1 Enhanced Playlist Features

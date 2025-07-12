@@ -186,14 +186,19 @@ export function SongTableView(
                     }
 
                     const selectedSongs = selection.getSelectedSongs(songs());
+                    console.log(
+                      "🎵 Context menu: selected songs count:",
+                      selectedSongs.length
+                    );
+                    console.log("🎵 Selected songs:", selectedSongs);
+
                     if (selectedSongs.length > 1) {
                       // Show bulk context menu
-                      songInteractions.handleBulkRightClick?.(
-                        e,
-                        selectedSongs
-                      ) || songInteractions.handleRightClick(e, song);
+                      console.log("🎵 Using bulk context menu");
+                      songInteractions.handleBulkRightClick(e, selectedSongs);
                     } else {
                       // Show single song context menu
+                      console.log("🎵 Using single context menu");
                       songInteractions.handleRightClick(e, song);
                     }
                   }}

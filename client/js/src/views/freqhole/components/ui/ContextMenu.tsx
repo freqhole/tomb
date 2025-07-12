@@ -7,6 +7,7 @@ export interface MenuAction {
   onClick: () => void;
   disabled?: boolean;
   destructive?: boolean;
+  type?: "separator";
 }
 
 export interface ContextMenuProps {
@@ -93,7 +94,12 @@ export function ContextMenu(props: ContextMenuProps) {
   const handleAction = (action: MenuAction) => {
     if (!action.disabled) {
       action.onClick();
-      props.onClose();
+
+      // Don't auto-close for playlist actions - they handle their own menu transitions
+      const isPlaylistAction = action.label?.includes("playlist");
+      if (!isPlaylistAction) {
+        props.onClose();
+      }
     }
   };
 
@@ -125,22 +131,29 @@ export function ContextMenu(props: ContextMenuProps) {
         {/* Menu actions */}
         <div class="py-1">
           {props.actions.map((action, _index) => (
-            <button
-              class={`w-full px-4 py-3 text-left border border-transparent transition-all duration-200 flex items-center space-x-3 ${
-                action.disabled
-                  ? "text-gray-500 cursor-not-allowed"
-                  : action.destructive
-                    ? "text-red-400 hover:bg-red-900 hover:border-red-600"
-                    : "text-white hover:bg-primary-500 hover:border-primary-300 metro-button-hover"
-              }`}
-              onClick={() => handleAction(action)}
-              disabled={action.disabled}
+            <Show
+              when={action.type === "separator"}
+              fallback={
+                <button
+                  class={`w-full px-4 py-3 text-left border border-transparent transition-all duration-200 flex items-center space-x-3 ${
+                    action.disabled
+                      ? "text-gray-500 cursor-not-allowed"
+                      : action.destructive
+                        ? "text-red-400 hover:bg-red-900 hover:border-red-600"
+                        : "text-white hover:bg-primary-500 hover:border-primary-300 metro-button-hover"
+                  }`}
+                  onClick={() => handleAction(action)}
+                  disabled={action.disabled}
+                >
+                  <Show when={action.icon}>
+                    <span class="flex-shrink-0">{action.icon}</span>
+                  </Show>
+                  <span class="text-sm font-medium">{action.label}</span>
+                </button>
+              }
             >
-              <Show when={action.icon}>
-                <span class="flex-shrink-0">{action.icon}</span>
-              </Show>
-              <span class="text-sm font-medium">{action.label}</span>
-            </button>
+              <div class="border-t border-dark-300 my-1"></div>
+            </Show>
           ))}
         </div>
       </div>

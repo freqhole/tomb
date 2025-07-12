@@ -134,12 +134,12 @@ export function useSongInteractions() {
   const createContextMenuActions = (song: Song) => {
     return [
       {
-        label: "Play",
+        label: "play",
         icon: "play",
         action: () => playSong(song),
       },
       {
-        label: "Play Next",
+        label: "play next",
         icon: "queue-next",
         action: () => {
           // Insert at the beginning of queue
@@ -154,43 +154,50 @@ export function useSongInteractions() {
         },
       },
       {
-        label: "Add to Queue",
+        label: "add to queue",
         icon: "queue-add",
         action: () => queueSong(song),
       },
       { type: "separator" },
       {
-        label: song.is_favorite ? "Remove from Favorites" : "Add to Favorites",
+        label: song.is_favorite ? "remove from favorites" : "add to favorites",
         icon: song.is_favorite ? "heart-filled" : "heart",
         action: () => toggleFavorite(song),
       },
       {
-        label: "Add to Playlist...",
+        label: "add to playlist...",
         icon: "playlist-add",
         action: () => {
+          console.log("🎵 Context menu: add to playlist clicked");
+          console.log(
+            "🎵 Emitting playlist-selector:open event with position:",
+            lastContextMenuPosition
+          );
+          console.log("🎵 Song for playlist:", song);
           events.emit("playlist-selector:open", {
             x: lastContextMenuPosition.x,
             y: lastContextMenuPosition.y,
             songs: [song],
           });
+          console.log("🎵 Event emitted successfully");
         },
       },
       { type: "separator" },
       {
-        label: "View Artist",
+        label: "view artist",
         icon: "artist",
         action: () => viewArtist(song),
         disabled: !song.artist,
       },
       {
-        label: "View Album",
+        label: "view album",
         icon: "album",
         action: () => viewAlbum(song),
         disabled: !song.album,
       },
       { type: "separator" },
       {
-        label: "Song Info",
+        label: "song info",
         icon: "info",
         action: () => {
           // Open song info modal
@@ -224,20 +231,25 @@ export function useSongInteractions() {
 
   const handlePlaylistSelectorClick = (event: MouseEvent, songs: Song[]) => {
     event.preventDefault();
+    console.log("🎵 handlePlaylistSelectorClick called with songs:", songs);
+    console.log("🎵 Event position:", { x: event.clientX, y: event.clientY });
 
     events.emit("playlist-selector:open", {
       x: event.clientX,
       y: event.clientY,
       songs,
     });
+    console.log("🎵 Direct playlist selector event emitted");
   };
 
   const createBulkContextMenuActions = (songs: Song[]) => {
     const songCount = songs.length;
+    console.log("🎵 Creating bulk context menu for", songCount, "songs");
+    console.log("🎵 Songs:", songs);
 
     return [
       {
-        label: `Play ${songCount} songs`,
+        label: `play ${songCount} songs`,
         icon: "play",
         action: () => {
           // Clear queue and add all selected songs
@@ -250,7 +262,7 @@ export function useSongInteractions() {
         },
       },
       {
-        label: `Add ${songCount} songs to Queue`,
+        label: `add ${songCount} songs to queue`,
         icon: "queue-add",
         action: () => {
           songs.forEach((song) => queueSong(song));
@@ -258,19 +270,26 @@ export function useSongInteractions() {
       },
       { type: "separator" },
       {
-        label: `Add ${songCount} songs to Playlist...`,
+        label: `add ${songCount} songs to playlist...`,
         icon: "playlist-add",
         action: () => {
+          console.log("🎵 Bulk context menu: add to playlist clicked");
+          console.log(
+            "🎵 Emitting playlist-selector:open event with position:",
+            lastContextMenuPosition
+          );
+          console.log("🎵 Songs for playlist:", songs);
           events.emit("playlist-selector:open", {
             x: lastContextMenuPosition.x,
             y: lastContextMenuPosition.y,
             songs,
           });
+          console.log("🎵 Bulk event emitted successfully");
         },
       },
       { type: "separator" },
       {
-        label: `Mark ${songCount} as Favorites`,
+        label: `mark ${songCount} as favorites`,
         icon: "heart",
         action: () => {
           songs.forEach((song) => {
@@ -281,7 +300,7 @@ export function useSongInteractions() {
         },
       },
       {
-        label: `Remove ${songCount} from Favorites`,
+        label: `remove ${songCount} from favorites`,
         icon: "heart-filled",
         action: () => {
           songs.forEach((song) => {
@@ -296,6 +315,7 @@ export function useSongInteractions() {
 
   const handleBulkRightClick = (event: MouseEvent, songs: Song[]) => {
     event.preventDefault();
+    console.log("🎵 handleBulkRightClick called with", songs.length, "songs");
 
     // Store position for potential playlist selector
     lastContextMenuPosition = { x: event.clientX, y: event.clientY };
