@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import { FreqholeDemo } from "../views/freqhole-demo";
+import Freqhole from "../views/freqhole/index";
 
 class FreqholeDemoElement extends HTMLElement {
   private dispose?: () => void;
@@ -7,23 +7,8 @@ class FreqholeDemoElement extends HTMLElement {
   connectedCallback() {
     console.log("🔌 FreqholeDemoElement connected");
 
-    // Get attributes
-    const wsUrl = this.getAttribute("ws-url") || "ws://localhost:8080/ws";
-    const apiBaseUrl =
-      this.getAttribute("api-base-url") || "http://localhost:8080";
-    const autoConnect = this.getAttribute("auto-connect") === "true";
-
     // Render the FreqholeDemo component
-    this.dispose = render(
-      () => (
-        <FreqholeDemo
-          wsUrl={wsUrl}
-          apiBaseUrl={apiBaseUrl}
-          autoConnect={autoConnect}
-        />
-      ),
-      this
-    );
+    this.dispose = render(() => <Freqhole />, this);
 
     console.log("✅ FreqholeDemo render successful");
   }

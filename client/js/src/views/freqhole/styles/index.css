@@ -104,15 +104,6 @@
   overflow: hidden;
 }
 
-/* Glass effect utility */
-.freqhole-glass {
-  @apply bg-dark-200/80 backdrop-blur-sm border border-gray-700/50;
-}
-
-.freqhole-glass-strong {
-  @apply bg-dark-100/90 backdrop-blur-md border border-gray-600/50;
-}
-
 /* Gradient utilities */
 .freqhole-gradient-primary {
   background: linear-gradient(
@@ -254,7 +245,6 @@
 
 /* Context menu improvements */
 .freqhole-context-menu {
-  @apply freqhole-glass shadow-xl;
   animation: contextMenuAppear 0.2s ease-out;
 }
 

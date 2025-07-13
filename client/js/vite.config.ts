@@ -6,8 +6,8 @@ export default defineConfig({
   plugins: [solid(), tailwindcss()],
   root: "src/views/freqhole",
   build: {
-    outDir: "../../../dist/freqhole",
-    emptyOutDir: true,
+    outDir: "../../../dist/freqhole", // no idea why this needs so many ../
+    emptyOutDir: false,
   },
   server: {
     port: 3003,

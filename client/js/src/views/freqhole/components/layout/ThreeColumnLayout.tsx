@@ -8,11 +8,13 @@ import { PlayerWrapper } from "../player/PlayerWrapper";
 import { ContextMenuManager } from "../ui/ContextMenuManager";
 import { NavigationHeader } from "../navigation/NavigationHeader";
 import { FreqholeIcon, MenuIcon } from "../ui/icons";
+import { AuthModal } from "../auth/AuthModal";
 
 export function ThreeColumnLayout(props: any) {
   const [layout] = useLayout();
   const events = useGlobalEvents();
   const [mobileNavOpen, setMobileNavOpen] = createSignal(false);
+  const [authOpen, setAuthOpen] = createSignal(false);
 
   // Responsive layout logic
   const columnClasses = () => {
@@ -47,14 +49,16 @@ export function ThreeColumnLayout(props: any) {
       <div class="md:hidden sticky top-0 z-40 bg-black/90 backdrop-blur-xl">
         <div class="flex items-center justify-between px-4 py-3">
           {/* Logo with Menu Button */}
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 justify-sapce-between">
             <span class="text-2xl font-light text-white lowercase">
               <span>freqh</span>
               <FreqholeIcon class="inline" />
               <span>le</span>
             </span>
           </div>
-
+          <div>
+            <button onClick={() => setAuthOpen(true)}>auth</button>
+          </div>
           {/* Hamburger Menu */}
           <button
             class="p-2 text-white hover:text-magenta-400 transition-colors"
@@ -159,6 +163,9 @@ export function ThreeColumnLayout(props: any) {
 
       {/* Global Context Menu */}
       <ContextMenuManager />
+
+      {/* auth model */}
+      <AuthModal isOpen={authOpen()} onClose={() => setAuthOpen(false)} />
     </div>
   );
 }

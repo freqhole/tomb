@@ -5,6 +5,7 @@ import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { SearchSuggestions } from "../../../../components/search/SearchSuggestions";
 import { apiClient } from "../../../../lib/api-client";
 import { FreqholeIcon } from "../icons";
+import { AuthModal } from "../auth/AuthModal";
 
 export function NavigationHeader() {
   const navigate = useNavigate();
@@ -14,6 +15,8 @@ export function NavigationHeader() {
   const [query, setQuery] = createSignal((searchParams.q as string) || "");
   const [showSuggestions, setShowSuggestions] = createSignal(false);
   const [inputFocused, setInputFocused] = createSignal(false);
+
+  const [authOpen, setAuthOpen] = createSignal(false);
 
   const handleSearch = (searchQuery: string) => {
     setQuery(searchQuery);
@@ -62,12 +65,16 @@ export function NavigationHeader() {
 
   return (
     <div class="p-3 md:p-4">
-      <div class="hidden md:block mb-4">
+      <div class="hidden mb-4 md:flex items-center justify-between">
         <span class="text-2xl font-light text-white lowercase">
           <span>freqh</span>
           <FreqholeIcon class="inline" />
           <span>le</span>
         </span>
+        <div>
+          <button onClick={() => setAuthOpen(true)}>auth</button>
+          <AuthModal isOpen={authOpen()} onClose={() => setAuthOpen(false)} />
+        </div>
       </div>
 
       <div class="relative">

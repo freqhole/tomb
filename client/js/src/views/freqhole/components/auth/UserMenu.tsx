@@ -33,7 +33,6 @@ export const UserMenu = (props: UserMenuProps) => {
         <button
           ref={setButtonRef}
           onClick={() => setIsOpen(!isOpen())}
-          class="w-8 h-8 bg-fuchsia-600 hover:bg-fuchsia-700 text-white rounded-lg flex items-center justify-center transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-fuchsia-500 focus:ring-offset-2 focus:ring-offset-black"
           title={`Signed in as ${auth.currentUser || "User"}`}
         >
           <UserIcon />

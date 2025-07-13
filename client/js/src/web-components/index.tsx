@@ -24,15 +24,12 @@ import "./websocket-status";
 import "./websocket-demo";
 import "./websocket-feed-manager";
 import "./websocket-feed-demo";
-import "./websocket-thumbnail-demo";
 import "./media-blob-feed-item";
 import "./media-blob-feed-list";
 import "./simple-test";
 import "./smart-file-upload";
 import "./sync-status";
 import "./sync-progress";
-import "./sync-controls";
-import "./sync-demo";
 import "./unified-sync-demo";
 import "./blob-viewer";
 import "./infinite-data-grid";
@@ -50,15 +47,12 @@ const REGISTERED_COMPONENTS = [
   "websocket-demo",
   "websocket-feed-manager",
   "websocket-feed-demo",
-  "websocket-thumbnail-demo",
   "media-blob-feed-item",
   "media-blob-feed-list",
   "simple-test",
   "smart-file-upload",
   "sync-status",
   "sync-progress",
-  "sync-controls",
-  "sync-demo",
   "unified-sync-demo",
   "blob-viewer",
   "infinite-data-grid",
@@ -113,12 +107,6 @@ declare global {
         className?: string;
         refreshInterval?: number;
         demoMode?: boolean;
-      };
-
-      "websocket-thumbnail-demo": {
-        wsUrl?: string;
-        apiBaseUrl?: string;
-        title?: string;
       };
 
       "media-blob-feed-item": {
@@ -185,22 +173,6 @@ declare global {
         showETA?: boolean;
         showItemCount?: boolean;
         animated?: boolean;
-        className?: string;
-      };
-
-      "sync-controls": {
-        status?: string;
-        disabled?: boolean;
-        showForceSync?: boolean;
-        showPauseResume?: boolean;
-        compact?: boolean;
-        className?: string;
-      };
-
-      "sync-demo": {
-        apiBaseUrl?: string;
-        clientId?: string;
-        autoConnect?: boolean;
         className?: string;
       };
 
@@ -302,15 +274,12 @@ console.log("🧩 Web Components Library loaded - Available components:", [
   "websocket-demo",
   "websocket-feed-manager",
   "websocket-feed-demo",
-  "websocket-thumbnail-demo",
   "media-blob-feed-item",
   "media-blob-feed-list",
   "simple-test",
   "smart-file-upload",
   "sync-status",
   "sync-progress",
-  "sync-controls",
-  "sync-demo",
   "unified-sync-demo",
   "blob-viewer",
   "infinite-data-grid",

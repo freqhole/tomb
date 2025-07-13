@@ -26,6 +26,7 @@ export const Header = (props: HeaderProps) => {
             <span class="hidden sm:inline">freqh</span>
             <FreqholeIcon class="inline" />
             <span class="hidden sm:inline">le</span>
+            zomg
           </span>
         </div>
 
