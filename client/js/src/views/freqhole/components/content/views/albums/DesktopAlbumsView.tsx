@@ -54,6 +54,10 @@ export function DesktopAlbumsView(
       setLoadingAlbumTracks(true);
 
       try {
+        if (!album.album) {
+          console.error("❌ Album name is null, cannot load tracks");
+          return [];
+        }
         const tracks = await apiClient.getAlbumTracks(
           album.album,
           album.artist || undefined
@@ -122,6 +126,10 @@ export function DesktopAlbumsView(
   const handlePlayAlbumFromGrid = async (album: Album) => {
     try {
       console.log("🎵 Playing album from grid:", album.album);
+      if (!album.album) {
+        console.error("❌ Album name is null, cannot play album");
+        return;
+      }
       const tracks = await apiClient.getAlbumTracks(
         album.album,
         album.artist || undefined
