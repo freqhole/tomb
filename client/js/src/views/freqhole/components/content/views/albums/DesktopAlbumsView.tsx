@@ -3,9 +3,11 @@ import { useStore, storeActions } from "../../../../store";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
+import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { apiClient } from "../../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Album, Song } from "../../../../../../lib/music/schemas";
+import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
 
 interface DesktopAlbumsViewProps {
   class?: string;
@@ -31,18 +33,35 @@ export function DesktopAlbumsView(
   const [loadingAlbumTracks, setLoadingAlbumTracks] = createSignal(false);
   const [viewMode, setViewMode] = createSignal<"grid" | "detail">("grid");
 
-  // Fetch albums from API
-  const [albumsResource] = createResource(async () => {
-    console.log("💿 Fetching albums...");
-    try {
-      const response = await apiClient.getAlbums({ page_size: 100 });
-      console.log("💿 Albums loaded:", response.albums.length);
-      return response;
-    } catch (error) {
-      console.error("❌ Failed to load albums:", error);
-      return { albums: [], pagination: null };
-    }
+  // Create fetch function for infinite scroll
+  const fetchAlbums = async (
+    page: number
+  ): Promise<{ items: Album[]; pagination: PaginationMetadata }> => {
+    console.log(`💿 Loading albums page ${page}`);
+
+    const response = await apiClient.getAlbums({
+      page,
+      page_size: 50,
+    });
+
+    console.log(`💿 Loaded ${response.albums.length} albums`, response);
+
+    return {
+      items: response.albums,
+      pagination: response.pagination,
+    };
+  };
+
+  // Use infinite scroll hook
+  const infiniteScroll = useInfiniteScroll(fetchAlbums, {
+    threshold: 200,
+    enabled: () => viewMode() === "grid",
   });
+
+  // Extract state and actions
+  const albums = infiniteScroll.state.items;
+  const loading = infiniteScroll.state.loading;
+  const error = infiniteScroll.state.error;
 
   // Fetch tracks for selected album
   const [albumTracksResource] = createResource(
@@ -178,21 +197,22 @@ export function DesktopAlbumsView(
           <div class="flex-shrink-0 p-3">
             <h1 class="text-2xl font-semibold text-white mb-2">albums</h1>
             <Show
-              when={!albumsResource.loading}
+              when={!loading() && !error()}
               fallback={
                 <p class="text-magenta-300 text-sm">loading albums...</p>
               }
             >
-              <p class="text-magenta-300 text-sm">
-                {albumsResource()?.albums?.length || 0} albums
-              </p>
+              <p class="text-magenta-300 text-sm">{albums().length} albums</p>
             </Show>
           </div>
 
-          {/* Album Grid */}
-          <div class="flex-1 overflow-y-auto p-6">
+          {/* Album Grid - Scrollable with Infinite Scroll */}
+          <div
+            class="flex-1 overflow-y-auto p-6"
+            ref={infiniteScroll.containerRef}
+          >
             <Show
-              when={albumsResource()?.albums}
+              when={!loading() || albums().length > 0}
               fallback={
                 <div class="flex-1 flex items-center justify-center">
                   <div class="text-magenta-400">loading albums...</div>
@@ -200,7 +220,7 @@ export function DesktopAlbumsView(
               }
             >
               <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-                <For each={albumsResource()?.albums || []}>
+                <For each={albums()}>
                   {(album) => (
                     <div
                       class="group cursor-pointer"
@@ -265,6 +285,44 @@ export function DesktopAlbumsView(
                     </div>
                   )}
                 </For>
+              </div>
+
+              {/* Loading indicator */}
+              <Show when={loading()}>
+                <div class="text-center py-8">
+                  <div class="text-magenta-400 text-sm">
+                    loading more albums...
+                  </div>
+                </div>
+              </Show>
+
+              {/* End of list indicator */}
+              <Show
+                when={
+                  infiniteScroll.state.hasMore() === false &&
+                  albums().length > 0
+                }
+              >
+                <div class="text-center py-8">
+                  <div class="text-gray-600 text-xs opacity-50">
+                    — end of albums —
+                  </div>
+                </div>
+              </Show>
+            </Show>
+
+            {/* Error state */}
+            <Show when={error()}>
+              <div class="text-center py-8">
+                <div class="text-red-400 text-sm mb-2">
+                  failed to load albums
+                </div>
+                <button
+                  class="text-magenta-400 hover:text-magenta-300 text-sm transition-colors"
+                  onClick={() => infiniteScroll.actions.reset()}
+                >
+                  try again
+                </button>
               </div>
             </Show>
           </div>
