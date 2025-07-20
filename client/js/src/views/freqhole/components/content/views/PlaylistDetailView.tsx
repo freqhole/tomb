@@ -1050,6 +1050,15 @@ export function PlaylistDetailView(
                 <Show when={!isNewPlaylist()}>
                   <Show when={editMode()}>
                     <button
+                      class="px-4 py-2 bg-magenta-600 hover:bg-magenta-500 border border-transparent hover:border-magenta-400 rounded text-black font-medium transition-all"
+                      onClick={handleEditToggle}
+                      title="save changes"
+                    >
+                      save
+                    </button>
+                  </Show>
+                  <Show when={editMode()}>
+                    <button
                       class="px-3 py-2 bg-gray-600/50 hover:bg-gray-600/70 border border-transparent hover:border-gray-400 rounded text-white font-medium transition-all flex items-center"
                       onClick={handleCancelEdit}
                       title="cancel changes"
