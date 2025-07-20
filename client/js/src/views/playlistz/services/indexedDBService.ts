@@ -50,10 +50,17 @@ interface PlaylistDB extends DBSchema {
   };
 }
 
-// Database setup
+// Database connection cache to prevent excessive setupDB calls
+let cachedDB: Promise<IDBPDatabase<PlaylistDB>> | null = null;
+
+// Database setup with caching
 export async function setupDB(): Promise<IDBPDatabase<PlaylistDB>> {
+  if (cachedDB) {
+    return cachedDB;
+  }
+
   console.log("🗄️ Setting up IndexedDB:", DB_NAME, "version:", DB_VERSION);
-  return openDB<PlaylistDB>(DB_NAME, DB_VERSION, {
+  cachedDB = openDB<PlaylistDB>(DB_NAME, DB_VERSION, {
     upgrade(db) {
       console.log("🔧 Database upgrade triggered");
       // Create playlists store
@@ -71,6 +78,8 @@ export async function setupDB(): Promise<IDBPDatabase<PlaylistDB>> {
       console.log("✅ Database stores created");
     },
   });
+
+  return cachedDB;
 }
 
 // Live query configuration
@@ -93,7 +102,7 @@ function arraysDiffer<T>(a: T[], b: T[]): boolean {
   });
 }
 
-// Create live query (matching demo pattern)
+// Create live query (returns both custom signal and SolidJS integration)
 export function createLiveQuery<T>({
   dbName,
   storeName,

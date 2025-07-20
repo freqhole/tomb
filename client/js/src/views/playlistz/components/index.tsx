@@ -1,10 +1,7 @@
 /* @jsxImportSource solid-js */
 import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
-import {
-  setupDB,
-  createPlaylistsQuery,
-  createPlaylist,
-} from "../services/indexedDBService.js";
+import { setupDB, createPlaylist } from "../services/indexedDBService.js";
+import { usePlaylistsQuery } from "../hooks/usePlaylistsQuery.js";
 import { cleanup as cleanupAudio } from "../services/audioService.js";
 import {
   filterAudioFiles,
@@ -24,8 +21,8 @@ export function Playlistz() {
   const [isInitialized, setIsInitialized] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
-  // Reactive queries
-  const playlistsQuery = createPlaylistsQuery();
+  // Reactive queries - use SolidJS hook for proper reactivity
+  const playlists = usePlaylistsQuery();
 
   // Auto-clear errors after 5 seconds
   createEffect(() => {
@@ -232,12 +229,12 @@ export function Playlistz() {
                     + playlist
                   </button>
                   <div class="mt-4 text-sm text-magenta-300">
-                    found {playlistsQuery.get().length} playlists
-                    {playlistsQuery.get().length > 0 && (
+                    found {playlists().length} playlists
+                    {playlists().length > 0 && (
                       <div class="mt-2">
                         <button
                           onClick={() => {
-                            const firstPlaylist = playlistsQuery.get()[0];
+                            const firstPlaylist = playlists()[0];
                             if (firstPlaylist) {
                               setSelectedPlaylist(firstPlaylist);
                             }
