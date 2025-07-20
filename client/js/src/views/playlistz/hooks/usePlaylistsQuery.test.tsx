@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot, createSignal as solidCreateSignal } from "solid-js";
-import { render, screen } from "@solidjs/testing-library";
 import {
   createLiveQuery,
   createPlaylistsQuery,
@@ -49,15 +48,17 @@ describe("Playlist Signal Integration Tests", () => {
         });
 
         // Test SolidJS signal
-        const [solidSignal, setSolidSignal] = solidCreateSignal<Playlist[]>([]);
+        const [solidSignal] = solidCreateSignal<Playlist[]>([]);
 
         // Both should have get() method
         expect(typeof customQuery.get).toBe("function");
         expect(typeof solidSignal).toBe("function");
 
-        // Both should return initial empty array
+        // Both should return empty arrays initially
         expect(customQuery.get()).toEqual([]);
         expect(solidSignal()).toEqual([]);
+
+        console.log("✅ Basic signal interface compatibility works");
       });
     });
 
@@ -163,8 +164,12 @@ describe("Playlist Signal Integration Tests", () => {
       // Should have received update through subscription
       expect(updates.length).toBeGreaterThan(1);
       if (updates.length > 1) {
-        expect(updates[updates.length - 1]).toHaveLength(1);
-        expect(updates[updates.length - 1][0].title).toBe("Test Playlist");
+        const lastUpdate = updates[updates.length - 1];
+        expect(lastUpdate).toBeDefined();
+        expect(lastUpdate).toHaveLength(1);
+        if (lastUpdate && lastUpdate.length > 0 && lastUpdate[0]) {
+          expect(lastUpdate[0].title).toBe("Test Playlist");
+        }
       }
 
       unsubscribe();

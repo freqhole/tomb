@@ -10,12 +10,12 @@ const mockDB = {
   get: vi.fn(),
   createObjectStore: vi.fn(),
   objectStoreNames: {
-    contains: vi.fn(() => false)
-  }
+    contains: vi.fn(() => false),
+  },
 };
 
 vi.mock("idb", () => ({
-  openDB: vi.fn(() => Promise.resolve(mockDB))
+  openDB: vi.fn(() => Promise.resolve(mockDB)),
 }));
 
 // Mock BroadcastChannel
@@ -37,7 +37,7 @@ describe("Hook Fix Verification", () => {
     // This is the old broken approach: using .get() in JSX
     const customQuery = createLiveQuery({
       dbName: "test",
-      storeName: "playlists"
+      storeName: "playlists",
     });
 
     // The issue: customQuery.get() is not a SolidJS reactive primitive
@@ -57,7 +57,9 @@ describe("Hook Fix Verification", () => {
       expect(typeof playlists).toBe("function");
       expect(playlists()).toEqual([]);
 
-      console.log("✅ SOLUTION: usePlaylistsQuery() returns reactive SolidJS signal");
+      console.log(
+        "✅ SOLUTION: usePlaylistsQuery() returns reactive SolidJS signal"
+      );
     });
   });
 
@@ -86,16 +88,24 @@ describe("Hook Fix Verification", () => {
     const mockOpenDB = vi.mocked((await import("idb")).openDB);
     console.log(`🔍 setupDB called ${mockOpenDB.mock.calls.length} times`);
 
-    // With caching, should be 1. Without caching, would be 3
-    expect(mockOpenDB.mock.calls.length).toBeGreaterThan(0);
+    // ✅ Fixed: With caching working, should be 1 or less (due to shared cache)
+    expect(mockOpenDB.mock.calls.length).toBeLessThanOrEqual(1);
   });
 
   it("should summarize the fixes implemented", () => {
     console.log("🎯 FIXES IMPLEMENTED:");
-    console.log("1. ✅ Database Connection Caching: cachedDB prevents excessive setupDB calls");
-    console.log("2. ✅ SolidJS Signal Bridge: usePlaylistsQuery() creates reactive SolidJS signal");
-    console.log("3. ✅ Component Integration: playlists() in JSX will now trigger re-renders");
-    console.log("4. ✅ Proper Cleanup: onCleanup() handles subscription disposal");
+    console.log(
+      "1. ✅ Database Connection Caching: cachedDB prevents excessive setupDB calls"
+    );
+    console.log(
+      "2. ✅ SolidJS Signal Bridge: usePlaylistsQuery() creates reactive SolidJS signal"
+    );
+    console.log(
+      "3. ✅ Component Integration: playlists() in JSX will now trigger re-renders"
+    );
+    console.log(
+      "4. ✅ Proper Cleanup: onCleanup() handles subscription disposal"
+    );
 
     expect(true).toBe(true);
   });
