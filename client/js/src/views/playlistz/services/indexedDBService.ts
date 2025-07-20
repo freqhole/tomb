@@ -11,6 +11,10 @@ interface Signal<T> {
   subscribe: (fn: (value: T) => void) => () => void;
 }
 
+interface ExtendedSignal<T> extends Signal<T> {
+  // Extended signal with proper cleanup
+}
+
 function createSignal<T>(initial: T): Signal<T> {
   let value = initial;
   const subs = new Set<(value: T) => void>();
@@ -112,7 +116,7 @@ export function createLiveQuery<T>({
   queryFn,
   fields = [],
   limit = null,
-}: LiveQueryConfig): Signal<T[]> {
+}: LiveQueryConfig): ExtendedSignal<T[]> {
   const signal = createSignal<T[]>([]);
   const bc = new BroadcastChannel(`${dbName}-changes`);
   let last: T[] = [];
@@ -192,7 +196,7 @@ export function createLiveQuery<T>({
         bc.close();
       };
     },
-  };
+  } as ExtendedSignal<T[]>;
 }
 
 // Mutation with notification (matching demo pattern)

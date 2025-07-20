@@ -11,11 +11,15 @@ global.ResizeObserver = vi.fn(() => ({
   disconnect: vi.fn(),
 }));
 
-global.IntersectionObserver = vi.fn(() => ({
+global.IntersectionObserver = vi.fn().mockImplementation(() => ({
   observe: vi.fn(),
   unobserve: vi.fn(),
   disconnect: vi.fn(),
-}));
+  root: null,
+  rootMargin: "0px",
+  thresholds: [],
+  takeRecords: vi.fn(() => []),
+})) as any;
 
 // Mock BroadcastChannel for tests
 global.BroadcastChannel = vi.fn(() => ({
