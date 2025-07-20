@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+@theme {
+  /* Custom color palette - black, white, magenta */
+  --color-magenta-50: #fdf4ff;
+  --color-magenta-100: #fae8ff;
+  --color-magenta-200: #f5d0fe;
+  --color-magenta-300: #f0abfc;
+  --color-magenta-400: #e879f9;
+  --color-magenta-500: #d946ef;
+  --color-magenta-600: #c026d3;
+  --color-magenta-700: #a21caf;
+  --color-magenta-800: #86198f;
+  --color-magenta-900: #701a75;
+  --color-magenta-950: #4a044e;
+
+  /* Dark theme grays */
+  --color-dark-100: #1a1a1a;
+  --color-dark-200: #2a2a2a;
+  --color-dark-300: #3a3a3a;
+  --color-dark-400: #4a4a4a;
+  --color-dark-500: #5a5a5a;
+  --color-dark-600: #6a6a6a;
+  --color-dark-700: #7a7a7a;
+  --color-dark-800: #0a0a0a;
+  --color-dark-900: #000000;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    background-color: black;
+    color: white;
+    font-family: system-ui, -apple-system, sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Custom scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: #2a2a2a;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: #4a4a4a;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #d946ef;
+  }
+
+  /* Firefox scrollbar styling */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #4a4a4a #2a2a2a;
+  }
+}
+
+@layer components {
+  /* Playlist button hover effects */
+  .playlist-button-hover {
+    position: relative;
+    overflow: hidden;
+    transition: all 0.2s ease-out;
+  }
+
+  .playlist-button-hover:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(217, 70, 239, 0.3);
+  }
+
+  /* Playlist item hover effects */
+  .playlist-item-hover:hover {
+    transform: translateX(2px);
+    box-shadow: -2px 0 8px rgba(217, 70, 239, 0.4);
+  }
+
+  /* Glass morphism effects */
+  .glass {
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    background-color: rgba(26, 26, 26, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.125);
+  }
+}
+
+@layer utilities {
+  /* Text selection */
+  .no-select {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
+
+  /* Focus styles */
+  .focus-outline:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(217, 70, 239, 0.5);
+  }
+}
+
+/* Loading shimmer animation */
+.loading-shimmer {
+  background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}

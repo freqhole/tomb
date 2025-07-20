@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
+import tailwindcss from "@tailwindcss/vite";
 
 interface ComponentTemplate {
   name: string;
@@ -186,6 +187,25 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
     ],
   },
 
+  "playlistz-demo": {
+    name: "playlistz-demo",
+    title: "Playlistz Demo - Music Playlist Manager",
+    description: "🎵 Music Playlist Manager with IndexedDB and Audio Playback",
+    element: "playlistz-app",
+    attributes: {},
+    instructions: [
+      "Drag and drop audio files anywhere on the page",
+      "Create and manage playlists with metadata editing",
+      "Play songs individually or entire playlists",
+      "All data stored locally in IndexedDB",
+      "Supports MP3, WAV, FLAC, AIFF, and other audio formats",
+    ],
+    styles: `
+      body { margin: 0; padding: 0; overflow: hidden; }
+      .container { max-width: none; margin: 0; height: 100vh; }
+    `,
+  },
+
   "product-data-grid-demo": {
     name: "product-data-grid-demo",
     title: "Product Catalog Grid Demo",
@@ -208,7 +228,8 @@ const COMPONENT_TEMPLATES: Record<string, ComponentTemplate> = {
 
 function generateHtmlTemplate(
   template: ComponentTemplate,
-  jsCode: string
+  jsCode: string,
+  cssCode?: string
 ): string {
   const attributesStr = Object.entries(template.attributes)
     .map(([key, value]) => {
@@ -244,6 +265,7 @@ ${template.instructions.join("\n        ")}
       margin: 0 auto;
     }
     ${template.styles || ""}
+    ${cssCode || ""}
   </style>
   <script>
   // this is evil
@@ -305,6 +327,7 @@ function generateStandaloneFiles(): import("vite").Plugin {
           "unified-sync-demo.js": "unified-sync-demo",
           "search-demo.js": "search-demo",
           "zune-demo.js": "zune-demo",
+          "playlistz-demo.js": "playlistz-demo",
         };
 
         const templateKey = nameMapping[chunk.fileName];
@@ -315,8 +338,20 @@ function generateStandaloneFiles(): import("vite").Plugin {
           continue;
         }
 
+        // Find corresponding CSS file for this chunk
+        const cssFileName = Object.keys(bundle).find(
+          (fileName) =>
+            fileName.startsWith(chunk.fileName.replace(".js", "")) &&
+            fileName.endsWith(".css")
+        );
+        const cssFile = cssFileName ? bundle[cssFileName] : null;
+        const cssCode =
+          cssFile && cssFile.type === "asset"
+            ? (cssFile.source as string)
+            : undefined;
+
         // Generate standalone HTML
-        const html = generateHtmlTemplate(template, chunk.code);
+        const html = generateHtmlTemplate(template, chunk.code, cssCode);
         this.emitFile({
           type: "asset",
           fileName: `${template.name}-standalone.html`,
@@ -358,6 +393,7 @@ export default defineConfig({
       typescript: true,
       jsx: "preserve",
     }),
+    tailwindcss(),
     generateStandaloneFiles(),
   ],
   build: {
@@ -378,6 +414,7 @@ export default defineConfig({
         "unified-sync-demo": "./src/web-components/unified-sync-demo.tsx",
         "search-demo": "./src/web-components/search-demo.tsx",
         "zune-demo": "./src/web-components/zune-demo.tsx",
+        "playlistz-demo": "./src/web-components/playlistz.tsx",
         "all-components": "./src/web-components/index.tsx",
       },
       output: {
@@ -393,6 +430,7 @@ export default defineConfig({
             "unified-sync-demo": "unified-sync-demo.js",
             "search-demo": "search-demo.js",
             "zune-demo": "zune-demo.js",
+            "playlistz-demo": "playlistz-demo.js",
             "all-components": "all-components.js",
           };
           return nameMap[chunkInfo.name] || "[name].js";
