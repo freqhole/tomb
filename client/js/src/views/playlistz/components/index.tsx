@@ -19,6 +19,8 @@ import {
 } from "../services/fileProcessingService.js";
 import { addSongToPlaylist } from "../services/indexedDBService.js";
 import { cleanupTimeUtils } from "../utils/timeUtils.js";
+import { PlaylistSidebar } from "./PlaylistSidebar.js";
+import { SongRow } from "./SongRow.js";
 
 import type { Playlist } from "../types/playlist.js";
 
@@ -231,65 +233,43 @@ export function Playlistz() {
           </div>
         }
       >
-        {/* Main content */}
+        {/* Main content with sidebar layout */}
         <div class="relative flex h-full">
-          <Show
-            when={selectedPlaylist()}
-            fallback={
-              <div class="flex-1 flex items-center justify-center">
-                <div class="text-center text-gray-400">
-                  <div class="text-2xl mb-4 font-bold">music</div>
-                  <h2 class="text-2xl font-light mb-2">welcome to playlistz</h2>
-                  <p class="text-lg mb-4">
-                    create a playlist or drag audio files here to get started
-                  </p>
-                  <button
-                    onClick={handleCreatePlaylist}
-                    class="px-6 py-3 bg-magenta-500 text-white rounded-lg hover:bg-magenta-600 transition-colors"
-                  >
-                    + playlist
-                  </button>
-                  <div class="mt-4 text-sm text-magenta-300">
-                    found{" "}
-                    {(() => {
-                      const count = playlists().length;
-                      console.log(`🖥️ Rendering playlist count: ${count}`);
-                      return count;
-                    })()}{" "}
-                    playlists
-                    <Show when={playlists().length > 0}>
-                      <div class="mt-2">
-                        <button
-                          onClick={() => {
-                            const firstPlaylist = playlists()[0];
-                            if (firstPlaylist) {
-                              setSelectedPlaylist(firstPlaylist);
-                            }
-                          }}
-                          class="text-xs text-magenta-400 hover:text-magenta-300"
-                        >
-                          select existing playlist
-                        </button>
-                      </div>
-                      <div class="mt-2 text-xs text-gray-500">
-                        Available playlists:
-                        <For each={playlists()}>
-                          {(playlist) => (
-                            <div class="ml-2">• {playlist.title}</div>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
+          {/* Left Sidebar */}
+          <PlaylistSidebar
+            playlists={playlists()}
+            selectedPlaylist={selectedPlaylist()}
+            onPlaylistSelect={(playlist) => setSelectedPlaylist(playlist)}
+            onCreatePlaylist={handleCreatePlaylist}
+            isLoading={false}
+          />
+
+          {/* Main Content Area */}
+          <div class="flex-1 flex flex-col">
+            <Show
+              when={selectedPlaylist()}
+              fallback={
+                <div class="flex-1 flex items-center justify-center">
+                  <div class="text-center text-gray-400">
+                    <div class="text-4xl mb-6">🎵</div>
+                    <h2 class="text-2xl font-light mb-2">select a playlist</h2>
+                    <p class="text-lg mb-4">
+                      choose a playlist from the sidebar or create a new one
+                    </p>
+                    <div class="text-sm text-magenta-300">
+                      {playlists().length > 0
+                        ? `${playlists().length} playlist${playlists().length !== 1 ? "s" : ""} available`
+                        : "no playlists yet"}
+                    </div>
                   </div>
                 </div>
-              </div>
-            }
-          >
-            {(playlist) => (
-              <div class="flex-1 p-6">
-                <div class="max-w-4xl mx-auto">
-                  <div class="flex items-center justify-between mb-6">
-                    <div>
+              }
+            >
+              {(playlist) => (
+                <div class="flex-1 flex flex-col p-6">
+                  {/* Playlist Header */}
+                  <div class="flex items-center justify-between mb-6 border-b border-gray-700 pb-6">
+                    <div class="flex-1">
                       <input
                         type="text"
                         value={playlist().title}
@@ -300,7 +280,7 @@ export function Playlistz() {
                           };
                           setSelectedPlaylist(updatedPlaylist);
                         }}
-                        class="text-3xl font-bold text-white bg-transparent border-none outline-none focus:bg-gray-800 px-2 py-1 rounded"
+                        class="text-3xl font-bold text-white bg-transparent border-none outline-none focus:bg-gray-800 px-2 py-1 rounded w-full"
                       />
                       <div class="mt-2">
                         <input
@@ -318,56 +298,74 @@ export function Playlistz() {
                         />
                       </div>
                     </div>
-                    <button
-                      onClick={() => setSelectedPlaylist(null)}
-                      class="px-4 py-2 text-gray-400 hover:text-white border border-gray-600 rounded hover:border-gray-400 transition-colors"
-                    >
-                      back to playlists
-                    </button>
+
+                    <div class="ml-4 text-right text-sm text-gray-400">
+                      <div>
+                        {playlist().songIds?.length || 0} song
+                        {(playlist().songIds?.length || 0) !== 1 ? "s" : ""}
+                      </div>
+                    </div>
                   </div>
 
-                  <div class="bg-gray-900 bg-opacity-30 rounded-lg p-6">
-                    <h2 class="text-xl font-semibold mb-4 text-white">songs</h2>
+                  {/* Songs List */}
+                  <div class="flex-1 overflow-y-auto">
                     <Show
                       when={playlist().songIds && playlist().songIds.length > 0}
                       fallback={
-                        <div class="text-center py-12">
-                          <div class="text-gray-400 text-2xl mb-4">
+                        <div class="text-center py-16">
+                          <div class="text-6xl mb-6">🎶</div>
+                          <div class="text-gray-400 text-xl mb-4">
                             no songs yet
                           </div>
-                          <p class="text-gray-400">
+                          <p class="text-gray-400 mb-4">
                             drag and drop audio files here to add them to this
                             playlist
                           </p>
-                          <p class="text-xs text-gray-500 mt-2">
-                            playlist id: {playlist().id}
-                          </p>
-                          <p class="text-xs text-gray-500 mt-1">
-                            songs in playlist: {playlist().songIds?.length || 0}
-                          </p>
+                          <div class="text-xs text-gray-500 space-y-1">
+                            <div>playlist id: {playlist().id}</div>
+                            <div>supported formats: MP3, WAV, FLAC, AIFF</div>
+                          </div>
                         </div>
                       }
                     >
-                      <div class="space-y-2">
-                        <div class="text-magenta-400">
-                          {playlist().songIds.length} song
-                          {playlist().songIds.length !== 1 ? "s" : ""} in
-                          playlist
+                      <div class="space-y-3">
+                        <div class="flex items-center justify-between mb-4">
+                          <h2 class="text-lg font-medium text-gray-300">
+                            {playlist().songIds.length} song
+                            {playlist().songIds.length !== 1 ? "s" : ""}
+                          </h2>
+                          <div class="text-xs text-gray-500">
+                            drag to reorder • click to play
+                          </div>
                         </div>
+
                         <For each={playlist().songIds}>
                           {(songId) => (
-                            <div class="p-2 bg-gray-800 rounded text-gray-300">
-                              Song ID: {songId}
-                            </div>
+                            <SongRow
+                              songId={songId}
+                              showRemoveButton={true}
+                              onRemove={(id) => {
+                                // TODO: Implement song removal
+                                console.log("Remove song:", id);
+                              }}
+                              onPlay={(song) => {
+                                // TODO: Implement audio playback
+                                console.log("Play song:", song.title);
+                              }}
+                              onPause={() => {
+                                // TODO: Implement pause
+                                console.log("Pause playback");
+                              }}
+                            />
                           )}
                         </For>
                       </div>
                     </Show>
                   </div>
                 </div>
-              </div>
-            )}
-          </Show>
+              )}
+            </Show>
+          </div>
         </div>
       </Show>
 

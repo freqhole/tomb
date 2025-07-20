@@ -78,20 +78,47 @@ global.Audio = vi.fn(() => ({
   muted: false,
 })) as any;
 
-// Mock window.matchMedia
-Object.defineProperty(window, "matchMedia", {
-  writable: true,
-  value: vi.fn().mockImplementation((query) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(), // deprecated
-    removeListener: vi.fn(), // deprecated
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
+// Mock window.matchMedia (only in jsdom environment)
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(), // deprecated
+      removeListener: vi.fn(), // deprecated
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
+// Test database setup functions
+export async function setupTestDB(): Promise<void> {
+  // fake-indexeddb automatically provides a fresh database for each test
+  // No additional setup needed as fake-indexeddb/auto handles this
+}
+
+export async function cleanupTestDB(): Promise<void> {
+  // fake-indexeddb automatically cleans up after each test
+  // Manual cleanup can be done here if needed
+  if (typeof indexedDB !== "undefined") {
+    // Get all database names and delete them
+    try {
+      const databases = (await indexedDB.databases?.()) || [];
+      for (const db of databases) {
+        if (db.name) {
+          indexedDB.deleteDatabase(db.name);
+        }
+      }
+    } catch (error) {
+      // Some environments may not support indexedDB.databases()
+      // In that case, fake-indexeddb will handle cleanup automatically
+    }
+  }
+}
 
 // Clean up after each test
 import { afterEach } from "vitest";

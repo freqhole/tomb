@@ -15,6 +15,8 @@ export default defineConfig({
       // Component tests need jsdom for DOM testing
       ["src/views/playlistz/**/*.component.test.{ts,tsx}", "jsdom"],
       ["src/views/playlistz/**/*.dom.test.{ts,tsx}", "jsdom"],
+      ["src/views/playlistz/**/*integration.test.{ts,tsx}", "jsdom"],
+      ["src/views/playlistz/**/ui-*.test.{ts,tsx}", "jsdom"],
     ],
     coverage: {
       provider: "v8",

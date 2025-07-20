@@ -494,3 +494,37 @@ export function createPlaylistSongsQuery(playlistId: string) {
     ],
   });
 }
+
+// Direct query functions for fetching data
+export async function getSongById(songId: string): Promise<Song | null> {
+  try {
+    const db = await setupDB();
+    const song = await db.get(SONGS_STORE, songId);
+    return song || null;
+  } catch (error) {
+    console.error(`❌ Error fetching song ${songId}:`, error);
+    return null;
+  }
+}
+
+export async function getAllSongs(): Promise<Song[]> {
+  try {
+    const db = await setupDB();
+    const songs = await db.getAll(SONGS_STORE);
+    return songs;
+  } catch (error) {
+    console.error("❌ Error fetching all songs:", error);
+    return [];
+  }
+}
+
+export async function getAllPlaylists(): Promise<Playlist[]> {
+  try {
+    const db = await setupDB();
+    const playlists = await db.getAll(PLAYLISTS_STORE);
+    return playlists;
+  } catch (error) {
+    console.error("❌ Error fetching all playlists:", error);
+    return [];
+  }
+}
