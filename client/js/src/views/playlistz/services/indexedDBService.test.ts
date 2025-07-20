@@ -1,7 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { setupDB, createPlaylistsQuery, addSongToPlaylist, createPlaylist } from "./services/indexedDBService.js";
 
-// Mock idb
+// Mock idb first to avoid hoisting issues
+vi.mock("idb", () => ({
+  openDB: vi.fn(),
+}));
+
+// Now import the modules that depend on idb
+import {
+  setupDB,
+  createPlaylistsQuery,
+  addSongToPlaylist,
+  createPlaylist,
+} from "./indexedDBService.js";
+
+// Define mock objects
 const mockDB = {
   getAll: vi.fn(),
   transaction: vi.fn(),
@@ -10,14 +22,9 @@ const mockDB = {
   get: vi.fn(),
   createObjectStore: vi.fn(),
   objectStoreNames: {
-    contains: vi.fn(() => false)
-  }
+    contains: vi.fn(() => false),
+  },
 };
-
-const mockOpenDB = vi.fn();
-vi.mock("idb", () => ({
-  openDB: mockOpenDB,
-}));
 
 // Mock BroadcastChannel
 global.BroadcastChannel = vi.fn(() => ({
@@ -27,25 +34,37 @@ global.BroadcastChannel = vi.fn(() => ({
 })) as any;
 
 // Mock crypto.randomUUID
-global.crypto = {
-  randomUUID: vi.fn(() => "test-uuid-123")
-} as any;
+Object.defineProperty(global, "crypto", {
+  value: {
+    randomUUID: vi.fn(() => "test-uuid-123"),
+  },
+  writable: true,
+});
 
 describe("Database Efficiency Tests", () => {
-  beforeEach(() => {
+  let mockOpenDB: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
     vi.clearAllMocks();
+
+    // Get the mocked openDB function
+    const { openDB } = await import("idb");
+    mockOpenDB = vi.mocked(openDB);
+
     mockOpenDB.mockResolvedValue(mockDB);
     mockDB.getAll.mockResolvedValue([]);
+
+    // Setup successful transaction mocks
     mockDB.transaction.mockReturnValue({
       objectStore: vi.fn(() => ({
-        put: vi.fn(),
-        get: vi.fn(),
-        delete: vi.fn(),
+        put: vi.fn().mockResolvedValue(undefined),
+        get: vi.fn().mockResolvedValue(null),
+        delete: vi.fn().mockResolvedValue(undefined),
         index: vi.fn(() => ({
-          openCursor: vi.fn(() => Promise.resolve(null))
-        }))
+          openCursor: vi.fn(() => Promise.resolve(null)),
+        })),
       })),
-      done: Promise.resolve()
+      done: Promise.resolve(),
     });
   });
 
@@ -60,13 +79,15 @@ describe("Database Efficiency Tests", () => {
       await createPlaylist({
         title: "Test Playlist",
         description: "Test",
-        songIds: []
+        songIds: [],
       });
 
       // BUG: setupDB is called multiple times for a single operation
       // Should ideally be called once and cached
-      console.log(`📊 setupDB called ${mockOpenDB.mock.calls.length} times for single createPlaylist`);
-      expect(mockOpenDB.mock.calls.length).toBeGreaterThan(1); // Documents current bug
+      console.log(
+        `📊 setupDB called ${mockOpenDB.mock.calls.length} times for single createPlaylist`
+      );
+      expect(mockOpenDB.mock.calls.length).toBe(1); // ✅ Fixed: Only called once due to caching
     });
 
     it("should track setupDB calls during file upload workflow", async () => {
@@ -79,7 +100,7 @@ describe("Database Efficiency Tests", () => {
       const playlist = await createPlaylist({
         title: "New Playlist",
         description: "From dropped files",
-        songIds: []
+        songIds: [],
       });
 
       const initialCalls = mockOpenDB.mock.calls.length;
@@ -90,15 +111,17 @@ describe("Database Efficiency Tests", () => {
         title: "Test Song",
         artist: "Test Artist",
         album: "Test Album",
-        duration: 180
+        duration: 180,
       });
 
       const finalCalls = mockOpenDB.mock.calls.length;
       console.log(`📊 Total setupDB calls after addSong: ${finalCalls}`);
-      console.log(`📊 Additional calls for addSong: ${finalCalls - initialCalls}`);
+      console.log(
+        `📊 Additional calls for addSong: ${finalCalls - initialCalls}`
+      );
 
-      // Based on console logs, we expect 6+ calls total
-      expect(finalCalls).toBeGreaterThanOrEqual(4);
+      // ✅ Fixed: Database caching prevents excessive calls
+      expect(finalCalls).toBeLessThanOrEqual(2);
     });
 
     it("should track setupDB calls for multiple queries", async () => {
@@ -110,12 +133,14 @@ describe("Database Efficiency Tests", () => {
       const query3 = createPlaylistsQuery();
 
       // Each query creation likely triggers setupDB
-      await new Promise(resolve => setTimeout(resolve, 100)); // Wait for async setup
+      await new Promise((resolve) => setTimeout(resolve, 100)); // Wait for async setup
 
-      console.log(`📊 setupDB called ${mockOpenDB.mock.calls.length} times for 3 queries`);
+      console.log(
+        `📊 setupDB called ${mockOpenDB.mock.calls.length} times for 3 queries`
+      );
 
-      // Should ideally be called once and cached, but currently each query calls it
-      expect(mockOpenDB.mock.calls.length).toBeGreaterThan(1);
+      // ✅ Fixed: Database connection is cached and reused
+      expect(mockOpenDB.mock.calls.length).toBeLessThanOrEqual(1);
     });
   });
 
@@ -188,7 +213,9 @@ describe("Database Efficiency Tests", () => {
       }
 
       console.log("📊 Setup times (ms):", times);
-      console.log(`📊 Average setup time: ${times.reduce((a, b) => a + b, 0) / times.length}ms`);
+      console.log(
+        `📊 Average setup time: ${times.reduce((a, b) => a + b, 0) / times.length}ms`
+      );
 
       // Each call adds overhead
       expect(times.length).toBe(5);
@@ -211,8 +238,8 @@ describe("Database Efficiency Tests", () => {
       console.log(`📊 Concurrent operations took ${endTime - startTime}ms`);
       console.log(`📊 Total setupDB calls: ${mockOpenDB.mock.calls.length}`);
 
-      // With proper caching, we'd expect fewer setupDB calls
-      expect(mockOpenDB.mock.calls.length).toBeGreaterThan(3);
+      // ✅ Fixed: Concurrent operations reuse cached connection
+      expect(mockOpenDB.mock.calls.length).toBeLessThanOrEqual(1);
     });
   });
 
@@ -232,7 +259,9 @@ describe("Database Efficiency Tests", () => {
       // Currently just documents the issue
 
       console.log("⚠️ Current implementation may create too many connections");
-      console.log("💡 Solution: Implement connection singleton with proper cleanup");
+      console.log(
+        "💡 Solution: Implement connection singleton with proper cleanup"
+      );
 
       expect(true).toBe(true); // Placeholder
     });
@@ -251,7 +280,7 @@ describe("Database Efficiency Tests", () => {
       console.log("📡 Created 5 broadcast channels");
 
       // Cleanup
-      channels.forEach(channel => channel.close());
+      channels.forEach((channel) => channel.close());
     });
 
     it("should handle broadcast message routing efficiently", () => {
@@ -267,7 +296,7 @@ describe("Database Efficiency Tests", () => {
         { type: "mutation", store: "playlists", id: "3" },
       ];
 
-      messages.forEach(message => {
+      messages.forEach((message) => {
         if (bc.onmessage) {
           bc.onmessage({ data: message } as MessageEvent);
         }
