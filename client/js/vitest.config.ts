@@ -3,12 +3,18 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     globals: false,
-    environment: "node",
+    environment: "node", // Default environment for existing tests
     include: [
       "tests/**/*.test.ts",
       "tests/**/*.spec.ts",
       "src/**/*.test.ts",
       "src/**/*.test.tsx",
+    ],
+    // Per-file environment configuration
+    environmentMatchGlobs: [
+      // Component tests need jsdom for DOM testing
+      ["src/views/playlistz/**/*.component.test.{ts,tsx}", "jsdom"],
+      ["src/views/playlistz/**/*.dom.test.{ts,tsx}", "jsdom"],
     ],
     coverage: {
       provider: "v8",

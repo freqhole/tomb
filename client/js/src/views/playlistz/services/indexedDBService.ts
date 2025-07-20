@@ -103,6 +103,9 @@ function arraysDiffer<T>(a: T[], b: T[]): boolean {
 }
 
 // Create live query (returns both custom signal and SolidJS integration)
+// Global registry to track all live queries for direct updates
+const globalQueryRegistry = new Map<string, Set<() => void>>();
+
 export function createLiveQuery<T>({
   dbName,
   storeName,
@@ -148,6 +151,15 @@ export function createLiveQuery<T>({
     }
   }
 
+  // Register this query in the global registry for direct updates
+  const registryKey = `${dbName}-${storeName}`;
+  if (!globalQueryRegistry.has(registryKey)) {
+    globalQueryRegistry.set(registryKey, new Set());
+  }
+  const querySet = globalQueryRegistry.get(registryKey)!;
+  querySet.add(fetchAndUpdate);
+
+  // BroadcastChannel listener (for cross-tab updates)
   bc.onmessage = (e) => {
     console.log(
       "📡 Broadcast message received:",
@@ -161,9 +173,26 @@ export function createLiveQuery<T>({
     }
   };
 
+  // Initial fetch
   fetchAndUpdate();
 
-  return signal;
+  // Return signal with cleanup function
+  const originalSignal = signal;
+  return {
+    ...originalSignal,
+    subscribe: (fn: (value: T[]) => void) => {
+      const unsubscribe = originalSignal.subscribe(fn);
+      return () => {
+        unsubscribe();
+        // Remove from registry when unsubscribing
+        querySet.delete(fetchAndUpdate);
+        if (querySet.size === 0) {
+          globalQueryRegistry.delete(registryKey);
+        }
+        bc.close();
+      };
+    },
+  };
 }
 
 // Mutation with notification (matching demo pattern)
@@ -189,10 +218,28 @@ export async function mutateAndNotify({
   await store.put(updated);
   await tx.done;
 
+  // Direct updates to same-tab queries (immediate)
+  const registryKey = `${dbName}-${storeName}`;
+  const querySet = globalQueryRegistry.get(registryKey);
+  if (querySet) {
+    console.log(
+      `🔄 Direct update: triggering ${querySet.size} queries for ${storeName}`
+    );
+    for (const fetchAndUpdate of querySet) {
+      try {
+        fetchAndUpdate();
+      } catch (error) {
+        console.error("Error in direct query update:", error);
+      }
+    }
+  }
+
+  // BroadcastChannel for cross-tab updates (async)
   const bc = new BroadcastChannel(`${dbName}-changes`);
   const message = { type: "mutation", store: storeName, id: key };
   console.log("📢 Broadcasting mutation:", message);
   bc.postMessage(message);
+  bc.close();
 }
 
 // Playlist operations

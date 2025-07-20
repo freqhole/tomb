@@ -1,7 +1,17 @@
 /* @jsxImportSource solid-js */
-import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
-import { setupDB, createPlaylist } from "../services/indexedDBService.js";
-import { usePlaylistsQuery } from "../hooks/usePlaylistsQuery.js";
+import {
+  createSignal,
+  createEffect,
+  onMount,
+  onCleanup,
+  Show,
+  For,
+} from "solid-js";
+import {
+  setupDB,
+  createPlaylist,
+  createPlaylistsQuery,
+} from "../services/indexedDBService.js";
 import { cleanup as cleanupAudio } from "../services/audioService.js";
 import {
   filterAudioFiles,
@@ -21,8 +31,19 @@ export function Playlistz() {
   const [isInitialized, setIsInitialized] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
-  // Reactive queries - use SolidJS hook for proper reactivity
-  const playlists = usePlaylistsQuery();
+  // Direct signal subscription approach (bypass hook)
+  const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
+
+  // Create and subscribe to query directly in component
+  onMount(() => {
+    const playlistQuery = createPlaylistsQuery();
+    const unsubscribe = playlistQuery.subscribe((value) => {
+      console.log(`🔄 Direct subscription: ${value.length} playlists`);
+      setPlaylists([...value]); // Force new array reference
+    });
+
+    onCleanup(unsubscribe);
+  });
 
   // Auto-clear errors after 5 seconds
   createEffect(() => {
@@ -229,8 +250,14 @@ export function Playlistz() {
                     + playlist
                   </button>
                   <div class="mt-4 text-sm text-magenta-300">
-                    found {playlists().length} playlists
-                    {playlists().length > 0 && (
+                    found{" "}
+                    {(() => {
+                      const count = playlists().length;
+                      console.log(`🖥️ Rendering playlist count: ${count}`);
+                      return count;
+                    })()}{" "}
+                    playlists
+                    <Show when={playlists().length > 0}>
                       <div class="mt-2">
                         <button
                           onClick={() => {
@@ -244,7 +271,15 @@ export function Playlistz() {
                           select existing playlist
                         </button>
                       </div>
-                    )}
+                      <div class="mt-2 text-xs text-gray-500">
+                        Available playlists:
+                        <For each={playlists()}>
+                          {(playlist) => (
+                            <div class="ml-2">• {playlist.title}</div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
                   </div>
                 </div>
               </div>
@@ -294,7 +329,7 @@ export function Playlistz() {
                   <div class="bg-gray-900 bg-opacity-30 rounded-lg p-6">
                     <h2 class="text-xl font-semibold mb-4 text-white">songs</h2>
                     <Show
-                      when={false}
+                      when={playlist().songIds && playlist().songIds.length > 0}
                       fallback={
                         <div class="text-center py-12">
                           <div class="text-gray-400 text-2xl mb-4">
@@ -307,14 +342,25 @@ export function Playlistz() {
                           <p class="text-xs text-gray-500 mt-2">
                             playlist id: {playlist().id}
                           </p>
+                          <p class="text-xs text-gray-500 mt-1">
+                            songs in playlist: {playlist().songIds?.length || 0}
+                          </p>
                         </div>
                       }
                     >
                       <div class="space-y-2">
                         <div class="text-magenta-400">
-                          songs will appear here (temporarily disabled for
-                          debugging)
+                          {playlist().songIds.length} song
+                          {playlist().songIds.length !== 1 ? "s" : ""} in
+                          playlist
                         </div>
+                        <For each={playlist().songIds}>
+                          {(songId) => (
+                            <div class="p-2 bg-gray-800 rounded text-gray-300">
+                              Song ID: {songId}
+                            </div>
+                          )}
+                        </For>
                       </div>
                     </Show>
                   </div>
