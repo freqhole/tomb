@@ -2,6 +2,7 @@
 import { createSignal, For, Show } from "solid-js";
 
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
+import { createImageUrlFromData } from "../services/imageService.js";
 import type { Playlist } from "../types/playlist.js";
 
 interface PlaylistSidebarProps {
@@ -163,7 +164,40 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                           : "bg-gray-800 bg-opacity-50 hover:bg-gray-700 border border-transparent hover:border-gray-600"
                       }`}
                     >
-                      <div class="flex items-start justify-between">
+                      <div class="flex items-start gap-3">
+                        {/* Playlist thumbnail */}
+                        <div class="flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden bg-gray-700">
+                          <Show
+                            when={playlist.imageData && playlist.imageType}
+                            fallback={
+                              <div class="w-full h-full flex items-center justify-center">
+                                <svg
+                                  class="w-6 h-6 text-gray-400"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                                  />
+                                </svg>
+                              </div>
+                            }
+                          >
+                            <img
+                              src={createImageUrlFromData(
+                                playlist.imageData!,
+                                playlist.imageType!
+                              )}
+                              alt={playlist.title}
+                              class="w-full h-full object-cover"
+                            />
+                          </Show>
+                        </div>
+
                         <div class="flex-1 min-w-0">
                           <div
                             class={`font-medium mb-1 truncate ${
@@ -210,7 +244,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                         </div>
 
                         <Show when={isSelected()}>
-                          <div class="ml-2 flex-shrink-0">
+                          <div class="flex-shrink-0">
                             <div class="w-2 h-2 bg-magenta-400 rounded-full"></div>
                           </div>
                         </Show>

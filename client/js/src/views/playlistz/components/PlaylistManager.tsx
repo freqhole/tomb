@@ -2,6 +2,7 @@
 import { createSignal, Show, For, onCleanup } from "solid-js";
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
 import { deletePlaylist } from "../services/indexedDBService.js";
+import { createImageUrlFromData } from "../services/imageService.js";
 import type { Playlist } from "../types/playlist.js";
 
 interface PlaylistManagerProps {
@@ -221,7 +222,7 @@ function PlaylistItem(props: {
         {/* Playlist thumbnail */}
         <div class="flex-shrink-0 w-12 h-12 bg-gray-700 rounded-lg mr-3 overflow-hidden">
           <Show
-            when={props.playlist.image}
+            when={props.playlist.imageData && props.playlist.imageType}
             fallback={
               <div class="w-full h-full flex items-center justify-center text-gray-400">
                 <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
@@ -231,7 +232,10 @@ function PlaylistItem(props: {
             }
           >
             <img
-              src={props.playlist.image}
+              src={createImageUrlFromData(
+                props.playlist.imageData!,
+                props.playlist.imageType!
+              )}
               alt={props.playlist.title}
               class="w-full h-full object-cover"
             />

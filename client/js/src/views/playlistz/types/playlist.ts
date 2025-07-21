@@ -2,7 +2,8 @@ export interface Playlist {
   id: string; // UUID
   title: string; // User-editable playlist name
   description?: string; // Optional description
-  image?: string; // Base64 encoded image or blob URL
+  imageData?: ArrayBuffer; // Image data as ArrayBuffer
+  imageType?: string; // MIME type for the image
   createdAt: number; // Timestamp
   updatedAt: number; // Timestamp
   songIds: string[]; // Ordered array of song IDs
@@ -19,7 +20,8 @@ export interface Song {
   album: string; // User-editable album name
   duration: number; // Length in seconds
   position: number; // Position within playlist (0-based)
-  image?: string; // Base64 encoded cover art
+  imageData?: ArrayBuffer; // Cover art data as ArrayBuffer
+  imageType?: string; // MIME type for the cover art
   createdAt: number; // Timestamp
   updatedAt: number; // Timestamp
   playlistId: string; // Reference to parent playlist
@@ -58,5 +60,6 @@ export interface AudioMetadata {
   artist?: string;
   album?: string;
   duration?: number;
-  coverArt?: string; // Base64 encoded
+  coverArtData?: ArrayBuffer; // Cover art data as ArrayBuffer
+  coverArtType?: string; // MIME type for the cover art
 }

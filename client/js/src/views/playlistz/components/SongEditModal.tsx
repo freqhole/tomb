@@ -4,6 +4,7 @@ import { updateSong } from "../services/indexedDBService.js";
 import {
   processPlaylistCover,
   validateImageFile,
+  createImageUrlFromData,
 } from "../services/imageService.js";
 import type { Song } from "../types/playlist.js";
 
@@ -18,7 +19,9 @@ export function SongEditModal(props: SongEditModalProps) {
   const [title, setTitle] = createSignal("");
   const [artist, setArtist] = createSignal("");
   const [album, setAlbum] = createSignal("");
-  const [image, setImage] = createSignal<string | undefined>();
+  const [imageData, setImageData] = createSignal<ArrayBuffer | undefined>();
+  const [imageType, setImageType] = createSignal<string | undefined>();
+  const [imageUrl, setImageUrl] = createSignal<string | undefined>();
   const [isLoading, setIsLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
@@ -28,7 +31,15 @@ export function SongEditModal(props: SongEditModalProps) {
       setTitle(props.song.title);
       setArtist(props.song.artist || "");
       setAlbum(props.song.album || "");
-      setImage(props.song.image);
+      if (props.song.imageData && props.song.imageType) {
+        setImageData(props.song.imageData);
+        setImageType(props.song.imageType);
+        const url = createImageUrlFromData(
+          props.song.imageData,
+          props.song.imageType
+        );
+        setImageUrl(url);
+      }
     }
   });
 
@@ -49,8 +60,19 @@ export function SongEditModal(props: SongEditModalProps) {
       setError(null);
 
       const result = await processPlaylistCover(file);
-      if (result.success && result.thumbnailUrl) {
-        setImage(result.thumbnailUrl);
+      if (result.success && result.thumbnailData) {
+        // Clean up previous URL if exists
+        const prevUrl = imageUrl();
+        if (prevUrl) {
+          URL.revokeObjectURL(prevUrl);
+        }
+
+        setImageData(result.thumbnailData);
+        setImageType(file.type);
+
+        // Create new display URL
+        const newUrl = createImageUrlFromData(result.thumbnailData, file.type);
+        setImageUrl(newUrl);
       } else {
         setError(result.error || "Failed to process image");
       }
@@ -76,7 +98,8 @@ export function SongEditModal(props: SongEditModalProps) {
         title: title().trim(),
         artist: artist().trim() || "Unknown Artist",
         album: album().trim() || "Unknown Album",
-        image: image(),
+        imageData: imageData(),
+        imageType: imageType(),
         updatedAt: Date.now(),
       };
 
@@ -98,12 +121,23 @@ export function SongEditModal(props: SongEditModalProps) {
   };
 
   const handleCancel = () => {
+    // Clean up any temporary URLs
+    const url = imageUrl();
+    if (url) {
+      URL.revokeObjectURL(url);
+    }
     setError(null);
     props.onClose();
   };
 
   const handleRemoveImage = () => {
-    setImage(undefined);
+    const url = imageUrl();
+    if (url) {
+      URL.revokeObjectURL(url);
+    }
+    setImageData(undefined);
+    setImageType(undefined);
+    setImageUrl(undefined);
   };
 
   if (!props.isOpen) return null;
@@ -145,7 +179,7 @@ export function SongEditModal(props: SongEditModalProps) {
             <div class="flex items-center gap-4">
               <div class="w-20 h-20 rounded-lg overflow-hidden bg-gray-700 flex items-center justify-center">
                 <Show
-                  when={image()}
+                  when={imageUrl()}
                   fallback={
                     <svg
                       class="w-8 h-8 text-gray-400"
@@ -163,7 +197,7 @@ export function SongEditModal(props: SongEditModalProps) {
                   }
                 >
                   <img
-                    src={image()}
+                    src={imageUrl()}
                     alt="Album art"
                     class="w-full h-full object-cover"
                   />
@@ -186,7 +220,7 @@ export function SongEditModal(props: SongEditModalProps) {
                   choose image
                 </label>
 
-                <Show when={image()}>
+                <Show when={imageData()}>
                   <button
                     onClick={handleRemoveImage}
                     disabled={isLoading()}

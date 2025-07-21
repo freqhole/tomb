@@ -7,6 +7,7 @@ import {
   playSong,
   togglePlayback,
 } from "../services/audioService.js";
+import { createImageUrlFromData } from "../services/imageService.js";
 import { SongRow } from "./SongRow.js";
 
 interface PlaylistDetailProps {
@@ -70,7 +71,29 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
           <div class="flex-shrink-0">
             <div class="w-48 h-48 bg-gray-700 rounded-lg overflow-hidden">
               <Show
-                when={props.playlist.image}
+                when={(() => {
+                  console.log(
+                    `🖼️ [DEBUG] PlaylistDetail - playlist:`,
+                    props.playlist
+                  );
+                  console.log(
+                    `🖼️ [DEBUG] PlaylistDetail - has imageData:`,
+                    !!props.playlist.imageData
+                  );
+                  console.log(
+                    `🖼️ [DEBUG] PlaylistDetail - has imageType:`,
+                    !!props.playlist.imageType
+                  );
+                  console.log(
+                    `🖼️ [DEBUG] PlaylistDetail - imageData size:`,
+                    props.playlist.imageData?.byteLength
+                  );
+                  console.log(
+                    `🖼️ [DEBUG] PlaylistDetail - imageType:`,
+                    props.playlist.imageType
+                  );
+                  return props.playlist.imageData && props.playlist.imageType;
+                })()}
                 fallback={
                   <div class="w-full h-full flex items-center justify-center text-gray-400">
                     <svg
@@ -84,7 +107,17 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                 }
               >
                 <img
-                  src={props.playlist.image}
+                  src={(() => {
+                    const url = createImageUrlFromData(
+                      props.playlist.imageData!,
+                      props.playlist.imageType!
+                    );
+                    console.log(
+                      `🖼️ [DEBUG] PlaylistDetail - created image URL:`,
+                      url
+                    );
+                    return url;
+                  })()}
                   alt={props.playlist.title}
                   class="w-full h-full object-cover"
                 />

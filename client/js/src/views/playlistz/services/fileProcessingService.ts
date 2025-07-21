@@ -83,12 +83,22 @@ async function extractDuration(file: File): Promise<number> {
 }
 
 // Extract cover art from file using ID3 tags
-async function extractCoverArt(file: File): Promise<string | undefined> {
+async function extractCoverArt(
+  file: File
+): Promise<{ data: ArrayBuffer; type: string } | undefined> {
   try {
     const result = await extractAlbumArt(file);
     if (result.success && result.albumArt) {
       console.log(`🖼️ Extracted album art from ${file.name}`);
-      return result.albumArt;
+      // Convert blob URL to ArrayBuffer
+      const response = await fetch(result.albumArt);
+      const arrayBuffer = await response.arrayBuffer();
+      // Clean up the blob URL
+      URL.revokeObjectURL(result.albumArt);
+      return {
+        data: arrayBuffer,
+        type: "image/jpeg", // Default type, could be improved to detect actual type
+      };
     }
     return undefined;
   } catch (error) {
@@ -110,7 +120,8 @@ export async function extractMetadata(file: File): Promise<AudioMetadata> {
       artist: filenameMetadata.artist || "Unknown Artist",
       album: filenameMetadata.album || "Unknown Album",
       duration,
-      coverArt,
+      coverArtData: coverArt?.data,
+      coverArtType: coverArt?.type,
     };
   } catch (error) {
     console.error("Error extracting metadata:", error);
@@ -159,7 +170,8 @@ export async function processAudioFile(file: File): Promise<FileUploadResult> {
         album: metadata.album || "Unknown Album",
         duration: metadata.duration || 0,
         position: 0, // Will be set when adding to playlist
-        image: metadata.coverArt,
+        imageData: metadata.coverArtData,
+        imageType: metadata.coverArtType,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         playlistId: "", // Will be set when adding to playlist

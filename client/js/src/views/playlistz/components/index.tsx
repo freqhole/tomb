@@ -26,6 +26,7 @@ import {
 } from "../services/fileProcessingService.js";
 import { addSongToPlaylist } from "../services/indexedDBService.js";
 import { cleanupTimeUtils } from "../utils/timeUtils.js";
+import { createImageUrlFromData } from "../services/imageService.js";
 import { PlaylistSidebar } from "./PlaylistSidebar.js";
 import { SongRow } from "./SongRow.js";
 import { SongEditModal } from "./SongEditModal.js";
@@ -236,7 +237,8 @@ export function Playlistz() {
             artist: result.song.artist,
             album: result.song.album,
             duration: result.song.duration,
-            image: result.song.image,
+            imageData: result.song.imageData,
+            imageType: result.song.imageType,
           });
         }
       }
@@ -503,7 +505,29 @@ export function Playlistz() {
                         title="Change playlist cover"
                       >
                         <Show
-                          when={playlist().image}
+                          when={(() => {
+                            console.log(
+                              `🖼️ [DEBUG] Main Playlistz - playlist:`,
+                              playlist()
+                            );
+                            console.log(
+                              `🖼️ [DEBUG] Main Playlistz - has imageData:`,
+                              !!playlist().imageData
+                            );
+                            console.log(
+                              `🖼️ [DEBUG] Main Playlistz - has imageType:`,
+                              !!playlist().imageType
+                            );
+                            console.log(
+                              `🖼️ [DEBUG] Main Playlistz - imageData size:`,
+                              playlist().imageData?.byteLength
+                            );
+                            console.log(
+                              `🖼️ [DEBUG] Main Playlistz - imageType:`,
+                              playlist().imageType
+                            );
+                            return playlist().imageData && playlist().imageType;
+                          })()}
                           fallback={
                             <div class="text-center">
                               <svg
@@ -523,7 +547,17 @@ export function Playlistz() {
                           }
                         >
                           <img
-                            src={playlist().image}
+                            src={(() => {
+                              const url = createImageUrlFromData(
+                                playlist().imageData!,
+                                playlist().imageType!
+                              );
+                              console.log(
+                                `🖼️ [DEBUG] Main Playlistz - created image URL:`,
+                                url
+                              );
+                              return url;
+                            })()}
                             alt="Playlist cover"
                             class="w-full h-full object-cover"
                           />

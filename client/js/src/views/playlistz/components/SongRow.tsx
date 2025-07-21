@@ -4,6 +4,7 @@ import { getSongById } from "../services/indexedDBService.js";
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
 import { songUpdateTrigger } from "../services/songReactivity.js";
 import { audioState } from "../services/audioService.js";
+import { createImageUrlFromData } from "../services/imageService.js";
 import type { Song } from "../types/playlist.js";
 
 interface SongRowProps {
@@ -201,7 +202,7 @@ export function SongRow(props: SongRowProps) {
                 {/* Album art / Play button */}
                 <div class="relative w-12 h-12 mr-4 flex-shrink-0">
                   <Show
-                    when={songData().image}
+                    when={songData().imageData && songData().imageType}
                     fallback={
                       <div class="w-12 h-12 bg-gray-700 rounded-lg flex items-center justify-center">
                         <svg
@@ -221,7 +222,10 @@ export function SongRow(props: SongRowProps) {
                     }
                   >
                     <img
-                      src={songData().image}
+                      src={createImageUrlFromData(
+                        songData().imageData!,
+                        songData().imageType!
+                      )}
                       alt={`${songData().title} album art`}
                       class="w-12 h-12 rounded-lg object-cover"
                     />

@@ -3,8 +3,8 @@
 
 export interface ImageProcessingResult {
   success: boolean;
-  imageUrl?: string;
-  thumbnailUrl?: string;
+  imageData?: ArrayBuffer;
+  thumbnailData?: ArrayBuffer;
   error?: string;
   metadata?: {
     width: number;
@@ -120,7 +120,7 @@ export async function extractAlbumArt(
           const albumArt = URL.createObjectURL(blob);
 
           console.log(
-            `🖼️ Extracted album art: ${mimeType}, ${imageDataSize} bytes`
+            `🖼️ [DEBUG] Extracted album art: ${mimeType}, ${imageDataSize} bytes, URL: ${albumArt}`
           );
           return { success: true, albumArt };
         }
@@ -166,9 +166,12 @@ export async function processPlaylistCover(
       return { success: false, error: "Image file too large (max 10MB)" };
     }
 
-    // Create image element to get dimensions
+    // Store original image data as ArrayBuffer
+    const imageData = await file.arrayBuffer();
+
+    // Create image element to get dimensions and create thumbnail
     const img = new Image();
-    const imageUrl = URL.createObjectURL(file);
+    const tempUrl = URL.createObjectURL(file);
 
     return new Promise((resolve) => {
       img.onload = async () => {
@@ -180,20 +183,29 @@ export async function processPlaylistCover(
             size: file.size,
           };
 
-          // Create thumbnail (300x300 max)
-          const thumbnailUrl = await createThumbnail(img, 300, 300);
+          // Create thumbnail data (300x300 max)
+          const thumbnailData = await createThumbnailData(
+            img,
+            300,
+            300,
+            file.type
+          );
 
           console.log(
-            `🖼️ Processed playlist cover: ${img.width}x${img.height}, ${file.size} bytes`
+            `🖼️ [DEBUG] Processed playlist cover: ${img.width}x${img.height}, ${file.size} bytes, imageData size: ${imageData.byteLength}, thumbnailData size: ${thumbnailData.byteLength}`
           );
+
+          // Clean up temporary URL
+          URL.revokeObjectURL(tempUrl);
 
           resolve({
             success: true,
-            imageUrl,
-            thumbnailUrl,
+            imageData,
+            thumbnailData,
             metadata,
           });
         } catch (error) {
+          URL.revokeObjectURL(tempUrl);
           resolve({
             success: false,
             error: error instanceof Error ? error.message : "Processing failed",
@@ -202,11 +214,11 @@ export async function processPlaylistCover(
       };
 
       img.onerror = () => {
-        URL.revokeObjectURL(imageUrl);
+        URL.revokeObjectURL(tempUrl);
         resolve({ success: false, error: "Invalid image file" });
       };
 
-      img.src = imageUrl;
+      img.src = tempUrl;
     });
   } catch (error) {
     console.error("❌ Error processing playlist cover:", error);
@@ -217,12 +229,13 @@ export async function processPlaylistCover(
   }
 }
 
-// Create thumbnail from image element
-async function createThumbnail(
+// Create thumbnail data as ArrayBuffer from image element
+async function createThumbnailData(
   img: HTMLImageElement,
   maxWidth: number,
-  maxHeight: number
-): Promise<string> {
+  maxHeight: number,
+  mimeType: string = "image/jpeg"
+): Promise<ArrayBuffer> {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
 
@@ -245,17 +258,18 @@ async function createThumbnail(
   // Draw image to canvas
   ctx.drawImage(img, 0, 0, width, height);
 
-  // Convert to blob URL
+  // Convert to ArrayBuffer
   return new Promise((resolve, reject) => {
     canvas.toBlob(
-      (blob) => {
+      async (blob) => {
         if (blob) {
-          resolve(URL.createObjectURL(blob));
+          const arrayBuffer = await blob.arrayBuffer();
+          resolve(arrayBuffer);
         } else {
-          reject(new Error("Failed to create thumbnail"));
+          reject(new Error("Failed to create thumbnail data"));
         }
       },
-      "image/jpeg",
+      mimeType,
       0.8
     );
   });
@@ -395,6 +409,20 @@ export function cleanupImageUrls(urls: (string | undefined)[]): void {
       cleanupImageUrl(url);
     }
   });
+}
+
+// Convert stored image data to blob URL for display
+export function createImageUrlFromData(
+  imageData: ArrayBuffer,
+  mimeType: string = "image/jpeg"
+): string {
+  console.log(
+    `🖼️ [DEBUG] Creating URL from ArrayBuffer: ${imageData.byteLength} bytes, type: ${mimeType}`
+  );
+  const blob = new Blob([imageData], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  console.log(`🖼️ [DEBUG] Created blob URL: ${url}`);
+  return url;
 }
 
 // Generate placeholder image for songs without album art
