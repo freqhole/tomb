@@ -1,4 +1,4 @@
-import{f as $t,c as R,a as He,o as Dt,b as It,t as L,i as I,g as O,d as ne,e as he,S as ee,s as Ie,F as Re}from"./web-D3Zmtprl.js";import{c as kt}from"./index-8dGGsLgz.js";import{A as Ct}from"./api-client-C-EpDo6z.js";import{C as le,W as xt}from"./websocket-client-Ch-EMSjw.js";import{W as Mt}from"./websocket-status-BDvgr80x.js";import"./types-wppsXtfs.js";//! Unified Sync System - Core Types
+import{f as $t,c as R,a as He,o as Dt,b as It,t as L,i as I,g as O,d as ne,e as he,S as ee,s as Ie,F as Re}from"./web.js";import{c as kt}from"./index.js";import{A as Ct}from"./api-client.js";import{C as le,W as xt}from"./websocket-client.js";import{W as Mt}from"./websocket-status.js";import"./types.js";//! Unified Sync System - Core Types
 //!
 //! This module defines the foundational types for the new unified sync system.
 //! It supports multiple domains (music, photos, documents, etc.) with a single

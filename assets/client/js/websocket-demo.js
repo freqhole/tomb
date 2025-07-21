@@ -1,4 +1,4 @@
-import{f as yt,c as E,a as Ae,b as vt,t as b,i as n,g as P,m as T,S as H,F as he,d as X,e as ge,s as $t,u as wt}from"./web-D3Zmtprl.js";import{c as St}from"./index-8dGGsLgz.js";import{W as _t,C as Te}from"./websocket-client-Ch-EMSjw.js";import{F as xt}from"./file-upload-BM7XYU3d.js";import"./types-wppsXtfs.js";//! Event utilities for cleaner EventTarget management
+import{f as yt,c as E,a as Ae,b as vt,t as b,i as n,g as P,m as T,S as H,F as he,d as X,e as ge,s as $t,u as wt}from"./web.js";import{c as St}from"./index.js";import{W as _t,C as Te}from"./websocket-client.js";import{F as xt}from"./file-upload.js";import"./types.js";//! Event utilities for cleaner EventTarget management
 //!
 //! This module provides utility functions to reduce code duplication
 //! in EventTarget cleanup and management across the codebase.
