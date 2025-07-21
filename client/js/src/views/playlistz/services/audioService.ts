@@ -44,9 +44,16 @@ function initializeAudio(): HTMLAudioElement {
     setCurrentTime(audioElement?.currentTime || 0);
   });
 
-  audioElement.addEventListener("play", () => setIsPlaying(true));
-  audioElement.addEventListener("pause", () => setIsPlaying(false));
+  audioElement.addEventListener("play", () => {
+    console.log("🎵 Audio event: play");
+    setIsPlaying(true);
+  });
+  audioElement.addEventListener("pause", () => {
+    console.log("🎵 Audio event: pause");
+    setIsPlaying(false);
+  });
   audioElement.addEventListener("ended", () => {
+    console.log("🎵 Audio event: ended");
     setIsPlaying(false);
     handleSongEnded();
   });
@@ -151,6 +158,9 @@ async function handleSongEnded(): Promise<void> {
 
 // Play a specific song
 export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
+  console.log(
+    `🎵 playSong called for: ${song.title}, currentSong: ${currentSong()?.title}`
+  );
   const audio = initializeAudio();
 
   try {

@@ -14,7 +14,11 @@ import {
   updatePlaylist,
   getAllPlaylists,
 } from "../services/indexedDBService.js";
-import { cleanup as cleanupAudio, playSong } from "../services/audioService.js";
+import {
+  cleanup as cleanupAudio,
+  playSong,
+  togglePlayback,
+} from "../services/audioService.js";
 import {
   filterAudioFiles,
   processAudioFiles,
@@ -41,7 +45,7 @@ export function Playlistz() {
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isInitialized, setIsInitialized] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [_, setCurrentPlayingSong] = createSignal<string | null>(null);
+
   const [editingSong, setEditingSong] = createSignal<any | null>(null);
   const [showPlaylistCover, setShowPlaylistCover] = createSignal(false);
   const [playlistSongs, setPlaylistSongs] = createSignal<any[]>([]);
@@ -335,11 +339,9 @@ export function Playlistz() {
           `🎵 Playing song: ${song.title} from playlist: ${currentPlaylist.title}`
         );
         await playSong(song, currentPlaylist);
-        setCurrentPlayingSong(song.id);
       } else {
         console.log(`🎵 Playing single song: ${song.title}`);
         await playSong(song);
-        setCurrentPlayingSong(song.id);
       }
     } catch (err) {
       console.error("❌ Error playing song:", err);
@@ -413,9 +415,8 @@ export function Playlistz() {
   };
 
   const handlePauseSong = () => {
-    // Using new audio service - functionality handled by AudioPlayer component
-    setCurrentPlayingSong(null);
-    console.log("⏸️ Paused playback");
+    // Use the new audio service
+    togglePlayback();
   };
 
   return (

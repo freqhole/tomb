@@ -26,17 +26,29 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
   const handleSongPlay = async (song: Song) => {
     // Check if this song is already the current song
     const currentSong = audioState.currentSong();
+    const isPlaying = audioState.isPlaying();
+    console.log(
+      `🎵 handleSongPlay: clicked=${song.title}, current=${currentSong?.title}, isPlaying=${isPlaying}`
+    );
+
     if (currentSong?.id === song.id) {
       // If it's the same song, just toggle playback (resume/pause)
+      console.log("🎵 Same song, toggling playback");
       togglePlayback();
     } else {
       // Different song, load and play it
+      console.log("🎵 Different song, loading new song");
       await playSong(song, props.playlist);
     }
   };
 
   const handleSongPause = () => {
+    console.log(
+      "🎵 handleSongPause called, isPlaying:",
+      audioState.isPlaying()
+    );
     if (audioState.isPlaying()) {
+      console.log("🎵 Calling togglePlayback from handleSongPause");
       togglePlayback();
     }
   };
