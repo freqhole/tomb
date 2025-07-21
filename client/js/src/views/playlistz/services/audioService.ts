@@ -80,13 +80,11 @@ function releaseAudioURL(url: string): void {
 // Update page title with currently playing song
 function updatePageTitle(): void {
   const song = currentSong();
-  const isPlaying = audioState.isPlaying();
 
   if (song) {
-    const status = isPlaying ? "" : "[Paused] ";
-    document.title = `${status}${song.title} - ${song.artist || "Unknown Artist"} | Playlistz`;
+    document.title = `${song.title} - ${song.artist || "Unknown Artist"} | PLAYLISTZ`;
   } else {
-    document.title = "Playlistz";
+    document.title = "P L A Y L I S T Z";
   }
 }
 
@@ -363,7 +361,6 @@ export async function playNext(): Promise<void> {
   const currentIdx = currentIndex();
 
   if (queue.length === 0) {
-    console.log("⏭️ No queue available for next song");
     return;
   }
 
@@ -381,7 +378,6 @@ export async function playNext(): Promise<void> {
     nextIndex = 0;
   } else {
     // End of queue, no repeat
-    console.log("⏭️ Reached end of queue");
     return;
   }
 
