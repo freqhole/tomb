@@ -11,6 +11,7 @@ export interface Playlist {
 export interface Song {
   id: string; // UUID
   file: File; // Original audio file
+  blobUrl?: string; // Object URL for audio playback
   title: string; // User-editable song title
   artist: string; // User-editable artist name
   album: string; // User-editable album name

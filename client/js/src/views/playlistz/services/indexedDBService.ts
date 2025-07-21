@@ -325,6 +325,7 @@ export async function addSongToPlaylist(
   const song: Song = {
     id: songId,
     file,
+    blobUrl: metadata.blobUrl || URL.createObjectURL(file),
     title: metadata.title || file.name.replace(/\.[^/.]+$/, ""), // Remove file extension
     artist: metadata.artist || "Unknown Artist",
     album: metadata.album || "Unknown Album",
@@ -527,4 +528,41 @@ export async function getAllPlaylists(): Promise<Playlist[]> {
     console.error("❌ Error fetching all playlists:", error);
     return [];
   }
+}
+
+// Remove song from playlist
+export async function removeSongFromPlaylist(
+  playlistId: string,
+  songId: string
+): Promise<void> {
+  const db = await setupDB();
+
+  // Remove song from playlist's songIds array
+  await mutateAndNotify({
+    dbName: DB_NAME,
+    storeName: PLAYLISTS_STORE,
+    key: playlistId,
+    updateFn: (playlist) => ({
+      ...playlist,
+      songIds: playlist.songIds.filter((id: string) => id !== songId),
+      updatedAt: Date.now(),
+    }),
+  });
+
+  // Delete the song record itself
+  const tx = db.transaction(SONGS_STORE, "readwrite");
+  const store = tx.objectStore(SONGS_STORE);
+  await store.delete(songId);
+  await tx.done;
+
+  // Broadcast the song deletion
+  const bc = new BroadcastChannel(`${DB_NAME}-changes`);
+  bc.postMessage({
+    type: "mutation",
+    store: SONGS_STORE,
+    id: songId,
+  });
+  bc.close();
+
+  console.log(`🗑️ Removed song ${songId} from playlist ${playlistId}`);
 }

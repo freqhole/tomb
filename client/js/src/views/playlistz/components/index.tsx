@@ -22,6 +22,12 @@ import { addSongToPlaylist } from "../services/indexedDBService.js";
 import { cleanupTimeUtils } from "../utils/timeUtils.js";
 import { PlaylistSidebar } from "./PlaylistSidebar.js";
 import { SongRow } from "./SongRow.js";
+import { SongEditModal } from "./SongEditModal.js";
+import { PlaylistCoverModal } from "./PlaylistCoverModal.js";
+import {
+  removeSongFromPlaylist,
+  getAllSongs,
+} from "../services/indexedDBService.js";
 
 import type { Playlist } from "../types/playlist.js";
 
@@ -39,6 +45,9 @@ export function Playlistz() {
   const [audioElement, setAudioElement] = createSignal<HTMLAudioElement | null>(
     null
   );
+  const [editingSong, setEditingSong] = createSignal<any | null>(null);
+  const [showPlaylistCover, setShowPlaylistCover] = createSignal(false);
+  const [playlistSongs, setPlaylistSongs] = createSignal<any[]>([]);
 
   // Direct signal subscription approach (bypass hook)
   const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
@@ -67,6 +76,24 @@ export function Playlistz() {
     });
 
     onCleanup(unsubscribe);
+  });
+
+  // Load playlist songs when selected playlist changes
+  createEffect(async () => {
+    const playlist = selectedPlaylist();
+    if (playlist && playlist.songIds.length > 0) {
+      try {
+        const allSongs = await getAllSongs();
+        const songs = allSongs.filter((song) =>
+          playlist.songIds.includes(song.id)
+        );
+        setPlaylistSongs(songs);
+      } catch (err) {
+        console.error("Error loading playlist songs:", err);
+      }
+    } else {
+      setPlaylistSongs([]);
+    }
   });
 
   // Auto-clear errors after 5 seconds
@@ -292,6 +319,34 @@ export function Playlistz() {
     }
   };
 
+  const handleRemoveSong = async (songId: string) => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    try {
+      await removeSongFromPlaylist(playlist.id, songId);
+      console.log(`🗑️ Removed song ${songId} from playlist`);
+    } catch (err) {
+      console.error("❌ Error removing song:", err);
+      setError("failed to remove song");
+    }
+  };
+
+  const handleEditSong = async (song: any) => {
+    setEditingSong(song);
+  };
+
+  const handleSongSaved = (updatedSong: any) => {
+    // Update local playlist songs state
+    setPlaylistSongs((prev) =>
+      prev.map((song) => (song.id === updatedSong.id ? updatedSong : song))
+    );
+  };
+
+  const handlePlaylistCoverSaved = (updatedPlaylist: any) => {
+    setSelectedPlaylist(updatedPlaylist);
+  };
+
   const handlePauseSong = () => {
     const audio = audioElement();
     if (audio) {
@@ -364,30 +419,66 @@ export function Playlistz() {
                 <div class="flex-1 flex flex-col p-6">
                   {/* Playlist Header */}
                   <div class="flex items-center justify-between mb-6 border-b border-gray-700 pb-6">
-                    <div class="flex-1">
-                      <input
-                        type="text"
-                        value={playlist().title}
-                        onInput={(e) => {
-                          handlePlaylistUpdate({
-                            title: e.currentTarget.value,
-                          });
-                        }}
-                        class="text-3xl font-bold text-white bg-transparent border-none outline-none focus:bg-gray-800 px-2 py-1 rounded w-full"
-                        placeholder="playlist title"
-                      />
-                      <div class="mt-2">
+                    <div class="flex items-center gap-4">
+                      {/* Playlist Cover */}
+                      <button
+                        onClick={() => setShowPlaylistCover(true)}
+                        class="w-16 h-16 rounded-lg overflow-hidden bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors group"
+                        title="Change playlist cover"
+                      >
+                        <Show
+                          when={playlist().image}
+                          fallback={
+                            <div class="text-center">
+                              <svg
+                                class="w-6 h-6 text-gray-400 group-hover:text-gray-300"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                                />
+                              </svg>
+                            </div>
+                          }
+                        >
+                          <img
+                            src={playlist().image}
+                            alt="Playlist cover"
+                            class="w-full h-full object-cover"
+                          />
+                        </Show>
+                      </button>
+
+                      <div class="flex-1">
                         <input
                           type="text"
-                          value={playlist().description || ""}
-                          placeholder="add description..."
+                          value={playlist().title}
                           onInput={(e) => {
                             handlePlaylistUpdate({
-                              description: e.currentTarget.value,
+                              title: e.currentTarget.value,
                             });
                           }}
-                          class="text-gray-400 bg-transparent border-none outline-none focus:bg-gray-800 px-2 py-1 rounded w-full"
+                          class="text-3xl font-bold text-white bg-transparent border-none outline-none focus:bg-gray-800 px-2 py-1 rounded w-full"
+                          placeholder="playlist title"
                         />
+                        <div class="mt-2">
+                          <input
+                            type="text"
+                            value={playlist().description || ""}
+                            placeholder="add description..."
+                            onInput={(e) => {
+                              handlePlaylistUpdate({
+                                description: e.currentTarget.value,
+                              });
+                            }}
+                            class="text-gray-400 bg-transparent border-none outline-none focus:bg-gray-800 px-2 py-1 rounded w-full"
+                          />
+                        </div>
                       </div>
                     </div>
 
@@ -437,17 +528,10 @@ export function Playlistz() {
                               songId={songId}
                               isPlaying={currentPlayingSong() === songId}
                               showRemoveButton={true}
-                              onRemove={async (id) => {
-                                try {
-                                  // TODO: Implement proper song removal from playlist
-                                  console.log("Remove song:", id);
-                                  setError("song removal not yet implemented");
-                                } catch (err) {
-                                  setError("failed to remove song");
-                                }
-                              }}
+                              onRemove={handleRemoveSong}
                               onPlay={handlePlaySong}
                               onPause={handlePauseSong}
+                              onEdit={handleEditSong}
                             />
                           )}
                         </For>
@@ -512,6 +596,26 @@ export function Playlistz() {
             </div>
           </div>
         </div>
+      </Show>
+
+      {/* Modals */}
+      <Show when={editingSong()}>
+        <SongEditModal
+          song={editingSong()!}
+          isOpen={!!editingSong()}
+          onClose={() => setEditingSong(null)}
+          onSave={handleSongSaved}
+        />
+      </Show>
+
+      <Show when={showPlaylistCover()}>
+        <PlaylistCoverModal
+          playlist={selectedPlaylist()!}
+          playlistSongs={playlistSongs()}
+          isOpen={showPlaylistCover()}
+          onClose={() => setShowPlaylistCover(false)}
+          onSave={handlePlaylistCoverSaved}
+        />
       </Show>
     </div>
   );
