@@ -325,7 +325,7 @@ export function SongRow(props: SongRowProps) {
                       }
                     }}
                     class="p-1 text-gray-400 hover:text-white transition-colors rounded hover:bg-gray-600"
-                    title="Edit song"
+                    title="edit song"
                   >
                     <svg
                       class="w-3 h-3"
@@ -351,7 +351,7 @@ export function SongRow(props: SongRowProps) {
                         props.onRemove?.(props.songId);
                       }}
                       class="p-1 text-red-400 hover:text-red-300 transition-colors rounded hover:bg-red-600 hover:bg-opacity-30"
-                      title="Remove from playlist"
+                      title="remove from playlist"
                     >
                       <svg
                         class="w-3 h-3"
@@ -376,7 +376,7 @@ export function SongRow(props: SongRowProps) {
                         ? "cursor-grabbing text-magenta-400"
                         : "hover:text-gray-300"
                     }`}
-                    title="Drag to reorder"
+                    title="drag to reorder"
                   >
                     <svg
                       class="w-3 h-3"

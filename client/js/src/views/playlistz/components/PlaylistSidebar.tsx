@@ -70,7 +70,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
               <button
                 onClick={() => props.onCollapse?.()}
                 class="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
-                title="Collapse sidebar"
+                title="collapse sidebar"
               >
                 <svg
                   class="w-4 h-4"
@@ -94,7 +94,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
         <div class="relative">
           <input
             type="text"
-            placeholder="search playlists..."
+            placeholder="search..."
             value={searchQuery()}
             onInput={(e) => setSearchQuery(e.currentTarget.value)}
             class="w-full bg-gray-800 text-white rounded-lg px-4 py-2 pl-10 text-sm border border-gray-600 focus:border-magenta-500 focus:outline-none focus:ring-1 focus:ring-magenta-500"

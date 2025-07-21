@@ -53,7 +53,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
 
     const validation = validateImageFile(file);
     if (!validation.valid) {
-      setError(validation.error || "Invalid image file");
+      setError(validation.error || "invalid image file");
       return;
     }
 
@@ -61,17 +61,9 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
       setIsLoading(true);
       setError(null);
 
-      console.log(`🖼️ [DEBUG] PlaylistCoverModal - processing file:`, file);
-
       const result = await processPlaylistCover(file);
-      console.log(`🖼️ [DEBUG] PlaylistCoverModal - process result:`, result);
 
       if (result.success && result.thumbnailData) {
-        console.log(
-          `🖼️ [DEBUG] PlaylistCoverModal - thumbnailData size:`,
-          result.thumbnailData.byteLength
-        );
-
         // Clean up previous URL if exists
         const prevUrl = selectedImageUrl();
         if (prevUrl) {
@@ -83,20 +75,13 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
 
         // Create new display URL
         const newUrl = createImageUrlFromData(result.thumbnailData, file.type);
-        console.log(
-          `🖼️ [DEBUG] PlaylistCoverModal - created display URL:`,
-          newUrl
-        );
+
         setSelectedImageUrl(newUrl);
       } else {
-        console.log(
-          `🖼️ [DEBUG] PlaylistCoverModal - process failed:`,
-          result.error
-        );
-        setError(result.error || "Failed to process image");
+        setError(result.error || "failed to process image");
       }
     } catch (err) {
-      setError("Error uploading image");
+      setError("error uploading image");
       console.error("Image upload error:", err);
     } finally {
       setIsLoading(false);
@@ -107,7 +92,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
     // For now, just show error since we need to update this to work with ArrayBuffer data
     // This would need to be updated to work with the new image data format
     setError(
-      "Using album art from songs not yet implemented with new image storage"
+      "using album art from songs not yet implemented with new image storage"
     );
   };
 
@@ -122,16 +107,6 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
         updatedAt: Date.now(),
       };
 
-      console.log(`🖼️ [DEBUG] PlaylistCoverModal - saving updates:`, updates);
-      console.log(
-        `🖼️ [DEBUG] PlaylistCoverModal - imageData size:`,
-        updates.imageData?.byteLength
-      );
-      console.log(
-        `🖼️ [DEBUG] PlaylistCoverModal - imageType:`,
-        updates.imageType
-      );
-
       await updatePlaylist(props.playlist.id, updates);
 
       // Create updated playlist object, removing old image property if it exists
@@ -141,15 +116,10 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
         ...updates,
       };
 
-      console.log(
-        `🖼️ [DEBUG] PlaylistCoverModal - updatedPlaylist:`,
-        updatedPlaylist
-      );
-
       props.onSave(updatedPlaylist);
       props.onClose();
     } catch (err) {
-      setError("Failed to save changes");
+      setError("failed to save changes");
       console.error("Save error:", err);
     } finally {
       setIsLoading(false);
@@ -240,7 +210,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
               >
                 <img
                   src={selectedImageUrl()}
-                  alt="Playlist cover"
+                  alt="playlist cover"
                   class="w-full h-full object-cover"
                 />
               </Show>
@@ -302,7 +272,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                     onClick={() => {
                       // This needs to be updated to work with ArrayBuffer data
                       setError(
-                        "Selecting from song images not yet implemented with new image storage"
+                        "selecting from song images not yet implemented with new image storage"
                       );
                     }}
                     disabled={isLoading()}

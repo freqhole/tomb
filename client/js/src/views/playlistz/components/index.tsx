@@ -317,7 +317,6 @@ export function Playlistz() {
 
     // Only handle file drops, ignore song reordering
     if (dragInfo.type === "song-reorder") {
-      console.log("🎵 Song reordering detected, ignoring in global handler");
       return;
     }
 
@@ -585,7 +584,7 @@ export function Playlistz() {
     if (playlist?.imageData && playlist?.imageType) {
       images.push({
         url: createImageUrlFromData(playlist.imageData, playlist.imageType),
-        title: `Playlist: ${playlist.title}`,
+        title: playlist.title,
       });
     }
 
@@ -594,7 +593,7 @@ export function Playlistz() {
       if (song.imageData && song.imageType) {
         images.push({
           url: createImageUrlFromData(song.imageData, song.imageType),
-          title: `Song: ${song.title}`,
+          title: song.title,
         });
       }
     });
@@ -653,9 +652,6 @@ export function Playlistz() {
             <div class="text-center">
               <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-magenta-500 mb-4"></div>
               <p class="text-lg">loading playlistz...</p>
-              <p class="text-sm mt-2">
-                debug: isInitialized = {String(isInitialized())}
-              </p>
             </div>
           </div>
         }
@@ -732,7 +728,7 @@ export function Playlistz() {
                         <button
                           onClick={() => setSidebarCollapsed(false)}
                           class="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors bg-black bg-opacity-80"
-                          title="Show playlist sidebar"
+                          title="show playlist sidebar"
                         >
                           <svg
                             class="w-5 h-5"
@@ -814,7 +810,7 @@ export function Playlistz() {
                             <button
                               onClick={() => setShowPlaylistCover(true)}
                               class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors bg-black bg-opacity-80"
-                              title="Change playlist cover"
+                              title="change playlist cover"
                             >
                               <svg
                                 class="w-4 h-4"
@@ -835,7 +831,7 @@ export function Playlistz() {
                             <button
                               onClick={() => setShowDeleteConfirm(true)}
                               class="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-lg transition-colors bg-black bg-opacity-80"
-                              title="Delete playlist"
+                              title="delete playlist"
                             >
                               <svg
                                 class="w-4 h-4"
@@ -864,7 +860,7 @@ export function Playlistz() {
                           setShowImageModal(true);
                         }}
                         class="w-32 h-32 rounded-lg overflow-hidden bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors group"
-                        title="View playlist images"
+                        title="view playlist images"
                       >
                         <Show
                           when={playlist().imageData && playlist().imageType}
@@ -891,7 +887,7 @@ export function Playlistz() {
                               playlist().imageData!,
                               playlist().imageType!
                             )}
-                            alt="Playlist cover"
+                            alt="playlist cover"
                             class="w-full h-full object-cover"
                           />
                         </Show>
@@ -1027,7 +1023,7 @@ export function Playlistz() {
           <button
             onClick={() => setShowImageModal(false)}
             class="fixed top-4 right-4 p-2 text-white hover:text-gray-300 bg-black bg-opacity-50 hover:bg-opacity-70 rounded-full transition-colors z-60"
-            title="Close (Escape)"
+            title="close (ESC)"
           >
             <svg
               class="w-6 h-6"
@@ -1051,32 +1047,32 @@ export function Playlistz() {
             if (!currentImage) {
               return (
                 <div class="text-white text-center">
-                  <p class="text-lg mb-2">No images available</p>
+                  <p class="text-lg mb-2">no images available</p>
                   <p class="text-sm text-gray-400">
-                    Add a playlist cover or songs with album art
+                    add a playlist cover or songs with album art
                   </p>
                 </div>
               );
             }
 
             return (
-              <div class="relative max-w-4xl max-h-4xl w-full h-full flex items-center justify-center p-4">
+              <div class="relative w-full h-full flex items-center justify-center p-4">
                 <button
                   onClick={handleNextImage}
                   class="absolute inset-0 cursor-pointer z-50"
-                  title="Next image (Right arrow or Click)"
+                  title="next image"
                 />
                 <img
                   src={currentImage.url}
                   alt={currentImage.title}
-                  class="max-w-full max-h-full object-contain pointer-events-none"
+                  class="w-full h-full object-contain pointer-events-none"
                 />
                 <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white text-center bg-black bg-opacity-50 px-4 py-2 rounded-lg">
                   <div class="text-sm font-medium">{currentImage.title}</div>
                   {images.length > 1 && (
                     <div class="text-xs text-gray-300 mt-1">
-                      {modalImageIndex() + 1} of {images.length} • Click or use
-                      arrow keys to navigate
+                      {modalImageIndex() + 1} of {images.length} (click or use
+                      arrow keys to navigate)
                     </div>
                   )}
                 </div>
@@ -1091,24 +1087,24 @@ export function Playlistz() {
         <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div class="bg-gray-800 p-6 rounded-lg border border-gray-600 max-w-md w-full mx-4">
             <h3 class="text-lg font-semibold text-white mb-4">
-              Delete Playlist
+              delete playlist
             </h3>
             <p class="text-gray-300 mb-6">
-              Are you sure you want to delete "{selectedPlaylist()?.title}"?
-              This action cannot be undone.
+              are you sure you want to delete "{selectedPlaylist()?.title}"? no
+              take-backz!
             </p>
             <div class="flex justify-end gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
                 class="px-4 py-2 text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600 rounded transition-colors"
               >
-                Cancel
+                cancel
               </button>
               <button
                 onClick={handleDeletePlaylist}
                 class="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded transition-colors"
               >
-                Delete
+                delete
               </button>
             </div>
           </div>

@@ -51,7 +51,7 @@ export function SongEditModal(props: SongEditModalProps) {
 
     const validation = validateImageFile(file);
     if (!validation.valid) {
-      setError(validation.error || "Invalid image file");
+      setError(validation.error || "invalid image file");
       return;
     }
 
@@ -74,11 +74,11 @@ export function SongEditModal(props: SongEditModalProps) {
         const newUrl = createImageUrlFromData(result.thumbnailData, file.type);
         setImageUrl(newUrl);
       } else {
-        setError(result.error || "Failed to process image");
+        setError(result.error || "failed to process image");
       }
     } catch (err) {
-      setError("Error uploading image");
-      console.error("Image upload error:", err);
+      setError("error uploading image");
+      console.error("image upload error:", err);
     } finally {
       setIsLoading(false);
     }
@@ -113,7 +113,7 @@ export function SongEditModal(props: SongEditModalProps) {
       props.onSave(updatedSong);
       props.onClose();
     } catch (err) {
-      setError("Failed to save changes");
+      setError("failed to save changes");
       console.error("Save error:", err);
     } finally {
       setIsLoading(false);
