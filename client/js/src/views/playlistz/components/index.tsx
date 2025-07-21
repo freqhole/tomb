@@ -20,6 +20,7 @@ import {
   togglePlayback,
   audioState,
 } from "../services/audioService.js";
+import { deletePlaylist } from "../services/indexedDBService.js";
 import {
   filterAudioFiles,
   processAudioFiles,
@@ -54,7 +55,10 @@ export function Playlistz() {
 
   const [editingSong, setEditingSong] = createSignal<any | null>(null);
   const [showPlaylistCover, setShowPlaylistCover] = createSignal(false);
+  const [showImageModal, setShowImageModal] = createSignal(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [playlistSongs, setPlaylistSongs] = createSignal<any[]>([]);
+  const [modalImageIndex, setModalImageIndex] = createSignal(0);
 
   // Direct signal subscription approach (bypass hook)
   const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
@@ -188,6 +192,31 @@ export function Playlistz() {
     } catch (err) {
       console.error("❌ Failed to initialize Playlistz:", err);
       setError(err instanceof Error ? err.message : "failed to initialize");
+    }
+  });
+
+  // Keyboard event handlers for modals
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (showImageModal()) {
+      if (e.key === "Escape") {
+        setShowImageModal(false);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        handlePrevImage();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        handleNextImage();
+      }
+    } else if (showDeleteConfirm() && e.key === "Escape") {
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  // Set up global keyboard listeners
+  createEffect(() => {
+    if (showImageModal() || showDeleteConfirm()) {
+      document.addEventListener("keydown", handleKeyDown);
+      onCleanup(() => document.removeEventListener("keydown", handleKeyDown));
     }
   });
 
@@ -501,6 +530,61 @@ export function Playlistz() {
     togglePlayback();
   };
 
+  // Image modal handlers
+  const handleNextImage = () => {
+    const images = getModalImages();
+    if (images.length > 0) {
+      setModalImageIndex((prev) => (prev + 1) % images.length);
+    }
+  };
+
+  const handlePrevImage = () => {
+    const images = getModalImages();
+    if (images.length > 0) {
+      setModalImageIndex((prev) => (prev - 1 + images.length) % images.length);
+    }
+  };
+
+  const getModalImages = () => {
+    const playlist = selectedPlaylist();
+    const images: { url: string; title: string }[] = [];
+
+    // Add playlist image first if it exists
+    if (playlist?.imageData && playlist?.imageType) {
+      images.push({
+        url: createImageUrlFromData(playlist.imageData, playlist.imageType),
+        title: `Playlist: ${playlist.title}`,
+      });
+    }
+
+    // Add song images
+    playlistSongs().forEach((song) => {
+      if (song.imageData && song.imageType) {
+        images.push({
+          url: createImageUrlFromData(song.imageData, song.imageType),
+          title: `Song: ${song.title}`,
+        });
+      }
+    });
+
+    return images;
+  };
+
+  // Delete playlist handler
+  const handleDeletePlaylist = async () => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    try {
+      await deletePlaylist(playlist.id);
+      setSelectedPlaylist(null);
+      setShowDeleteConfirm(false);
+    } catch (err) {
+      console.error("❌ Error deleting playlist:", err);
+      setError("failed to delete playlist");
+    }
+  };
+
   return (
     <div class="relative h-screen bg-black text-white overflow-hidden">
       {/* Dynamic background image */}
@@ -619,71 +703,6 @@ export function Playlistz() {
                           </svg>
                         </button>
                       </Show>
-                      {/* Playlist Cover */}
-                      <button
-                        onClick={() => setShowPlaylistCover(true)}
-                        class="w-16 h-16 rounded-lg overflow-hidden bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors group"
-                        title="Change playlist cover"
-                      >
-                        <Show
-                          when={(() => {
-                            console.log(
-                              `🖼️ [DEBUG] Main Playlistz - playlist:`,
-                              playlist()
-                            );
-                            console.log(
-                              `🖼️ [DEBUG] Main Playlistz - has imageData:`,
-                              !!playlist().imageData
-                            );
-                            console.log(
-                              `🖼️ [DEBUG] Main Playlistz - has imageType:`,
-                              !!playlist().imageType
-                            );
-                            console.log(
-                              `🖼️ [DEBUG] Main Playlistz - imageData size:`,
-                              playlist().imageData?.byteLength
-                            );
-                            console.log(
-                              `🖼️ [DEBUG] Main Playlistz - imageType:`,
-                              playlist().imageType
-                            );
-                            return playlist().imageData && playlist().imageType;
-                          })()}
-                          fallback={
-                            <div class="text-center">
-                              <svg
-                                class="w-6 h-6 text-gray-400 group-hover:text-gray-300"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                  stroke-width="2"
-                                  d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
-                                />
-                              </svg>
-                            </div>
-                          }
-                        >
-                          <img
-                            src={(() => {
-                              const url = createImageUrlFromData(
-                                playlist().imageData!,
-                                playlist().imageType!
-                              );
-                              console.log(
-                                `🖼️ [DEBUG] Main Playlistz - created image URL:`,
-                                url
-                              );
-                              return url;
-                            })()}
-                            alt="Playlist cover"
-                            class="w-full h-full object-cover"
-                          />
-                        </Show>
-                      </button>
 
                       <div class="flex-1">
                         <input
@@ -707,17 +726,124 @@ export function Playlistz() {
                                 description: e.currentTarget.value,
                               });
                             }}
-                            class="text-gray-400 bg-transparent border-none outline-none focus:bg-gray-800 px-2 py-1 rounded w-full"
+                            class="text-gray-400 bg-transparent border-none focus:bg-gray-800 px-2 py-1 rounded w-full"
                           />
+                        </div>
+
+                        {/* Metadata row with song count, duration, and action buttons */}
+                        <div class="mt-3 flex items-center justify-between">
+                          <div class="flex items-center gap-4 text-sm text-gray-400">
+                            <span>
+                              {playlist().songIds?.length || 0} song
+                              {(playlist().songIds?.length || 0) !== 1
+                                ? "s"
+                                : ""}
+                            </span>
+                            <span>
+                              {(() => {
+                                const totalSeconds = playlistSongs().reduce(
+                                  (total, song) => total + (song.duration || 0),
+                                  0
+                                );
+                                const hours = Math.floor(totalSeconds / 3600);
+                                const minutes = Math.floor(
+                                  (totalSeconds % 3600) / 60
+                                );
+                                const seconds = Math.floor(totalSeconds % 60);
+                                return hours > 0
+                                  ? `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+                                  : `${minutes}:${seconds.toString().padStart(2, "0")}`;
+                              })()}
+                            </span>
+                          </div>
+
+                          <div class="flex items-center gap-2">
+                            {/* Edit playlist image button */}
+                            <button
+                              onClick={() => setShowPlaylistCover(true)}
+                              class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+                              title="Change playlist cover"
+                            >
+                              <svg
+                                class="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                />
+                              </svg>
+                            </button>
+
+                            {/* Delete playlist button */}
+                            <button
+                              onClick={() => setShowDeleteConfirm(true)}
+                              class="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-lg transition-colors"
+                              title="Delete playlist"
+                            >
+                              <svg
+                                class="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    <div class="ml-4 text-right text-sm text-gray-400">
-                      <div>
-                        {playlist().songIds?.length || 0} song
-                        {(playlist().songIds?.length || 0) !== 1 ? "s" : ""}
-                      </div>
+                    {/* Playlist Cover Image */}
+                    <div class="ml-4">
+                      <button
+                        onClick={() => {
+                          setModalImageIndex(0);
+                          setShowImageModal(true);
+                        }}
+                        class="w-20 h-20 rounded-lg overflow-hidden bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors group"
+                        title="View playlist images"
+                      >
+                        <Show
+                          when={playlist().imageData && playlist().imageType}
+                          fallback={
+                            <div class="text-center">
+                              <svg
+                                class="w-8 h-8 text-gray-400 group-hover:text-gray-300"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                                />
+                              </svg>
+                            </div>
+                          }
+                        >
+                          <img
+                            src={createImageUrlFromData(
+                              playlist().imageData!,
+                              playlist().imageType!
+                            )}
+                            alt="Playlist cover"
+                            class="w-full h-full object-cover"
+                          />
+                        </Show>
+                      </button>
                     </div>
                   </div>
 
@@ -839,6 +965,100 @@ export function Playlistz() {
           onClose={() => setShowPlaylistCover(false)}
           onSave={handlePlaylistCoverSaved}
         />
+      </Show>
+
+      {/* Image Modal */}
+      <Show when={showImageModal()}>
+        <div class="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
+          <button
+            onClick={() => setShowImageModal(false)}
+            class="fixed top-4 right-4 p-2 text-white hover:text-gray-300 bg-black bg-opacity-50 hover:bg-opacity-70 rounded-full transition-colors z-60"
+            title="Close (Escape)"
+          >
+            <svg
+              class="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+
+          {(() => {
+            const images = getModalImages();
+            const currentImage = images[modalImageIndex()];
+
+            if (!currentImage) {
+              return (
+                <div class="text-white text-center">
+                  <p class="text-lg mb-2">No images available</p>
+                  <p class="text-sm text-gray-400">
+                    Add a playlist cover or songs with album art
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <div class="relative max-w-4xl max-h-4xl w-full h-full flex items-center justify-center p-4">
+                <button
+                  onClick={handleNextImage}
+                  class="absolute inset-0 cursor-pointer z-50"
+                  title="Next image (Right arrow or Click)"
+                />
+                <img
+                  src={currentImage.url}
+                  alt={currentImage.title}
+                  class="max-w-full max-h-full object-contain pointer-events-none"
+                />
+                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white text-center bg-black bg-opacity-50 px-4 py-2 rounded-lg">
+                  <div class="text-sm font-medium">{currentImage.title}</div>
+                  {images.length > 1 && (
+                    <div class="text-xs text-gray-300 mt-1">
+                      {modalImageIndex() + 1} of {images.length} • Click or use
+                      arrow keys to navigate
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      </Show>
+
+      {/* Delete Confirmation Modal */}
+      <Show when={showDeleteConfirm()}>
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div class="bg-gray-800 p-6 rounded-lg border border-gray-600 max-w-md w-full mx-4">
+            <h3 class="text-lg font-semibold text-white mb-4">
+              Delete Playlist
+            </h3>
+            <p class="text-gray-300 mb-6">
+              Are you sure you want to delete "{selectedPlaylist()?.title}"?
+              This action cannot be undone.
+            </p>
+            <div class="flex justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                class="px-4 py-2 text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeletePlaylist}
+                class="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
       </Show>
     </div>
   );
