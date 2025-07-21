@@ -622,11 +622,10 @@ export function Playlistz() {
       {/* Dynamic background image */}
       <Show when={backgroundImageUrl()}>
         <div
-          class="absolute inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-1000 ease-out"
+          class="absolute inset-0 bg-cover bg-top bg-no-repeat transition-opacity duration-1000 ease-out"
           style={{
             "background-image": `url(${backgroundImageUrl()})`,
-            opacity: "0.6",
-            filter: "blur(6px) brightness(0.7)",
+            filter: "blur(3px) brightness(0.9)",
             "z-index": "0",
           }}
         />
@@ -722,19 +721,17 @@ export function Playlistz() {
               }
             >
               {(playlist) => (
-                <div class="flex-1 flex flex-col p-6 h-full">
+                <div
+                  class={`flex-1 flex flex-col h-full ${isMobile() ? "p-2" : "p-6"}`}
+                >
                   {/* Playlist Header */}
-                  <div
-                    class={`flex items-center justify-between mb-6 border-b border-gray-700 pb-6 ${isMobile() ? "flex-col gap-4" : ""}`}
-                  >
-                    <div
-                      class={`flex items-center gap-4 ${isMobile() ? "w-full" : ""}`}
-                    >
+                  <div class={`flex items-center justify-between mb-6 pb-6`}>
+                    <div class="flex items-center gap-4 w-full">
                       {/* Sidebar Toggle Button (when collapsed) */}
                       <Show when={sidebarCollapsed()}>
                         <button
                           onClick={() => setSidebarCollapsed(false)}
-                          class="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                          class="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors bg-black bg-opacity-80"
                           title="Show playlist sidebar"
                         >
                           <svg
@@ -754,18 +751,20 @@ export function Playlistz() {
                       </Show>
 
                       <div class="flex-1">
-                        <input
-                          type="text"
-                          value={playlist().title}
-                          onInput={(e) => {
-                            handlePlaylistUpdate({
-                              title: e.currentTarget.value,
-                            });
-                          }}
-                          class="text-3xl font-bold text-white bg-transparent border-none outline-none focus:bg-gray-800 px-2 py-1 rounded w-full"
-                          placeholder="playlist title"
-                        />
-                        <div class="mt-2">
+                        <div class="bg-black bg-opacity-80">
+                          <input
+                            type="text"
+                            value={playlist().title}
+                            onInput={(e) => {
+                              handlePlaylistUpdate({
+                                title: e.currentTarget.value,
+                              });
+                            }}
+                            class="text-3xl font-bold text-white bg-transparent border-none outline-none focus:bg-gray-800 px-2 py-1 rounded w-full"
+                            placeholder="playlist title"
+                          />
+                        </div>
+                        <div class="mt-2 bg-black bg-opacity-80">
                           <input
                             type="text"
                             value={playlist().description || ""}
@@ -784,7 +783,7 @@ export function Playlistz() {
                           class={`mt-3 flex items-center justify-between ${isMobile() ? "flex-col gap-3" : ""}`}
                         >
                           <div
-                            class={`flex items-center gap-4 text-sm text-gray-400 ${isMobile() ? "flex-wrap justify-center" : ""}`}
+                            class={`flex items-center gap-4 text-sm text-gray-400 bg-black bg-opacity-80 px-2 ${isMobile() ? "flex-wrap justify-center" : ""}`}
                           >
                             <span>
                               {playlist().songIds?.length || 0} song
@@ -814,7 +813,7 @@ export function Playlistz() {
                             {/* Edit playlist image button */}
                             <button
                               onClick={() => setShowPlaylistCover(true)}
-                              class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+                              class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors bg-black bg-opacity-80"
                               title="Change playlist cover"
                             >
                               <svg
@@ -835,7 +834,7 @@ export function Playlistz() {
                             {/* Delete playlist button */}
                             <button
                               onClick={() => setShowDeleteConfirm(true)}
-                              class="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-lg transition-colors"
+                              class="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-lg transition-colors bg-black bg-opacity-80"
                               title="Delete playlist"
                             >
                               <svg
@@ -858,15 +857,13 @@ export function Playlistz() {
                     </div>
 
                     {/* Playlist Cover Image */}
-                    <div
-                      class={`${isMobile() ? "mt-4 w-full flex justify-center" : "ml-4"}`}
-                    >
+                    <div class={`${isMobile() ? "mx-2" : "mx-4"}`}>
                       <button
                         onClick={() => {
                           setModalImageIndex(0);
                           setShowImageModal(true);
                         }}
-                        class={`${isMobile() ? "w-32 h-32" : "w-20 h-20"} rounded-lg overflow-hidden bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors group`}
+                        class="w-32 h-32 rounded-lg overflow-hidden bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors group"
                         title="View playlist images"
                       >
                         <Show
@@ -904,7 +901,9 @@ export function Playlistz() {
 
                   {/* Songs List */}
                   <div class="flex-1 overflow-y-auto">
-                    <div class="p-4 space-y-2">
+                    <div
+                      class={`${isMobile() ? "space-y-1" : "p-4 space-y-2"}`}
+                    >
                       <Show
                         when={
                           playlist().songIds && playlist().songIds.length > 0

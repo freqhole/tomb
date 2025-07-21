@@ -191,7 +191,7 @@ export function SongRow(props: SongRowProps) {
                 class="absolute inset-0 transition-all duration-200"
                 style={{
                   background: isCurrentlyPlaying()
-                    ? `linear-gradient(to right, rgba(236, 72, 153, 0.15) ${getProgressPercentage()}%, transparent ${getProgressPercentage()}%)`
+                    ? `linear-gradient(to right, rgba(236, 72, 153, 0.5) ${getProgressPercentage()}%, transparent ${getProgressPercentage()}%)`
                     : draggedOver()
                       ? "rgba(220, 38, 127, 0.2)"
                       : isDragging()
@@ -280,7 +280,7 @@ export function SongRow(props: SongRowProps) {
                     class={`text-sm truncate ${
                       isCurrentlyPlaying()
                         ? "text-magenta-200"
-                        : "text-gray-400 group-hover:text-gray-300"
+                        : "text-white group-hover:text-gray-100"
                     }`}
                   >
                     {songData().artist}
@@ -291,7 +291,7 @@ export function SongRow(props: SongRowProps) {
                     class={`text-xs mt-1 ${
                       isCurrentlyPlaying()
                         ? "text-magenta-300"
-                        : "text-gray-500"
+                        : "text-gray-400"
                     }`}
                   >
                     added {relativeTime.signal()}
@@ -304,7 +304,7 @@ export function SongRow(props: SongRowProps) {
                 class={`text-sm font-mono mr-4 ${
                   isCurrentlyPlaying()
                     ? "text-magenta-200"
-                    : "text-gray-400 group-hover:text-gray-300"
+                    : "text-white group-hover:text-gray-300"
                 }`}
               >
                 {formatDuration(songData().duration)}
