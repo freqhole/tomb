@@ -435,8 +435,8 @@ export default defineConfig({
           };
           return nameMap[chunkInfo.name] || "[name].js";
         },
-        chunkFileNames: "[name]-[hash].js",
-        assetFileNames: "[name]-[hash].[ext]",
+        chunkFileNames: "[name].js",
+        assetFileNames: "[name].[ext]",
       },
     },
   },
