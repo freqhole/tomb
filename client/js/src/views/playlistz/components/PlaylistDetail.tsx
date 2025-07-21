@@ -147,7 +147,7 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
 
             <div class="flex items-center text-sm text-gray-400 space-x-4">
               <span>
-                Created{" "}
+                c reated{" "}
                 {new Date(props.playlist.createdAt).toLocaleDateString()}
               </span>
             </div>
@@ -160,8 +160,8 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                 title={
                   audioState.currentPlaylist()?.id === props.playlist.id &&
                   audioState.isPlaying()
-                    ? "Pause playlist"
-                    : "Play all songs"
+                    ? "pause"
+                    : "play all"
                 }
               >
                 <Show
@@ -198,7 +198,7 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
 
         {/* Songs list */}
         <div class="bg-gray-900 bg-opacity-30 rounded-lg p-6 flex-1 flex flex-col min-h-0">
-          <h2 class="text-xl font-semibold mb-4 text-white">Songs</h2>
+          <h2 class="text-xl font-semibold mb-4 text-white">songs</h2>
 
           <Show
             when={(props.playlist.songIds?.length || 0) > 0}
@@ -206,10 +206,10 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
               <div class="text-center py-12">
                 <div class="text-gray-400 text-4xl mb-4">🎵</div>
                 <p class="text-gray-400 text-lg">
-                  No songs in this playlist yet
+                  no songs in this playlist yet
                 </p>
                 <p class="text-gray-500 text-sm mt-2">
-                  Drag and drop audio files here to add them
+                  drag and drop audio files here to add them
                 </p>
               </div>
             }
