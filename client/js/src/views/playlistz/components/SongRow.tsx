@@ -181,6 +181,12 @@ export function SongRow(props: SongRowProps) {
               onDrop={handleDrop}
               onMouseEnter={() => setIsHovered(true)}
               onMouseLeave={() => setIsHovered(false)}
+              onDblClick={() => {
+                const songData = song();
+                if (songData && !isCurrentlyPlaying()) {
+                  props.onPlay?.(songData);
+                }
+              }}
             >
               {/* Progress background */}
               <div
