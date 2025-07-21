@@ -1,6 +1,7 @@
 // File Processing Service for Audio Files
 // Handles file validation, metadata extraction, and processing
 
+import { extractAlbumArt } from "./imageService.js";
 import type {
   AudioMetadata,
   FileUploadResult,
@@ -81,12 +82,19 @@ async function extractDuration(file: File): Promise<number> {
   });
 }
 
-// Extract cover art from file (basic implementation)
-async function extractCoverArt(_file: File): Promise<string | undefined> {
-  // This is a simplified implementation
-  // In a real app, you might use a library like music-metadata-browser
-  // For now, we'll return undefined and let users upload cover art manually
-  return undefined;
+// Extract cover art from file using ID3 tags
+async function extractCoverArt(file: File): Promise<string | undefined> {
+  try {
+    const result = await extractAlbumArt(file);
+    if (result.success && result.albumArt) {
+      console.log(`🖼️ Extracted album art from ${file.name}`);
+      return result.albumArt;
+    }
+    return undefined;
+  } catch (error) {
+    console.warn(`⚠️ Could not extract album art from ${file.name}:`, error);
+    return undefined;
+  }
 }
 
 // Main metadata extraction function
@@ -137,11 +145,15 @@ export async function processAudioFile(file: File): Promise<FileUploadResult> {
     // Extract metadata
     const metadata = await extractMetadata(file);
 
+    // Create blob URL for audio playback
+    const blobUrl = URL.createObjectURL(file);
+
     return {
       success: true,
       song: {
         id: "", // Will be set by the database service
         file,
+        blobUrl,
         title: metadata.title || "Unknown Title",
         artist: metadata.artist || "Unknown Artist",
         album: metadata.album || "Unknown Album",

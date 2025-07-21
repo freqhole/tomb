@@ -11,6 +11,7 @@ import {
   setupDB,
   createPlaylist,
   createPlaylistsQuery,
+  updatePlaylist,
 } from "../services/indexedDBService.js";
 import { cleanup as cleanupAudio } from "../services/audioService.js";
 import {
@@ -32,6 +33,12 @@ export function Playlistz() {
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isInitialized, setIsInitialized] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [currentPlayingSong, setCurrentPlayingSong] = createSignal<
+    string | null
+  >(null);
+  const [audioElement, setAudioElement] = createSignal<HTMLAudioElement | null>(
+    null
+  );
 
   // Direct signal subscription approach (bypass hook)
   const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
@@ -42,6 +49,21 @@ export function Playlistz() {
     const unsubscribe = playlistQuery.subscribe((value) => {
       console.log(`🔄 Direct subscription: ${value.length} playlists`);
       setPlaylists([...value]); // Force new array reference
+
+      // Update selected playlist if it exists in the new data
+      const current = selectedPlaylist();
+      if (current) {
+        const updated = value.find((p) => p.id === current.id);
+        if (
+          updated &&
+          JSON.stringify(updated.songIds) !== JSON.stringify(current.songIds)
+        ) {
+          console.log(
+            `🔄 Updating selected playlist songs: ${updated.songIds.length} songs`
+          );
+          setSelectedPlaylist(updated);
+        }
+      }
     });
 
     onCleanup(unsubscribe);
@@ -155,6 +177,18 @@ export function Playlistz() {
         `✅ Added ${successfulFiles.length}/${audioFiles.length} files to playlist`
       );
 
+      // Force refresh the selected playlist from database to get updated songIds
+      const updatedPlaylists = playlists();
+      const refreshedPlaylist = updatedPlaylists.find(
+        (p) => p.id === targetPlaylist.id
+      );
+      if (refreshedPlaylist) {
+        setSelectedPlaylist(refreshedPlaylist);
+        console.log(
+          `🔄 Refreshed playlist with ${refreshedPlaylist.songIds.length} songs`
+        );
+      }
+
       if (results.some((r) => !r.success)) {
         const errorCount = results.filter((r) => !r.success).length;
         setError(
@@ -203,6 +237,67 @@ export function Playlistz() {
       setError(
         err instanceof Error ? err.message : "failed to create playlist"
       );
+    }
+  };
+
+  // Handle playlist title/description updates with debouncing
+  let saveTimeout: number | undefined;
+  const handlePlaylistUpdate = async (updates: Partial<Playlist>) => {
+    const current = selectedPlaylist();
+    if (!current) return;
+
+    // Update local state immediately for responsive UI
+    const updated = { ...current, ...updates };
+    setSelectedPlaylist(updated);
+
+    // Debounce database saves
+    clearTimeout(saveTimeout);
+    saveTimeout = window.setTimeout(async () => {
+      try {
+        await updatePlaylist(current.id, updates);
+        console.log("💾 Saved playlist changes");
+      } catch (err) {
+        console.error("❌ Failed to save playlist:", err);
+        setError("failed to save changes");
+      }
+    }, 1000);
+  };
+
+  // Audio player functions
+  const handlePlaySong = async (song: any) => {
+    try {
+      const audio = audioElement() || new Audio();
+      if (!audioElement()) {
+        setAudioElement(audio);
+      }
+
+      // Stop current song if playing
+      if (currentPlayingSong()) {
+        audio.pause();
+      }
+
+      // Set new source and play
+      if (song.blobUrl) {
+        audio.src = song.blobUrl;
+        audio.currentTime = 0;
+        await audio.play();
+        setCurrentPlayingSong(song.id);
+        console.log(`🎵 Playing: ${song.title}`);
+      } else {
+        setError("unable to play song - no audio source");
+      }
+    } catch (err) {
+      console.error("❌ Error playing song:", err);
+      setError("failed to play song");
+    }
+  };
+
+  const handlePauseSong = () => {
+    const audio = audioElement();
+    if (audio) {
+      audio.pause();
+      setCurrentPlayingSong(null);
+      console.log("⏸️ Paused playback");
     }
   };
 
@@ -274,13 +369,12 @@ export function Playlistz() {
                         type="text"
                         value={playlist().title}
                         onInput={(e) => {
-                          const updatedPlaylist = {
-                            ...playlist(),
+                          handlePlaylistUpdate({
                             title: e.currentTarget.value,
-                          };
-                          setSelectedPlaylist(updatedPlaylist);
+                          });
                         }}
                         class="text-3xl font-bold text-white bg-transparent border-none outline-none focus:bg-gray-800 px-2 py-1 rounded w-full"
+                        placeholder="playlist title"
                       />
                       <div class="mt-2">
                         <input
@@ -288,11 +382,9 @@ export function Playlistz() {
                           value={playlist().description || ""}
                           placeholder="add description..."
                           onInput={(e) => {
-                            const updatedPlaylist = {
-                              ...playlist(),
+                            handlePlaylistUpdate({
                               description: e.currentTarget.value,
-                            };
-                            setSelectedPlaylist(updatedPlaylist);
+                            });
                           }}
                           class="text-gray-400 bg-transparent border-none outline-none focus:bg-gray-800 px-2 py-1 rounded w-full"
                         />
@@ -343,19 +435,19 @@ export function Playlistz() {
                           {(songId) => (
                             <SongRow
                               songId={songId}
+                              isPlaying={currentPlayingSong() === songId}
                               showRemoveButton={true}
-                              onRemove={(id) => {
-                                // TODO: Implement song removal
-                                console.log("Remove song:", id);
+                              onRemove={async (id) => {
+                                try {
+                                  // TODO: Implement proper song removal from playlist
+                                  console.log("Remove song:", id);
+                                  setError("song removal not yet implemented");
+                                } catch (err) {
+                                  setError("failed to remove song");
+                                }
                               }}
-                              onPlay={(song) => {
-                                // TODO: Implement audio playback
-                                console.log("Play song:", song.title);
-                              }}
-                              onPause={() => {
-                                // TODO: Implement pause
-                                console.log("Pause playback");
-                              }}
+                              onPlay={handlePlaySong}
+                              onPause={handlePauseSong}
                             />
                           )}
                         </For>
