@@ -312,10 +312,10 @@ export function SongRow(props: SongRowProps) {
                 {formatDuration(songData().duration)}
               </div>
 
-              {/* Actions */}
-              <div class="flex items-center gap-2 relative z-40">
-                {/* Edit button */}
-                <Show when={isHovered()}>
+              {/* Overlay Actions */}
+              <Show when={isHovered()}>
+                <div class="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1 bg-black bg-opacity-80 rounded-lg px-2 py-1 z-50">
+                  {/* Edit button */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -326,12 +326,11 @@ export function SongRow(props: SongRowProps) {
                         props.onEdit?.(songData);
                       }
                     }}
-                    class="relative z-50 p-2 text-gray-400 hover:text-white transition-colors rounded-lg hover:bg-gray-600 hover:bg-opacity-50"
-                    style="pointer-events: auto;"
+                    class="p-1 text-gray-400 hover:text-white transition-colors rounded hover:bg-gray-600"
                     title="Edit song"
                   >
                     <svg
-                      class="w-4 h-4"
+                      class="w-3 h-3"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -344,48 +343,45 @@ export function SongRow(props: SongRowProps) {
                       />
                     </svg>
                   </button>
-                </Show>
 
-                {/* Remove button */}
-                <Show when={props.showRemoveButton && isHovered()}>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      props.onRemove?.(props.songId);
-                    }}
-                    class="relative z-50 p-2 text-red-400 hover:text-red-300 transition-colors rounded-lg hover:bg-red-600 hover:bg-opacity-20"
-                    style="pointer-events: auto;"
-                    title="Remove from playlist"
-                  >
-                    <svg
-                      class="w-4 h-4"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
+                  {/* Remove button */}
+                  <Show when={props.showRemoveButton}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        props.onRemove?.(props.songId);
+                      }}
+                      class="p-1 text-red-400 hover:text-red-300 transition-colors rounded hover:bg-red-600 hover:bg-opacity-30"
+                      title="Remove from playlist"
                     >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                      />
-                    </svg>
-                  </button>
-                </Show>
+                      <svg
+                        class="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
+                      </svg>
+                    </button>
+                  </Show>
 
-                {/* Drag handle */}
-                <Show when={isHovered() || isDragging()}>
+                  {/* Drag handle */}
                   <div
-                    class={`p-2 text-gray-400 transition-colors ${
+                    class={`p-1 text-gray-400 transition-colors cursor-grab ${
                       isDragging()
                         ? "cursor-grabbing text-magenta-400"
-                        : "cursor-grab hover:text-gray-300"
+                        : "hover:text-gray-300"
                     }`}
                     title="Drag to reorder"
                   >
                     <svg
-                      class="w-4 h-4"
+                      class="w-3 h-3"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -398,8 +394,8 @@ export function SongRow(props: SongRowProps) {
                       />
                     </svg>
                   </div>
-                </Show>
-              </div>
+                </div>
+              </Show>
             </div>
           );
         }}

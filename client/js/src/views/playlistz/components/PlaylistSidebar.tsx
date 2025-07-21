@@ -13,6 +13,7 @@ interface PlaylistSidebarProps {
   isLoading?: boolean;
   onCollapse?: () => void;
   collapsed?: boolean;
+  isMobile?: boolean;
 }
 
 export function PlaylistSidebar(props: PlaylistSidebarProps) {
@@ -48,34 +49,44 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
   };
 
   return (
-    <div class="w-80 bg-gray-900 bg-opacity-50 backdrop-blur-sm border-r border-gray-700 flex flex-col h-full">
+    <div
+      class={`${props.isMobile ? "w-full" : "w-80"} bg-gray-900 bg-opacity-50 backdrop-blur-sm ${props.isMobile ? "" : "border-r"} border-gray-700 flex flex-col h-full`}
+    >
       {/* Header */}
-      <div class="p-6 border-b border-gray-700">
+      <div
+        class={`p-6 border-b border-gray-700 ${props.isMobile ? "text-center" : ""}`}
+      >
         <div class="flex items-center justify-between mb-4">
-          <h1 class="text-2xl font-bold text-white">playlistz</h1>
+          <h1
+            class={`text-2xl font-bold text-white ${props.isMobile ? "text-3xl" : ""}`}
+          >
+            playlistz
+          </h1>
           <div class="flex items-center gap-2">
             <div class="text-sm text-magenta-400 font-mono">
               {props.playlists.length}
             </div>
-            <button
-              onClick={() => props.onCollapse?.()}
-              class="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
-              title="Collapse sidebar"
-            >
-              <svg
-                class="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+            <Show when={!props.isMobile}>
+              <button
+                onClick={() => props.onCollapse?.()}
+                class="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+                title="Collapse sidebar"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </Show>
           </div>
         </div>
 

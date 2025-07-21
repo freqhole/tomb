@@ -128,6 +128,33 @@
   }
 }
 
+/* Mobile responsive breakpoints */
+@media (max-width: 900px) {
+  .mobile-full-width {
+    width: 100% !important;
+  }
+
+  .mobile-hidden {
+    display: none !important;
+  }
+
+  .mobile-flex-col {
+    flex-direction: column !important;
+  }
+
+  .mobile-text-center {
+    text-align: center !important;
+  }
+
+  .mobile-gap-2 {
+    gap: 0.5rem !important;
+  }
+
+  .mobile-p-4 {
+    padding: 1rem !important;
+  }
+}
+
 /* Dynamic background effects */
 .dynamic-background {
   background-attachment: fixed;
@@ -208,5 +235,40 @@
   to {
     opacity: 0;
     filter: blur(20px) brightness(0.1);
+  }
+}
+
+/* Touch-friendly button sizes on mobile */
+@media (max-width: 900px) {
+  .touch-target {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  /* Larger text on mobile for readability */
+  .mobile-text-lg {
+    font-size: 1.125rem !important;
+  }
+
+  .mobile-text-base {
+    font-size: 1rem !important;
+  }
+
+  /* Better spacing on mobile */
+  .mobile-p-6 {
+    padding: 1.5rem !important;
+  }
+
+  .mobile-px-4 {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  /* Overlay button improvements */
+  .mobile-overlay-buttons {
+    background: rgba(0, 0, 0, 0.9) !important;
+    backdrop-filter: blur(8px) !important;
+    border-radius: 12px !important;
+    padding: 8px !important;
   }
 }

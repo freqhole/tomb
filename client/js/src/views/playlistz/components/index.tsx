@@ -49,6 +49,7 @@ export function Playlistz() {
   const [isInitialized, setIsInitialized] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+  const [isMobile, setIsMobile] = createSignal(false);
   const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<
     string | null
   >(null);
@@ -189,6 +190,22 @@ export function Playlistz() {
       await setupDB();
       setIsInitialized(true);
       console.log("✅ Playlistz initialized with IndexedDB");
+
+      // Set up responsive behavior
+      const checkMobile = () => {
+        const mobile = window.innerWidth < 900;
+        setIsMobile(mobile);
+        if (mobile && selectedPlaylist()) {
+          setSidebarCollapsed(true);
+        }
+      };
+
+      checkMobile();
+      window.addEventListener("resize", checkMobile);
+
+      onCleanup(() => {
+        window.removeEventListener("resize", checkMobile);
+      });
     } catch (err) {
       console.error("❌ Failed to initialize Playlistz:", err);
       setError(err instanceof Error ? err.message : "failed to initialize");
@@ -410,6 +427,11 @@ export function Playlistz() {
         songIds: [],
       });
       setSelectedPlaylist(newPlaylist);
+
+      // Auto-collapse on mobile when playlist is selected
+      if (isMobile()) {
+        setSidebarCollapsed(true);
+      }
     } catch (err) {
       console.error("❌ Error creating playlist:", err);
       setError(
@@ -634,28 +656,41 @@ export function Playlistz() {
           {/* Left Sidebar */}
           <div
             class={`transition-all duration-300 ease-out overflow-hidden ${
-              sidebarCollapsed() ? "w-0 opacity-0" : "w-80 opacity-100"
+              sidebarCollapsed()
+                ? "w-0 opacity-0"
+                : isMobile()
+                  ? "w-full opacity-100"
+                  : "w-80 opacity-100"
             }`}
           >
             <div
-              class={`w-80 h-full transform transition-transform duration-300 ease-out ${
+              class={`${isMobile() ? "w-full" : "w-80"} h-full transform transition-transform duration-300 ease-out ${
                 sidebarCollapsed() ? "-translate-x-full" : "translate-x-0"
               }`}
             >
               <PlaylistSidebar
                 playlists={playlists()}
                 selectedPlaylist={selectedPlaylist()}
-                onPlaylistSelect={(playlist) => setSelectedPlaylist(playlist)}
+                onPlaylistSelect={(playlist) => {
+                  setSelectedPlaylist(playlist);
+                  // Auto-collapse on mobile when playlist is selected
+                  if (isMobile()) {
+                    setSidebarCollapsed(true);
+                  }
+                }}
                 onCreatePlaylist={handleCreatePlaylist}
                 isLoading={false}
                 onCollapse={() => setSidebarCollapsed(true)}
                 collapsed={sidebarCollapsed()}
+                isMobile={isMobile()}
               />
             </div>
           </div>
 
           {/* Main Content Area */}
-          <div class="flex-1 flex flex-col h-full">
+          <div
+            class={`${isMobile() && !sidebarCollapsed() ? "hidden" : "flex-1"} flex flex-col h-full`}
+          >
             <Show
               when={selectedPlaylist()}
               fallback={
@@ -679,8 +714,12 @@ export function Playlistz() {
               {(playlist) => (
                 <div class="flex-1 flex flex-col p-6 h-full">
                   {/* Playlist Header */}
-                  <div class="flex items-center justify-between mb-6 border-b border-gray-700 pb-6">
-                    <div class="flex items-center gap-4">
+                  <div
+                    class={`flex items-center justify-between mb-6 border-b border-gray-700 pb-6 ${isMobile() ? "flex-col gap-4" : ""}`}
+                  >
+                    <div
+                      class={`flex items-center gap-4 ${isMobile() ? "w-full" : ""}`}
+                    >
                       {/* Sidebar Toggle Button (when collapsed) */}
                       <Show when={sidebarCollapsed()}>
                         <button
@@ -731,8 +770,12 @@ export function Playlistz() {
                         </div>
 
                         {/* Metadata row with song count, duration, and action buttons */}
-                        <div class="mt-3 flex items-center justify-between">
-                          <div class="flex items-center gap-4 text-sm text-gray-400">
+                        <div
+                          class={`mt-3 flex items-center justify-between ${isMobile() ? "flex-col gap-3" : ""}`}
+                        >
+                          <div
+                            class={`flex items-center gap-4 text-sm text-gray-400 ${isMobile() ? "flex-wrap justify-center" : ""}`}
+                          >
                             <span>
                               {playlist().songIds?.length || 0} song
                               {(playlist().songIds?.length || 0) !== 1
@@ -805,13 +848,15 @@ export function Playlistz() {
                     </div>
 
                     {/* Playlist Cover Image */}
-                    <div class="ml-4">
+                    <div
+                      class={`${isMobile() ? "mt-4 w-full flex justify-center" : "ml-4"}`}
+                    >
                       <button
                         onClick={() => {
                           setModalImageIndex(0);
                           setShowImageModal(true);
                         }}
-                        class="w-20 h-20 rounded-lg overflow-hidden bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors group"
+                        class={`${isMobile() ? "w-32 h-32" : "w-20 h-20"} rounded-lg overflow-hidden bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors group`}
                         title="View playlist images"
                       >
                         <Show
