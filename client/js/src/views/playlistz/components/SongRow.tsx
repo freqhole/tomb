@@ -21,6 +21,7 @@ export function SongRow(props: SongRowProps) {
   const [isHovered, setIsHovered] = createSignal(false);
   const [isDragging, setIsDragging] = createSignal(false);
   const [draggedOver, setDraggedOver] = createSignal(false);
+  const [debugClicks, setDebugClicks] = createSignal(0);
 
   // Fetch song data with reactivity to global song updates
   const [song] = createResource(
@@ -178,8 +179,22 @@ export function SongRow(props: SongRowProps) {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              onMouseEnter={() => setIsHovered(true)}
-              onMouseLeave={() => setIsHovered(false)}
+              onMouseEnter={() => {
+                console.log("🖱️ Mouse enter on song row", props.songId);
+                setIsHovered(true);
+              }}
+              onMouseLeave={() => {
+                console.log("🖱️ Mouse leave on song row", props.songId);
+                setIsHovered(false);
+              }}
+              onClick={(e) => {
+                console.log("🖱️ Song row clicked", {
+                  target: e.target,
+                  currentTarget: e.currentTarget,
+                  isHovered: isHovered(),
+                  songId: props.songId,
+                });
+              }}
             >
               {/* Progress background */}
               <div
@@ -192,6 +207,7 @@ export function SongRow(props: SongRowProps) {
                       : isDragging()
                         ? "rgba(107, 114, 128, 0.3)"
                         : "rgba(31, 41, 55, 0.3)",
+                  "pointer-events": "none",
                 }}
               />
 
@@ -302,20 +318,45 @@ export function SongRow(props: SongRowProps) {
               </div>
 
               {/* Actions */}
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 relative z-40">
+                {/* Debug info */}
+                <div class="text-xs text-yellow-400 mr-2">
+                  H:{isHovered() ? "Y" : "N"} C:{debugClicks()}
+                </div>
                 {/* Edit button */}
                 <Show when={isHovered()}>
                   <button
                     onClick={(e) => {
-                      console.log("aaaaa edit click");
+                      console.log("🔧 EDIT BUTTON CLICKED!", {
+                        songId: props.songId,
+                        event: e,
+                        target: e.target,
+                        currentTarget: e.currentTarget,
+                        isHovered: isHovered(),
+                        clickCount: debugClicks() + 1,
+                      });
+                      setDebugClicks((prev) => prev + 1);
                       e.stopPropagation();
+                      e.preventDefault();
 
                       const songData = song();
                       if (songData) {
+                        console.log("🔧 Calling onEdit with song:", songData);
                         props.onEdit?.(songData);
+                      } else {
+                        console.warn("🔧 No song data available for edit");
                       }
                     }}
-                    class="p-2 text-gray-400 hover:text-white transition-colors rounded-lg hover:bg-gray-600 hover:bg-opacity-50"
+                    onMouseEnter={() =>
+                      console.log("🔧 Edit button mouse enter")
+                    }
+                    onMouseLeave={() =>
+                      console.log("🔧 Edit button mouse leave")
+                    }
+                    onMouseDown={() => console.log("🔧 Edit button mouse down")}
+                    onMouseUp={() => console.log("🔧 Edit button mouse up")}
+                    class="relative z-50 p-2 text-gray-400 hover:text-white transition-colors rounded-lg hover:bg-gray-600 hover:bg-opacity-50 bg-red-500 bg-opacity-30"
+                    style="pointer-events: auto; border: 1px solid red;"
                     title="Edit song"
                   >
                     <svg
@@ -338,11 +379,30 @@ export function SongRow(props: SongRowProps) {
                 <Show when={props.showRemoveButton && isHovered()}>
                   <button
                     onClick={(e) => {
+                      console.log("🗑️ REMOVE BUTTON CLICKED!", {
+                        songId: props.songId,
+                        event: e,
+                        target: e.target,
+                        currentTarget: e.currentTarget,
+                        isHovered: isHovered(),
+                        showRemoveButton: props.showRemoveButton,
+                      });
                       e.stopPropagation();
-                      console.log("ffff remove!");
+                      e.preventDefault();
                       props.onRemove?.(props.songId);
                     }}
-                    class="p-2 text-red-400 hover:text-red-300 transition-colors rounded-lg hover:bg-red-600 hover:bg-opacity-20"
+                    onMouseEnter={() =>
+                      console.log("🗑️ Remove button mouse enter")
+                    }
+                    onMouseLeave={() =>
+                      console.log("🗑️ Remove button mouse leave")
+                    }
+                    onMouseDown={() =>
+                      console.log("🗑️ Remove button mouse down")
+                    }
+                    onMouseUp={() => console.log("🗑️ Remove button mouse up")}
+                    class="relative z-50 p-2 text-red-400 hover:text-red-300 transition-colors rounded-lg hover:bg-red-600 hover:bg-opacity-20 bg-red-500 bg-opacity-30"
+                    style="pointer-events: auto; border: 1px solid red;"
                     title="Remove from playlist"
                   >
                     <svg
