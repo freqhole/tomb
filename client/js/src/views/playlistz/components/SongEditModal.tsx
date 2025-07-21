@@ -1,7 +1,10 @@
 /* @jsxImportSource solid-js */
 import { createSignal, Show, onMount } from "solid-js";
 import { updateSong } from "../services/indexedDBService.js";
-import { processPlaylistCover, validateImageFile } from "../services/imageService.js";
+import {
+  processPlaylistCover,
+  validateImageFile,
+} from "../services/imageService.js";
 import type { Song } from "../types/playlist.js";
 
 interface SongEditModalProps {
@@ -116,8 +119,18 @@ export function SongEditModal(props: SongEditModalProps) {
             class="text-gray-400 hover:text-white p-1 rounded"
             disabled={isLoading()}
           >
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            <svg
+              class="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -126,18 +139,34 @@ export function SongEditModal(props: SongEditModalProps) {
         <div class="p-6 space-y-6">
           {/* Album Art */}
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-3">Album Art</label>
+            <label class="block text-sm font-medium text-gray-300 mb-3">
+              album art
+            </label>
             <div class="flex items-center gap-4">
               <div class="w-20 h-20 rounded-lg overflow-hidden bg-gray-700 flex items-center justify-center">
                 <Show
                   when={image()}
                   fallback={
-                    <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                    <svg
+                      class="w-8 h-8 text-gray-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                      />
                     </svg>
                   }
                 >
-                  <img src={image()} alt="Album art" class="w-full h-full object-cover" />
+                  <img
+                    src={image()}
+                    alt="Album art"
+                    class="w-full h-full object-cover"
+                  />
                 </Show>
               </div>
 
@@ -152,9 +181,9 @@ export function SongEditModal(props: SongEditModalProps) {
                 />
                 <label
                   for="image-upload"
-                  class="inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg cursor-pointer text-sm font-medium transition-colors"
+                  class="inline-block px-4 py-2 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white rounded-lg cursor-pointer text-sm font-medium transition-colors"
                 >
-                  Choose Image
+                  choose image
                 </label>
 
                 <Show when={image()}>
@@ -163,7 +192,7 @@ export function SongEditModal(props: SongEditModalProps) {
                     disabled={isLoading()}
                     class="block px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-lg text-sm font-medium transition-colors"
                   >
-                    Remove Image
+                    remove image
                   </button>
                 </Show>
               </div>
@@ -172,50 +201,62 @@ export function SongEditModal(props: SongEditModalProps) {
 
           {/* Title */}
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">Title *</label>
+            <label class="block text-sm font-medium text-gray-300 mb-2">
+              title *
+            </label>
             <input
               type="text"
               value={title()}
               onInput={(e) => setTitle(e.currentTarget.value)}
               disabled={isLoading()}
-              class="w-full bg-gray-800 text-white rounded-lg px-4 py-3 border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-colors"
-              placeholder="Song title"
+              class="w-full bg-gray-800 text-white rounded-lg px-4 py-3 border border-gray-600 focus:border-magenta-500 focus:ring-1 focus:ring-magenta-500 focus:outline-none transition-colors"
+              placeholder="song title"
             />
           </div>
 
           {/* Artist */}
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">Artist</label>
+            <label class="block text-sm font-medium text-gray-300 mb-2">
+              artist
+            </label>
             <input
               type="text"
               value={artist()}
               onInput={(e) => setArtist(e.currentTarget.value)}
               disabled={isLoading()}
-              class="w-full bg-gray-800 text-white rounded-lg px-4 py-3 border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-colors"
-              placeholder="Artist name"
+              class="w-full bg-gray-800 text-white rounded-lg px-4 py-3 border border-gray-600 focus:border-magenta-500 focus:ring-1 focus:ring-magenta-500 focus:outline-none transition-colors"
+              placeholder="artist name"
             />
           </div>
 
           {/* Album */}
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">Album</label>
+            <label class="block text-sm font-medium text-gray-300 mb-2">
+              album
+            </label>
             <input
               type="text"
               value={album()}
               onInput={(e) => setAlbum(e.currentTarget.value)}
               disabled={isLoading()}
-              class="w-full bg-gray-800 text-white rounded-lg px-4 py-3 border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-colors"
-              placeholder="Album name"
+              class="w-full bg-gray-800 text-white rounded-lg px-4 py-3 border border-gray-600 focus:border-magenta-500 focus:ring-1 focus:ring-magenta-500 focus:outline-none transition-colors"
+              placeholder="album name"
             />
           </div>
 
           {/* File info */}
           <div class="bg-gray-800 rounded-lg p-4">
-            <h3 class="text-sm font-medium text-gray-300 mb-2">File Information</h3>
+            <h3 class="text-sm font-medium text-gray-300 mb-2">
+              file information
+            </h3>
             <div class="text-sm text-gray-400 space-y-1">
-              <div>Filename: {props.song.file.name}</div>
-              <div>Size: {Math.round(props.song.file.size / 1024 / 1024 * 100) / 100} MB</div>
-              <div>Duration: {formatDuration(props.song.duration)}</div>
+              <div>filename: {props.song.file.name}</div>
+              <div>
+                size:{" "}
+                {Math.round((props.song.file.size / 1024 / 1024) * 100) / 100}{" "}
+                mb
+              </div>
+              <div>duration: {formatDuration(props.song.duration)}</div>
             </div>
           </div>
 
@@ -234,12 +275,12 @@ export function SongEditModal(props: SongEditModalProps) {
             disabled={isLoading()}
             class="px-4 py-2 text-gray-400 hover:text-white disabled:text-gray-600 font-medium transition-colors"
           >
-            Cancel
+            cancel
           </button>
           <button
             onClick={handleSave}
             disabled={isLoading() || !title().trim()}
-            class="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            class="px-6 py-2 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
           >
             <Show
               when={!isLoading()}
@@ -247,11 +288,21 @@ export function SongEditModal(props: SongEditModalProps) {
                 <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
               }
             >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
             </Show>
-            {isLoading() ? "Saving..." : "Save Changes"}
+            {isLoading() ? "saving..." : "save changes"}
           </button>
         </div>
       </div>
@@ -264,5 +315,5 @@ function formatDuration(seconds: number): string {
 
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }

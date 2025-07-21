@@ -1,7 +1,11 @@
 /* @jsxImportSource solid-js */
 import { createSignal, Show, onMount } from "solid-js";
 import { updatePlaylist } from "../services/indexedDBService.js";
-import { processPlaylistCover, validateImageFile, generatePlaylistThumbnail } from "../services/imageService.js";
+import {
+  processPlaylistCover,
+  validateImageFile,
+  generatePlaylistThumbnail,
+} from "../services/imageService.js";
 import type { Playlist, Song } from "../types/playlist.js";
 
 interface PlaylistCoverModalProps {
@@ -55,7 +59,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
   };
 
   const handleUseFromSongs = () => {
-    const songImages = props.playlistSongs.map(song => song.image);
+    const songImages = props.playlistSongs.map((song) => song.image);
     const thumbnail = generatePlaylistThumbnail(songImages);
     if (thumbnail) {
       setSelectedImage(thumbnail);
@@ -102,21 +106,31 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
 
   if (!props.isOpen) return null;
 
-  const songsWithArt = props.playlistSongs.filter(song => song.image);
+  const songsWithArt = props.playlistSongs.filter((song) => song.image);
 
   return (
     <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
       <div class="bg-gray-900 rounded-lg shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div class="flex items-center justify-between p-6 border-b border-gray-700">
-          <h2 class="text-xl font-bold text-white">Playlist Cover</h2>
+          <h2 class="text-xl font-bold text-white">playlist cover</h2>
           <button
             onClick={handleCancel}
             class="text-gray-400 hover:text-white p-1 rounded"
             disabled={isLoading()}
           >
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            <svg
+              class="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -125,20 +139,36 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
         <div class="p-6 space-y-6">
           {/* Current Cover Preview */}
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-3">Cover Image</label>
+            <label class="block text-sm font-medium text-gray-300 mb-3">
+              cover image
+            </label>
             <div class="w-48 h-48 mx-auto rounded-lg overflow-hidden bg-gray-700 flex items-center justify-center">
               <Show
                 when={selectedImage()}
                 fallback={
                   <div class="text-center">
-                    <svg class="w-16 h-16 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                    <svg
+                      class="w-16 h-16 text-gray-400 mx-auto mb-2"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                      />
                     </svg>
-                    <p class="text-gray-400 text-sm">No cover image</p>
+                    <p class="text-gray-400 text-sm">no cover image</p>
                   </div>
                 }
               >
-                <img src={selectedImage()} alt="Playlist cover" class="w-full h-full object-cover" />
+                <img
+                  src={selectedImage()}
+                  alt="Playlist cover"
+                  class="w-full h-full object-cover"
+                />
               </Show>
             </div>
           </div>
@@ -157,9 +187,9 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
               />
               <label
                 for="cover-upload"
-                class="block w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg cursor-pointer text-center font-medium transition-colors"
+                class="block w-full px-4 py-3 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white rounded-lg cursor-pointer text-center font-medium transition-colors"
               >
-                📁 Upload Image
+                upload image
               </label>
             </div>
 
@@ -168,9 +198,9 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
               <button
                 onClick={handleUseFromSongs}
                 disabled={isLoading()}
-                class="block w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white rounded-lg font-medium transition-colors"
+                class="block w-full px-4 py-3 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
               >
-                🎨 Use Album Art from Songs ({songsWithArt.length} available)
+                use album art from songs ({songsWithArt.length} available)
               </button>
             </Show>
 
@@ -181,7 +211,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                 disabled={isLoading()}
                 class="block w-full px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-lg font-medium transition-colors"
               >
-                🗑️ Remove Cover Image
+                remove cover image
               </button>
             </Show>
           </div>
@@ -189,26 +219,42 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
           {/* Songs with album art preview */}
           <Show when={songsWithArt.length > 0}>
             <div>
-              <label class="block text-sm font-medium text-gray-300 mb-3">Available Album Art</label>
+              <label class="block text-sm font-medium text-gray-300 mb-3">
+                available album art
+              </label>
               <div class="grid grid-cols-4 gap-3">
-                {songsWithArt.slice(0, 8).map(song => (
+                {songsWithArt.slice(0, 8).map((song) => (
                   <button
                     onClick={() => setSelectedImage(song.image)}
                     disabled={isLoading()}
-                    class="aspect-square rounded-lg overflow-hidden bg-gray-700 hover:ring-2 hover:ring-blue-500 transition-all"
+                    class="aspect-square rounded-lg overflow-hidden bg-gray-700 hover:ring-2 hover:ring-magenta-500 transition-all"
                     title={`${song.title} - ${song.artist}`}
                   >
                     <Show
                       when={song.image}
                       fallback={
                         <div class="w-full h-full flex items-center justify-center">
-                          <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                          <svg
+                            class="w-6 h-6 text-gray-400"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                            />
                           </svg>
                         </div>
                       }
                     >
-                      <img src={song.image} alt={song.title} class="w-full h-full object-cover" />
+                      <img
+                        src={song.image}
+                        alt={song.title}
+                        class="w-full h-full object-cover"
+                      />
                     </Show>
                   </button>
                 ))}
@@ -223,23 +269,14 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
 
           {/* Playlist info */}
           <div class="bg-gray-800 rounded-lg p-4">
-            <h3 class="text-sm font-medium text-gray-300 mb-2">Playlist Information</h3>
+            <h3 class="text-sm font-medium text-gray-300 mb-2">
+              playlist information
+            </h3>
             <div class="text-sm text-gray-400 space-y-1">
-              <div>Title: {props.playlist.title}</div>
-              <div>Songs: {props.playlist.songIds.length}</div>
-              <div>With Album Art: {songsWithArt.length}</div>
+              <div>title: {props.playlist.title}</div>
+              <div>songs: {props.playlist.songIds.length}</div>
+              <div>with album art: {songsWithArt.length}</div>
             </div>
-          </div>
-
-          {/* Tips */}
-          <div class="bg-blue-900 bg-opacity-30 border border-blue-500 rounded-lg p-4">
-            <h3 class="text-sm font-medium text-blue-300 mb-2">💡 Tips</h3>
-            <ul class="text-sm text-blue-200 space-y-1">
-              <li>• Supported formats: JPEG, PNG, GIF, WebP</li>
-              <li>• Maximum file size: 10MB</li>
-              <li>• Square images (1:1 ratio) work best</li>
-              <li>• Images will be resized to 300x300px</li>
-            </ul>
           </div>
 
           {/* Error message */}
@@ -257,12 +294,12 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
             disabled={isLoading()}
             class="px-4 py-2 text-gray-400 hover:text-white disabled:text-gray-600 font-medium transition-colors"
           >
-            Cancel
+            cancel
           </button>
           <button
             onClick={handleSave}
             disabled={isLoading()}
-            class="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            class="px-6 py-2 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
           >
             <Show
               when={!isLoading()}
@@ -270,11 +307,21 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                 <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
               }
             >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
             </Show>
-            {isLoading() ? "Saving..." : "Save Cover"}
+            {isLoading() ? "saving..." : "save cover"}
           </button>
         </div>
       </div>

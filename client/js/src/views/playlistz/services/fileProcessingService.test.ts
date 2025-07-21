@@ -18,6 +18,10 @@ global.File = class MockFile {
     this.size = chunks.join("").length;
     this.lastModified = options.lastModified || Date.now();
   }
+
+  arrayBuffer() {
+    return Promise.resolve(new ArrayBuffer(this.size));
+  }
 } as any;
 
 // Mock FileReader

@@ -6,16 +6,20 @@ import type { Song } from "../types/playlist.js";
 
 interface SongRowProps {
   songId: string;
+  index: number;
   isPlaying?: boolean;
   onPlay?: (song: Song) => void;
   onPause?: () => void;
   onRemove?: (songId: string) => void;
   onEdit?: (song: Song) => void;
+  onReorder?: (fromIndex: number, toIndex: number) => void;
   showRemoveButton?: boolean;
 }
 
 export function SongRow(props: SongRowProps) {
   const [isHovered, setIsHovered] = createSignal(false);
+  const [isDragging, setIsDragging] = createSignal(false);
+  const [draggedOver, setDraggedOver] = createSignal(false);
 
   // Fetch song data
   const [song] = createResource(
@@ -50,6 +54,41 @@ export function SongRow(props: SongRowProps) {
       props.onPause?.();
     } else {
       props.onPlay?.(songData);
+    }
+  };
+
+  const handleDragStart = (e: DragEvent) => {
+    setIsDragging(true);
+    e.dataTransfer!.effectAllowed = "move";
+    e.dataTransfer!.setData("text/plain", props.index.toString());
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    setDraggedOver(false);
+  };
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = "move";
+    setDraggedOver(true);
+  };
+
+  const handleDragLeave = (e: DragEvent) => {
+    if (e.currentTarget === e.target) {
+      setDraggedOver(false);
+    }
+  };
+
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setDraggedOver(false);
+
+    const fromIndex = parseInt(e.dataTransfer!.getData("text/plain"), 10);
+    const toIndex = props.index;
+
+    if (fromIndex !== toIndex && props.onReorder) {
+      props.onReorder(fromIndex, toIndex);
     }
   };
 
@@ -101,8 +140,18 @@ export function SongRow(props: SongRowProps) {
               class={`group flex items-center p-3 rounded-lg transition-all duration-200 ${
                 props.isPlaying
                   ? "bg-magenta-500 bg-opacity-20 border border-magenta-500 border-opacity-50"
-                  : "bg-gray-800 bg-opacity-30 hover:bg-gray-700 hover:bg-opacity-50 border border-transparent hover:border-gray-600"
+                  : draggedOver()
+                    ? "bg-magenta-600 bg-opacity-30 border border-magenta-400 border-dashed"
+                    : isDragging()
+                      ? "bg-gray-600 bg-opacity-50 border border-gray-500"
+                      : "bg-gray-800 bg-opacity-30 hover:bg-gray-700 hover:bg-opacity-50 border border-transparent hover:border-gray-600"
               }`}
+              draggable={true}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
               onMouseEnter={() => setIsHovered(true)}
               onMouseLeave={() => setIsHovered(false)}
             >
@@ -265,9 +314,13 @@ export function SongRow(props: SongRowProps) {
                 </Show>
 
                 {/* Drag handle */}
-                <Show when={isHovered()}>
+                <Show when={isHovered() || isDragging()}>
                   <div
-                    class="p-2 text-gray-400 cursor-grab active:cursor-grabbing"
+                    class={`p-2 text-gray-400 transition-colors ${
+                      isDragging()
+                        ? "cursor-grabbing text-magenta-400"
+                        : "cursor-grab hover:text-gray-300"
+                    }`}
                     title="Drag to reorder"
                   >
                     <svg

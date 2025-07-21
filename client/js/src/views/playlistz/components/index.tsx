@@ -12,6 +12,7 @@ import {
   createPlaylist,
   createPlaylistsQuery,
   updatePlaylist,
+  getAllPlaylists,
 } from "../services/indexedDBService.js";
 import { cleanup as cleanupAudio } from "../services/audioService.js";
 import {
@@ -27,6 +28,7 @@ import { PlaylistCoverModal } from "./PlaylistCoverModal.js";
 import {
   removeSongFromPlaylist,
   getAllSongs,
+  reorderSongs,
 } from "../services/indexedDBService.js";
 
 import type { Playlist } from "../types/playlist.js";
@@ -303,15 +305,28 @@ export function Playlistz() {
         audio.pause();
       }
 
-      // Set new source and play
-      if (song.blobUrl) {
-        audio.src = song.blobUrl;
+      // Set new source and play - try blobUrl first, then create from file
+      let audioSrc = song.blobUrl;
+      if (!audioSrc && song.file) {
+        audioSrc = URL.createObjectURL(song.file);
+        console.log(`🔗 Created new blob URL for ${song.title}`);
+      }
+
+      if (audioSrc) {
+        audio.src = audioSrc;
         audio.currentTime = 0;
         await audio.play();
         setCurrentPlayingSong(song.id);
-        console.log(`🎵 Playing: ${song.title}`);
+        console.log(
+          `🎵 Playing: ${song.title} from ${audioSrc.substring(0, 50)}...`
+        );
       } else {
-        setError("unable to play song - no audio source");
+        setError("unable to play song - no audio file available");
+        console.error("❌ No audio source available:", {
+          song: song.title,
+          hasBlobUrl: !!song.blobUrl,
+          hasFile: !!song.file,
+        });
       }
     } catch (err) {
       console.error("❌ Error playing song:", err);
@@ -336,15 +351,52 @@ export function Playlistz() {
     setEditingSong(song);
   };
 
-  const handleSongSaved = (updatedSong: any) => {
+  const handleSongSaved = async (updatedSong: any) => {
     // Update local playlist songs state
     setPlaylistSongs((prev) =>
       prev.map((song) => (song.id === updatedSong.id ? updatedSong : song))
     );
+
+    // Force refresh the playlist songs from database
+    const playlist = selectedPlaylist();
+    if (playlist && playlist.songIds.length > 0) {
+      try {
+        const allSongs = await getAllSongs();
+        const songs = allSongs.filter((song) =>
+          playlist.songIds.includes(song.id)
+        );
+        setPlaylistSongs(songs);
+        console.log("🔄 Refreshed songs after edit");
+      } catch (err) {
+        console.error("Error refreshing songs:", err);
+      }
+    }
   };
 
   const handlePlaylistCoverSaved = (updatedPlaylist: any) => {
     setSelectedPlaylist(updatedPlaylist);
+  };
+
+  const handleReorderSongs = async (fromIndex: number, toIndex: number) => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    try {
+      await reorderSongs(playlist.id, fromIndex, toIndex);
+      console.log(`🔄 Reordered songs: ${fromIndex} → ${toIndex}`);
+
+      // Refresh playlist to show new order
+      const updatedPlaylists = await getAllPlaylists();
+      const refreshedPlaylist = updatedPlaylists.find(
+        (p) => p.id === playlist.id
+      );
+      if (refreshedPlaylist) {
+        setSelectedPlaylist(refreshedPlaylist);
+      }
+    } catch (err) {
+      console.error("❌ Error reordering songs:", err);
+      setError("failed to reorder songs");
+    }
   };
 
   const handlePauseSong = () => {
@@ -401,8 +453,9 @@ export function Playlistz() {
               fallback={
                 <div class="flex-1 flex items-center justify-center">
                   <div class="text-center text-gray-400">
-                    <div class="text-4xl mb-6">🎵</div>
-                    <h2 class="text-2xl font-light mb-2">select a playlist</h2>
+                    <div class="text-2xl font-light mb-2">
+                      select a playlist
+                    </div>
                     <p class="text-lg mb-4">
                       choose a playlist from the sidebar or create a new one
                     </p>
@@ -496,7 +549,6 @@ export function Playlistz() {
                       when={playlist().songIds && playlist().songIds.length > 0}
                       fallback={
                         <div class="text-center py-16">
-                          <div class="text-6xl mb-6">🎶</div>
                           <div class="text-gray-400 text-xl mb-4">
                             no songs yet
                           </div>
@@ -506,7 +558,7 @@ export function Playlistz() {
                           </p>
                           <div class="text-xs text-gray-500 space-y-1">
                             <div>playlist id: {playlist().id}</div>
-                            <div>supported formats: MP3, WAV, FLAC, AIFF</div>
+                            <div>supported formats: mp3, wav, flac, aiff</div>
                           </div>
                         </div>
                       }
@@ -523,15 +575,17 @@ export function Playlistz() {
                         </div>
 
                         <For each={playlist().songIds}>
-                          {(songId) => (
+                          {(songId, index) => (
                             <SongRow
                               songId={songId}
+                              index={index()}
                               isPlaying={currentPlayingSong() === songId}
                               showRemoveButton={true}
                               onRemove={handleRemoveSong}
                               onPlay={handlePlaySong}
                               onPause={handlePauseSong}
                               onEdit={handleEditSong}
+                              onReorder={handleReorderSongs}
                             />
                           )}
                         </For>
@@ -560,7 +614,7 @@ export function Playlistz() {
             <div class="mt-6 flex justify-center">
               <div class="px-4 py-2 bg-magenta-500 bg-opacity-20 border-2 border-magenta-500 border-dashed rounded-lg">
                 <p class="text-magenta-300">
-                  supports MP3, WAV, FLAC, AIFF, and more
+                  supports mp3, wav, flac, aiff, and more
                 </p>
               </div>
             </div>
