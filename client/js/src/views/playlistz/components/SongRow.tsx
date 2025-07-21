@@ -28,15 +28,13 @@ export function SongRow(props: SongRowProps) {
     () => [props.songId, songUpdateTrigger()] as const,
     async ([songId, _trigger]) => {
       try {
-        console.log(`🔄 Fetching song ${songId} (trigger: ${_trigger})`);
         const fetchedSong = await getSongById(songId);
         if (!fetchedSong) {
-          console.warn(`⚠️ Song not found: ${songId}`);
           return null;
         }
         return fetchedSong;
       } catch (error) {
-        console.error(`❌ Error fetching song ${songId}:`, error);
+        console.error(`Error fetching song ${songId}:`, error);
         return null;
       }
     }

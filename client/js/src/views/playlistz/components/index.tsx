@@ -68,7 +68,6 @@ export function Playlistz() {
   onMount(() => {
     const playlistQuery = createPlaylistsQuery();
     const unsubscribe = playlistQuery.subscribe((value) => {
-      console.log(`🔄 Direct subscription: ${value.length} playlists`);
       setPlaylists([...value]); // Force new array reference
 
       // Update selected playlist if it exists in the new data
@@ -165,11 +164,6 @@ export function Playlistz() {
     // Only update if URL actually changed
     const prevUrl = backgroundImageUrl();
     if (prevUrl !== newImageUrl) {
-      console.log("🎨 Background image changed:", {
-        from: prevUrl ? "image set" : "none",
-        to: newImageUrl ? "new image" : "none",
-        source: currentSong ? "song" : selectedPl ? "playlist" : "none",
-      });
       setBackgroundImageUrl(newImageUrl);
     }
   });
@@ -189,7 +183,6 @@ export function Playlistz() {
     try {
       await setupDB();
       setIsInitialized(true);
-      console.log("✅ Playlistz initialized with IndexedDB");
 
       // Set up responsive behavior
       const checkMobile = () => {
@@ -373,10 +366,6 @@ export function Playlistz() {
           });
         }
       }
-
-      console.log(
-        `✅ Added ${successfulFiles.length}/${audioFiles.length} files to playlist`
-      );
 
       // Force refresh the selected playlist from database to get updated songIds
       const updatedPlaylists = playlists();

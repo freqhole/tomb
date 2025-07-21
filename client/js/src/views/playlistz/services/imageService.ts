@@ -119,9 +119,6 @@ export async function extractAlbumArt(
           const blob = new Blob([imageData], { type: mimeType });
           const albumArt = URL.createObjectURL(blob);
 
-          console.log(
-            `🖼️ [DEBUG] Extracted album art: ${mimeType}, ${imageDataSize} bytes, URL: ${albumArt}`
-          );
           return { success: true, albumArt };
         }
       }
@@ -189,10 +186,6 @@ export async function processPlaylistCover(
             300,
             300,
             file.type
-          );
-
-          console.log(
-            `🖼️ [DEBUG] Processed playlist cover: ${img.width}x${img.height}, ${file.size} bytes, imageData size: ${imageData.byteLength}, thumbnailData size: ${thumbnailData.byteLength}`
           );
 
           // Clean up temporary URL
@@ -416,13 +409,8 @@ export function createImageUrlFromData(
   imageData: ArrayBuffer,
   mimeType: string = "image/jpeg"
 ): string {
-  console.log(
-    `🖼️ [DEBUG] Creating URL from ArrayBuffer: ${imageData.byteLength} bytes, type: ${mimeType}`
-  );
   const blob = new Blob([imageData], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  console.log(`🖼️ [DEBUG] Created blob URL: ${url}`);
-  return url;
+  return URL.createObjectURL(blob);
 }
 
 // Generate placeholder image for songs without album art

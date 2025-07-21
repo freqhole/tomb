@@ -64,10 +64,8 @@ export async function setupDB(): Promise<IDBPDatabase<PlaylistDB>> {
     return cachedDB;
   }
 
-  console.log("🗄️ Setting up IndexedDB:", DB_NAME, "version:", DB_VERSION);
   cachedDB = openDB<PlaylistDB>(DB_NAME, DB_VERSION, {
     upgrade(db) {
-      console.log("🔧 Database upgrade triggered");
       // Create playlists store
       if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
         console.log("📝 Creating playlists store");
@@ -127,8 +125,6 @@ export function createLiveQuery<T>({
       const db = await setupDB();
       let items = await db.getAll(storeName as any);
 
-      console.log(`📊 Fetched ${items.length} items from ${storeName}`);
-
       if (queryFn) items = items.filter(queryFn);
       if (limit) items = items.slice(0, limit);
 
@@ -141,8 +137,6 @@ export function createLiveQuery<T>({
         }
         return out;
       });
-
-      console.log(`📊 Filtered to ${filtered.length} items for ${storeName}`);
 
       if (arraysDiffer(last, filtered)) {
         last = filtered;
@@ -173,7 +167,6 @@ export function createLiveQuery<T>({
       storeName
     );
     if (e.data?.type === "mutation" && e.data.store === storeName) {
-      console.log("🔄 Triggering fetchAndUpdate for store:", storeName);
       fetchAndUpdate();
     }
   };

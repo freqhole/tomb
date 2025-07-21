@@ -45,15 +45,14 @@ function initializeAudio(): HTMLAudioElement {
   });
 
   audioElement.addEventListener("play", () => {
-    console.log("🎵 Audio event: play");
     setIsPlaying(true);
+    updateMediaSession();
   });
   audioElement.addEventListener("pause", () => {
-    console.log("🎵 Audio event: pause");
     setIsPlaying(false);
+    updateMediaSession();
   });
   audioElement.addEventListener("ended", () => {
-    console.log("🎵 Audio event: ended");
     setIsPlaying(false);
     handleSongEnded();
   });
@@ -62,6 +61,7 @@ function initializeAudio(): HTMLAudioElement {
     console.error("Audio error:", e);
     setIsPlaying(false);
     setIsLoading(false);
+    updatePageTitle();
   });
 
   return audioElement;
@@ -77,11 +77,111 @@ function releaseAudioURL(url: string): void {
   URL.revokeObjectURL(url);
 }
 
+// Update page title with currently playing song
+function updatePageTitle(): void {
+  const song = currentSong();
+  const isPlaying = audioState.isPlaying();
+
+  if (song) {
+    const status = isPlaying ? "" : "[Paused] ";
+    document.title = `${status}${song.title} - ${song.artist || "Unknown Artist"} | Playlistz`;
+  } else {
+    document.title = "Playlistz";
+  }
+}
+
+// Update Media Session API for OS integration
+function updateMediaSession(): void {
+  if (!("mediaSession" in navigator)) return;
+
+  const song = currentSong();
+  const playlist = currentPlaylist();
+
+  if (song) {
+    // Set metadata
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: song.title,
+      artist: song.artist || "Unknown Artist",
+      album: song.album || playlist?.title || "Unknown Album",
+      artwork: getMediaSessionArtwork(song, playlist),
+    });
+
+    // Set playback state
+    navigator.mediaSession.playbackState = isPlaying() ? "playing" : "paused";
+
+    // Set action handlers
+    navigator.mediaSession.setActionHandler("play", () => {
+      togglePlayback();
+    });
+
+    navigator.mediaSession.setActionHandler("pause", () => {
+      togglePlayback();
+    });
+
+    navigator.mediaSession.setActionHandler("previoustrack", () => {
+      playPrevious();
+    });
+
+    navigator.mediaSession.setActionHandler("nexttrack", () => {
+      playNext();
+    });
+
+    navigator.mediaSession.setActionHandler("seekto", (details) => {
+      if (details.seekTime !== undefined) {
+        seek(details.seekTime);
+      }
+    });
+
+    // Update position state
+    const duration = audioState.duration();
+    const currentTime = audioState.currentTime();
+
+    if (duration > 0) {
+      navigator.mediaSession.setPositionState({
+        duration,
+        playbackRate: 1,
+        position: currentTime,
+      });
+    }
+  } else {
+    navigator.mediaSession.metadata = null;
+    navigator.mediaSession.playbackState = "none";
+  }
+
+  updatePageTitle();
+}
+
+// Get artwork for Media Session
+function getMediaSessionArtwork(song: any, playlist: any): MediaImage[] {
+  const artwork: MediaImage[] = [];
+
+  // Try song image first
+  if (song.imageData && song.imageType) {
+    const blob = new Blob([song.imageData], { type: song.imageType });
+    const url = URL.createObjectURL(blob);
+    artwork.push({
+      src: url,
+      sizes: "300x300",
+      type: song.imageType,
+    });
+  }
+  // Fallback to playlist image
+  else if (playlist?.imageData && playlist?.imageType) {
+    const blob = new Blob([playlist.imageData], { type: playlist.imageType });
+    const url = URL.createObjectURL(blob);
+    artwork.push({
+      src: url,
+      sizes: "300x300",
+      type: playlist.imageType,
+    });
+  }
+
+  return artwork;
+}
+
 // Load playlist into queue
 export async function loadPlaylistQueue(playlist: Playlist): Promise<void> {
   try {
-    console.log(`🎵 Loading playlist queue: ${playlist.title}`);
-
     const allSongs = await getAllSongs();
     const playlistSongs = allSongs
       .filter((song) => playlist.songIds.includes(song.id))
@@ -93,8 +193,6 @@ export async function loadPlaylistQueue(playlist: Playlist): Promise<void> {
     setPlaylistQueue(playlistSongs);
     setCurrentPlaylist(playlist);
     setCurrentIndex(-1); // No song selected yet
-
-    console.log(`📝 Queue loaded with ${playlistSongs.length} songs`);
   } catch (error) {
     console.error("Error loading playlist queue:", error);
     throw error;
@@ -142,25 +240,19 @@ function getPreviousSong(): Song | null {
 
 // Handle song ended - auto-advance logic
 async function handleSongEnded(): Promise<void> {
-  console.log("🔚 Song ended, checking for auto-advance");
-
   const nextSong = getNextSong();
 
   if (nextSong) {
-    console.log(`⏭️ Auto-advancing to: ${nextSong.title}`);
     await playNext();
   } else {
-    console.log("🔚 Reached end of queue");
     // Stay on last song but stop playing
     setIsPlaying(false);
+    updateMediaSession();
   }
 }
 
 // Play a specific song
 export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
-  console.log(
-    `🎵 playSong called for: ${song.title}, currentSong: ${currentSong()?.title}`
-  );
   const audio = initializeAudio();
 
   try {
@@ -211,9 +303,11 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
 
     audio.src = audioURL;
     await audio.play();
+    updateMediaSession();
   } catch (error) {
     console.error("Error playing song:", error);
     setIsLoading(false);
+    updatePageTitle();
     throw error;
   }
 }
@@ -265,9 +359,6 @@ export async function playNext(): Promise<void> {
 
   const nextSong = queue[nextIndex];
   if (nextSong) {
-    console.log(
-      `⏭️ Playing next: ${nextSong.title} (${nextIndex + 1}/${queue.length})`
-    );
     setCurrentIndex(nextIndex);
     await playSong(nextSong, currentPlaylist() || undefined);
   }
@@ -279,7 +370,6 @@ export async function playPrevious(): Promise<void> {
   const currentIdx = currentIndex();
 
   if (queue.length === 0 || currentIdx <= 0) {
-    console.log("⏮️ No previous song available");
     return;
   }
 
@@ -287,9 +377,6 @@ export async function playPrevious(): Promise<void> {
   const prevSong = queue[prevIndex];
 
   if (prevSong) {
-    console.log(
-      `⏮️ Playing previous: ${prevSong.title} (${prevIndex + 1}/${queue.length})`
-    );
     setCurrentIndex(prevIndex);
     await playSong(prevSong, currentPlaylist() || undefined);
   }
@@ -299,22 +386,15 @@ export async function playPrevious(): Promise<void> {
 export async function togglePlayback(): Promise<void> {
   const audio = audioElement;
   if (!audio) {
-    console.log("🎵 togglePlayback: No audio element");
     return;
   }
 
   try {
     const currentlyPlaying = isPlaying();
-    const audioCurrentTime = audio.currentTime;
-    console.log(
-      `🎵 togglePlayback: isPlaying=${currentlyPlaying}, currentTime=${audioCurrentTime}, src=${audio.src}`
-    );
 
     if (currentlyPlaying) {
-      console.log("🎵 Pausing audio");
       audio.pause();
     } else {
-      console.log("🎵 Playing/resuming audio");
       await audio.play();
     }
   } catch (error) {
@@ -348,6 +428,7 @@ export function stop(): void {
   setCurrentTime(0);
   setDuration(0);
   setCurrentIndex(0);
+  updatePageTitle();
 }
 
 // Seek to specific time
@@ -372,7 +453,6 @@ export function setAudioVolume(newVolume: number): void {
 // Set repeat mode
 export function setRepeatModeValue(mode: "none" | "one" | "all"): void {
   setRepeatMode(mode);
-  console.log(`🔁 Repeat mode set to: ${mode}`);
 }
 
 // Toggle repeat mode
@@ -382,7 +462,6 @@ export function toggleRepeatMode(): "none" | "one" | "all" {
   const nextIndex = (modes.indexOf(current) + 1) % modes.length;
   const nextMode = modes[nextIndex] as "none" | "one" | "all";
   setRepeatModeValue(nextMode);
-  console.log(`🔁 Repeat mode toggled to: ${nextMode}`);
   return nextMode;
 }
 
@@ -407,15 +486,11 @@ export async function playQueueIndex(index: number): Promise<void> {
   const queue = playlistQueue();
 
   if (index < 0 || index >= queue.length) {
-    console.log(`⚠️ Invalid queue index: ${index}`);
     return;
   }
 
   const song = queue[index];
   if (song) {
-    console.log(
-      `🎵 Playing queue song ${index + 1}/${queue.length}: ${song.title}`
-    );
     setCurrentIndex(index);
     await playSong(song);
   }
