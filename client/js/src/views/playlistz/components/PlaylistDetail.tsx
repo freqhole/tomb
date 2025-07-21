@@ -1,6 +1,13 @@
 /* @jsxImportSource solid-js */
-import { createSignal, Show } from 'solid-js';
-import type { Playlist } from '../types/playlist.js';
+import { createSignal, Show, For } from "solid-js";
+import type { Playlist, Song } from "../types/playlist.js";
+import {
+  playPlaylist,
+  audioState,
+  playSong,
+  togglePlayback,
+} from "../services/audioService.js";
+import { SongRow } from "./SongRow.js";
 
 interface PlaylistDetailProps {
   playlist: Playlist;
@@ -9,6 +16,30 @@ interface PlaylistDetailProps {
 
 export function PlaylistDetail(props: PlaylistDetailProps) {
   const [isEditing, setIsEditing] = createSignal(false);
+
+  const handlePlayPlaylist = async () => {
+    if (props.playlist.songIds?.length > 0) {
+      await playPlaylist(props.playlist, 0);
+    }
+  };
+
+  const handleSongPlay = async (song: Song) => {
+    // Check if this song is already the current song
+    const currentSong = audioState.currentSong();
+    if (currentSong?.id === song.id) {
+      // If it's the same song, just toggle playback (resume/pause)
+      togglePlayback();
+    } else {
+      // Different song, load and play it
+      await playSong(song, props.playlist);
+    }
+  };
+
+  const handleSongPause = () => {
+    if (audioState.isPlaying()) {
+      togglePlayback();
+    }
+  };
 
   return (
     <div class="h-full p-6">
@@ -22,7 +53,11 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                 when={props.playlist.image}
                 fallback={
                   <div class="w-full h-full flex items-center justify-center text-gray-400">
-                    <svg class="w-16 h-16" fill="currentColor" viewBox="0 0 20 20">
+                    <svg
+                      class="w-16 h-16"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
                       <path d="M18 3a1 1 0 00-1.196-.98l-10 2A1 1 0 006 5v9.114A4.369 4.369 0 005 14c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V7.82l8-1.6v5.894A4.369 4.369 0 0015 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V3z" />
                     </svg>
                   </div>
@@ -47,7 +82,7 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                 onClick={() => setIsEditing(!isEditing())}
                 class="px-3 py-1 text-sm text-gray-400 hover:text-white border border-gray-600 rounded hover:border-gray-400 transition-colors"
               >
-                {isEditing() ? 'Cancel' : 'Edit'}
+                {isEditing() ? "Cancel" : "Edit"}
               </button>
             </div>
 
@@ -58,18 +93,46 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
             </Show>
 
             <div class="flex items-center text-sm text-gray-400 space-x-4">
-              <span>{props.playlist.songIds?.length || 0} songs</span>
-              <span>•</span>
-              <span>Created {new Date(props.playlist.createdAt).toLocaleDateString()}</span>
+              <span>
+                Created{" "}
+                {new Date(props.playlist.createdAt).toLocaleDateString()}
+              </span>
             </div>
 
             {/* Play button */}
             <div class="mt-6">
-              <button class="px-8 py-3 bg-magenta-500 text-white rounded-full hover:bg-magenta-600 transition-colors font-semibold">
-                <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
-                </svg>
-                Play All
+              <button
+                onClick={handlePlayPlaylist}
+                class="inline-flex items-center justify-center w-16 h-16 bg-magenta-500 hover:bg-magenta-600 rounded-full text-white transition-colors"
+                title="Play all songs"
+              >
+                <Show
+                  when={
+                    audioState.currentPlaylist()?.id === props.playlist.id &&
+                    audioState.isPlaying()
+                  }
+                  fallback={
+                    <svg
+                      class="w-8 h-8 ml-1"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fill-rule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                        clip-rule="evenodd"
+                      />
+                    </svg>
+                  }
+                >
+                  <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
+                    <path
+                      fill-rule="evenodd"
+                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z"
+                      clip-rule="evenodd"
+                    />
+                  </svg>
+                </Show>
               </button>
             </div>
           </div>
@@ -84,7 +147,9 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
             fallback={
               <div class="text-center py-12">
                 <div class="text-gray-400 text-4xl mb-4">🎵</div>
-                <p class="text-gray-400 text-lg">No songs in this playlist yet</p>
+                <p class="text-gray-400 text-lg">
+                  No songs in this playlist yet
+                </p>
                 <p class="text-gray-500 text-sm mt-2">
                   Drag and drop audio files here to add them
                 </p>
@@ -92,10 +157,18 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
             }
           >
             <div class="space-y-2">
-              {/* Placeholder song rows */}
-              <div class="text-gray-400 text-sm">
-                Songs will appear here once implemented...
-              </div>
+              <For each={props.playlist.songIds || []}>
+                {(songId, index) => {
+                  return (
+                    <SongRow
+                      songId={songId}
+                      index={index()}
+                      onPlay={handleSongPlay}
+                      onPause={handleSongPause}
+                    />
+                  );
+                }}
+              </For>
             </div>
           </Show>
         </div>

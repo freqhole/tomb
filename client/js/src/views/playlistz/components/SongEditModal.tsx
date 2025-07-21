@@ -250,10 +250,12 @@ export function SongEditModal(props: SongEditModalProps) {
               file information
             </h3>
             <div class="text-sm text-gray-400 space-y-1">
-              <div>filename: {props.song.file.name}</div>
+              <div>filename: {props.song.file?.name || "Unknown"}</div>
               <div>
                 size:{" "}
-                {Math.round((props.song.file.size / 1024 / 1024) * 100) / 100}{" "}
+                {Math.round(
+                  ((props.song.file?.size || 0) / 1024 / 1024) * 100
+                ) / 100}{" "}
                 mb
               </div>
               <div>duration: {formatDuration(props.song.duration)}</div>

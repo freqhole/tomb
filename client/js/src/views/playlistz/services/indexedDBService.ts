@@ -323,10 +323,13 @@ export async function addSongToPlaylist(
   const songId = crypto.randomUUID();
   const now = Date.now();
 
+  // Convert File to ArrayBuffer for persistent storage
+  const audioData = await file.arrayBuffer();
+
   const song: Song = {
     id: songId,
-    file,
-    blobUrl: metadata.blobUrl || URL.createObjectURL(file),
+    file, // Temporary - only available during creation
+    mimeType: file.type, // Store MIME type
     title: metadata.title || file.name.replace(/\.[^/.]+$/, ""), // Remove file extension
     artist: metadata.artist || "Unknown Artist",
     album: metadata.album || "Unknown Album",
@@ -338,12 +341,20 @@ export async function addSongToPlaylist(
     ...metadata,
   };
 
+  // Create version for IndexedDB with ArrayBuffer instead of File
+  const songForDB = {
+    ...song,
+    file: undefined, // Remove File object
+    audioData, // Store audio as ArrayBuffer
+    mimeType: file.type, // Store MIME type to recreate blob
+  };
+
   // Add song to songs store
   await mutateAndNotify({
     dbName: DB_NAME,
     storeName: SONGS_STORE,
     key: songId,
-    updateFn: () => song,
+    updateFn: () => songForDB,
   });
 
   console.log("🎵 Song saved to IndexedDB:", song.title);
@@ -516,10 +527,37 @@ export function createPlaylistSongsQuery(playlistId: string) {
 export async function getSongById(songId: string): Promise<Song | null> {
   try {
     const db = await setupDB();
-    const song = await db.get(SONGS_STORE, songId);
-    return song || null;
+    const songData = await db.get(SONGS_STORE, songId);
+    if (!songData) return null;
+
+    // Return song metadata without loading audio data
+    return {
+      ...songData,
+      audioData: undefined, // Don't expose raw audio data in metadata
+    };
   } catch (error) {
     console.error(`❌ Error fetching song ${songId}:`, error);
+    return null;
+  }
+}
+
+// Load audio data on-demand for playback
+export async function loadSongAudioData(
+  songId: string
+): Promise<string | null> {
+  try {
+    const db = await setupDB();
+    const songData = await db.get(SONGS_STORE, songId);
+    if (!songData || !songData.audioData || !songData.mimeType) return null;
+
+    // Create blob URL from stored audio data
+    const blob = new Blob([songData.audioData], { type: songData.mimeType });
+    const blobUrl = URL.createObjectURL(blob);
+
+    console.log(`🎵 Loaded audio data for song: ${songData.title}`);
+    return blobUrl;
+  } catch (error) {
+    console.error(`❌ Error loading audio data for song ${songId}:`, error);
     return null;
   }
 }
@@ -528,7 +566,14 @@ export async function getAllSongs(): Promise<Song[]> {
   try {
     const db = await setupDB();
     const songs = await db.getAll(SONGS_STORE);
-    return songs;
+
+    // Return songs with metadata only, no audio data
+    return (
+      songs.map((song) => ({
+        ...song,
+        audioData: undefined, // Don't expose raw audio data in metadata
+      })) || []
+    );
   } catch (error) {
     console.error("❌ Error fetching all songs:", error);
     return [];

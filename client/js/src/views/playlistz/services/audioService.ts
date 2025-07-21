@@ -3,7 +3,7 @@
 
 import { createSignal } from "solid-js";
 import type { Song, Playlist, AudioState } from "../types/playlist.js";
-import { getAllSongs } from "./indexedDBService.js";
+import { getAllSongs, loadSongAudioData } from "./indexedDBService.js";
 
 // Audio state signals
 const [currentSong, setCurrentSong] = createSignal<Song | null>(null);
@@ -163,16 +163,36 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
     setCurrentSong(song);
 
     if (playlist) {
-      await loadPlaylistQueue(playlist);
+      // Only reload queue if it's a different playlist or queue is empty
+      const currentPl = currentPlaylist();
+      if (
+        !currentPl ||
+        currentPl.id !== playlist.id ||
+        playlistQueue().length === 0
+      ) {
+        await loadPlaylistQueue(playlist);
+      }
       const queue = playlistQueue();
       const index = queue.findIndex((queueSong) => queueSong.id === song.id);
       setCurrentIndex(index >= 0 ? index : 0);
     }
 
-    // Use song's blobUrl if available, otherwise create from file
+    // Try to get audio URL in order of preference:
+    // 1. Existing blobUrl from song
+    // 2. Create from file if available
+    // 3. Load from IndexedDB on-demand
     let audioURL = song.blobUrl;
+
     if (!audioURL && song.file) {
       audioURL = createAudioURL(song.file);
+    }
+
+    if (!audioURL) {
+      // Load audio data on-demand from IndexedDB
+      const loadedURL = await loadSongAudioData(song.id);
+      if (loadedURL) {
+        audioURL = loadedURL;
+      }
     }
 
     if (!audioURL) {
@@ -239,7 +259,7 @@ export async function playNext(): Promise<void> {
       `⏭️ Playing next: ${nextSong.title} (${nextIndex + 1}/${queue.length})`
     );
     setCurrentIndex(nextIndex);
-    await playSong(nextSong);
+    await playSong(nextSong, currentPlaylist() || undefined);
   }
 }
 
@@ -261,19 +281,30 @@ export async function playPrevious(): Promise<void> {
       `⏮️ Playing previous: ${prevSong.title} (${prevIndex + 1}/${queue.length})`
     );
     setCurrentIndex(prevIndex);
-    await playSong(prevSong);
+    await playSong(prevSong, currentPlaylist() || undefined);
   }
 }
 
 // Toggle play/pause
 export async function togglePlayback(): Promise<void> {
   const audio = audioElement;
-  if (!audio) return;
+  if (!audio) {
+    console.log("🎵 togglePlayback: No audio element");
+    return;
+  }
 
   try {
-    if (isPlaying()) {
+    const currentlyPlaying = isPlaying();
+    const audioCurrentTime = audio.currentTime;
+    console.log(
+      `🎵 togglePlayback: isPlaying=${currentlyPlaying}, currentTime=${audioCurrentTime}, src=${audio.src}`
+    );
+
+    if (currentlyPlaying) {
+      console.log("🎵 Pausing audio");
       audio.pause();
     } else {
+      console.log("🎵 Playing/resuming audio");
       await audio.play();
     }
   } catch (error) {

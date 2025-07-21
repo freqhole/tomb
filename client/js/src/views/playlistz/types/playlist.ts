@@ -10,8 +10,10 @@ export interface Playlist {
 
 export interface Song {
   id: string; // UUID
-  file: File; // Original audio file
-  blobUrl?: string; // Object URL for audio playback
+  file?: File; // Original audio file (only available during upload or when loaded for playback)
+  blobUrl?: string; // Object URL for audio playback (created on-demand)
+  audioData?: ArrayBuffer; // Audio data stored in IndexedDB
+  mimeType: string; // MIME type for recreating blob from stored data
   title: string; // User-editable song title
   artist: string; // User-editable artist name
   album: string; // User-editable album name

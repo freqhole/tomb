@@ -3,12 +3,12 @@ import { createSignal, createResource, Show } from "solid-js";
 import { getSongById } from "../services/indexedDBService.js";
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
 import { songUpdateTrigger } from "../services/songReactivity.js";
+import { audioState } from "../services/audioService.js";
 import type { Song } from "../types/playlist.js";
 
 interface SongRowProps {
   songId: string;
   index: number;
-  isPlaying?: boolean;
   onPlay?: (song: Song) => void;
   onPause?: () => void;
   onRemove?: (songId: string) => void;
@@ -41,6 +41,13 @@ export function SongRow(props: SongRowProps) {
     }
   );
 
+  // Track if this song is currently playing
+  const isCurrentlyPlaying = () => {
+    const current = audioState.currentSong();
+    const playing = audioState.isPlaying();
+    return current?.id === props.songId && playing;
+  };
+
   const formatDuration = (seconds: number | undefined) => {
     if (!seconds) return "0:00";
     const mins = Math.floor(seconds / 60);
@@ -52,7 +59,7 @@ export function SongRow(props: SongRowProps) {
     const songData = song();
     if (!songData) return;
 
-    if (props.isPlaying) {
+    if (isCurrentlyPlaying()) {
       props.onPause?.();
     } else {
       props.onPlay?.(songData);
@@ -140,16 +147,30 @@ export function SongRow(props: SongRowProps) {
         {(songData) => {
           const relativeTime = createRelativeTimeSignal(songData().createdAt);
 
+          // Calculate progress percentage for background fill
+          const getProgressPercentage = () => {
+            const currentSong = audioState.currentSong();
+            if (!currentSong || currentSong.id !== songData().id) return 0;
+
+            const duration = audioState.duration();
+            const currentTime = audioState.currentTime();
+
+            if (duration > 0) {
+              return (currentTime / duration) * 100;
+            }
+            return 0;
+          };
+
           return (
             <div
-              class={`group flex items-center p-3 rounded-lg transition-all duration-200 ${
-                props.isPlaying
-                  ? "bg-magenta-500 bg-opacity-20 border border-magenta-500 border-opacity-50"
+              class={`group relative flex items-center p-3 rounded-lg transition-all duration-200 overflow-hidden ${
+                isCurrentlyPlaying()
+                  ? "border border-magenta-500 border-opacity-50"
                   : draggedOver()
-                    ? "bg-magenta-600 bg-opacity-30 border border-magenta-400 border-dashed"
+                    ? "border border-magenta-400 border-dashed"
                     : isDragging()
-                      ? "bg-gray-600 bg-opacity-50 border border-gray-500"
-                      : "bg-gray-800 bg-opacity-30 hover:bg-gray-700 hover:bg-opacity-50 border border-transparent hover:border-gray-600"
+                      ? "border border-gray-500"
+                      : "border border-transparent hover:border-gray-600"
               }`}
               draggable={true}
               onDragStart={handleDragStart}
@@ -160,100 +181,119 @@ export function SongRow(props: SongRowProps) {
               onMouseEnter={() => setIsHovered(true)}
               onMouseLeave={() => setIsHovered(false)}
             >
-              {/* Album art / Play button */}
-              <div class="relative w-12 h-12 mr-4 flex-shrink-0">
-                <Show
-                  when={songData().image}
-                  fallback={
-                    <div class="w-12 h-12 bg-gray-700 rounded-lg flex items-center justify-center">
-                      <svg
-                        class="w-6 h-6 text-gray-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
-                        />
-                      </svg>
-                    </div>
-                  }
-                >
-                  <img
-                    src={songData().image}
-                    alt={`${songData().title} album art`}
-                    class="w-12 h-12 rounded-lg object-cover"
-                  />
-                </Show>
+              {/* Progress background */}
+              <div
+                class="absolute inset-0 transition-all duration-200"
+                style={{
+                  background: isCurrentlyPlaying()
+                    ? `linear-gradient(to right, rgba(236, 72, 153, 0.15) ${getProgressPercentage()}%, transparent ${getProgressPercentage()}%)`
+                    : draggedOver()
+                      ? "rgba(220, 38, 127, 0.2)"
+                      : isDragging()
+                        ? "rgba(107, 114, 128, 0.3)"
+                        : "rgba(31, 41, 55, 0.3)",
+                }}
+              />
 
-                {/* Play/Pause overlay */}
-                <Show when={isHovered() || props.isPlaying}>
-                  <button
-                    onClick={handlePlayPause}
-                    class="absolute inset-0 bg-black bg-opacity-60 rounded-lg flex items-center justify-center transition-opacity hover:bg-opacity-80"
+              {/* Content overlay */}
+              <div class="relative flex items-center w-full">
+                {/* Album art / Play button */}
+                <div class="relative w-12 h-12 mr-4 flex-shrink-0">
+                  <Show
+                    when={songData().image}
+                    fallback={
+                      <div class="w-12 h-12 bg-gray-700 rounded-lg flex items-center justify-center">
+                        <svg
+                          class="w-6 h-6 text-gray-400"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                          />
+                        </svg>
+                      </div>
+                    }
                   >
-                    <Show
-                      when={props.isPlaying}
-                      fallback={
+                    <img
+                      src={songData().image}
+                      alt={`${songData().title} album art`}
+                      class="w-12 h-12 rounded-lg object-cover"
+                    />
+                  </Show>
+
+                  {/* Play/Pause overlay */}
+                  <Show when={isHovered() || isCurrentlyPlaying()}>
+                    <button
+                      onClick={handlePlayPause}
+                      class="absolute inset-0 bg-black bg-opacity-60 rounded-lg flex items-center justify-center transition-opacity hover:bg-opacity-80"
+                    >
+                      <Show
+                        when={isCurrentlyPlaying()}
+                        fallback={
+                          <svg
+                            class="w-5 h-5 text-white"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
+                        }
+                      >
                         <svg
                           class="w-5 h-5 text-white"
                           fill="currentColor"
                           viewBox="0 0 24 24"
                         >
-                          <path d="M8 5v14l11-7z" />
+                          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
                         </svg>
-                      }
-                    >
-                      <svg
-                        class="w-5 h-5 text-white"
-                        fill="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                      </svg>
-                    </Show>
-                  </button>
-                </Show>
-              </div>
+                      </Show>
+                    </button>
+                  </Show>
+                </div>
 
-              {/* Song info */}
-              <div class="flex-1 min-w-0">
-                <div
-                  class={`font-medium truncate ${
-                    props.isPlaying
-                      ? "text-white"
-                      : "text-gray-200 group-hover:text-white"
-                  }`}
-                >
-                  {songData().title}
-                </div>
-                <div
-                  class={`text-sm truncate ${
-                    props.isPlaying
-                      ? "text-magenta-200"
-                      : "text-gray-400 group-hover:text-gray-300"
-                  }`}
-                >
-                  {songData().artist}
-                  {songData().album && <span class="mx-2">•</span>}
-                  {songData().album}
-                </div>
-                <div
-                  class={`text-xs mt-1 ${
-                    props.isPlaying ? "text-magenta-300" : "text-gray-500"
-                  }`}
-                >
-                  added {relativeTime.signal()}
+                {/* Song info */}
+                <div class="flex-1 min-w-0">
+                  <div
+                    class={`font-medium truncate ${
+                      isCurrentlyPlaying()
+                        ? "text-white"
+                        : "text-gray-200 group-hover:text-white"
+                    }`}
+                  >
+                    {songData().title}
+                  </div>
+                  <div
+                    class={`text-sm truncate ${
+                      isCurrentlyPlaying()
+                        ? "text-magenta-200"
+                        : "text-gray-400 group-hover:text-gray-300"
+                    }`}
+                  >
+                    {songData().artist}
+                    {songData().album && <span class="mx-2">•</span>}
+                    {songData().album}
+                  </div>
+                  <div
+                    class={`text-xs mt-1 ${
+                      isCurrentlyPlaying()
+                        ? "text-magenta-300"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    added {relativeTime.signal()}
+                  </div>
                 </div>
               </div>
 
               {/* Duration */}
               <div
                 class={`text-sm font-mono mr-4 ${
-                  props.isPlaying
+                  isCurrentlyPlaying()
                     ? "text-magenta-200"
                     : "text-gray-400 group-hover:text-gray-300"
                 }`}

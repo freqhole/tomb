@@ -41,9 +41,7 @@ export function Playlistz() {
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isInitialized, setIsInitialized] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [currentPlayingSong, setCurrentPlayingSong] = createSignal<
-    string | null
-  >(null);
+  const [_, setCurrentPlayingSong] = createSignal<string | null>(null);
   const [editingSong, setEditingSong] = createSignal<any | null>(null);
   const [showPlaylistCover, setShowPlaylistCover] = createSignal(false);
   const [playlistSongs, setPlaylistSongs] = createSignal<any[]>([]);
@@ -228,7 +226,7 @@ export function Playlistz() {
       // Actually add the songs to the playlist in IndexedDB
       for (const result of successfulFiles) {
         if (result.song) {
-          await addSongToPlaylist(targetPlaylist.id, result.song.file, {
+          await addSongToPlaylist(targetPlaylist.id, result.song.file!, {
             title: result.song.title,
             artist: result.song.artist,
             album: result.song.album,
@@ -591,7 +589,6 @@ export function Playlistz() {
                             <SongRow
                               songId={songId}
                               index={index()}
-                              isPlaying={currentPlayingSong() === songId}
                               showRemoveButton={true}
                               onRemove={handleRemoveSong}
                               onPlay={handlePlaySong}
