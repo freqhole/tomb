@@ -18,6 +18,7 @@ import {
   cleanup as cleanupAudio,
   playSong,
   togglePlayback,
+  audioState,
 } from "../services/audioService.js";
 import {
   filterAudioFiles,
@@ -333,15 +334,24 @@ export function Playlistz() {
   // Audio player functions
   const handlePlaySong = async (song: any) => {
     try {
-      const currentPlaylist = selectedPlaylist();
-      if (currentPlaylist) {
-        console.log(
-          `🎵 Playing song: ${song.title} from playlist: ${currentPlaylist.title}`
-        );
-        await playSong(song, currentPlaylist);
+      // Check if this song is already the current song
+      const currentSong = audioState.currentSong();
+      if (currentSong?.id === song.id) {
+        // If it's the same song, just toggle playback (resume/pause)
+        console.log(`🎵 Resuming song: ${song.title}`);
+        togglePlayback();
       } else {
-        console.log(`🎵 Playing single song: ${song.title}`);
-        await playSong(song);
+        // Different song, load and play it
+        const currentPlaylist = selectedPlaylist();
+        if (currentPlaylist) {
+          console.log(
+            `🎵 Playing song: ${song.title} from playlist: ${currentPlaylist.title}`
+          );
+          await playSong(song, currentPlaylist);
+        } else {
+          console.log(`🎵 Playing single song: ${song.title}`);
+          await playSong(song);
+        }
       }
     } catch (err) {
       console.error("❌ Error playing song:", err);
