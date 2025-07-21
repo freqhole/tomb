@@ -199,6 +199,34 @@ export async function loadPlaylistQueue(playlist: Playlist): Promise<void> {
   }
 }
 
+// Refresh playlist queue while maintaining current song position
+export async function refreshPlaylistQueue(playlist: Playlist): Promise<void> {
+  try {
+    const currentSong = audioState.currentSong();
+    const allSongs = await getAllSongs();
+    const playlistSongs = allSongs
+      .filter((song) => playlist.songIds.includes(song.id))
+      .sort(
+        (a, b) =>
+          playlist.songIds.indexOf(a.id) - playlist.songIds.indexOf(b.id)
+      );
+
+    setPlaylistQueue(playlistSongs);
+    setCurrentPlaylist(playlist);
+
+    // Update current index to match new position of currently playing song
+    if (currentSong) {
+      const newIndex = playlistSongs.findIndex(
+        (song) => song.id === currentSong.id
+      );
+      setCurrentIndex(newIndex >= 0 ? newIndex : -1);
+    }
+  } catch (error) {
+    console.error("Error refreshing playlist queue:", error);
+    throw error;
+  }
+}
+
 // Get the next song in queue
 function getNextSong(): Song | null {
   const queue = playlistQueue();

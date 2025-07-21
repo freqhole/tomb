@@ -19,13 +19,14 @@ import {
   playSong,
   togglePlayback,
   audioState,
+  refreshPlaylistQueue,
 } from "../services/audioService.js";
 import { deletePlaylist } from "../services/indexedDBService.js";
 import {
   filterAudioFiles,
   processAudioFiles,
 } from "../services/fileProcessingService.js";
-import { addSongToPlaylist } from "../services/indexedDBService.js";
+
 import { cleanupTimeUtils } from "../utils/timeUtils.js";
 import { createImageUrlFromData } from "../services/imageService.js";
 import { PlaylistSidebar } from "./PlaylistSidebar.js";
@@ -33,6 +34,7 @@ import { SongRow } from "./SongRow.js";
 import { SongEditModal } from "./SongEditModal.js";
 import { PlaylistCoverModal } from "./PlaylistCoverModal.js";
 import {
+  addSongToPlaylist,
   removeSongFromPlaylist,
   getAllSongs,
   reorderSongs,
@@ -480,6 +482,19 @@ export function Playlistz() {
 
     try {
       await removeSongFromPlaylist(playlist.id, songId);
+
+      // Update audio queue if this playlist is currently active
+      const currentPlaylist = audioState.currentPlaylist();
+      if (currentPlaylist && currentPlaylist.id === playlist.id) {
+        // Get updated playlist data and refresh queue
+        const updatedPlaylists = await getAllPlaylists();
+        const refreshedPlaylist = updatedPlaylists.find(
+          (p) => p.id === playlist.id
+        );
+        if (refreshedPlaylist) {
+          await refreshPlaylistQueue(refreshedPlaylist);
+        }
+      }
     } catch (err) {
       console.error("❌ Error removing song:", err);
       setError("failed to remove song");
@@ -529,6 +544,12 @@ export function Playlistz() {
       );
       if (refreshedPlaylist) {
         setSelectedPlaylist(refreshedPlaylist);
+
+        // Update audio queue if this playlist is currently active
+        const currentPlaylist = audioState.currentPlaylist();
+        if (currentPlaylist && currentPlaylist.id === refreshedPlaylist.id) {
+          await refreshPlaylistQueue(refreshedPlaylist);
+        }
       }
     } catch (err) {
       console.error("❌ Error reordering songs:", err);
