@@ -18,8 +18,16 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
   const [isEditing, setIsEditing] = createSignal(false);
 
   const handlePlayPlaylist = async () => {
-    if (props.playlist.songIds?.length > 0) {
-      await playPlaylist(props.playlist, 0);
+    const currentPlaylist = audioState.currentPlaylist();
+
+    // If this playlist is already playing, just toggle playback
+    if (currentPlaylist?.id === props.playlist.id && audioState.currentSong()) {
+      togglePlayback();
+    } else {
+      // Start playing this playlist from the beginning
+      if (props.playlist.songIds?.length > 0) {
+        await playPlaylist(props.playlist, 0);
+      }
     }
   };
 
@@ -54,8 +62,8 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
   };
 
   return (
-    <div class="h-full p-6">
-      <div class="max-w-4xl mx-auto">
+    <div class="h-full p-6 flex flex-col">
+      <div class="max-w-4xl mx-auto flex-1 flex flex-col min-h-0">
         {/* Header */}
         <div class="flex items-start space-x-6 mb-8">
           {/* Playlist cover */}
@@ -111,12 +119,17 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
               </span>
             </div>
 
-            {/* Play button */}
+            {/* Play/Pause button */}
             <div class="mt-6">
               <button
                 onClick={handlePlayPlaylist}
                 class="inline-flex items-center justify-center w-16 h-16 bg-magenta-500 hover:bg-magenta-600 rounded-full text-white transition-colors"
-                title="Play all songs"
+                title={
+                  audioState.currentPlaylist()?.id === props.playlist.id &&
+                  audioState.isPlaying()
+                    ? "Pause playlist"
+                    : "Play all songs"
+                }
               >
                 <Show
                   when={
@@ -151,7 +164,7 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
         </div>
 
         {/* Songs list */}
-        <div class="bg-gray-900 bg-opacity-30 rounded-lg p-6">
+        <div class="bg-gray-900 bg-opacity-30 rounded-lg p-6 flex-1 flex flex-col min-h-0">
           <h2 class="text-xl font-semibold mb-4 text-white">Songs</h2>
 
           <Show
@@ -168,7 +181,7 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
               </div>
             }
           >
-            <div class="space-y-2">
+            <div class="space-y-2 overflow-y-auto flex-1">
               <For each={props.playlist.songIds || []}>
                 {(songId, index) => {
                   return (

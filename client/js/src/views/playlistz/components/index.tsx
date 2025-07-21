@@ -361,9 +361,11 @@ export function Playlistz() {
 
   const handleRemoveSong = async (songId: string) => {
     const playlist = selectedPlaylist();
+    console.log("ffff handleRemoveSong!");
     if (!playlist) return;
 
     try {
+      console.log("ffff handleRemoveSong gonna try!");
       await removeSongFromPlaylist(playlist.id, songId);
       console.log(`🗑️ Removed song ${songId} from playlist`);
     } catch (err) {
@@ -468,7 +470,7 @@ export function Playlistz() {
           />
 
           {/* Main Content Area */}
-          <div class="flex-1 flex flex-col">
+          <div class="flex-1 flex flex-col h-full">
             <Show
               when={selectedPlaylist()}
               fallback={
@@ -490,7 +492,7 @@ export function Playlistz() {
               }
             >
               {(playlist) => (
-                <div class="flex-1 flex flex-col p-6">
+                <div class="flex-1 flex flex-col p-6 h-full">
                   {/* Playlist Header */}
                   <div class="flex items-center justify-between mb-6 border-b border-gray-700 pb-6">
                     <div class="flex items-center gap-4">
@@ -566,35 +568,27 @@ export function Playlistz() {
 
                   {/* Songs List */}
                   <div class="flex-1 overflow-y-auto">
-                    <Show
-                      when={playlist().songIds && playlist().songIds.length > 0}
-                      fallback={
-                        <div class="text-center py-16">
-                          <div class="text-gray-400 text-xl mb-4">
-                            no songs yet
+                    <div class="p-4 space-y-2">
+                      <Show
+                        when={
+                          playlist().songIds && playlist().songIds.length > 0
+                        }
+                        fallback={
+                          <div class="text-center py-16">
+                            <div class="text-gray-400 text-xl mb-4">
+                              no songs yet
+                            </div>
+                            <p class="text-gray-400 mb-4">
+                              drag and drop audio files here to add them to this
+                              playlist
+                            </p>
+                            <div class="text-xs text-gray-500 space-y-1">
+                              <div>playlist id: {playlist().id}</div>
+                              <div>supported formats: mp3, wav, flac, aiff</div>
+                            </div>
                           </div>
-                          <p class="text-gray-400 mb-4">
-                            drag and drop audio files here to add them to this
-                            playlist
-                          </p>
-                          <div class="text-xs text-gray-500 space-y-1">
-                            <div>playlist id: {playlist().id}</div>
-                            <div>supported formats: mp3, wav, flac, aiff</div>
-                          </div>
-                        </div>
-                      }
-                    >
-                      <div class="space-y-3">
-                        <div class="flex items-center justify-between mb-4">
-                          <h2 class="text-lg font-medium text-gray-300">
-                            {playlist().songIds.length} song
-                            {playlist().songIds.length !== 1 ? "s" : ""}
-                          </h2>
-                          <div class="text-xs text-gray-500">
-                            drag to reorder • click to play
-                          </div>
-                        </div>
-
+                        }
+                      >
                         <For each={playlist().songIds}>
                           {(songId, index) => (
                             <SongRow
@@ -609,8 +603,8 @@ export function Playlistz() {
                             />
                           )}
                         </For>
-                      </div>
-                    </Show>
+                      </Show>
+                    </div>
                   </div>
                 </div>
               )}

@@ -1006,17 +1006,20 @@ tests/
 
 #### 🐛 Critical Bugs
 
-1. **Song Row Update Bug**: Song rows don't immediately reflect changes after editing
-   - Backend updates correctly, UI state lags behind
-   - Need better reactivity between edit modal and song display
+1. **✅ Song Row Update Bug** (COMPLETED)
+   - ✅ Song rows now properly reflect audio state changes
+   - ✅ SongRow component tracks audioState directly for better reactivity
+   - ✅ Current playing song highlights correctly during auto-advance
 
-2. **Playlist Audio Flow**: Audio player doesn't auto-advance through playlist
-   - Currently plays single songs only
-   - Need playlist queue management and auto-next functionality
+2. **✅ Playlist Audio Flow** (COMPLETED)
+   - ✅ Auto-advance through playlist now works properly
+   - ✅ Audio data loads on-demand for better performance
+   - ✅ Fixed blob URL handling for persistent audio storage
+   - ✅ Unified audio system - removed duplicate audio instances
 
-3. **Drag & Drop Error**: False error message during song reordering
-   - Shows "no audio files found" when dragging songs to reorder
-   - Need to distinguish between file drops and song reordering
+3. **✅ Drag & Drop Error** (COMPLETED)
+   - ✅ Fixed false error messages during song reordering
+   - ✅ Improved event delegation and context-aware error messages
 
 #### 🎨 UI Enhancement Requests
 
@@ -1033,16 +1036,18 @@ tests/
 ### 🎯 Implementation Priorities for Next Session
 
 1. **✅ Priority 1: Fix Song Row Reactivity** (COMPLETED)
-   - ✅ Implemented global song update signal system
-   - ✅ Added reactivity triggers to all song modification operations
-   - ✅ Updated SongRow component to respond to global updates
+   - ✅ SongRow components now track audioState directly for real-time updates
+   - ✅ Progress background fill shows playback progress
+   - ✅ Current playing song highlights properly during auto-advance
 
-2. **Priority 2: Playlist Audio Queue**
-   - Implement auto-advance to next song
-   - Add playlist queue management
-   - Previous/next song controls
+2. **✅ Priority 2: Playlist Audio Queue** (COMPLETED)
+   - ✅ Auto-advance to next song works properly
+   - ✅ On-demand audio loading for better performance (metadata vs audio data)
+   - ✅ Unified audio system with proper pause/resume functionality
+   - ✅ Playlist header play/pause button with proper state management
+   - ✅ Scrollable song list for large playlists
 
-3. **Priority 3: Fix Drag & Drop Error Handling** (COMPLETED)
+3. **✅ Priority 3: Fix Drag & Drop Error Handling** (COMPLETED)
    - ✅ Enhanced drag type detection in main component
    - ✅ Fixed false error messages during song reordering
    - ✅ Improved event delegation and context-aware error messages
@@ -1058,10 +1063,21 @@ tests/
 ### 🧹 Final Cleanup Tasks (After UI Testing)
 
 - Remove development debugging helpers (e.g., `window.__songReactivity`)
-- Clean up console.log statements
+- Clean up console.log statements from audio debugging
 - Optimize bundle size
 - Review and clean up unused imports
 - Standardize error messages and logging
+
+### 🎵 Latest Audio System Improvements (COMPLETED)
+
+- ✅ **Unified Audio Architecture**: Single audio instance across the entire app
+- ✅ **Performance Optimization**: Song metadata loads separately from audio data
+- ✅ **Smart Audio Loading**: Audio data loads on-demand only when needed for playback
+- ✅ **Proper Pause/Resume**: Audio resumes from pause point instead of restarting
+- ✅ **Real-time UI Updates**: Song rows reflect current playing state during auto-advance
+- ✅ **Progress Visualization**: Background fill shows playback progress on current song row
+- ✅ **Playlist Controls**: Header play/pause button with proper state management
+- ✅ **Scrollable Interface**: Songs list scrolls for playlists with many tracks
 
 ### 📊 Current Architecture Status
 

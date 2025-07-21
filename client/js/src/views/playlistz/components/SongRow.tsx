@@ -307,7 +307,9 @@ export function SongRow(props: SongRowProps) {
                 <Show when={isHovered()}>
                   <button
                     onClick={(e) => {
+                      console.log("aaaaa edit click");
                       e.stopPropagation();
+
                       const songData = song();
                       if (songData) {
                         props.onEdit?.(songData);
@@ -337,6 +339,7 @@ export function SongRow(props: SongRowProps) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      console.log("ffff remove!");
                       props.onRemove?.(props.songId);
                     }}
                     class="p-2 text-red-400 hover:text-red-300 transition-colors rounded-lg hover:bg-red-600 hover:bg-opacity-20"
