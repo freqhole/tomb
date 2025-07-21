@@ -34,7 +34,10 @@
   body {
     background-color: black;
     color: white;
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family:
+      system-ui,
+      -apple-system,
+      sans-serif;
     margin: 0;
     padding: 0;
   }
@@ -122,5 +125,88 @@
   }
   100% {
     background-position: 200% 0;
+  }
+}
+
+/* Dynamic background effects */
+.dynamic-background {
+  background-attachment: fixed;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  transition: all 1000ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: background-image, filter;
+}
+
+.dynamic-background::before {
+  content: "";
+  position: absolute;
+  top: -20px;
+  left: -20px;
+  right: -20px;
+  bottom: -20px;
+  filter: blur(12px) saturate(1.2);
+  z-index: -1;
+}
+
+/* Sidebar collapse animations */
+.sidebar-collapse-enter {
+  animation: slideInLeft 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-collapse-exit {
+  animation: slideOutLeft 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutLeft {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+/* Background fade transitions */
+.bg-fade-enter {
+  animation: fadeIn 1000ms ease-out;
+}
+
+.bg-fade-exit {
+  animation: fadeOut 500ms ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    filter: blur(20px) brightness(0.1);
+  }
+  to {
+    opacity: 0.2;
+    filter: blur(8px) brightness(0.3);
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 0.2;
+    filter: blur(8px) brightness(0.3);
+  }
+  to {
+    opacity: 0;
+    filter: blur(20px) brightness(0.1);
   }
 }

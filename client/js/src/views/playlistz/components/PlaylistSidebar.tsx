@@ -11,6 +11,8 @@ interface PlaylistSidebarProps {
   onPlaylistSelect: (playlist: Playlist) => void;
   onCreatePlaylist: () => void;
   isLoading?: boolean;
+  onCollapse?: () => void;
+  collapsed?: boolean;
 }
 
 export function PlaylistSidebar(props: PlaylistSidebarProps) {
@@ -51,8 +53,29 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
       <div class="p-6 border-b border-gray-700">
         <div class="flex items-center justify-between mb-4">
           <h1 class="text-2xl font-bold text-white">playlistz</h1>
-          <div class="text-sm text-magenta-400 font-mono">
-            {props.playlists.length}
+          <div class="flex items-center gap-2">
+            <div class="text-sm text-magenta-400 font-mono">
+              {props.playlists.length}
+            </div>
+            <button
+              onClick={() => props.onCollapse?.()}
+              class="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+              title="Collapse sidebar"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
           </div>
         </div>
 

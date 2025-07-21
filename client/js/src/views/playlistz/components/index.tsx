@@ -47,6 +47,10 @@ export function Playlistz() {
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isInitialized, setIsInitialized] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+  const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<
+    string | null
+  >(null);
 
   const [editingSong, setEditingSong] = createSignal<any | null>(null);
   const [showPlaylistCover, setShowPlaylistCover] = createSignal(false);
@@ -70,9 +74,6 @@ export function Playlistz() {
           updated &&
           JSON.stringify(updated.songIds) !== JSON.stringify(current.songIds)
         ) {
-          console.log(
-            `🔄 Updating selected playlist songs: ${updated.songIds.length} songs`
-          );
           setSelectedPlaylist(updated);
         }
       }
@@ -96,6 +97,75 @@ export function Playlistz() {
       }
     } else {
       setPlaylistSongs([]);
+    }
+  });
+
+  // Cache for background image URLs to avoid recreating them
+  const [imageUrlCache] = createSignal(new Map<string, string>());
+
+  // Update background image based on currently playing song or selected playlist
+  createEffect(() => {
+    const currentSong = audioState.currentSong();
+    const currentPlaylist = audioState.currentPlaylist();
+    const selectedPl = selectedPlaylist();
+    const cache = imageUrlCache();
+
+    let newImageUrl: string | null = null;
+    let cacheKey: string | null = null;
+
+    // Priority 1: Use song's image if available (when playing)
+    if (currentSong?.imageData && currentSong?.imageType) {
+      cacheKey = `song-${currentSong.id}`;
+      if (cache.has(cacheKey)) {
+        newImageUrl = cache.get(cacheKey)!;
+      } else {
+        newImageUrl = createImageUrlFromData(
+          currentSong.imageData,
+          currentSong.imageType
+        );
+        cache.set(cacheKey, newImageUrl);
+      }
+    }
+    // Priority 2: Use current playlist's image if song has no image (when playing)
+    else if (
+      currentSong &&
+      currentPlaylist?.imageData &&
+      currentPlaylist?.imageType
+    ) {
+      cacheKey = `playlist-${currentPlaylist.id}`;
+      if (cache.has(cacheKey)) {
+        newImageUrl = cache.get(cacheKey)!;
+      } else {
+        newImageUrl = createImageUrlFromData(
+          currentPlaylist.imageData,
+          currentPlaylist.imageType
+        );
+        cache.set(cacheKey, newImageUrl);
+      }
+    }
+    // Priority 3: Use selected playlist's image (when not playing but playlist selected)
+    else if (!currentSong && selectedPl?.imageData && selectedPl?.imageType) {
+      cacheKey = `playlist-${selectedPl.id}`;
+      if (cache.has(cacheKey)) {
+        newImageUrl = cache.get(cacheKey)!;
+      } else {
+        newImageUrl = createImageUrlFromData(
+          selectedPl.imageData,
+          selectedPl.imageType
+        );
+        cache.set(cacheKey, newImageUrl);
+      }
+    }
+
+    // Only update if URL actually changed
+    const prevUrl = backgroundImageUrl();
+    if (prevUrl !== newImageUrl) {
+      console.log("🎨 Background image changed:", {
+        from: prevUrl ? "image set" : "none",
+        to: newImageUrl ? "new image" : "none",
+        source: currentSong ? "song" : selectedPl ? "playlist" : "none",
+      });
+      setBackgroundImageUrl(newImageUrl);
     }
   });
 
@@ -125,6 +195,21 @@ export function Playlistz() {
   onCleanup(() => {
     cleanupAudio();
     cleanupTimeUtils();
+
+    // Clean up all cached background image URLs
+    const cache = imageUrlCache();
+    cache.forEach((url) => {
+      if (url.startsWith("blob:")) {
+        URL.revokeObjectURL(url);
+      }
+    });
+    cache.clear();
+
+    // Clean up current background image URL
+    const bgUrl = backgroundImageUrl();
+    if (bgUrl && bgUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(bgUrl);
+    }
   });
 
   // Enhanced drag type detection
@@ -254,9 +339,6 @@ export function Playlistz() {
       );
       if (refreshedPlaylist) {
         setSelectedPlaylist(refreshedPlaylist);
-        console.log(
-          `🔄 Refreshed playlist with ${refreshedPlaylist.songIds.length} songs`
-        );
       }
 
       if (results.some((r) => !r.success)) {
@@ -293,15 +375,12 @@ export function Playlistz() {
   // Handle creating new playlist
   const handleCreatePlaylist = async () => {
     try {
-      console.log("🔨 Creating new playlist...");
       const newPlaylist = await createPlaylist({
         title: "new playlist",
         description: "",
         songIds: [],
       });
-      console.log("✅ Created playlist:", newPlaylist);
       setSelectedPlaylist(newPlaylist);
-      console.log("🎯 Set selected playlist to:", newPlaylist);
     } catch (err) {
       console.error("❌ Error creating playlist:", err);
       setError(
@@ -325,7 +404,6 @@ export function Playlistz() {
     saveTimeout = window.setTimeout(async () => {
       try {
         await updatePlaylist(current.id, updates);
-        console.log("💾 Saved playlist changes");
       } catch (err) {
         console.error("❌ Failed to save playlist:", err);
         setError("failed to save changes");
@@ -340,18 +418,13 @@ export function Playlistz() {
       const currentSong = audioState.currentSong();
       if (currentSong?.id === song.id) {
         // If it's the same song, just toggle playback (resume/pause)
-        console.log(`🎵 Resuming song: ${song.title}`);
         togglePlayback();
       } else {
         // Different song, load and play it
         const currentPlaylist = selectedPlaylist();
         if (currentPlaylist) {
-          console.log(
-            `🎵 Playing song: ${song.title} from playlist: ${currentPlaylist.title}`
-          );
           await playSong(song, currentPlaylist);
         } else {
-          console.log(`🎵 Playing single song: ${song.title}`);
           await playSong(song);
         }
       }
@@ -363,13 +436,10 @@ export function Playlistz() {
 
   const handleRemoveSong = async (songId: string) => {
     const playlist = selectedPlaylist();
-    console.log("ffff handleRemoveSong!");
     if (!playlist) return;
 
     try {
-      console.log("ffff handleRemoveSong gonna try!");
       await removeSongFromPlaylist(playlist.id, songId);
-      console.log(`🗑️ Removed song ${songId} from playlist`);
     } catch (err) {
       console.error("❌ Error removing song:", err);
       setError("failed to remove song");
@@ -395,7 +465,6 @@ export function Playlistz() {
           playlist.songIds.includes(song.id)
         );
         setPlaylistSongs(songs);
-        console.log("🔄 Refreshed songs after edit");
       } catch (err) {
         console.error("Error refreshing songs:", err);
       }
@@ -412,7 +481,6 @@ export function Playlistz() {
 
     try {
       await reorderSongs(playlist.id, fromIndex, toIndex);
-      console.log(`🔄 Reordered songs: ${fromIndex} → ${toIndex}`);
 
       // Refresh playlist to show new order
       const updatedPlaylists = await getAllPlaylists();
@@ -435,15 +503,32 @@ export function Playlistz() {
 
   return (
     <div class="relative h-screen bg-black text-white overflow-hidden">
-      {/* Background pattern */}
-      <div
-        class="absolute inset-0 opacity-5"
-        style={{
-          "background-image":
-            "radial-gradient(circle at 25% 25%, #ff00ff 2px, transparent 2px)",
-          "background-size": "50px 50px",
-        }}
-      />
+      {/* Dynamic background image */}
+      <Show when={backgroundImageUrl()}>
+        <div
+          class="absolute inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-1000 ease-out"
+          style={{
+            "background-image": `url(${backgroundImageUrl()})`,
+            opacity: "0.6",
+            filter: "blur(6px) brightness(0.7)",
+            "z-index": "0",
+          }}
+        />
+        <div class="absolute inset-0 bg-black/20" style={{ "z-index": "1" }} />
+      </Show>
+
+      {/* Background pattern (when no song playing) */}
+      <Show when={!backgroundImageUrl()}>
+        <div
+          class="absolute inset-0 opacity-5"
+          style={{
+            "background-image":
+              "radial-gradient(circle at 25% 25%, #ff00ff 2px, transparent 2px)",
+            "background-size": "50px 50px",
+            "z-index": "0",
+          }}
+        />
+      </Show>
 
       {/* Loading state or main content */}
       <Show
@@ -461,15 +546,29 @@ export function Playlistz() {
         }
       >
         {/* Main content with sidebar layout */}
-        <div class="relative flex h-full">
+        <div class="relative flex h-full" style={{ "z-index": "2" }}>
           {/* Left Sidebar */}
-          <PlaylistSidebar
-            playlists={playlists()}
-            selectedPlaylist={selectedPlaylist()}
-            onPlaylistSelect={(playlist) => setSelectedPlaylist(playlist)}
-            onCreatePlaylist={handleCreatePlaylist}
-            isLoading={false}
-          />
+          <div
+            class={`transition-all duration-300 ease-out overflow-hidden ${
+              sidebarCollapsed() ? "w-0 opacity-0" : "w-80 opacity-100"
+            }`}
+          >
+            <div
+              class={`w-80 h-full transform transition-transform duration-300 ease-out ${
+                sidebarCollapsed() ? "-translate-x-full" : "translate-x-0"
+              }`}
+            >
+              <PlaylistSidebar
+                playlists={playlists()}
+                selectedPlaylist={selectedPlaylist()}
+                onPlaylistSelect={(playlist) => setSelectedPlaylist(playlist)}
+                onCreatePlaylist={handleCreatePlaylist}
+                isLoading={false}
+                onCollapse={() => setSidebarCollapsed(true)}
+                collapsed={sidebarCollapsed()}
+              />
+            </div>
+          </div>
 
           {/* Main Content Area */}
           <div class="flex-1 flex flex-col h-full">
@@ -498,6 +597,28 @@ export function Playlistz() {
                   {/* Playlist Header */}
                   <div class="flex items-center justify-between mb-6 border-b border-gray-700 pb-6">
                     <div class="flex items-center gap-4">
+                      {/* Sidebar Toggle Button (when collapsed) */}
+                      <Show when={sidebarCollapsed()}>
+                        <button
+                          onClick={() => setSidebarCollapsed(false)}
+                          class="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                          title="Show playlist sidebar"
+                        >
+                          <svg
+                            class="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M9 5l7 7-7 7"
+                            />
+                          </svg>
+                        </button>
+                      </Show>
                       {/* Playlist Cover */}
                       <button
                         onClick={() => setShowPlaylistCover(true)}
