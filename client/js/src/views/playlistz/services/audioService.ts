@@ -393,6 +393,7 @@ export function getAudioState(): AudioState {
     queue: playlistQueue(),
     repeatMode: repeatMode(),
     isShuffled: isShuffled(),
+    isLoading: isLoading(),
   };
 }
 
