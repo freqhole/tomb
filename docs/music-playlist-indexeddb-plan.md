@@ -1032,18 +1032,20 @@ tests/
 
 ### 🎯 Implementation Priorities for Next Session
 
-1. **Priority 1: Fix Song Row Reactivity**
-   - Debug why edited songs don't immediately update in UI
-   - Implement proper signal propagation from edit modal to song rows
+1. **✅ Priority 1: Fix Song Row Reactivity** (COMPLETED)
+   - ✅ Implemented global song update signal system
+   - ✅ Added reactivity triggers to all song modification operations
+   - ✅ Updated SongRow component to respond to global updates
 
 2. **Priority 2: Playlist Audio Queue**
    - Implement auto-advance to next song
    - Add playlist queue management
    - Previous/next song controls
 
-3. **Priority 3: Fix Drag & Drop Error Handling**
-   - Separate drag events for files vs song reordering
-   - Prevent false error messages during song sorting
+3. **Priority 3: Fix Drag & Drop Error Handling** (COMPLETED)
+   - ✅ Enhanced drag type detection in main component
+   - ✅ Fixed false error messages during song reordering
+   - ✅ Improved event delegation and context-aware error messages
 
 4. **Priority 4: Dynamic Background System**
    - Implement playlist/song image backgrounds
@@ -1052,6 +1054,14 @@ tests/
 5. **Priority 5: Collapsible Sidebar**
    - Add toggle functionality to playlist navigation
    - Implement state persistence
+
+### 🧹 Final Cleanup Tasks (After UI Testing)
+
+- Remove development debugging helpers (e.g., `window.__songReactivity`)
+- Clean up console.log statements
+- Optimize bundle size
+- Review and clean up unused imports
+- Standardize error messages and logging
 
 ### 📊 Current Architecture Status
 

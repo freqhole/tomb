@@ -3,6 +3,7 @@
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type { Playlist, Song } from "../types/playlist.js";
+import { triggerSongUpdateWithOptions } from "./songReactivity.js";
 
 // Simple signal implementation (matching the demo pattern)
 interface Signal<T> {
@@ -360,6 +361,14 @@ export async function addSongToPlaylist(
   });
 
   console.log("📝 Playlist updated with new song");
+
+  // Trigger reactivity for UI updates
+  triggerSongUpdateWithOptions({
+    songId: song.id,
+    type: "create",
+    metadata: { playlistId, title: song.title },
+  });
+
   return song;
 }
 
@@ -376,6 +385,13 @@ export async function updateSong(
       ...updates,
       updatedAt: Date.now(),
     }),
+  });
+
+  // Trigger reactivity for UI updates
+  triggerSongUpdateWithOptions({
+    songId: id,
+    type: "edit",
+    metadata: { fields: Object.keys(updates) },
   });
 }
 
@@ -565,4 +581,11 @@ export async function removeSongFromPlaylist(
   bc.close();
 
   console.log(`🗑️ Removed song ${songId} from playlist ${playlistId}`);
+
+  // Trigger reactivity for UI updates
+  triggerSongUpdateWithOptions({
+    songId,
+    type: "delete",
+    metadata: { playlistId },
+  });
 }

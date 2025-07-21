@@ -31,6 +31,10 @@ export interface AudioState {
   duration: number;
   volume: number;
   currentIndex: number;
+  queue: Song[];
+  repeatMode: "none" | "one" | "all";
+  isShuffled: boolean;
+  isLoading: boolean;
 }
 
 export interface PlaylistStats {

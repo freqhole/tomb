@@ -2,6 +2,7 @@
 import { createSignal, createResource, Show } from "solid-js";
 import { getSongById } from "../services/indexedDBService.js";
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
+import { songUpdateTrigger } from "../services/songReactivity.js";
 import type { Song } from "../types/playlist.js";
 
 interface SongRowProps {
@@ -21,11 +22,12 @@ export function SongRow(props: SongRowProps) {
   const [isDragging, setIsDragging] = createSignal(false);
   const [draggedOver, setDraggedOver] = createSignal(false);
 
-  // Fetch song data
+  // Fetch song data with reactivity to global song updates
   const [song] = createResource(
-    () => props.songId,
-    async (songId) => {
+    () => [props.songId, songUpdateTrigger()] as const,
+    async ([songId, _trigger]) => {
       try {
+        console.log(`🔄 Fetching song ${songId} (trigger: ${_trigger})`);
         const fetchedSong = await getSongById(songId);
         if (!fetchedSong) {
           console.warn(`⚠️ Song not found: ${songId}`);
@@ -70,11 +72,13 @@ export function SongRow(props: SongRowProps) {
 
   const handleDragOver = (e: DragEvent) => {
     e.preventDefault();
+    e.stopPropagation(); // Prevent global handler from firing
     e.dataTransfer!.dropEffect = "move";
     setDraggedOver(true);
   };
 
   const handleDragLeave = (e: DragEvent) => {
+    e.stopPropagation(); // Prevent global handler from firing
     if (e.currentTarget === e.target) {
       setDraggedOver(false);
     }
@@ -82,6 +86,7 @@ export function SongRow(props: SongRowProps) {
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
+    e.stopPropagation(); // Prevent global handler from firing
     setDraggedOver(false);
 
     const fromIndex = parseInt(e.dataTransfer!.getData("text/plain"), 10);

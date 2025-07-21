@@ -5,6 +5,10 @@ import {
   togglePlayback,
   seek,
   formatTime,
+  playNext,
+  playPrevious,
+  getQueueInfo,
+  toggleRepeatMode,
 } from "../services/audioService.js";
 
 export function AudioPlayer() {
@@ -73,7 +77,9 @@ export function AudioPlayer() {
         <div class="flex items-center space-x-4 mx-8">
           {/* Previous */}
           <button
-            class="text-gray-400 hover:text-white transition-colors"
+            onClick={playPrevious}
+            disabled={!getQueueInfo().hasPrevious}
+            class="text-gray-400 hover:text-white disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
             title="Previous track"
           >
             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -114,13 +120,66 @@ export function AudioPlayer() {
 
           {/* Next */}
           <button
-            class="text-gray-400 hover:text-white transition-colors"
+            onClick={playNext}
+            disabled={!getQueueInfo().hasNext}
+            class="text-gray-400 hover:text-white disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
             title="Next track"
           >
             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
               <path d="M4.555 5.168A1 1 0 003 6v8a1 1 0 001.555.832L10 11.202V14a1 1 0 001.555.832l6-4a1 1 0 000-1.664l-6-4A1 1 0 0010 6v2.798L4.555 5.168z" />
             </svg>
           </button>
+        </div>
+
+        {/* Additional controls */}
+        <div class="flex items-center space-x-2 mx-4">
+          {/* Repeat mode */}
+          <button
+            onClick={toggleRepeatMode}
+            class="text-gray-400 hover:text-white transition-colors"
+            title={`Repeat: ${audioState.repeatMode()}`}
+          >
+            <Show
+              when={audioState.repeatMode() === "none"}
+              fallback={
+                <Show
+                  when={audioState.repeatMode() === "one"}
+                  fallback={
+                    <svg
+                      class="w-4 h-4"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" />
+                    </svg>
+                  }
+                >
+                  <div class="relative">
+                    <svg
+                      class="w-4 h-4"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" />
+                    </svg>
+                    <span class="absolute -bottom-1 -right-1 text-xs">1</span>
+                  </div>
+                </Show>
+              }
+            >
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" />
+              </svg>
+            </Show>
+          </button>
+
+          {/* Queue indicator */}
+          <Show when={audioState.playlistQueue().length > 0}>
+            <div class="text-xs text-gray-400">
+              {audioState.currentIndex() + 1}/
+              {audioState.playlistQueue().length}
+            </div>
+          </Show>
         </div>
 
         {/* Progress and time */}

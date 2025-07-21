@@ -6,6 +6,7 @@ export default defineConfig({
     environment: "node", // Default environment for existing tests
     include: [
       "tests/**/*.test.ts",
+      "tests/**/*.test.tsx",
       "tests/**/*.spec.ts",
       "src/**/*.test.ts",
       "src/**/*.test.tsx",
@@ -13,9 +14,9 @@ export default defineConfig({
     // Per-file environment configuration
     environmentMatchGlobs: [
       // Component tests need jsdom for DOM testing
+      ["tests/components/**/*.test.{ts,tsx}", "jsdom"],
       ["src/views/playlistz/**/*.component.test.{ts,tsx}", "jsdom"],
       ["src/views/playlistz/**/*.dom.test.{ts,tsx}", "jsdom"],
-      ["src/views/playlistz/**/*integration.test.{ts,tsx}", "jsdom"],
       ["src/views/playlistz/**/ui-*.test.{ts,tsx}", "jsdom"],
     ],
     coverage: {

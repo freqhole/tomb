@@ -14,7 +14,7 @@ import {
   updatePlaylist,
   getAllPlaylists,
 } from "../services/indexedDBService.js";
-import { cleanup as cleanupAudio } from "../services/audioService.js";
+import { cleanup as cleanupAudio, playSong } from "../services/audioService.js";
 import {
   filterAudioFiles,
   processAudioFiles,
@@ -44,9 +44,6 @@ export function Playlistz() {
   const [currentPlayingSong, setCurrentPlayingSong] = createSignal<
     string | null
   >(null);
-  const [audioElement, setAudioElement] = createSignal<HTMLAudioElement | null>(
-    null
-  );
   const [editingSong, setEditingSong] = createSignal<any | null>(null);
   const [showPlaylistCover, setShowPlaylistCover] = createSignal(false);
   const [playlistSongs, setPlaylistSongs] = createSignal<any[]>([]);
@@ -126,19 +123,43 @@ export function Playlistz() {
     cleanupTimeUtils();
   });
 
+  // Enhanced drag type detection
+  const detectDragType = (dataTransfer: DataTransfer | null) => {
+    if (!dataTransfer) return { type: "unknown", hasAudio: false };
+
+    const items = Array.from(dataTransfer.items || []);
+    const files = Array.from(dataTransfer.files || []);
+
+    // Priority 1: Check for song reordering (text/plain data indicates internal drag)
+    const hasTextData = items.some((item) => item.type === "text/plain");
+    if (hasTextData) {
+      return { type: "song-reorder", hasAudio: false };
+    }
+
+    // Priority 2: Check for audio files
+    const audioFiles = files.filter((file) => file.type.startsWith("audio/"));
+    if (audioFiles.length > 0) {
+      return { type: "audio-files", hasAudio: true };
+    }
+
+    // Priority 3: Check for other files
+    if (files.length > 0) {
+      return { type: "non-audio-files", hasAudio: false };
+    }
+
+    return { type: "unknown", hasAudio: false };
+  };
+
   // Global drag and drop handlers
   const handleDragEnter = (e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    const items = e.dataTransfer?.items;
-    if (items) {
-      const hasAudioFiles = Array.from(items).some(
-        (item) => item.kind === "file" && item.type.startsWith("audio/")
-      );
-      if (hasAudioFiles) {
-        setIsDragOver(true);
-      }
+    const dragInfo = detectDragType(e.dataTransfer);
+
+    // Only show drag overlay for actual file drops, not song reordering
+    if (dragInfo.type === "audio-files") {
+      setIsDragOver(true);
     }
   };
 
@@ -162,12 +183,27 @@ export function Playlistz() {
     e.stopPropagation();
     setIsDragOver(false);
 
+    const dragInfo = detectDragType(e.dataTransfer);
+
+    // Only handle file drops, ignore song reordering
+    if (dragInfo.type === "song-reorder") {
+      console.log("🎵 Song reordering detected, ignoring in global handler");
+      return;
+    }
+
     const files = e.dataTransfer?.files;
     if (!files) return;
 
     const audioFiles = filterAudioFiles(files);
     if (audioFiles.length === 0) {
-      setError("no audio files found in the dropped items");
+      // Provide contextual error messages
+      if (dragInfo.type === "non-audio-files") {
+        setError(
+          "Only audio files can be added to playlists. Supported formats: MP3, WAV, M4A, FLAC, OGG"
+        );
+      } else {
+        setError("No audio files found in the dropped items");
+      }
       setTimeout(() => setError(null), 3000);
       return;
     }
@@ -295,38 +331,17 @@ export function Playlistz() {
   // Audio player functions
   const handlePlaySong = async (song: any) => {
     try {
-      const audio = audioElement() || new Audio();
-      if (!audioElement()) {
-        setAudioElement(audio);
-      }
-
-      // Stop current song if playing
-      if (currentPlayingSong()) {
-        audio.pause();
-      }
-
-      // Set new source and play - try blobUrl first, then create from file
-      let audioSrc = song.blobUrl;
-      if (!audioSrc && song.file) {
-        audioSrc = URL.createObjectURL(song.file);
-        console.log(`🔗 Created new blob URL for ${song.title}`);
-      }
-
-      if (audioSrc) {
-        audio.src = audioSrc;
-        audio.currentTime = 0;
-        await audio.play();
-        setCurrentPlayingSong(song.id);
+      const currentPlaylist = selectedPlaylist();
+      if (currentPlaylist) {
         console.log(
-          `🎵 Playing: ${song.title} from ${audioSrc.substring(0, 50)}...`
+          `🎵 Playing song: ${song.title} from playlist: ${currentPlaylist.title}`
         );
+        await playSong(song, currentPlaylist);
+        setCurrentPlayingSong(song.id);
       } else {
-        setError("unable to play song - no audio file available");
-        console.error("❌ No audio source available:", {
-          song: song.title,
-          hasBlobUrl: !!song.blobUrl,
-          hasFile: !!song.file,
-        });
+        console.log(`🎵 Playing single song: ${song.title}`);
+        await playSong(song);
+        setCurrentPlayingSong(song.id);
       }
     } catch (err) {
       console.error("❌ Error playing song:", err);
@@ -400,12 +415,9 @@ export function Playlistz() {
   };
 
   const handlePauseSong = () => {
-    const audio = audioElement();
-    if (audio) {
-      audio.pause();
-      setCurrentPlayingSong(null);
-      console.log("⏸️ Paused playback");
-    }
+    // Using new audio service - functionality handled by AudioPlayer component
+    setCurrentPlayingSong(null);
+    console.log("⏸️ Paused playback");
   };
 
   return (
