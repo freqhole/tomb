@@ -1,12 +1,10 @@
 #!/usr/bin/env node
-import { build } from 'vite';
-import solid from 'vite-plugin-solid';
-import tailwindcss from '@tailwindcss/vite';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+/* global console, process */
+import { build } from "vite";
+import solid from "vite-plugin-solid";
+import tailwindcss from "@tailwindcss/vite";
+import fs from "fs";
+import path from "path";
 
 // Component-specific attributes configuration
 const COMPONENT_ATTRIBUTES = {
@@ -97,7 +95,9 @@ function getElementNameFromFile(componentName) {
       .toLowerCase()
       .replace(/^-/, "");
   } catch (error) {
-    console.warn(`⚠️ Could not read ${componentName}.tsx, using fallback name`);
+    console.warn(
+      `⚠️ Could not read ${componentName}.tsx, using fallback name. error: ${error}`
+    );
     return componentName
       .replace(/([A-Z])/g, "-$1")
       .toLowerCase()
@@ -168,8 +168,7 @@ async function buildAllComponents() {
             name: "generate-standalone-html",
             generateBundle(_, bundle) {
               const jsChunk = Object.values(bundle).find(
-                (file) =>
-                  file.type === "chunk" && typeof file.code === "string"
+                (file) => file.type === "chunk" && typeof file.code === "string"
               );
 
               const cssAsset = Object.values(bundle).find(
@@ -182,7 +181,11 @@ async function buildAllComponents() {
               if (jsChunk) {
                 const elementName = getElementNameFromFile(component);
                 const cssCode = cssAsset ? cssAsset.source : undefined;
-                const html = generateHtmlTemplate(elementName, jsChunk.code, cssCode);
+                const html = generateHtmlTemplate(
+                  elementName,
+                  jsChunk.code,
+                  cssCode
+                );
 
                 this.emitFile({
                   type: "asset",
