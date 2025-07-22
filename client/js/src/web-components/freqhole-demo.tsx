@@ -1,5 +1,6 @@
 import { render } from "solid-js/web";
 import Freqhole from "../views/freqhole/index";
+import "../views/freqhole/styles.css";
 
 class FreqholeDemoElement extends HTMLElement {
   private dispose?: () => void;

@@ -338,20 +338,54 @@ function generateStandaloneFiles(): import("vite").Plugin {
           continue;
         }
 
-        // Find corresponding CSS file for this chunk
-        const cssFileName = Object.keys(bundle).find(
-          (fileName) =>
-            fileName.startsWith(chunk.fileName.replace(".js", "")) &&
-            fileName.endsWith(".css")
-        );
-        const cssFile = cssFileName ? bundle[cssFileName] : null;
-        const cssCode =
-          cssFile && cssFile.type === "asset"
-            ? (cssFile.source as string)
-            : undefined;
+        // Find CSS files for this component using multiple strategies
+        const baseFileName = chunk.fileName.replace(".js", "");
+        const cssFiles = Object.keys(bundle).filter((fileName) => {
+          if (!fileName.endsWith(".css")) return false;
+
+          // Strategy 1: Exact match (freqhole-demo.css for freqhole-demo.js)
+          if (fileName === `${baseFileName}.css`) return true;
+
+          // Strategy 2: Starts with component name (freqhole-demo-something.css)
+          if (
+            fileName.startsWith(`${baseFileName}-`) ||
+            fileName.startsWith(`${baseFileName}.`)
+          )
+            return true;
+
+          // Strategy 3: Common style files that should be included
+          if (
+            fileName.includes("index.css") ||
+            fileName.includes("main.css") ||
+            fileName.includes("styles.css")
+          )
+            return true;
+
+          return false;
+        });
+
+        // Combine relevant CSS content
+        let cssCode = "";
+        cssFiles.forEach((cssFileName) => {
+          const cssFile = bundle[cssFileName];
+          if (cssFile && cssFile.type === "asset") {
+            cssCode += `/* From ${cssFileName} */\n`;
+            cssCode += cssFile.source as string;
+            cssCode += "\n\n";
+          }
+        });
+
+        // Use undefined if no CSS found to maintain original behavior
+        const finalCssCode = cssCode.trim() || undefined;
 
         // Generate standalone HTML
-        const html = generateHtmlTemplate(template, chunk.code, cssCode);
+        const html = generateHtmlTemplate(template, chunk.code, finalCssCode);
+
+        // Debug logging for CSS detection
+        console.log(`🎨 CSS detection for ${template.name}:`, {
+          cssFiles: cssFiles.length > 0 ? cssFiles : "No CSS files found",
+          hasCssCode: !!finalCssCode,
+        });
         this.emitFile({
           type: "asset",
           fileName: `${template.name}-standalone.html`,
