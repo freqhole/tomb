@@ -1,0 +1,1377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>zune-demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: black;
+      color: white;
+    }
+    
+  </style>
+</head>
+<body>
+  <zune-demo api-base-url="http://localhost:8080" auto-connect="true"></zune-demo>
+  <script type="module">
+const Ar=(n,e)=>n===e,Er=Symbol("solid-track"),dn={equals:Ar};let Ls=Bs;const ht=1,hn=2,Ds={owned:null,cleanups:null,context:null,owner:null};var ce=null;let In=null,Pr=null,_e=null,Te=null,tt=null,kn=0;function un(n,e){const t=_e,s=ce,r=n.length===0,a=e===void 0?s:e,o=r?Ds:{owned:null,cleanups:null,context:a?a.context:null,owner:a},i=r?n:()=>n(()=>nt(()=>Wt(o)));ce=o,_e=null;try{return Yt(i,!0)}finally{_e=t,ce=s}}function k(n,e){e=e?Object.assign({},dn,e):dn;const t={value:n,observers:null,observerSlots:null,comparator:e.equals||void 0},s=r=>(typeof r=="function"&&(r=r(t.value)),Vs(t,r));return[Us.bind(t),s]}function de(n,e,t){const s=Kn(n,e,!1,ht);Jt(s)}function Qt(n,e,t){Ls=Mr;const s=Kn(n,e,!1,ht);s.user=!0,tt?tt.push(s):Jt(s)}function ae(n,e,t){t=t?Object.assign({},dn,t):dn;const s=Kn(n,e,!0,0);return s.observers=null,s.observerSlots=null,s.comparator=t.equals||void 0,Jt(s),Us.bind(s)}function nt(n){if(_e===null)return n();const e=_e;_e=null;try{return n()}finally{_e=e}}function Zs(n){Qt(()=>nt(n))}function Fs(n){return ce===null||(ce.cleanups===null?ce.cleanups=[n]:ce.cleanups.push(n)),n}function Or(n,e){const t=Symbol("context");return{id:t,Provider:Dr(t),defaultValue:n}}function Ir(n){let e;return ce&&ce.context&&(e=ce.context[n.id])!==void 0?e:n.defaultValue}function qr(n){const e=ae(n),t=ae(()=>Un(e()));return t.toArray=()=>{const s=t();return Array.isArray(s)?s:s!=null?[s]:[]},t}function Us(){if(this.sources&&this.state)if(this.state===ht)Jt(this);else{const n=Te;Te=null,Yt(()=>gn(this),!1),Te=n}if(_e){const n=this.observers?this.observers.length:0;_e.sources?(_e.sources.push(this),_e.sourceSlots.push(n)):(_e.sources=[this],_e.sourceSlots=[n]),this.observers?(this.observers.push(_e),this.observerSlots.push(_e.sources.length-1)):(this.observers=[_e],this.observerSlots=[_e.sources.length-1])}return this.value}function Vs(n,e,t){let s=n.value;return(!n.comparator||!n.comparator(s,e))&&(n.value=e,n.observers&&n.observers.length&&Yt(()=>{for(let r=0;r<n.observers.length;r+=1){const a=n.observers[r],o=In&&In.running;o&&In.disposed.has(a),(o?!a.tState:!a.state)&&(a.pure?Te.push(a):tt.push(a),a.observers&&Hs(a)),o||(a.state=ht)}if(Te.length>1e6)throw Te=[],new Error},!1)),e}function Jt(n){if(!n.fn)return;Wt(n);const e=kn;Nr(n,n.value,e)}function Nr(n,e,t){let s;const r=ce,a=_e;_e=ce=n;try{s=n.fn(e)}catch(o){return n.pure&&(n.state=ht,n.owned&&n.owned.forEach(Wt),n.owned=null),n.updatedAt=t+1,Qs(o)}finally{_e=a,ce=r}(!n.updatedAt||n.updatedAt<=t)&&(n.updatedAt!=null&&"observers"in n?Vs(n,s):n.value=s,n.updatedAt=t)}function Kn(n,e,t,s=ht,r){const a={fn:n,state:s,updatedAt:null,owned:null,sources:null,sourceSlots:null,cleanups:null,value:e,owner:ce,context:ce?ce.context:null,pure:t};return ce===null||ce!==Ds&&(ce.owned?ce.owned.push(a):ce.owned=[a]),a}function fn(n){if(n.state===0)return;if(n.state===hn)return gn(n);if(n.suspense&&nt(n.suspense.inFallback))return n.suspense.effects.push(n);const e=[n];for(;(n=n.owner)&&(!n.updatedAt||n.updatedAt<kn);)n.state&&e.push(n);for(let t=e.length-1;t>=0;t--)if(n=e[t],n.state===ht)Jt(n);else if(n.state===hn){const s=Te;Te=null,Yt(()=>gn(n,e[0]),!1),Te=s}}function Yt(n,e){if(Te)return n();let t=!1;e||(Te=[]),tt?t=!0:tt=[],kn++;try{const s=n();return jr(t),s}catch(s){t||(tt=null),Te=null,Qs(s)}}function jr(n){if(Te&&(Bs(Te),Te=null),n)return;const e=tt;tt=null,e.length&&Yt(()=>Ls(e),!1)}function Bs(n){for(let e=0;e<n.length;e++)fn(n[e])}function Mr(n){let e,t=0;for(e=0;e<n.length;e++){const s=n[e];s.user?n[t++]=s:fn(s)}for(e=0;e<t;e++)fn(n[e])}function gn(n,e){n.state=0;for(let t=0;t<n.sources.length;t+=1){const s=n.sources[t];if(s.sources){const r=s.state;r===ht?s!==e&&(!s.updatedAt||s.updatedAt<kn)&&fn(s):r===hn&&gn(s,e)}}}function Hs(n){for(let e=0;e<n.observers.length;e+=1){const t=n.observers[e];t.state||(t.state=hn,t.pure?Te.push(t):tt.push(t),t.observers&&Hs(t))}}function Wt(n){let e;if(n.sources)for(;n.sources.length;){const t=n.sources.pop(),s=n.sourceSlots.pop(),r=t.observers;if(r&&r.length){const a=r.pop(),o=t.observerSlots.pop();s<r.length&&(a.sourceSlots[o]=s,r[s]=a,t.observerSlots[s]=o)}}if(n.tOwned){for(e=n.tOwned.length-1;e>=0;e--)Wt(n.tOwned[e]);delete n.tOwned}if(n.owned){for(e=n.owned.length-1;e>=0;e--)Wt(n.owned[e]);n.owned=null}if(n.cleanups){for(e=n.cleanups.length-1;e>=0;e--)n.cleanups[e]();n.cleanups=null}n.state=0}function Lr(n){return n instanceof Error?n:new Error(typeof n=="string"?n:"Unknown error",{cause:n})}function Qs(n,e=ce){throw Lr(n)}function Un(n){if(typeof n=="function"&&!n.length)return Un(n());if(Array.isArray(n)){const e=[];for(let t=0;t<n.length;t++){const s=Un(n[t]);Array.isArray(s)?e.push.apply(e,s):e.push(s)}return e}return n}function Dr(n,e){return function(s){let r;return de(()=>r=nt(()=>(ce.context={...ce.context,[n]:s.value},qr(()=>s.children))),void 0),r}}const Zr=Symbol("fallback");function _s(n){for(let e=0;e<n.length;e++)n[e]()}function Fr(n,e,t={}){let s=[],r=[],a=[],o=0,i=e.length>1?[]:null;return Fs(()=>_s(a)),()=>{let c=n()||[],d=c.length,g,f;return c[Er],nt(()=>{let q,E,z,Q,B,S,N,W,xe;if(d===0)o!==0&&(_s(a),a=[],s=[],r=[],o=0,i&&(i=[])),t.fallback&&(s=[Zr],r[0]=un(he=>(a[0]=he,t.fallback())),o=1);else if(o===0){for(r=new Array(d),f=0;f<d;f++)s[f]=c[f],r[f]=un(A);o=d}else{for(z=new Array(d),Q=new Array(d),i&&(B=new Array(d)),S=0,N=Math.min(o,d);S<N&&s[S]===c[S];S++);for(N=o-1,W=d-1;N>=S&&W>=S&&s[N]===c[W];N--,W--)z[W]=r[N],Q[W]=a[N],i&&(B[W]=i[N]);for(q=new Map,E=new Array(W+1),f=W;f>=S;f--)xe=c[f],g=q.get(xe),E[f]=g===void 0?-1:g,q.set(xe,f);for(g=S;g<=N;g++)xe=s[g],f=q.get(xe),f!==void 0&&f!==-1?(z[f]=r[g],Q[f]=a[g],i&&(B[f]=i[g]),f=E[f],q.set(xe,f)):a[g]();for(f=S;f<d;f++)f in z?(r[f]=z[f],a[f]=Q[f],i&&(i[f]=B[f],i[f](f))):r[f]=un(A);r=r.slice(0,o=d),s=c.slice(0)}return r});function A(q){if(a[f]=q,i){const[E,z]=k(f);return i[f]=z,e(c[f],E)}return e(c[f])}}}function b(n,e){return nt(()=>n(e||{}))}const Ur=n=>`Stale read from <${n}>.`;function De(n){const e="fallback"in n&&{fallback:()=>n.fallback};return ae(Fr(()=>n.each,n.children,e||void 0))}function D(n){const e=n.keyed,t=ae(()=>n.when,void 0,void 0),s=e?t:ae(t,void 0,{equals:(r,a)=>!r==!a});return ae(()=>{const r=s();if(r){const a=n.children;return typeof a=="function"&&a.length>0?nt(()=>a(e?r:()=>{if(!nt(s))throw Ur("Show");return t()})):a}return n.fallback},void 0,void 0)}const ye=n=>ae(()=>n());function Vr(n,e,t){let s=t.length,r=e.length,a=s,o=0,i=0,c=e[r-1].nextSibling,d=null;for(;o<r||i<a;){if(e[o]===t[i]){o++,i++;continue}for(;e[r-1]===t[a-1];)r--,a--;if(r===o){const g=a<s?i?t[i-1].nextSibling:t[a-i]:c;for(;i<a;)n.insertBefore(t[i++],g)}else if(a===i)for(;o<r;)(!d||!d.has(e[o]))&&e[o].remove(),o++;else if(e[o]===t[a-1]&&t[i]===e[r-1]){const g=e[--r].nextSibling;n.insertBefore(t[i++],e[o++].nextSibling),n.insertBefore(t[--a],g),e[r]=t[a]}else{if(!d){d=new Map;let f=i;for(;f<a;)d.set(t[f],f++)}const g=d.get(e[o]);if(g!=null)if(i<g&&g<a){let f=o,A=1,q;for(;++f<r&&f<a&&!((q=d.get(e[f]))==null||q!==g+A);)A++;if(A>g-i){const E=e[o];for(;i<g;)n.insertBefore(t[i++],E)}else n.replaceChild(t[i++],e[o++])}else o++;else e[o++].remove()}}}const vs="_$DX_DELEGATE";function Br(n,e,t,s={}){let r;return un(a=>{r=a,e===document?n():h(e,n(),e.firstChild?null:void 0,t)},s.owner),()=>{r(),e.textContent=""}}function R(n,e,t,s){let r;const a=()=>{const i=document.createElement("template");return i.innerHTML=n,i.content.firstChild},o=()=>(r||(r=a())).cloneNode(!0);return o.cloneNode=o,o}function Ws(n,e=window.document){const t=e[vs]||(e[vs]=new Set);for(let s=0,r=n.length;s<r;s++){const a=n[s];t.has(a)||(t.add(a),e.addEventListener(a,Qr))}}function Ut(n,e,t){t==null?n.removeAttribute(e):n.setAttribute(e,t)}function Fe(n,e){e==null?n.removeAttribute("class"):n.className=e}function Hr(n,e,t){return nt(()=>n(e,t))}function h(n,e,t,s){if(t!==void 0&&!s&&(s=[]),typeof e!="function")return mn(n,e,s,t);de(r=>mn(n,e(),r,t),s)}function Qr(n){let e=n.target;const t=`$$${n.type}`,s=n.target,r=n.currentTarget,a=c=>Object.defineProperty(n,"target",{configurable:!0,value:c}),o=()=>{const c=e[t];if(c&&!e.disabled){const d=e[`${t}Data`];if(d!==void 0?c.call(e,d,n):c.call(e,n),n.cancelBubble)return}return e.host&&typeof e.host!="string"&&!e.host._$host&&e.contains(n.target)&&a(e.host),!0},i=()=>{for(;o()&&(e=e._$host||e.parentNode||e.host););};if(Object.defineProperty(n,"currentTarget",{configurable:!0,get(){return e||document}}),n.composedPath){const c=n.composedPath();a(c[0]);for(let d=0;d<c.length-2&&(e=c[d],!!o());d++){if(e._$host){e=e._$host,i();break}if(e.parentNode===r)break}}else i();a(s)}function mn(n,e,t,s,r){for(;typeof t=="function";)t=t();if(e===t)return t;const a=typeof e,o=s!==void 0;if(n=o&&t[0]&&t[0].parentNode||n,a==="string"||a==="number"){if(a==="number"&&(e=e.toString(),e===t))return t;if(o){let i=t[0];i&&i.nodeType===3?i.data!==e&&(i.data=e):i=document.createTextNode(e),t=At(n,t,s,i)}else t!==""&&typeof t=="string"?t=n.firstChild.data=e:t=n.textContent=e}else if(e==null||a==="boolean")t=At(n,t,s);else{if(a==="function")return de(()=>{let i=e();for(;typeof i=="function";)i=i();t=mn(n,i,t,s)}),()=>t;if(Array.isArray(e)){const i=[],c=t&&Array.isArray(t);if(Vn(i,e,t,r))return de(()=>t=mn(n,i,t,s,!0)),()=>t;if(i.length===0){if(t=At(n,t,s),o)return t}else c?t.length===0?xs(n,i,s):Vr(n,t,i):(t&&At(n),xs(n,i));t=i}else if(e.nodeType){if(Array.isArray(t)){if(o)return t=At(n,t,s,e);At(n,t,null,e)}else t==null||t===""||!n.firstChild?n.appendChild(e):n.replaceChild(e,n.firstChild);t=e}}return t}function Vn(n,e,t,s){let r=!1;for(let a=0,o=e.length;a<o;a++){let i=e[a],c=t&&t[n.length],d;if(!(i==null||i===!0||i===!1))if((d=typeof i)=="object"&&i.nodeType)n.push(i);else if(Array.isArray(i))r=Vn(n,i,c)||r;else if(d==="function")if(s){for(;typeof i=="function";)i=i();r=Vn(n,Array.isArray(i)?i:[i],Array.isArray(c)?c:[c])||r}else n.push(i),r=!0;else{const g=String(i);c&&c.nodeType===3&&c.data===g?n.push(c):n.push(document.createTextNode(g))}}return r}function xs(n,e,t=null){for(let s=0,r=e.length;s<r;s++)n.insertBefore(e[s],t)}function At(n,e,t,s){if(t===void 0)return n.textContent="";const r=s||document.createTextNode("");if(e.length){let a=!1;for(let o=e.length-1;o>=0;o--){const i=e[o];if(r!==i){const c=i.parentNode===n;!a&&!o?c?n.replaceChild(r,i):n.insertBefore(r,t):c&&i.remove()}else a=!0}}else n.insertBefore(r,t);return[r]}var X;(function(n){n.assertEqual=r=>{};function e(r){}n.assertIs=e;function t(r){throw new Error}n.assertNever=t,n.arrayToEnum=r=>{const a={};for(const o of r)a[o]=o;return a},n.getValidEnumValues=r=>{const a=n.objectKeys(r).filter(i=>typeof r[r[i]]!="number"),o={};for(const i of a)o[i]=r[i];return n.objectValues(o)},n.objectValues=r=>n.objectKeys(r).map(function(a){return r[a]}),n.objectKeys=typeof Object.keys=="function"?r=>Object.keys(r):r=>{const a=[];for(const o in r)Object.prototype.hasOwnProperty.call(r,o)&&a.push(o);return a},n.find=(r,a)=>{for(const o of r)if(a(o))return o},n.isInteger=typeof Number.isInteger=="function"?r=>Number.isInteger(r):r=>typeof r=="number"&&Number.isFinite(r)&&Math.floor(r)===r;function s(r,a=" | "){return r.map(o=>typeof o=="string"?`'${o}'`:o).join(a)}n.joinValues=s,n.jsonStringifyReplacer=(r,a)=>typeof a=="bigint"?a.toString():a})(X||(X={}));var ws;(function(n){n.mergeShapes=(e,t)=>({...e,...t})})(ws||(ws={}));const $=X.arrayToEnum(["string","nan","number","integer","float","boolean","date","bigint","symbol","function","undefined","null","array","object","unknown","promise","void","never","map","set"]),lt=n=>{switch(typeof n){case"undefined":return $.undefined;case"string":return $.string;case"number":return Number.isNaN(n)?$.nan:$.number;case"boolean":return $.boolean;case"function":return $.function;case"bigint":return $.bigint;case"symbol":return $.symbol;case"object":return Array.isArray(n)?$.array:n===null?$.null:n.then&&typeof n.then=="function"&&n.catch&&typeof n.catch=="function"?$.promise:typeof Map<"u"&&n instanceof Map?$.map:typeof Set<"u"&&n instanceof Set?$.set:typeof Date<"u"&&n instanceof Date?$.date:$.object;default:return $.unknown}},p=X.arrayToEnum(["invalid_type","invalid_literal","custom","invalid_union","invalid_union_discriminator","invalid_enum_value","unrecognized_keys","invalid_arguments","invalid_return_type","invalid_date","invalid_string","too_small","too_big","invalid_intersection_types","not_multiple_of","not_finite"]);class st extends Error{get errors(){return this.issues}constructor(e){super(),this.issues=[],this.addIssue=s=>{this.issues=[...this.issues,s]},this.addIssues=(s=[])=>{this.issues=[...this.issues,...s]};const t=new.target.prototype;Object.setPrototypeOf?Object.setPrototypeOf(this,t):this.__proto__=t,this.name="ZodError",this.issues=e}format(e){const t=e||function(a){return a.message},s={_errors:[]},r=a=>{for(const o of a.issues)if(o.code==="invalid_union")o.unionErrors.map(r);else if(o.code==="invalid_return_type")r(o.returnTypeError);else if(o.code==="invalid_arguments")r(o.argumentsError);else if(o.path.length===0)s._errors.push(t(o));else{let i=s,c=0;for(;c<o.path.length;){const d=o.path[c];c===o.path.length-1?(i[d]=i[d]||{_errors:[]},i[d]._errors.push(t(o))):i[d]=i[d]||{_errors:[]},i=i[d],c++}}};return r(this),s}static assert(e){if(!(e instanceof st))throw new Error(`Not a ZodError: ${e}`)}toString(){return this.message}get message(){return JSON.stringify(this.issues,X.jsonStringifyReplacer,2)}get isEmpty(){return this.issues.length===0}flatten(e=t=>t.message){const t={},s=[];for(const r of this.issues)r.path.length>0?(t[r.path[0]]=t[r.path[0]]||[],t[r.path[0]].push(e(r))):s.push(e(r));return{formErrors:s,fieldErrors:t}}get formErrors(){return this.flatten()}}st.create=n=>new st(n);const Bn=(n,e)=>{let t;switch(n.code){case p.invalid_type:n.received===$.undefined?t="Required":t=`Expected ${n.expected}, received ${n.received}`;break;case p.invalid_literal:t=`Invalid literal value, expected ${JSON.stringify(n.expected,X.jsonStringifyReplacer)}`;break;case p.unrecognized_keys:t=`Unrecognized key(s) in object: ${X.joinValues(n.keys,", ")}`;break;case p.invalid_union:t="Invalid input";break;case p.invalid_union_discriminator:t=`Invalid discriminator value. Expected ${X.joinValues(n.options)}`;break;case p.invalid_enum_value:t=`Invalid enum value. Expected ${X.joinValues(n.options)}, received '${n.received}'`;break;case p.invalid_arguments:t="Invalid function arguments";break;case p.invalid_return_type:t="Invalid function return type";break;case p.invalid_date:t="Invalid date";break;case p.invalid_string:typeof n.validation=="object"?"includes"in n.validation?(t=`Invalid input: must include "${n.validation.includes}"`,typeof n.validation.position=="number"&&(t=`${t} at one or more positions greater than or equal to ${n.validation.position}`)):"startsWith"in n.validation?t=`Invalid input: must start with "${n.validation.startsWith}"`:"endsWith"in n.validation?t=`Invalid input: must end with "${n.validation.endsWith}"`:X.assertNever(n.validation):n.validation!=="regex"?t=`Invalid ${n.validation}`:t="Invalid";break;case p.too_small:n.type==="array"?t=`Array must contain ${n.exact?"exactly":n.inclusive?"at least":"more than"} ${n.minimum} element(s)`:n.type==="string"?t=`String must contain ${n.exact?"exactly":n.inclusive?"at least":"over"} ${n.minimum} character(s)`:n.type==="number"?t=`Number must be ${n.exact?"exactly equal to ":n.inclusive?"greater than or equal to ":"greater than "}${n.minimum}`:n.type==="date"?t=`Date must be ${n.exact?"exactly equal to ":n.inclusive?"greater than or equal to ":"greater than "}${new Date(Number(n.minimum))}`:t="Invalid input";break;case p.too_big:n.type==="array"?t=`Array must contain ${n.exact?"exactly":n.inclusive?"at most":"less than"} ${n.maximum} element(s)`:n.type==="string"?t=`String must contain ${n.exact?"exactly":n.inclusive?"at most":"under"} ${n.maximum} character(s)`:n.type==="number"?t=`Number must be ${n.exact?"exactly":n.inclusive?"less than or equal to":"less than"} ${n.maximum}`:n.type==="bigint"?t=`BigInt must be ${n.exact?"exactly":n.inclusive?"less than or equal to":"less than"} ${n.maximum}`:n.type==="date"?t=`Date must be ${n.exact?"exactly":n.inclusive?"smaller than or equal to":"smaller than"} ${new Date(Number(n.maximum))}`:t="Invalid input";break;case p.custom:t="Invalid input";break;case p.invalid_intersection_types:t="Intersection results could not be merged";break;case p.not_multiple_of:t=`Number must be a multiple of ${n.multipleOf}`;break;case p.not_finite:t="Number must be finite";break;default:t=e.defaultError,X.assertNever(n)}return{message:t}};let Wr=Bn;function Gr(){return Wr}const Jr=n=>{const{data:e,path:t,errorMaps:s,issueData:r}=n,a=[...t,...r.path||[]],o={...r,path:a};if(r.message!==void 0)return{...r,path:a,message:r.message};let i="";const c=s.filter(d=>!!d).slice().reverse();for(const d of c)i=d(o,{data:e,defaultError:i}).message;return{...r,path:a,message:i}};function x(n,e){const t=Gr(),s=Jr({issueData:e,data:n.data,path:n.path,errorMaps:[n.common.contextualErrorMap,n.schemaErrorMap,t,t===Bn?void 0:Bn].filter(r=>!!r)});n.common.issues.push(s)}class Pe{constructor(){this.value="valid"}dirty(){this.value==="valid"&&(this.value="dirty")}abort(){this.value!=="aborted"&&(this.value="aborted")}static mergeArray(e,t){const s=[];for(const r of t){if(r.status==="aborted")return L;r.status==="dirty"&&e.dirty(),s.push(r.value)}return{status:e.value,value:s}}static async mergeObjectAsync(e,t){const s=[];for(const r of t){const a=await r.key,o=await r.value;s.push({key:a,value:o})}return Pe.mergeObjectSync(e,s)}static mergeObjectSync(e,t){const s={};for(const r of t){const{key:a,value:o}=r;if(a.status==="aborted"||o.status==="aborted")return L;a.status==="dirty"&&e.dirty(),o.status==="dirty"&&e.dirty(),a.value!=="__proto__"&&(typeof o.value<"u"||r.alwaysSet)&&(s[a.value]=o.value)}return{status:e.value,value:s}}}const L=Object.freeze({status:"aborted"}),Vt=n=>({status:"dirty",value:n}),Ue=n=>({status:"valid",value:n}),Ss=n=>n.status==="aborted",ks=n=>n.status==="dirty",It=n=>n.status==="valid",pn=n=>typeof Promise<"u"&&n instanceof Promise;var C;(function(n){n.errToObj=e=>typeof e=="string"?{message:e}:e||{},n.toString=e=>typeof e=="string"?e:e?.message})(C||(C={}));class Je{constructor(e,t,s,r){this._cachedPath=[],this.parent=e,this.data=t,this._path=s,this._key=r}get path(){return this._cachedPath.length||(Array.isArray(this._key)?this._cachedPath.push(...this._path,...this._key):this._cachedPath.push(...this._path,this._key)),this._cachedPath}}const $s=(n,e)=>{if(It(e))return{success:!0,data:e.value};if(!n.common.issues.length)throw new Error("Validation failed but no issues detected.");return{success:!1,get error(){if(this._error)return this._error;const t=new st(n.common.issues);return this._error=t,this._error}}};function V(n){if(!n)return{};const{errorMap:e,invalid_type_error:t,required_error:s,description:r}=n;if(e&&(t||s))throw new Error(`Can't use "invalid_type_error" or "required_error" in conjunction with custom error map.`);return e?{errorMap:e,description:r}:{errorMap:(o,i)=>{const{message:c}=n;return o.code==="invalid_enum_value"?{message:c??i.defaultError}:typeof i.data>"u"?{message:c??s??i.defaultError}:o.code!=="invalid_type"?{message:i.defaultError}:{message:c??t??i.defaultError}},description:r}}class G{get description(){return this._def.description}_getType(e){return lt(e.data)}_getOrReturnCtx(e,t){return t||{common:e.parent.common,data:e.data,parsedType:lt(e.data),schemaErrorMap:this._def.errorMap,path:e.path,parent:e.parent}}_processInputParams(e){return{status:new Pe,ctx:{common:e.parent.common,data:e.data,parsedType:lt(e.data),schemaErrorMap:this._def.errorMap,path:e.path,parent:e.parent}}}_parseSync(e){const t=this._parse(e);if(pn(t))throw new Error("Synchronous parse encountered promise.");return t}_parseAsync(e){const t=this._parse(e);return Promise.resolve(t)}parse(e,t){const s=this.safeParse(e,t);if(s.success)return s.data;throw s.error}safeParse(e,t){const s={common:{issues:[],async:t?.async??!1,contextualErrorMap:t?.errorMap},path:t?.path||[],schemaErrorMap:this._def.errorMap,parent:null,data:e,parsedType:lt(e)},r=this._parseSync({data:e,path:s.path,parent:s});return $s(s,r)}"~validate"(e){const t={common:{issues:[],async:!!this["~standard"].async},path:[],schemaErrorMap:this._def.errorMap,parent:null,data:e,parsedType:lt(e)};if(!this["~standard"].async)try{const s=this._parseSync({data:e,path:[],parent:t});return It(s)?{value:s.value}:{issues:t.common.issues}}catch(s){s?.message?.toLowerCase()?.includes("encountered")&&(this["~standard"].async=!0),t.common={issues:[],async:!0}}return this._parseAsync({data:e,path:[],parent:t}).then(s=>It(s)?{value:s.value}:{issues:t.common.issues})}async parseAsync(e,t){const s=await this.safeParseAsync(e,t);if(s.success)return s.data;throw s.error}async safeParseAsync(e,t){const s={common:{issues:[],contextualErrorMap:t?.errorMap,async:!0},path:t?.path||[],schemaErrorMap:this._def.errorMap,parent:null,data:e,parsedType:lt(e)},r=this._parse({data:e,path:s.path,parent:s}),a=await(pn(r)?r:Promise.resolve(r));return $s(s,a)}refine(e,t){const s=r=>typeof t=="string"||typeof t>"u"?{message:t}:typeof t=="function"?t(r):t;return this._refinement((r,a)=>{const o=e(r),i=()=>a.addIssue({code:p.custom,...s(r)});return typeof Promise<"u"&&o instanceof Promise?o.then(c=>c?!0:(i(),!1)):o?!0:(i(),!1)})}refinement(e,t){return this._refinement((s,r)=>e(s)?!0:(r.addIssue(typeof t=="function"?t(s,r):t),!1))}_refinement(e){return new jt({schema:this,typeName:M.ZodEffects,effect:{type:"refinement",refinement:e}})}superRefine(e){return this._refinement(e)}constructor(e){this.spa=this.safeParseAsync,this._def=e,this.parse=this.parse.bind(this),this.safeParse=this.safeParse.bind(this),this.parseAsync=this.parseAsync.bind(this),this.safeParseAsync=this.safeParseAsync.bind(this),this.spa=this.spa.bind(this),this.refine=this.refine.bind(this),this.refinement=this.refinement.bind(this),this.superRefine=this.superRefine.bind(this),this.optional=this.optional.bind(this),this.nullable=this.nullable.bind(this),this.nullish=this.nullish.bind(this),this.array=this.array.bind(this),this.promise=this.promise.bind(this),this.or=this.or.bind(this),this.and=this.and.bind(this),this.transform=this.transform.bind(this),this.brand=this.brand.bind(this),this.default=this.default.bind(this),this.catch=this.catch.bind(this),this.describe=this.describe.bind(this),this.pipe=this.pipe.bind(this),this.readonly=this.readonly.bind(this),this.isNullable=this.isNullable.bind(this),this.isOptional=this.isOptional.bind(this),this["~standard"]={version:1,vendor:"zod",validate:t=>this["~validate"](t)}}optional(){return ut.create(this,this._def)}nullable(){return Mt.create(this,this._def)}nullish(){return this.nullable().optional()}array(){return Ge.create(this)}promise(){return wn.create(this,this._def)}or(e){return _n.create([this,e],this._def)}and(e){return vn.create(this,e,this._def)}transform(e){return new jt({...V(this._def),schema:this,typeName:M.ZodEffects,effect:{type:"transform",transform:e}})}default(e){const t=typeof e=="function"?e:()=>e;return new Gn({...V(this._def),innerType:this,defaultValue:t,typeName:M.ZodDefault})}brand(){return new _a({typeName:M.ZodBranded,type:this,...V(this._def)})}catch(e){const t=typeof e=="function"?e:()=>e;return new Jn({...V(this._def),innerType:this,catchValue:t,typeName:M.ZodCatch})}describe(e){const t=this.constructor;return new t({...this._def,description:e})}pipe(e){return es.create(this,e)}readonly(){return Yn.create(this)}isOptional(){return this.safeParse(void 0).success}isNullable(){return this.safeParse(null).success}}const Yr=/^c[^\s-]{8,}$/i,Xr=/^[0-9a-z]+$/,Kr=/^[0-9A-HJKMNP-TV-Z]{26}$/i,ea=/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/i,ta=/^[a-z0-9_-]{21}$/i,na=/^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]*$/,sa=/^[-+]?P(?!$)(?:(?:[-+]?\d+Y)|(?:[-+]?\d+[.,]\d+Y$))?(?:(?:[-+]?\d+M)|(?:[-+]?\d+[.,]\d+M$))?(?:(?:[-+]?\d+W)|(?:[-+]?\d+[.,]\d+W$))?(?:(?:[-+]?\d+D)|(?:[-+]?\d+[.,]\d+D$))?(?:T(?=[\d+-])(?:(?:[-+]?\d+H)|(?:[-+]?\d+[.,]\d+H$))?(?:(?:[-+]?\d+M)|(?:[-+]?\d+[.,]\d+M$))?(?:[-+]?\d+(?:[.,]\d+)?S)?)??$/,ra=/^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i,aa="^(\\p{Extended_Pictographic}|\\p{Emoji_Component})+$";let qn;const ia=/^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/,oa=/^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\/(3[0-2]|[12]?[0-9])$/,la=/^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/,ca=/^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))\/(12[0-8]|1[01][0-9]|[1-9]?[0-9])$/,ua=/^([0-9a-zA-Z+/]{4})*(([0-9a-zA-Z+/]{2}==)|([0-9a-zA-Z+/]{3}=))?$/,da=/^([0-9a-zA-Z-_]{4})*(([0-9a-zA-Z-_]{2}(==)?)|([0-9a-zA-Z-_]{3}(=)?))?$/,Gs="((\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\\d|3[01])|(0[469]|11)-(0[1-9]|[12]\\d|30)|(02)-(0[1-9]|1\\d|2[0-8])))",ha=new RegExp(`^${Gs}$`);function Js(n){let e="[0-5]\\d";n.precision?e=`${e}\\.\\d{${n.precision}}`:n.precision==null&&(e=`${e}(\\.\\d+)?`);const t=n.precision?"+":"?";return`([01]\\d|2[0-3]):[0-5]\\d(:${e})${t}`}function fa(n){return new RegExp(`^${Js(n)}$`)}function ga(n){let e=`${Gs}T${Js(n)}`;const t=[];return t.push(n.local?"Z?":"Z"),n.offset&&t.push("([+-]\\d{2}:?\\d{2})"),e=`${e}(${t.join("|")})`,new RegExp(`^${e}$`)}function ma(n,e){return!!((e==="v4"||!e)&&ia.test(n)||(e==="v6"||!e)&&la.test(n))}function pa(n,e){if(!na.test(n))return!1;try{const[t]=n.split("."),s=t.replace(/-/g,"+").replace(/_/g,"/").padEnd(t.length+(4-t.length%4)%4,"="),r=JSON.parse(atob(s));return!(typeof r!="object"||r===null||"typ"in r&&r?.typ!=="JWT"||!r.alg||e&&r.alg!==e)}catch{return!1}}function ba(n,e){return!!((e==="v4"||!e)&&oa.test(n)||(e==="v6"||!e)&&ca.test(n))}class We extends G{_parse(e){if(this._def.coerce&&(e.data=String(e.data)),this._getType(e)!==$.string){const a=this._getOrReturnCtx(e);return x(a,{code:p.invalid_type,expected:$.string,received:a.parsedType}),L}const s=new Pe;let r;for(const a of this._def.checks)if(a.kind==="min")e.data.length<a.value&&(r=this._getOrReturnCtx(e,r),x(r,{code:p.too_small,minimum:a.value,type:"string",inclusive:!0,exact:!1,message:a.message}),s.dirty());else if(a.kind==="max")e.data.length>a.value&&(r=this._getOrReturnCtx(e,r),x(r,{code:p.too_big,maximum:a.value,type:"string",inclusive:!0,exact:!1,message:a.message}),s.dirty());else if(a.kind==="length"){const o=e.data.length>a.value,i=e.data.length<a.value;(o||i)&&(r=this._getOrReturnCtx(e,r),o?x(r,{code:p.too_big,maximum:a.value,type:"string",inclusive:!0,exact:!0,message:a.message}):i&&x(r,{code:p.too_small,minimum:a.value,type:"string",inclusive:!0,exact:!0,message:a.message}),s.dirty())}else if(a.kind==="email")ra.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"email",code:p.invalid_string,message:a.message}),s.dirty());else if(a.kind==="emoji")qn||(qn=new RegExp(aa,"u")),qn.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"emoji",code:p.invalid_string,message:a.message}),s.dirty());else if(a.kind==="uuid")ea.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"uuid",code:p.invalid_string,message:a.message}),s.dirty());else if(a.kind==="nanoid")ta.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"nanoid",code:p.invalid_string,message:a.message}),s.dirty());else if(a.kind==="cuid")Yr.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"cuid",code:p.invalid_string,message:a.message}),s.dirty());else if(a.kind==="cuid2")Xr.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"cuid2",code:p.invalid_string,message:a.message}),s.dirty());else if(a.kind==="ulid")Kr.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"ulid",code:p.invalid_string,message:a.message}),s.dirty());else if(a.kind==="url")try{new URL(e.data)}catch{r=this._getOrReturnCtx(e,r),x(r,{validation:"url",code:p.invalid_string,message:a.message}),s.dirty()}else a.kind==="regex"?(a.regex.lastIndex=0,a.regex.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"regex",code:p.invalid_string,message:a.message}),s.dirty())):a.kind==="trim"?e.data=e.data.trim():a.kind==="includes"?e.data.includes(a.value,a.position)||(r=this._getOrReturnCtx(e,r),x(r,{code:p.invalid_string,validation:{includes:a.value,position:a.position},message:a.message}),s.dirty()):a.kind==="toLowerCase"?e.data=e.data.toLowerCase():a.kind==="toUpperCase"?e.data=e.data.toUpperCase():a.kind==="startsWith"?e.data.startsWith(a.value)||(r=this._getOrReturnCtx(e,r),x(r,{code:p.invalid_string,validation:{startsWith:a.value},message:a.message}),s.dirty()):a.kind==="endsWith"?e.data.endsWith(a.value)||(r=this._getOrReturnCtx(e,r),x(r,{code:p.invalid_string,validation:{endsWith:a.value},message:a.message}),s.dirty()):a.kind==="datetime"?ga(a).test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{code:p.invalid_string,validation:"datetime",message:a.message}),s.dirty()):a.kind==="date"?ha.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{code:p.invalid_string,validation:"date",message:a.message}),s.dirty()):a.kind==="time"?fa(a).test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{code:p.invalid_string,validation:"time",message:a.message}),s.dirty()):a.kind==="duration"?sa.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"duration",code:p.invalid_string,message:a.message}),s.dirty()):a.kind==="ip"?ma(e.data,a.version)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"ip",code:p.invalid_string,message:a.message}),s.dirty()):a.kind==="jwt"?pa(e.data,a.alg)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"jwt",code:p.invalid_string,message:a.message}),s.dirty()):a.kind==="cidr"?ba(e.data,a.version)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"cidr",code:p.invalid_string,message:a.message}),s.dirty()):a.kind==="base64"?ua.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"base64",code:p.invalid_string,message:a.message}),s.dirty()):a.kind==="base64url"?da.test(e.data)||(r=this._getOrReturnCtx(e,r),x(r,{validation:"base64url",code:p.invalid_string,message:a.message}),s.dirty()):X.assertNever(a);return{status:s.value,value:e.data}}_regex(e,t,s){return this.refinement(r=>e.test(r),{validation:t,code:p.invalid_string,...C.errToObj(s)})}_addCheck(e){return new We({...this._def,checks:[...this._def.checks,e]})}email(e){return this._addCheck({kind:"email",...C.errToObj(e)})}url(e){return this._addCheck({kind:"url",...C.errToObj(e)})}emoji(e){return this._addCheck({kind:"emoji",...C.errToObj(e)})}uuid(e){return this._addCheck({kind:"uuid",...C.errToObj(e)})}nanoid(e){return this._addCheck({kind:"nanoid",...C.errToObj(e)})}cuid(e){return this._addCheck({kind:"cuid",...C.errToObj(e)})}cuid2(e){return this._addCheck({kind:"cuid2",...C.errToObj(e)})}ulid(e){return this._addCheck({kind:"ulid",...C.errToObj(e)})}base64(e){return this._addCheck({kind:"base64",...C.errToObj(e)})}base64url(e){return this._addCheck({kind:"base64url",...C.errToObj(e)})}jwt(e){return this._addCheck({kind:"jwt",...C.errToObj(e)})}ip(e){return this._addCheck({kind:"ip",...C.errToObj(e)})}cidr(e){return this._addCheck({kind:"cidr",...C.errToObj(e)})}datetime(e){return typeof e=="string"?this._addCheck({kind:"datetime",precision:null,offset:!1,local:!1,message:e}):this._addCheck({kind:"datetime",precision:typeof e?.precision>"u"?null:e?.precision,offset:e?.offset??!1,local:e?.local??!1,...C.errToObj(e?.message)})}date(e){return this._addCheck({kind:"date",message:e})}time(e){return typeof e=="string"?this._addCheck({kind:"time",precision:null,message:e}):this._addCheck({kind:"time",precision:typeof e?.precision>"u"?null:e?.precision,...C.errToObj(e?.message)})}duration(e){return this._addCheck({kind:"duration",...C.errToObj(e)})}regex(e,t){return this._addCheck({kind:"regex",regex:e,...C.errToObj(t)})}includes(e,t){return this._addCheck({kind:"includes",value:e,position:t?.position,...C.errToObj(t?.message)})}startsWith(e,t){return this._addCheck({kind:"startsWith",value:e,...C.errToObj(t)})}endsWith(e,t){return this._addCheck({kind:"endsWith",value:e,...C.errToObj(t)})}min(e,t){return this._addCheck({kind:"min",value:e,...C.errToObj(t)})}max(e,t){return this._addCheck({kind:"max",value:e,...C.errToObj(t)})}length(e,t){return this._addCheck({kind:"length",value:e,...C.errToObj(t)})}nonempty(e){return this.min(1,C.errToObj(e))}trim(){return new We({...this._def,checks:[...this._def.checks,{kind:"trim"}]})}toLowerCase(){return new We({...this._def,checks:[...this._def.checks,{kind:"toLowerCase"}]})}toUpperCase(){return new We({...this._def,checks:[...this._def.checks,{kind:"toUpperCase"}]})}get isDatetime(){return!!this._def.checks.find(e=>e.kind==="datetime")}get isDate(){return!!this._def.checks.find(e=>e.kind==="date")}get isTime(){return!!this._def.checks.find(e=>e.kind==="time")}get isDuration(){return!!this._def.checks.find(e=>e.kind==="duration")}get isEmail(){return!!this._def.checks.find(e=>e.kind==="email")}get isURL(){return!!this._def.checks.find(e=>e.kind==="url")}get isEmoji(){return!!this._def.checks.find(e=>e.kind==="emoji")}get isUUID(){return!!this._def.checks.find(e=>e.kind==="uuid")}get isNANOID(){return!!this._def.checks.find(e=>e.kind==="nanoid")}get isCUID(){return!!this._def.checks.find(e=>e.kind==="cuid")}get isCUID2(){return!!this._def.checks.find(e=>e.kind==="cuid2")}get isULID(){return!!this._def.checks.find(e=>e.kind==="ulid")}get isIP(){return!!this._def.checks.find(e=>e.kind==="ip")}get isCIDR(){return!!this._def.checks.find(e=>e.kind==="cidr")}get isBase64(){return!!this._def.checks.find(e=>e.kind==="base64")}get isBase64url(){return!!this._def.checks.find(e=>e.kind==="base64url")}get minLength(){let e=null;for(const t of this._def.checks)t.kind==="min"&&(e===null||t.value>e)&&(e=t.value);return e}get maxLength(){let e=null;for(const t of this._def.checks)t.kind==="max"&&(e===null||t.value<e)&&(e=t.value);return e}}We.create=n=>new We({checks:[],typeName:M.ZodString,coerce:n?.coerce??!1,...V(n)});function ya(n,e){const t=(n.toString().split(".")[1]||"").length,s=(e.toString().split(".")[1]||"").length,r=t>s?t:s,a=Number.parseInt(n.toFixed(r).replace(".","")),o=Number.parseInt(e.toFixed(r).replace(".",""));return a%o/10**r}class _t extends G{constructor(){super(...arguments),this.min=this.gte,this.max=this.lte,this.step=this.multipleOf}_parse(e){if(this._def.coerce&&(e.data=Number(e.data)),this._getType(e)!==$.number){const a=this._getOrReturnCtx(e);return x(a,{code:p.invalid_type,expected:$.number,received:a.parsedType}),L}let s;const r=new Pe;for(const a of this._def.checks)a.kind==="int"?X.isInteger(e.data)||(s=this._getOrReturnCtx(e,s),x(s,{code:p.invalid_type,expected:"integer",received:"float",message:a.message}),r.dirty()):a.kind==="min"?(a.inclusive?e.data<a.value:e.data<=a.value)&&(s=this._getOrReturnCtx(e,s),x(s,{code:p.too_small,minimum:a.value,type:"number",inclusive:a.inclusive,exact:!1,message:a.message}),r.dirty()):a.kind==="max"?(a.inclusive?e.data>a.value:e.data>=a.value)&&(s=this._getOrReturnCtx(e,s),x(s,{code:p.too_big,maximum:a.value,type:"number",inclusive:a.inclusive,exact:!1,message:a.message}),r.dirty()):a.kind==="multipleOf"?ya(e.data,a.value)!==0&&(s=this._getOrReturnCtx(e,s),x(s,{code:p.not_multiple_of,multipleOf:a.value,message:a.message}),r.dirty()):a.kind==="finite"?Number.isFinite(e.data)||(s=this._getOrReturnCtx(e,s),x(s,{code:p.not_finite,message:a.message}),r.dirty()):X.assertNever(a);return{status:r.value,value:e.data}}gte(e,t){return this.setLimit("min",e,!0,C.toString(t))}gt(e,t){return this.setLimit("min",e,!1,C.toString(t))}lte(e,t){return this.setLimit("max",e,!0,C.toString(t))}lt(e,t){return this.setLimit("max",e,!1,C.toString(t))}setLimit(e,t,s,r){return new _t({...this._def,checks:[...this._def.checks,{kind:e,value:t,inclusive:s,message:C.toString(r)}]})}_addCheck(e){return new _t({...this._def,checks:[...this._def.checks,e]})}int(e){return this._addCheck({kind:"int",message:C.toString(e)})}positive(e){return this._addCheck({kind:"min",value:0,inclusive:!1,message:C.toString(e)})}negative(e){return this._addCheck({kind:"max",value:0,inclusive:!1,message:C.toString(e)})}nonpositive(e){return this._addCheck({kind:"max",value:0,inclusive:!0,message:C.toString(e)})}nonnegative(e){return this._addCheck({kind:"min",value:0,inclusive:!0,message:C.toString(e)})}multipleOf(e,t){return this._addCheck({kind:"multipleOf",value:e,message:C.toString(t)})}finite(e){return this._addCheck({kind:"finite",message:C.toString(e)})}safe(e){return this._addCheck({kind:"min",inclusive:!0,value:Number.MIN_SAFE_INTEGER,message:C.toString(e)})._addCheck({kind:"max",inclusive:!0,value:Number.MAX_SAFE_INTEGER,message:C.toString(e)})}get minValue(){let e=null;for(const t of this._def.checks)t.kind==="min"&&(e===null||t.value>e)&&(e=t.value);return e}get maxValue(){let e=null;for(const t of this._def.checks)t.kind==="max"&&(e===null||t.value<e)&&(e=t.value);return e}get isInt(){return!!this._def.checks.find(e=>e.kind==="int"||e.kind==="multipleOf"&&X.isInteger(e.value))}get isFinite(){let e=null,t=null;for(const s of this._def.checks){if(s.kind==="finite"||s.kind==="int"||s.kind==="multipleOf")return!0;s.kind==="min"?(t===null||s.value>t)&&(t=s.value):s.kind==="max"&&(e===null||s.value<e)&&(e=s.value)}return Number.isFinite(t)&&Number.isFinite(e)}}_t.create=n=>new _t({checks:[],typeName:M.ZodNumber,coerce:n?.coerce||!1,...V(n)});class vt extends G{constructor(){super(...arguments),this.min=this.gte,this.max=this.lte}_parse(e){if(this._def.coerce)try{e.data=BigInt(e.data)}catch{return this._getInvalidInput(e)}if(this._getType(e)!==$.bigint)return this._getInvalidInput(e);let s;const r=new Pe;for(const a of this._def.checks)a.kind==="min"?(a.inclusive?e.data<a.value:e.data<=a.value)&&(s=this._getOrReturnCtx(e,s),x(s,{code:p.too_small,type:"bigint",minimum:a.value,inclusive:a.inclusive,message:a.message}),r.dirty()):a.kind==="max"?(a.inclusive?e.data>a.value:e.data>=a.value)&&(s=this._getOrReturnCtx(e,s),x(s,{code:p.too_big,type:"bigint",maximum:a.value,inclusive:a.inclusive,message:a.message}),r.dirty()):a.kind==="multipleOf"?e.data%a.value!==BigInt(0)&&(s=this._getOrReturnCtx(e,s),x(s,{code:p.not_multiple_of,multipleOf:a.value,message:a.message}),r.dirty()):X.assertNever(a);return{status:r.value,value:e.data}}_getInvalidInput(e){const t=this._getOrReturnCtx(e);return x(t,{code:p.invalid_type,expected:$.bigint,received:t.parsedType}),L}gte(e,t){return this.setLimit("min",e,!0,C.toString(t))}gt(e,t){return this.setLimit("min",e,!1,C.toString(t))}lte(e,t){return this.setLimit("max",e,!0,C.toString(t))}lt(e,t){return this.setLimit("max",e,!1,C.toString(t))}setLimit(e,t,s,r){return new vt({...this._def,checks:[...this._def.checks,{kind:e,value:t,inclusive:s,message:C.toString(r)}]})}_addCheck(e){return new vt({...this._def,checks:[...this._def.checks,e]})}positive(e){return this._addCheck({kind:"min",value:BigInt(0),inclusive:!1,message:C.toString(e)})}negative(e){return this._addCheck({kind:"max",value:BigInt(0),inclusive:!1,message:C.toString(e)})}nonpositive(e){return this._addCheck({kind:"max",value:BigInt(0),inclusive:!0,message:C.toString(e)})}nonnegative(e){return this._addCheck({kind:"min",value:BigInt(0),inclusive:!0,message:C.toString(e)})}multipleOf(e,t){return this._addCheck({kind:"multipleOf",value:e,message:C.toString(t)})}get minValue(){let e=null;for(const t of this._def.checks)t.kind==="min"&&(e===null||t.value>e)&&(e=t.value);return e}get maxValue(){let e=null;for(const t of this._def.checks)t.kind==="max"&&(e===null||t.value<e)&&(e=t.value);return e}}vt.create=n=>new vt({checks:[],typeName:M.ZodBigInt,coerce:n?.coerce??!1,...V(n)});class bn extends G{_parse(e){if(this._def.coerce&&(e.data=!!e.data),this._getType(e)!==$.boolean){const s=this._getOrReturnCtx(e);return x(s,{code:p.invalid_type,expected:$.boolean,received:s.parsedType}),L}return Ue(e.data)}}bn.create=n=>new bn({typeName:M.ZodBoolean,coerce:n?.coerce||!1,...V(n)});class qt extends G{_parse(e){if(this._def.coerce&&(e.data=new Date(e.data)),this._getType(e)!==$.date){const a=this._getOrReturnCtx(e);return x(a,{code:p.invalid_type,expected:$.date,received:a.parsedType}),L}if(Number.isNaN(e.data.getTime())){const a=this._getOrReturnCtx(e);return x(a,{code:p.invalid_date}),L}const s=new Pe;let r;for(const a of this._def.checks)a.kind==="min"?e.data.getTime()<a.value&&(r=this._getOrReturnCtx(e,r),x(r,{code:p.too_small,message:a.message,inclusive:!0,exact:!1,minimum:a.value,type:"date"}),s.dirty()):a.kind==="max"?e.data.getTime()>a.value&&(r=this._getOrReturnCtx(e,r),x(r,{code:p.too_big,message:a.message,inclusive:!0,exact:!1,maximum:a.value,type:"date"}),s.dirty()):X.assertNever(a);return{status:s.value,value:new Date(e.data.getTime())}}_addCheck(e){return new qt({...this._def,checks:[...this._def.checks,e]})}min(e,t){return this._addCheck({kind:"min",value:e.getTime(),message:C.toString(t)})}max(e,t){return this._addCheck({kind:"max",value:e.getTime(),message:C.toString(t)})}get minDate(){let e=null;for(const t of this._def.checks)t.kind==="min"&&(e===null||t.value>e)&&(e=t.value);return e!=null?new Date(e):null}get maxDate(){let e=null;for(const t of this._def.checks)t.kind==="max"&&(e===null||t.value<e)&&(e=t.value);return e!=null?new Date(e):null}}qt.create=n=>new qt({checks:[],coerce:n?.coerce||!1,typeName:M.ZodDate,...V(n)});class zs extends G{_parse(e){if(this._getType(e)!==$.symbol){const s=this._getOrReturnCtx(e);return x(s,{code:p.invalid_type,expected:$.symbol,received:s.parsedType}),L}return Ue(e.data)}}zs.create=n=>new zs({typeName:M.ZodSymbol,...V(n)});class Cs extends G{_parse(e){if(this._getType(e)!==$.undefined){const s=this._getOrReturnCtx(e);return x(s,{code:p.invalid_type,expected:$.undefined,received:s.parsedType}),L}return Ue(e.data)}}Cs.create=n=>new Cs({typeName:M.ZodUndefined,...V(n)});class Ts extends G{_parse(e){if(this._getType(e)!==$.null){const s=this._getOrReturnCtx(e);return x(s,{code:p.invalid_type,expected:$.null,received:s.parsedType}),L}return Ue(e.data)}}Ts.create=n=>new Ts({typeName:M.ZodNull,...V(n)});class Hn extends G{constructor(){super(...arguments),this._any=!0}_parse(e){return Ue(e.data)}}Hn.create=n=>new Hn({typeName:M.ZodAny,...V(n)});class Qn extends G{constructor(){super(...arguments),this._unknown=!0}_parse(e){return Ue(e.data)}}Qn.create=n=>new Qn({typeName:M.ZodUnknown,...V(n)});class dt extends G{_parse(e){const t=this._getOrReturnCtx(e);return x(t,{code:p.invalid_type,expected:$.never,received:t.parsedType}),L}}dt.create=n=>new dt({typeName:M.ZodNever,...V(n)});class yn extends G{_parse(e){if(this._getType(e)!==$.undefined){const s=this._getOrReturnCtx(e);return x(s,{code:p.invalid_type,expected:$.void,received:s.parsedType}),L}return Ue(e.data)}}yn.create=n=>new yn({typeName:M.ZodVoid,...V(n)});class Ge extends G{_parse(e){const{ctx:t,status:s}=this._processInputParams(e),r=this._def;if(t.parsedType!==$.array)return x(t,{code:p.invalid_type,expected:$.array,received:t.parsedType}),L;if(r.exactLength!==null){const o=t.data.length>r.exactLength.value,i=t.data.length<r.exactLength.value;(o||i)&&(x(t,{code:o?p.too_big:p.too_small,minimum:i?r.exactLength.value:void 0,maximum:o?r.exactLength.value:void 0,type:"array",inclusive:!0,exact:!0,message:r.exactLength.message}),s.dirty())}if(r.minLength!==null&&t.data.length<r.minLength.value&&(x(t,{code:p.too_small,minimum:r.minLength.value,type:"array",inclusive:!0,exact:!1,message:r.minLength.message}),s.dirty()),r.maxLength!==null&&t.data.length>r.maxLength.value&&(x(t,{code:p.too_big,maximum:r.maxLength.value,type:"array",inclusive:!0,exact:!1,message:r.maxLength.message}),s.dirty()),t.common.async)return Promise.all([...t.data].map((o,i)=>r.type._parseAsync(new Je(t,o,t.path,i)))).then(o=>Pe.mergeArray(s,o));const a=[...t.data].map((o,i)=>r.type._parseSync(new Je(t,o,t.path,i)));return Pe.mergeArray(s,a)}get element(){return this._def.type}min(e,t){return new Ge({...this._def,minLength:{value:e,message:C.toString(t)}})}max(e,t){return new Ge({...this._def,maxLength:{value:e,message:C.toString(t)}})}length(e,t){return new Ge({...this._def,exactLength:{value:e,message:C.toString(t)}})}nonempty(e){return this.min(1,e)}}Ge.create=(n,e)=>new Ge({type:n,minLength:null,maxLength:null,exactLength:null,typeName:M.ZodArray,...V(e)});function Pt(n){if(n instanceof ve){const e={};for(const t in n.shape){const s=n.shape[t];e[t]=ut.create(Pt(s))}return new ve({...n._def,shape:()=>e})}else return n instanceof Ge?new Ge({...n._def,type:Pt(n.element)}):n instanceof ut?ut.create(Pt(n.unwrap())):n instanceof Mt?Mt.create(Pt(n.unwrap())):n instanceof xt?xt.create(n.items.map(e=>Pt(e))):n}class ve extends G{constructor(){super(...arguments),this._cached=null,this.nonstrict=this.passthrough,this.augment=this.extend}_getCached(){if(this._cached!==null)return this._cached;const e=this._def.shape(),t=X.objectKeys(e);return this._cached={shape:e,keys:t},this._cached}_parse(e){if(this._getType(e)!==$.object){const d=this._getOrReturnCtx(e);return x(d,{code:p.invalid_type,expected:$.object,received:d.parsedType}),L}const{status:s,ctx:r}=this._processInputParams(e),{shape:a,keys:o}=this._getCached(),i=[];if(!(this._def.catchall instanceof dt&&this._def.unknownKeys==="strip"))for(const d in r.data)o.includes(d)||i.push(d);const c=[];for(const d of o){const g=a[d],f=r.data[d];c.push({key:{status:"valid",value:d},value:g._parse(new Je(r,f,r.path,d)),alwaysSet:d in r.data})}if(this._def.catchall instanceof dt){const d=this._def.unknownKeys;if(d==="passthrough")for(const g of i)c.push({key:{status:"valid",value:g},value:{status:"valid",value:r.data[g]}});else if(d==="strict")i.length>0&&(x(r,{code:p.unrecognized_keys,keys:i}),s.dirty());else if(d!=="strip")throw new Error("Internal ZodObject error: invalid unknownKeys value.")}else{const d=this._def.catchall;for(const g of i){const f=r.data[g];c.push({key:{status:"valid",value:g},value:d._parse(new Je(r,f,r.path,g)),alwaysSet:g in r.data})}}return r.common.async?Promise.resolve().then(async()=>{const d=[];for(const g of c){const f=await g.key,A=await g.value;d.push({key:f,value:A,alwaysSet:g.alwaysSet})}return d}).then(d=>Pe.mergeObjectSync(s,d)):Pe.mergeObjectSync(s,c)}get shape(){return this._def.shape()}strict(e){return C.errToObj,new ve({...this._def,unknownKeys:"strict",...e!==void 0?{errorMap:(t,s)=>{const r=this._def.errorMap?.(t,s).message??s.defaultError;return t.code==="unrecognized_keys"?{message:C.errToObj(e).message??r}:{message:r}}}:{}})}strip(){return new ve({...this._def,unknownKeys:"strip"})}passthrough(){return new ve({...this._def,unknownKeys:"passthrough"})}extend(e){return new ve({...this._def,shape:()=>({...this._def.shape(),...e})})}merge(e){return new ve({unknownKeys:e._def.unknownKeys,catchall:e._def.catchall,shape:()=>({...this._def.shape(),...e._def.shape()}),typeName:M.ZodObject})}setKey(e,t){return this.augment({[e]:t})}catchall(e){return new ve({...this._def,catchall:e})}pick(e){const t={};for(const s of X.objectKeys(e))e[s]&&this.shape[s]&&(t[s]=this.shape[s]);return new ve({...this._def,shape:()=>t})}omit(e){const t={};for(const s of X.objectKeys(this.shape))e[s]||(t[s]=this.shape[s]);return new ve({...this._def,shape:()=>t})}deepPartial(){return Pt(this)}partial(e){const t={};for(const s of X.objectKeys(this.shape)){const r=this.shape[s];e&&!e[s]?t[s]=r:t[s]=r.optional()}return new ve({...this._def,shape:()=>t})}required(e){const t={};for(const s of X.objectKeys(this.shape))if(e&&!e[s])t[s]=this.shape[s];else{let a=this.shape[s];for(;a instanceof ut;)a=a._def.innerType;t[s]=a}return new ve({...this._def,shape:()=>t})}keyof(){return Ys(X.objectKeys(this.shape))}}ve.create=(n,e)=>new ve({shape:()=>n,unknownKeys:"strip",catchall:dt.create(),typeName:M.ZodObject,...V(e)});ve.strictCreate=(n,e)=>new ve({shape:()=>n,unknownKeys:"strict",catchall:dt.create(),typeName:M.ZodObject,...V(e)});ve.lazycreate=(n,e)=>new ve({shape:n,unknownKeys:"strip",catchall:dt.create(),typeName:M.ZodObject,...V(e)});class _n extends G{_parse(e){const{ctx:t}=this._processInputParams(e),s=this._def.options;function r(a){for(const i of a)if(i.result.status==="valid")return i.result;for(const i of a)if(i.result.status==="dirty")return t.common.issues.push(...i.ctx.common.issues),i.result;const o=a.map(i=>new st(i.ctx.common.issues));return x(t,{code:p.invalid_union,unionErrors:o}),L}if(t.common.async)return Promise.all(s.map(async a=>{const o={...t,common:{...t.common,issues:[]},parent:null};return{result:await a._parseAsync({data:t.data,path:t.path,parent:o}),ctx:o}})).then(r);{let a;const o=[];for(const c of s){const d={...t,common:{...t.common,issues:[]},parent:null},g=c._parseSync({data:t.data,path:t.path,parent:d});if(g.status==="valid")return g;g.status==="dirty"&&!a&&(a={result:g,ctx:d}),d.common.issues.length&&o.push(d.common.issues)}if(a)return t.common.issues.push(...a.ctx.common.issues),a.result;const i=o.map(c=>new st(c));return x(t,{code:p.invalid_union,unionErrors:i}),L}}get options(){return this._def.options}}_n.create=(n,e)=>new _n({options:n,typeName:M.ZodUnion,...V(e)});function Wn(n,e){const t=lt(n),s=lt(e);if(n===e)return{valid:!0,data:n};if(t===$.object&&s===$.object){const r=X.objectKeys(e),a=X.objectKeys(n).filter(i=>r.indexOf(i)!==-1),o={...n,...e};for(const i of a){const c=Wn(n[i],e[i]);if(!c.valid)return{valid:!1};o[i]=c.data}return{valid:!0,data:o}}else if(t===$.array&&s===$.array){if(n.length!==e.length)return{valid:!1};const r=[];for(let a=0;a<n.length;a++){const o=n[a],i=e[a],c=Wn(o,i);if(!c.valid)return{valid:!1};r.push(c.data)}return{valid:!0,data:r}}else return t===$.date&&s===$.date&&+n==+e?{valid:!0,data:n}:{valid:!1}}class vn extends G{_parse(e){const{status:t,ctx:s}=this._processInputParams(e),r=(a,o)=>{if(Ss(a)||Ss(o))return L;const i=Wn(a.value,o.value);return i.valid?((ks(a)||ks(o))&&t.dirty(),{status:t.value,value:i.data}):(x(s,{code:p.invalid_intersection_types}),L)};return s.common.async?Promise.all([this._def.left._parseAsync({data:s.data,path:s.path,parent:s}),this._def.right._parseAsync({data:s.data,path:s.path,parent:s})]).then(([a,o])=>r(a,o)):r(this._def.left._parseSync({data:s.data,path:s.path,parent:s}),this._def.right._parseSync({data:s.data,path:s.path,parent:s}))}}vn.create=(n,e,t)=>new vn({left:n,right:e,typeName:M.ZodIntersection,...V(t)});class xt extends G{_parse(e){const{status:t,ctx:s}=this._processInputParams(e);if(s.parsedType!==$.array)return x(s,{code:p.invalid_type,expected:$.array,received:s.parsedType}),L;if(s.data.length<this._def.items.length)return x(s,{code:p.too_small,minimum:this._def.items.length,inclusive:!0,exact:!1,type:"array"}),L;!this._def.rest&&s.data.length>this._def.items.length&&(x(s,{code:p.too_big,maximum:this._def.items.length,inclusive:!0,exact:!1,type:"array"}),t.dirty());const a=[...s.data].map((o,i)=>{const c=this._def.items[i]||this._def.rest;return c?c._parse(new Je(s,o,s.path,i)):null}).filter(o=>!!o);return s.common.async?Promise.all(a).then(o=>Pe.mergeArray(t,o)):Pe.mergeArray(t,a)}get items(){return this._def.items}rest(e){return new xt({...this._def,rest:e})}}xt.create=(n,e)=>{if(!Array.isArray(n))throw new Error("You must pass an array of schemas to z.tuple([ ... ])");return new xt({items:n,typeName:M.ZodTuple,rest:null,...V(e)})};class xn extends G{get keySchema(){return this._def.keyType}get valueSchema(){return this._def.valueType}_parse(e){const{status:t,ctx:s}=this._processInputParams(e);if(s.parsedType!==$.object)return x(s,{code:p.invalid_type,expected:$.object,received:s.parsedType}),L;const r=[],a=this._def.keyType,o=this._def.valueType;for(const i in s.data)r.push({key:a._parse(new Je(s,i,s.path,i)),value:o._parse(new Je(s,s.data[i],s.path,i)),alwaysSet:i in s.data});return s.common.async?Pe.mergeObjectAsync(t,r):Pe.mergeObjectSync(t,r)}get element(){return this._def.valueType}static create(e,t,s){return t instanceof G?new xn({keyType:e,valueType:t,typeName:M.ZodRecord,...V(s)}):new xn({keyType:We.create(),valueType:e,typeName:M.ZodRecord,...V(t)})}}class Rs extends G{get keySchema(){return this._def.keyType}get valueSchema(){return this._def.valueType}_parse(e){const{status:t,ctx:s}=this._processInputParams(e);if(s.parsedType!==$.map)return x(s,{code:p.invalid_type,expected:$.map,received:s.parsedType}),L;const r=this._def.keyType,a=this._def.valueType,o=[...s.data.entries()].map(([i,c],d)=>({key:r._parse(new Je(s,i,s.path,[d,"key"])),value:a._parse(new Je(s,c,s.path,[d,"value"]))}));if(s.common.async){const i=new Map;return Promise.resolve().then(async()=>{for(const c of o){const d=await c.key,g=await c.value;if(d.status==="aborted"||g.status==="aborted")return L;(d.status==="dirty"||g.status==="dirty")&&t.dirty(),i.set(d.value,g.value)}return{status:t.value,value:i}})}else{const i=new Map;for(const c of o){const d=c.key,g=c.value;if(d.status==="aborted"||g.status==="aborted")return L;(d.status==="dirty"||g.status==="dirty")&&t.dirty(),i.set(d.value,g.value)}return{status:t.value,value:i}}}}Rs.create=(n,e,t)=>new Rs({valueType:e,keyType:n,typeName:M.ZodMap,...V(t)});class Gt extends G{_parse(e){const{status:t,ctx:s}=this._processInputParams(e);if(s.parsedType!==$.set)return x(s,{code:p.invalid_type,expected:$.set,received:s.parsedType}),L;const r=this._def;r.minSize!==null&&s.data.size<r.minSize.value&&(x(s,{code:p.too_small,minimum:r.minSize.value,type:"set",inclusive:!0,exact:!1,message:r.minSize.message}),t.dirty()),r.maxSize!==null&&s.data.size>r.maxSize.value&&(x(s,{code:p.too_big,maximum:r.maxSize.value,type:"set",inclusive:!0,exact:!1,message:r.maxSize.message}),t.dirty());const a=this._def.valueType;function o(c){const d=new Set;for(const g of c){if(g.status==="aborted")return L;g.status==="dirty"&&t.dirty(),d.add(g.value)}return{status:t.value,value:d}}const i=[...s.data.values()].map((c,d)=>a._parse(new Je(s,c,s.path,d)));return s.common.async?Promise.all(i).then(c=>o(c)):o(i)}min(e,t){return new Gt({...this._def,minSize:{value:e,message:C.toString(t)}})}max(e,t){return new Gt({...this._def,maxSize:{value:e,message:C.toString(t)}})}size(e,t){return this.min(e,t).max(e,t)}nonempty(e){return this.min(1,e)}}Gt.create=(n,e)=>new Gt({valueType:n,minSize:null,maxSize:null,typeName:M.ZodSet,...V(e)});class As extends G{get schema(){return this._def.getter()}_parse(e){const{ctx:t}=this._processInputParams(e);return this._def.getter()._parse({data:t.data,path:t.path,parent:t})}}As.create=(n,e)=>new As({getter:n,typeName:M.ZodLazy,...V(e)});class Es extends G{_parse(e){if(e.data!==this._def.value){const t=this._getOrReturnCtx(e);return x(t,{received:t.data,code:p.invalid_literal,expected:this._def.value}),L}return{status:"valid",value:e.data}}get value(){return this._def.value}}Es.create=(n,e)=>new Es({value:n,typeName:M.ZodLiteral,...V(e)});function Ys(n,e){return new Nt({values:n,typeName:M.ZodEnum,...V(e)})}class Nt extends G{_parse(e){if(typeof e.data!="string"){const t=this._getOrReturnCtx(e),s=this._def.values;return x(t,{expected:X.joinValues(s),received:t.parsedType,code:p.invalid_type}),L}if(this._cache||(this._cache=new Set(this._def.values)),!this._cache.has(e.data)){const t=this._getOrReturnCtx(e),s=this._def.values;return x(t,{received:t.data,code:p.invalid_enum_value,options:s}),L}return Ue(e.data)}get options(){return this._def.values}get enum(){const e={};for(const t of this._def.values)e[t]=t;return e}get Values(){const e={};for(const t of this._def.values)e[t]=t;return e}get Enum(){const e={};for(const t of this._def.values)e[t]=t;return e}extract(e,t=this._def){return Nt.create(e,{...this._def,...t})}exclude(e,t=this._def){return Nt.create(this.options.filter(s=>!e.includes(s)),{...this._def,...t})}}Nt.create=Ys;class Ps extends G{_parse(e){const t=X.getValidEnumValues(this._def.values),s=this._getOrReturnCtx(e);if(s.parsedType!==$.string&&s.parsedType!==$.number){const r=X.objectValues(t);return x(s,{expected:X.joinValues(r),received:s.parsedType,code:p.invalid_type}),L}if(this._cache||(this._cache=new Set(X.getValidEnumValues(this._def.values))),!this._cache.has(e.data)){const r=X.objectValues(t);return x(s,{received:s.data,code:p.invalid_enum_value,options:r}),L}return Ue(e.data)}get enum(){return this._def.values}}Ps.create=(n,e)=>new Ps({values:n,typeName:M.ZodNativeEnum,...V(e)});class wn extends G{unwrap(){return this._def.type}_parse(e){const{ctx:t}=this._processInputParams(e);if(t.parsedType!==$.promise&&t.common.async===!1)return x(t,{code:p.invalid_type,expected:$.promise,received:t.parsedType}),L;const s=t.parsedType===$.promise?t.data:Promise.resolve(t.data);return Ue(s.then(r=>this._def.type.parseAsync(r,{path:t.path,errorMap:t.common.contextualErrorMap})))}}wn.create=(n,e)=>new wn({type:n,typeName:M.ZodPromise,...V(e)});class jt extends G{innerType(){return this._def.schema}sourceType(){return this._def.schema._def.typeName===M.ZodEffects?this._def.schema.sourceType():this._def.schema}_parse(e){const{status:t,ctx:s}=this._processInputParams(e),r=this._def.effect||null,a={addIssue:o=>{x(s,o),o.fatal?t.abort():t.dirty()},get path(){return s.path}};if(a.addIssue=a.addIssue.bind(a),r.type==="preprocess"){const o=r.transform(s.data,a);if(s.common.async)return Promise.resolve(o).then(async i=>{if(t.value==="aborted")return L;const c=await this._def.schema._parseAsync({data:i,path:s.path,parent:s});return c.status==="aborted"?L:c.status==="dirty"||t.value==="dirty"?Vt(c.value):c});{if(t.value==="aborted")return L;const i=this._def.schema._parseSync({data:o,path:s.path,parent:s});return i.status==="aborted"?L:i.status==="dirty"||t.value==="dirty"?Vt(i.value):i}}if(r.type==="refinement"){const o=i=>{const c=r.refinement(i,a);if(s.common.async)return Promise.resolve(c);if(c instanceof Promise)throw new Error("Async refinement encountered during synchronous parse operation. Use .parseAsync instead.");return i};if(s.common.async===!1){const i=this._def.schema._parseSync({data:s.data,path:s.path,parent:s});return i.status==="aborted"?L:(i.status==="dirty"&&t.dirty(),o(i.value),{status:t.value,value:i.value})}else return this._def.schema._parseAsync({data:s.data,path:s.path,parent:s}).then(i=>i.status==="aborted"?L:(i.status==="dirty"&&t.dirty(),o(i.value).then(()=>({status:t.value,value:i.value}))))}if(r.type==="transform")if(s.common.async===!1){const o=this._def.schema._parseSync({data:s.data,path:s.path,parent:s});if(!It(o))return L;const i=r.transform(o.value,a);if(i instanceof Promise)throw new Error("Asynchronous transform encountered during synchronous parse operation. Use .parseAsync instead.");return{status:t.value,value:i}}else return this._def.schema._parseAsync({data:s.data,path:s.path,parent:s}).then(o=>It(o)?Promise.resolve(r.transform(o.value,a)).then(i=>({status:t.value,value:i})):L);X.assertNever(r)}}jt.create=(n,e,t)=>new jt({schema:n,typeName:M.ZodEffects,effect:e,...V(t)});jt.createWithPreprocess=(n,e,t)=>new jt({schema:e,effect:{type:"preprocess",transform:n},typeName:M.ZodEffects,...V(t)});class ut extends G{_parse(e){return this._getType(e)===$.undefined?Ue(void 0):this._def.innerType._parse(e)}unwrap(){return this._def.innerType}}ut.create=(n,e)=>new ut({innerType:n,typeName:M.ZodOptional,...V(e)});class Mt extends G{_parse(e){return this._getType(e)===$.null?Ue(null):this._def.innerType._parse(e)}unwrap(){return this._def.innerType}}Mt.create=(n,e)=>new Mt({innerType:n,typeName:M.ZodNullable,...V(e)});class Gn extends G{_parse(e){const{ctx:t}=this._processInputParams(e);let s=t.data;return t.parsedType===$.undefined&&(s=this._def.defaultValue()),this._def.innerType._parse({data:s,path:t.path,parent:t})}removeDefault(){return this._def.innerType}}Gn.create=(n,e)=>new Gn({innerType:n,typeName:M.ZodDefault,defaultValue:typeof e.default=="function"?e.default:()=>e.default,...V(e)});class Jn extends G{_parse(e){const{ctx:t}=this._processInputParams(e),s={...t,common:{...t.common,issues:[]}},r=this._def.innerType._parse({data:s.data,path:s.path,parent:{...s}});return pn(r)?r.then(a=>({status:"valid",value:a.status==="valid"?a.value:this._def.catchValue({get error(){return new st(s.common.issues)},input:s.data})})):{status:"valid",value:r.status==="valid"?r.value:this._def.catchValue({get error(){return new st(s.common.issues)},input:s.data})}}removeCatch(){return this._def.innerType}}Jn.create=(n,e)=>new Jn({innerType:n,typeName:M.ZodCatch,catchValue:typeof e.catch=="function"?e.catch:()=>e.catch,...V(e)});class Os extends G{_parse(e){if(this._getType(e)!==$.nan){const s=this._getOrReturnCtx(e);return x(s,{code:p.invalid_type,expected:$.nan,received:s.parsedType}),L}return{status:"valid",value:e.data}}}Os.create=n=>new Os({typeName:M.ZodNaN,...V(n)});class _a extends G{_parse(e){const{ctx:t}=this._processInputParams(e),s=t.data;return this._def.type._parse({data:s,path:t.path,parent:t})}unwrap(){return this._def.type}}class es extends G{_parse(e){const{status:t,ctx:s}=this._processInputParams(e);if(s.common.async)return(async()=>{const a=await this._def.in._parseAsync({data:s.data,path:s.path,parent:s});return a.status==="aborted"?L:a.status==="dirty"?(t.dirty(),Vt(a.value)):this._def.out._parseAsync({data:a.value,path:s.path,parent:s})})();{const r=this._def.in._parseSync({data:s.data,path:s.path,parent:s});return r.status==="aborted"?L:r.status==="dirty"?(t.dirty(),{status:"dirty",value:r.value}):this._def.out._parseSync({data:r.value,path:s.path,parent:s})}}static create(e,t){return new es({in:e,out:t,typeName:M.ZodPipeline})}}class Yn extends G{_parse(e){const t=this._def.innerType._parse(e),s=r=>(It(r)&&(r.value=Object.freeze(r.value)),r);return pn(t)?t.then(r=>s(r)):s(t)}unwrap(){return this._def.innerType}}Yn.create=(n,e)=>new Yn({innerType:n,typeName:M.ZodReadonly,...V(e)});var M;(function(n){n.ZodString="ZodString",n.ZodNumber="ZodNumber",n.ZodNaN="ZodNaN",n.ZodBigInt="ZodBigInt",n.ZodBoolean="ZodBoolean",n.ZodDate="ZodDate",n.ZodSymbol="ZodSymbol",n.ZodUndefined="ZodUndefined",n.ZodNull="ZodNull",n.ZodAny="ZodAny",n.ZodUnknown="ZodUnknown",n.ZodNever="ZodNever",n.ZodVoid="ZodVoid",n.ZodArray="ZodArray",n.ZodObject="ZodObject",n.ZodUnion="ZodUnion",n.ZodDiscriminatedUnion="ZodDiscriminatedUnion",n.ZodIntersection="ZodIntersection",n.ZodTuple="ZodTuple",n.ZodRecord="ZodRecord",n.ZodMap="ZodMap",n.ZodSet="ZodSet",n.ZodFunction="ZodFunction",n.ZodLazy="ZodLazy",n.ZodLiteral="ZodLiteral",n.ZodEnum="ZodEnum",n.ZodEffects="ZodEffects",n.ZodNativeEnum="ZodNativeEnum",n.ZodOptional="ZodOptional",n.ZodNullable="ZodNullable",n.ZodDefault="ZodDefault",n.ZodCatch="ZodCatch",n.ZodPromise="ZodPromise",n.ZodBranded="ZodBranded",n.ZodPipeline="ZodPipeline",n.ZodReadonly="ZodReadonly"})(M||(M={}));const l=We.create,m=_t.create;vt.create;const oe=bn.create;qt.create;const Sn=Hn.create,va=Qn.create;dt.create;const Et=yn.create,ie=Ge.create,T=ve.create;_n.create;vn.create;xt.create;const xa=xn.create,$n=Nt.create;wn.create;ut.create;Mt.create;const Is={string:n=>We.create({...n,coerce:!0}),number:n=>_t.create({...n,coerce:!0}),boolean:n=>bn.create({...n,coerce:!0}),bigint:n=>vt.create({...n,coerce:!0}),date:n=>qt.create({...n,coerce:!0})};//! Music filter types for the client library
+const Ot=T({value:l(),label:l(),count:m().int().min(0)});T({limit:m().int().min(1).max(1e3).optional().default(50),min_count:m().int().min(0).optional().default(0)});T({genres:ie(Ot),total_count:m().int().min(0)});T({artists:ie(Ot),total_count:m().int().min(0)});T({years:ie(Ot),total_count:m().int().min(0)});const wa=T({min:m().int().min(1).max(5),max:m().int().min(1).max(5),most_common:m().int().min(1).max(5).nullish()}),Sa=T({total_songs:m().int().min(0),rated_songs:m().int().min(0),favorite_songs:m().int().min(0),unique_genres:m().int().min(0),unique_artists:m().int().min(0),unique_years:m().int().min(0)});T({genres:ie(Ot),artists:ie(Ot),years:ie(Ot),rating_range:wa,summary:Sa});const ka=T({challenge:l(),rp:T({id:l(),name:l()}),user:T({id:l(),name:l(),displayName:l()}),pubKeyCredParams:ie(Sn()),timeout:m(),excludeCredentials:ie(Sn()),authenticatorSelection:T({residentKey:l(),requireResidentKey:oe(),userVerification:l()}),attestation:l(),extensions:T({}).optional()}),$a=T({challenge:l(),timeout:m(),rpId:l(),allowCredentials:ie(Sn()),userVerification:l()}),za=T({id:l(),rawId:l(),response:T({attestationObject:l(),clientDataJSON:l()}),type:l()}),Ca=T({id:l(),rawId:l(),response:T({authenticatorData:l().optional(),clientDataJSON:l(),signature:l().optional(),userHandle:l().optional()}),type:l()}),it={baseUrl:"http://localhost:8080",endpoints:{registerStart:{method:"POST",path:"/register_start/{username}",queryParams:T({invite_code:l().optional()}),requestSchema:Et(),responseSchema:T({publicKey:ka})},registerFinish:{method:"POST",path:"/register_finish",requestSchema:za,responseSchema:T({message:l().optional()}).optional()},loginStart:{method:"POST",path:"/login_start/{username}",requestSchema:Et(),responseSchema:T({publicKey:$a})},loginFinish:{method:"POST",path:"/login_finish",requestSchema:Ca,responseSchema:T({message:l().optional()}).optional()},logout:{method:"POST",path:"/logout",requestSchema:Et(),responseSchema:T({message:l().optional()}).optional()},health:{method:"GET",path:"/health",requestSchema:Et(),responseSchema:Et()},authStatus:{method:"GET",path:"/api/whoami",requestSchema:Et(),responseSchema:T({authenticated:oe(),user_id:l().optional(),role:l().optional(),username:l().optional()})}}},Xt={logErrors:!0,logValidationWarnings:!0,logLevel:"warn",throwOnCriticalErrors:!0};function ts(n,e=Xt){return ie(va()).transform(t=>{const s=[],r=[];for(let a=0;a<t.length;a++){const o=n.safeParse(t[a]);o.success?s.push(o.data):r.push({index:a,item:t[a],error:o.error})}return r.length>0&&e.logValidationWarnings&&(console[e.logLevel]||console.warn)(`[Search] Filtered out ${r.length}/${t.length} invalid items in collection`,{errors:r.map(o=>({index:o.index,actualItem:o.item,issues:o.error.issues.map(i=>({path:i.path.join("."),message:i.message,code:i.code,..."received"in i&&{received:i.received},..."expected"in i&&{expected:i.expected}}))})),sampleInvalidItem:r[0]?.item,allInvalidItems:r.map(o=>o.item)}),s})}class Ta{constructor(e=Xt){this.config=e}validateSearchOptions(e,t,s){const r=e.safeParse(t);if(!r.success){if(this.config.logErrors&&(console[this.config.logLevel]||console.error)(`[Search] ${s} validation failed:`,{errors:r.error.issues,data:t}),this.config.throwOnCriticalErrors)throw new Error(`${s} validation failed: ${r.error.message}`);return t}return r.data}validateCollection(e,t,s){const r=[],a=[];for(let o=0;o<t.length;o++){const i=e.safeParse(t[o]);i.success?r.push(i.data):a.push({index:o,error:i.error})}return a.length>0&&this.config.logValidationWarnings&&(console[this.config.logLevel]||console.warn)(`[Search] ${s}: ${a.length}/${t.length} items failed validation`,{successRate:`${r.length}/${t.length}`,errors:a.slice(0,3).map(i=>({index:i.index,issues:i.error.issues.map(c=>({path:c.path.join("."),message:c.message}))})),...a.length>3&&{additionalErrors:a.length-3}}),r}validateResponse(e,t,s){const r=e.safeParse(t);if(!r.success){if(this.config.logErrors&&(console[this.config.logLevel]||console.error)(`[Search] ${s} response validation failed:`,{errors:r.error.issues,rawResponse:t}),this.config.throwOnCriticalErrors)throw new Error(`${s} response validation failed: ${r.error.message}`);return t}return r.data}updateConfig(e){this.config={...this.config,...e}}getConfig(){return{...this.config}}}const on=new Ta;$n(["music","photos","videos","documents"]);const Ra=$n(["websearch","plainto","phrase"]),Aa=$n(["relevance","title","artist","album","created_at","rating"]),Ea=$n(["asc","desc"]),Pa=T({q:l().min(1,"Query is required"),structured:oe().nullish(),search_type:Ra.nullish(),page:m().min(1).nullish(),page_size:m().min(1).max(100).nullish(),sort_by:Aa.nullish(),sort_direction:Ea.nullish()});Pa.extend({artist:l().nullish(),album:l().nullish(),genre:l().nullish(),year:m().nullish(),rating_min:m().min(1).max(5).nullish(),rating_max:m().min(1).max(5).nullish(),favorites_only:oe().nullish()});T({q:l().min(1,"Query is required"),limit:m().min(1).max(50).nullish()});const Oa=T({id:l(),result_type:l(),title:l(),subtitle:l().nullish(),description:l().nullish(),thumbnail_blob_id:l().nullish(),media_blob_id:l().nullish(),relevance_score:m(),metadata:xa(Sn()),created_at:Is.date(),updated_at:Is.date()}),Ia=T({text:l(),category:l(),frequency:m()}),qa=T({id:l(),media_blob_id:l(),thumbnail_blob_id:l().nullish(),waveform_blob_id:l().nullish(),title:l(),artist:l().nullish(),album:l().nullish(),album_artist:l().nullish(),track_number:m().nullish(),disc_number:m().nullish(),genre:l().nullish(),year:m().nullish(),bpm:m().nullish(),key_signature:l().nullish(),rating:m().nullish(),is_favorite:oe(),tags:ie(l()),search_rank:m(),created_at:l(),updated_at:l()}),Na=ts(Oa,Xt),Xs=ts(Ia,Xt),ja=ts(qa,Xt),qs=T({total_count:m(),page:m(),page_size:m(),total_pages:m(),query_time_ms:m(),results:Na,suggestions:Xs}),Ma=T({total_count:m(),page:m(),page_size:m(),query_time_ms:m(),songs:ja}),La=T({suggestions:Xs,count:m()}),pe={validateResponse(n,e,t){const s=n.safeParse(e);if(s.success)return s.data;throw console.error(`${t} validation failed:`,s.error),console.error("Raw data:",e),new Error(`Invalid ${t} response format`)},parseCollection(n,e,t){if(!Array.isArray(e))return console.error(`${t} collection parsing failed: data is not an array`,e),[];const s=[];let r=0;return e.forEach((a,o)=>{const i=n.safeParse(a);i.success?s.push(i.data):(r++,console.warn(`Failed to parse ${t} at index ${o}:`,{error:i.error.errors,data:a}))}),r>0&&console.warn(`${t} collection: ${r} items failed validation, ${s.length} items parsed successfully`),s},parseCollectionResponse(n,e,t,s,r){const a=this.validateResponse(n,t,s);if(a&&typeof a=="object"&&r in a){const o=a[r],i=this.parseCollection(e,o,s);return{...a,[r]:i}}return a},safeParse(n,e,t){const s=n.safeParse(e);if(s.success)return s.data;console.warn(`${t} parsing failed:`,{error:s.error.errors,data:e})}};class Bt extends Error{constructor(e,t,s,r,a=!1,o){super(e),this.status=t,this.responseText=s,this.context=r,this.retryable=a,this.endpoint=o,this.name="MusicApiError"}static fromApiError(e,t){return new Bt(e.message,e.status,e.responseText,t,this.isRetryable(e.status),t.endpoint)}static isRetryable(e){return e>=500||e===408||e===429}toLogEntry(){return{type:"music_api_error",message:this.message,status:this.status,endpoint:this.context.endpoint,operation:this.context.operation,timestamp:this.context.timestamp,retryable:this.retryable,params:this.context.params,data:this.context.data}}}class Da{logLevel="info";constructor(e){this.logLevel=e||"info"}logError(e){console.error("🎵 Music API Error:",e.toLogEntry()),e.context.params&&console.error("📝 Request params:",e.context.params),e.context.data&&console.error("📦 Request data:",e.context.data)}logSuccess(e,t){this.logLevel==="debug"&&console.log("✅ Music API Success:",{operation:e.operation,endpoint:e.endpoint,timestamp:e.timestamp,resultType:t?typeof t:"void",resultLength:Array.isArray(t)?t.length:void 0})}logWarning(e,t){["warn","info","debug"].includes(this.logLevel)&&console.warn("⚠️ Music API Warning:",{message:e,...t,timestamp:new Date().toISOString()})}logInfo(e,t){["info","debug"].includes(this.logLevel)&&console.info("ℹ️ Music API Info:",{message:e,...t,timestamp:new Date().toISOString()})}}class Za{logger;retryOptions;constructor(e=new Da,t={maxRetries:3,baseDelay:1e3,maxDelay:1e4,backoffFactor:2}){this.logger=e,this.retryOptions=t}async handleWithRetry(e,t){let s=null,r=0;for(;r<=this.retryOptions.maxRetries;)try{const a=await e();return r>0&&this.logger.logInfo(`Operation succeeded after ${r} retries`,t),this.logger.logSuccess(t,a),a}catch(a){r++;let o;if(a&&typeof a=="object"&&"status"in a?o=Bt.fromApiError(a,t):a instanceof Bt?o=a:o=new Bt(a instanceof Error?a.message:"Unknown error",0,String(a),t,!1),s=o,this.logger.logError(o),!o.retryable||r>this.retryOptions.maxRetries)break;const i=Math.min(this.retryOptions.baseDelay*Math.pow(this.retryOptions.backoffFactor,r-1),this.retryOptions.maxDelay);this.logger.logWarning(`Retrying operation in ${i}ms (attempt ${r}/${this.retryOptions.maxRetries})`,t),await this.delay(i)}throw s||new Error("Operation failed with no error details")}delay(e){return new Promise(t=>setTimeout(t,e))}createContext(e,t,s,r){return{endpoint:e,operation:t,params:s,data:r,timestamp:new Date().toISOString()}}withGracefulDegradation(e,t,s){return this.handleWithRetry(e,s).catch(r=>(this.logger.logWarning("Operation failed, using fallback value",{...s}),t))}withGracefulCollection(e,t){return this.withGracefulDegradation(e,[],t)}}const ot=new Za,Me={async withErrorHandling(n,e,t,s,r){const a=ot.createContext(e,t,s,r);return ot.handleWithRetry(n,a)},async withGracefulCollection(n,e,t,s){const r=ot.createContext(e,t,s);return ot.withGracefulCollection(n,r)},async withGracefulPaginatedCollection(n,e,t,s){const r=ot.createContext(e,t,s),a={items:[],pagination:{total:0,page:1,page_size:50,total_pages:0,has_next:!1,has_prev:!1}};return ot.withGracefulDegradation(n,a,r)},async withFallback(n,e,t,s,r){const a=ot.createContext(t,s,r);return ot.withGracefulDegradation(n,e,a)},createUserFriendlyError(n){return n.status===0?"Network connection failed. Please check your internet connection.":n.status===401?"Authentication required. Please log in again.":n.status===403?"You don't have permission to perform this action.":n.status===404?"The requested item was not found.":n.status===429?"Too many requests. Please wait a moment and try again.":n.status>=500?"Server error. Please try again later.":"An unexpected error occurred. Please try again."},shouldShowToUser(n){return n.retryable&&n.status>=500?!1:n.status>=400&&n.status<500}},Ks=l().uuid(),ct=T({id:Ks,title:l(),artist:l().nullable(),album:l().nullable(),album_artist:l().nullable(),track_number:m().nullable(),disc_number:m().nullable(),duration_seconds:m().nullable(),genre:l().nullable(),year:m().nullable(),bpm:m().nullable(),key_signature:l().nullable(),rating:m().nullable(),is_favorite:oe(),tags:ie(l()),display_title:l(),detailed_display_title:l(),created_at:l(),media_blob_id:l(),thumbnail_blob_id:l().nullable(),waveform_blob_id:l().nullable(),thumbnail_blob_ids:ie(l())}),Fa=T({position:m(),song:ct,added_at:l()});T({song:ct,id:l()});const Ua=T({songs:ie(ct),total:m(),page:m().optional(),page_size:m().optional(),total_pages:m().optional(),has_next:oe(),has_prev:oe()}),Va=T({playlist:T({id:Ks,title:l(),description:l().nullable(),is_public:oe(),is_collaborative:oe(),song_count:m().nullable(),visibility:l(),created_at:l()}),songs:ie(Fa)});T({is_favorite:oe().optional(),rating:m().optional()});T({message:l(),song:ct});const er=T({artist:l(),song_count:m(),album_count:m(),total_duration:m(),genres:ie(l()),avg_rating:m().nullable(),favorite_count:m()}),Ba=T({artists:ie(er),total:m(),page:m().optional(),page_size:m().optional(),total_pages:m().optional(),has_next:oe(),has_prev:oe()}),Ha=T({songs:ie(T({id:l().uuid(),title:l(),artist:l().nullable(),album:l().nullable(),album_artist:l().nullable(),track_number:m().nullable(),disc_number:m().nullable(),duration_seconds:m().nullable(),genre:l().nullable(),year:m().nullable(),bpm:m().nullable(),key_signature:l().nullable(),rating:m().nullable(),is_favorite:oe(),tags:ie(l()),display_title:l(),detailed_display_title:l(),created_at:l(),media_blob_id:l(),thumbnail_blob_id:l().nullable(),waveform_blob_id:l().nullable(),thumbnail_blob_ids:ie(l())})),total:m().optional(),artist:l().optional()}),Qa=l().uuid(),Xn=T({album:l().nullable(),artist:l().nullable(),year:m().nullable(),track_count:m(),disc_count:m(),total_duration:l().nullable(),genres:l().nullable(),avg_rating:m().nullable(),favorite_count:m(),album_thumbnail_id:l().nullable()}),Wa=T({albums:ie(Xn),total:m(),page:m().optional(),page_size:m().optional(),total_pages:m().optional(),has_next:oe(),has_prev:oe()}),Ga=T({album:l(),artist:l().nullable(),tracks:ie(T({song_id:Qa,title:l(),artist:l().nullable(),disc_number:m().nullable(),track_number:m().nullable(),duration:m().nullable(),genre:l().nullable(),year:m().nullable(),rating:m().nullable(),is_favorite:oe(),media_blob_id:l(),thumbnail_id:l().nullable(),waveform_id:l().nullable(),track_display:l()}))}),Ja=l().uuid(),Ht=T({id:Ja,title:l(),description:l().nullable(),is_public:oe(),is_collaborative:oe(),song_count:m().nullable(),visibility:l(),created_at:l(),media_blob_id:l().nullable(),thumbnail_blob_id:l().nullable()}),Ya=T({playlists:ie(Ht),total:m(),page:m().optional(),page_size:m().optional(),total_pages:m().optional(),has_next:oe(),has_prev:oe()}),Xa=T({title:l(),description:l().nullable(),is_public:oe(),is_collaborative:oe(),song_ids:ie(l()).optional(),media_blob_id:l().nullable().optional(),thumbnail_blob_id:l().nullable().optional()}),Ka=T({title:l().optional(),description:l().nullable().optional(),is_public:oe().optional(),is_collaborative:oe().optional(),media_blob_id:l().nullable().optional(),thumbnail_blob_id:l().nullable().optional()}),ei=T({song_ids:ie(l())}),ti=T({song_ids:ie(l())});T({song_id:l(),to_position:m()});T({song_ids:ie(l())});T({title:l(),is_public:oe()});T({playlist:Ht,song_count:m(),total_duration:m(),song_preview:ie(l())});const Le={async getSongs(n){return Me.withGracefulPaginatedCollection(async()=>{const e=n||{},t=await this.makeRequest("GET","/api/media/songs",{params:e}),s=pe.validateResponse(Ua,t,"Songs"),r=pe.parseCollection(ct,s.songs||[],"Songs"),a={total:s.total,page:s.page,page_size:s.page_size,total_pages:s.total_pages,has_next:s.has_next,has_prev:s.has_prev};return{items:r,pagination:a}},"/api/media/songs","getSongs",n||{}).then(e=>({songs:e.items,pagination:e.pagination}))},async getArtists(n){return Me.withGracefulPaginatedCollection(async()=>{const e=n||{},t=await this.makeRequest("GET","/api/media/artists",{params:e}),s=pe.validateResponse(Ba,t,"Artists"),r=pe.parseCollection(er,s.artists||[],"Artists"),a={total:s.total,page:s.page,page_size:s.page_size,total_pages:s.total_pages,has_next:s.has_next,has_prev:s.has_prev};return{items:r,pagination:a}},"/api/media/artists","getArtists",n||{}).then(e=>({artists:e.items,pagination:e.pagination}))},async getArtistSongs(n,e){return Me.withGracefulPaginatedCollection(async()=>{const t=e||{},s=await this.makeRequest("GET",`/api/media/artists/${encodeURIComponent(n)}/songs`,{params:t}),r=pe.validateResponse(Ha,s,"Artist Songs"),a=pe.parseCollection(ct,r.songs||[],"Artist Songs"),o={total:a.length,page:1,page_size:a.length,total_pages:1,has_next:!1,has_prev:!1};return{items:a,pagination:o}},`/api/media/artists/${encodeURIComponent(n)}/songs`,"getArtistSongs",{artist:n,...e}).then(t=>({songs:t.items,pagination:t.pagination}))},async getAlbums(n){return Me.withGracefulPaginatedCollection(async()=>{const e=n||{},t=await this.makeRequest("GET","/api/media/albums",{params:e});if(Array.isArray(t)){const o=pe.parseCollection(Xn,t,"Album Summaries"),i={total:o.length,page:1,page_size:o.length,total_pages:1,has_next:!1,has_prev:!1};return{items:o,pagination:i}}const s=pe.validateResponse(Wa,t,"Album Summaries"),r=pe.parseCollection(Xn,s.albums||[],"Album Summaries"),a={total:s.total,page:s.page,page_size:s.page_size,total_pages:s.total_pages,has_next:s.has_next,has_prev:s.has_prev};return{items:r,pagination:a}},"/api/media/albums","getAlbums",n||{}).then(e=>({albums:e.items,pagination:e.pagination}))},async getAlbumTracks(n,e){return Me.withGracefulCollection(async()=>{const t=e?{artist:e}:{},s=await this.makeRequest("GET",`/api/media/albums/${encodeURIComponent(n)}/tracks`,{params:t}),r=pe.validateResponse(Ga,s,"Album Tracks"),o=(r.tracks||[]).map(i=>({id:i.song_id,title:i.title,artist:i.artist,album:r.album,album_artist:i.artist,track_number:i.track_number,disc_number:i.disc_number,duration_seconds:i.duration,genre:i.genre,year:i.year,bpm:null,key_signature:null,rating:i.rating,is_favorite:i.is_favorite,tags:[],display_title:i.track_display,detailed_display_title:i.track_display,created_at:new Date().toISOString(),media_blob_id:i.media_blob_id,thumbnail_blob_id:i.thumbnail_id,waveform_blob_id:i.waveform_id,thumbnail_blob_ids:[]}));return pe.parseCollection(ct,o,"Album Tracks")},`/api/media/albums/${encodeURIComponent(n)}/tracks`,"getAlbumTracks",{album:n,artist:e})},async getPlaylists(n){return Me.withGracefulPaginatedCollection(async()=>{const e=n||{},t=await this.makeRequest("GET","/api/media/playlists",{params:e}),s=pe.validateResponse(Ya,t,"Playlists"),r=pe.parseCollection(Ht,s.playlists||[],"Playlists"),a={total:s.total,page:s.page,page_size:s.page_size,total_pages:s.total_pages,has_next:s.has_next,has_prev:s.has_prev};return{items:r,pagination:a}},"/api/media/playlists","getPlaylists",n||{}).then(e=>({playlists:e.items,pagination:e.pagination}))},async getPlaylistSongs(n){return Me.withGracefulCollection(async()=>{const e=await this.makeRequest("GET",`/api/media/playlists/${n}/songs`),r=(pe.validateResponse(Va,e,"Playlist Songs").songs||[]).map(a=>a.song);return pe.parseCollection(ct,r,"Playlist Songs")},`/api/media/playlists/${n}/songs`,"getPlaylistSongs",{playlistId:n})},async createPlaylist(n){return Me.withErrorHandling(async()=>{const e=pe.validateResponse(Xa,n,"Create Playlist Request"),t=await this.makeRequest("POST","/api/media/playlists",{data:e,headers:{"Content-Type":"application/json"}});return pe.validateResponse(Ht,t,"Created Playlist")},"/api/media/playlists","createPlaylist",{},n)},async updatePlaylist(n,e){return Me.withErrorHandling(async()=>{const t=pe.validateResponse(Ka,e,"Update Playlist Request"),s=await this.makeRequest("PUT",`/api/media/playlists/${n}`,{data:t,headers:{"Content-Type":"application/json"}});return pe.validateResponse(Ht,s,"Updated Playlist")},`/api/media/playlists/${n}`,"updatePlaylist",{playlistId:n},e)},async addSongsToPlaylist(n,e){return Me.withErrorHandling(async()=>{const t={song_ids:e},s=pe.validateResponse(ei,t,"Add Songs to Playlist Request");await this.makeRequest("POST",`/api/media/playlists/${n}/songs`,{data:s,headers:{"Content-Type":"application/json"}})},`/api/media/playlists/${n}/songs`,"addSongsToPlaylist",{playlistId:n,songCount:e.length},{song_ids:e})},async removeSongsFromPlaylist(n,e){return Me.withErrorHandling(async()=>{const t={song_ids:e},s=pe.validateResponse(ti,t,"Remove Songs from Playlist Request");await this.makeRequest("DELETE",`/api/media/playlists/${n}/songs`,{data:s,headers:{"Content-Type":"application/json"}})},`/api/media/playlists/${n}/songs`,"removeSongsFromPlaylist",{playlistId:n,songCount:e.length},{song_ids:e})},async deletePlaylist(n){return Me.withErrorHandling(async()=>{await this.makeRequest("DELETE",`/api/media/playlists/${n}`)},`/api/media/playlists/${n}`,"deletePlaylist",{playlistId:n})},async getPlaylistSummaries(){return Me.withGracefulCollection(async()=>await this.makeRequest("GET","/api/media/playlists/summaries"),"/api/media/playlists/summaries","getPlaylistSummaries")}};class Ee extends Error{constructor(e,t,s,r){super(e),this.status=t,this.responseText=s,this.endpoint=r,this.name="ApiError"}static async fromResponse(e,t){const s=await e.text();return new Ee(`HTTP ${e.status}: ${s}`,e.status,s,t)}}class tr{baseUrl;defaultHeaders;timeout;credentials;constructor(e={}){this.baseUrl=e.baseUrl??it.baseUrl,this.defaultHeaders=e.defaultHeaders??{},this.timeout=e.timeout??3e4,this.credentials=e.credentials??"include"}setHeader(e,t){this.defaultHeaders[e]=t}removeHeader(e){delete this.defaultHeaders[e]}getHeaders(){return{...this.defaultHeaders}}setBaseUrl(e){this.baseUrl=e}setTimeout(e){this.timeout=e}setCredentials(e){this.credentials=e}getBaseUrl(){return this.baseUrl}buildUrl(e,t,s){let r=e;if(t&&Object.entries(t).forEach(([a,o])=>{r=r.replace(`{${a}}`,encodeURIComponent(o))}),s){const a=new URLSearchParams;Object.entries(s).forEach(([i,c])=>{c!=null&&a.append(i,String(c))});const o=a.toString();o&&(r+=`?${o}`)}return`${this.baseUrl}${r}`}async request(e,t,s={}){const{body:r,headers:a={},responseSchema:o,requestSchema:i,endpoint:c}=s;i&&r!==void 0&&i.parse(r);const d={"Content-Type":"application/json",...this.defaultHeaders,...a},g=new AbortController,f=setTimeout(()=>g.abort(),this.timeout);try{const A=await fetch(t,{method:e,headers:d,body:r!==void 0?JSON.stringify(r):null,credentials:this.credentials,signal:g.signal});if(clearTimeout(f),!A.ok)throw await Ee.fromResponse(A,c);if(o instanceof yn||!o)return;let q;return A.headers.get("content-type")?.includes("application/json")?q=await A.json():q=await A.text()||void 0,o?o.parse(q):q}catch(A){throw clearTimeout(f),A instanceof Ee?A:A instanceof DOMException&&A.name==="AbortError"?new Ee(`Request timeout after ${this.timeout}ms`,408,"Request Timeout",c):new Ee(`Network error: ${A instanceof Error?A.message:"Unknown error"}`,0,String(A),c)}}async registerStart(e,t){const s=it.endpoints.registerStart,r=this.buildUrl(s.path,{username:e},t);return this.request(s.method,r,{requestSchema:s.requestSchema,responseSchema:s.responseSchema,endpoint:"registerStart"})}async registerFinish(e){const t=it.endpoints.registerFinish,s=this.buildUrl(t.path);return this.request(t.method,s,{body:e,requestSchema:t.requestSchema,responseSchema:t.responseSchema,endpoint:"registerFinish"})}async loginStart(e){const t=it.endpoints.loginStart,s=this.buildUrl(t.path,{username:e});return this.request(t.method,s,{requestSchema:t.requestSchema,responseSchema:t.responseSchema,endpoint:"loginStart"})}async loginFinish(e){const t=it.endpoints.loginFinish,s=this.buildUrl(t.path);return this.request(t.method,s,{body:e,requestSchema:t.requestSchema,responseSchema:t.responseSchema,endpoint:"loginFinish"})}async logout(){const e=it.endpoints.logout,t=this.buildUrl(e.path);return this.request(e.method,t,{requestSchema:e.requestSchema,responseSchema:e.responseSchema,endpoint:"logout"})}async authStatus(){const e=it.endpoints.authStatus,t=this.buildUrl(e.path);return this.request(e.method,t,{requestSchema:e.requestSchema,responseSchema:e.responseSchema,endpoint:"authStatus"})}async health(){const e=it.endpoints.health,t=this.buildUrl(e.path);return this.request(e.method,t,{requestSchema:e.requestSchema,responseSchema:e.responseSchema,endpoint:"health"})}async makeRequest(e,t,s={}){const r=new URL(t,this.baseUrl);s.params&&Object.entries(s.params).forEach(([g,f])=>{f!=null&&r.searchParams.append(g,String(f))});const a={...this.defaultHeaders,...s.headers};s.data&&e!=="GET"&&(a["Content-Type"]="application/json");const o=await fetch(r.toString(),{method:e,headers:a,body:s.data?JSON.stringify(s.data):void 0,credentials:this.credentials});if(!o.ok){const g=await o.text();throw new Ee(`Request failed: ${o.status} ${o.statusText}`,o.status,g,r.toString())}const i=o.headers.get("content-length"),c=o.headers.get("content-type");if(i==="0"||!c?.includes("application/json")&&e==="DELETE")return null;const d=await o.text();if(!d.trim())return null;try{return JSON.parse(d)}catch{return console.warn("Failed to parse response as JSON:",d),d}}async searchMusic(e,t={}){const s={q:e,...t};console.log("🔍 API searchMusic called with params:",s),console.log("🔍 Query:",e),console.log("🔍 Options:",t);try{const r=await this.makeRequest("GET","/api/music/search",{params:s});return on.validateResponse(qs,r,"Music search")}catch(r){throw r instanceof Ee?new Ee(`Music search failed: ${r.message}`,r.status,r.responseText,"/api/music/search"):r}}async searchSongs(e,t={}){const s={q:e,...t};try{const r=await this.makeRequest("GET","/api/music/search/songs",{params:s});return on.validateResponse(Ma,r,"Songs search")}catch(r){throw r instanceof Ee?new Ee(`Songs search failed: ${r.message}`,r.status,r.responseText,"/api/music/search/songs"):r}}async getMusicSuggestions(e,t={}){const s={q:e,...t};try{const r=await this.makeRequest("GET","/api/music/search/suggestions",{params:s});return on.validateResponse(La,r,"Music suggestions")}catch(r){throw r instanceof Ee?new Ee(`Music suggestions failed: ${r.message}`,r.status,r.responseText,"/api/music/search/suggestions"):r}}async filterMusic(e={}){const t={...e};console.log("🎛️ API filterMusic called with params:",t),console.log("🎛️ Filter options:",e);try{const s=await this.makeRequest("GET","/api/music/filter",{params:t});return on.validateResponse(qs,s,"Music filter")}catch(s){throw s instanceof Ee?new Ee(`Music filter failed: ${s.message}`,s.status,s.responseText,"/api/music/filter"):s}}async getSongs(e){return Le.getSongs.call(this,e)}async getArtists(e){return Le.getArtists.call(this,e)}async getArtistSongs(e,t){return Le.getArtistSongs.call(this,e,t)}async getAlbums(e){return Le.getAlbums.call(this,e)}async getAlbumTracks(e,t){return Le.getAlbumTracks.call(this,e,t)}async getPlaylists(e){return Le.getPlaylists.call(this,e)}async getPlaylistSongs(e){return Le.getPlaylistSongs.call(this,e)}async createPlaylist(e){return Le.createPlaylist.call(this,e)}async updatePlaylist(e,t){return Le.updatePlaylist.call(this,e,t)}async addSongsToPlaylist(e,t){return Le.addSongsToPlaylist.call(this,e,t)}async removeSongsFromPlaylist(e,t){return Le.removeSongsFromPlaylist.call(this,e,t)}async deletePlaylist(e){return Le.deletePlaylist.call(this,e)}async getPlaylistSummaries(){return Le.getPlaylistSummaries.call(this)}}const ni=new tr;function si(n,e){let t;return(...s)=>{clearTimeout(t),t=setTimeout(()=>n(...s),e)}}function ri(n){const[e,t]=k(n.initialQuery||""),[s,r]=k(n.initialDomain||"music"),[a,o]=k(null),[i,c]=k(null),[d,g]=k(!1),[f,A]=k(null),q=ae(()=>{const he=a(),Se=i();return(he?.results?.length||0)>0||(Se?.songs?.length||0)>0}),E=ae(()=>{const he=a(),Se=i();return(he?.results?.length||0)+(Se?.songs?.length||0)}),z=ae(()=>e().trim().length===0),Q=ae(()=>e().trim().length>0&&!d());Qt(()=>{e(),f()&&A(null)});const B=async he=>{const Se=e().trim();if(!Se){o(null);return}g(!0),A(null);try{const fe=await n.apiClient.searchMusic(Se,he);o(fe),c(null)}catch(fe){const Oe=fe instanceof Error?fe:new Error(String(fe));A(Oe),o(null),n.onError&&n.onError(Oe)}finally{g(!1)}},S=async he=>{const Se=e().trim();if(!Se){c(null);return}g(!0),A(null);try{const fe=await n.apiClient.searchSongs(Se,he);c(fe),o(null)}catch(fe){const Oe=fe instanceof Error?fe:new Error(String(fe));A(Oe),c(null),n.onError&&n.onError(Oe)}finally{g(!1)}},N=si(B,n.debounceMs||300);return Qt(()=>{n.autoSearch!==!1&&(e().trim().length>0?N():(o(null),c(null)))}),{query:e,setQuery:t,domain:s,setDomain:r,results:a,songsResults:i,loading:d,error:f,clearError:()=>{A(null)},search:B,searchSongs:S,clearResults:()=>{o(null),c(null)},hasResults:q,resultsCount:E,isEmpty:z,canSearch:Q}}function ai(n,e){let t;return(...s)=>{clearTimeout(t),t=setTimeout(()=>n(...s),e)}}function ii(n){const[e,t]=k([]),[s,r]=k(!1),[a,o]=k(null),i=()=>n.minQueryLength??2,c=()=>n.maxSuggestions??10,d=()=>n.enabled??!0,g=ae(()=>e().length>0),f=ae(()=>e().length),A=ae(()=>n.query().trim().length===0),q=async S=>{if(!d())return;const N=S.trim();if(N.length<i()){t([]);return}r(!0),o(null);try{const W={q:N,limit:c()},xe=await n.apiClient.getMusicSuggestions(N,W);t(xe.suggestions)}catch(W){const xe=W instanceof Error?W:new Error(String(W));o(xe),t([]),n.onError&&n.onError(xe)}finally{r(!1)}},E=ai(q,n.debounceMs||300);return Qt(()=>{const S=n.query();d()?E(S):t([])}),Qt(()=>{n.query(),a()&&o(null)}),{suggestions:e,loading:s,error:a,hasSuggestions:g,suggestionsCount:f,isEmpty:A,refresh:async()=>{const S=n.query();await q(S)},clearSuggestions:()=>{t([])},clearError:()=>{o(null)}}}const Ns=300,oi=50,Nn={artist:"",album:"",genre:"",year:null,rating_min:null,rating_max:null,favorites_only:!1};function nr(n={}){const[e,t]=k(n.initialQuery||""),[s,r]=k(n.initialDomain||"music"),[a,o]=k({...Nn}),i=n.maxHistoryItems||oi,[c,d]=k([]),[g,f]=k(!1),[A,q]=k(Ns),[E,z]=k(!1),[Q,B]=k(Ns),[S,N]=k(""),[W,xe]=k("music"),[he,Se]=k(1),[fe,Oe]=k(20),[me,wt]=k(""),[Be,O]=k("");return{query:e,setQuery:t,domain:s,setDomain:r,filters:a,setFilters:o,updateFilter:(y,H)=>{const ft=a();let He=H;(H===""||H===null||H===void 0)&&(y==="favorites_only"?He=!1:y==="year"||y==="rating_min"||y==="rating_max"?He=null:He="");const Xe={...ft,[y]:He};o(Xe)},clearFilters:()=>{o({...Nn})},searchHistory:c,addToHistory:y=>{if(!n.enableHistory)return;const H=y.trim();if(!H)return;const He=c().filter(Tn=>Tn!==H),Xe=[H,...He].slice(0,i);d(Xe)},removeFromHistory:y=>{if(!n.enableHistory)return;const ft=c().filter(He=>He!==y);d(ft)},clearHistory:()=>{d([])},isSearchPanelOpen:g,setIsSearchPanelOpen:f,toggleSearchPanel:()=>{f(!g())},searchPanelWidth:A,setSearchPanelWidth:q,isFiltersPanelOpen:E,setIsFiltersPanelOpen:z,toggleFiltersPanel:()=>{z(!E())},filtersPanelWidth:Q,setFiltersPanelWidth:B,lastSearchQuery:S,setLastSearchQuery:N,lastSearchDomain:W,setLastSearchDomain:xe,currentPage:he,setCurrentPage:Se,pageSize:fe,setPageSize:Oe,sortBy:me,setSortBy:wt,sortDirection:Be,setSortDirection:O,toggleSortDirection:()=>{const y=Be();O(y===""?"desc":y==="desc"?"asc":"desc")},getMusicSearchOptions:()=>{const y=a(),H={q:e(),page:he(),page_size:fe(),sort_by:me()||"relevance",sort_direction:Be()||"desc"};return y.artist&&y.artist.trim()&&(H.artist=y.artist),y.album&&y.album.trim()&&(H.album=y.album),y.genre&&y.genre.trim()&&(H.genre=y.genre),y.year!==null&&y.year!==void 0&&(H.year=y.year),y.rating_min!==null&&y.rating_min!==void 0&&(H.rating_min=y.rating_min),y.rating_max!==null&&y.rating_max!==void 0&&(H.rating_max=y.rating_max),y.favorites_only===!0&&(H.favorites_only=!0),H},getSongsSearchOptions:()=>{const y=a(),H={q:e(),page:he(),page_size:fe(),sort_by:me()||"relevance",sort_direction:Be()||"desc"};return y.artist&&y.artist.trim()&&(H.artist=y.artist),y.album&&y.album.trim()&&(H.album=y.album),y.genre&&y.genre.trim()&&(H.genre=y.genre),y.year!==null&&y.year!==void 0&&(H.year=y.year),y.rating_min!==null&&y.rating_min!==void 0&&(H.rating_min=y.rating_min),y.rating_max!==null&&y.rating_max!==void 0&&(H.rating_max=y.rating_max),y.favorites_only===!0&&(H.favorites_only=!0),H},reset:()=>{t(""),r("music"),o({...Nn}),Se(1),wt(""),O(""),N(""),xe("music")},hasActiveFilters:()=>{const y=a();return y.artist&&y.artist.trim()!==""||y.album&&y.album.trim()!==""||y.genre&&y.genre.trim()!==""||y.year!==null&&y.year!==void 0||y.rating_min!==null&&y.rating_min!==void 0||y.rating_max!==null&&y.rating_max!==void 0||y.favorites_only===!0},getFilterCount:()=>{const y=a();let H=0;return y.artist&&y.artist.trim()!==""&&H++,y.album&&y.album.trim()!==""&&H++,y.genre&&y.genre.trim()!==""&&H++,y.year!==null&&y.year!==void 0&&H++,y.rating_min!==null&&y.rating_min!==void 0&&H++,y.rating_max!==null&&y.rating_max!==void 0&&H++,y.favorites_only===!0&&H++,H}}}function li(n){const e=ae(()=>{const q=n.searchResults(),E=n.songsResults(),z=[];return q?.results&&z.push(...q.results),E?.songs&&z.push(...E.songs),z}),t=ae(()=>{const q=e(),E=n.searchState.filters();return q.filter(z=>{const Q="artist"in z;return!(E.artist&&Q&&z.artist&&!z.artist.toLowerCase().includes(E.artist.toLowerCase())||E.album&&Q&&z.album&&!z.album.toLowerCase().includes(E.album.toLowerCase())||E.genre&&Q&&z.genre&&!z.genre.toLowerCase().includes(E.genre.toLowerCase())||E.year&&Q&&z.year&&z.year!==E.year||E.rating_min&&Q&&z.rating&&z.rating<E.rating_min||E.rating_max&&Q&&z.rating&&z.rating>E.rating_max||E.favorites_only&&Q&&!z.is_favorite)})}),s=ae(()=>{const q=t(),E=n.searchState.sortBy(),z=n.searchState.sortDirection();return[...q].sort((B,S)=>{let N,W;switch(E){case"title":N=B.title?.toLowerCase()||"",W=S.title?.toLowerCase()||"";break;case"artist":N=("artist"in B?B.artist?.toLowerCase():"")||"",W=("artist"in S?S.artist?.toLowerCase():"")||"";break;case"album":N=("album"in B?B.album?.toLowerCase():"")||"",W=("album"in S?S.album?.toLowerCase():"")||"";break;case"created_at":N=B.created_at?new Date(B.created_at).getTime():0,W=S.created_at?new Date(S.created_at).getTime():0;break;case"rating":N=("rating"in B?B.rating:0)||0,W=("rating"in S?S.rating:0)||0;break;case"relevance":default:return 0}return N<W?z==="asc"?-1:1:N>W?z==="asc"?1:-1:0})}),r=ae(()=>s()),a=ae(()=>{const q=r(),E={},z={},Q={},B={};return q.forEach(S=>{const N="artist"in S;N&&S.artist&&(E[S.artist]||(E[S.artist]=[]),E[S.artist].push(S)),N&&S.album&&(z[S.album]||(z[S.album]=[]),z[S.album].push(S)),N&&S.genre&&(Q[S.genre]||(Q[S.genre]=[]),Q[S.genre].push(S)),N&&S.year&&(B[S.year]||(B[S.year]=[]),B[S.year].push(S))}),{byArtist:E,byAlbum:z,byGenre:Q,byYear:B}}),o=ae(()=>{const q=n.searchResults(),E=n.songsResults(),z=n.searchState.currentPage(),Q=n.searchState.pageSize(),B=q?.total_count||E?.total_count||0,S=Math.ceil(B/Q);return{totalResults:B,totalPages:S,currentPage:z,hasNextPage:z<S,hasPrevPage:z>1,resultsPerPage:Q}}),i=ae(()=>{if(n.integrationMode!=="freqhole-integrated"||!n.webSocketItems)return r();const q=r(),E=n.webSocketItems(),z=new Set(q.map(B=>B.id)),Q=E.filter(B=>!z.has(B.id));return[...q,...Q]}),c=ae(()=>i()),d=ae(()=>r().length===0),g=ae(()=>r().length>0);return{processedResults:r,integratedResults:i,searchStats:o,groupedResults:a,filteredResults:t,sortedResults:s,mergedWithWebSocket:c,isEmpty:d,hasResults:g,getResultById:q=>r().find(E=>E.id===q),getResultsByType:q=>r().filter(E=>"result_type"in E?E.result_type===q:!1)}}function ci(n){const e=nr({initialQuery:n.initialQuery,initialDomain:n.initialDomain,enableHistory:n.enableHistory}),t=ri({apiClient:n.apiClient,initialQuery:n.initialQuery,initialDomain:n.initialDomain,debounceMs:n.debounceMs,autoSearch:n.autoSearch,onError:n.onError}),s=ii({apiClient:n.apiClient,query:t.query,debounceMs:n.debounceMs,enabled:n.enableSuggestions,onError:n.onError}),r=li({searchResults:t.results,songsResults:t.songsResults,searchState:e,integrationMode:n.integrationMode,webSocketItems:n.webSocketItems}),a=async()=>{const A=e.query(),q=e.getMusicSearchOptions();A.trim()&&(e.addToHistory(A),e.setLastSearchQuery(A),e.setLastSearchDomain(e.domain())),t.setQuery(A),await t.search(q)},o=async()=>{const A=e.query(),q=e.getSongsSearchOptions();A.trim()&&(e.addToHistory(A),e.setLastSearchQuery(A),e.setLastSearchDomain(e.domain())),t.setQuery(A),await t.searchSongs(q)},i=()=>{t.clearResults(),s.clearSuggestions(),e.setQuery(""),e.setCurrentPage(1)},c=ae(()=>t.loading()||s.loading()||e.query().trim().length>0),d=ae(()=>t.hasResults()||r.hasResults()),g=ae(()=>r.searchStats().totalResults),f=ae(()=>t.canSearch()&&!t.loading());return{state:e,search:t,suggestions:s,data:r,performSearch:a,performSongsSearch:o,clearAll:i,isActive:c,hasAnyResults:d,totalResultsCount:g,canPerformSearch:f}}const sr=Or();function ui(n){const t={...ci({apiClient:n.apiClient,initialQuery:n.searchOptions?.initialQuery||"",initialDomain:n.searchOptions?.initialDomain||"music",enableHistory:n.searchOptions?.enableHistory??!0,enableSuggestions:n.searchOptions?.enableSuggestions??!0,debounceMs:n.searchOptions?.debounceMs||300,autoSearch:n.searchOptions?.autoSearch??!1,integrationMode:n.searchOptions?.integrationMode||"standalone",webSocketItems:n.searchOptions?.webSocketItems,onError:n.searchOptions?.onError}),apiClient:n.apiClient};return b(sr.Provider,{value:t,get children(){return n.children}})}function di(){const n=Ir(sr);if(!n)throw new Error("useSearchContext must be used within a SearchProvider");return n}var hi=R("<div class=search-suggestions>"),fi=R(`<div><div class=search-box__container><input type=text class=search-box__input autocomplete=off></div><style>
+        .search-box {
+          position: relative;
+          width: 100%;
+        }
+
+        .search-box__container {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .search-box__input {
+          flex: 1;
+          padding: 8px 12px;
+          border: 1px solid transparent;
+          border-radius: 8px;
+          font-size: 14px;
+          outline: none;
+          background: rgba(255, 255, 255, 0.1);
+          color: white;
+          transition: all 0.3s ease;
+        }
+
+        .search-box__input::placeholder {
+          color: rgba(255, 255, 255, 0.6);
+        }
+
+        .search-box__input:focus {
+          border-color: #d946ef;
+          box-shadow: 0 0 0 2px rgba(217, 70, 239, 0.25);
+          background: rgba(255, 255, 255, 0.15);
+        }
+
+        .search-box__input:disabled {
+          background-color: rgba(255, 255, 255, 0.05);
+          cursor: not-allowed;
+          color: rgba(255, 255, 255, 0.4);
+        }
+
+        .search-box__button {
+          padding: 8px 16px;
+          border: 1px solid #d946ef;
+          background-color: #d946ef;
+          color: white;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.3s ease;
+        }
+
+        .search-box__button:hover:not(:disabled) {
+          background-color: #c026d3;
+          border-color: #c026d3;
+          transform: translateY(-1px);
+        }
+
+        .search-box__button:disabled {
+          background-color: rgba(255, 255, 255, 0.1);
+          border-color: rgba(255, 255, 255, 0.1);
+          cursor: not-allowed;
+          color: rgba(255, 255, 255, 0.4);
+        }
+
+        .search-box__button:active {
+          transform: translateY(0px);
+        }
+
+        /* Suggestions Dropdown */
+        .search-suggestions {
+          position: absolute;
+          top: 100%;
+          left: 0;
+          right: 0;
+          background: rgba(0, 0, 0, 0.95);
+          backdrop-filter: blur(12px);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+          margin-top: 4px;
+          max-height: 240px;
+          overflow-y: auto;
+          z-index: 1000;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        .search-suggestion {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 16px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .search-suggestion:last-child {
+          border-bottom: none;
+        }
+
+        .search-suggestion:hover,
+        .search-suggestion--selected {
+          background: rgba(217, 70, 239, 0.2);
+          border-color: rgba(217, 70, 239, 0.3);
+        }
+
+        .search-suggestion__text {
+          color: white;
+          font-size: 14px;
+          font-weight: 400;
+        }
+
+        .search-suggestion__category {
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          background: rgba(255, 255, 255, 0.1);
+          padding: 2px 8px;
+          border-radius: 12px;
+        }
+
+        /* Scrollbar styling for suggestions */
+        .search-suggestions::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        .search-suggestions::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .search-suggestions::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 2px;
+        }
+
+        .search-suggestions::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.3);
+        }
+      `),gi=R("<button class=search-box__button type=button>"),mi=R("<div><span class=search-suggestion__text></span><span class=search-suggestion__category>");function pi(n){const e=n.useInternalState!==!1,t=e?nr({}):null,[s,r]=k(),[a,o]=k(),[i,c]=k([]),[d,g]=k(!1),[f,A]=k(-1),[q,E]=k(),[z,Q]=k(!1),[B,S]=k(""),N=()=>e&&t?t.query():n.query||"",W=O=>{if(e&&t?t.setQuery(O):n.onQueryChange?.(O),O.trim()||(c([]),g(!1),A(-1)),n.autoSearch&&O.trim()){const J=a();J&&clearTimeout(J);const K=setTimeout(()=>{n.onSearch?.(O.trim())},n.debounceMs||300);o(K)}n.showSuggestions&&!z()&&Se(O)},xe=O=>{const J=O.currentTarget.value;W(J)},he=async O=>{if(!O.trim()||!n.showSuggestions||z()){c([]),g(!1);return}try{const J=await ni.getMusicSuggestions(O,{limit:n.maxSuggestions||8});c(J.suggestions||[]),g(J.suggestions.length>0)}catch(J){console.error("Failed to fetch suggestions:",J),c([]),g(!1)}},Se=O=>{const J=q();if(J&&clearTimeout(J),O.trim()&&O!==B()){const K=setTimeout(()=>{S(O),he(O)},150);E(K)}else O.trim()||(c([]),g(!1),S(""))},fe=O=>{const J=i();switch(O.key){case"ArrowDown":d()&&J.length>0&&(O.preventDefault(),A(K=>K<J.length-1?K+1:0));break;case"ArrowUp":d()&&J.length>0&&(O.preventDefault(),A(K=>K>0?K-1:J.length-1));break;case"Enter":if(O.preventDefault(),d()&&f()>=0&&f()<J.length){const K=J[f()];K&&me(K.text)}else{const rt=s()?.value?.trim()||""||N().trim();rt&&(W(rt),Oe())}break;case"Escape":g(!1),A(-1),s()?.blur();break}},Oe=()=>{const J=s()?.value?.trim()||""||N().trim();J&&(W(J),g(!1),Q(!0),S(J),n.onSearch?.(J),s()?.blur(),setTimeout(()=>{Q(!1),S("")},1e3))},me=O=>{W(O),g(!1),A(-1),Q(!0),S(O),n.onSuggestionSelect?.(O),s()?.blur(),setTimeout(()=>{Q(!1),S("")},1e3)},wt=()=>{N().trim()&&i().length>0&&!z()&&g(!0)},Be=()=>{setTimeout(()=>{g(!1),A(-1)},150)};return Zs(()=>()=>{const O=a();O&&clearTimeout(O)}),(()=>{var O=fi(),J=O.firstChild,K=J.firstChild,rt=J.nextSibling;return K.addEventListener("blur",Be),K.addEventListener("focus",wt),K.$$keydown=fe,K.$$input=xe,Hr(r,K),h(J,(()=>{var we=ye(()=>!!n.showSearchButton);return()=>we()&&(()=>{var $e=gi();return $e.$$click=Oe,h($e,()=>n.searchButtonText||"Search"),de(()=>$e.disabled=n.disabled||!N().trim()),$e})()})(),null),h(O,b(D,{get when(){return ye(()=>!!d())()&&i().length>0},get children(){var we=hi();return h(we,b(De,{get each(){return i()},children:($e,Ye)=>(()=>{var qe=mi(),Ne=qe.firstChild,Kt=Ne.nextSibling;return qe.$$click=()=>me($e.text),h(Ne,()=>$e.text),h(Kt,()=>$e.category),de(()=>Fe(qe,`search-suggestion ${Ye()===f()?"search-suggestion--selected":""}`)),qe})()})),we}}),rt),de(we=>{var $e=`search-box ${n.class||""}`,Ye=n.placeholder||"Search...",qe=n.disabled;return $e!==we.e&&Fe(O,we.e=$e),Ye!==we.t&&Ut(K,"placeholder",we.t=Ye),qe!==we.a&&(K.disabled=we.a=qe),we},{e:void 0,t:void 0,a:void 0}),de(()=>K.value=N()),O})()}Ws(["input","keydown","click"]);var bi=R('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M8 5v14l11-7z">'),yi=R('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z">'),_i=R('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z">'),vi=R('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z">'),xi=R('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z">'),wi=R('<svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z">'),Si=R('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z">'),ki=R('<svg width=16 height=16 viewBox="0 0 24 24"fill=currentColor><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z">'),$i=R('<svg width=20 height=20 viewBox="0 0 24 24"fill=currentColor><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z">'),zi=R('<svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z">'),Ci=R('<svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z">'),Ti=R('<svg width=20 height=20 viewBox="0 0 500 500"fill=none xmlns=http://www.w3.org/2000/svg><path d="M250 405L125 155L375 155L303.611 340.714L250 405Z"fill=#FF00FF>'),Ri=R('<button class=zune-search-clear title="Clear search">'),jn=R("<div class=zune-filter-sidebar><div class=zune-filter-list>"),Mn=R("<button class=zune-play-all-btn>play all"),Ai=R("<button class=zune-play-all-btn>create playlist"),Ei=R("<div class=zune-loading><div class=zune-loading-spinner></div><p>loading..."),Pi=R("<div class=zune-error><p>error: </p><button>retry"),Oi=R('<div class=zune-suggestions-table><div class=zune-table-header><div class="zune-table-cell zune-table-cell--category">category</div><div class="zune-table-cell zune-table-cell--suggestion">suggestion</div><div class="zune-table-cell zune-table-cell--frequency">matches</div><div class="zune-table-cell zune-table-cell--actions">'),Ii=R('<div class=zune-songs-table><div class=zune-table-header><div class="zune-table-cell zune-table-cell--play"></div><div class="zune-table-cell zune-table-cell--title">title</div><div class="zune-table-cell zune-table-cell--artist">artist</div><div class="zune-table-cell zune-table-cell--album">album</div><div class="zune-table-cell zune-table-cell--duration">time</div><div class="zune-table-cell zune-table-cell--actions">'),Ln=R("<div class=zune-grid>"),qi=R("<div class=zune-queue-empty>queue is empty"),Ni=R("<div class=zune-queue><div class=zune-queue-header><h3>queue</h3><div class=zune-queue-controls><button>clear</button><button></button></div></div><div class=zune-queue-list>"),ji=R('<img class="zune-artwork-image small">'),Mi=R('<div class=zune-player><div class=zune-player-info><div class=zune-player-artwork></div><div class=zune-player-text><h4 class=zune-player-title></h4><p class=zune-player-artist></p></div></div><div class=zune-player-controls><button class=zune-control-btn></button><button class="zune-control-btn primary"></button><button class=zune-control-btn></button><button class=zune-control-btn title="Show Queue"></button></div><div class=zune-player-progress><span class=zune-time></span><div class=zune-progress-bar><div class=zune-progress-fill></div></div><span class=zune-time></span></div><div class=zune-player-volume><input type=range min=0 max=1 step=0.1 class=zune-volume-slider>'),Li=R("<div class=zune-dropdown-backdrop>"),Di=R('<div class=zune-form-group><label>Title</label><input type=text placeholder="Enter playlist title"class=zune-input>'),Zi=R('<div class=zune-form-group><label>Description (optional)</label><textarea placeholder="Enter playlist description"class=zune-textarea rows=3>'),Fi=R("<div class=zune-form-group><label class=zune-checkbox-label><input type=checkbox>Make public"),Ui=R("<div class=zune-form-group><label> (<!>)</label><div class=zune-selected-songs>"),Vi=R("<button class=zune-btn-primary>Create"),Bi=R("<button class=zune-btn-primary>Save"),Hi=R("<button class=zune-btn-primary>Add Songs"),Qi=R("<div class=zune-modal-overlay><div class=zune-modal><div class=zune-modal-header><h3></h3><button class=zune-modal-close></button></div><div class=zune-modal-content></div><div class=zune-modal-actions><button class=zune-btn-secondary>Cancel"),Wi=R(`<div class=zune-demo><div class=zune-header><div class=zune-branding><div class=zune-logo><span class=zune-logo-text><span class=hidden-sm>freqh</span><span class=hidden-sm>le</span></span></div><nav class=zune-nav><button>music</button><button>artists</button><button>albums</button><button>playlists</button></nav><div class=zune-search-container></div></div></div><div class=zune-main><div class=zune-sidebar></div><div class=zune-center><div class=zune-content-header><div class=zune-stats></div></div><div></div></div></div><style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap');
+
+        .zune-demo {
+          min-height: 100vh;
+          background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+          color: #ffffff;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          font-weight: 300;
+          letter-spacing: 0.3px;
+
+          display: flex;
+          flex-direction: column;
+        }
+
+        /* Header */
+        .zune-header {
+          background: rgba(0, 0, 0, 0.4);
+          backdrop-filter: blur(20px);
+          padding: 1.5rem 2rem;
+          position: sticky;
+          top: 0px;
+          z-index: 1;
+        }
+
+        .zune-branding {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 1.5rem;
+        }
+
+        .zune-logo {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+        }
+
+        .zune-logo-square {
+          width: 28px;
+          height: 28px;
+          background: linear-gradient(135deg, #ff0080 0%, #ff4081 100%);
+          border-radius: 2px;
+        }
+
+        .zune-logo-text {
+          font-size: 1.5rem;
+          font-weight: 300;
+          color: #ffffff;
+          text-transform: lowercase;
+        }
+
+        .zune-search-container {
+          flex: 1;
+          max-width: 400px;
+          margin-left: 3rem;
+          position: relative;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .zune-search-box {
+          flex: 1;
+        }
+
+        .zune-search-clear {
+          background: rgba(255, 255, 255, 0.1);
+          border: none;
+          color: rgba(255, 255, 255, 0.6);
+          cursor: pointer;
+          padding: 0.5rem;
+          border-radius: 4px;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .zune-search-clear:hover {
+          background: #ff0080;
+          color: #ffffff;
+        }
+
+        /* Dark theme overrides for SearchBox */
+        .zune-search-box .search-box__input {
+          width: 100%;
+          padding: 0.75rem 1rem;
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+          font-size: 1rem;
+          font-weight: 300;
+          transition: all 0.3s ease;
+        }
+
+        .zune-search-box .search-box__input:focus {
+          border-color: #ff0080;
+          box-shadow: 0 0 0 2px rgba(255, 0, 128, 0.2);
+        }
+
+        .zune-search-box .search-box__input::placeholder {
+          color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Navigation */
+        .zune-nav {
+          display: flex;
+          gap: 0.5rem;
+          overflow-x: auto;
+          scrollbar-width: none;
+        }
+
+        .zune-nav::-webkit-scrollbar {
+          display: none;
+        }
+
+        .zune-nav-item {
+          padding: 1rem 2rem;
+          background: transparent;
+          border: none;
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 1.1rem;
+          font-weight: 400;
+          cursor: pointer;
+          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+          text-transform: lowercase;
+          white-space: nowrap;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .zune-nav-item::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+          transition: left 0.6s ease;
+        }
+
+        .zune-nav-item:hover::before {
+          left: 100%;
+        }
+
+        .zune-nav-item:hover {
+          color: #ffffff;
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .zune-nav-item.active {
+          color: #ff0080;
+          background: rgba(255, 0, 128, 0.1);
+          font-weight: 500;
+        }
+
+        /* Main Layout */
+        .zune-main {
+          display: flex;
+          flex: 1;
+          min-height: 0;
+        }
+
+        .zune-sidebar, .zune-center, .zune-queue {
+          height: calc(100dvh - 124px);
+          padding: 2rem 2rem 86px 2rem;
+        }
+
+        /* Sidebar */
+        .zune-sidebar {
+          width: 300px;
+          background: rgba(0, 0, 0, 0.2);
+          overflow-y: auto;
+          scrollbar-width: thin;
+          min-height: 0;
+        }
+
+        .zune-filter-section h3 {
+          margin: 0 0 1rem 0;
+          font-size: 1.2rem;
+          font-weight: 500;
+          color: #ffffff;
+          text-transform: lowercase;
+        }
+
+        .zune-filter-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+
+        .zune-filter-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          width: 100%;
+          padding: 0.75rem 1rem;
+          background: transparent;
+          border: none;
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 0.9rem;
+          font-weight: 300;
+          text-align: left;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          border-radius: 4px;
+          text-transform: lowercase;
+        }
+
+        .zune-filter-item:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+        }
+
+        .zune-filter-item.active {
+          background: rgba(255, 0, 128, 0.2);
+          color: #ff0080;
+        }
+
+        .zune-filter-count {
+          font-size: 0.8rem;
+          opacity: 0.7;
+        }
+
+        /* Center Content */
+        .zune-center {
+          flex: 1;
+          overflow-y: auto;
+          display: flex;
+          min-height: 0;
+          flex-direction: column;
+        }
+
+        .zune-content-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 2rem;
+          flex-shrink: 0;
+        }
+
+        .zune-title {
+          font-size: 3rem;
+          font-weight: 300;
+          margin: 0;
+          color: #ffffff;
+          text-transform: lowercase;
+          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .zune-stats {
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 1rem;
+          font-weight: 300;
+        }
+
+        .zune-play-all-btn {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.75rem 1.5rem;
+          background: linear-gradient(135deg, #ff0080 0%, #ff4081 100%);
+          border: none;
+          color: #ffffff;
+          font-size: 0.9rem;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          border-radius: 4px;
+          text-transform: lowercase;
+        }
+
+        .zune-play-all-btn:hover {
+          background: linear-gradient(135deg, #ff1a8a 0%, #ff5a8a 100%);
+        }
+
+        .zune-content-area {
+          flex: 1;
+          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+          overflow-y: auto;
+        }
+
+        .zune-content-area.exiting {
+          opacity: 0;
+          transform: translateX(-30px);
+        }
+
+        .zune-content-area.entering {
+          opacity: 0;
+          transform: translateX(30px);
+        }
+
+        /* Loading &amp; Error States */
+        .zune-loading {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 1rem;
+          padding: 3rem;
+          color: rgba(255, 255, 255, 0.6);
+        }
+
+        .zune-loading-spinner {
+          width: 40px;
+          height: 40px;
+          border: 3px solid rgba(255, 255, 255, 0.1);
+          border-top: 3px solid #ff0080;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+
+        .zune-error {
+          text-align: center;
+          padding: 3rem;
+          color: #ff6b6b;
+        }
+
+        .zune-error button {
+          margin-top: 1rem;
+          padding: 0.75rem 1.5rem;
+          background: #ff0080;
+          border: none;
+          color: white;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+
+        /* Songs Table */
+        .zune-songs-table,
+        .zune-suggestions-table {
+          display: flex;
+          flex-direction: column;
+          background: rgba(255, 255, 255, 0.02);
+          border-radius: 8px;
+        }
+
+        .zune-table-header {
+          display: grid;
+          grid-template-columns: 60px 1fr 200px 200px 80px 60px;
+          padding: 1rem;
+          background: rgba(255, 255, 255, 0.05);
+          font-size: 0.8rem;
+          font-weight: 500;
+          color: rgba(255, 255, 255, 0.7);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          position: sticky;
+          top: 0;
+          background: rgba(0, 0, 0, 0.9);
+          z-index: 1;
+        }
+
+        .zune-suggestions-table .zune-table-header {
+          grid-template-columns: 150px 1fr 100px 60px;
+        }
+
+        .zune-table-row {
+          display: grid;
+          grid-template-columns: 60px 1fr 200px 200px 80px 60px;
+          padding: 1rem;
+          cursor: pointer;
+          transition: background 0.3s ease;
+          align-items: center;
+        }
+
+        .zune-suggestions-table .zune-table-row {
+          grid-template-columns: 150px 1fr 100px 60px;
+        }
+
+        .zune-suggestion-group-header {
+          display: grid;
+          grid-template-columns: 150px 1fr 100px 60px;
+          padding: 0.75rem 1rem;
+          background: rgba(255, 0, 128, 0.1);
+          font-weight: 500;
+          color: #ff0080;
+          text-transform: lowercase;
+        }
+
+        .zune-suggestion-row:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .zune-table-row:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .zune-table-row.playing {
+          background: rgba(255, 0, 128, 0.1);
+        }
+
+        .zune-table-cell {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 0.9rem;
+        }
+
+        .zune-track-number {
+          color: rgba(255, 255, 255, 0.5);
+          font-size: 0.8rem;
+          text-align: center;
+        }
+
+        .zune-playing-indicator {
+          display: flex;
+          gap: 2px;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .zune-wave {
+          width: 3px;
+          height: 12px;
+          background: #ff0080;
+          border-radius: 1px;
+          animation: wave 1s infinite ease-in-out;
+        }
+
+        .zune-wave:nth-child(2) {
+          animation-delay: 0.2s;
+        }
+
+        .zune-wave:nth-child(3) {
+          animation-delay: 0.4s;
+        }
+
+        @keyframes wave {
+          0%, 100% { height: 6px; }
+          50% { height: 12px; }
+        }
+
+        .zune-song-title-cell {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+        }
+
+        .zune-song-thumbnail {
+          width: 40px;
+          height: 40px;
+          border-radius: 4px;
+          object-fit: cover;
+        }
+
+        .zune-song-info {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          overflow: hidden;
+        }
+
+        .zune-song-title {
+          font-weight: 500;
+          color: #ffffff;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .zune-favorite-indicator {
+          color: #ff0080;
+          font-size: 0.8rem;
+        }
+
+        .zune-action-btn {
+          width: 32px;
+          height: 32px;
+          background: rgba(255, 255, 255, 0.1);
+          border: none;
+          color: rgba(255, 255, 255, 0.7);
+          border-radius: 50%;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .zune-action-btn:hover {
+          background: #ff0080;
+          color: #ffffff;
+        }
+
+        /* Grid Layout */
+        .zune-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 1.5rem;
+        }
+
+        .zune-grid-card {
+          background: rgba(255, 255, 255, 0.05);
+          padding: 1.5rem;
+          cursor: pointer;
+          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+          border-radius: 8px;
+          text-align: center;
+        }
+
+        .zune-grid-card:hover {
+          background: rgba(255, 255, 255, 0.1);
+          transform: translateY(-4px);
+        }
+
+        .zune-grid-icon {
+          color: #ff0080;
+          margin-bottom: 1rem;
+          display: flex;
+          justify-content: center;
+        }
+
+        .zune-grid-card h3 {
+          font-size: 1.1rem;
+          font-weight: 500;
+          margin: 0 0 0.5rem 0;
+          color: #ffffff;
+        }
+
+        .zune-grid-card p {
+          font-size: 0.9rem;
+          color: rgba(255, 255, 255, 0.7);
+          margin: 0 0 0.25rem 0;
+        }
+
+        .zune-description {
+          font-size: 0.8rem;
+          color: rgba(255, 255, 255, 0.5);
+          font-style: italic;
+        }
+
+        /* Queue Panel */
+        .zune-queue {
+          width: 350px;
+          background: rgba(0, 0, 0, 0.3);
+          display: flex;
+          flex-direction: column;
+          animation: slideInRight 0.3s ease;
+        }
+
+        @keyframes slideInRight {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+
+        .zune-queue-header {
+          padding: 1.5rem;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: rgba(0, 0, 0, 0.2);
+        }
+
+        .zune-queue-header h3 {
+          margin: 0;
+          color: #ffffff;
+          font-size: 1.1rem;
+          font-weight: 500;
+          text-transform: lowercase;
+        }
+
+        .zune-queue-controls {
+          display: flex;
+          gap: 0.5rem;
+        }
+
+        .zune-queue-controls button {
+          background: rgba(255, 255, 255, 0.1);
+          border: none;
+          color: #ffffff;
+          padding: 0.5rem;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 0.8rem;
+          transition: background 0.3s ease;
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+        }
+
+        .zune-queue-controls button:hover {
+          background: #ff0080;
+        }
+
+        .zune-queue-list {
+          flex: 1;
+          overflow-y: auto;
+          padding: 1rem;
+        }
+
+        .zune-queue-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0.75rem;
+          cursor: pointer;
+          transition: background 0.3s ease;
+          border-radius: 4px;
+          margin-bottom: 0.5rem;
+        }
+
+        .zune-queue-item:hover {
+          background: rgba(255, 255, 255, 0.1);
+        }
+
+        .zune-queue-item.current {
+          background: rgba(255, 0, 128, 0.2);
+        }
+
+        .zune-queue-info h4 {
+          margin: 0;
+          font-size: 0.9rem;
+          font-weight: 500;
+          color: #ffffff;
+        }
+
+        .zune-queue-info p {
+          margin: 0.25rem 0 0 0;
+          font-size: 0.8rem;
+          color: rgba(255, 255, 255, 0.7);
+        }
+
+        .zune-queue-remove {
+          background: none;
+          border: none;
+          color: rgba(255, 255, 255, 0.5);
+          cursor: pointer;
+          padding: 0.25rem;
+          transition: color 0.3s ease;
+          display: flex;
+          align-items: center;
+        }
+
+        .zune-queue-remove:hover {
+          color: #ff0080;
+        }
+
+        .zune-queue-empty {
+          text-align: center;
+          padding: 2rem;
+          color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Player */
+        .zune-player {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          background: rgba(0, 0, 0, 0.5);
+          backdrop-filter: blur(20px);
+          padding: 1rem 2rem;
+          display: flex;
+          align-items: center;
+          gap: 2rem;
+          z-index: 1000;
+          animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @keyframes slideUp {
+          from { transform: translateY(100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+
+        .zune-player-info {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          min-width: 250px;
+          width: 100%;
+        }
+
+        .zune-artwork-placeholder {
+          width: 50px;
+          height: 50px;
+          background: linear-gradient(135deg, #333 0%, #555 100%);
+          border-radius: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: rgba(255, 255, 255, 0.3);
+        }
+
+        .zune-artwork-image {
+          width: 50px;
+          height: 50px;
+          border-radius: 4px;
+          object-fit: cover;
+        }
+
+        .zune-player-text {
+          flex: 1;
+        }
+
+        .zune-player-title {
+          font-size: 1rem;
+          font-weight: 500;
+          margin: 0;
+          color: #ffffff;
+        }
+
+        .zune-player-artist {
+          font-size: 0.9rem;
+          font-weight: 300;
+          margin: 0;
+          color: rgba(255, 255, 255, 0.7);
+        }
+
+        .zune-player-controls {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+        }
+
+        .zune-control-btn {
+          width: 44px;
+          height: 44px;
+          border: none;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .zune-control-btn:hover {
+          background: rgba(255, 255, 255, 0.2);
+          transform: scale(1.1);
+        }
+
+        .zune-control-btn.primary {
+          background: linear-gradient(135deg, #ff0080 0%, #ff4081 100%);
+          width: 52px;
+          height: 52px;
+        }
+
+        .zune-control-btn.primary:hover {
+          background: linear-gradient(135deg, #ff1a8a 0%, #ff5a8a 100%);
+        }
+
+        .zune-control-btn:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .zune-player-progress {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          flex: 1;
+          max-width: 400px;
+        }
+
+        .zune-time {
+          font-size: 0.9rem;
+          color: rgba(255, 255, 255, 0.7);
+          font-weight: 300;
+          min-width: 40px;
+        }
+
+        .zune-progress-bar {
+          flex: 1;
+          height: 6px;
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 3px;
+          overflow: hidden;
+          cursor: pointer;
+          transition: height 0.2s ease;
+          min-width: 100px;
+        }
+
+        .zune-progress-bar:hover {
+          height: 8px;
+        }
+
+        .zune-progress-fill {
+          height: 100%;
+          background: linear-gradient(90deg, #ff0080 0%, #ff4081 100%);
+          transition: width 0.1s ease;
+        }
+
+        .zune-player-volume {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .zune-volume-slider {
+          width: 100px;
+          height: 4px;
+          background: rgba(255, 255, 255, 0.2);
+          border: none;
+          border-radius: 2px;
+          outline: none;
+          appearance: none;
+          cursor: pointer;
+        }
+
+        .zune-volume-slider::-webkit-slider-thumb {
+          width: 16px;
+          height: 16px;
+          background: #ff0080;
+          border: none;
+          border-radius: 50%;
+          cursor: pointer;
+        }
+
+        .zune-volume-slider::-moz-range-thumb {
+          width: 16px;
+          height: 16px;
+          background: #ff0080;
+          border: none;
+          border-radius: 50%;
+          cursor: pointer;
+        }
+
+        /* Scrollbar styling */
+        .zune-sidebar::-webkit-scrollbar,
+        .zune-center::-webkit-scrollbar,
+        .zune-queue-list::-webkit-scrollbar {
+          width: 8px;
+        }
+
+        .zune-sidebar::-webkit-scrollbar-track,
+        .zune-center::-webkit-scrollbar-track,
+        .zune-queue-list::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.1);
+        }
+
+        .zune-sidebar::-webkit-scrollbar-thumb,
+        .zune-center::-webkit-scrollbar-thumb,
+        .zune-queue-list::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.3);
+          border-radius: 4px;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+          .zune-header {
+            padding: 1rem;
+          }
+
+          .hidden-sm {
+            display: none;
+          }
+
+
+
+          .zune-branding {
+
+            gap: 1rem;
+            margin-bottom: 1rem;
+          }
+
+          .zune-search-container {
+            margin-left: 0;
+            max-width: 100%;
+          }
+
+          .zune-nav {
+            justify-content: space-between;
+          }
+
+          .zune-nav-item {
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+          }
+
+          .zune-main {
+            flex-direction: column;
+            height: auto;
+          }
+
+          .zune-sidebar {
+            width: 100%;
+            padding: 1rem;
+            height: auto;
+          }
+
+          .zune-center {
+            padding: 1rem;
+          }
+
+          .zune-title {
+            font-size: 2rem;
+          }
+
+          .zune-table-header,
+          .zune-table-row {
+            grid-template-columns: 50px 1fr 60px;
+          }
+
+          .zune-table-cell--artist,
+          .zune-table-cell--album,
+          .zune-table-cell--duration {
+            display: none;
+          }
+
+          .zune-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .zune-queue {
+            width: 100%;
+            height: 50vh;
+          }
+
+          .zune-player {
+            padding: 1rem;
+            flex-direction: column;
+            gap: 1rem;
+          }
+
+          .zune-player-info {
+            min-width: auto;
+          }
+
+          .zune-player-progress {
+            max-width: 100%;
+          }
+        }
+
+        /* Modal Styles */
+        .zune-modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.8);
+          backdrop-filter: blur(10px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          animation: fadeIn 0.2s ease;
+        }
+
+        .zune-modal {
+          background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+          border-radius: 12px;
+          padding: 0;
+          max-width: 500px;
+          width: 90%;
+          max-height: 80vh;
+          overflow: hidden;
+          animation: slideUp 0.3s ease;
+        }
+
+        .zune-modal-header {
+          padding: 1.5rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
+        .zune-modal-header h3 {
+          margin: 0;
+          font-size: 1.25rem;
+          font-weight: 600;
+          color: #ffffff;
+        }
+
+        .zune-modal-close {
+          background: none;
+          border: none;
+          color: rgba(255, 255, 255, 0.7);
+          cursor: pointer;
+          padding: 8px;
+          border-radius: 6px;
+          transition: all 0.2s ease;
+        }
+
+        .zune-modal-close:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+        }
+
+        .zune-modal-content {
+          padding: 1.5rem;
+          max-height: 50vh;
+          overflow-y: auto;
+        }
+
+        .zune-modal-actions {
+          padding: 1rem 1.5rem;
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          display: flex;
+          gap: 0.75rem;
+          justify-content: flex-end;
+        }
+
+        .zune-form-group {
+          margin-bottom: 1.5rem;
+        }
+
+        .zune-form-group label {
+          display: block;
+          margin-bottom: 0.5rem;
+          font-weight: 500;
+          color: #ffffff;
+          font-size: 0.9rem;
+        }
+
+        .zune-input, .zune-textarea {
+          width: 100%;
+          padding: 0.75rem;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 6px;
+          color: #ffffff;
+          font-size: 0.9rem;
+          transition: all 0.2s ease;
+        }
+
+        .zune-input:focus, .zune-textarea:focus {
+          outline: none;
+          border-color: #ff0080;
+          box-shadow: 0 0 0 2px rgba(255, 0, 128, 0.2);
+        }
+
+        .zune-checkbox-label {
+          display: flex !important;
+          align-items: center;
+          gap: 0.5rem;
+          cursor: pointer;
+        }
+
+        .zune-checkbox-label input[type="checkbox"] {
+          width: auto;
+          margin: 0;
+        }
+
+        .zune-selected-songs {
+          max-height: 150px;
+          overflow-y: auto;
+          background: rgba(0, 0, 0, 0.2);
+          border-radius: 6px;
+          padding: 0.75rem;
+        }
+
+        .zune-selected-song {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.5rem 0;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .zune-selected-song:last-child {
+          border-bottom: none;
+        }
+
+        .zune-song-title {
+          font-weight: 500;
+          color: #ffffff;
+          font-size: 0.9rem;
+        }
+
+        .zune-song-artist {
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 0.8rem;
+        }
+
+        .zune-btn-primary, .zune-btn-secondary {
+          padding: 0.75rem 1.5rem;
+          border-radius: 6px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          border: none;
+          font-size: 0.9rem;
+        }
+
+        .zune-btn-primary {
+          background: linear-gradient(135deg, #ff0080 0%, #ff4081 100%);
+          color: #ffffff;
+        }
+
+        .zune-btn-primary:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(255, 0, 128, 0.3);
+        }
+
+        .zune-btn-primary:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .zune-btn-secondary {
+          background: rgba(255, 255, 255, 0.1);
+          color: #ffffff;
+        }
+
+        .zune-btn-secondary:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+
+        .zune-filter-item-container {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+
+        .zune-filter-item-container .zune-filter-item {
+          flex: 1;
+        }
+
+        .zune-filter-actions {
+          display: none;
+          gap: 0.25rem;
+          padding-left: 0.5rem;
+        }
+
+        .zune-filter-item-container:hover .zune-filter-actions {
+          display: flex;
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(30px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        /* Playlist Dropdown Styles */
+        .zune-playlist-dropdown-container {
+          position: relative;
+          display: inline-block;
+        }
+
+        .zune-playlist-dropdown {
+          position: absolute;
+          top: calc(100% + 4px);
+          right: 0;
+          background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+          padding: 0.5rem 0;
+          z-index: 1000;
+          min-width: 220px;
+          max-width: 300px;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+          backdrop-filter: blur(10px);
+          animation: fadeIn 0.2s ease;
+          white-space: nowrap;
+        }
+
+        .zune-dropdown-item {
+          width: 100%;
+          padding: 0.75rem 1rem;
+          background: none;
+          border: none;
+          color: #ffffff;
+          cursor: pointer;
+          text-align: left;
+          transition: background-color 0.2s ease;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          font-size: 0.9rem;
+        }
+
+        .zune-dropdown-item:hover {
+          background: rgba(255, 255, 255, 0.1);
+        }
+
+        .zune-dropdown-divider {
+          height: 1px;
+          background: rgba(255, 255, 255, 0.1);
+          margin: 0.5rem 0;
+        }
+
+        .zune-playlist-count {
+          margin-left: auto;
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 0.8rem;
+        }
+
+        .zune-dropdown-backdrop {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 900;
+        }
+
+        .zune-table-cell--actions {
+          overflow: visible !important;
+          display: flex;
+          gap: 8px;
+        }
+      `),Gi=R('<div class=zune-filter-item-container><button><span class=zune-filter-count></span></button><div class=zune-filter-actions><button class=zune-action-btn title="Edit playlist"></button><button class=zune-action-btn title="Delete playlist">'),js=R("<button><span class=zune-filter-count>"),Ji=R('<div class=zune-suggestion-group-header><div class="zune-table-cell zune-table-cell--category"></div><div class=zune-table-cell></div><div class=zune-table-cell></div><div class=zune-table-cell>'),Yi=R('<div class="zune-table-row zune-suggestion-row"><div class="zune-table-cell zune-table-cell--category"></div><div class="zune-table-cell zune-table-cell--suggestion"></div><div class="zune-table-cell zune-table-cell--frequency"></div><div class="zune-table-cell zune-table-cell--actions"><button class=zune-action-btn title="Search this"><svg width=14 height=14 viewBox="0 0 24 24"fill=currentColor><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z">'),Xi=R("<div class=zune-playing-indicator><div class=zune-wave></div><div class=zune-wave></div><div class=zune-wave>"),Ki=R("<img class=zune-song-thumbnail>"),eo=R("<span class=zune-favorite-indicator>♥"),to=R("<div class=zune-playlist-dropdown><button class=zune-dropdown-item>Create New Playlist</button><div class=zune-dropdown-divider>"),no=R('<div class=zune-playlist-dropdown-container><button class=zune-action-btn title="Add to playlist">'),so=R('<button class=zune-action-btn title="Remove from playlist">'),ro=R('<div><div class="zune-table-cell zune-table-cell--play"></div><div class="zune-table-cell zune-table-cell--title"><div class=zune-song-title-cell><div class=zune-song-info><span class=zune-song-title></span></div></div></div><div class="zune-table-cell zune-table-cell--artist"></div><div class="zune-table-cell zune-table-cell--album"></div><div class="zune-table-cell zune-table-cell--duration"></div><div class="zune-table-cell zune-table-cell--actions"><button class=zune-action-btn title="Add to queue">'),ao=R("<span class=zune-track-number>"),io=R("<button class=zune-dropdown-item><span class=zune-playlist-count>"),oo=R("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p> songs</p><p> albums"),lo=R("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p></p><p> tracks"),co=R("<p class=zune-description>"),uo=R("<div class=zune-grid-card><div class=zune-grid-icon></div><h3></h3><p> songs"),ho=R("<div><div class=zune-queue-info><h4></h4><p></p></div><button class=zune-queue-remove>"),fo=R('<div class="zune-artwork-placeholder small">'),go=R("<div class=zune-selected-song><span class=zune-song-title></span><span class=zune-song-artist>");const rr=n=>new tr({baseUrl:n}),ln=()=>bi(),mo=()=>yi(),po=()=>_i(),bo=()=>vi(),Dn=()=>xi(),Zn=()=>wi(),cn=()=>Si(),yo=()=>ki(),Fn=()=>$i(),_o=()=>zi(),Ms=()=>Ci(),vo=()=>Ti();function xo(){const n=di(),[e,t]=k("music"),[s,r]=k([]),[a,o]=k([]),[i,c]=k([]),[d,g]=k([]),[f,A]=k(null),[q,E]=k([]),[z,Q]=k(null),[B,S]=k([]),[N,W]=k(null),[xe,he]=k([]),[Se,fe]=k(!1),[Oe,me]=k(null),[wt,Be]=k(!1),[O,J]=k("create"),[K,rt]=k([]),[we,$e]=k(null),[Ye,qe]=k(null),[Ne,Kt]=k(null),[en,Lt]=k(!1),[zn,Cn]=k(0),[y,H]=k(0),[ft,He]=k(.7),[Xe,Tn]=k(null),[gt,mt]=k([]),[Dt,at]=k(0),[ns,ss]=k(!1),[rs,ar]=k(null),[as,ir]=k(null),[tn,nn]=k(""),[St,pt]=k([]),[kt,Zt]=k(!1),[ze,$t]=k({title:"",description:"",is_public:!1}),[or,Rn]=k("idle");rr("http://localhost:8080");const zt=async u=>{fe(!0),me(null);try{switch(u){case"music":const Z=await(await fetch("/api/media/songs?limit=1000")).json();r(Z.songs||[]);break;case"artists":const Ce=await(await fetch("/api/media/artists")).json();g(Ce.artists||[]);break;case"playlists":const Y=await(await fetch("/api/media/playlists?limit=1000")).json();o(Y.playlists||[]);break;case"albums":const te=await(await fetch("/api/media/albums")).json();c(te||[]);break}}catch(_){me(_ instanceof Error?_.message:"Failed to fetch data")}finally{fe(!1)}},is=async()=>{if(a().length===0)try{const _=await(await fetch("/api/media/playlists?limit=1000")).json();o(_.playlists||[])}catch(u){console.error("Failed to load playlists:",u)}};Zs(()=>{const u=new Audio;Tn(u),u.addEventListener("loadedmetadata",()=>{H(u.duration)}),u.addEventListener("timeupdate",()=>{Cn(u.currentTime)}),u.addEventListener("ended",()=>{Lt(!1),Cn(0),os()}),zt(e()),is()}),Fs(()=>{const u=Xe();u&&(u.pause(),u.src="")});const lr=u=>{if(gt().find(P=>P.song.id===u.id))return;const Z={song:u,id:`queue-${u.id}-${Date.now()}`};mt(P=>[...P,Z])},os=()=>{const u=gt(),_=Dt();if(_<u.length-1){at(_+1);const Z=u[_+1];Z&&bt(Z.song,!1)}},cr=()=>{const u=gt(),_=Dt();if(_>0){at(_-1);const Z=u[_-1];Z&&bt(Z.song,!1)}},ur=u=>{mt(_=>_.filter(Z=>Z.id!==u))},dr=()=>{mt([]),at(0)},Ct=u=>{u!==e()&&(Rn("exiting"),setTimeout(()=>{t(u),Rn("entering"),zt(u),ar(null),ir(null),A(null),Q(null),W(null),S([]),he([]),E([]),setTimeout(()=>{Rn("idle")},200)},100))},hr=()=>{const u=Xe();!u||!Ne()||(en()?(u.pause(),Lt(!1)):(u.play(),Lt(!0)))},bt=(u,_=!0)=>{const Z=Xe();if(Z&&(Kt(u),Z.src=`/api/blobs/${u.media_blob_id}`,Z.volume=ft(),Z.play(),Lt(!0),_&&gt().length===0)){const P={song:u,id:`queue-${u.id}-${Date.now()}`};mt([P]),at(0)}},sn=async u=>{try{const P=(await(await fetch(`/api/media/playlists/${u.id}/songs`)).json()).songs||[];A(u),E(P)}catch(_){me(_ instanceof Error?_.message:"Failed to load playlist")}},ls=async u=>{try{const P=(await(await fetch(`/api/media/artists/${encodeURIComponent(u.artist)}/songs?limit=1000`)).json()).songs||[];Q(u),S(P)}catch(_){me(_ instanceof Error?_.message:"Failed to load artist songs")}},cs=async u=>{try{const _=encodeURIComponent(u.album||""),Z=u.artist?`&artist=${encodeURIComponent(u.artist)}`:"",Ie=(await(await fetch(`/api/media/albums/${_}/tracks?${Z}`)).json()).tracks||[];W(u),he(Ie.map(Y=>({id:Y.song_id,title:Y.title,artist:Y.artist,album:u.album,track_number:Y.track_number,disc_number:Y.disc_number,duration_seconds:Y.duration?parseFloat(Y.duration.split(":").reduce((Ke,te)=>60*Ke+ +te)):null,genre:Y.genre,year:Y.year,rating:Y.rating,is_favorite:Y.is_favorite,display_title:Y.title,detailed_display_title:`${Y.title} - ${Y.artist}`,media_blob_id:Y.media_blob_id,thumbnail_blob_id:Y.thumbnail_id,waveform_blob_id:Y.waveform_id,thumbnail_blob_ids:null,created_at:new Date().toISOString()})))}catch(_){me(_ instanceof Error?_.message:"Failed to load album tracks")}},us=async u=>{try{const P=(await(await fetch(`/api/media/playlists/${u.id}/songs`)).json()).songs||[];if(P.length>0){A(u),E(P);const Ce=P.map((Ie,Y)=>({song:Ie.song,id:`playlist-${u.id}-${Y}`}));mt(Ce),at(0),bt(P[0].song,!1)}}catch(_){me(_ instanceof Error?_.message:"Failed to load playlist")}},ds=async u=>{try{const P=(await(await fetch(`/api/media/artists/${encodeURIComponent(u.artist)}/songs?limit=1000`)).json()).songs||[];if(P.length>0){Q(u),S(P);const Ce=P.map((Ie,Y)=>({song:Ie,id:`artist-${u.artist}-${Y}`}));mt(Ce),at(0),bt(P[0],!1)}}catch(_){me(_ instanceof Error?_.message:"Failed to load artist songs")}},hs=async u=>{try{const _=encodeURIComponent(u.album||""),Z=u.artist?`&artist=${encodeURIComponent(u.artist)}`:"",Ie=(await(await fetch(`/api/media/albums/${_}/tracks?${Z}`)).json()).tracks||[];if(Ie.length>0){const Y=Ie.map(te=>({id:te.song_id,title:te.title,artist:te.artist,album:u.album,track_number:te.track_number,disc_number:te.disc_number,duration_seconds:te.duration?parseFloat(te.duration.split(":").reduce((yt,Ft)=>60*yt+ +Ft)):null,genre:te.genre,year:te.year,rating:te.rating,is_favorite:te.is_favorite,display_title:te.title,detailed_display_title:`${te.title} - ${te.artist}`,media_blob_id:te.media_blob_id,thumbnail_blob_id:te.thumbnail_id,waveform_blob_id:te.waveform_id,thumbnail_blob_ids:null,created_at:new Date().toISOString()}));W(u),he(Y);const Ke=Y.map((te,yt)=>({song:te,id:`album-${u.album}-${yt}`}));mt(Ke),at(0),bt(Y[0],!1)}}catch(_){me(_ instanceof Error?_.message:"Failed to load album tracks")}},fs=u=>{J("create"),rt(u||[]),$t({title:"",description:"",is_public:!1}),$e(null),Be(!0)},fr=u=>{J("edit"),$e(u),$t({title:u.title,description:u.description||"",is_public:u.is_public}),Be(!0)},Tt=()=>{Be(!1),rt([]),$e(null),$t({title:"",description:"",is_public:!1})},gr=async()=>{if(ze().title.trim())try{(await fetch("/api/media/playlists",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:ze().title,description:ze().description||null,is_public:ze().is_public,is_collaborative:!1,song_ids:K().map(_=>_.id)})})).ok&&(Tt(),e()==="playlists"&&zt("playlists"))}catch{me("Failed to create playlist")}},mr=async()=>{if(!(!we()||!ze().title.trim()))try{(await fetch(`/api/media/playlists/${we().id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:ze().title,description:ze().description||null,is_public:ze().is_public,is_collaborative:!1})})).ok&&(Tt(),e()==="playlists"&&zt("playlists"))}catch{me("Failed to update playlist")}},pr=async()=>{if(!(!we()||K().length===0))try{(await fetch(`/api/media/playlists/${we().id}/songs`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({song_ids:K().map(_=>_.id)})})).ok&&(Tt(),f()?.id===we().id&&sn(f()))}catch{me("Failed to add songs to playlist")}},br=async(u,_)=>{try{(await fetch(`/api/media/playlists/${u.id}/songs`,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({song_ids:[_]})})).ok&&f()?.id===u.id&&sn(u)}catch{me("Failed to remove song from playlist")}},yr=async(u,_)=>{try{(await fetch(`/api/media/playlists/${_.id}/songs`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({song_ids:[u.id]})})).ok&&(qe(null),console.log(`Added "${u.title}" to playlist "${_.title}"`))}catch{me("Failed to add song to playlist")}},_r=async u=>{try{(await fetch(`/api/media/playlists/${u.id}`,{method:"DELETE"})).ok&&(f()?.id===u.id&&(A(null),E([])),e()==="playlists"&&zt("playlists"))}catch{me("Failed to delete playlist")}},An=u=>{const _=Math.floor(u/60),Z=Math.floor(u%60);return`${_}:${Z.toString().padStart(2,"0")}`},vr=u=>{const _=Xe();_&&(_.currentTime=u/100*y())},xr=()=>{if(kt()&&St().length>0)return St();let u=s();if(rs()&&(u=u.filter(_=>_.artist===rs())),as()&&(u=u.filter(_=>_.album===as())),tn().trim()&&!kt()){const _=tn().toLowerCase();u=u.filter(Z=>Z.title.toLowerCase().includes(_)||Z.artist?.toLowerCase().includes(_)||Z.album?.toLowerCase().includes(_))}return u},gs=u=>{nn(u),n.state.setQuery(u),Ct("music"),ms(u)},wr=u=>{nn(u),n.state.setQuery(u),Ct("music"),u.trim()?ms(u):(Zt(!1),pt([]))},ms=async u=>{if(!u.trim()){Zt(!1),pt([]);return}Zt(!0),fe(!0);try{await n.performSearch();const _=n.search.results();if(_?.results){const Z=_.results.filter(P=>P.result_type==="song").map(P=>({id:P.id,title:P.title,artist:P.metadata?.artist||"",album:P.metadata?.album||"",album_artist:P.metadata?.album_artist,track_number:P.metadata?.track_number,disc_number:P.metadata?.disc_number,duration_seconds:P.metadata?.duration_seconds,genre:P.metadata?.genre,year:P.metadata?.year,bpm:P.metadata?.bpm,key_signature:P.metadata?.key_signature,rating:P.metadata?.rating,is_favorite:P.metadata?.is_favorite||!1,tags:P.metadata?.tags||[],display_title:P.title,detailed_display_title:P.title,created_at:P.created_at,media_blob_id:P.media_blob_id||"",thumbnail_blob_id:P.thumbnail_blob_id,waveform_blob_id:P.waveform_blob_id,thumbnail_blob_ids:P.thumbnail_blob_ids||[]}));pt(Z)}else pt([])}catch(_){console.error("Search failed:",_),pt([])}finally{fe(!1)}},Sr=()=>{nn(""),n.state.setQuery(""),Zt(!1),pt([])},kr=()=>{const u=n.suggestions.suggestions();if(!u.length)return[];const _=new Map;u.forEach(P=>{const Ce=P.category||"general";_.has(Ce)||_.set(Ce,[]),_.get(Ce).push(P)});const Z=["word","title","playlist","general"];return Array.from(_.entries()).sort(([P],[Ce])=>{const Ie=Z.indexOf(P),Y=Z.indexOf(Ce),Ke=Ie===-1?Z.length:Ie,te=Y===-1?Z.length:Y;return Ke-te})},$r=u=>({word:"search suggestions",title:"songs",playlist:"playlists",general:"suggestions"})[u]||u,En=()=>f()?q().map(u=>u.song):z()?B():N()?xe():xr(),zr=()=>kt()&&n.suggestions.suggestions().length>0,Cr=()=>En().length>0&&(!kt()||St().length>0);return(()=>{var u=Wi(),_=u.firstChild,Z=_.firstChild,P=Z.firstChild,Ce=P.firstChild,Ie=Ce.firstChild,Y=Ie.nextSibling,Ke=P.nextSibling,te=Ke.firstChild,yt=te.nextSibling,Ft=yt.nextSibling,ps=Ft.nextSibling,bs=Ke.nextSibling,Pn=_.nextSibling,rn=Pn.firstChild,Tr=rn.nextSibling,Rt=Tr.firstChild,ys=Rt.firstChild,an=Rt.nextSibling,On=Pn.nextSibling;return h(Ce,b(vo,{}),Y),te.$$click=()=>Ct("music"),yt.$$click=()=>Ct("artists"),Ft.$$click=()=>Ct("albums"),ps.$$click=()=>Ct("playlists"),h(bs,b(pi,{placeholder:"search music...",useInternalState:!1,get query(){return tn()},onQueryChange:v=>{nn(v),n.state.setQuery(v),v.trim()||(Zt(!1),pt([]))},onSearch:wr,autoSearch:!0,debounceMs:300,class:"zune-search-box"}),null),h(bs,b(D,{get when(){return tn().trim()},get children(){var v=Ri();return v.$$click=Sr,h(v,b(cn,{})),v}}),null),h(rn,b(D,{get when(){return e()==="playlists"},get children(){var v=jn(),w=v.firstChild;return h(w,b(De,{get each(){return a()},children:I=>(()=>{var j=Gi(),U=j.firstChild,ne=U.firstChild,le=U.nextSibling,ee=le.firstChild,F=ee.nextSibling;return U.$$click=()=>sn(I),h(U,()=>I.title,ne),h(ne,()=>I.song_count||0),ee.$$click=se=>{se.stopPropagation(),fr(I)},h(ee,b(_o,{})),F.$$click=se=>{se.stopPropagation(),confirm(`Delete playlist "${I.title}"?`)&&_r(I)},h(F,b(Ms,{})),de(()=>Fe(U,`zune-filter-item ${f()?.id===I.id?"active":""}`)),j})()})),v}}),null),h(rn,b(D,{get when(){return e()==="artists"},get children(){var v=jn(),w=v.firstChild;return h(w,b(De,{get each(){return d()},children:I=>(()=>{var j=js(),U=j.firstChild;return j.$$click=()=>ls(I),h(j,()=>I.artist,U),h(U,()=>I.song_count||0),de(()=>Fe(j,`zune-filter-item ${z()?.artist===I.artist?"active":""}`)),j})()})),v}}),null),h(rn,b(D,{get when(){return e()==="albums"},get children(){var v=jn(),w=v.firstChild;return h(w,b(De,{get each(){return i()},children:I=>(()=>{var j=js(),U=j.firstChild;return j.$$click=()=>cs(I),h(j,()=>I.album||"Unknown Album",U),h(U,()=>I.track_count||0),de(()=>Fe(j,`zune-filter-item ${N()?.album===I.album?"active":""}`)),j})()})),v}}),null),h(ys,b(D,{get when(){return kt()},get children(){return[b(D,{get when(){return St().length>0},get children(){return[ye(()=>St().length)," search results"]}}),b(D,{get when(){return ye(()=>St().length===0)()&&!Se()},children:"no results found"})]}}),null),h(ys,b(D,{get when(){return!kt()},get children(){return[b(D,{get when(){return e()==="music"||f()||z()||N()},get children(){return[ye(()=>En().length)," songs"]}}),b(D,{get when(){return ye(()=>e()==="playlists")()&&!f()},get children(){return[ye(()=>a().length)," playlists"]}}),b(D,{get when(){return ye(()=>e()==="albums")()&&!N()},get children(){return[ye(()=>i().length)," albums"]}}),b(D,{get when(){return ye(()=>e()==="artists")()&&!z()},get children(){return[ye(()=>d().length)," artists"]}})]}}),null),h(Rt,b(D,{get when(){return f()},get children(){var v=Mn(),w=v.firstChild;return v.$$click=()=>us(f()),h(v,b(ln,{}),w),v}}),null),h(Rt,b(D,{get when(){return z()},get children(){var v=Mn(),w=v.firstChild;return v.$$click=()=>ds(z()),h(v,b(ln,{}),w),v}}),null),h(Rt,b(D,{get when(){return N()},get children(){var v=Mn(),w=v.firstChild;return v.$$click=()=>hs(N()),h(v,b(ln,{}),w),v}}),null),h(Rt,b(D,{get when(){return ye(()=>e()==="playlists")()&&!f()},get children(){var v=Ai(),w=v.firstChild;return v.$$click=()=>fs(),h(v,b(Zn,{}),w),v}}),null),h(an,b(D,{get when(){return Se()},get children(){return Ei()}}),null),h(an,b(D,{get when(){return Oe()},get children(){var v=Pi(),w=v.firstChild;w.firstChild;var I=w.nextSibling;return h(w,Oe,null),I.$$click=()=>zt(e()),v}}),null),h(an,b(D,{get when(){return ye(()=>!Se())()&&!Oe()},get children(){return[b(D,{get when(){return e()==="music"||f()||z()||N()},get children(){return[b(D,{get when(){return zr()},get children(){var v=Oi();return v.firstChild,h(v,b(De,{get each(){return kr()},children:([w,I])=>[(()=>{var j=Ji(),U=j.firstChild;return h(U,()=>$r(w)),j})(),b(De,{each:I,children:j=>(()=>{var U=Yi(),ne=U.firstChild,le=ne.nextSibling,ee=le.nextSibling,F=ee.nextSibling,se=F.firstChild;return U.$$click=()=>gs(j.text),h(le,()=>j.text),h(ee,()=>j.frequency),se.$$click=ge=>{ge.stopPropagation(),gs(j.text)},U})()})]}),null),v}}),b(D,{get when(){return Cr()},get children(){var v=Ii();return v.firstChild,h(v,b(De,{get each(){return En()},children:(w,I)=>(()=>{var j=ro(),U=j.firstChild,ne=U.nextSibling,le=ne.firstChild,ee=le.firstChild,F=ee.firstChild,se=ne.nextSibling,ge=se.nextSibling,ke=ge.nextSibling,Qe=ke.nextSibling,Ze=Qe.firstChild;return j.$$dblclick=()=>bt(w),h(U,b(D,{get when(){return ye(()=>Ne()?.id===w.id)()&&en()},get fallback(){return(()=>{var re=ao();return h(re,()=>I()+1),re})()},get children(){return Xi()}})),h(le,b(D,{get when(){return w.thumbnail_blob_id},get children(){var re=Ki();return de(Re=>{var je=`/api/blobs/${w.thumbnail_blob_id}`,Ve=w.title;return je!==Re.e&&Ut(re,"src",Re.e=je),Ve!==Re.t&&Ut(re,"alt",Re.t=Ve),Re},{e:void 0,t:void 0}),re}}),ee),h(F,()=>w.title),h(ee,b(D,{get when(){return w.is_favorite},get children(){return eo()}}),null),h(se,()=>w.artist||"Unknown Artist"),h(ge,()=>w.album||"Unknown Album"),h(ke,(()=>{var re=ye(()=>!!w.duration_seconds);return()=>re()?An(w.duration_seconds):"--:--"})()),Ze.$$click=re=>{re.stopPropagation(),lr(w)},h(Ze,b(Dn,{})),h(Qe,b(D,{get when(){return!f()},get children(){var re=no(),Re=re.firstChild;return re.style.setProperty("position","relative"),re.style.setProperty("overflow","visible"),Re.$$click=async je=>{je.stopPropagation(),await is(),qe(Ye()===w.id?null:w.id)},h(Re,b(Zn,{})),h(re,b(D,{get when(){return Ye()===w.id},get children(){var je=to(),Ve=je.firstChild,ue=Ve.firstChild;return Ve.nextSibling,Ve.$$click=be=>{be.stopPropagation(),fs([w]),qe(null)},h(Ve,b(Zn,{}),ue),h(je,b(De,{get each(){return a()},children:be=>(()=>{var Ae=io(),et=Ae.firstChild;return Ae.$$click=Rr=>{Rr.stopPropagation(),yr(w,be)},h(Ae,()=>be.title,et),h(et,()=>be.song_count||0),Ae})()}),null),je}}),null),re}}),null),h(Qe,b(D,{get when(){return f()},get children(){var re=so();return re.$$click=Re=>{Re.stopPropagation(),br(f(),w.id)},h(re,b(Ms,{})),re}}),null),de(()=>Fe(j,`zune-table-row ${Ne()?.id===w.id?"playing":""}`)),j})()}),null),v}})]}}),b(D,{get when(){return ye(()=>e()==="artists")()&&!z()},get children(){var v=Ln();return h(v,b(De,{get each(){return d()},children:w=>(()=>{var I=oo(),j=I.firstChild,U=j.nextSibling,ne=U.nextSibling,le=ne.firstChild,ee=ne.nextSibling,F=ee.firstChild;return I.$$dblclick=()=>ds(w),I.$$click=()=>ls(w),h(j,b(Fn,{})),h(U,()=>w.artist),h(ne,()=>w.song_count,le),h(ee,()=>w.album_count,F),I})()})),v}}),b(D,{get when(){return ye(()=>e()==="albums")()&&!N()},get children(){var v=Ln();return h(v,b(De,{get each(){return i()},children:w=>(()=>{var I=lo(),j=I.firstChild,U=j.nextSibling,ne=U.nextSibling,le=ne.nextSibling,ee=le.firstChild;return I.$$dblclick=()=>hs(w),I.$$click=()=>cs(w),h(j,b(Fn,{})),h(U,()=>w.album),h(ne,()=>w.artist),h(le,()=>w.track_count,ee),I})()})),v}}),b(D,{get when(){return ye(()=>e()==="playlists")()&&!f()},get children(){var v=Ln();return h(v,b(De,{get each(){return a()},children:w=>(()=>{var I=uo(),j=I.firstChild,U=j.nextSibling,ne=U.nextSibling,le=ne.firstChild;return I.$$dblclick=()=>us(w),I.$$click=()=>sn(w),h(j,b(Dn,{})),h(U,()=>w.title),h(ne,()=>w.song_count||0,le),h(I,b(D,{get when(){return w.description},get children(){var ee=co();return h(ee,()=>w.description),ee}}),null),I})()})),v}})]}}),null),h(Pn,b(D,{get when(){return ns()},get children(){var v=Ni(),w=v.firstChild,I=w.firstChild,j=I.nextSibling,U=j.firstChild,ne=U.nextSibling,le=w.nextSibling;return U.$$click=dr,ne.$$click=()=>ss(!1),h(ne,b(cn,{})),h(le,b(De,{get each(){return gt()},children:(ee,F)=>(()=>{var se=ho(),ge=se.firstChild,ke=ge.firstChild,Qe=ke.nextSibling,Ze=ge.nextSibling;return se.$$click=()=>{at(F()),bt(ee.song,!1)},h(ke,()=>ee.song.title),h(Qe,()=>ee.song.artist),Ze.$$click=re=>{re.stopPropagation(),ur(ee.id)},h(Ze,b(cn,{})),de(()=>Fe(se,`zune-queue-item ${F()===Dt()?"current":""}`)),se})()}),null),h(le,b(D,{get when(){return gt().length===0},get children(){return qi()}}),null),v}}),null),h(u,b(D,{get when(){return Ne()},get children(){var v=Mi(),w=v.firstChild,I=w.firstChild,j=I.nextSibling,U=j.firstChild,ne=U.nextSibling,le=w.nextSibling,ee=le.firstChild,F=ee.nextSibling,se=F.nextSibling,ge=se.nextSibling,ke=le.nextSibling,Qe=ke.firstChild,Ze=Qe.nextSibling,re=Ze.firstChild,Re=Ze.nextSibling,je=ke.nextSibling,Ve=je.firstChild;return h(I,b(D,{get when(){return Ne()?.thumbnail_blob_id},get fallback(){return(()=>{var ue=fo();return h(ue,b(Fn,{})),ue})()},get children(){var ue=ji();return de(be=>{var Ae=`/api/blobs/${Ne()?.thumbnail_blob_id}`,et=Ne()?.title;return Ae!==be.e&&Ut(ue,"src",be.e=Ae),et!==be.t&&Ut(ue,"alt",be.t=et),be},{e:void 0,t:void 0}),ue}})),h(U,()=>Ne()?.title),h(ne,()=>Ne()?.artist),ee.$$click=cr,h(ee,b(po,{})),F.$$click=hr,h(F,(()=>{var ue=ye(()=>!!en());return()=>ue()?b(mo,{}):b(ln,{})})()),se.$$click=os,h(se,b(bo,{})),ge.$$click=()=>ss(!ns()),h(ge,b(Dn,{})),h(Qe,()=>An(zn())),Ze.$$click=ue=>{const be=ue.currentTarget.getBoundingClientRect(),Ae=(ue.clientX-be.left)/be.width*100;vr(Ae)},h(Re,()=>An(y())),h(je,b(yo,{}),Ve),Ve.$$input=ue=>{const be=parseFloat(ue.currentTarget.value);He(be);const Ae=Xe();Ae&&(Ae.volume=be)},de(ue=>{var be=Dt()===0,Ae=Dt()>=gt().length-1,et=`${y()>0?zn()/y()*100:0}%`;return be!==ue.e&&(ee.disabled=ue.e=be),Ae!==ue.t&&(se.disabled=ue.t=Ae),et!==ue.a&&((ue.a=et)!=null?re.style.setProperty("width",et):re.style.removeProperty("width")),ue},{e:void 0,t:void 0,a:void 0}),de(()=>Ve.value=ft()),v}}),On),h(u,b(D,{get when(){return Ye()},get children(){var v=Li();return v.$$click=()=>qe(null),v}}),On),h(u,b(D,{get when(){return wt()},get children(){var v=Qi(),w=v.firstChild,I=w.firstChild,j=I.firstChild,U=j.nextSibling,ne=I.nextSibling,le=ne.nextSibling,ee=le.firstChild;return v.$$click=Tt,w.$$click=F=>F.stopPropagation(),h(j,(()=>{var F=ye(()=>O()==="create");return()=>F()?"Create Playlist":O()==="edit"?"Edit Playlist":"Add to Playlist"})()),U.$$click=Tt,h(U,b(cn,{})),h(ne,b(D,{get when(){return O()!=="add-songs"},get children(){return[(()=>{var F=Di(),se=F.firstChild,ge=se.nextSibling;return ge.$$input=ke=>$t({...ze(),title:ke.currentTarget.value}),de(()=>ge.value=ze().title),F})(),(()=>{var F=Zi(),se=F.firstChild,ge=se.nextSibling;return ge.$$input=ke=>$t({...ze(),description:ke.currentTarget.value}),de(()=>ge.value=ze().description),F})(),(()=>{var F=Fi(),se=F.firstChild,ge=se.firstChild;return ge.addEventListener("change",ke=>$t({...ze(),is_public:ke.currentTarget.checked})),de(()=>ge.checked=ze().is_public),F})()]}}),null),h(ne,b(D,{get when(){return K().length>0},get children(){var F=Ui(),se=F.firstChild,ge=se.firstChild,ke=ge.nextSibling;ke.nextSibling;var Qe=se.nextSibling;return h(se,()=>O()==="add-songs"?"Adding":"Songs to add",ge),h(se,()=>K().length,ke),h(Qe,b(De,{get each(){return K()},children:Ze=>(()=>{var re=go(),Re=re.firstChild,je=Re.nextSibling;return h(Re,()=>Ze.title),h(je,()=>Ze.artist||"Unknown Artist"),re})()})),F}}),null),ee.$$click=Tt,h(le,b(D,{get when(){return O()==="create"},get children(){var F=Vi();return F.$$click=gr,de(()=>F.disabled=!ze().title.trim()),F}}),null),h(le,b(D,{get when(){return O()==="edit"},get children(){var F=Bi();return F.$$click=mr,de(()=>F.disabled=!ze().title.trim()),F}}),null),h(le,b(D,{get when(){return O()==="add-songs"},get children(){var F=Hi();return F.$$click=pr,F}}),null),v}}),On),de(v=>{var w=`zune-nav-item ${e()==="music"?"active":""}`,I=`zune-nav-item ${e()==="artists"?"active":""}`,j=`zune-nav-item ${e()==="albums"?"active":""}`,U=`zune-nav-item ${e()==="playlists"?"active":""}`,ne=`zune-content-area ${or()}`;return w!==v.e&&Fe(te,v.e=w),I!==v.t&&Fe(yt,v.t=I),j!==v.a&&Fe(Ft,v.a=j),U!==v.o&&Fe(ps,v.o=U),ne!==v.i&&Fe(an,v.i=ne),v},{e:void 0,t:void 0,a:void 0,o:void 0,i:void 0}),u})()}function wo(n){const e=rr(n.apiBaseUrl||"http://localhost:8080");return b(ui,{apiClient:e,searchOptions:{enableSuggestions:!0,enableHistory:!1,autoSearch:!1,integrationMode:"standalone"},get children(){return b(xo,{})}})}class So extends HTMLElement{dispose=null;connectedCallback(){const e=this.getAttribute("api-base-url")||"http://localhost:8080",t=this.getAttribute("auto-connect")==="true";this.dispose=Br(()=>b(wo,{apiBaseUrl:e,autoConnect:t}),this)}disconnectedCallback(){this.dispose&&this.dispose()}}customElements.define("zune-demo",So);Ws(["click","input","dblclick"]);
+
+  </script>
+</body>
+</html>
