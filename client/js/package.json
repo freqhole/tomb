@@ -8,7 +8,7 @@
   "scripts": {
     "build": "npm run build:lib && npm run build:web-components",
     "build:lib": "tsc",
-    "build:web-components": "vite build --config vite.wc.config.ts",
+    "build:web-components": "node build-components.js",
     "build:copy": "npm run build && npm run copy",
     "copy": "cp dist/* ../../assets/client/js/",
     "dev": "tsc --watch",
