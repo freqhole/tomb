@@ -1,6 +1,0 @@
-//! Event utilities for cleaner EventTarget management
-//!
-//! This module provides utility functions to reduce code duplication
-//! in EventTarget cleanup and management across the codebase.
-function i(s){return e=>{s(e.detail)}}function c(s,e,t,n){const a=new CustomEvent(e,{detail:t,bubbles:n?.bubbles??!1,cancelable:n?.cancelable??!1,composed:n?.composed??!1});return s.dispatchEvent(a)}function d(s,e,t){const n=a=>{t(a),s.removeEventListener(e,n)};s.addEventListener(e,n)}function u(s,e,t,n){return s.addEventListener(e,t,n),()=>s.removeEventListener(e,t)}class l{cleanupFunctions=[];addListener(e,t,n,a){const r=u(e,t,n,a);this.cleanupFunctions.push(r)}addOneTimeListener(e,t,n){d(e,t,n)}addTypedListener(e,t,n,a){const r=i(n);this.addListener(e,t,r,a)}removeAll(){this.cleanupFunctions.forEach(e=>e()),this.cleanupFunctions=[]}get count(){return this.cleanupFunctions.length}}class o extends EventTarget{eventManager=new l;addManagedListener(e,t,n){this.eventManager.addListener(this,e,t,n)}addExternalListener(e,t,n,a){this.eventManager.addListener(e,t,n,a)}dispatchTypedEvent(e,t,n){return c(this,e,t,n)}cleanup(){this.eventManager.removeAll()}}export{o as M};
-//# sourceMappingURL=event-utils-DIzmYpNO.js.map
