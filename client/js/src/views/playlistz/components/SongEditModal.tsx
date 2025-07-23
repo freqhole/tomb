@@ -150,7 +150,7 @@ export function SongEditModal(props: SongEditModalProps) {
           <h2 class="text-xl font-bold text-white">E D I T</h2>
           <button
             onClick={handleCancel}
-            class="text-gray-400 hover:text-white p-1 rounded"
+            class="text-magenta-200 hover:text-magenta-500 p-1 rounded"
             disabled={isLoading()}
           >
             <svg

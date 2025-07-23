@@ -1073,7 +1073,7 @@ export function Playlistz() {
               {selectedPlaylist()?.title || "a new playlist"}
             </p>
             <div class="mt-6 flex justify-center">
-              <div class="px-4 py-2 bg-magenta-500 bg-opacity-20 border-2 border-magenta-500 border-dashed rounded-lg">
+              <div class="px-4 py-2 bg-magenta-500 bg-opacity-20 border-2 border-magenta-500 border-dashed">
                 <p class="text-magenta-300">
                   supports mp3, wav, flac, aiff, and more
                 </p>
@@ -1086,7 +1086,7 @@ export function Playlistz() {
       {/* Error notification */}
       <Show when={error()}>
         <div class="fixed top-4 right-4 z-50">
-          <div class="bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg max-w-sm">
+          <div class="bg-red-500 text-white px-6 py-3 shadow-lg max-w-sm">
             <div class="flex items-center">
               <div class="flex-shrink-0">
                 <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -1138,7 +1138,7 @@ export function Playlistz() {
         <div class="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
           <button
             onClick={() => setShowImageModal(false)}
-            class="fixed top-4 right-4 p-2 text-white hover:text-gray-300 bg-black bg-opacity-50 hover:bg-opacity-70 rounded-full transition-colors z-60"
+            class="fixed top-4 right-4 p-2 text-magenta-200 hover:text-magenta-500 bg-black bg-opacity-50 hover:bg-opacity-70 rounded-full transition-colors z-60"
             title="close (ESC)"
           >
             <svg
@@ -1183,14 +1183,15 @@ export function Playlistz() {
                   alt={currentImage.title}
                   class="w-full h-full object-contain pointer-events-none"
                 />
-                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white text-center bg-black bg-opacity-50 px-4 py-2 rounded-lg">
-                  <div class="text-sm font-medium">{currentImage.title}</div>
-                  {images.length > 1 && (
-                    <div class="text-xs text-gray-300 mt-1">
-                      {modalImageIndex() + 1} of {images.length} (click or use
-                      arrow keys to navigate)
-                    </div>
-                  )}
+                <div class="absolute top-4 right-16 text-white text-center bg-black bg-opacity-50 p-3">
+                  <div class="text-sm font-medium">
+                    {currentImage.title}{" "}
+                    {images.length > 1 && (
+                      <span class="text-xs text-gray-300 mt-1">
+                        ({modalImageIndex() + 1} of {images.length})
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -1201,7 +1202,7 @@ export function Playlistz() {
       {/* Delete Confirmation Modal */}
       <Show when={showDeleteConfirm()}>
         <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div class="bg-gray-800 p-6 rounded-lg border border-gray-600 max-w-md w-full mx-4">
+          <div class="bg-gray-800 p-6 border border-gray-600 max-w-md w-full mx-4">
             <h3 class="text-lg font-semibold text-white mb-4">
               delete playlist
             </h3>
