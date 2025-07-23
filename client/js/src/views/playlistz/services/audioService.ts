@@ -316,10 +316,31 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
     }
 
     if (!audioURL) {
-      // Load audio data on-demand from IndexedDB
-      const loadedURL = await loadSongAudioData(song.id);
-      if (loadedURL) {
-        audioURL = loadedURL;
+      // Check for standalone mode with relative file path
+      if ((window as any).STANDALONE_MODE && (song as any).standaloneFilePath) {
+        audioURL = (song as any).standaloneFilePath;
+        console.log("🎵 Using standalone file path:", audioURL);
+
+        // Test if file is accessible
+        try {
+          const testResponse = await fetch(audioURL);
+          console.log(
+            "🎵 File accessibility test:",
+            testResponse.status,
+            testResponse.statusText
+          );
+          if (!testResponse.ok) {
+            console.error("❌ File not accessible:", audioURL);
+          }
+        } catch (error) {
+          console.error("❌ Error testing file access:", error);
+        }
+      } else {
+        // Load audio data on-demand from IndexedDB
+        const loadedURL = await loadSongAudioData(song.id);
+        if (loadedURL) {
+          audioURL = loadedURL;
+        }
       }
     }
 
@@ -327,7 +348,19 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
       throw new Error("No audio source available for song");
     }
 
+    console.log("🎵 Setting audio.src to:", audioURL);
     audio.src = audioURL;
+
+    // Add error event listener to catch loading issues
+    audio.addEventListener(
+      "error",
+      (e) => {
+        console.error("❌ Audio loading error:", e);
+        console.error("❌ Audio error details:", audio.error);
+      },
+      { once: true }
+    );
+
     await audio.play();
     updateMediaSession();
   } catch (error) {

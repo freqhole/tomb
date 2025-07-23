@@ -6,6 +6,7 @@ export interface PlaylistDownloadOptions {
   includeMetadata?: boolean;
   includeImages?: boolean;
   generateM3U?: boolean;
+  includeHTML?: boolean;
 }
 
 /**
@@ -17,6 +18,7 @@ export async function downloadPlaylistAsZip(
     includeMetadata: true,
     includeImages: true,
     generateM3U: true,
+    includeHTML: true,
   }
 ): Promise<void> {
   try {
@@ -25,9 +27,16 @@ export async function downloadPlaylistAsZip(
     // Get all songs for this playlist with audio data
     const playlistSongs = await getSongsWithAudioData(playlist.songIds);
 
-    // Create playlist metadata file
-    if (options.includeMetadata) {
-      const playlistInfo = {
+    // Create root folder with playlist name
+    const rootFolderName = createSafeFileName("", playlist.title);
+    const rootFolder = zip.folder(rootFolderName);
+
+    // Create data folder inside root folder
+    const dataFolder = rootFolder!.folder("data");
+
+    // Create comprehensive playlist data file in data folder
+    const playlistData = {
+      playlist: {
         title: playlist.title,
         description: playlist.description || "",
         createdAt: new Date(playlist.createdAt).toISOString(),
@@ -37,18 +46,29 @@ export async function downloadPlaylistAsZip(
           (total, song) => total + (song.duration || 0),
           0
         ),
-      };
+        imageData: playlist.imageData
+          ? getFileExtensionFromMimeType(playlist.imageType || "image/jpeg")
+          : null,
+      },
+      songs: playlistSongs.map((song) => ({
+        title: song.title,
+        artist: song.artist,
+        album: song.album,
+        duration: song.duration || 0,
+        originalFilename: song.originalFilename || "",
+        imageData: song.imageData
+          ? getFileExtensionFromMimeType(song.imageType || "image/jpeg")
+          : null,
+      })),
+    };
 
-      zip.file("playlist-info.json", JSON.stringify(playlistInfo, null, 2));
-    }
-
-    // Add playlist cover image if it exists
+    // Add playlist cover image to data folder if it exists
     if (options.includeImages && playlist.imageData && playlist.imageType) {
       const extension = getFileExtensionFromMimeType(playlist.imageType);
-      zip.file(`playlist-cover${extension}`, playlist.imageData);
+      dataFolder!.file(`playlist-cover${extension}`, playlist.imageData);
     }
 
-    // Add all audio files directly to root
+    // Add all audio files to data folder
     const songFileNames: string[] = [];
 
     for (const song of playlistSongs) {
@@ -57,14 +77,14 @@ export async function downloadPlaylistAsZip(
         const audioFileName = song.originalFilename;
         const baseName = audioFileName.replace(/\.[^.]+$/, "");
 
-        zip.file(audioFileName, song.audioData);
+        dataFolder!.file(audioFileName, song.audioData);
         songFileNames.push(audioFileName);
 
         // Add song cover art if it exists
         if (options.includeImages && song.imageData && song.imageType) {
           const imageExtension = getFileExtensionFromMimeType(song.imageType);
           const imageFileName = `${baseName}-cover${imageExtension}`;
-          zip.file(imageFileName, song.imageData);
+          dataFolder!.file(imageFileName, song.imageData);
         }
 
         // Add individual song metadata
@@ -80,7 +100,7 @@ export async function downloadPlaylistAsZip(
             updatedAt: new Date(song.updatedAt).toISOString(),
           };
 
-          zip.file(
+          dataFolder!.file(
             `${baseName}-metadata.json`,
             JSON.stringify(songMetadata, null, 2)
           );
@@ -88,14 +108,37 @@ export async function downloadPlaylistAsZip(
       }
     }
 
-    // Generate M3U8 playlist file
+    // Add playlist data to data folder
+    dataFolder!.file("playlist.json", JSON.stringify(playlistData, null, 2));
+
+    // Generate M3U8 playlist file in data folder
     if (options.generateM3U) {
       const m3uContent = generateM3UContent(
         playlist,
         playlistSongs,
         songFileNames
       );
-      zip.file(`${createSafeFileName("", playlist.title)}.m3u8`, m3uContent);
+      dataFolder!.file(
+        `${createSafeFileName("", playlist.title)}.m3u8`,
+        m3uContent
+      );
+    }
+
+    // Generate standalone HTML page in root folder
+    if (options.includeHTML) {
+      try {
+        console.log("🔄 Starting HTML generation...");
+        const htmlContent = await generateStandaloneHTML(playlistData);
+        console.log("🔄 HTML content generated, length:", htmlContent.length);
+        rootFolder!.file("playlistz.html", htmlContent);
+        console.log("✅ Generated playlistz.html successfully");
+      } catch (error) {
+        console.error("❌ Error generating HTML:", error);
+        console.error("❌ Error stack:", error.stack);
+        // Continue without HTML file rather than failing
+      }
+    } else {
+      console.log("⚠️ HTML generation disabled in options");
     }
 
     // Generate and download the ZIP file
@@ -104,7 +147,7 @@ export async function downloadPlaylistAsZip(
 
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${createSafeFileName("", playlist.title)}.zip`;
+    link.download = `${rootFolderName}.zip`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -136,7 +179,7 @@ function generateM3UContent(
     const extension = getFileExtensionFromMimeType(
       playlist.imageType || "image/jpeg"
     );
-    m3uContent += `# PlaylistImage: playlist-cover${extension}\n`;
+    m3uContent += `# PlaylistImage: data/playlist-cover${extension}\n`;
   }
   m3uContent += "\n";
 
@@ -154,10 +197,10 @@ function generateM3UContent(
       if (song.imageData && song.originalFilename) {
         const baseName = song.originalFilename.replace(/\.[^.]+$/, "");
         const imageExtension = getFileExtensionFromMimeType(song.imageType!);
-        m3uContent += `# Image: ${baseName}-cover${imageExtension}\n`;
+        m3uContent += `# Image: data/${baseName}-cover${imageExtension}\n`;
       }
 
-      m3uContent += `${fileName}\n\n`;
+      m3uContent += `data/${fileName}\n\n`;
     }
   });
 
@@ -324,4 +367,79 @@ function getMimeTypeFromExtension(fileName: string): string {
   };
 
   return mimeTypes[extension || ""] || "application/octet-stream";
+}
+
+/**
+ * Generates a standalone HTML page with embedded playlist data
+ */
+async function generateStandaloneHTML(playlistData: any): Promise<string> {
+  console.log("🔄 Fetching clean HTML source...");
+  // Fetch the clean HTML source instead of serializing the mutated DOM
+  const response = await fetch(window.location.href);
+  const currentHTML = await response.text();
+  console.log("🔄 Clean HTML length:", currentHTML.length);
+
+  // Create the standalone initialization script with embedded data
+  const standaloneScript = `
+    <script>
+      // Flag to indicate this is a standalone version
+      window.STANDALONE_MODE = true;
+
+      // Embedded playlist data
+      window.EMBEDDED_PLAYLIST_DATA = ${JSON.stringify(playlistData, null, 2)};
+
+      // Wait for the function to be available and then initialize
+      async function waitForInitialization() {
+        let attempts = 0;
+        const maxAttempts = 50; // Wait up to 5 seconds
+
+        while (attempts < maxAttempts) {
+          if (window.initializeStandalonePlaylist) {
+            try {
+              console.log('🎵 Standalone mode: Loading embedded playlist data...');
+              const playlistData = window.EMBEDDED_PLAYLIST_DATA;
+              console.log('🎵 Playlist data loaded:', playlistData);
+
+              window.initializeStandalonePlaylist(playlistData);
+              return; // Success, exit
+            } catch (error) {
+              console.error('Failed to initialize playlist:', error);
+              showError('Failed to initialize playlist: ' + error.message);
+              return;
+            }
+          }
+
+          // Wait 100ms before trying again
+          await new Promise(resolve => setTimeout(resolve, 100));
+          attempts++;
+        }
+
+        // Function never became available
+        console.error('initializeStandalonePlaylist function not found after waiting');
+        showError('Playlist initialization function not found. The app may not have loaded properly.');
+      }
+
+      // Start waiting after DOM is loaded
+      window.addEventListener('DOMContentLoaded', waitForInitialization);
+
+      // Show dismissable error message
+      function showError(message) {
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(220, 20, 60, 0.95); color: white; padding: 15px 25px; border-radius: 8px; z-index: 10000; text-align: center; max-width: 500px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);';
+        errorDiv.innerHTML = '<div style="margin-bottom: 10px;">' + message + '</div><button onclick="this.parentElement.remove()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer;">Dismiss</button>';
+        document.body.appendChild(errorDiv);
+      }
+    </script>
+  `;
+
+  // Insert the script before the closing </head> tag
+  console.log("🔄 Inserting standalone script...");
+  let modifiedHTML = currentHTML.replace(
+    "</head>",
+    `${standaloneScript}\n</head>`
+  );
+
+  console.log("🔄 Modified HTML length:", modifiedHTML.length);
+  console.log("✅ HTML generation complete");
+  return modifiedHTML;
 }

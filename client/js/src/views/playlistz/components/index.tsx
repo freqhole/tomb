@@ -38,6 +38,7 @@ import {
   removeSongFromPlaylist,
   getAllSongs,
   reorderSongs,
+  SONGS_STORE,
 } from "../services/indexedDBService.js";
 import {
   downloadPlaylistAsZip,
@@ -45,6 +46,19 @@ import {
 } from "../services/playlistDownloadService.js";
 
 import type { Playlist } from "../types/playlist.js";
+
+// Global function registration for standalone mode (happens immediately)
+if ((window as any).STANDALONE_MODE) {
+  console.log("🎵 Early standalone mode detection, registering function...");
+  // Define the function early so it's available for HTML initialization
+  (window as any).initializeStandalonePlaylist = function (playlistData: any) {
+    console.log(
+      "🎵 Early initializeStandalonePlaylist called, deferring to main function..."
+    );
+    // Store the data and defer to the real function when it's ready
+    (window as any).DEFERRED_PLAYLIST_DATA = playlistData;
+  };
+}
 
 export function Playlistz() {
   // State
@@ -130,11 +144,22 @@ export function Playlistz() {
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        newImageUrl = createImageUrlFromData(
-          currentSong.imageData,
-          currentSong.imageType
-        );
-        cache.set(cacheKey, newImageUrl);
+        // Check for standalone mode with relative image path
+        if (
+          (window as any).STANDALONE_MODE &&
+          (currentSong as any).standaloneImagePath
+        ) {
+          newImageUrl = (currentSong as any).standaloneImagePath;
+          console.log("🖼️ Using standalone song image path:", newImageUrl);
+        } else if (currentSong.imageData && currentSong.imageType) {
+          newImageUrl = createImageUrlFromData(
+            currentSong.imageData,
+            currentSong.imageType
+          );
+        }
+        if (newImageUrl) {
+          cache.set(cacheKey, newImageUrl);
+        }
       }
     }
     // Priority 2: Use current playlist's image if song has no image (when playing)
@@ -147,11 +172,22 @@ export function Playlistz() {
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        newImageUrl = createImageUrlFromData(
-          currentPlaylist.imageData,
-          currentPlaylist.imageType
-        );
-        cache.set(cacheKey, newImageUrl);
+        // Check for standalone mode with relative image path
+        if (
+          (window as any).STANDALONE_MODE &&
+          (currentPlaylist as any).standaloneImagePath
+        ) {
+          newImageUrl = (currentPlaylist as any).standaloneImagePath;
+          console.log("🖼️ Using standalone playlist image path:", newImageUrl);
+        } else if (currentPlaylist.imageData && currentPlaylist.imageType) {
+          newImageUrl = createImageUrlFromData(
+            currentPlaylist.imageData,
+            currentPlaylist.imageType
+          );
+        }
+        if (newImageUrl) {
+          cache.set(cacheKey, newImageUrl);
+        }
       }
     }
     // Priority 3: Use selected playlist's image (when not playing but playlist selected)
@@ -160,11 +196,21 @@ export function Playlistz() {
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        newImageUrl = createImageUrlFromData(
-          selectedPl.imageData,
-          selectedPl.imageType
-        );
-        cache.set(cacheKey, newImageUrl);
+        // Check for standalone mode with relative image path
+        if (
+          (window as any).STANDALONE_MODE &&
+          (selectedPl as any).standaloneImagePath
+        ) {
+          newImageUrl = (selectedPl as any).standaloneImagePath;
+        } else if (selectedPl.imageData && selectedPl.imageType) {
+          newImageUrl = createImageUrlFromData(
+            selectedPl.imageData,
+            selectedPl.imageType
+          );
+        }
+        if (newImageUrl) {
+          cache.set(cacheKey, newImageUrl);
+        }
       }
     }
 
@@ -187,8 +233,23 @@ export function Playlistz() {
 
   // Initialize database
   onMount(async () => {
+    // Set up standalone mode initialization function immediately
+    console.log("🔄 Setting up standalone function...");
+    (window as any).initializeStandalonePlaylist = initializeStandalonePlaylist;
+    console.log("✅ Standalone function registered");
+
+    // Check if we have deferred data from early initialization
+    if ((window as any).DEFERRED_PLAYLIST_DATA) {
+      console.log("🎵 Found deferred playlist data, initializing now...");
+      await initializeStandalonePlaylist(
+        (window as any).DEFERRED_PLAYLIST_DATA
+      );
+      delete (window as any).DEFERRED_PLAYLIST_DATA;
+    }
+
     try {
       await setupDB();
+
       setIsInitialized(true);
 
       // Set up responsive behavior
@@ -701,12 +762,86 @@ export function Playlistz() {
         includeMetadata: true,
         includeImages: true,
         generateM3U: true,
+        includeHTML: true,
       });
     } catch (err) {
       console.error("❌ Error downloading playlist:", err);
       setError("Failed to download playlist");
     } finally {
       setIsDownloading(false);
+    }
+  };
+
+  // Initialize standalone playlist from embedded data
+  const initializeStandalonePlaylist = async (playlistData: any) => {
+    console.log(
+      "🎵 initializeStandalonePlaylist called with data:",
+      playlistData
+    );
+    try {
+      // Create a virtual playlist for display
+      const virtualPlaylist: Playlist = {
+        id: crypto.randomUUID(),
+        title: playlistData.playlist.title,
+        description: playlistData.playlist.description,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        songIds: playlistData.songs.map(() => crypto.randomUUID()),
+        imageData: undefined, // Will load playlist cover from data/ folder if needed
+        imageType: playlistData.playlist.imageData ? "image/jpeg" : undefined,
+      };
+
+      // Add custom property for standalone image path
+      (virtualPlaylist as any).standaloneImagePath = playlistData.playlist
+        .imageData
+        ? `data/playlist-cover${playlistData.playlist.imageData}`
+        : undefined;
+
+      // Create virtual songs that reference local files
+      const virtualSongs = playlistData.songs.map(
+        (songData: any, index: number) => ({
+          id: virtualPlaylist.songIds[index],
+          title: songData.title,
+          artist: songData.artist,
+          album: songData.album,
+          duration: songData.duration,
+          position: index,
+          mimeType: "audio/mpeg", // Will be determined by actual file
+          originalFilename: songData.originalFilename,
+          audioData: undefined, // Will load from relative URL
+          blobUrl: undefined, // Don't use blobUrl for file paths
+          file: undefined, // No file object in standalone mode
+          imageData: undefined,
+          imageType: songData.imageData ? "image/jpeg" : undefined,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          playlistId: virtualPlaylist.id,
+          // Add custom properties for standalone file paths
+          standaloneFilePath: `data/${songData.originalFilename}`,
+          standaloneImagePath: songData.imageData
+            ? `data/${songData.originalFilename.replace(/\.[^.]+$/, "")}-cover${songData.imageData}`
+            : undefined,
+        })
+      );
+
+      // Store virtual songs in IndexedDB so SongRow components can find them
+      const db = await setupDB();
+      const tx = db.transaction([SONGS_STORE], "readwrite");
+      const store = tx.objectStore(SONGS_STORE);
+
+      for (const song of virtualSongs) {
+        await store.put(song);
+      }
+      await tx.done;
+
+      // Set up the playlist and songs for display
+      setSelectedPlaylist(virtualPlaylist);
+      setPlaylistSongs(virtualSongs);
+
+      console.log("🎵 Standalone playlist loaded from embedded data");
+    } catch (err) {
+      console.error("Error initializing standalone playlist:", err);
+      setError("Failed to load standalone playlist");
     }
   };
 
@@ -981,10 +1116,23 @@ export function Playlistz() {
                           }
                         >
                           <img
-                            src={createImageUrlFromData(
-                              playlist().imageData!,
-                              playlist().imageType!
-                            )}
+                            src={(() => {
+                              const pl = playlist();
+                              if (
+                                (window as any).STANDALONE_MODE &&
+                                (pl as any).standaloneImagePath
+                              ) {
+                                console.log(
+                                  "🖼️ Playlist cover using standalone path:",
+                                  (pl as any).standaloneImagePath
+                                );
+                                return (pl as any).standaloneImagePath;
+                              }
+                              return createImageUrlFromData(
+                                pl.imageData!,
+                                pl.imageType!
+                              );
+                            })()}
                             alt="playlist cover"
                             class="w-full h-full object-cover"
                           />
