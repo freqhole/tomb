@@ -144,22 +144,11 @@ export function Playlistz() {
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        // Check for standalone mode with relative image path
-        if (
-          (window as any).STANDALONE_MODE &&
-          (currentSong as any).standaloneImagePath
-        ) {
-          newImageUrl = (currentSong as any).standaloneImagePath;
-          console.log("🖼️ Using standalone song image path:", newImageUrl);
-        } else if (currentSong.imageData && currentSong.imageType) {
-          newImageUrl = createImageUrlFromData(
-            currentSong.imageData,
-            currentSong.imageType
-          );
-        }
-        if (newImageUrl) {
-          cache.set(cacheKey, newImageUrl);
-        }
+        newImageUrl = createImageUrlFromData(
+          currentSong.imageData,
+          currentSong.imageType
+        );
+        cache.set(cacheKey, newImageUrl);
       }
     }
     // Priority 2: Use current playlist's image if song has no image (when playing)
@@ -172,45 +161,24 @@ export function Playlistz() {
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        // Check for standalone mode with relative image path
-        if (
-          (window as any).STANDALONE_MODE &&
-          (currentPlaylist as any).standaloneImagePath
-        ) {
-          newImageUrl = (currentPlaylist as any).standaloneImagePath;
-          console.log("🖼️ Using standalone playlist image path:", newImageUrl);
-        } else if (currentPlaylist.imageData && currentPlaylist.imageType) {
-          newImageUrl = createImageUrlFromData(
-            currentPlaylist.imageData,
-            currentPlaylist.imageType
-          );
-        }
-        if (newImageUrl) {
-          cache.set(cacheKey, newImageUrl);
-        }
+        newImageUrl = createImageUrlFromData(
+          currentPlaylist.imageData,
+          currentPlaylist.imageType
+        );
+        cache.set(cacheKey, newImageUrl);
       }
     }
     // Priority 3: Use selected playlist's image (when not playing but playlist selected)
-    else if (!currentSong && selectedPl?.imageData && selectedPl?.imageType) {
+    else if (selectedPl?.imageData && selectedPl?.imageType) {
       cacheKey = `playlist-${selectedPl.id}`;
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        // Check for standalone mode with relative image path
-        if (
-          (window as any).STANDALONE_MODE &&
-          (selectedPl as any).standaloneImagePath
-        ) {
-          newImageUrl = (selectedPl as any).standaloneImagePath;
-        } else if (selectedPl.imageData && selectedPl.imageType) {
-          newImageUrl = createImageUrlFromData(
-            selectedPl.imageData,
-            selectedPl.imageType
-          );
-        }
-        if (newImageUrl) {
-          cache.set(cacheKey, newImageUrl);
-        }
+        newImageUrl = createImageUrlFromData(
+          selectedPl.imageData,
+          selectedPl.imageType
+        );
+        cache.set(cacheKey, newImageUrl);
       }
     }
 
@@ -778,6 +746,10 @@ export function Playlistz() {
       "🎵 initializeStandalonePlaylist called with data:",
       playlistData
     );
+    console.log(
+      "🖼️ Embedded playlist data structure:",
+      JSON.stringify(playlistData, null, 2)
+    );
     try {
       // Create a virtual playlist for display
       const virtualPlaylist: Playlist = {
@@ -791,11 +763,15 @@ export function Playlistz() {
         imageType: playlistData.playlist.imageData ? "image/jpeg" : undefined,
       };
 
-      // Add custom property for standalone image path
-      (virtualPlaylist as any).standaloneImagePath = playlistData.playlist
-        .imageData
-        ? `data/playlist-cover${playlistData.playlist.imageData}`
-        : undefined;
+      // Set playlist image from base64 data
+      if (playlistData.playlist.imageBase64) {
+        const imageDataUrl = `data:${playlistData.playlist.imageMimeType};base64,${playlistData.playlist.imageBase64}`;
+        virtualPlaylist.imageData = base64ToArrayBuffer(
+          playlistData.playlist.imageBase64
+        );
+        virtualPlaylist.imageType = playlistData.playlist.imageMimeType;
+        console.log("🖼️ Set playlist image from base64 data");
+      }
 
       // Create virtual songs that reference local files
       const virtualSongs = playlistData.songs.map(
@@ -817,10 +793,7 @@ export function Playlistz() {
           updatedAt: Date.now(),
           playlistId: virtualPlaylist.id,
           // Add custom properties for standalone file paths
-          standaloneFilePath: `data/${songData.originalFilename}`,
-          standaloneImagePath: songData.imageData
-            ? `data/${songData.originalFilename.replace(/\.[^.]+$/, "")}-cover${songData.imageData}`
-            : undefined,
+          standaloneFilePath: `data/${songData.safeFilename || songData.originalFilename}`,
         })
       );
 
@@ -834,6 +807,29 @@ export function Playlistz() {
       }
       await tx.done;
 
+      // Set song images from base64 data
+      for (let i = 0; i < virtualSongs.length; i++) {
+        const song = virtualSongs[i];
+        const songData = playlistData.songs[i];
+
+        if (songData.imageBase64) {
+          song.imageData = base64ToArrayBuffer(songData.imageBase64);
+          song.imageType = songData.imageMimeType;
+
+          // Update the song in IndexedDB
+          const db = await setupDB();
+          const tx = db.transaction([SONGS_STORE], "readwrite");
+          const store = tx.objectStore(SONGS_STORE);
+          await store.put(song);
+          await tx.done;
+
+          console.log(
+            "🖼️ Set song image from base64 data:",
+            songData.originalFilename
+          );
+        }
+      }
+
       // Set up the playlist and songs for display
       setSelectedPlaylist(virtualPlaylist);
       setPlaylistSongs(virtualSongs);
@@ -843,6 +839,16 @@ export function Playlistz() {
       console.error("Error initializing standalone playlist:", err);
       setError("Failed to load standalone playlist");
     }
+  };
+
+  // Helper function to convert base64 to ArrayBuffer
+  const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
   };
 
   return (
@@ -1116,23 +1122,10 @@ export function Playlistz() {
                           }
                         >
                           <img
-                            src={(() => {
-                              const pl = playlist();
-                              if (
-                                (window as any).STANDALONE_MODE &&
-                                (pl as any).standaloneImagePath
-                              ) {
-                                console.log(
-                                  "🖼️ Playlist cover using standalone path:",
-                                  (pl as any).standaloneImagePath
-                                );
-                                return (pl as any).standaloneImagePath;
-                              }
-                              return createImageUrlFromData(
-                                pl.imageData!,
-                                pl.imageType!
-                              );
-                            })()}
+                            src={createImageUrlFromData(
+                              playlist().imageData!,
+                              playlist().imageType!
+                            )}
                             alt="playlist cover"
                             class="w-full h-full object-cover"
                           />

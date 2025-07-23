@@ -46,9 +46,13 @@ export async function downloadPlaylistAsZip(
           (total, song) => total + (song.duration || 0),
           0
         ),
-        imageData: playlist.imageData
+        imageExtension: playlist.imageData
           ? getFileExtensionFromMimeType(playlist.imageType || "image/jpeg")
           : null,
+        imageBase64: playlist.imageData
+          ? arrayBufferToBase64(playlist.imageData)
+          : null,
+        imageMimeType: playlist.imageType || null,
       },
       songs: playlistSongs.map((song) => ({
         title: song.title,
@@ -56,9 +60,16 @@ export async function downloadPlaylistAsZip(
         album: song.album,
         duration: song.duration || 0,
         originalFilename: song.originalFilename || "",
-        imageData: song.imageData
+        safeFilename: song.originalFilename
+          ? sanitizeFilename(song.originalFilename)
+          : "",
+        imageExtension: song.imageData
           ? getFileExtensionFromMimeType(song.imageType || "image/jpeg")
           : null,
+        imageBase64: song.imageData
+          ? arrayBufferToBase64(song.imageData)
+          : null,
+        imageMimeType: song.imageType || null,
       })),
     };
 
@@ -73,12 +84,12 @@ export async function downloadPlaylistAsZip(
 
     for (const song of playlistSongs) {
       if (song.audioData && song.originalFilename) {
-        // Use original filename
-        const audioFileName = song.originalFilename;
-        const baseName = audioFileName.replace(/\.[^.]+$/, "");
+        // Create safe filename for ZIP while keeping original in metadata
+        const safeFileName = sanitizeFilename(song.originalFilename);
+        const baseName = safeFileName.replace(/\.[^.]+$/, "");
 
-        dataFolder!.file(audioFileName, song.audioData);
-        songFileNames.push(audioFileName);
+        dataFolder!.file(safeFileName, song.audioData);
+        songFileNames.push(safeFileName);
 
         // Add song cover art if it exists
         if (options.includeImages && song.imageData && song.imageType) {
@@ -102,7 +113,11 @@ export async function downloadPlaylistAsZip(
 
           dataFolder!.file(
             `${baseName}-metadata.json`,
-            JSON.stringify(songMetadata, null, 2)
+            JSON.stringify(
+              { ...songMetadata, safeFilename: safeFileName },
+              null,
+              2
+            )
           );
         }
       }
@@ -442,4 +457,35 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
   console.log("🔄 Modified HTML length:", modifiedHTML.length);
   console.log("✅ HTML generation complete");
   return modifiedHTML;
+}
+
+/**
+ * Converts ArrayBuffer to base64 string
+ */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(binary);
+}
+
+/**
+ * Sanitizes filenames for better cross-platform compatibility
+ */
+function sanitizeFilename(filename: string): string {
+  return (
+    filename
+      // Replace problematic characters with safe alternatives
+      .replace(/\$/g, "_DOLLAR_")
+      .replace(/\[/g, "_LBRACKET_")
+      .replace(/\]/g, "_RBRACKET_")
+      .replace(/\(/g, "_LPAREN_")
+      .replace(/\)/g, "_RPAREN_")
+      .replace(/[<>:"/\\|?*]/g, "_")
+      // Keep other characters as they are for readability
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
