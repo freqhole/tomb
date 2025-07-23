@@ -50,7 +50,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
 
   return (
     <div
-      class={`${props.isMobile ? "w-full" : "w-80"} bg-black/50 backdrop-blur-sm border-magenta-200 flex flex-col h-full`}
+      class={`${props.isMobile ? "w-full" : "w-80"} bg-black/50 backdrop-blur-sm flex flex-col h-full`}
     >
       {/* Header */}
       <div class={`p-6 ${props.isMobile ? "text-center" : ""}`}>
@@ -62,25 +62,6 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
           </h1>
           <div class="flex items-center gap-2">
             <div class="text-sm text-magenta-400 font-mono">&nbsp;</div>
-            <button
-              onClick={() => props.onCollapse?.()}
-              class="p-1 text-magenta-200 hover:text-magenta-500 hover:bg-gray-800 rounded transition-colors"
-              title="collapse sidebar"
-            >
-              <svg
-                class="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
           </div>
         </div>
 
@@ -161,14 +142,14 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                     <div class="text-gray-400">
                       <div class="text-lg mb-2">no playlists yet</div>
                       <p class="text-sm">
-                        create your first playlist to get started
+                        create your first playlist (if u want)
                       </p>
                     </div>
                   }
                 >
                   <div class="text-gray-400">
                     <div class="text-lg mb-2">no matches</div>
-                    <p class="text-sm">try a different search term</p>
+                    <p class="text-sm">...try a different search?</p>
                   </div>
                 </Show>
               </div>
@@ -186,10 +167,10 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                   return (
                     <button
                       onClick={() => props.onPlaylistSelect(playlist)}
-                      class={`w-full text-left p-4 transition-all duration-200 group ${
+                      class={`w-full text-left p-4 transition-all duration-500 group ${
                         isSelected()
-                          ? "bg-magenta-500 bg-opacity-20 border border-magenta-500 shadow-lg"
-                          : "bg-black bg-opacity-50 hover:bg-gray-900 border border-transparent hover:border-magenta-200"
+                          ? "bg-magenta-500 bg-opacity-20 shadow-lg"
+                          : "bg-black bg-opacity-50 hover:bg-magenta-500"
                       }`}
                     >
                       <div class="flex items-start gap-3">
@@ -241,7 +222,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                               class={`text-sm mb-2 line-clamp-2 ${
                                 isSelected()
                                   ? "text-magenta-100"
-                                  : "text-gray-400"
+                                  : "text-gray-400 group-hover:text-white"
                               }`}
                             >
                               {playlist.description}
@@ -253,7 +234,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                               class={
                                 isSelected()
                                   ? "text-magenta-200"
-                                  : "text-gray-500"
+                                  : "text-gray-500 group-hover:text-white"
                               }
                             >
                               {getSongCount(playlist)}
@@ -262,19 +243,13 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                               class={
                                 isSelected()
                                   ? "text-magenta-300"
-                                  : "text-gray-500"
+                                  : "text-gray-500 group-hover:text-white"
                               }
                             >
                               {relativeTime.signal()}
                             </span>
                           </div>
                         </div>
-
-                        <Show when={isSelected()}>
-                          <div class="flex-shrink-0">
-                            <div class="w-2 h-2 bg-magenta-400 rounded-full"></div>
-                          </div>
-                        </Show>
                       </div>
                     </button>
                   );

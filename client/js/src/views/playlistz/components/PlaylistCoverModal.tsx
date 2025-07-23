@@ -157,7 +157,9 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
       <div class="bg-gray-900 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div class="flex items-center justify-between p-6 border-b border-gray-700">
-          <h2 class="text-xl font-bold text-white">playlist cover</h2>
+          <h2 class="text-xl font-bold text-white font-mono">
+            cover<span class="text-magenta-500">z</span>
+          </h2>
           <button
             onClick={handleCancel}
             class="text-gray-400 hover:text-white p-1 rounded"

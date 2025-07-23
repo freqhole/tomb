@@ -147,7 +147,9 @@ export function SongEditModal(props: SongEditModalProps) {
       <div class="bg-gray-900 shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div class="flex items-center justify-between p-6 border-b border-gray-700">
-          <h2 class="text-xl font-bold text-white">E D I T</h2>
+          <h2 class="text-xl font-bold text-white font-mono">
+            edit<span class="text-magenta-500">z</span>
+          </h2>
           <button
             onClick={handleCancel}
             class="text-magenta-200 hover:text-magenta-500 p-1 rounded"

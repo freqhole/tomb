@@ -744,7 +744,7 @@ export function Playlistz() {
         fallback={
           <div class="flex items-center justify-center h-full">
             <div class="text-center">
-              <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-magenta-500 mb-4"></div>
+              <div class="inline-block animate-spin rounded-full h-8 w-8 mb-4"></div>
               <p class="text-lg">loading playlistz...</p>
             </div>
           </div>
@@ -801,7 +801,9 @@ export function Playlistz() {
                   >
                     <div class="flex items-center gap-4 w-full">
                       <div class="flex-1">
-                        <div class="bg-black bg-opacity-80">
+                        <div
+                          class={`bg-black bg-opacity-80 ${isMobile() && "ml-8"}`}
+                        >
                           <input
                             type="text"
                             value={playlist().title}
@@ -814,7 +816,9 @@ export function Playlistz() {
                             placeholder="playlist title"
                           />
                         </div>
-                        <div class="mt-2 bg-black bg-opacity-80">
+                        <div
+                          class={`mt-2 bg-black bg-opacity-80 ${isMobile() && "ml-8"}`}
+                        >
                           <input
                             type="text"
                             value={playlist().description || ""}
@@ -830,31 +834,9 @@ export function Playlistz() {
 
                         {/* Metadata row with song count, duration, and action buttons */}
                         <div
-                          class={`mt-3 flex justify-between ${isMobile() ? "gap-3" : ""}`}
+                          class={`mt-3 flex justify-between ${isMobile() ? "gap-3 ml-8" : ""}`}
                         >
                           <div class="flex items-center gap-2">
-                            {/* Sidebar Toggle Button (when collapsed) */}
-                            <Show when={sidebarCollapsed()}>
-                              <button
-                                onClick={() => setSidebarCollapsed(false)}
-                                class="p-2 text-magenta-200 hover:text-magenta-500 hover:bg-gray-800 transition-colors bg-black bg-opacity-80"
-                                title="show playlist sidebar"
-                              >
-                                <svg
-                                  class="w-4 h-4"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M9 5l7 7-7 7"
-                                  />
-                                </svg>
-                              </button>
-                            </Show>
                             {/* Edit playlist image button */}
                             <button
                               onClick={() => setShowPlaylistCover(true)}
@@ -1060,6 +1042,32 @@ export function Playlistz() {
         </div>
       </Show>
 
+      {/* Sidebar Toggle Button */}
+
+      <div
+        class={`fixed ${isMobile() ? "top-[18px]" : "top-0"} inset-0 bg-black bg-opacity-80 flex items-center justify-center z-10 transition-all duration-600 ease-in-out w-10 h-10 ${sidebarCollapsed() ? "left-0" : isMobile() ? "left-[calc(100vw-40px)]" : "left-72"}`}
+      >
+        <button
+          onClick={() => setSidebarCollapsed((prev) => !prev)}
+          class="p-2 text-magenta-200 hover:text-magenta-500 hover:bg-gray-800 transition-colors bg-black bg-opacity-80"
+          title={`${sidebarCollapsed() ? "show" : "hide"} playlist sidebar`}
+        >
+          <svg
+            class={`w-8 h-8 transform transition-transform duration-600 ease-in-out ${sidebarCollapsed() ? "rotate-0" : "rotate-180"}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 5l7 7-7 7"
+            />
+          </svg>
+        </button>
+      </div>
+
       {/* Global drag overlay */}
       <Show when={isDragOver()}>
         <div class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 backdrop-blur-sm">
@@ -1138,7 +1146,7 @@ export function Playlistz() {
         <div class="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
           <button
             onClick={() => setShowImageModal(false)}
-            class="fixed top-4 right-4 p-2 text-magenta-200 hover:text-magenta-500 bg-black bg-opacity-50 hover:bg-opacity-70 rounded-full transition-colors z-60"
+            class="M9 5l7 7-7 7"
             title="close (ESC)"
           >
             <svg
