@@ -841,7 +841,7 @@ export function Playlistz() {
                           setModalImageIndex(0);
                           setShowImageModal(true);
                         }}
-                        class="w-32 h-32 overflow-hidden bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors group"
+                        class="w-32 h-32 overflow-hidden hover:bg-gray-900 flex items-center justify-center transition-colors group"
                         title="view playlist images"
                       >
                         <Show
