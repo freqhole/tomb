@@ -107,8 +107,8 @@ export function SongRow(props: SongRowProps) {
     <Show
       when={!song.loading}
       fallback={
-        <div class="flex items-center p-3 bg-gray-800 bg-opacity-30 rounded-lg animate-pulse">
-          <div class="w-12 h-12 bg-gray-700 rounded-lg mr-4"></div>
+        <div class="flex items-center p-3 bg-gray-800 bg-opacity-30 animate-pulse">
+          <div class="w-12 h-12 bg-gray-700 mr-4"></div>
           <div class="flex-1">
             <div class="h-4 bg-gray-700 rounded mb-2 w-3/4"></div>
             <div class="h-3 bg-gray-700 rounded w-1/2"></div>
@@ -120,8 +120,8 @@ export function SongRow(props: SongRowProps) {
       <Show
         when={song()}
         fallback={
-          <div class="flex items-center p-3 bg-red-900 bg-opacity-20 rounded-lg border border-red-500 border-opacity-30">
-            <div class="w-12 h-12 bg-red-800 rounded-lg mr-4 flex items-center justify-center">
+          <div class="flex items-center p-3 bg-red-900 bg-opacity-20 border border-red-500 border-opacity-30">
+            <div class="w-12 h-12 bg-red-800 mr-4 flex items-center justify-center">
               <svg
                 class="w-6 h-6 text-red-400"
                 fill="none"
@@ -162,14 +162,14 @@ export function SongRow(props: SongRowProps) {
 
           return (
             <div
-              class={`group relative flex items-center p-3 rounded-lg transition-all duration-200 overflow-hidden ${
+              class={`group relative flex items-center p-3 group-hover:bg-opacity-70 hover:bg-magenta-500 transition-all duration-200 overflow-hidden ${
                 isCurrentlyPlaying()
                   ? "sticky top-0 bottom-0 bg-black z-1 border border-magenta-500 border-opacity-50"
                   : draggedOver()
                     ? "border border-magenta-400 border-dashed"
                     : isDragging()
                       ? "border border-gray-500"
-                      : "border border-transparent hover:border-gray-600"
+                      : "border border-transparent"
               }`}
               draggable={true}
               onDragStart={handleDragStart}
@@ -196,33 +196,26 @@ export function SongRow(props: SongRowProps) {
                       ? "rgba(220, 38, 127, 0.2)"
                       : isDragging()
                         ? "rgba(107, 114, 128, 0.3)"
-                        : "rgba(31, 41, 55, 0.3)",
+                        : "transparent",
                   "pointer-events": "none",
                 }}
               />
 
               {/* Content overlay */}
               <div class="relative flex items-center w-full">
-                {/* Album art / Play button */}
-                <div class="relative w-12 h-12 mr-4 flex-shrink-0">
+                {/* song index / Album art / Play button */}
+                <div class="relative w-12 h-12 mr-4 flex-shrink-0 bg-black">
+                  {/* song index */}
+                  <div class="absolute inset-0 flex justify-center items-center font-mono group-hover:text-transparent">
+                    <span class="bg-black">
+                      {props.index.toString().padStart(3, "0")}
+                    </span>
+                  </div>
+
                   <Show
                     when={songData().imageData && songData().imageType}
                     fallback={
-                      <div class="w-12 h-12 bg-gray-700 rounded-lg flex items-center justify-center">
-                        <svg
-                          class="w-6 h-6 text-gray-400"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
-                          />
-                        </svg>
-                      </div>
+                      <div class="w-12 h-12 bg-transparent flex items-center justify-center"></div>
                     }
                   >
                     <img
@@ -231,21 +224,21 @@ export function SongRow(props: SongRowProps) {
                         songData().imageType!
                       )}
                       alt={`${songData().title} album art`}
-                      class="w-12 h-12 rounded-lg object-cover"
+                      class="w-12 h-12 object-cover"
                     />
                   </Show>
 
                   {/* Play/Pause overlay */}
-                  <Show when={isHovered() || isCurrentlyPlaying()}>
+                  <Show when={isHovered()}>
                     <button
                       onClick={handlePlayPause}
-                      class="absolute inset-0 bg-black bg-opacity-60 rounded-lg flex items-center justify-center transition-opacity hover:bg-opacity-80"
+                      class="absolute inset-0 bg-transparent flex items-center justify-center transition-opacity hover:bg-opacity-80 text-magenta-300 hover:text-magenta-100"
                     >
                       <Show
                         when={isCurrentlyPlaying()}
                         fallback={
                           <svg
-                            class="w-5 h-5 text-white"
+                            class="w-5 h-5"
                             fill="currentColor"
                             viewBox="0 0 24 24"
                           >
@@ -254,7 +247,7 @@ export function SongRow(props: SongRowProps) {
                         }
                       >
                         <svg
-                          class="w-5 h-5 text-white"
+                          class="w-5 h-5"
                           fill="currentColor"
                           viewBox="0 0 24 24"
                         >
@@ -266,34 +259,24 @@ export function SongRow(props: SongRowProps) {
                 </div>
 
                 {/* Song info */}
-                <div class="flex-1 min-w-0">
+                <div class="flex-1 min-w-0 text-lg">
                   <div
-                    class={`font-medium truncate ${
-                      isCurrentlyPlaying()
-                        ? "text-white"
-                        : "text-gray-200 group-hover:text-white"
+                    class={` ${
+                      isCurrentlyPlaying() ? "text-magenta-200" : "text-white"
                     }`}
                   >
                     {songData().title}
                   </div>
                   <div
                     class={`text-sm truncate ${
-                      isCurrentlyPlaying()
-                        ? "text-magenta-200"
-                        : "text-white group-hover:text-gray-100"
+                      isCurrentlyPlaying() ? "text-magenta-200" : "text-white"
                     }`}
                   >
                     {songData().artist}
                     {songData().album && <span class="mx-2">•</span>}
                     {songData().album}
                   </div>
-                  <div
-                    class={`text-xs mt-1 ${
-                      isCurrentlyPlaying()
-                        ? "text-magenta-300"
-                        : "text-gray-400"
-                    }`}
-                  >
+                  <div class="text-xs mt-1 text-magenta-200">
                     added {relativeTime.signal()}
                   </div>
                 </div>
@@ -302,9 +285,7 @@ export function SongRow(props: SongRowProps) {
               {/* Duration */}
               <div
                 class={`text-sm font-mono mr-4 ${
-                  isCurrentlyPlaying()
-                    ? "text-magenta-200"
-                    : "text-white group-hover:text-gray-300"
+                  isCurrentlyPlaying() ? "text-magenta-200" : "text-white"
                 }`}
               >
                 {formatDuration(songData().duration)}
@@ -312,7 +293,7 @@ export function SongRow(props: SongRowProps) {
 
               {/* Overlay Actions */}
               <Show when={isHovered()}>
-                <div class="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1 bg-black bg-opacity-80 rounded-lg px-2 py-1 z-50">
+                <div class="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1 bg-black bg-opacity-80 px-2 py-1 z-50">
                   {/* Edit button */}
                   <button
                     onClick={(e) => {
@@ -324,7 +305,7 @@ export function SongRow(props: SongRowProps) {
                         props.onEdit?.(songData);
                       }
                     }}
-                    class="p-1 text-gray-400 hover:text-white transition-colors rounded hover:bg-gray-600"
+                    class="p-1 text-gray-400 hover:text-white transition-colors hover:bg-gray-600"
                     title="edit song"
                   >
                     <svg
@@ -350,7 +331,7 @@ export function SongRow(props: SongRowProps) {
                         e.preventDefault();
                         props.onRemove?.(props.songId);
                       }}
-                      class="p-1 text-red-400 hover:text-red-300 transition-colors rounded hover:bg-red-600 hover:bg-opacity-30"
+                      class="p-1 text-red-400 hover:text-red-300 transition-colors hover:bg-red-600 hover:bg-opacity-30"
                       title="remove from playlist"
                     >
                       <svg

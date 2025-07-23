@@ -696,56 +696,16 @@ export function Playlistz() {
           <div
             class={`${isMobile() && !sidebarCollapsed() ? "hidden" : "flex-1"} flex flex-col h-full`}
           >
-            <Show
-              when={selectedPlaylist()}
-              fallback={
-                <div class="flex-1 flex items-center justify-center">
-                  <div class="text-center text-gray-400">
-                    <div class="text-2xl font-light mb-2">
-                      select a playlist
-                    </div>
-                    <p class="text-lg mb-4">
-                      choose a playlist from the sidebar or create a new one
-                    </p>
-                    <div class="text-sm text-magenta-300">
-                      {playlists().length > 0
-                        ? `${playlists().length} playlist${playlists().length !== 1 ? "s" : ""} available`
-                        : "no playlists yet"}
-                    </div>
-                  </div>
-                </div>
-              }
-            >
+            <Show when={selectedPlaylist()}>
               {(playlist) => (
                 <div
                   class={`flex-1 flex flex-col h-full ${isMobile() ? "p-2" : "p-6"}`}
                 >
                   {/* Playlist Header */}
-                  <div class={`flex items-center justify-between mb-6 pb-6`}>
+                  <div
+                    class={`flex items-center justify-between ${isMobile() ? "p-2" : "mb-2 p-6"}`}
+                  >
                     <div class="flex items-center gap-4 w-full">
-                      {/* Sidebar Toggle Button (when collapsed) */}
-                      <Show when={sidebarCollapsed()}>
-                        <button
-                          onClick={() => setSidebarCollapsed(false)}
-                          class="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors bg-black bg-opacity-80"
-                          title="show playlist sidebar"
-                        >
-                          <svg
-                            class="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M9 5l7 7-7 7"
-                            />
-                          </svg>
-                        </button>
-                      </Show>
-
                       <div class="flex-1">
                         <div class="bg-black bg-opacity-80">
                           <input
@@ -770,16 +730,82 @@ export function Playlistz() {
                                 description: e.currentTarget.value,
                               });
                             }}
-                            class="text-gray-400 bg-transparent border-none focus:bg-gray-800 px-2 py-1 rounded w-full"
+                            class="text-white bg-transparent border-none focus:bg-gray-800 px-2 py-1 rounded w-full"
                           />
                         </div>
 
                         {/* Metadata row with song count, duration, and action buttons */}
                         <div
-                          class={`mt-3 flex items-center justify-between ${isMobile() ? "flex-col gap-3" : ""}`}
+                          class={`mt-3 flex justify-between ${isMobile() ? "gap-3" : ""}`}
                         >
+                          <div class="flex items-center gap-2">
+                            {/* Sidebar Toggle Button (when collapsed) */}
+                            <Show when={sidebarCollapsed()}>
+                              <button
+                                onClick={() => setSidebarCollapsed(false)}
+                                class="p-2 text-magenta-200 hover:text-magenta-500 hover:bg-gray-800 transition-colors bg-black bg-opacity-80"
+                                title="show playlist sidebar"
+                              >
+                                <svg
+                                  class="w-4 h-4"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M9 5l7 7-7 7"
+                                  />
+                                </svg>
+                              </button>
+                            </Show>
+                            {/* Edit playlist image button */}
+                            <button
+                              onClick={() => setShowPlaylistCover(true)}
+                              class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors bg-black bg-opacity-80"
+                              title="change playlist cover"
+                            >
+                              <svg
+                                class="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                />
+                              </svg>
+                            </button>
+
+                            {/* Delete playlist button */}
+                            <button
+                              onClick={() => setShowDeleteConfirm(true)}
+                              class="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80"
+                              title="delete playlist"
+                            >
+                              <svg
+                                class="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+
                           <div
-                            class={`flex items-center gap-4 text-sm text-gray-400 bg-black bg-opacity-80 px-2 ${isMobile() ? "flex-wrap justify-center" : ""}`}
+                            class={`flex items-center gap-4 text-sm text-magenta-500 bg-black bg-opacity-80 p-2 ${isMobile() ? "flex-wrap justify-center" : ""}`}
                           >
                             <span>
                               {playlist().songIds?.length || 0} song
@@ -804,62 +830,18 @@ export function Playlistz() {
                               })()}
                             </span>
                           </div>
-
-                          <div class="flex items-center gap-2">
-                            {/* Edit playlist image button */}
-                            <button
-                              onClick={() => setShowPlaylistCover(true)}
-                              class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors bg-black bg-opacity-80"
-                              title="change playlist cover"
-                            >
-                              <svg
-                                class="w-4 h-4"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                  stroke-width="2"
-                                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                                />
-                              </svg>
-                            </button>
-
-                            {/* Delete playlist button */}
-                            <button
-                              onClick={() => setShowDeleteConfirm(true)}
-                              class="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-lg transition-colors bg-black bg-opacity-80"
-                              title="delete playlist"
-                            >
-                              <svg
-                                class="w-4 h-4"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                  stroke-width="2"
-                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                />
-                              </svg>
-                            </button>
-                          </div>
                         </div>
                       </div>
                     </div>
 
                     {/* Playlist Cover Image */}
-                    <div class={`${isMobile() ? "mx-2" : "mx-4"}`}>
+                    <div class={`${isMobile() ? "ml-2" : "ml-4"}`}>
                       <button
                         onClick={() => {
                           setModalImageIndex(0);
                           setShowImageModal(true);
                         }}
-                        class="w-32 h-32 rounded-lg overflow-hidden bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors group"
+                        class="w-32 h-32 overflow-hidden bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors group"
                         title="view playlist images"
                       >
                         <Show
@@ -867,16 +849,15 @@ export function Playlistz() {
                           fallback={
                             <div class="text-center">
                               <svg
-                                class="w-8 h-8 text-gray-400 group-hover:text-gray-300"
+                                width="100"
+                                height="100"
+                                viewBox="0 0 100 100"
                                 fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg"
                               >
                                 <path
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                  stroke-width="2"
-                                  d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                                  d="M50 81L25 31L75 31L60.7222 68.1429L50 81Z"
+                                  fill="#FF00FF"
                                 />
                               </svg>
                             </div>
@@ -898,7 +879,7 @@ export function Playlistz() {
                   {/* Songs List */}
                   <div class="flex-1 overflow-y-auto">
                     <div
-                      class={`${isMobile() ? "space-y-1" : "p-4 space-y-2"}`}
+                      class={`${isMobile() ? "space-y-1" : "p-6 space-y-2"}`}
                     >
                       <Show
                         when={

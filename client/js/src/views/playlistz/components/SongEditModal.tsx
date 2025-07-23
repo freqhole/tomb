@@ -144,10 +144,10 @@ export function SongEditModal(props: SongEditModalProps) {
 
   return (
     <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div class="bg-gray-900 rounded-lg shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+      <div class="bg-gray-900 shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div class="flex items-center justify-between p-6 border-b border-gray-700">
-          <h2 class="text-xl font-bold text-white">Edit Song</h2>
+          <h2 class="text-xl font-bold text-white">E D I T</h2>
           <button
             onClick={handleCancel}
             class="text-gray-400 hover:text-white p-1 rounded"
@@ -177,7 +177,7 @@ export function SongEditModal(props: SongEditModalProps) {
               album art
             </label>
             <div class="flex items-center gap-4">
-              <div class="w-20 h-20 rounded-lg overflow-hidden bg-gray-700 flex items-center justify-center">
+              <div class="w-20 h-20 overflow-hidden bg-gray-700 flex items-center justify-center">
                 <Show
                   when={imageUrl()}
                   fallback={
@@ -215,7 +215,7 @@ export function SongEditModal(props: SongEditModalProps) {
                 />
                 <label
                   for="image-upload"
-                  class="inline-block px-4 py-2 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white rounded-lg cursor-pointer text-sm font-medium transition-colors"
+                  class="inline-block px-4 py-2 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white cursor-pointer text-sm font-medium transition-colors"
                 >
                   choose image
                 </label>
@@ -224,7 +224,7 @@ export function SongEditModal(props: SongEditModalProps) {
                   <button
                     onClick={handleRemoveImage}
                     disabled={isLoading()}
-                    class="block px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-lg text-sm font-medium transition-colors"
+                    class="block px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white text-sm font-medium transition-colors"
                   >
                     remove image
                   </button>
@@ -243,7 +243,7 @@ export function SongEditModal(props: SongEditModalProps) {
               value={title()}
               onInput={(e) => setTitle(e.currentTarget.value)}
               disabled={isLoading()}
-              class="w-full bg-gray-800 text-white rounded-lg px-4 py-3 border border-gray-600 focus:border-magenta-500 focus:ring-1 focus:ring-magenta-500 focus:outline-none transition-colors"
+              class="w-full bg-gray-800 text-white px-4 py-3 border border-gray-600 focus:border-magenta-500 focus:ring-1 focus:ring-magenta-500 focus:outline-none transition-colors"
               placeholder="song title"
             />
           </div>
@@ -258,7 +258,7 @@ export function SongEditModal(props: SongEditModalProps) {
               value={artist()}
               onInput={(e) => setArtist(e.currentTarget.value)}
               disabled={isLoading()}
-              class="w-full bg-gray-800 text-white rounded-lg px-4 py-3 border border-gray-600 focus:border-magenta-500 focus:ring-1 focus:ring-magenta-500 focus:outline-none transition-colors"
+              class="w-full bg-gray-800 text-white px-4 py-3 border border-gray-600 focus:border-magenta-500 focus:ring-1 focus:ring-magenta-500 focus:outline-none transition-colors"
               placeholder="artist name"
             />
           </div>
@@ -273,13 +273,13 @@ export function SongEditModal(props: SongEditModalProps) {
               value={album()}
               onInput={(e) => setAlbum(e.currentTarget.value)}
               disabled={isLoading()}
-              class="w-full bg-gray-800 text-white rounded-lg px-4 py-3 border border-gray-600 focus:border-magenta-500 focus:ring-1 focus:ring-magenta-500 focus:outline-none transition-colors"
+              class="w-full bg-gray-800 text-white px-4 py-3 border border-gray-600 focus:border-magenta-500 focus:ring-1 focus:ring-magenta-500 focus:outline-none transition-colors"
               placeholder="album name"
             />
           </div>
 
           {/* File info */}
-          <div class="bg-gray-800 rounded-lg p-4">
+          <div class="bg-gray-800 p-4">
             <h3 class="text-sm font-medium text-gray-300 mb-2">
               file information
             </h3>
@@ -298,7 +298,7 @@ export function SongEditModal(props: SongEditModalProps) {
 
           {/* Error message */}
           <Show when={error()}>
-            <div class="bg-red-900 bg-opacity-30 border border-red-500 rounded-lg p-3">
+            <div class="bg-red-900 bg-opacity-30 border border-red-500 p-3">
               <div class="text-red-400 text-sm">{error()}</div>
             </div>
           </Show>
@@ -316,7 +316,7 @@ export function SongEditModal(props: SongEditModalProps) {
           <button
             onClick={handleSave}
             disabled={isLoading() || !title().trim()}
-            class="px-6 py-2 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            class="px-6 py-2 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white font-medium transition-colors flex items-center gap-2"
           >
             <Show
               when={!isLoading()}

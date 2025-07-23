@@ -154,7 +154,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
 
   return (
     <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div class="bg-gray-900 rounded-lg shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+      <div class="bg-gray-900 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div class="flex items-center justify-between p-6 border-b border-gray-700">
           <h2 class="text-xl font-bold text-white">playlist cover</h2>
@@ -186,7 +186,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
             <label class="block text-sm font-medium text-gray-300 mb-3">
               cover image
             </label>
-            <div class="w-48 h-48 mx-auto rounded-lg overflow-hidden bg-gray-700 flex items-center justify-center">
+            <div class="w-48 h-48 mx-auto overflow-hidden bg-gray-700 flex items-center justify-center">
               <Show
                 when={selectedImageUrl()}
                 fallback={
@@ -231,7 +231,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
               />
               <label
                 for="cover-upload"
-                class="block w-full px-4 py-3 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white rounded-lg cursor-pointer text-center font-medium transition-colors"
+                class="block w-full px-4 py-3 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white cursor-pointer text-center font-medium transition-colors"
               >
                 upload image
               </label>
@@ -242,7 +242,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
               <button
                 onClick={handleUseFromSongs}
                 disabled={isLoading()}
-                class="block w-full px-4 py-3 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                class="block w-full px-4 py-3 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white font-medium transition-colors"
               >
                 use album art from songs ({songsWithArt.length} available)
               </button>
@@ -253,7 +253,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
               <button
                 onClick={handleRemoveImage}
                 disabled={isLoading()}
-                class="block w-full px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-lg font-medium transition-colors"
+                class="block w-full px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium transition-colors"
               >
                 remove cover image
               </button>
@@ -276,7 +276,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                       );
                     }}
                     disabled={isLoading()}
-                    class="aspect-square rounded-lg overflow-hidden bg-gray-700 hover:ring-2 hover:ring-magenta-500 transition-all"
+                    class="aspect-square overflow-hidden bg-gray-700 hover:ring-2 hover:ring-magenta-500 transition-all"
                     title={`${song.title} - ${song.artist}`}
                   >
                     <Show
@@ -320,7 +320,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
           </Show>
 
           {/* Playlist info */}
-          <div class="bg-gray-800 rounded-lg p-4">
+          <div class="bg-gray-800 p-4">
             <h3 class="text-sm font-medium text-gray-300 mb-2">
               playlist information
             </h3>
@@ -333,7 +333,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
 
           {/* Error message */}
           <Show when={error()}>
-            <div class="bg-red-900 bg-opacity-30 border border-red-500 rounded-lg p-3">
+            <div class="bg-red-900 bg-opacity-30 border border-red-500 p-3">
               <div class="text-red-400 text-sm">{error()}</div>
             </div>
           </Show>
@@ -351,7 +351,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
           <button
             onClick={handleSave}
             disabled={isLoading()}
-            class="px-6 py-2 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            class="px-6 py-2 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white font-medium transition-colors flex items-center gap-2"
           >
             <Show
               when={!isLoading()}

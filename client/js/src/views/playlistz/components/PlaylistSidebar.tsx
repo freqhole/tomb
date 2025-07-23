@@ -50,43 +50,37 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
 
   return (
     <div
-      class={`${props.isMobile ? "w-full" : "w-80"} bg-gray-900 bg-opacity-50 backdrop-blur-sm ${props.isMobile ? "" : "border-r"} border-gray-700 flex flex-col h-full`}
+      class={`${props.isMobile ? "w-full" : "w-80"} bg-black/50 backdrop-blur-sm border-magenta-200 flex flex-col h-full`}
     >
       {/* Header */}
-      <div
-        class={`p-6 border-b border-gray-700 ${props.isMobile ? "text-center" : ""}`}
-      >
+      <div class={`p-6 ${props.isMobile ? "text-center" : ""}`}>
         <div class="flex items-center justify-between mb-4">
           <h1
-            class={`text-2xl font-bold text-white ${props.isMobile ? "text-3xl" : ""}`}
+            class={`text-2xl font-mono font-stretch-expanded font-bold text-white ${props.isMobile ? "text-3xl" : ""}`}
           >
-            playlistz
+            playlist<span class="text-magenta-500">z</span>
           </h1>
           <div class="flex items-center gap-2">
-            <div class="text-sm text-magenta-400 font-mono">
-              {props.playlists.length}
-            </div>
-            <Show when={!props.isMobile}>
-              <button
-                onClick={() => props.onCollapse?.()}
-                class="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
-                title="collapse sidebar"
+            <div class="text-sm text-magenta-400 font-mono">&nbsp;</div>
+            <button
+              onClick={() => props.onCollapse?.()}
+              class="p-1 text-magenta-200 hover:text-magenta-500 hover:bg-gray-800 rounded transition-colors"
+              title="collapse sidebar"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                <svg
-                  class="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </Show>
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -97,7 +91,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
             placeholder="search..."
             value={searchQuery()}
             onInput={(e) => setSearchQuery(e.currentTarget.value)}
-            class="w-full bg-gray-800 text-white rounded-lg px-4 py-2 pl-10 text-sm border border-gray-600 focus:border-magenta-500 focus:outline-none focus:ring-1 focus:ring-magenta-500"
+            class="w-full bg-black text-white px-4 py-2 pl-10 text-sm border border-magenta-200 focus:border-magenta-500 focus:outline-none focus:ring-1 focus:ring-magenta-500"
           />
           <div class="absolute left-3 top-2.5 text-gray-400">
             <svg
@@ -120,7 +114,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
         <button
           onClick={handleCreatePlaylist}
           disabled={isCreating()}
-          class="w-full mt-4 px-4 py-3 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium flex items-center justify-center gap-2"
+          class="w-full mt-4 px-4 py-3 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 disabled:cursor-not-allowed text-white transition-colors font-medium flex items-center justify-center gap-2"
         >
           <Show
             when={!isCreating()}
@@ -192,30 +186,29 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                   return (
                     <button
                       onClick={() => props.onPlaylistSelect(playlist)}
-                      class={`w-full text-left p-4 rounded-lg transition-all duration-200 group ${
+                      class={`w-full text-left p-4 transition-all duration-200 group ${
                         isSelected()
                           ? "bg-magenta-500 bg-opacity-20 border border-magenta-500 shadow-lg"
-                          : "bg-gray-800 bg-opacity-50 hover:bg-gray-700 border border-transparent hover:border-gray-600"
+                          : "bg-black bg-opacity-50 hover:bg-gray-900 border border-transparent hover:border-magenta-200"
                       }`}
                     >
                       <div class="flex items-start gap-3">
                         {/* Playlist thumbnail */}
-                        <div class="flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden bg-gray-700">
+                        <div class="flex-shrink-0 w-12 h-12 overflow-hidden bg-transparent">
                           <Show
                             when={playlist.imageData && playlist.imageType}
                             fallback={
                               <div class="w-full h-full flex items-center justify-center">
                                 <svg
-                                  class="w-6 h-6 text-gray-400"
+                                  width="100"
+                                  height="100"
+                                  viewBox="0 0 100 100"
                                   fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
+                                  xmlns="http://www.w3.org/2000/svg"
                                 >
                                   <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                                    d="M50 81L25 31L75 31L60.7222 68.1429L50 81Z"
+                                    fill="#FF00FF"
                                   />
                                 </svg>
                               </div>
@@ -293,7 +286,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
       </div>
 
       {/* Footer with stats */}
-      <div class="p-4 border-t border-gray-700 bg-gray-900 bg-opacity-30">
+      <div class="p-4 bg-gray-900 bg-opacity-30">
         <div class="text-xs text-gray-400 space-y-1">
           <div class="flex justify-between">
             <span>total playlists:</span>
