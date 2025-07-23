@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import type { Playlist, Song } from "../types/playlist.js";
-import { getAllSongs } from "./indexedDBService.js";
+import { getSongsWithAudioData } from "./indexedDBService.js";
 
 export interface PlaylistDownloadOptions {
   includeMetadata?: boolean;
@@ -22,15 +22,8 @@ export async function downloadPlaylistAsZip(
   try {
     const zip = new JSZip();
 
-    // Get all songs for this playlist
-    const allSongs = await getAllSongs();
-    const playlistSongs = allSongs
-      .filter((song) => playlist.songIds.includes(song.id))
-      .sort((a, b) => {
-        const aIndex = playlist.songIds.indexOf(a.id);
-        const bIndex = playlist.songIds.indexOf(b.id);
-        return aIndex - bIndex;
-      });
+    // Get all songs for this playlist with audio data
+    const playlistSongs = await getSongsWithAudioData(playlist.songIds);
 
     // Create playlist metadata file
     if (options.includeMetadata) {
@@ -55,25 +48,23 @@ export async function downloadPlaylistAsZip(
       zip.file(`playlist-cover${extension}`, playlist.imageData);
     }
 
-    // Create songs folder and add all audio files
-    const songsFolder = zip.folder("songs");
+    // Add all audio files directly to root
     const songFileNames: string[] = [];
 
     for (const song of playlistSongs) {
-      if (song.audioData) {
-        // Create safe filename
-        const safeFileName = createSafeFileName(song.artist, song.title);
-        const audioExtension = getFileExtensionFromMimeType(song.mimeType);
-        const audioFileName = `${safeFileName}${audioExtension}`;
+      if (song.audioData && song.originalFilename) {
+        // Use original filename
+        const audioFileName = song.originalFilename;
+        const baseName = audioFileName.replace(/\.[^.]+$/, "");
 
-        songsFolder!.file(audioFileName, song.audioData);
+        zip.file(audioFileName, song.audioData);
         songFileNames.push(audioFileName);
 
         // Add song cover art if it exists
         if (options.includeImages && song.imageData && song.imageType) {
           const imageExtension = getFileExtensionFromMimeType(song.imageType);
-          const imageFileName = `${safeFileName}-cover${imageExtension}`;
-          songsFolder!.file(imageFileName, song.imageData);
+          const imageFileName = `${baseName}-cover${imageExtension}`;
+          zip.file(imageFileName, song.imageData);
         }
 
         // Add individual song metadata
@@ -84,12 +75,13 @@ export async function downloadPlaylistAsZip(
             album: song.album,
             duration: song.duration,
             mimeType: song.mimeType,
+            originalFilename: song.originalFilename,
             createdAt: new Date(song.createdAt).toISOString(),
             updatedAt: new Date(song.updatedAt).toISOString(),
           };
 
-          songsFolder!.file(
-            `${safeFileName}-metadata.json`,
+          zip.file(
+            `${baseName}-metadata.json`,
             JSON.stringify(songMetadata, null, 2)
           );
         }
@@ -159,13 +151,13 @@ function generateM3UContent(
       m3uContent += `# Artist: ${song.artist}\n`;
       m3uContent += `# Album: ${song.album}\n`;
 
-      if (song.imageData) {
-        const safeFileName = createSafeFileName(song.artist, song.title);
+      if (song.imageData && song.originalFilename) {
+        const baseName = song.originalFilename.replace(/\.[^.]+$/, "");
         const imageExtension = getFileExtensionFromMimeType(song.imageType!);
-        m3uContent += `# Image: ${safeFileName}-cover${imageExtension}\n`;
+        m3uContent += `# Image: ${baseName}-cover${imageExtension}\n`;
       }
 
-      m3uContent += `songs/${fileName}\n\n`;
+      m3uContent += `${fileName}\n\n`;
     }
   });
 
@@ -244,10 +236,8 @@ export async function parsePlaylistZip(file: File): Promise<{
       await m3uFiles[0]!.async("string");
     }
 
-    // Extract songs from the songs folder
-    const songFiles = zipContent.file(
-      /^songs\/[^/]+\.(mp3|m4a|wav|flac|ogg|webm)$/i
-    );
+    // Extract songs from the root directory
+    const songFiles = zipContent.file(/^[^/]+\.(mp3|m4a|wav|flac|ogg|webm)$/i);
 
     for (const songFile of songFiles) {
       const audioData = await songFile.async("arraybuffer");
@@ -255,7 +245,7 @@ export async function parsePlaylistZip(file: File): Promise<{
       const baseName = fileName.replace(/\.[^.]+$/, "");
 
       // Try to find corresponding metadata file
-      const metadataFile = zipContent.file(`songs/${baseName}-metadata.json`);
+      const metadataFile = zipContent.file(`${baseName}-metadata.json`);
       let songMetadata: any = {};
       if (metadataFile) {
         const metadataContent = await metadataFile.async("string");
@@ -265,7 +255,7 @@ export async function parsePlaylistZip(file: File): Promise<{
       // Try to find corresponding cover image
       const imageFiles = zipContent.file(
         new RegExp(
-          `^songs/${baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-cover\\.(jpg|jpeg|png|gif|webp)$`,
+          `^${baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-cover\\.(jpg|jpeg|png|gif|webp)$`,
           "i"
         )
       );
@@ -285,6 +275,7 @@ export async function parsePlaylistZip(file: File): Promise<{
         {
           audioData,
           mimeType: getMimeTypeFromExtension(fileName),
+          originalFilename: songMetadata.originalFilename || fileName,
           title: songMetadata.title || title!.replace(/_/g, " "),
           artist: songMetadata.artist || artist!.replace(/_/g, " "),
           album: songMetadata.album || "Unknown Album",

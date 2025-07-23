@@ -368,7 +368,8 @@ export function Playlistz() {
             });
             const audioFile = new File(
               [audioBlob],
-              `${songData.artist} - ${songData.title}`,
+              songData.originalFilename ||
+                `${songData.artist} - ${songData.title}`,
               { type: songData.mimeType }
             );
 

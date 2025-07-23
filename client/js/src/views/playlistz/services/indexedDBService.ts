@@ -38,7 +38,7 @@ function createSignal<T>(initial: T): Signal<T> {
 
 // Database configuration
 export const DB_NAME = "musicPlaylistDB";
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 export const PLAYLISTS_STORE = "playlists";
 export const SONGS_STORE = "songs";
 
@@ -323,6 +323,7 @@ export async function addSongToPlaylist(
     id: songId,
     file, // Temporary - only available during creation
     mimeType: file.type, // Store MIME type
+    originalFilename: file.name, // Store original filename with extension
     title: metadata.title || file.name.replace(/\.[^/.]+$/, ""), // Remove file extension
     artist: metadata.artist || "Unknown Artist",
     album: metadata.album || "Unknown Album",
@@ -571,6 +572,34 @@ export async function getAllSongs(): Promise<Song[]> {
     );
   } catch (error) {
     console.error("❌ Error fetching all songs:", error);
+    return [];
+  }
+}
+
+/**
+ * Get songs with their audio data included (for download purposes)
+ */
+export async function getSongsWithAudioData(
+  songIds: string[]
+): Promise<Song[]> {
+  try {
+    const db = await setupDB();
+    const songs: Song[] = [];
+
+    for (const songId of songIds) {
+      const songData = await db.get(SONGS_STORE, songId);
+      if (songData) {
+        songs.push(songData); // Include audioData
+      }
+    }
+
+    return songs.sort((a, b) => {
+      const aIndex = songIds.indexOf(a.id);
+      const bIndex = songIds.indexOf(b.id);
+      return aIndex - bIndex;
+    });
+  } catch (error) {
+    console.error("❌ Error getting songs with audio data:", error);
     return [];
   }
 }
