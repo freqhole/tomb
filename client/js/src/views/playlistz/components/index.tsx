@@ -39,6 +39,10 @@ import {
   getAllSongs,
   reorderSongs,
 } from "../services/indexedDBService.js";
+import {
+  downloadPlaylistAsZip,
+  parsePlaylistZip,
+} from "../services/playlistDownloadService.js";
 
 import type { Playlist } from "../types/playlist.js";
 
@@ -62,6 +66,7 @@ export function Playlistz() {
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [playlistSongs, setPlaylistSongs] = createSignal<any[]>([]);
   const [modalImageIndex, setModalImageIndex] = createSignal(0);
+  const [isDownloading, setIsDownloading] = createSignal(false);
 
   // Direct signal subscription approach (bypass hook)
   const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
@@ -323,15 +328,83 @@ export function Playlistz() {
     const files = e.dataTransfer?.files;
     if (!files) return;
 
+    // Check for ZIP files first
+    const zipFiles = Array.from(files).filter(
+      (file) =>
+        file.type === "application/zip" ||
+        file.name.toLowerCase().endsWith(".zip")
+    );
+
+    if (zipFiles.length > 0) {
+      // Handle ZIP file upload
+      try {
+        for (const zipFile of zipFiles) {
+          const { playlist: playlistData, songs: songsData } =
+            await parsePlaylistZip(zipFile);
+
+          // Check if a playlist with the same name and songs already exists
+          const existingPlaylist = playlists().find(
+            (p) =>
+              p.title === playlistData.title &&
+              p.songIds.length === songsData.length
+          );
+
+          if (existingPlaylist) {
+            setError(
+              `Playlist "${playlistData.title}" already exists with similar content`
+            );
+            setTimeout(() => setError(null), 3000);
+            continue;
+          }
+
+          // Create new playlist
+          const newPlaylist = await createPlaylist(playlistData);
+
+          // Add songs to the playlist
+          for (const songData of songsData) {
+            // Create a File object from the audio data for compatibility
+            const audioBlob = new Blob([songData.audioData!], {
+              type: songData.mimeType,
+            });
+            const audioFile = new File(
+              [audioBlob],
+              `${songData.artist} - ${songData.title}`,
+              { type: songData.mimeType }
+            );
+
+            await addSongToPlaylist(newPlaylist.id, audioFile, {
+              title: songData.title,
+              artist: songData.artist,
+              album: songData.album,
+              duration: songData.duration,
+              imageData: songData.imageData,
+              imageType: songData.imageType,
+            });
+          }
+
+          // Select the newly created playlist
+          setSelectedPlaylist(newPlaylist);
+        }
+        return;
+      } catch (err) {
+        console.error("Error processing ZIP file:", err);
+        setError("Failed to import playlist from ZIP file");
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+    }
+
     const audioFiles = filterAudioFiles(files);
     if (audioFiles.length === 0) {
       // Provide contextual error messages
       if (dragInfo.type === "non-audio-files") {
         setError(
-          "Only audio files can be added to playlists. Supported formats: MP3, WAV, M4A, FLAC, OGG"
+          "Only audio files and ZIP playlist files can be added. Supported formats: MP3, WAV, M4A, FLAC, OGG, ZIP"
         );
       } else {
-        setError("No audio files found in the dropped items");
+        setError(
+          "No audio files or ZIP playlist files found in the dropped items"
+        );
       }
       setTimeout(() => setError(null), 3000);
       return;
@@ -616,6 +689,26 @@ export function Playlistz() {
     }
   };
 
+  // Download playlist handler
+  const handleDownloadPlaylist = async () => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    setIsDownloading(true);
+    try {
+      await downloadPlaylistAsZip(playlist, {
+        includeMetadata: true,
+        includeImages: true,
+        generateM3U: true,
+      });
+    } catch (err) {
+      console.error("❌ Error downloading playlist:", err);
+      setError("Failed to download playlist");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <div class="relative h-screen bg-black text-white overflow-hidden">
       {/* Dynamic background image */}
@@ -780,6 +873,47 @@ export function Playlistz() {
                                   d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
                                 />
                               </svg>
+                            </button>
+
+                            {/* Download playlist button */}
+                            <button
+                              onClick={handleDownloadPlaylist}
+                              disabled={isDownloading()}
+                              class="p-2 text-gray-400 hover:text-green-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="download playlist as zip"
+                            >
+                              <Show
+                                when={!isDownloading()}
+                                fallback={
+                                  <svg
+                                    class="w-4 h-4 animate-spin"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      stroke-linecap="round"
+                                      stroke-linejoin="round"
+                                      stroke-width="2"
+                                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                    />
+                                  </svg>
+                                }
+                              >
+                                <svg
+                                  class="w-4 h-4"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                  />
+                                </svg>
+                              </Show>
                             </button>
 
                             {/* Delete playlist button */}
