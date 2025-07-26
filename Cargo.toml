@@ -1,6 +1,10 @@
 [workspace]
 members = ["cli", "server", "grimoire"]
 resolver = "2"
+authors = [
+  "edward sharp <edward@edwardsharp.net",
+]
+license = "MIT"
 
 [workspace.dependencies]
 async-trait = "0.1"
