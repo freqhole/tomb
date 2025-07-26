@@ -66,11 +66,11 @@ build-debug:
 build-pi:
 	@echo "Building for Raspberry Pi using Docker"
 	@mkdir -p $(BUILD_DIR)/$(PI_64_TARGET)
-	docker build -f Dockerfile.build -t freqhole-pi-builder .
+	docker build -f Dockerfile.build -t freqhole-pi-builder . \
+		--build-arg TARGET_ARCH=aarch64-unknown-linux-gnu \
+		--build-arg CROSS_COMPILE=true
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(PI_64_TARGET):/output freqhole-pi-builder \
-		cp /app/target/aarch64-unknown-linux-gnu/release/server /output/freqhole-server
-	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(PI_64_TARGET):/output freqhole-pi-builder \
-		cp /app/target/aarch64-unknown-linux-gnu/release/cli /output/freqhole-cli
+		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/aarch64-unknown-linux-gnu/release/cli /output/freqhole-cli"
 	@echo "Pi binaries built: $(BUILD_DIR)/$(PI_64_TARGET)/"
 
 # Docker-based x86_64 Linux build
@@ -78,11 +78,12 @@ build-pi:
 build-linux:
 	@echo "Building for x86_64 Linux using Docker"
 	@mkdir -p $(BUILD_DIR)/$(X86_64_TARGET)
-	docker build -f Dockerfile.build.x86_64 -t freqhole-linux-builder . --platform linux/amd64
+	docker build -f Dockerfile.build -t freqhole-linux-builder . \
+		--platform linux/amd64 \
+		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu \
+		--build-arg CROSS_COMPILE=false
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(X86_64_TARGET):/output freqhole-linux-builder \
-		cp /app/target/x86_64-unknown-linux-gnu/release/server /output/freqhole-server
-	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(X86_64_TARGET):/output freqhole-linux-builder \
-		cp /app/target/x86_64-unknown-linux-gnu/release/cli /output/freqhole-cli
+		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/x86_64-unknown-linux-gnu/release/cli /output/freqhole-cli"
 	@echo "Linux x86_64 binaries built: $(BUILD_DIR)/$(X86_64_TARGET)/"
 
 # Build for all targets including current platform if different
@@ -104,7 +105,6 @@ build-all:
 # Clean build artifacts
 .PHONY: clean
 clean:
-	cargo clean
 	rm -rf target/freqhole
 
 # Show build information
@@ -127,10 +127,6 @@ info:
 	@echo "  make clean         - Clean build artifacts"
 	@echo "  make info          - Show this information"
 	@echo ""
-	@echo "For cross-platform builds:"
-	@echo "  1. Run: make build-pi (requires Docker) - for Raspberry Pi"
-	@echo "  2. Run: make build-linux (requires Docker) - for x86_64 Linux"
-	@echo "  3. Run: make build-all (requires Docker) - for all platforms"
 
 # Help target
 .PHONY: help

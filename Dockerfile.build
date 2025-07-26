@@ -1,22 +1,40 @@
 FROM debian:bookworm
 
-RUN dpkg --add-architecture arm64 && \
-    apt-get update && \
-    apt-get install -y \
+# Build arguments to configure target architecture
+ARG TARGET_ARCH=aarch64-unknown-linux-gnu
+ARG CROSS_COMPILE=true
+
+# Install base packages
+RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
     pkg-config \
-    libssl-dev \
-    libssl-dev:arm64 \
-    gcc-aarch64-linux-gnu \
-    && rm -rf /var/lib/apt/lists/*
+    libssl-dev
 
+# Conditional cross-compilation setup for ARM64 (Pi)
+RUN if [ "$CROSS_COMPILE" = "true" ] && [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
+        dpkg --add-architecture arm64 && \
+        apt-get update && \
+        apt-get install -y \
+            libssl-dev:arm64 \
+            gcc-aarch64-linux-gnu; \
+    fi
+
+# Clean up apt cache
+RUN rm -rf /var/lib/apt/lists/*
+
+# Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
-RUN rustup target add aarch64-unknown-linux-gnu
 
+# Add the target architecture
+RUN rustup target add $TARGET_ARCH
+
+# Set cross-compilation linker for ARM64 (harmless if not needed)
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 
 WORKDIR /app
 COPY . .
-RUN cargo build --release --target aarch64-unknown-linux-gnu
+
+# Build for the specified target
+RUN cargo build --release --target $TARGET_ARCH
