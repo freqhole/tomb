@@ -1,23 +1,23 @@
 FROM debian:bookworm
 
-# Build arguments to configure target architecture
+# Build argument to specify target architecture
 ARG TARGET_ARCH=aarch64-unknown-linux-gnu
-ARG CROSS_COMPILE=true
 
-# Install base packages
-RUN apt-get update && apt-get install -y \
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y \
     curl \
     build-essential \
     pkg-config \
     libssl-dev
 
-# Conditional cross-compilation setup for ARM64 (Pi)
-RUN if [ "$CROSS_COMPILE" = "true" ] && [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
-        dpkg --add-architecture arm64 && \
-        apt-get update && \
-        apt-get install -y \
-            libssl-dev:arm64 \
-            gcc-aarch64-linux-gnu; \
+# Install cross-compilation tools only if targeting ARM64 from non-ARM64 platform
+RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
+    dpkg --add-architecture arm64 && \
+    apt-get update && \
+    apt-get install -y \
+    libssl-dev:arm64 \
+    gcc-aarch64-linux-gnu; \
     fi
 
 # Clean up apt cache
@@ -30,11 +30,11 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Add the target architecture
 RUN rustup target add $TARGET_ARCH
 
-# Set cross-compilation linker for ARM64 (harmless if not needed)
+# Set cross-compilation linker for ARM64 if needed
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 
 WORKDIR /app
 COPY . .
 
-# Build for the specified target
+# Build for the specified target architecture
 RUN cargo build --release --target $TARGET_ARCH

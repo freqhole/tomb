@@ -66,9 +66,7 @@ build-debug:
 build-pi:
 	@echo "Building for Raspberry Pi using Docker"
 	@mkdir -p $(BUILD_DIR)/$(PI_64_TARGET)
-	docker build -f Dockerfile.build -t freqhole-pi-builder . \
-		--build-arg TARGET_ARCH=aarch64-unknown-linux-gnu \
-		--build-arg CROSS_COMPILE=true
+	docker build -f Dockerfile.build -t freqhole-pi-builder .
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(PI_64_TARGET):/output freqhole-pi-builder \
 		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/aarch64-unknown-linux-gnu/release/cli /output/freqhole-cli"
 	@echo "Pi binaries built: $(BUILD_DIR)/$(PI_64_TARGET)/"
@@ -80,8 +78,7 @@ build-linux:
 	@mkdir -p $(BUILD_DIR)/$(X86_64_TARGET)
 	docker build -f Dockerfile.build -t freqhole-linux-builder . \
 		--platform linux/amd64 \
-		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu \
-		--build-arg CROSS_COMPILE=false
+		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(X86_64_TARGET):/output freqhole-linux-builder \
 		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/x86_64-unknown-linux-gnu/release/cli /output/freqhole-cli"
 	@echo "Linux x86_64 binaries built: $(BUILD_DIR)/$(X86_64_TARGET)/"
