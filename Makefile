@@ -28,6 +28,7 @@ CURRENT_TARGET := $(shell rustc -vV | sed -n 's|host: ||p')
 # Targets
 PI_32_TARGET := armv7-unknown-linux-gnueabihf
 PI_64_TARGET := aarch64-unknown-linux-gnu
+X86_64_TARGET := x86_64-unknown-linux-gnu
 
 # Build modes
 RELEASE_MODE := --release
@@ -72,6 +73,34 @@ build-pi:
 		cp /app/target/aarch64-unknown-linux-gnu/release/cli /output/freqhole-cli
 	@echo "Pi binaries built: $(BUILD_DIR)/$(PI_64_TARGET)/"
 
+# Docker-based x86_64 Linux build
+.PHONY: build-linux
+build-linux:
+	@echo "Building for x86_64 Linux using Docker"
+	@mkdir -p $(BUILD_DIR)/$(X86_64_TARGET)
+	docker build -f Dockerfile.build.x86_64 -t freqhole-linux-builder . --platform linux/amd64
+	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(X86_64_TARGET):/output freqhole-linux-builder \
+		cp /app/target/x86_64-unknown-linux-gnu/release/server /output/freqhole-server
+	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(X86_64_TARGET):/output freqhole-linux-builder \
+		cp /app/target/x86_64-unknown-linux-gnu/release/cli /output/freqhole-cli
+	@echo "Linux x86_64 binaries built: $(BUILD_DIR)/$(X86_64_TARGET)/"
+
+# Build for all targets including current platform if different
+.PHONY: build-all
+build-all:
+	@if [ "$(CURRENT_TARGET)" != "$(PI_64_TARGET)" ] && [ "$(CURRENT_TARGET)" != "$(X86_64_TARGET)" ]; then \
+		echo "Building for current platform: $(CURRENT_TARGET)"; \
+		$(MAKE) build; \
+	fi
+	$(MAKE) build-pi
+	$(MAKE) build-linux
+	@echo "All targets built:"
+	@if [ "$(CURRENT_TARGET)" != "$(PI_64_TARGET)" ] && [ "$(CURRENT_TARGET)" != "$(X86_64_TARGET)" ]; then \
+		echo "  - Current platform: $(BUILD_DIR)/$(CURRENT_TARGET)/"; \
+	fi
+	@echo "  - Raspberry Pi: $(BUILD_DIR)/$(PI_64_TARGET)/"
+	@echo "  - Linux x86_64: $(BUILD_DIR)/$(X86_64_TARGET)/"
+
 # Clean build artifacts
 .PHONY: clean
 clean:
@@ -87,16 +116,21 @@ info:
 	@echo "Build directory: $(BUILD_DIR)"
 	@echo "Current target: $(CURRENT_TARGET)"
 	@echo "Pi targets: $(PI_32_TARGET), $(PI_64_TARGET)"
+	@echo "Linux targets: $(X86_64_TARGET)"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  make build         - Build for current platform (release)"
 	@echo "  make build-debug   - Build for current platform (debug)"
 	@echo "  make build-pi      - Build for Raspberry Pi using Docker"
+	@echo "  make build-linux   - Build for x86_64 Linux using Docker"
+	@echo "  make build-all     - Build for all targets (current + cross-compilation)"
 	@echo "  make clean         - Clean build artifacts"
 	@echo "  make info          - Show this information"
 	@echo ""
-	@echo "For Raspberry Pi builds:"
-	@echo "  1. Run: make build-pi (requires Docker)"
+	@echo "For cross-platform builds:"
+	@echo "  1. Run: make build-pi (requires Docker) - for Raspberry Pi"
+	@echo "  2. Run: make build-linux (requires Docker) - for x86_64 Linux"
+	@echo "  3. Run: make build-all (requires Docker) - for all platforms"
 
 # Help target
 .PHONY: help
