@@ -20,6 +20,15 @@ SQLX_OFFLINE = "true"
 [target.x86_64-apple-darwin]
 # macOS Intel-specific settings if needed
 
+# Raspberry Pi targets
+[target.armv7-unknown-linux-gnueabihf]
+# Raspberry Pi 2, 3, 4 (32-bit)
+linker = "armv7-linux-gnueabihf-gcc"
+
+[target.aarch64-unknown-linux-gnu]
+# Raspberry Pi 3, 4, 5 (64-bit)
+linker = "aarch64-linux-gnu-gcc"
+
 # You can override SQLX_OFFLINE in your editor by setting it to false
 # For example, in VS Code settings.json:
 # "rust-analyzer.cargo.extraEnv": {

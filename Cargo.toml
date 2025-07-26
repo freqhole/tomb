@@ -1,10 +1,6 @@
 [workspace]
 members = ["cli", "server", "grimoire"]
 resolver = "2"
-authors = [
-  "edward sharp <edward@edwardsharp.net",
-]
-license = "MIT"
 
 [workspace.dependencies]
 async-trait = "0.1"
@@ -48,8 +44,11 @@ webauthn-rs = { version = "0.5.1", features = [
     "danger-allow-state-serialisation",
 ] }
 
+
+
+
 # Testing dependencies
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 testcontainers = "0.20"
 testcontainers-modules = { version = "0.8", features = ["postgres"] }
 tempfile = "3.0"

@@ -1,0 +1,13 @@
+/assets/
+logs/
+*.log
+target/
+*.rlib
+node_modules/
+/generated/
+# Docker-specific ignores
+Dockerfile*
+.dockerignore
+.git/
+.gitignore
+README.md
