@@ -17,31 +17,15 @@ impl DatabaseConnection {
         &self.pool
     }
 
-    /// Simple migration status check
-    /// For actual migrations, use sqlx-cli or the migration files directly
+    /// Run embedded database migrations
+    /// Migrations are embedded in the binary at compile time from ../migrations directory
     pub async fn migrate(&self) -> Result<(), sqlx::Error> {
-        // Check if base tables exist
-        let base_tables_exist = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'invite_codes')"
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        tracing::info!("Running database migrations...");
 
-        if !base_tables_exist {
-            tracing::warn!("Base tables don't exist. Please run migrations using sqlx-cli or apply the migration files manually.");
-        }
+        // Run embedded migrations - this embeds all .sql files from ../migrations at compile time
+        sqlx::migrate!("../migrations").run(&self.pool).await?;
 
-        // Check if analytics table exists
-        let analytics_table_exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'request_analytics')"
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        if !analytics_table_exists {
-            tracing::warn!("Analytics table doesn't exist. Please run migration 003_analytics.sql");
-        }
-
+        tracing::info!("Database migrations completed successfully");
         Ok(())
     }
 }

@@ -7,21 +7,26 @@ async fn test_server_compiles() {
 }
 
 #[tokio::test]
-async fn test_database_connection() {
-    // Test that we can connect to the database
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/webauthn_db".to_string());
+async fn test_embedded_migrations() {
+    // Test that migrations are properly embedded in the binary
+    // This test verifies the migration embedding works at compile time
 
-    if let Ok(pool) = sqlx::postgres::PgPool::connect(&database_url).await {
-        // Simple query to verify connection
-        let result: Result<(i32,), sqlx::Error> = sqlx::query_as("SELECT 1 as test")
-            .fetch_one(&pool)
-            .await;
+    // The sqlx::migrate! macro should embed migrations at compile time
+    let migrations = sqlx::migrate!("../migrations");
 
-        assert!(result.is_ok());
-        pool.close().await;
-    } else {
-        // If we can't connect, that's okay for this basic test
-        println!("Warning: Could not connect to database for testing");
-    }
+    // Verify that migrations were found and embedded
+    assert!(
+        !migrations.migrations.is_empty(),
+        "No migrations were embedded"
+    );
+
+    // Check that we have a reasonable number of migrations
+    let migration_count = migrations.migrations.len();
+    assert!(
+        migration_count > 30,
+        "Expected at least 30 migrations, found {}",
+        migration_count
+    );
+
+    println!("✅ Successfully embedded {} migrations", migration_count);
 }

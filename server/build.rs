@@ -8,4 +8,7 @@ fn main() {
     // Tell cargo to rerun this build script if .env changes
     println!("cargo:rerun-if-changed=.env");
     println!("cargo:rerun-if-changed=../.env");
+
+    // Tell cargo to rerun if migrations directory changes
+    println!("cargo:rerun-if-changed=../migrations");
 }
