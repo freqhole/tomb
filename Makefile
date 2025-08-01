@@ -1,13 +1,13 @@
 # Makefile for building freqhole server and CLI binaries
 # Supports cross-compilation for Raspberry Pi targets
 #
-# Setup (run once):
+# some stuff u might need for raspi build:
 #
 # Add Rust targets:
 #   rustup target add armv7-unknown-linux-gnueabihf  # 32-bit Pi
 #   rustup target add aarch64-unknown-linux-gnu      # 64-bit Pi
 #
-# Install system dependencies:
+# system dependencies:
 #
 # macOS (via Homebrew):
 #   brew install messense/macos-cross-toolchains/armv7-unknown-linux-gnueabihf
@@ -16,29 +16,26 @@
 # Linux (via apt-get):
 #   sudo apt-get install gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
 #
-# For Docker-based cross-compilation (recommended):
-#   cargo install cross --git https://github.com/cross-rs/cross
-#   Then use: make build-cross
+# but it's easier to use docker for both aarch64 & x86_64 builds
+# note: [cross](https://github.com/cross-rs/cross) didn't love the openssl deps :/
+# also note: .PHONY targetz are kinda silly ¯\_(ツ)_/¯
 
-# Configuration
 VERSION := $(shell grep '^version = ' server/Cargo.toml | head -1 | cut -d '"' -f 2)
 BUILD_DIR := target/freqhole/$(VERSION)
 CURRENT_TARGET := $(shell rustc -vV | sed -n 's|host: ||p')
 
-# Targets
 PI_32_TARGET := armv7-unknown-linux-gnueabihf
 PI_64_TARGET := aarch64-unknown-linux-gnu
 X86_64_TARGET := x86_64-unknown-linux-gnu
 
-# Build modes
 RELEASE_MODE := --release
 DEBUG_MODE :=
 
-# Default target
+# default target
 .PHONY: all
 all: build
 
-# Build for current platform
+# build for current platform
 .PHONY: build
 build:
 	@echo "Building for current platform: $(CURRENT_TARGET)"
@@ -49,7 +46,7 @@ build:
 	cp target/$(CURRENT_TARGET)/release/cli $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-cli
 	@echo "✓ Binaries: $(BUILD_DIR)/$(CURRENT_TARGET)/"
 
-# Debug build
+# debug build
 .PHONY: build-debug
 build-debug: RELEASE_MODE :=
 build-debug:
@@ -61,7 +58,7 @@ build-debug:
 	cp target/$(CURRENT_TARGET)/debug/cli $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-cli
 	@echo "✓ Debug binaries: $(BUILD_DIR)/$(CURRENT_TARGET)/"
 
-# Docker-based Pi build
+# docker-based raspi build
 .PHONY: build-pi
 build-pi:
 	@echo "Building for Raspberry Pi using Docker"
@@ -71,7 +68,7 @@ build-pi:
 		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/aarch64-unknown-linux-gnu/release/cli /output/freqhole-cli"
 	@echo "Pi binaries built: $(BUILD_DIR)/$(PI_64_TARGET)/"
 
-# Docker-based x86_64 Linux build
+# docker-based x86_64 linux build
 .PHONY: build-linux
 build-linux:
 	@echo "Building for x86_64 Linux using Docker"
@@ -83,7 +80,7 @@ build-linux:
 		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/x86_64-unknown-linux-gnu/release/cli /output/freqhole-cli"
 	@echo "Linux x86_64 binaries built: $(BUILD_DIR)/$(X86_64_TARGET)/"
 
-# Build for all targets including current platform if different
+# all targetz including current platform if different
 .PHONY: build-all
 build-all:
 	@if [ "$(CURRENT_TARGET)" != "$(PI_64_TARGET)" ] && [ "$(CURRENT_TARGET)" != "$(X86_64_TARGET)" ]; then \
@@ -99,15 +96,13 @@ build-all:
 	@echo "  - Raspberry Pi: $(BUILD_DIR)/$(PI_64_TARGET)/"
 	@echo "  - Linux x86_64: $(BUILD_DIR)/$(X86_64_TARGET)/"
 
-# Clean build artifacts
 .PHONY: clean
 clean:
 	rm -rf target/freqhole
 
-# Show build information
 .PHONY: info
 info:
-	@echo "Freqhole Build Information"
+	@echo "FREQHOLE Build Information"
 	@echo "========================="
 	@echo "Version: $(VERSION)"
 	@echo "Build directory: $(BUILD_DIR)"
@@ -125,6 +120,5 @@ info:
 	@echo "  make info          - Show this information"
 	@echo ""
 
-# Help target
 .PHONY: help
 help: info
