@@ -1,6 +1,6 @@
 # F R E Q H O L E
 
-this repo is mostly all ai-generated code. mostly a wild adventure staring into the llm abyss 😎 both frightening and thrilling at the same time.
+this repo is mostly ai-generated code ...a wild adventure staring (chatting?!) into the llm abyss with claude sonnet iv 😎 both frightening and thrilling at the same time.
 
 stuff that's here:
 
