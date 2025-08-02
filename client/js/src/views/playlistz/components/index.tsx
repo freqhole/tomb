@@ -49,12 +49,9 @@ import type { Playlist } from "../types/playlist.js";
 
 // Global function registration for standalone mode (happens immediately)
 if ((window as any).STANDALONE_MODE) {
-  console.log("🎵 Early standalone mode detection, registering function...");
   // Define the function early so it's available for HTML initialization
   (window as any).initializeStandalonePlaylist = function (playlistData: any) {
-    console.log(
-      "🎵 Early initializeStandalonePlaylist called, deferring to main function..."
-    );
+    console.log("hiiiii initializeStandalonePlaylist!");
     // Store the data and defer to the real function when it's ready
     (window as any).DEFERRED_PLAYLIST_DATA = playlistData;
   };
@@ -208,7 +205,7 @@ export function Playlistz() {
 
     // Check if we have deferred data from early initialization
     if ((window as any).DEFERRED_PLAYLIST_DATA) {
-      console.log("🎵 Found deferred playlist data, initializing now...");
+      console.log("hiiii deferred playlist data! initializing...");
       await initializeStandalonePlaylist(
         (window as any).DEFERRED_PLAYLIST_DATA
       );
@@ -742,16 +739,7 @@ export function Playlistz() {
 
   // Initialize standalone playlist from embedded data
   const initializeStandalonePlaylist = async (playlistData: any) => {
-    console.log(
-      "🎵 initializeStandalonePlaylist called with data:",
-      playlistData
-    );
-    console.log(
-      "🖼️ Embedded playlist data structure:",
-      JSON.stringify(playlistData, null, 2)
-    );
     try {
-      // Create a virtual playlist for display
       const virtualPlaylist: Playlist = {
         id: crypto.randomUUID(),
         title: playlistData.playlist.title,
@@ -765,12 +753,11 @@ export function Playlistz() {
 
       // Set playlist image from base64 data
       if (playlistData.playlist.imageBase64) {
-        const imageDataUrl = `data:${playlistData.playlist.imageMimeType};base64,${playlistData.playlist.imageBase64}`;
+        // const imageDataUrl = `data:${playlistData.playlist.imageMimeType};base64,${playlistData.playlist.imageBase64}`;
         virtualPlaylist.imageData = base64ToArrayBuffer(
           playlistData.playlist.imageBase64
         );
         virtualPlaylist.imageType = playlistData.playlist.imageMimeType;
-        console.log("🖼️ Set playlist image from base64 data");
       }
 
       // Create virtual songs that reference local files
@@ -822,11 +809,6 @@ export function Playlistz() {
           const store = tx.objectStore(SONGS_STORE);
           await store.put(song);
           await tx.done;
-
-          console.log(
-            "🖼️ Set song image from base64 data:",
-            songData.originalFilename
-          );
         }
       }
 
@@ -834,10 +816,10 @@ export function Playlistz() {
       setSelectedPlaylist(virtualPlaylist);
       setPlaylistSongs(virtualSongs);
 
-      console.log("🎵 Standalone playlist loaded from embedded data");
+      console.log("hooray! standalone playlist loaded from embedded data!");
     } catch (err) {
-      console.error("Error initializing standalone playlist:", err);
-      setError("Failed to load standalone playlist");
+      console.error("error initializing standalone playlist:", err);
+      setError("failed to load standalone playlist ;(");
     }
   };
 
