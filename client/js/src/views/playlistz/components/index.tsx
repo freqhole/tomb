@@ -39,6 +39,7 @@ import {
   getAllSongs,
   reorderSongs,
   SONGS_STORE,
+  PLAYLISTS_STORE,
 } from "../services/indexedDBService.js";
 import {
   downloadPlaylistAsZip,
@@ -739,6 +740,15 @@ export function Playlistz() {
 
   // Initialize standalone playlist from embedded data
   const initializeStandalonePlaylist = async (playlistData: any) => {
+    console.log(
+      "🎵 initializeStandalonePlaylist called with data:",
+      playlistData
+    );
+    console.log(
+      "🖼️ Embedded playlist data structure:",
+      JSON.stringify(playlistData, null, 2)
+    );
+
     try {
       const virtualPlaylist: Playlist = {
         id: crypto.randomUUID(),
@@ -758,6 +768,7 @@ export function Playlistz() {
           playlistData.playlist.imageBase64
         );
         virtualPlaylist.imageType = playlistData.playlist.imageMimeType;
+        console.log("🖼️ Set playlist image from base64 data");
       }
 
       // Create virtual songs that reference local files
@@ -786,13 +797,13 @@ export function Playlistz() {
 
       // Store virtual songs in IndexedDB so SongRow components can find them
       const db = await setupDB();
-      const tx = db.transaction([SONGS_STORE], "readwrite");
-      const store = tx.objectStore(SONGS_STORE);
+      const songsTx = db.transaction([SONGS_STORE], "readwrite");
+      const songsStore = songsTx.objectStore(SONGS_STORE);
 
       for (const song of virtualSongs) {
-        await store.put(song);
+        await songsStore.put(song);
       }
-      await tx.done;
+      await songsTx.done;
 
       // Set song images from base64 data
       for (let i = 0; i < virtualSongs.length; i++) {
@@ -809,17 +820,28 @@ export function Playlistz() {
           const store = tx.objectStore(SONGS_STORE);
           await store.put(song);
           await tx.done;
+          console.log(
+            "🖼️ Set song image from base64 data:",
+            songData.originalFilename
+          );
         }
       }
+
+      // Store the playlist in PLAYLISTS_STORE so it shows up in the playlist list
+      const playlistTx = db.transaction([PLAYLISTS_STORE], "readwrite");
+      const playlistStore = playlistTx.objectStore(PLAYLISTS_STORE);
+      await playlistStore.put(virtualPlaylist);
+      await playlistTx.done;
+      console.log("💾 Playlist saved to PLAYLISTS_STORE:", virtualPlaylist);
 
       // Set up the playlist and songs for display
       setSelectedPlaylist(virtualPlaylist);
       setPlaylistSongs(virtualSongs);
 
-      console.log("hooray! standalone playlist loaded from embedded data!");
+      console.log("🎵 Standalone playlist loaded from embedded data");
     } catch (err) {
-      console.error("error initializing standalone playlist:", err);
-      setError("failed to load standalone playlist ;(");
+      console.error("Error initializing standalone playlist:", err);
+      setError("Failed to load standalone playlist");
     }
   };
 
