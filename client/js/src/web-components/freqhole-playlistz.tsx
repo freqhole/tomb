@@ -13,7 +13,7 @@ function PlaylistzWebComponent(_props: PlaylistzWebComponentProps) {
 
 // Web component registration
 customElements.define(
-  "playlistz-app",
+  "freqhole-playlistz",
   class extends HTMLElement {
     connectedCallback() {
       render(() => <PlaylistzWebComponent />, this);

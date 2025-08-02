@@ -38,7 +38,7 @@ import "./product-data-grid-demo";
 import "./search-demo";
 import "./freqhole-demo";
 import "./zune-demo";
-import "./playlistz";
+import "./freqhole-playlistz";
 
 // Component registration confirmation
 const REGISTERED_COMPONENTS = [
@@ -62,7 +62,7 @@ const REGISTERED_COMPONENTS = [
   "search-demo",
   "freqhole-demo",
   "zune-demo",
-  "playlistz-app",
+  "freqhole-playlistz",
 ] as const;
 
 export { REGISTERED_COMPONENTS };
@@ -234,7 +234,7 @@ declare global {
         "auto-connect"?: boolean;
       };
 
-      "playlistz-app": {
+      "freqhole-playlistz": {
         // No props needed for this standalone component
       };
     }
@@ -294,5 +294,5 @@ console.log("🧩 Web Components Library loaded - Available components:", [
   "search-demo",
   "freqhole-demo",
   "zune-demo",
-  "playlistz-app",
+  "freqhole-playlistz",
 ]);

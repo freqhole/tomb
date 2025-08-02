@@ -54,7 +54,7 @@ const COMPONENT_ATTRIBUTES = {
     "api-base-url": "http://localhost:8080",
     "auto-connect": "true",
   },
-  "playlistz-app": {},
+  "freqhole-playlistz": {},
 };
 
 // Dynamically discover web components
