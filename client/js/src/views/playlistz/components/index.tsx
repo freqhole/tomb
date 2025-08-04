@@ -50,6 +50,14 @@ import {
   standaloneLoadingProgress,
   clearStandaloneLoadingProgress,
 } from "../services/standaloneService.js";
+import {
+  initializeOfflineSupport,
+  isOnline,
+  serviceWorkerReady,
+  persistentStorageGranted,
+  getStorageInfo,
+  cacheAudioFile,
+} from "../services/offlineService.js";
 
 import type { Playlist } from "../types/playlist.js";
 
@@ -85,6 +93,8 @@ export function Playlistz() {
   const [playlistSongs, setPlaylistSongs] = createSignal<any[]>([]);
   const [modalImageIndex, setModalImageIndex] = createSignal(0);
   const [isDownloading, setIsDownloading] = createSignal(false);
+  const [isCaching, setIsCaching] = createSignal(false);
+  const [storageInfo, setStorageInfo] = createSignal<any>({});
 
   // Direct signal subscription approach (bypass hook)
   const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
@@ -243,6 +253,19 @@ export function Playlistz() {
     try {
       await setupDB();
 
+      // Initialize offline support
+      await initializeOfflineSupport();
+
+      // Get initial storage info
+      const info = await getStorageInfo();
+      setStorageInfo(info);
+
+      // Update storage info periodically
+      const storageUpdateInterval = setInterval(async () => {
+        const updatedInfo = await getStorageInfo();
+        setStorageInfo(updatedInfo);
+      }, 30000); // Update every 30 seconds
+
       setIsInitialized(true);
 
       // Set up responsive behavior
@@ -260,6 +283,7 @@ export function Playlistz() {
       onCleanup(() => {
         window.removeEventListener("resize", checkMobile);
         clearStandaloneLoadingProgress();
+        clearInterval(storageUpdateInterval);
       });
     } catch (err) {
       console.error("❌ Failed to initialize Playlistz:", err);
@@ -782,6 +806,46 @@ export function Playlistz() {
     }
   };
 
+  // Cache playlist for offline use
+  const handleCachePlaylist = async () => {
+    const playlist = selectedPlaylist();
+    const songs = playlistSongs();
+    if (!playlist || songs.length === 0) return;
+
+    setIsCaching(true);
+    try {
+      console.log("🔄 Caching playlist for offline use...");
+      let cached = 0;
+      let failed = 0;
+
+      for (const song of songs) {
+        if (song.blobUrl) {
+          try {
+            await cacheAudioFile(song.blobUrl, song.title);
+            cached++;
+            console.log(`✅ Cached: ${song.title}`);
+          } catch (error) {
+            failed++;
+            console.error(`❌ Failed to cache: ${song.title}`, error);
+          }
+        } else {
+          console.log(`⚠️ Skipped (no blob URL): ${song.title}`);
+        }
+      }
+
+      console.log(`🎵 Caching complete: ${cached} cached, ${failed} failed`);
+
+      // Update storage info
+      const info = await getStorageInfo();
+      setStorageInfo(info);
+    } catch (err) {
+      console.error("❌ Error caching playlist:", err);
+      setError("Failed to cache playlist for offline use");
+    } finally {
+      setIsCaching(false);
+    }
+  };
+
   return (
     <div class="relative h-screen bg-black text-white overflow-hidden">
       {/* Dynamic background image */}
@@ -857,6 +921,39 @@ export function Playlistz() {
                 : "Downloading and storing audio files..."}
             </p>
           </div>
+        </div>
+      </Show>
+
+      {/* Offline Status Indicator */}
+      <Show when={!isOnline()}>
+        <div
+          class="fixed top-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg"
+          style={{ "z-index": "9998" }}
+        >
+          📱 Offline Mode
+        </div>
+      </Show>
+
+      {/* Storage Info (only show if persistent storage granted) */}
+      <Show when={persistentStorageGranted() && storageInfo().usageFormatted}>
+        <div
+          class="fixed bottom-4 right-4 bg-gray-800/90 text-white px-3 py-2 rounded text-xs"
+          style={{ "z-index": "9997" }}
+        >
+          💾 {storageInfo().usageFormatted} / {storageInfo().quotaFormatted}
+          {storageInfo().usagePercent && ` (${storageInfo().usagePercent}%)`}
+        </div>
+      </Show>
+
+      {/* Service Worker Status (development helper) */}
+      <Show
+        when={window.location.hostname === "localhost" && serviceWorkerReady()}
+      >
+        <div
+          class="fixed bottom-4 left-4 bg-green-800/90 text-white px-3 py-2 rounded text-xs"
+          style={{ "z-index": "9997" }}
+        >
+          ✅ Offline Ready
         </div>
       </Show>
 
@@ -1017,6 +1114,56 @@ export function Playlistz() {
                                       stroke-linejoin="round"
                                       stroke-width="2"
                                       d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                    />
+                                  </svg>
+                                </Show>
+                              </button>
+                            </Show>
+
+                            {/* Cache for offline button */}
+                            <Show
+                              when={
+                                serviceWorkerReady() &&
+                                window.location.protocol !== "file:"
+                              }
+                            >
+                              <button
+                                onClick={handleCachePlaylist}
+                                disabled={
+                                  isCaching() || playlistSongs().length === 0
+                                }
+                                class="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="cache playlist for offline use"
+                              >
+                                <Show
+                                  when={!isCaching()}
+                                  fallback={
+                                    <svg
+                                      class="w-4 h-4 animate-spin"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                      />
+                                    </svg>
+                                  }
+                                >
+                                  <svg
+                                    class="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      stroke-linecap="round"
+                                      stroke-linejoin="round"
+                                      stroke-width="2"
+                                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"
                                     />
                                   </svg>
                                 </Show>
