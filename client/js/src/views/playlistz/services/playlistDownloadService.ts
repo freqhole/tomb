@@ -90,6 +90,7 @@ export async function downloadPlaylistAsZip(
         safeFilename: song.originalFilename
           ? sanitizeFilename(song.originalFilename)
           : "",
+        fileSize: song.fileSize || song.audioData?.byteLength,
         imageExtension: song.imageData
           ? getFileExtensionFromMimeType(song.imageType || "image/jpeg")
           : null,

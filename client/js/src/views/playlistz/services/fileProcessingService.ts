@@ -201,6 +201,7 @@ export async function processAudioFile(file: File): Promise<FileUploadResult> {
         imageData: metadata.coverArtData,
         thumbnailData: metadata.coverArtThumbnailData,
         imageType: metadata.coverArtType,
+        fileSize: file.size,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         playlistId: "", // Will be set when adding to playlist

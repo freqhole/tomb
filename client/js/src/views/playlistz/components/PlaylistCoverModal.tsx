@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createSignal, Show, onMount } from "solid-js";
+import { createSignal, Show, onMount, onCleanup, createEffect } from "solid-js";
 import { updatePlaylist } from "../services/indexedDBService.js";
 import {
   processPlaylistCover,
@@ -154,6 +154,20 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
     setSelectedImageType(undefined);
     setSelectedImageUrl(undefined);
   };
+
+  // Handle escape key
+  createEffect(() => {
+    if (props.isOpen) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          handleCancel();
+        }
+      };
+
+      document.addEventListener("keydown", handleKeyDown);
+      onCleanup(() => document.removeEventListener("keydown", handleKeyDown));
+    }
+  });
 
   if (!props.isOpen) return null;
 

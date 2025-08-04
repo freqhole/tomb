@@ -854,6 +854,7 @@ export function Playlistz() {
           position: i,
           mimeType: "audio/mpeg",
           originalFilename: songData.originalFilename,
+          fileSize: songData.fileSize,
           audioData: undefined,
           blobUrl: undefined,
           file: undefined,
@@ -1358,11 +1359,11 @@ export function Playlistz() {
         <div class="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
           <button
             onClick={() => setShowImageModal(false)}
-            class="M9 5l7 7-7 7"
+            class="absolute top-6 right-4 z-51 hover:text-magenta-500"
             title="close (ESC)"
           >
             <svg
-              class="w-6 h-6"
+              class="w-8 h-8"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"

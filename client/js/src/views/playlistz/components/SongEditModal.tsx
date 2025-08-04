@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createSignal, Show, onMount } from "solid-js";
+import { createSignal, Show, onMount, onCleanup, createEffect } from "solid-js";
 import { updateSong } from "../services/indexedDBService.js";
 import {
   processPlaylistCover,
@@ -140,19 +140,33 @@ export function SongEditModal(props: SongEditModalProps) {
     setImageUrl(undefined);
   };
 
+  // Handle escape key
+  createEffect(() => {
+    if (props.isOpen) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          handleCancel();
+        }
+      };
+
+      document.addEventListener("keydown", handleKeyDown);
+      onCleanup(() => document.removeEventListener("keydown", handleKeyDown));
+    }
+  });
+
   if (!props.isOpen) return null;
 
   return (
     <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div class="bg-gray-900 shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+      <div class="bg-gray-900 shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto relative">
         {/* Header */}
-        <div class="flex items-center justify-between p-6 border-b border-gray-700">
+        <div class="flex items-center justify-between p-6 border-b border-gray-700 relative">
           <h2 class="text-xl font-bold text-white font-mono">
             edit<span class="text-magenta-500">z</span>
           </h2>
           <button
             onClick={handleCancel}
-            class="text-magenta-200 hover:text-magenta-500 p-1 rounded"
+            class="text-magenta-200 hover:text-magenta-500 p-1 rounded absolute top-4 right-4"
             disabled={isLoading()}
           >
             <svg
@@ -286,14 +300,14 @@ export function SongEditModal(props: SongEditModalProps) {
               file information
             </h3>
             <div class="text-sm text-gray-400 space-y-1">
-              <div>filename: {props.song.file?.name || "Unknown"}</div>
-              <div>
-                size:{" "}
-                {Math.round(
-                  ((props.song.file?.size || 0) / 1024 / 1024) * 100
-                ) / 100}{" "}
-                mb
-              </div>
+              <div>filename: {props.song.originalFilename || "Unknown"}</div>
+              <Show when={props.song.fileSize}>
+                <div>
+                  size:{" "}
+                  {Math.round((props.song.fileSize! / 1024 / 1024) * 100) / 100}{" "}
+                  mb
+                </div>
+              </Show>
               <div>duration: {formatDuration(props.song.duration)}</div>
             </div>
           </div>

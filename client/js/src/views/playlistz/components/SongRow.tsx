@@ -66,7 +66,7 @@ export function SongRow(props: SongRowProps) {
     }
   };
 
-  const handleTouchStart = (e: TouchEvent) => {
+  const handleTouchStart = (_: TouchEvent) => {
     setTouchStartTime(Date.now());
   };
 

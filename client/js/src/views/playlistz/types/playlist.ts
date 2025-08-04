@@ -17,6 +17,7 @@ export interface Song {
   audioData?: ArrayBuffer; // Audio data stored in IndexedDB
   mimeType: string; // MIME type for recreating blob from stored data
   originalFilename: string; // Original filename with extension for downloads
+  fileSize?: number; // File size in bytes
   title: string; // User-editable song title
   artist: string; // User-editable artist name
   album: string; // User-editable album name
