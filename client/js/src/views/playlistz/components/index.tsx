@@ -7,6 +7,7 @@ import {
   Show,
   For,
 } from "solid-js";
+
 import {
   setupDB,
   createPlaylist,
@@ -14,6 +15,11 @@ import {
   updatePlaylist,
   getAllPlaylists,
   mutateAndNotify,
+  deletePlaylist,
+  addSongToPlaylist,
+  removeSongFromPlaylist,
+  getAllSongs,
+  reorderSongs,
   DB_NAME,
   PLAYLISTS_STORE,
   SONGS_STORE,
@@ -25,31 +31,24 @@ import {
   audioState,
   refreshPlaylistQueue,
 } from "../services/audioService.js";
-import { deletePlaylist } from "../services/indexedDBService.js";
 import {
   filterAudioFiles,
   processAudioFiles,
 } from "../services/fileProcessingService.js";
-
 import { cleanupTimeUtils } from "../utils/timeUtils.js";
 import {
   createImageUrlFromData,
   getImageUrlForContext,
 } from "../services/imageService.js";
-import { PlaylistSidebar } from "./PlaylistSidebar.js";
-import { SongRow } from "./SongRow.js";
-import { SongEditModal } from "./SongEditModal.js";
-import { PlaylistCoverModal } from "./PlaylistCoverModal.js";
-import {
-  addSongToPlaylist,
-  removeSongFromPlaylist,
-  getAllSongs,
-  reorderSongs,
-} from "../services/indexedDBService.js";
 import {
   downloadPlaylistAsZip,
   parsePlaylistZip,
 } from "../services/playlistDownloadService.js";
+
+import { PlaylistSidebar } from "./PlaylistSidebar.js";
+import { SongRow } from "./SongRow.js";
+import { SongEditModal } from "./SongEditModal.js";
+import { PlaylistCoverModal } from "./PlaylistCoverModal.js";
 
 import type { Playlist } from "../types/playlist.js";
 
@@ -790,8 +789,13 @@ export function Playlistz() {
           (song: any) => song.playlistId === existingPlaylist.id
         );
 
+        // Set up the existing playlist and songs for display
         setSelectedPlaylist(existingPlaylist);
         setPlaylistSongs(playlistSongs);
+
+        // Auto-collapse sidebar when loading existing standalone playlist
+        setSidebarCollapsed(true);
+
         console.log("🎵 Existing standalone playlist loaded");
         return;
       }
@@ -895,6 +899,9 @@ export function Playlistz() {
       // Set up the playlist and songs for display
       setSelectedPlaylist(finalPlaylist);
       setPlaylistSongs(virtualSongs);
+
+      // Auto-collapse sidebar when loading standalone playlist
+      setSidebarCollapsed(true);
 
       console.log("🎵 Standalone playlist loaded from embedded data");
     } catch (err) {
