@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createSignal, createResource, Show } from "solid-js";
+import { createSignal, createResource, Show, onMount } from "solid-js";
 import { getSongById } from "../services/indexedDBService.js";
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
 import { songUpdateTrigger } from "../services/songReactivity.js";
@@ -22,7 +22,12 @@ export function SongRow(props: SongRowProps) {
   const [isHovered, setIsHovered] = createSignal(false);
   const [isDragging, setIsDragging] = createSignal(false);
   const [draggedOver, setDraggedOver] = createSignal(false);
-  const [touchStartTime, setTouchStartTime] = createSignal(0);
+  const [isMobile, setIsMobile] = createSignal(false);
+
+  // Check if device has touch capability
+  onMount(() => {
+    setIsMobile("ontouchstart" in window || navigator.maxTouchPoints > 0);
+  });
 
   // Fetch song data with reactivity to global song updates
   const [song] = createResource(
@@ -63,20 +68,6 @@ export function SongRow(props: SongRowProps) {
       props.onPause?.();
     } else {
       props.onPlay?.(songData);
-    }
-  };
-
-  const handleTouchStart = (_: TouchEvent) => {
-    setTouchStartTime(Date.now());
-  };
-
-  const handleTouchEnd = (e: TouchEvent) => {
-    const touchDuration = Date.now() - touchStartTime();
-
-    // Only trigger play/pause for quick taps (< 300ms) to avoid interfering with scrolling
-    if (touchDuration < 300) {
-      e.preventDefault();
-      handlePlayPause();
     }
   };
 
@@ -192,16 +183,20 @@ export function SongRow(props: SongRowProps) {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              onMouseEnter={() => setIsHovered(true)}
-              onMouseLeave={() => setIsHovered(false)}
-              onTouchStart={handleTouchStart}
-              onTouchEnd={handleTouchEnd}
-              onDblClick={() => {
-                const songData = song();
-                if (songData && !isCurrentlyPlaying()) {
-                  props.onPlay?.(songData);
-                }
-              }}
+              onMouseEnter={() => !isMobile() && setIsHovered(true)}
+              onMouseLeave={() => !isMobile() && setIsHovered(false)}
+              onClick={handlePlayPause}
+              onDblClick={
+                !isMobile()
+                  ? () => {
+                      const songData = song();
+                      if (songData && !isCurrentlyPlaying()) {
+                        props.onPlay?.(songData);
+                      }
+                    }
+                  : undefined
+              }
+              style={{ "-webkit-tap-highlight-color": "transparent" }}
             >
               {/* Progress background */}
               <div
@@ -255,7 +250,7 @@ export function SongRow(props: SongRowProps) {
                   </Show>
 
                   {/* Play/Pause overlay */}
-                  <Show when={isHovered()}>
+                  <Show when={isHovered() || isMobile()}>
                     <button
                       onClick={handlePlayPause}
                       class="absolute inset-0 bg-transparent flex items-center justify-center transition-opacity hover:bg-opacity-80 text-magenta-300 hover:text-magenta-100"
@@ -318,7 +313,7 @@ export function SongRow(props: SongRowProps) {
               </div>
 
               {/* Overlay Actions */}
-              <Show when={isHovered()}>
+              <Show when={isHovered() || isMobile()}>
                 <div class="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1 bg-black bg-opacity-80 px-2 py-1 z-50">
                   {/* Edit button */}
                   <button

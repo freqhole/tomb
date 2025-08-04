@@ -89,19 +89,25 @@ function updatePageTitle(): void {
 }
 
 // Update Media Session API for OS integration
-function updateMediaSession(): void {
+async function updateMediaSession(): Promise<void> {
   if (!("mediaSession" in navigator)) return;
 
   const song = currentSong();
   const playlist = currentPlaylist();
 
   if (song) {
-    // Set metadata
+    // Get artwork first
+    const artwork = await getMediaSessionArtwork(song, playlist);
+
+    // Clear metadata first, then set it - sometimes helps with iOS Safari
+    navigator.mediaSession.metadata = null;
+
+    // Set metadata directly
     navigator.mediaSession.metadata = new MediaMetadata({
       title: song.title,
       artist: song.artist || "Unknown Artist",
       album: song.album || playlist?.title || "Unknown Album",
-      artwork: getMediaSessionArtwork(song, playlist),
+      artwork: artwork,
     });
 
     // Set playback state
@@ -149,34 +155,136 @@ function updateMediaSession(): void {
   updatePageTitle();
 }
 
+// Resize image if it's too large for iOS Safari MediaSession
+async function resizeImageForMediaSession(
+  imageData: ArrayBuffer,
+  mimeType: string
+): Promise<ArrayBuffer> {
+  // If image is smaller than 500KB, use as-is
+  if (imageData.byteLength < 500000) {
+    return imageData;
+  }
+
+  return new Promise((resolve) => {
+    const blob = new Blob([imageData], { type: mimeType });
+    const img = new Image();
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    img.onload = () => {
+      // Resize to max 300x300 to keep file size reasonable
+      const maxSize = 300;
+      let { width, height } = img;
+
+      if (width > maxSize || height > maxSize) {
+        const ratio = Math.min(maxSize / width, maxSize / height);
+        width *= ratio;
+        height *= ratio;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (resizedBlob) => {
+            if (resizedBlob) {
+              resizedBlob.arrayBuffer().then(resolve);
+            } else {
+              resolve(imageData); // Fallback to original
+            }
+          },
+          mimeType,
+          0.8
+        );
+      } else {
+        resolve(imageData); // Fallback to original
+      }
+    };
+
+    img.onerror = () => {
+      resolve(imageData); // Fallback to original
+    };
+
+    img.src = URL.createObjectURL(blob);
+  });
+}
+
 // Get artwork for Media Session
-function getMediaSessionArtwork(song: any, playlist: any): MediaImage[] {
+async function getMediaSessionArtwork(
+  song: any,
+  playlist: any
+): Promise<MediaImage[]> {
   const artwork: MediaImage[] = [];
 
-  // Try song image first (prefer thumbnail for consistency, fallback to full size)
+  // Try song image first (prefer thumbnail for MediaSession)
   const songImageData = song.thumbnailData || song.imageData;
   if (songImageData && song.imageType) {
-    const blob = new Blob([songImageData], { type: song.imageType });
+    const resizedImageData = await resizeImageForMediaSession(
+      songImageData,
+      song.imageType
+    );
+    const blob = new Blob([resizedImageData], { type: song.imageType });
     const url = URL.createObjectURL(blob);
+    // Add multiple sizes for iOS Safari compatibility
     artwork.push({
       src: url,
-      sizes: "300x300",
+      sizes: "512x512",
       type: song.imageType,
     });
-    console.log("🎵 MediaSession: Using song artwork");
+    artwork.push({
+      src: url,
+      sizes: "256x256",
+      type: song.imageType,
+    });
+    artwork.push({
+      src: url,
+      sizes: "96x96",
+      type: song.imageType,
+    });
+    console.log("🎵 MediaSession: Using song artwork", {
+      originalSize: songImageData.byteLength,
+      resizedSize: resizedImageData.byteLength,
+      mimeType: song.imageType,
+      blobUrl: url,
+      blobSize: blob.size,
+    });
   }
-  // Fallback to playlist image (prefer thumbnail for consistency, fallback to full size)
+  // Fallback to playlist image (prefer thumbnail for MediaSession)
   else {
     const playlistImageData = playlist?.thumbnailData || playlist?.imageData;
     if (playlistImageData && playlist?.imageType) {
-      const blob = new Blob([playlistImageData], { type: playlist.imageType });
+      const resizedImageData = await resizeImageForMediaSession(
+        playlistImageData,
+        playlist.imageType
+      );
+      const blob = new Blob([resizedImageData], { type: playlist.imageType });
       const url = URL.createObjectURL(blob);
+      // Add multiple sizes for iOS Safari compatibility
       artwork.push({
         src: url,
-        sizes: "300x300",
+        sizes: "512x512",
         type: playlist.imageType,
       });
-      console.log("🎵 MediaSession: Using playlist artwork as fallback");
+      artwork.push({
+        src: url,
+        sizes: "256x256",
+        type: playlist.imageType,
+      });
+      artwork.push({
+        src: url,
+        sizes: "96x96",
+        type: playlist.imageType,
+      });
+      console.log("🎵 MediaSession: Using playlist artwork as fallback", {
+        originalSize: playlistImageData.byteLength,
+        resizedSize: resizedImageData.byteLength,
+        mimeType: playlist.imageType,
+        blobUrl: url,
+        blobSize: blob.size,
+      });
     } else {
       console.log("🎵 MediaSession: No artwork available");
     }
