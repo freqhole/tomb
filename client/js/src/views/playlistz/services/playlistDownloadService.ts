@@ -27,6 +27,31 @@ export async function downloadPlaylistAsZip(
     // Get all songs for this playlist with audio data
     const playlistSongs = await getSongsWithAudioData(playlist.songIds);
 
+    // In standalone mode, songs don't have audioData but have file paths
+    // Load audio data from file paths for standalone songs
+    if ((window as any).STANDALONE_MODE) {
+      for (const song of playlistSongs) {
+        if (!song.audioData && (song as any).standaloneFilePath) {
+          try {
+            const response = await fetch((song as any).standaloneFilePath);
+            if (response.ok) {
+              song.audioData = await response.arrayBuffer();
+              console.log(`📁 Loaded audio data for: ${song.title}`);
+            } else {
+              console.warn(
+                `⚠️ Could not load audio file: ${(song as any).standaloneFilePath}`
+              );
+            }
+          } catch (error) {
+            console.error(
+              `❌ Error loading audio file: ${(song as any).standaloneFilePath}`,
+              error
+            );
+          }
+        }
+      }
+    }
+
     // Create root folder with playlist name
     const rootFolderName = createSafeFileName("", playlist.title);
     const rootFolder = zip.folder(rootFolderName);
