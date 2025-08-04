@@ -153,25 +153,33 @@ function updateMediaSession(): void {
 function getMediaSessionArtwork(song: any, playlist: any): MediaImage[] {
   const artwork: MediaImage[] = [];
 
-  // Try song image first
-  if (song.imageData && song.imageType) {
-    const blob = new Blob([song.imageData], { type: song.imageType });
+  // Try song image first (prefer thumbnail for consistency, fallback to full size)
+  const songImageData = song.thumbnailData || song.imageData;
+  if (songImageData && song.imageType) {
+    const blob = new Blob([songImageData], { type: song.imageType });
     const url = URL.createObjectURL(blob);
     artwork.push({
       src: url,
       sizes: "300x300",
       type: song.imageType,
     });
+    console.log("🎵 MediaSession: Using song artwork");
   }
-  // Fallback to playlist image
-  else if (playlist?.imageData && playlist?.imageType) {
-    const blob = new Blob([playlist.imageData], { type: playlist.imageType });
-    const url = URL.createObjectURL(blob);
-    artwork.push({
-      src: url,
-      sizes: "300x300",
-      type: playlist.imageType,
-    });
+  // Fallback to playlist image (prefer thumbnail for consistency, fallback to full size)
+  else {
+    const playlistImageData = playlist?.thumbnailData || playlist?.imageData;
+    if (playlistImageData && playlist?.imageType) {
+      const blob = new Blob([playlistImageData], { type: playlist.imageType });
+      const url = URL.createObjectURL(blob);
+      artwork.push({
+        src: url,
+        sizes: "300x300",
+        type: playlist.imageType,
+      });
+      console.log("🎵 MediaSession: Using playlist artwork as fallback");
+    } else {
+      console.log("🎵 MediaSession: No artwork available");
+    }
   }
 
   return artwork;
