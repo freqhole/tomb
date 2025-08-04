@@ -37,11 +37,15 @@ function initializeAudio(): HTMLAudioElement {
   audioElement.addEventListener("loadstart", () => setIsLoading(true));
   audioElement.addEventListener("canplay", () => setIsLoading(false));
   audioElement.addEventListener("loadedmetadata", () => {
-    setDuration(audioElement?.duration || 0);
+    const newDuration = audioElement?.duration || 0;
+    setDuration(newDuration);
+    setCurrentTime(0); // Ensure current time is reset
+    console.log("🎵 Audio metadata loaded, duration:", newDuration);
   });
 
   audioElement.addEventListener("timeupdate", () => {
-    setCurrentTime(audioElement?.currentTime || 0);
+    const newCurrentTime = audioElement?.currentTime || 0;
+    setCurrentTime(newCurrentTime);
   });
 
   audioElement.addEventListener("play", () => {
@@ -402,6 +406,11 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
     if (audio.src && audio.src.startsWith("blob:")) {
       releaseAudioURL(audio.src);
     }
+
+    // Reset time/duration immediately to prevent stale values
+    setCurrentTime(0);
+    setDuration(0);
+    audio.currentTime = 0;
 
     setIsLoading(true);
     setCurrentSong(song);
