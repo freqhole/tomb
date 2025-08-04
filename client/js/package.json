@@ -11,7 +11,7 @@
     "build:copy": "npm run build && npm run copy",
     "copy": "cp dist/* ../../assets/client/js/",
     "build:web-components": "node build-components.js",
-    "build:web-components:copy": "npm run build:web-components && npm run copy:web-components",
+    "build:web-components:copy": "sh -c 'node build-components.js \"$1\" && npm run copy:web-components' --",
     "copy:web-components": "cp dist/* ../../assets/public/",
     "dev": "tsc --watch",
     "dev:web-components": "vite dev --config vite.wc.config.ts",

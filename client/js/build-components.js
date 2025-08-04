@@ -141,7 +141,32 @@ ${jsCode}
 
 // Build all components separately
 async function buildAllComponents() {
-  const components = discoverWebComponents();
+  const allComponents = discoverWebComponents();
+
+  // Check for component filter argument
+  const filterArg = process.argv[2];
+  let components = allComponents;
+
+  if (filterArg) {
+    components = allComponents.filter((component) => {
+      const elementName = getElementNameFromFile(component);
+      return component.includes(filterArg) || elementName.includes(filterArg);
+    });
+
+    if (components.length === 0) {
+      console.log(`❌ No components found matching "${filterArg}"`);
+      console.log(
+        `Available components:`,
+        allComponents.map(getElementNameFromFile)
+      );
+      process.exit(1);
+    }
+
+    console.log(
+      `🔍 Filtering to components matching "${filterArg}":`,
+      components.map(getElementNameFromFile)
+    );
+  }
 
   console.log(`🔨 Building ${components.length} components separately...`);
 
