@@ -4,7 +4,7 @@ import { getSongById } from "../services/indexedDBService.js";
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
 import { songUpdateTrigger } from "../services/songReactivity.js";
 import { audioState } from "../services/audioService.js";
-import { createImageUrlFromData } from "../services/imageService.js";
+import { getImageUrlForContext } from "../services/imageService.js";
 import type { Song } from "../types/playlist.js";
 
 interface SongRowProps {
@@ -213,19 +213,28 @@ export function SongRow(props: SongRowProps) {
                   </div>
 
                   <Show
-                    when={songData().imageData && songData().imageType}
+                    when={songData().imageType}
                     fallback={
                       <div class="w-12 h-12 bg-transparent flex items-center justify-center"></div>
                     }
                   >
-                    <img
-                      src={createImageUrlFromData(
-                        songData().imageData!,
-                        songData().imageType!
-                      )}
-                      alt={`${songData().title} album art`}
-                      class="w-12 h-12 object-cover"
-                    />
+                    {(() => {
+                      const imageUrl = getImageUrlForContext(
+                        songData().thumbnailData,
+                        songData().imageData,
+                        songData().imageType!,
+                        "thumbnail"
+                      );
+                      return imageUrl ? (
+                        <img
+                          src={imageUrl}
+                          alt={`${songData().title} album art`}
+                          class="w-12 h-12 object-cover"
+                        />
+                      ) : (
+                        <div class="w-12 h-12 bg-transparent flex items-center justify-center"></div>
+                      );
+                    })()}
                   </Show>
 
                   {/* Play/Pause overlay */}

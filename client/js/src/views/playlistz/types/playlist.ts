@@ -2,7 +2,8 @@ export interface Playlist {
   id: string; // UUID
   title: string; // User-editable playlist name
   description?: string; // Optional description
-  imageData?: ArrayBuffer; // Image data as ArrayBuffer
+  imageData?: ArrayBuffer; // Full-size image data as ArrayBuffer
+  thumbnailData?: ArrayBuffer; // Thumbnail image data as ArrayBuffer (300x300)
   imageType?: string; // MIME type for the image
   createdAt: number; // Timestamp
   updatedAt: number; // Timestamp
@@ -21,7 +22,8 @@ export interface Song {
   album: string; // User-editable album name
   duration: number; // Length in seconds
   position: number; // Position within playlist (0-based)
-  imageData?: ArrayBuffer; // Cover art data as ArrayBuffer
+  imageData?: ArrayBuffer; // Full-size cover art data as ArrayBuffer
+  thumbnailData?: ArrayBuffer; // Thumbnail cover art data as ArrayBuffer (300x300)
   imageType?: string; // MIME type for the cover art
   createdAt: number; // Timestamp
   updatedAt: number; // Timestamp
@@ -61,6 +63,7 @@ export interface AudioMetadata {
   artist?: string;
   album?: string;
   duration?: number;
-  coverArtData?: ArrayBuffer; // Cover art data as ArrayBuffer
+  coverArtData?: ArrayBuffer; // Full-size cover art data as ArrayBuffer
+  coverArtThumbnailData?: ArrayBuffer; // Thumbnail cover art data as ArrayBuffer (300x300)
   coverArtType?: string; // MIME type for the cover art
 }

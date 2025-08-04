@@ -2,7 +2,7 @@
 import { createSignal, For, Show } from "solid-js";
 
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
-import { createImageUrlFromData } from "../services/imageService.js";
+import { getImageUrlForContext } from "../services/imageService.js";
 import type { Playlist } from "../types/playlist.js";
 
 interface PlaylistSidebarProps {
@@ -177,7 +177,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                         {/* Playlist thumbnail */}
                         <div class="flex-shrink-0 w-12 h-12 overflow-hidden bg-transparent">
                           <Show
-                            when={playlist.imageData && playlist.imageType}
+                            when={playlist.imageType}
                             fallback={
                               <div class="w-full h-full flex items-center justify-center">
                                 <svg
@@ -195,14 +195,36 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                               </div>
                             }
                           >
-                            <img
-                              src={createImageUrlFromData(
-                                playlist.imageData!,
-                                playlist.imageType!
-                              )}
-                              alt={playlist.title}
-                              class="w-full h-full object-cover"
-                            />
+                            {(() => {
+                              const imageUrl = getImageUrlForContext(
+                                playlist.thumbnailData,
+                                playlist.imageData,
+                                playlist.imageType!,
+                                "thumbnail"
+                              );
+                              return imageUrl ? (
+                                <img
+                                  src={imageUrl}
+                                  alt={playlist.title}
+                                  class="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div class="w-full h-full flex items-center justify-center">
+                                  <svg
+                                    width="100"
+                                    height="100"
+                                    viewBox="0 0 100 100"
+                                    fill="none"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                  >
+                                    <path
+                                      d="M50 81L25 31L75 31L60.7222 68.1429L50 81Z"
+                                      fill="#FF00FF"
+                                    />
+                                  </svg>
+                                </div>
+                              );
+                            })()}
                           </Show>
                         </div>
 

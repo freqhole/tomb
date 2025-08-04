@@ -28,7 +28,10 @@ import {
 } from "../services/fileProcessingService.js";
 
 import { cleanupTimeUtils } from "../utils/timeUtils.js";
-import { createImageUrlFromData } from "../services/imageService.js";
+import {
+  createImageUrlFromData,
+  getImageUrlForContext,
+} from "../services/imageService.js";
 import { PlaylistSidebar } from "./PlaylistSidebar.js";
 import { SongRow } from "./SongRow.js";
 import { SongEditModal } from "./SongEditModal.js";
@@ -137,46 +140,54 @@ export function Playlistz() {
     let cacheKey: string | null = null;
 
     // Priority 1: Use song's image if available (when playing)
-    if (currentSong?.imageData && currentSong?.imageType) {
+    if (currentSong?.imageType) {
       cacheKey = `song-${currentSong.id}`;
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        newImageUrl = createImageUrlFromData(
+        newImageUrl = getImageUrlForContext(
+          currentSong.thumbnailData,
           currentSong.imageData,
-          currentSong.imageType
+          currentSong.imageType,
+          "background"
         );
-        cache.set(cacheKey, newImageUrl);
+        if (newImageUrl) {
+          cache.set(cacheKey, newImageUrl);
+        }
       }
     }
     // Priority 2: Use current playlist's image if song has no image (when playing)
-    else if (
-      currentSong &&
-      currentPlaylist?.imageData &&
-      currentPlaylist?.imageType
-    ) {
+    else if (currentSong && currentPlaylist?.imageType) {
       cacheKey = `playlist-${currentPlaylist.id}`;
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        newImageUrl = createImageUrlFromData(
+        newImageUrl = getImageUrlForContext(
+          currentPlaylist.thumbnailData,
           currentPlaylist.imageData,
-          currentPlaylist.imageType
+          currentPlaylist.imageType,
+          "background"
         );
-        cache.set(cacheKey, newImageUrl);
+        if (newImageUrl) {
+          cache.set(cacheKey, newImageUrl);
+        }
       }
     }
     // Priority 3: Use selected playlist's image (when not playing but playlist selected)
-    else if (selectedPl?.imageData && selectedPl?.imageType) {
+    else if (selectedPl?.imageType) {
       cacheKey = `playlist-${selectedPl.id}`;
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        newImageUrl = createImageUrlFromData(
+        newImageUrl = getImageUrlForContext(
+          selectedPl.thumbnailData,
           selectedPl.imageData,
-          selectedPl.imageType
+          selectedPl.imageType,
+          "background"
         );
-        cache.set(cacheKey, newImageUrl);
+        if (newImageUrl) {
+          cache.set(cacheKey, newImageUrl);
+        }
       }
     }
 
@@ -682,20 +693,36 @@ export function Playlistz() {
     const images: { url: string; title: string }[] = [];
 
     // Add playlist image first if it exists
-    if (playlist?.imageData && playlist?.imageType) {
-      images.push({
-        url: createImageUrlFromData(playlist.imageData, playlist.imageType),
-        title: playlist.title,
-      });
+    if (playlist?.imageType) {
+      const url = getImageUrlForContext(
+        playlist.thumbnailData,
+        playlist.imageData,
+        playlist.imageType,
+        "modal"
+      );
+      if (url) {
+        images.push({
+          url,
+          title: playlist.title,
+        });
+      }
     }
 
     // Add song images
     playlistSongs().forEach((song) => {
-      if (song.imageData && song.imageType) {
-        images.push({
-          url: createImageUrlFromData(song.imageData, song.imageType),
-          title: song.title,
-        });
+      if (song.imageType) {
+        const url = getImageUrlForContext(
+          song.thumbnailData,
+          song.imageData,
+          song.imageType,
+          "modal"
+        );
+        if (url) {
+          images.push({
+            url,
+            title: song.title,
+          });
+        }
       }
     });
 

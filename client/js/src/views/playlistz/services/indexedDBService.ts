@@ -38,7 +38,7 @@ function createSignal<T>(initial: T): Signal<T> {
 
 // Database configuration
 export const DB_NAME = "musicPlaylistDB";
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const PLAYLISTS_STORE = "playlists";
 export const SONGS_STORE = "songs";
 
@@ -65,7 +65,11 @@ export async function setupDB(): Promise<IDBPDatabase<PlaylistDB>> {
   }
 
   cachedDB = openDB<PlaylistDB>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
+    upgrade(db, oldVersion, newVersion) {
+      console.log(
+        `📝 Upgrading database from version ${oldVersion} to ${newVersion}`
+      );
+
       // Create playlists store
       if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
         console.log("📝 Creating playlists store");
@@ -78,7 +82,15 @@ export async function setupDB(): Promise<IDBPDatabase<PlaylistDB>> {
         const songStore = db.createObjectStore(SONGS_STORE, { keyPath: "id" });
         songStore.createIndex("playlistId", "playlistId", { unique: false });
       }
-      console.log("✅ Database stores created");
+
+      // Migration for version 3: Add thumbnail data support
+      if (oldVersion < 3) {
+        console.log("📝 Migrating to version 3: Adding thumbnail data support");
+        // Note: New thumbnailData fields will be undefined for existing records
+        // They will be populated when users upload new covers or when songs are re-processed
+      }
+
+      console.log("✅ Database stores created/updated");
     },
   });
 
@@ -491,6 +503,7 @@ export function createPlaylistsQuery() {
       "title",
       "description",
       "imageData",
+      "thumbnailData",
       "imageType",
       "createdAt",
       "updatedAt",
@@ -511,6 +524,7 @@ export function createPlaylistSongsQuery(playlistId: string) {
       "duration",
       "position",
       "imageData",
+      "thumbnailData",
       "imageType",
       "createdAt",
       "updatedAt",

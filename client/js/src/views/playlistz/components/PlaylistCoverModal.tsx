@@ -20,6 +20,9 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
   const [selectedImageData, setSelectedImageData] = createSignal<
     ArrayBuffer | undefined
   >();
+  const [selectedThumbnailData, setSelectedThumbnailData] = createSignal<
+    ArrayBuffer | undefined
+  >();
   const [selectedImageType, setSelectedImageType] = createSignal<
     string | undefined
   >();
@@ -34,10 +37,13 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
     if (props.isOpen && props.playlist) {
       if (props.playlist.imageData && props.playlist.imageType) {
         setSelectedImageData(props.playlist.imageData);
+        setSelectedThumbnailData(props.playlist.thumbnailData);
         setSelectedImageType(props.playlist.imageType);
-        // Create temporary display URL
+        // Create temporary display URL using thumbnail if available, otherwise full size
+        const displayData =
+          props.playlist.thumbnailData || props.playlist.imageData;
         const url = createImageUrlFromData(
-          props.playlist.imageData,
+          displayData,
           props.playlist.imageType
         );
         setSelectedImageUrl(url);
@@ -63,17 +69,18 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
 
       const result = await processPlaylistCover(file);
 
-      if (result.success && result.thumbnailData) {
+      if (result.success && result.thumbnailData && result.imageData) {
         // Clean up previous URL if exists
         const prevUrl = selectedImageUrl();
         if (prevUrl) {
           URL.revokeObjectURL(prevUrl);
         }
 
-        setSelectedImageData(result.thumbnailData);
+        setSelectedImageData(result.imageData);
+        setSelectedThumbnailData(result.thumbnailData);
         setSelectedImageType(file.type);
 
-        // Create new display URL
+        // Create new display URL using thumbnail
         const newUrl = createImageUrlFromData(result.thumbnailData, file.type);
 
         setSelectedImageUrl(newUrl);
@@ -103,6 +110,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
 
       const updates = {
         imageData: selectedImageData(),
+        thumbnailData: selectedThumbnailData(),
         imageType: selectedImageType(),
         updatedAt: Date.now(),
       };
@@ -142,6 +150,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
       URL.revokeObjectURL(url);
     }
     setSelectedImageData(undefined);
+    setSelectedThumbnailData(undefined);
     setSelectedImageType(undefined);
     setSelectedImageUrl(undefined);
   };
@@ -149,7 +158,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
   if (!props.isOpen) return null;
 
   const songsWithArt = props.playlistSongs.filter(
-    (song) => song.imageData && song.imageType
+    (song) => song.imageType && (song.imageData || song.thumbnailData)
   );
 
   return (
@@ -282,7 +291,9 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                     title={`${song.title} - ${song.artist}`}
                   >
                     <Show
-                      when={song.imageData && song.imageType}
+                      when={
+                        song.imageType && (song.imageData || song.thumbnailData)
+                      }
                       fallback={
                         <div class="w-full h-full flex items-center justify-center">
                           <svg
@@ -303,7 +314,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                     >
                       <img
                         src={createImageUrlFromData(
-                          song.imageData!,
+                          song.thumbnailData || song.imageData!,
                           song.imageType!
                         )}
                         alt={song.title}

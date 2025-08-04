@@ -14,6 +14,11 @@ export interface ImageProcessingResult {
   };
 }
 
+export interface ImageUrlResult {
+  thumbnailUrl: string;
+  fullSizeUrl: string;
+}
+
 export interface AlbumArtExtractionResult {
   success: boolean;
   albumArt?: string;
@@ -411,6 +416,49 @@ export function createImageUrlFromData(
 ): string {
   const blob = new Blob([imageData], { type: mimeType });
   return URL.createObjectURL(blob);
+}
+
+// Create URLs for both thumbnail and full-size images
+export function createImageUrlsFromData(
+  thumbnailData: ArrayBuffer,
+  fullSizeData: ArrayBuffer,
+  mimeType: string = "image/jpeg"
+): ImageUrlResult {
+  const thumbnailBlob = new Blob([thumbnailData], { type: mimeType });
+  const fullSizeBlob = new Blob([fullSizeData], { type: mimeType });
+
+  return {
+    thumbnailUrl: URL.createObjectURL(thumbnailBlob),
+    fullSizeUrl: URL.createObjectURL(fullSizeBlob),
+  };
+}
+
+// Helper to determine which image size to use for different contexts
+export function getImageUrlForContext(
+  thumbnailData?: ArrayBuffer,
+  fullSizeData?: ArrayBuffer,
+  mimeType?: string,
+  context: "thumbnail" | "background" | "modal" = "thumbnail"
+): string | null {
+  if (!mimeType) return null;
+
+  // For backgrounds and modals, prefer full-size, fallback to thumbnail
+  if (context === "background" || context === "modal") {
+    if (fullSizeData) {
+      return createImageUrlFromData(fullSizeData, mimeType);
+    } else if (thumbnailData) {
+      return createImageUrlFromData(thumbnailData, mimeType);
+    }
+  }
+
+  // For thumbnails, prefer thumbnail size, fallback to full-size
+  if (thumbnailData) {
+    return createImageUrlFromData(thumbnailData, mimeType);
+  } else if (fullSizeData) {
+    return createImageUrlFromData(fullSizeData, mimeType);
+  }
+
+  return null;
 }
 
 // Generate placeholder image for songs without album art

@@ -1,7 +1,7 @@
 // File Processing Service for Audio Files
 // Handles file validation, metadata extraction, and processing
 
-import { extractAlbumArt } from "./imageService.js";
+import { extractAlbumArt, processPlaylistCover } from "./imageService.js";
 import type {
   AudioMetadata,
   FileUploadResult,
@@ -82,22 +82,49 @@ async function extractDuration(file: File): Promise<number> {
   });
 }
 
-// Extract cover art from file using ID3 tags
+// Extract cover art from file using ID3 tags and create both thumbnail and full-size versions
 async function extractCoverArt(
   file: File
-): Promise<{ data: ArrayBuffer; type: string } | undefined> {
+): Promise<
+  | { fullSizeData: ArrayBuffer; thumbnailData: ArrayBuffer; type: string }
+  | undefined
+> {
   try {
     const result = await extractAlbumArt(file);
     if (result.success && result.albumArt) {
       console.log(`🖼️ Extracted album art from ${file.name}`);
-      // Convert blob URL to ArrayBuffer
+
+      // Convert blob URL to File object for processing
       const response = await fetch(result.albumArt);
       const arrayBuffer = await response.arrayBuffer();
+      const blob = new Blob([arrayBuffer], { type: "image/jpeg" });
+      const imageFile = new File([blob], "albumart.jpg", {
+        type: "image/jpeg",
+      });
+
       // Clean up the blob URL
       URL.revokeObjectURL(result.albumArt);
+
+      // Process the image to create both full-size and thumbnail versions
+      const processResult = await processPlaylistCover(imageFile);
+
+      if (
+        processResult.success &&
+        processResult.imageData &&
+        processResult.thumbnailData
+      ) {
+        return {
+          fullSizeData: processResult.imageData,
+          thumbnailData: processResult.thumbnailData,
+          type: processResult.metadata?.format || "image/jpeg",
+        };
+      }
+
+      // Fallback: if processing fails, use original as both
       return {
-        data: arrayBuffer,
-        type: "image/jpeg", // Default type, could be improved to detect actual type
+        fullSizeData: arrayBuffer,
+        thumbnailData: arrayBuffer,
+        type: "image/jpeg",
       };
     }
     return undefined;
@@ -120,7 +147,8 @@ export async function extractMetadata(file: File): Promise<AudioMetadata> {
       artist: filenameMetadata.artist || "Unknown Artist",
       album: filenameMetadata.album || "Unknown Album",
       duration,
-      coverArtData: coverArt?.data,
+      coverArtData: coverArt?.fullSizeData,
+      coverArtThumbnailData: coverArt?.thumbnailData,
       coverArtType: coverArt?.type,
     };
   } catch (error) {
@@ -171,6 +199,7 @@ export async function processAudioFile(file: File): Promise<FileUploadResult> {
         duration: metadata.duration || 0,
         position: 0, // Will be set when adding to playlist
         imageData: metadata.coverArtData,
+        thumbnailData: metadata.coverArtThumbnailData,
         imageType: metadata.coverArtType,
         createdAt: Date.now(),
         updatedAt: Date.now(),
