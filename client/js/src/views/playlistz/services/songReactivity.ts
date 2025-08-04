@@ -32,9 +32,7 @@ export { songUpdateTrigger };
  * @param songId - Optional song ID for tracking specific song updates
  */
 export function triggerSongUpdate(songId?: string): void {
-  console.log(`🔄 Triggering song update${songId ? ` for song: ${songId}` : ''}`);
-
-  setSongUpdateTrigger(prev => prev + 1);
+  setSongUpdateTrigger((prev) => prev + 1);
 
   if (songId) {
     updatedSongs.set(songId, Date.now());
@@ -62,7 +60,6 @@ export function getLastUpdateTime(songId: string): number | undefined {
  */
 export function clearUpdateHistory(): void {
   updatedSongs.clear();
-  console.log("🧹 Cleared song update history");
 }
 
 /**
@@ -85,12 +82,10 @@ export function getUpdateStats() {
  */
 export function triggerSongUpdateWithOptions(options: {
   songId?: string;
-  type?: 'edit' | 'create' | 'delete' | 'reorder';
+  type?: "edit" | "create" | "delete" | "reorder";
   metadata?: Record<string, any>;
 }): void {
-  const { songId, type = 'edit', metadata } = options;
-
-  console.log(`🔄 Song ${type}${songId ? ` for ${songId}` : ''}`, metadata);
+  const { songId } = options;
 
   triggerSongUpdate(songId);
 }
@@ -105,5 +100,5 @@ if (import.meta.env.DEV) {
     triggerSongUpdate,
   };
 
-  console.log("🔧 Song reactivity debugging available at window.__songReactivity");
+  // Song reactivity debugging available at window.__songReactivity
 }

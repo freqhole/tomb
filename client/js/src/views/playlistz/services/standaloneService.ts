@@ -43,24 +43,9 @@ async function loadSongAudioData(
   let audioData: ArrayBuffer | undefined;
   let mimeType = "audio/mpeg";
 
-  console.log(
-    `🎵 Loading audio data for: ${songData.title} from ${standaloneFilePath}`
-  );
-  console.log(`🎵 Current location: ${window.location.href}`);
-  console.log(
-    `🎵 Constructed URL: ${new URL(standaloneFilePath, window.location.href).href}`
-  );
-
   try {
     // Check if we're using file:// protocol
     if (window.location.protocol === "file:") {
-      console.log(
-        `🎵 Using file:// protocol, skipping audio data loading for now`
-      );
-      console.log(
-        `🎵 Song will use direct file path for playback: ${standaloneFilePath}`
-      );
-
       // For file:// protocol, we'll skip loading audio data into IndexedDB
       // and let the audio service handle file:// URLs directly
       audioData = undefined;
@@ -82,16 +67,10 @@ async function loadSongAudioData(
     } else {
       // Use fetch for http/https URLs
       const response = await fetch(standaloneFilePath);
-      console.log(
-        `🎵 Fetch response status: ${response.status} ${response.statusText}`
-      );
 
       if (response.ok) {
         audioData = await response.arrayBuffer();
         mimeType = response.headers.get("Content-Type") || mimeType;
-        console.log(
-          `✅ Successfully fetched ${audioData.byteLength} bytes for: ${songData.title} (${mimeType})`
-        );
       } else {
         console.error(
           `❌ Failed to fetch audio for ${songData.title}: ${response.status} ${response.statusText}`
@@ -165,8 +144,6 @@ async function addMissingSongs(
   playlistSongs: any[],
   missingSongs: any[]
 ): Promise<{ updatedPlaylist: Playlist; updatedSongs: any[] }> {
-  console.log(`🎵 Adding ${missingSongs.length} missing songs...`);
-
   // Update progress for missing songs
   setStandaloneLoadingProgress({
     current: 0,
@@ -212,7 +189,6 @@ async function addMissingSongs(
 
     updatedPlaylistSongs.push(song);
     newSongIds.push(song.id);
-    console.log("💾 Added new song:", song.title);
   }
 
   // Update playlist with new song IDs
@@ -229,8 +205,6 @@ async function addMissingSongs(
     updateFn: () => updatedPlaylist,
   });
 
-  console.log(`🎵 Added ${missingSongs.length} new songs to existing playlist`);
-
   return { updatedPlaylist, updatedSongs: updatedPlaylistSongs };
 }
 
@@ -240,8 +214,6 @@ async function addMissingSongs(
 async function createNewPlaylist(
   playlistData: any
 ): Promise<{ playlist: Playlist; songs: any[] }> {
-  console.log("🎵 Creating new standalone playlist...");
-
   // Create playlist using service function to trigger reactive updates
   const playlistToCreate = {
     id: playlistData.playlist.id, // Override the auto-generated ID
@@ -259,7 +231,6 @@ async function createNewPlaylist(
       playlistData.playlist.imageBase64
     );
     playlistToCreate.imageType = playlistData.playlist.imageMimeType;
-    console.log("🖼️ Set playlist image from base64 data");
   }
 
   // Manually store playlist using mutateAndNotify to trigger reactive updates
@@ -318,19 +289,11 @@ async function createNewPlaylist(
 
     virtualSongs.push(song);
     finalSongIds.push(song.id);
-    console.log(
-      `💾 Added song: ${song.title} (${audioData ? "with audio data" : "WITHOUT audio data"})`
-    );
-
     // Verify the song was stored with audio data
     if (audioData) {
       try {
         const storedSong = await db.get(SONGS_STORE, song.id);
-        if (storedSong && storedSong.audioData) {
-          console.log(
-            `✅ Verified: ${song.title} stored with ${storedSong.audioData.byteLength} bytes`
-          );
-        } else {
+        if (!storedSong || !storedSong.audioData) {
           console.error(
             `❌ Verification failed: ${song.title} not properly stored`
           );
@@ -352,8 +315,6 @@ async function createNewPlaylist(
     key: finalPlaylist.id,
     updateFn: () => finalPlaylist,
   });
-
-  console.log("💾 Playlist saved with reactive updates:", finalPlaylist);
 
   return { playlist: finalPlaylist, songs: virtualSongs };
 }
@@ -389,11 +350,6 @@ export async function initializeStandalonePlaylist(
     let finalSongs: any[];
 
     if (existingPlaylist) {
-      console.log(
-        "🎵 Playlist already exists, loading existing:",
-        existingPlaylist.title
-      );
-
       // Load existing songs for this playlist
       const existingSongs = await db.getAll(SONGS_STORE);
       const playlistSongs = existingSongs.filter(
@@ -419,10 +375,6 @@ export async function initializeStandalonePlaylist(
                 key: song.id,
                 updateFn: () => song,
               });
-
-              console.log(
-                `🔧 Added standaloneFilePath to existing song: ${song.title}`
-              );
             }
           }
         }
@@ -433,10 +385,6 @@ export async function initializeStandalonePlaylist(
       const actualSongCount = playlistSongs.length;
 
       if (actualSongCount !== expectedSongCount) {
-        console.log(
-          `🎵 Song count mismatch: expected ${expectedSongCount}, found ${actualSongCount}. Adding missing songs.`
-        );
-
         // Find missing songs by comparing IDs
         const existingSongIds = new Set(playlistSongs.map((song) => song.id));
         const missingSongs = playlistData.songs.filter(
@@ -452,7 +400,6 @@ export async function initializeStandalonePlaylist(
         finalPlaylist = updatedPlaylist;
         finalSongs = updatedSongs;
       } else {
-        console.log("🎵 Existing standalone playlist loaded (no new songs)");
         finalPlaylist = existingPlaylist;
         finalSongs = playlistSongs;
       }
@@ -463,47 +410,9 @@ export async function initializeStandalonePlaylist(
     }
 
     // Count successfully loaded songs
-    const songsWithAudio = finalSongs.filter((song) => song.audioData);
-    const songsWithFilePaths = finalSongs.filter(
-      (song) => (song as any).standaloneFilePath
-    );
     const songsWithoutAudio = finalSongs.filter(
       (song) => !song.audioData && !(song as any).standaloneFilePath
     );
-
-    console.log("🎵 Standalone initialization complete:");
-    console.log(`   Protocol: ${window.location.protocol}`);
-    console.log(`   Location: ${window.location.href}`);
-
-    if (window.location.protocol === "file:") {
-      console.log(
-        `   ✅ ${songsWithAudio.length} songs loaded with audio data (IndexedDB)`
-      );
-      console.log(
-        `   🎵 ${songsWithFilePaths.length} songs using file:// paths (direct file access)`
-      );
-
-      // Debug individual songs
-      finalSongs.forEach((song, index) => {
-        console.log(`   Song ${index + 1}: ${song.title}`);
-        console.log(`     - Has audioData: ${!!song.audioData}`);
-        console.log(
-          `     - Has standaloneFilePath: ${!!(song as any).standaloneFilePath}`
-        );
-        if ((song as any).standaloneFilePath) {
-          console.log(`     - FilePath: ${(song as any).standaloneFilePath}`);
-          const fullUrl = new URL(
-            (song as any).standaloneFilePath,
-            window.location.href
-          ).href;
-          console.log(`     - Full URL: ${fullUrl}`);
-        }
-      });
-    } else {
-      console.log(
-        `   ✅ ${songsWithAudio.length} songs loaded with audio data`
-      );
-    }
 
     if (songsWithoutAudio.length > 0) {
       console.warn(
@@ -525,9 +434,7 @@ export async function initializeStandalonePlaylist(
         songsWithoutAudio.length > 0 &&
         window.location.protocol !== "file:"
       ) {
-        console.info(
-          `ℹ️ Playlist loaded successfully. ${songsWithAudio.length} songs are playable, ${songsWithoutAudio.length} songs could not be loaded.`
-        );
+        // Continue silently for file:// protocol
       }
     }
 
@@ -540,8 +447,6 @@ export async function initializeStandalonePlaylist(
 
     // Clear loading progress
     setStandaloneLoadingProgress(null);
-
-    console.log("🎵 Standalone playlist loaded from embedded data");
   } catch (err) {
     console.error("Error initializing standalone playlist:", err);
     callbacks.setError("Failed to load standalone playlist");

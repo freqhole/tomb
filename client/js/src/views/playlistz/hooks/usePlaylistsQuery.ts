@@ -17,20 +17,16 @@ export function usePlaylistsQuery() {
 
   // Subscribe to updates and propagate to SolidJS signal
   const unsubscribe = rawQuery.subscribe((value) => {
-    console.log(`🔄 Hook received update: ${value.length} playlists`);
     setPlaylists([...value]); // Force new array reference for reactivity
-    console.log(`🔄 SolidJS signal updated with ${value.length} playlists`);
   });
 
   // Additional effect to ensure reactivity works
   createEffect(() => {
-    const current = playlists();
-    console.log(`🎯 Hook effect tracking: ${current.length} playlists`);
+    playlists();
   });
 
   // Cleanup subscription when component unmounts
   onCleanup(() => {
-    console.log("🧹 Cleaning up playlist query subscription");
     unsubscribe();
   });
 

@@ -52,10 +52,7 @@ import {
 } from "../services/standaloneService.js";
 import {
   initializeOfflineSupport,
-  isOnline,
   serviceWorkerReady,
-  persistentStorageGranted,
-  getStorageInfo,
   cacheAudioFile,
 } from "../services/offlineService.js";
 
@@ -66,7 +63,6 @@ import type { Playlist } from "../types/playlist.js";
 if ((window as any).STANDALONE_MODE) {
   // Define the function early so it's available for HTML initialization
   (window as any).initializeStandalonePlaylist = function (playlistData: any) {
-    console.log("hiiiii initializeStandalonePlaylist!");
     // Store the data and defer to the real function when it's ready
     (window as any).DEFERRED_PLAYLIST_DATA = playlistData;
   };
@@ -94,7 +90,6 @@ export function Playlistz() {
   const [modalImageIndex, setModalImageIndex] = createSignal(0);
   const [isDownloading, setIsDownloading] = createSignal(false);
   const [isCaching, setIsCaching] = createSignal(false);
-  const [storageInfo, setStorageInfo] = createSignal<any>({});
 
   // Direct signal subscription approach (bypass hook)
   const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
@@ -132,7 +127,7 @@ export function Playlistz() {
         );
         setPlaylistSongs(songs);
       } catch (err) {
-        console.error("Error loading playlist songs:", err);
+        // Silently handle error
       }
     } else {
       setPlaylistSongs([]);
@@ -224,7 +219,6 @@ export function Playlistz() {
   // Initialize database
   onMount(async () => {
     // Set up standalone mode initialization function immediately
-    console.log("🔄 Setting up standalone function...");
     (window as any).initializeStandalonePlaylist = (playlistData: any) => {
       initializeStandalonePlaylist(playlistData, {
         setSelectedPlaylist,
@@ -233,11 +227,9 @@ export function Playlistz() {
         setError,
       });
     };
-    console.log("✅ Standalone function registered");
 
     // Check if we have deferred data from early initialization
     if ((window as any).DEFERRED_PLAYLIST_DATA) {
-      console.log("hiiii deferred playlist data! initializing...");
       await initializeStandalonePlaylist(
         (window as any).DEFERRED_PLAYLIST_DATA,
         {
@@ -256,16 +248,6 @@ export function Playlistz() {
       // Initialize offline support
       await initializeOfflineSupport();
 
-      // Get initial storage info
-      const info = await getStorageInfo();
-      setStorageInfo(info);
-
-      // Update storage info periodically
-      const storageUpdateInterval = setInterval(async () => {
-        const updatedInfo = await getStorageInfo();
-        setStorageInfo(updatedInfo);
-      }, 30000); // Update every 30 seconds
-
       setIsInitialized(true);
 
       // Set up responsive behavior
@@ -283,10 +265,8 @@ export function Playlistz() {
       onCleanup(() => {
         window.removeEventListener("resize", checkMobile);
         clearStandaloneLoadingProgress();
-        clearInterval(storageUpdateInterval);
       });
     } catch (err) {
-      console.error("❌ Failed to initialize Playlistz:", err);
       setError(err instanceof Error ? err.message : "failed to initialize");
     }
   });
@@ -799,7 +779,6 @@ export function Playlistz() {
         includeHTML: true,
       });
     } catch (err) {
-      console.error("❌ Error downloading playlist:", err);
       setError("Failed to download playlist");
     } finally {
       setIsDownloading(false);
@@ -814,7 +793,6 @@ export function Playlistz() {
 
     setIsCaching(true);
     try {
-      console.log("🔄 Caching playlist for offline use...");
       let cached = 0;
       let failed = 0;
 
@@ -823,23 +801,12 @@ export function Playlistz() {
           try {
             await cacheAudioFile(song.blobUrl, song.title);
             cached++;
-            console.log(`✅ Cached: ${song.title}`);
           } catch (error) {
             failed++;
-            console.error(`❌ Failed to cache: ${song.title}`, error);
           }
-        } else {
-          console.log(`⚠️ Skipped (no blob URL): ${song.title}`);
         }
       }
-
-      console.log(`🎵 Caching complete: ${cached} cached, ${failed} failed`);
-
-      // Update storage info
-      const info = await getStorageInfo();
-      setStorageInfo(info);
     } catch (err) {
-      console.error("❌ Error caching playlist:", err);
       setError("Failed to cache playlist for offline use");
     } finally {
       setIsCaching(false);
@@ -921,39 +888,6 @@ export function Playlistz() {
                 : "Downloading and storing audio files..."}
             </p>
           </div>
-        </div>
-      </Show>
-
-      {/* Offline Status Indicator */}
-      <Show when={!isOnline()}>
-        <div
-          class="fixed top-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg"
-          style={{ "z-index": "9998" }}
-        >
-          📱 Offline Mode
-        </div>
-      </Show>
-
-      {/* Storage Info (only show if persistent storage granted) */}
-      <Show when={persistentStorageGranted() && storageInfo().usageFormatted}>
-        <div
-          class="fixed bottom-4 right-4 bg-gray-800/90 text-white px-3 py-2 rounded text-xs"
-          style={{ "z-index": "9997" }}
-        >
-          💾 {storageInfo().usageFormatted} / {storageInfo().quotaFormatted}
-          {storageInfo().usagePercent && ` (${storageInfo().usagePercent}%)`}
-        </div>
-      </Show>
-
-      {/* Service Worker Status (development helper) */}
-      <Show
-        when={window.location.hostname === "localhost" && serviceWorkerReady()}
-      >
-        <div
-          class="fixed bottom-4 left-4 bg-green-800/90 text-white px-3 py-2 rounded text-xs"
-          style={{ "z-index": "9997" }}
-        >
-          ✅ Offline Ready
         </div>
       </Show>
 

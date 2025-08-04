@@ -1,8 +1,12 @@
 /* @jsxImportSource solid-js */
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, onMount, For, Show } from "solid-js";
 
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
 import { getImageUrlForContext } from "../services/imageService.js";
+import {
+  getStorageInfo,
+  persistentStorageGranted,
+} from "../services/offlineService.js";
 import type { Playlist } from "../types/playlist.js";
 
 interface PlaylistSidebarProps {
@@ -19,6 +23,7 @@ interface PlaylistSidebarProps {
 export function PlaylistSidebar(props: PlaylistSidebarProps) {
   const [isCreating, setIsCreating] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
+  const [storageInfo, setStorageInfo] = createSignal<any>({});
 
   // Filter playlists based on search
   const filteredPlaylists = () => {
@@ -47,6 +52,23 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
     const count = playlist.songIds?.length || 0;
     return count === 1 ? "1 song" : `${count} songs`;
   };
+
+  // Update storage info periodically
+  onMount(async () => {
+    const updateStorageInfo = async () => {
+      const info = await getStorageInfo();
+      setStorageInfo(info);
+    };
+
+    // Initial load
+    await updateStorageInfo();
+
+    // Update every 30 seconds
+    const interval = setInterval(updateStorageInfo, 30000);
+
+    // Cleanup
+    return () => clearInterval(interval);
+  });
 
   return (
     <div
@@ -285,27 +307,59 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
       {/* Footer with stats */}
       <div class="p-4 bg-gray-900 bg-opacity-30">
         <div class="text-xs text-gray-400 space-y-1">
-          <div class="flex justify-between">
-            <span>total playlists:</span>
-            <span class="text-magenta-400 font-mono">
-              {props.playlists.length}
-            </span>
+          {/* First row: playlists, songs, filtered */}
+          <div class="grid grid-cols-3 gap-2">
+            <div class="text-center">
+              <div class="text-magenta-400 font-mono font-semibold">
+                {props.playlists.length}
+              </div>
+              <div>playlists</div>
+            </div>
+            <div class="text-center">
+              <div class="text-magenta-400 font-mono font-semibold">
+                {props.playlists.reduce(
+                  (total, playlist) => total + (playlist.songIds?.length || 0),
+                  0
+                )}
+              </div>
+              <div>songs</div>
+            </div>
+            <Show
+              when={searchQuery()}
+              fallback={
+                <Show
+                  when={
+                    persistentStorageGranted() && storageInfo().usageFormatted
+                  }
+                >
+                  <div class="text-center">
+                    <div class="text-magenta-400 font-mono font-semibold text-[10px]">
+                      {storageInfo().usagePercent}%
+                    </div>
+                    <div>storage</div>
+                  </div>
+                </Show>
+              }
+            >
+              <div class="text-center">
+                <div class="text-magenta-400 font-mono font-semibold">
+                  {filteredPlaylists().length}
+                </div>
+                <div>filtered</div>
+              </div>
+            </Show>
           </div>
-          <div class="flex justify-between">
-            <span>total songs:</span>
-            <span class="text-magenta-400 font-mono">
-              {props.playlists.reduce(
-                (total, playlist) => total + (playlist.songIds?.length || 0),
-                0
-              )}
-            </span>
-          </div>
-          <Show when={searchQuery()}>
-            <div class="flex justify-between">
-              <span>filtered:</span>
-              <span class="text-magenta-400 font-mono">
-                {filteredPlaylists().length}
-              </span>
+
+          {/* Second row: storage details (only when persistent storage available) */}
+          <Show
+            when={
+              persistentStorageGranted() &&
+              storageInfo().usageFormatted &&
+              !searchQuery()
+            }
+          >
+            <div class="text-center text-[10px] text-gray-500">
+              {storageInfo().usageFormatted} / {storageInfo().quotaFormatted}
             </div>
           </Show>
         </div>

@@ -65,32 +65,23 @@ export async function setupDB(): Promise<IDBPDatabase<PlaylistDB>> {
   }
 
   cachedDB = openDB<PlaylistDB>(DB_NAME, DB_VERSION, {
-    upgrade(db, oldVersion, newVersion) {
-      console.log(
-        `📝 Upgrading database from version ${oldVersion} to ${newVersion}`
-      );
-
+    upgrade(db, oldVersion, _newVersion) {
       // Create playlists store
       if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
-        console.log("📝 Creating playlists store");
         db.createObjectStore(PLAYLISTS_STORE, { keyPath: "id" });
       }
 
       // Create songs store with playlist index
       if (!db.objectStoreNames.contains(SONGS_STORE)) {
-        console.log("📝 Creating songs store");
         const songStore = db.createObjectStore(SONGS_STORE, { keyPath: "id" });
         songStore.createIndex("playlistId", "playlistId", { unique: false });
       }
 
       // Migration for version 3: Add thumbnail data support
       if (oldVersion < 3) {
-        console.log("📝 Migrating to version 3: Adding thumbnail data support");
         // Note: New thumbnailData fields will be undefined for existing records
         // They will be populated when users upload new covers or when songs are re-processed
       }
-
-      console.log("✅ Database stores created/updated");
     },
   });
 
@@ -153,9 +144,6 @@ export function createLiveQuery<T>({
       if (arraysDiffer(last, filtered)) {
         last = filtered;
         signal.set(filtered);
-        console.log(
-          `🔄 Updated signal for ${storeName} with ${filtered.length} items`
-        );
       }
     } catch (error) {
       console.error("Error in fetchAndUpdate:", error);
@@ -172,12 +160,6 @@ export function createLiveQuery<T>({
 
   // BroadcastChannel listener (for cross-tab updates)
   bc.onmessage = (e) => {
-    console.log(
-      "📡 Broadcast message received:",
-      e.data,
-      "for store:",
-      storeName
-    );
     if (e.data?.type === "mutation" && e.data.store === storeName) {
       fetchAndUpdate();
     }
@@ -232,9 +214,6 @@ export async function mutateAndNotify({
   const registryKey = `${dbName}-${storeName}`;
   const querySet = globalQueryRegistry.get(registryKey);
   if (querySet) {
-    console.log(
-      `🔄 Direct update: triggering ${querySet.size} queries for ${storeName}`
-    );
     for (const fetchAndUpdate of querySet) {
       try {
         fetchAndUpdate();
@@ -247,7 +226,6 @@ export async function mutateAndNotify({
   // BroadcastChannel for cross-tab updates (async)
   const bc = new BroadcastChannel(`${dbName}-changes`);
   const message = { type: "mutation", store: storeName, id: key };
-  console.log("📢 Broadcasting mutation:", message);
   bc.postMessage(message);
   bc.close();
 }
@@ -274,7 +252,6 @@ export async function createPlaylist(
     updateFn: () => newPlaylist,
   });
 
-  console.log("💾 Playlist saved to IndexedDB:", newPlaylist);
   return newPlaylist;
 }
 
@@ -363,8 +340,6 @@ export async function addSongToPlaylist(
     updateFn: () => songForDB,
   });
 
-  console.log("🎵 Song saved to IndexedDB:", song.title);
-
   // Update playlist's song list
   await mutateAndNotify({
     dbName: DB_NAME,
@@ -376,8 +351,6 @@ export async function addSongToPlaylist(
       updatedAt: now,
     }),
   });
-
-  console.log("📝 Playlist updated with new song");
 
   // Trigger reactivity for UI updates
   triggerSongUpdateWithOptions({
@@ -564,7 +537,6 @@ export async function loadSongAudioData(
     const blob = new Blob([songData.audioData], { type: songData.mimeType });
     const blobUrl = URL.createObjectURL(blob);
 
-    console.log(`🎵 Loaded audio data for song: ${songData.title}`);
     return blobUrl;
   } catch (error) {
     console.error(`❌ Error loading audio data for song ${songId}:`, error);
@@ -662,8 +634,6 @@ export async function removeSongFromPlaylist(
     id: songId,
   });
   bc.close();
-
-  console.log(`🗑️ Removed song ${songId} from playlist ${playlistId}`);
 
   // Trigger reactivity for UI updates
   triggerSongUpdateWithOptions({

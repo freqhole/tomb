@@ -40,7 +40,6 @@ function initializeAudio(): HTMLAudioElement {
     const newDuration = audioElement?.duration || 0;
     setDuration(newDuration);
     setCurrentTime(0); // Ensure current time is reset
-    console.log("🎵 Audio metadata loaded, duration:", newDuration);
   });
 
   audioElement.addEventListener("timeupdate", () => {
@@ -248,13 +247,6 @@ async function getMediaSessionArtwork(
       sizes: "96x96",
       type: song.imageType,
     });
-    console.log("🎵 MediaSession: Using song artwork", {
-      originalSize: songImageData.byteLength,
-      resizedSize: resizedImageData.byteLength,
-      mimeType: song.imageType,
-      blobUrl: url,
-      blobSize: blob.size,
-    });
   }
   // Fallback to playlist image (prefer thumbnail for MediaSession)
   else {
@@ -282,15 +274,8 @@ async function getMediaSessionArtwork(
         sizes: "96x96",
         type: playlist.imageType,
       });
-      console.log("🎵 MediaSession: Using playlist artwork as fallback", {
-        originalSize: playlistImageData.byteLength,
-        resizedSize: resizedImageData.byteLength,
-        mimeType: playlist.imageType,
-        blobUrl: url,
-        blobSize: blob.size,
-      });
     } else {
-      console.log("🎵 MediaSession: No artwork available");
+      // No artwork available
     }
   }
 
@@ -448,17 +433,10 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
       ) {
         const filePath = (song as any).standaloneFilePath;
         audioURL = new URL(filePath, window.location.href).href;
-        console.log("🎵 Using file:// standalone file path:");
-        console.log(`   Original path: ${filePath}`);
-        console.log(`   Window location: ${window.location.href}`);
-        console.log(`   Constructed URL: ${audioURL}`);
 
         // Test if the file is accessible
         const testAudio = document.createElement("audio");
         testAudio.src = audioURL;
-        testAudio.addEventListener("loadstart", () => {
-          console.log("✅ Audio file loading started successfully");
-        });
         testAudio.addEventListener("error", (e) => {
           console.error("❌ Audio file test failed:", e);
           console.error("❌ Audio error:", testAudio.error);
@@ -477,7 +455,6 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
       throw new Error("No audio source available for song");
     }
 
-    console.log("🎵 Setting audio.src to:", audioURL);
     audio.src = audioURL;
 
     // Add error event listener to catch loading issues

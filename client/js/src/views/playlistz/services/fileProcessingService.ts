@@ -92,8 +92,6 @@ async function extractCoverArt(
   try {
     const result = await extractAlbumArt(file);
     if (result.success && result.albumArt) {
-      console.log(`🖼️ Extracted album art from ${file.name}`);
-
       // Convert blob URL to File object for processing
       const response = await fetch(result.albumArt);
       const arrayBuffer = await response.arrayBuffer();

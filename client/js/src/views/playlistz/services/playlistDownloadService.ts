@@ -127,11 +127,8 @@ export async function downloadPlaylistAsZip(
     // Generate standalone HTML page in root folder
     if (options.includeHTML) {
       try {
-        console.log("🔄 Starting HTML generation...");
         const htmlContent = await generateStandaloneHTML(playlistData);
-        console.log("🔄 HTML content generated, length:", htmlContent.length);
         rootFolder!.file("playlistz.html", htmlContent);
-        console.log("✅ Generated playlistz.html successfully");
       } catch (error) {
         console.error("❌ Error generating HTML:", error);
         console.error(
@@ -140,8 +137,6 @@ export async function downloadPlaylistAsZip(
         );
         // Continue without HTML file rather than failing
       }
-    } else {
-      console.log("⚠️ HTML generation disabled in options");
     }
 
     // Generate and download the ZIP file
@@ -448,11 +443,9 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
  * Generates a standalone HTML file with embedded playlist data
  */
 async function generateStandaloneHTML(playlistData: any): Promise<string> {
-  console.log("🔄 Fetching clean HTML source...");
   // Fetch the clean HTML source instead of serializing the mutated DOM
   const response = await fetch(window.location.href);
   const currentHTML = await response.text();
-  console.log("🔄 Clean HTML length:", currentHTML.length);
 
   // Create the standalone initialization script with embedded data
   const standaloneScript = `
@@ -471,9 +464,7 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
         while (attempts < maxAttempts) {
           if (window.initializeStandalonePlaylist) {
             try {
-              console.log('🎵 Standalone mode: Loading embedded playlist data...');
               const playlistData = window.EMBEDDED_PLAYLIST_DATA;
-              console.log('🎵 Playlist data loaded:', playlistData);
 
               window.initializeStandalonePlaylist(playlistData);
               return; // Success, exit
@@ -508,14 +499,11 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
   `;
 
   // Insert the script before the closing </head> tag
-  console.log("🔄 Inserting standalone script...");
   let modifiedHTML = currentHTML.replace(
     "</head>",
     `${standaloneScript}\n</head>`
   );
 
-  console.log("🔄 Modified HTML length:", modifiedHTML.length);
-  console.log("✅ HTML generation complete");
   return modifiedHTML;
 }
 
