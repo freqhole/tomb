@@ -447,6 +447,33 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
   const response = await fetch(window.location.href);
   const currentHTML = await response.text();
 
+  // Generate Open Graph meta tags for rich link previews
+  const playlist = playlistData.playlist;
+  const songCount = playlistData.songs.length;
+  const description =
+    playlist.description ||
+    `a playlist with ${songCount} song${songCount === 1 ? "" : "z"}`;
+
+  // Create base64 data URL for playlist image if available
+  let imageDataUrl = "";
+  if (playlist.imageBase64 && playlist.imageMimeType) {
+    imageDataUrl = `data:${playlist.imageMimeType};base64,${playlist.imageBase64}`;
+  }
+
+  const ogMetaTags = `
+    <!-- Open Graph meta tags for rich link previews -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="${playlist.title.replace(/"/g, "&quot;")}" />
+    <meta property="og:description" content="${description.replace(/"/g, "&quot;")}" />
+    <meta property="og:site_name" content="playlistz" />
+    ${imageDataUrl ? `<meta property="og:image" content="${imageDataUrl}" />` : ""}
+    ${imageDataUrl ? `<meta property="og:image:type" content="${playlist.imageMimeType}" />` : ""}
+    ${imageDataUrl ? `<meta property="og:image:width" content="512" />` : ""}
+    ${imageDataUrl ? `<meta property="og:image:height" content="512" />` : ""}
+
+    <!-- Standard meta tags -->
+    <meta name="description" content="${description.replace(/"/g, "&quot;")}" />`;
+
   // Create the standalone initialization script with embedded data
   const standaloneScript = `
     <script>
@@ -498,10 +525,16 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
     </script>
   `;
 
-  // Insert the script before the closing </head> tag
+  // Insert the meta tags and script before the closing </head> tag
+  // Also update the title
   let modifiedHTML = currentHTML.replace(
+    /<title>.*?<\/title>/i,
+    `<title>${playlist.title.replace(/"/g, "&quot;")} - playlistz</title>`
+  );
+
+  modifiedHTML = modifiedHTML.replace(
     "</head>",
-    `${standaloneScript}\n</head>`
+    `${ogMetaTags}\n${standaloneScript}\n</head>`
   );
 
   return modifiedHTML;

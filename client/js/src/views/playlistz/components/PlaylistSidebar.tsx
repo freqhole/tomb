@@ -150,7 +150,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
           fallback={
             <div class="p-6 text-center">
               <div class="inline-block w-6 h-6 border-2 border-magenta-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-              <p class="text-gray-400 text-sm">loading playlists...</p>
+              <p class="text-gray-400 text-sm">loading playlistz...</p>
             </div>
           }
         >
@@ -162,7 +162,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                   when={searchQuery()}
                   fallback={
                     <div class="text-gray-400">
-                      <div class="text-lg mb-2">no playlists yet</div>
+                      <div class="text-lg mb-2">no playlistz yet</div>
                       <p class="text-sm">
                         create your first playlist (if u want)
                       </p>
@@ -313,7 +313,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
               <div class="text-magenta-400 font-mono font-semibold">
                 {props.playlists.length}
               </div>
-              <div>playlists</div>
+              <div>playlistz</div>
             </div>
             <div class="text-center">
               <div class="text-magenta-400 font-mono font-semibold">
@@ -322,7 +322,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                   0
                 )}
               </div>
-              <div>songs</div>
+              <div>songz</div>
             </div>
             <Show
               when={searchQuery()}

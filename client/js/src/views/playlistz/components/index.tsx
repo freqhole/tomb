@@ -841,52 +841,48 @@ export function Playlistz() {
         />
       </Show>
 
-      {/* Standalone Loading Progress Modal */}
+      {/* Standalone Loading Progress Strip */}
       <Show when={standaloneLoadingProgress()}>
         <div
-          class="fixed inset-0 bg-black/80 flex items-center justify-center"
+          class="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-sm border-t border-gray-700 p-3"
           style={{ "z-index": "9999" }}
         >
-          <div class="bg-gray-800 rounded-lg p-8 max-w-md w-full mx-4">
-            <h3 class="text-xl font-semibold mb-4 text-center">
-              Loading Standalone Playlist
-            </h3>
-            <div class="mb-4">
-              <div class="flex justify-between text-sm text-gray-300 mb-2">
-                <span>
-                  {standaloneLoadingProgress()!.current} of{" "}
-                  {standaloneLoadingProgress()!.total}
-                </span>
-                <span>
-                  {Math.round(
-                    (standaloneLoadingProgress()!.current /
-                      standaloneLoadingProgress()!.total) *
-                      100
-                  )}
-                  %
-                </span>
+          <div class="max-w-4xl mx-auto">
+            <div class="flex items-center gap-4">
+              <div class="flex-1">
+                <div class="flex items-center justify-between text-xs text-gray-300 mb-1">
+                  <span class="capitalize">
+                    {standaloneLoadingProgress()!.phase}
+                  </span>
+                  <span>
+                    {standaloneLoadingProgress()!.current} /{" "}
+                    {standaloneLoadingProgress()!.total}
+                  </span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-1.5">
+                  <div
+                    class="bg-magenta-500 h-1.5 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${
+                        (standaloneLoadingProgress()!.current /
+                          standaloneLoadingProgress()!.total) *
+                        100
+                      }%`,
+                    }}
+                  />
+                </div>
               </div>
-              <div class="w-full bg-gray-700 rounded-full h-2">
-                <div
-                  class="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${
-                      (standaloneLoadingProgress()!.current /
-                        standaloneLoadingProgress()!.total) *
-                      100
-                    }%`,
-                  }}
-                />
+              <div class="text-right min-w-0 flex-shrink">
+                <div class="text-xs text-gray-300 truncate max-w-48">
+                  {standaloneLoadingProgress()!.currentSong}
+                </div>
+                <div class="text-xs text-gray-500">
+                  {standaloneLoadingProgress()!.phase === "initializing"
+                    ? "loading..."
+                    : "updating..."}
+                </div>
               </div>
             </div>
-            <p class="text-center text-gray-300 text-sm">
-              {standaloneLoadingProgress()!.currentSong}
-            </p>
-            <p class="text-center text-gray-400 text-xs mt-2">
-              {window.location.protocol === "file:"
-                ? "Setting up audio files..."
-                : "Downloading and storing audio files..."}
-            </p>
           </div>
         </div>
       </Show>
