@@ -52,6 +52,7 @@ import {
 import type { Playlist } from "../types/playlist.js";
 
 // Global function registration for standalone mode (happens immediately)
+// Global standalone mode detection and initialization
 if ((window as any).STANDALONE_MODE) {
   // Define the function early so it's available for HTML initialization
   (window as any).initializeStandalonePlaylist = function (playlistData: any) {
@@ -768,13 +769,11 @@ export function Playlistz() {
   // Initialize standalone playlist from embedded data
   const initializeStandalonePlaylist = async (playlistData: any) => {
     try {
-      // Check if playlist already exists to prevent duplicates
+      // Check if playlist with this ID already exists
       let db = await setupDB();
-      const existingPlaylists = await db.getAll(PLAYLISTS_STORE);
-      const existingPlaylist = existingPlaylists.find(
-        (p: Playlist) =>
-          p.title === playlistData.playlist.title &&
-          p.songIds?.length === playlistData.songs.length
+      const existingPlaylist = await db.get(
+        PLAYLISTS_STORE,
+        playlistData.playlist.id
       );
 
       if (existingPlaylist) {
@@ -789,39 +788,27 @@ export function Playlistz() {
           (song: any) => song.playlistId === existingPlaylist.id
         );
 
-        // Double-check that we have all the expected songs
-        if (playlistSongs.length === playlistData.songs.length) {
-          console.log(
-            `🎵 Found ${playlistSongs.length} existing songs for playlist`
-          );
-        } else {
-          console.warn(
-            `⚠️ Expected ${playlistData.songs.length} songs but found ${playlistSongs.length}`
-          );
-        }
-
-        // Set up the existing playlist and songs for display
         setSelectedPlaylist(existingPlaylist);
         setPlaylistSongs(playlistSongs);
-
         console.log("🎵 Existing standalone playlist loaded");
         return;
       }
 
+      console.log("🎵 Creating new standalone playlist...");
+
       const virtualPlaylist: Playlist = {
-        id: crypto.randomUUID(),
+        id: playlistData.playlist.id, // Use the embedded playlist ID
         title: playlistData.playlist.title,
         description: playlistData.playlist.description,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        songIds: [], // Will be populated with actual song IDs (new or existing)
+        songIds: [], // Will be populated with actual song IDs
         imageData: undefined, // Will load playlist cover from data/ folder if needed
         imageType: playlistData.playlist.imageData ? "image/jpeg" : undefined,
       };
 
       // Set playlist image from base64 data
       if (playlistData.playlist.imageBase64) {
-        // const imageDataUrl = `data:${playlistData.playlist.imageMimeType};base64,${playlistData.playlist.imageBase64}`;
         virtualPlaylist.imageData = base64ToArrayBuffer(
           playlistData.playlist.imageBase64
         );
@@ -831,60 +818,42 @@ export function Playlistz() {
 
       // Create virtual songs that reference local files
       const virtualSongs = playlistData.songs.map(
-        (songData: any, index: number) => ({
-          id: crypto.randomUUID(), // Generate unique ID for each song
-          title: songData.title,
-          artist: songData.artist,
-          album: songData.album,
-          duration: songData.duration,
-          position: index,
-          mimeType: "audio/mpeg", // Will be determined by actual file
-          originalFilename: songData.originalFilename,
-          audioData: undefined, // Will load from relative URL
-          blobUrl: undefined, // Don't use blobUrl for file paths
-          file: undefined, // No file object in standalone mode
-          imageData: undefined,
-          imageType: songData.imageData ? "image/jpeg" : undefined,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          playlistId: virtualPlaylist.id,
-          // Add custom properties for standalone file paths
-          standaloneFilePath: `data/${songData.safeFilename || songData.originalFilename}`,
-        })
+        (songData: any, index: number) => {
+          return {
+            id: songData.id, // Use the embedded song ID
+            title: songData.title,
+            artist: songData.artist,
+            album: songData.album,
+            duration: songData.duration,
+            position: index,
+            mimeType: "audio/mpeg", // Will be determined by actual file
+            originalFilename: songData.originalFilename,
+            audioData: undefined, // Will load from relative URL
+            blobUrl: undefined, // Don't use blobUrl for file paths
+            file: undefined, // No file object in standalone mode
+            imageData: undefined,
+            imageType: songData.imageData ? "image/jpeg" : undefined,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            playlistId: virtualPlaylist.id,
+            // Add custom properties for standalone file paths
+            standaloneFilePath: `data/${songData.safeFilename || songData.originalFilename}`,
+          };
+        }
       );
 
-      // Get a fresh database connection and existing songs to check for duplicates
+      // Store songs in IndexedDB
       db = await setupDB();
-      const existingSongs = await db.getAll(SONGS_STORE);
-
-      // Store virtual songs in IndexedDB, reusing existing songs when possible
       const finalSongIds: string[] = [];
 
       for (let i = 0; i < virtualSongs.length; i++) {
         const song = virtualSongs[i];
-
-        // Check if song already exists based on filename, title, and artist
-        const existingSong = existingSongs.find(
-          (existing: any) =>
-            existing.originalFilename === song.originalFilename &&
-            existing.title === song.title &&
-            existing.artist === song.artist
-        );
-
-        if (existingSong) {
-          // Reuse existing song - just add its ID to our playlist
-          finalSongIds.push(existingSong.id);
-          console.log("🔄 Reusing existing song:", song.title);
-        } else {
-          // Create new song (already has proper ID from virtualSongs creation)
-          const songDb = await setupDB();
-          const songsTx = songDb.transaction([SONGS_STORE], "readwrite");
-          const songsStore = songsTx.objectStore(SONGS_STORE);
-          await songsStore.put(song);
-          await songsTx.done;
-          finalSongIds.push(song.id);
-          console.log("💾 Added new song:", song.title);
-        }
+        const songsTx = db.transaction([SONGS_STORE], "readwrite");
+        const songsStore = songsTx.objectStore(SONGS_STORE);
+        await songsStore.put(song);
+        await songsTx.done;
+        finalSongIds.push(song.id);
+        console.log("💾 Added song:", song.title);
       }
 
       // Set song images from base64 data for new songs only
@@ -913,23 +882,15 @@ export function Playlistz() {
 
       // Update playlist with final song IDs and store in PLAYLISTS_STORE
       virtualPlaylist.songIds = finalSongIds;
-      const playlistDb = await setupDB();
-      const playlistTx = playlistDb.transaction([PLAYLISTS_STORE], "readwrite");
+      const playlistTx = db.transaction([PLAYLISTS_STORE], "readwrite");
       const playlistStore = playlistTx.objectStore(PLAYLISTS_STORE);
       await playlistStore.put(virtualPlaylist);
       await playlistTx.done;
       console.log("💾 Playlist saved to PLAYLISTS_STORE:", virtualPlaylist);
 
-      // Load the final songs (mix of new and existing) for display
-      const finalDb = await setupDB();
-      const allSongs = await finalDb.getAll(SONGS_STORE);
-      const playlistSongs = allSongs.filter((song: any) =>
-        finalSongIds.includes(song.id)
-      );
-
       // Set up the playlist and songs for display
       setSelectedPlaylist(virtualPlaylist);
-      setPlaylistSongs(playlistSongs);
+      setPlaylistSongs(virtualSongs);
 
       console.log("🎵 Standalone playlist loaded from embedded data");
     } catch (err) {

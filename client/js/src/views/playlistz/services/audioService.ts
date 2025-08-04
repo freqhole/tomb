@@ -323,6 +323,9 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
 
         // Test if file is accessible
         try {
+          if (!audioURL) {
+            throw new Error("Audio URL is undefined");
+          }
           const testResponse = await fetch(audioURL);
           console.log(
             "🎵 File accessibility test:",

@@ -37,6 +37,7 @@ export async function downloadPlaylistAsZip(
     // Create comprehensive playlist data file in data folder
     const playlistData = {
       playlist: {
+        id: playlist.id,
         title: playlist.title,
         description: playlist.description || "",
         createdAt: new Date(playlist.createdAt).toISOString(),
@@ -55,6 +56,7 @@ export async function downloadPlaylistAsZip(
         imageMimeType: playlist.imageType || null,
       },
       songs: playlistSongs.map((song) => ({
+        id: song.id,
         title: song.title,
         artist: song.artist,
         album: song.album,
@@ -72,6 +74,9 @@ export async function downloadPlaylistAsZip(
         imageMimeType: song.imageType || null,
       })),
     };
+
+    // Add single playlist JSON file to data folder
+    dataFolder!.file("playlist.json", JSON.stringify(playlistData, null, 2));
 
     // Add playlist cover image to data folder if it exists
     if (options.includeImages && playlist.imageData && playlist.imageType) {
@@ -99,32 +104,9 @@ export async function downloadPlaylistAsZip(
         }
 
         // Add individual song metadata
-        if (options.includeMetadata) {
-          const songMetadata = {
-            title: song.title,
-            artist: song.artist,
-            album: song.album,
-            duration: song.duration,
-            mimeType: song.mimeType,
-            originalFilename: song.originalFilename,
-            createdAt: new Date(song.createdAt).toISOString(),
-            updatedAt: new Date(song.updatedAt).toISOString(),
-          };
-
-          dataFolder!.file(
-            `${baseName}-metadata.json`,
-            JSON.stringify(
-              { ...songMetadata, safeFilename: safeFileName },
-              null,
-              2
-            )
-          );
-        }
+        // Metadata is now included in the main playlist.json file
       }
     }
-
-    // Add playlist data to data folder
-    dataFolder!.file("playlist.json", JSON.stringify(playlistData, null, 2));
 
     // Generate M3U8 playlist file in data folder
     if (options.generateM3U) {
@@ -149,7 +131,10 @@ export async function downloadPlaylistAsZip(
         console.log("✅ Generated playlistz.html successfully");
       } catch (error) {
         console.error("❌ Error generating HTML:", error);
-        console.error("❌ Error stack:", error.stack);
+        console.error(
+          "❌ Error stack:",
+          error instanceof Error ? error.stack : "Unknown error"
+        );
         // Continue without HTML file rather than failing
       }
     } else {
@@ -272,20 +257,40 @@ export async function parsePlaylistZip(file: File): Promise<{
     const songs: Omit<Song, "id" | "createdAt" | "updatedAt" | "playlistId">[] =
       [];
 
-    // Parse playlist metadata
-    const playlistInfoFile = zipContent.file("playlist-info.json");
-    if (playlistInfoFile) {
-      const infoContent = await playlistInfoFile.async("string");
-      playlistInfo = JSON.parse(infoContent);
+    // Parse playlist metadata - try new format first, then fall back to old format
+    let playlistData: any = null;
+    const playlistJsonFile = zipContent.file("data/playlist.json");
+    if (playlistJsonFile) {
+      const playlistContent = await playlistJsonFile.async("string");
+      playlistData = JSON.parse(playlistContent);
+      playlistInfo = playlistData.playlist;
+    } else {
+      // Fall back to old format
+      const playlistInfoFile = zipContent.file("playlist-info.json");
+      if (playlistInfoFile) {
+        const infoContent = await playlistInfoFile.async("string");
+        playlistInfo = JSON.parse(infoContent);
+      }
     }
 
-    // Find playlist cover image
-    const coverFiles = zipContent.file(
-      /^playlist-cover\.(jpg|jpeg|png|gif|webp)$/i
+    // Find playlist cover image - try data folder first, then root
+    let coverFiles = zipContent.file(
+      /^data\/playlist-cover\.(jpg|jpeg|png|gif|webp)$/i
     );
+    if (coverFiles.length === 0) {
+      coverFiles = zipContent.file(
+        /^playlist-cover\.(jpg|jpeg|png|gif|webp)$/i
+      );
+    }
     if (coverFiles.length > 0) {
       playlistImageData = await coverFiles[0]!.async("arraybuffer");
       playlistImageType = getMimeTypeFromExtension(coverFiles[0]!.name);
+    } else if (playlistData && playlistData.playlist.imageBase64) {
+      // Use embedded base64 image from playlist.json
+      playlistImageData = base64ToArrayBuffer(
+        playlistData.playlist.imageBase64
+      );
+      playlistImageType = playlistData.playlist.imageMimeType;
     }
 
     // Parse M3U file if present to get song order and metadata
@@ -294,34 +299,74 @@ export async function parsePlaylistZip(file: File): Promise<{
       await m3uFiles[0]!.async("string");
     }
 
-    // Extract songs from the root directory
-    const songFiles = zipContent.file(/^[^/]+\.(mp3|m4a|wav|flac|ogg|webm)$/i);
+    // Extract songs from data folder first, then fall back to root directory
+    let songFiles = zipContent.file(
+      /^data\/[^/]+\.(mp3|m4a|wav|flac|ogg|webm)$/i
+    );
+    if (songFiles.length === 0) {
+      songFiles = zipContent.file(/^[^/]+\.(mp3|m4a|wav|flac|ogg|webm)$/i);
+    }
 
     for (const songFile of songFiles) {
       const audioData = await songFile.async("arraybuffer");
       const fileName = songFile.name.split("/").pop() || "";
       const baseName = fileName.replace(/\.[^.]+$/, "");
 
-      // Try to find corresponding metadata file
-      const metadataFile = zipContent.file(`${baseName}-metadata.json`);
+      // Get metadata from playlist.json if available, otherwise try individual metadata file
       let songMetadata: any = {};
-      if (metadataFile) {
-        const metadataContent = await metadataFile.async("string");
-        songMetadata = JSON.parse(metadataContent);
+      if (playlistData && playlistData.songs) {
+        const songData = playlistData.songs.find(
+          (s: any) =>
+            s.safeFilename === fileName || s.originalFilename === fileName
+        );
+        if (songData) {
+          songMetadata = {
+            id: songData.id,
+            title: songData.title,
+            artist: songData.artist,
+            album: songData.album,
+            duration: songData.duration,
+            originalFilename: songData.originalFilename,
+            imageBase64: songData.imageBase64,
+            imageMimeType: songData.imageMimeType,
+          };
+        }
+      } else {
+        // Fall back to old individual metadata files
+        const metadataFile = zipContent.file(`${baseName}-metadata.json`);
+        if (metadataFile) {
+          const metadataContent = await metadataFile.async("string");
+          songMetadata = JSON.parse(metadataContent);
+        }
       }
 
-      // Try to find corresponding cover image
-      const imageFiles = zipContent.file(
-        new RegExp(
-          `^${baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-cover\\.(jpg|jpeg|png|gif|webp)$`,
-          "i"
-        )
-      );
+      // Try to find corresponding cover image - first check for embedded base64, then files
       let imageData: ArrayBuffer | undefined;
       let imageType: string | undefined;
-      if (imageFiles.length > 0) {
-        imageData = await imageFiles[0]!.async("arraybuffer");
-        imageType = getMimeTypeFromExtension(imageFiles[0]!.name);
+
+      if (songMetadata.imageBase64) {
+        imageData = base64ToArrayBuffer(songMetadata.imageBase64);
+        imageType = songMetadata.imageMimeType;
+      } else {
+        // Check for image files in data folder first, then root
+        let imageFiles = zipContent.file(
+          new RegExp(
+            `^data/${baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-cover\\.(jpg|jpeg|png|gif|webp)$`,
+            "i"
+          )
+        );
+        if (imageFiles.length === 0) {
+          imageFiles = zipContent.file(
+            new RegExp(
+              `^${baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-cover\\.(jpg|jpeg|png|gif|webp)$`,
+              "i"
+            )
+          );
+        }
+        if (imageFiles.length > 0) {
+          imageData = await imageFiles[0]!.async("arraybuffer");
+          imageType = getMimeTypeFromExtension(imageFiles[0]!.name);
+        }
       }
 
       // Extract basic info from filename if no metadata
@@ -385,7 +430,19 @@ function getMimeTypeFromExtension(fileName: string): string {
 }
 
 /**
- * Generates a standalone HTML page with embedded playlist data
+ * Helper function to convert base64 to ArrayBuffer
+ */
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+/**
+ * Generates a standalone HTML file with embedded playlist data
  */
 async function generateStandaloneHTML(playlistData: any): Promise<string> {
   console.log("🔄 Fetching clean HTML source...");
