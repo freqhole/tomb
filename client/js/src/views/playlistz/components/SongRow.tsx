@@ -250,7 +250,7 @@ export function SongRow(props: SongRowProps) {
                   </Show>
 
                   {/* Play/Pause overlay */}
-                  <Show when={isHovered() || isMobile()}>
+                  <Show when={isHovered() && !isMobile()}>
                     <button
                       onClick={handlePlayPause}
                       class="absolute inset-0 bg-transparent flex items-center justify-center transition-opacity hover:bg-opacity-80 text-magenta-300 hover:text-magenta-100"
@@ -313,7 +313,7 @@ export function SongRow(props: SongRowProps) {
               </div>
 
               {/* Overlay Actions */}
-              <Show when={isHovered() || isMobile()}>
+              <Show when={isHovered() && !isMobile()}>
                 <div class="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1 bg-black bg-opacity-80 px-2 py-1 z-50">
                   {/* Edit button */}
                   <button

@@ -789,15 +789,25 @@ export function Playlistz() {
           (song: any) => song.playlistId === existingPlaylist.id
         );
 
-        // Set up the existing playlist and songs for display
-        setSelectedPlaylist(existingPlaylist);
-        setPlaylistSongs(playlistSongs);
+        // Check if all expected songs exist
+        const expectedSongCount = playlistData.songs.length;
+        const actualSongCount = playlistSongs.length;
 
-        // Auto-collapse sidebar when loading existing standalone playlist
-        setSidebarCollapsed(true);
+        if (actualSongCount !== expectedSongCount) {
+          console.log(
+            `🎵 Song count mismatch: expected ${expectedSongCount}, found ${actualSongCount}. Creating new playlist.`
+          );
+        } else {
+          // Set up the existing playlist and songs for display
+          setSelectedPlaylist(existingPlaylist);
+          setPlaylistSongs(playlistSongs);
 
-        console.log("🎵 Existing standalone playlist loaded");
-        return;
+          // Auto-collapse sidebar when loading existing standalone playlist
+          setSidebarCollapsed(true);
+
+          console.log("🎵 Existing standalone playlist loaded");
+          return;
+        }
       }
 
       console.log("🎵 Creating new standalone playlist...");
