@@ -13,6 +13,10 @@ import {
   createPlaylistsQuery,
   updatePlaylist,
   getAllPlaylists,
+  mutateAndNotify,
+  DB_NAME,
+  PLAYLISTS_STORE,
+  SONGS_STORE,
 } from "../services/indexedDBService.js";
 import {
   cleanup as cleanupAudio,
@@ -41,8 +45,6 @@ import {
   removeSongFromPlaylist,
   getAllSongs,
   reorderSongs,
-  SONGS_STORE,
-  PLAYLISTS_STORE,
 } from "../services/indexedDBService.js";
 import {
   downloadPlaylistAsZip,
@@ -770,7 +772,7 @@ export function Playlistz() {
   const initializeStandalonePlaylist = async (playlistData: any) => {
     try {
       // Check if playlist with this ID already exists
-      let db = await setupDB();
+      const db = await setupDB();
       const existingPlaylist = await db.get(
         PLAYLISTS_STORE,
         playlistData.playlist.id
@@ -796,100 +798,102 @@ export function Playlistz() {
 
       console.log("🎵 Creating new standalone playlist...");
 
-      const virtualPlaylist: Playlist = {
-        id: playlistData.playlist.id, // Use the embedded playlist ID
+      // Create playlist using service function to trigger reactive updates
+      const playlistToCreate = {
+        id: playlistData.playlist.id, // Override the auto-generated ID
         title: playlistData.playlist.title,
         description: playlistData.playlist.description,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        songIds: [], // Will be populated with actual song IDs
-        imageData: undefined, // Will load playlist cover from data/ folder if needed
-        imageType: playlistData.playlist.imageData ? "image/jpeg" : undefined,
+        songIds: [],
+        imageData: undefined as ArrayBuffer | undefined,
+        thumbnailData: undefined as ArrayBuffer | undefined,
+        imageType: undefined as string | undefined,
       };
 
       // Set playlist image from base64 data
       if (playlistData.playlist.imageBase64) {
-        virtualPlaylist.imageData = base64ToArrayBuffer(
+        playlistToCreate.imageData = base64ToArrayBuffer(
           playlistData.playlist.imageBase64
         );
-        virtualPlaylist.imageType = playlistData.playlist.imageMimeType;
+        playlistToCreate.imageType = playlistData.playlist.imageMimeType;
         console.log("🖼️ Set playlist image from base64 data");
       }
 
-      // Create virtual songs that reference local files
-      const virtualSongs = playlistData.songs.map(
-        (songData: any, index: number) => {
-          return {
-            id: songData.id, // Use the embedded song ID
-            title: songData.title,
-            artist: songData.artist,
-            album: songData.album,
-            duration: songData.duration,
-            position: index,
-            mimeType: "audio/mpeg", // Will be determined by actual file
-            originalFilename: songData.originalFilename,
-            audioData: undefined, // Will load from relative URL
-            blobUrl: undefined, // Don't use blobUrl for file paths
-            file: undefined, // No file object in standalone mode
-            imageData: undefined,
-            imageType: songData.imageData ? "image/jpeg" : undefined,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            playlistId: virtualPlaylist.id,
-            // Add custom properties for standalone file paths
-            standaloneFilePath: `data/${songData.safeFilename || songData.originalFilename}`,
-          };
-        }
-      );
+      // Manually store playlist using mutateAndNotify to trigger reactive updates
+      const finalPlaylist: Playlist = {
+        ...playlistToCreate,
+        id: playlistData.playlist.id,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        songIds: [],
+      };
 
-      // Store songs in IndexedDB
-      db = await setupDB();
+      await mutateAndNotify({
+        dbName: DB_NAME,
+        storeName: PLAYLISTS_STORE,
+        key: finalPlaylist.id,
+        updateFn: () => finalPlaylist,
+      });
+
+      // Create and store songs
+      const virtualSongs = [];
       const finalSongIds: string[] = [];
 
-      for (let i = 0; i < virtualSongs.length; i++) {
-        const song = virtualSongs[i];
-        const songsTx = db.transaction([SONGS_STORE], "readwrite");
-        const songsStore = songsTx.objectStore(SONGS_STORE);
-        await songsStore.put(song);
-        await songsTx.done;
+      for (let i = 0; i < playlistData.songs.length; i++) {
+        const songData = playlistData.songs[i];
+
+        const song = {
+          id: songData.id,
+          title: songData.title,
+          artist: songData.artist,
+          album: songData.album,
+          duration: songData.duration,
+          position: i,
+          mimeType: "audio/mpeg",
+          originalFilename: songData.originalFilename,
+          audioData: undefined,
+          blobUrl: undefined,
+          file: undefined,
+          imageData: undefined as ArrayBuffer | undefined,
+          thumbnailData: undefined as ArrayBuffer | undefined,
+          imageType: undefined as string | undefined,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          playlistId: finalPlaylist.id,
+          standaloneFilePath: `data/${songData.safeFilename || songData.originalFilename}`,
+        };
+
+        // Set song image from base64 data
+        if (songData.imageBase64) {
+          song.imageData = base64ToArrayBuffer(songData.imageBase64);
+          song.imageType = songData.imageMimeType;
+        }
+
+        // Store song using mutateAndNotify to trigger reactive updates
+        await mutateAndNotify({
+          dbName: DB_NAME,
+          storeName: SONGS_STORE,
+          key: song.id,
+          updateFn: () => song,
+        });
+
+        virtualSongs.push(song);
         finalSongIds.push(song.id);
         console.log("💾 Added song:", song.title);
       }
 
-      // Set song images from base64 data for new songs only
-      for (let i = 0; i < virtualSongs.length; i++) {
-        const song = virtualSongs[i];
-        const songData = playlistData.songs[i];
+      // Update playlist with final song IDs
+      finalPlaylist.songIds = finalSongIds;
+      await mutateAndNotify({
+        dbName: DB_NAME,
+        storeName: PLAYLISTS_STORE,
+        key: finalPlaylist.id,
+        updateFn: () => finalPlaylist,
+      });
 
-        // Only update image if this is a new song (not reused)
-        const isNewSong = finalSongIds[i] === song.id;
-        if (songData.imageBase64 && isNewSong) {
-          song.imageData = base64ToArrayBuffer(songData.imageBase64);
-          song.imageType = songData.imageMimeType;
-
-          // Update the song in IndexedDB with a fresh database connection
-          const imageDb = await setupDB();
-          const imageTx = imageDb.transaction([SONGS_STORE], "readwrite");
-          const imageStore = imageTx.objectStore(SONGS_STORE);
-          await imageStore.put(song);
-          await imageTx.done;
-          console.log(
-            "🖼️ Set song image from base64 data:",
-            songData.originalFilename
-          );
-        }
-      }
-
-      // Update playlist with final song IDs and store in PLAYLISTS_STORE
-      virtualPlaylist.songIds = finalSongIds;
-      const playlistTx = db.transaction([PLAYLISTS_STORE], "readwrite");
-      const playlistStore = playlistTx.objectStore(PLAYLISTS_STORE);
-      await playlistStore.put(virtualPlaylist);
-      await playlistTx.done;
-      console.log("💾 Playlist saved to PLAYLISTS_STORE:", virtualPlaylist);
+      console.log("💾 Playlist saved with reactive updates:", finalPlaylist);
 
       // Set up the playlist and songs for display
-      setSelectedPlaylist(virtualPlaylist);
+      setSelectedPlaylist(finalPlaylist);
       setPlaylistSongs(virtualSongs);
 
       console.log("🎵 Standalone playlist loaded from embedded data");
