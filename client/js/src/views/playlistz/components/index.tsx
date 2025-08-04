@@ -14,15 +14,11 @@ import {
   createPlaylistsQuery,
   updatePlaylist,
   getAllPlaylists,
-  mutateAndNotify,
   deletePlaylist,
   addSongToPlaylist,
   removeSongFromPlaylist,
   getAllSongs,
   reorderSongs,
-  DB_NAME,
-  PLAYLISTS_STORE,
-  SONGS_STORE,
 } from "../services/indexedDBService.js";
 import {
   cleanup as cleanupAudio,
@@ -49,6 +45,11 @@ import { PlaylistSidebar } from "./PlaylistSidebar.js";
 import { SongRow } from "./SongRow.js";
 import { SongEditModal } from "./SongEditModal.js";
 import { PlaylistCoverModal } from "./PlaylistCoverModal.js";
+import {
+  initializeStandalonePlaylist,
+  standaloneLoadingProgress,
+  clearStandaloneLoadingProgress,
+} from "../services/standaloneService.js";
 
 import type { Playlist } from "../types/playlist.js";
 
@@ -214,14 +215,27 @@ export function Playlistz() {
   onMount(async () => {
     // Set up standalone mode initialization function immediately
     console.log("🔄 Setting up standalone function...");
-    (window as any).initializeStandalonePlaylist = initializeStandalonePlaylist;
+    (window as any).initializeStandalonePlaylist = (playlistData: any) => {
+      initializeStandalonePlaylist(playlistData, {
+        setSelectedPlaylist,
+        setPlaylistSongs,
+        setSidebarCollapsed,
+        setError,
+      });
+    };
     console.log("✅ Standalone function registered");
 
     // Check if we have deferred data from early initialization
     if ((window as any).DEFERRED_PLAYLIST_DATA) {
       console.log("hiiii deferred playlist data! initializing...");
       await initializeStandalonePlaylist(
-        (window as any).DEFERRED_PLAYLIST_DATA
+        (window as any).DEFERRED_PLAYLIST_DATA,
+        {
+          setSelectedPlaylist,
+          setPlaylistSongs,
+          setSidebarCollapsed,
+          setError,
+        }
       );
       delete (window as any).DEFERRED_PLAYLIST_DATA;
     }
@@ -245,6 +259,7 @@ export function Playlistz() {
 
       onCleanup(() => {
         window.removeEventListener("resize", checkMobile);
+        clearStandaloneLoadingProgress();
       });
     } catch (err) {
       console.error("❌ Failed to initialize Playlistz:", err);
@@ -767,170 +782,6 @@ export function Playlistz() {
     }
   };
 
-  // Initialize standalone playlist from embedded data
-  const initializeStandalonePlaylist = async (playlistData: any) => {
-    try {
-      // Check if playlist with this ID already exists
-      const db = await setupDB();
-      const existingPlaylist = await db.get(
-        PLAYLISTS_STORE,
-        playlistData.playlist.id
-      );
-
-      if (existingPlaylist) {
-        console.log(
-          "🎵 Playlist already exists, loading existing:",
-          existingPlaylist.title
-        );
-
-        // Load existing songs for this playlist
-        const existingSongs = await db.getAll(SONGS_STORE);
-        const playlistSongs = existingSongs.filter(
-          (song: any) => song.playlistId === existingPlaylist.id
-        );
-
-        // Check if all expected songs exist
-        const expectedSongCount = playlistData.songs.length;
-        const actualSongCount = playlistSongs.length;
-
-        if (actualSongCount !== expectedSongCount) {
-          console.log(
-            `🎵 Song count mismatch: expected ${expectedSongCount}, found ${actualSongCount}. Creating new playlist.`
-          );
-        } else {
-          // Set up the existing playlist and songs for display
-          setSelectedPlaylist(existingPlaylist);
-          setPlaylistSongs(playlistSongs);
-
-          // Auto-collapse sidebar when loading existing standalone playlist
-          setSidebarCollapsed(true);
-
-          console.log("🎵 Existing standalone playlist loaded");
-          return;
-        }
-      }
-
-      console.log("🎵 Creating new standalone playlist...");
-
-      // Create playlist using service function to trigger reactive updates
-      const playlistToCreate = {
-        id: playlistData.playlist.id, // Override the auto-generated ID
-        title: playlistData.playlist.title,
-        description: playlistData.playlist.description,
-        songIds: [],
-        imageData: undefined as ArrayBuffer | undefined,
-        thumbnailData: undefined as ArrayBuffer | undefined,
-        imageType: undefined as string | undefined,
-      };
-
-      // Set playlist image from base64 data
-      if (playlistData.playlist.imageBase64) {
-        playlistToCreate.imageData = base64ToArrayBuffer(
-          playlistData.playlist.imageBase64
-        );
-        playlistToCreate.imageType = playlistData.playlist.imageMimeType;
-        console.log("🖼️ Set playlist image from base64 data");
-      }
-
-      // Manually store playlist using mutateAndNotify to trigger reactive updates
-      const finalPlaylist: Playlist = {
-        ...playlistToCreate,
-        id: playlistData.playlist.id,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        songIds: [],
-      };
-
-      await mutateAndNotify({
-        dbName: DB_NAME,
-        storeName: PLAYLISTS_STORE,
-        key: finalPlaylist.id,
-        updateFn: () => finalPlaylist,
-      });
-
-      // Create and store songs
-      const virtualSongs = [];
-      const finalSongIds: string[] = [];
-
-      for (let i = 0; i < playlistData.songs.length; i++) {
-        const songData = playlistData.songs[i];
-
-        const song = {
-          id: songData.id,
-          title: songData.title,
-          artist: songData.artist,
-          album: songData.album,
-          duration: songData.duration,
-          position: i,
-          mimeType: "audio/mpeg",
-          originalFilename: songData.originalFilename,
-          fileSize: songData.fileSize,
-          audioData: undefined,
-          blobUrl: undefined,
-          file: undefined,
-          imageData: undefined as ArrayBuffer | undefined,
-          thumbnailData: undefined as ArrayBuffer | undefined,
-          imageType: undefined as string | undefined,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          playlistId: finalPlaylist.id,
-          standaloneFilePath: `data/${songData.safeFilename || songData.originalFilename}`,
-        };
-
-        // Set song image from base64 data
-        if (songData.imageBase64) {
-          song.imageData = base64ToArrayBuffer(songData.imageBase64);
-          song.imageType = songData.imageMimeType;
-        }
-
-        // Store song using mutateAndNotify to trigger reactive updates
-        await mutateAndNotify({
-          dbName: DB_NAME,
-          storeName: SONGS_STORE,
-          key: song.id,
-          updateFn: () => song,
-        });
-
-        virtualSongs.push(song);
-        finalSongIds.push(song.id);
-        console.log("💾 Added song:", song.title);
-      }
-
-      // Update playlist with final song IDs
-      finalPlaylist.songIds = finalSongIds;
-      await mutateAndNotify({
-        dbName: DB_NAME,
-        storeName: PLAYLISTS_STORE,
-        key: finalPlaylist.id,
-        updateFn: () => finalPlaylist,
-      });
-
-      console.log("💾 Playlist saved with reactive updates:", finalPlaylist);
-
-      // Set up the playlist and songs for display
-      setSelectedPlaylist(finalPlaylist);
-      setPlaylistSongs(virtualSongs);
-
-      // Auto-collapse sidebar when loading standalone playlist
-      setSidebarCollapsed(true);
-
-      console.log("🎵 Standalone playlist loaded from embedded data");
-    } catch (err) {
-      console.error("Error initializing standalone playlist:", err);
-      setError("Failed to load standalone playlist");
-    }
-  };
-
-  // Helper function to convert base64 to ArrayBuffer
-  const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-  };
-
   return (
     <div class="relative h-screen bg-black text-white overflow-hidden">
       {/* Dynamic background image */}
@@ -957,6 +808,56 @@ export function Playlistz() {
             "z-index": "0",
           }}
         />
+      </Show>
+
+      {/* Standalone Loading Progress Modal */}
+      <Show when={standaloneLoadingProgress()}>
+        <div
+          class="fixed inset-0 bg-black/80 flex items-center justify-center"
+          style={{ "z-index": "9999" }}
+        >
+          <div class="bg-gray-800 rounded-lg p-8 max-w-md w-full mx-4">
+            <h3 class="text-xl font-semibold mb-4 text-center">
+              Loading Standalone Playlist
+            </h3>
+            <div class="mb-4">
+              <div class="flex justify-between text-sm text-gray-300 mb-2">
+                <span>
+                  {standaloneLoadingProgress()!.current} of{" "}
+                  {standaloneLoadingProgress()!.total}
+                </span>
+                <span>
+                  {Math.round(
+                    (standaloneLoadingProgress()!.current /
+                      standaloneLoadingProgress()!.total) *
+                      100
+                  )}
+                  %
+                </span>
+              </div>
+              <div class="w-full bg-gray-700 rounded-full h-2">
+                <div
+                  class="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${
+                      (standaloneLoadingProgress()!.current /
+                        standaloneLoadingProgress()!.total) *
+                      100
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+            <p class="text-center text-gray-300 text-sm">
+              {standaloneLoadingProgress()!.currentSong}
+            </p>
+            <p class="text-center text-gray-400 text-xs mt-2">
+              {window.location.protocol === "file:"
+                ? "Setting up audio files..."
+                : "Downloading and storing audio files..."}
+            </p>
+          </div>
+        </div>
       </Show>
 
       {/* Loading state or main content */}

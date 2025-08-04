@@ -441,28 +441,29 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
     }
 
     if (!audioURL) {
-      // Check for standalone mode with relative file path
-      if ((window as any).STANDALONE_MODE && (song as any).standaloneFilePath) {
-        audioURL = (song as any).standaloneFilePath;
-        console.log("🎵 Using standalone file path:", audioURL);
+      // Check for standalone file path when using file:// protocol
+      if (
+        window.location.protocol === "file:" &&
+        (song as any).standaloneFilePath
+      ) {
+        const filePath = (song as any).standaloneFilePath;
+        audioURL = new URL(filePath, window.location.href).href;
+        console.log("🎵 Using file:// standalone file path:");
+        console.log(`   Original path: ${filePath}`);
+        console.log(`   Window location: ${window.location.href}`);
+        console.log(`   Constructed URL: ${audioURL}`);
 
-        // Test if file is accessible
-        try {
-          if (!audioURL) {
-            throw new Error("Audio URL is undefined");
-          }
-          const testResponse = await fetch(audioURL);
-          console.log(
-            "🎵 File accessibility test:",
-            testResponse.status,
-            testResponse.statusText
-          );
-          if (!testResponse.ok) {
-            console.error("❌ File not accessible:", audioURL);
-          }
-        } catch (error) {
-          console.error("❌ Error testing file access:", error);
-        }
+        // Test if the file is accessible
+        const testAudio = document.createElement("audio");
+        testAudio.src = audioURL;
+        testAudio.addEventListener("loadstart", () => {
+          console.log("✅ Audio file loading started successfully");
+        });
+        testAudio.addEventListener("error", (e) => {
+          console.error("❌ Audio file test failed:", e);
+          console.error("❌ Audio error:", testAudio.error);
+        });
+        testAudio.load();
       } else {
         // Load audio data on-demand from IndexedDB
         const loadedURL = await loadSongAudioData(song.id);
