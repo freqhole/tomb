@@ -447,12 +447,31 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
         const loadedURL = await loadSongAudioData(song.id);
         if (loadedURL) {
           audioURL = loadedURL;
+        } else {
+          // Try standalone file path as fallback for HTTPS
+          if ((song as any).standaloneFilePath) {
+            try {
+              const response = await fetch((song as any).standaloneFilePath);
+              if (response.ok) {
+                const audioData = await response.arrayBuffer();
+                const blob = new Blob([audioData], {
+                  type: song.mimeType || "audio/mpeg",
+                });
+                audioURL = URL.createObjectURL(blob);
+                console.warn("⚠️ Using fallback fetch for audio:", song.title);
+              }
+            } catch (fetchError) {
+              console.error("❌ Fallback fetch failed:", fetchError);
+            }
+          }
         }
       }
     }
 
     if (!audioURL) {
-      throw new Error("No audio source available for song");
+      throw new Error(
+        `No audio source available for song: ${song.title}. Check that audio files are accessible.`
+      );
     }
 
     audio.src = audioURL;

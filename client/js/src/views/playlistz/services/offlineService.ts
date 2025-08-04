@@ -148,24 +148,21 @@ async function registerServiceWorker(): Promise<boolean> {
       return false;
     }
 
-    // Create blob URL for the service worker
-    const blob = new Blob([SERVICE_WORKER_CODE], {
-      type: "application/javascript",
-    });
-    const swUrl = URL.createObjectURL(blob);
+    // For HTTPS, create a data URL instead of blob URL for better compatibility
+    // Use unescape/encodeURIComponent to handle special characters properly
+    const encodedCode = btoa(unescape(encodeURIComponent(SERVICE_WORKER_CODE)));
+    const dataUrl = `data:application/javascript;base64,${encodedCode}`;
 
-    await navigator.serviceWorker.register(swUrl);
+    await navigator.serviceWorker.register(dataUrl);
 
     // Wait for the service worker to be ready
     await navigator.serviceWorker.ready;
     setServiceWorkerReady(true);
 
-    // Clean up blob URL
-    URL.revokeObjectURL(swUrl);
-
     return true;
   } catch (error) {
     console.error("❌ Service Worker registration failed:", error);
+    // Continue without service worker - offline features will be limited but app still works
     return false;
   }
 }

@@ -590,6 +590,37 @@ export async function getSongsWithAudioData(
   }
 }
 
+/**
+ * Validate that a song has valid audio data
+ */
+export function hasValidAudioData(song: any): boolean {
+  return !!(song.audioData && song.audioData.byteLength > 0 && song.mimeType);
+}
+
+/**
+ * Clean up invalid songs that don't have proper audio data
+ */
+export async function cleanupInvalidSongs(): Promise<number> {
+  try {
+    const db = await setupDB();
+    const songs = await db.getAll(SONGS_STORE);
+    let cleanedCount = 0;
+
+    for (const song of songs) {
+      if (!hasValidAudioData(song)) {
+        await db.delete(SONGS_STORE, song.id);
+        cleanedCount++;
+        console.warn(`🗑️ Removed invalid song: ${song.title}`);
+      }
+    }
+
+    return cleanedCount;
+  } catch (error) {
+    console.error("❌ Error cleaning up invalid songs:", error);
+    return 0;
+  }
+}
+
 export async function getAllPlaylists(): Promise<Playlist[]> {
   try {
     const db = await setupDB();
