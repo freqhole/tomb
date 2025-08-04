@@ -22,6 +22,7 @@ export function SongRow(props: SongRowProps) {
   const [isHovered, setIsHovered] = createSignal(false);
   const [isDragging, setIsDragging] = createSignal(false);
   const [draggedOver, setDraggedOver] = createSignal(false);
+  const [touchStartTime, setTouchStartTime] = createSignal(0);
 
   // Fetch song data with reactivity to global song updates
   const [song] = createResource(
@@ -62,6 +63,20 @@ export function SongRow(props: SongRowProps) {
       props.onPause?.();
     } else {
       props.onPlay?.(songData);
+    }
+  };
+
+  const handleTouchStart = (e: TouchEvent) => {
+    setTouchStartTime(Date.now());
+  };
+
+  const handleTouchEnd = (e: TouchEvent) => {
+    const touchDuration = Date.now() - touchStartTime();
+
+    // Only trigger play/pause for quick taps (< 300ms) to avoid interfering with scrolling
+    if (touchDuration < 300) {
+      e.preventDefault();
+      handlePlayPause();
     }
   };
 
@@ -179,6 +194,8 @@ export function SongRow(props: SongRowProps) {
               onDrop={handleDrop}
               onMouseEnter={() => setIsHovered(true)}
               onMouseLeave={() => setIsHovered(false)}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
               onDblClick={() => {
                 const songData = song();
                 if (songData && !isCurrentlyPlaying()) {

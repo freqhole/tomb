@@ -1069,17 +1069,33 @@ export function Playlistz() {
                             </button>
 
                             {/* Download playlist button */}
-                            <button
-                              onClick={handleDownloadPlaylist}
-                              disabled={isDownloading()}
-                              class="p-2 text-gray-400 hover:text-green-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
-                              title="download playlist as zip"
-                            >
-                              <Show
-                                when={!isDownloading()}
-                                fallback={
+                            <Show when={window.location.protocol !== "file:"}>
+                              <button
+                                onClick={handleDownloadPlaylist}
+                                disabled={isDownloading()}
+                                class="p-2 text-gray-400 hover:text-green-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="download playlist as zip"
+                              >
+                                <Show
+                                  when={!isDownloading()}
+                                  fallback={
+                                    <svg
+                                      class="w-4 h-4 animate-spin"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                      />
+                                    </svg>
+                                  }
+                                >
                                   <svg
-                                    class="w-4 h-4 animate-spin"
+                                    class="w-4 h-4"
                                     fill="none"
                                     stroke="currentColor"
                                     viewBox="0 0 24 24"
@@ -1088,26 +1104,12 @@ export function Playlistz() {
                                       stroke-linecap="round"
                                       stroke-linejoin="round"
                                       stroke-width="2"
-                                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                      d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                                     />
                                   </svg>
-                                }
-                              >
-                                <svg
-                                  class="w-4 h-4"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                  />
-                                </svg>
-                              </Show>
-                            </button>
+                                </Show>
+                              </button>
+                            </Show>
 
                             {/* Delete playlist button */}
                             <button
