@@ -1239,58 +1239,6 @@ export function Playlistz() {
                               </button>
                             </Show>
 
-                            {/* Cache for offline button */}
-                            <Show
-                              when={
-                                (window as any).STANDALONE_MODE &&
-                                window.location.protocol !== "file:"
-                              }
-                            >
-                              <Show when={!allSongsCached()}>
-                                <button
-                                  onClick={handleCachePlaylist}
-                                  disabled={
-                                    isCaching() || playlistSongs().length === 0
-                                  }
-                                  class="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  title="download songs for offline use"
-                                >
-                                  <Show
-                                    when={!isCaching()}
-                                    fallback={
-                                      <svg
-                                        class="w-4 h-4 animate-spin"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                      >
-                                        <path
-                                          stroke-linecap="round"
-                                          stroke-linejoin="round"
-                                          stroke-width="2"
-                                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                                        />
-                                      </svg>
-                                    }
-                                  >
-                                    <svg
-                                      class="w-4 h-4"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      viewBox="0 0 24 24"
-                                    >
-                                      <path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"
-                                      />
-                                    </svg>
-                                  </Show>
-                                </button>
-                              </Show>
-                            </Show>
-
                             {/* Delete playlist button */}
                             <button
                               onClick={() => setShowDeleteConfirm(true)}
@@ -1311,6 +1259,46 @@ export function Playlistz() {
                                 />
                               </svg>
                             </button>
+
+                            {/* Cache for offline button */}
+                            <Show
+                              when={
+                                (window as any).STANDALONE_MODE &&
+                                window.location.protocol !== "file:"
+                              }
+                            >
+                              <Show when={!allSongsCached()}>
+                                <button
+                                  onClick={handleCachePlaylist}
+                                  disabled={
+                                    isCaching() || playlistSongs().length === 0
+                                  }
+                                  class="p-2 text-gray-400 hover:text-magenta-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="download songs for offline use"
+                                >
+                                  <Show
+                                    when={!isCaching()}
+                                    fallback={
+                                      <svg
+                                        class="w-4 h-4 animate-spin"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path
+                                          stroke-linecap="round"
+                                          stroke-linejoin="round"
+                                          stroke-width="2"
+                                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                        />
+                                      </svg>
+                                    }
+                                  >
+                                    SAVE OFFLINE
+                                  </Show>
+                                </button>
+                              </Show>
+                            </Show>
                           </div>
 
                           <div
@@ -1439,7 +1427,7 @@ export function Playlistz() {
       {/* Sidebar Toggle Button */}
 
       <div
-        class={`fixed ${isMobile() ? "top-[18px]" : "top-0"} inset-0 bg-black bg-opacity-80 flex items-center justify-center z-10 transition-all duration-600 ease-in-out w-10 h-10 ${sidebarCollapsed() ? "left-0" : isMobile() ? "left-[calc(100vw-40px)]" : "left-72"}`}
+        class={`fixed "top-0" inset-0 bg-black bg-opacity-80 flex items-center justify-center z-10 transition-all duration-300 ease-in-out w-10 h-10 ${sidebarCollapsed() ? "left-0" : isMobile() ? "left-[calc(100vw-40px)]" : "left-72"}`}
       >
         <button
           onClick={() => setSidebarCollapsed((prev) => !prev)}
