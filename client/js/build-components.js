@@ -121,16 +121,31 @@ function generateHtmlTemplate(elementName, jsCode, cssCode) {
     .map(([key, value]) => `${key}="${value.replace(/"/g, "&quot;")}"`)
     .join(" ");
 
+  // Add PWA meta tags for playlistz component
+  const isPWA = elementName === "freqhole-playlistz";
+  const pwaMetaTags = isPWA
+    ? `
+  <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;Playlistz&quot;,&quot;short_name&quot;:&quot;Playlistz&quot;,&quot;description&quot;:&quot;Offline-capable music playlist manager&quot;,&quot;start_url&quot;:&quot;./&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;#000000&quot;,&quot;theme_color&quot;:&quot;#000000&quot;,&quot;orientation&quot;:&quot;portrait-primary&quot;,&quot;scope&quot;:&quot;./&quot;,&quot;icons&quot;:[{&quot;src&quot;:&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%23fff'/%3E%3Ctext x='50' y='60' text-anchor='middle' font-size='40' fill='%23000'%3E♪%3C/text%3E%3C/svg%3E&quot;,&quot;sizes&quot;:&quot;192x192&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;,&quot;purpose&quot;:&quot;any maskable&quot;},{&quot;src&quot;:&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%23fff'/%3E%3Ctext x='50' y='60' text-anchor='middle' font-size='40' fill='%23000'%3E♪%3C/text%3E%3C/svg%3E&quot;,&quot;sizes&quot;:&quot;512x512&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;,&quot;purpose&quot;:&quot;any maskable&quot;}],&quot;categories&quot;:[&quot;music&quot;,&quot;entertainment&quot;],&quot;lang&quot;:&quot;en&quot;}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Playlistz">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="application-name" content="Playlistz">
+  <meta name="msapplication-TileColor" content="#000000">
+  <meta name="theme-color" content="#000000">`
+    : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${elementName}</title>
+  <title>${elementName}</title>${pwaMetaTags}
   <style>
     * { box-sizing: border-box; }
     body {
       font-family: system-ui, -apple-system, sans-serif;
+      font-size: 16px;
       margin: 0;
       padding: 0;
       background-color: black;

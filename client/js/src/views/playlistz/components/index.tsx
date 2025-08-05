@@ -57,6 +57,7 @@ import {
   initializeOfflineSupport,
   serviceWorkerReady,
   cacheAudioFile,
+  updatePWAManifest,
 } from "../services/offlineService.js";
 
 import type { Playlist } from "../types/playlist.js";
@@ -253,7 +254,8 @@ export function Playlistz() {
 
       // Initialize offline support (don't let this fail prevent app initialization)
       try {
-        await initializeOfflineSupport();
+        const currentPlaylist = selectedPlaylist();
+        await initializeOfflineSupport(currentPlaylist?.title);
       } catch (offlineError) {
         console.warn("Offline support initialization failed:", offlineError);
       }
@@ -278,6 +280,14 @@ export function Playlistz() {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to initialize");
+    }
+  });
+
+  // Update PWA manifest when playlist changes
+  createEffect(() => {
+    const playlist = selectedPlaylist();
+    if (playlist) {
+      updatePWAManifest(playlist.title);
     }
   });
 
@@ -986,7 +996,7 @@ export function Playlistz() {
         >
           <div class="max-w-4xl mx-auto">
             <div class="flex items-center gap-4">
-              <div class="flex-1">
+              <div class="w-1/2">
                 <div class="flex items-center justify-between text-xs text-gray-300 mb-1">
                   <span class="capitalize">
                     {standaloneLoadingProgress()!.phase}
@@ -1009,7 +1019,7 @@ export function Playlistz() {
                   />
                 </div>
               </div>
-              <div class="text-right min-w-0 flex-shrink">
+              <div class="text-right min-w-0 flex-1">
                 <div class="text-xs text-gray-300 truncate max-w-48">
                   {standaloneLoadingProgress()!.currentSong}
                 </div>
@@ -1230,33 +1240,39 @@ export function Playlistz() {
                             {/* Cache for offline button */}
                             <Show
                               when={
-                                ((window as any).STANDALONE_MODE &&
-                                  window.location.protocol !== "file:") ||
-                                (serviceWorkerReady() &&
-                                  window.location.protocol !== "file:")
+                                (window as any).STANDALONE_MODE &&
+                                window.location.protocol !== "file:"
                               }
                             >
-                              <button
-                                onClick={handleCachePlaylist}
-                                disabled={
-                                  isCaching() ||
-                                  playlistSongs().length === 0 ||
-                                  allSongsCached()
-                                }
-                                class="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
-                                title={
-                                  allSongsCached()
-                                    ? "all songs are downloaded!"
-                                    : (window as any).STANDALONE_MODE
-                                      ? "load and cache all songs for offline use"
-                                      : "cache playlist for offline use"
-                                }
-                              >
-                                <Show
-                                  when={!isCaching()}
-                                  fallback={
+                              <Show when={!allSongsCached()}>
+                                <button
+                                  onClick={handleCachePlaylist}
+                                  disabled={
+                                    isCaching() || playlistSongs().length === 0
+                                  }
+                                  class="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="download songs for offline use"
+                                >
+                                  <Show
+                                    when={!isCaching()}
+                                    fallback={
+                                      <svg
+                                        class="w-4 h-4 animate-spin"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path
+                                          stroke-linecap="round"
+                                          stroke-linejoin="round"
+                                          stroke-width="2"
+                                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                        />
+                                      </svg>
+                                    }
+                                  >
                                     <svg
-                                      class="w-4 h-4 animate-spin"
+                                      class="w-4 h-4"
                                       fill="none"
                                       stroke="currentColor"
                                       viewBox="0 0 24 24"
@@ -1265,26 +1281,12 @@ export function Playlistz() {
                                         stroke-linecap="round"
                                         stroke-linejoin="round"
                                         stroke-width="2"
-                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"
                                       />
                                     </svg>
-                                  }
-                                >
-                                  <svg
-                                    class="w-4 h-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      stroke-linecap="round"
-                                      stroke-linejoin="round"
-                                      stroke-width="2"
-                                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"
-                                    />
-                                  </svg>
-                                </Show>
-                              </button>
+                                  </Show>
+                                </button>
+                              </Show>
                             </Show>
 
                             {/* Delete playlist button */}
