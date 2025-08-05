@@ -970,7 +970,7 @@ export function Playlistz() {
           class="absolute inset-0 bg-cover bg-top bg-no-repeat transition-opacity duration-1000 ease-out"
           style={{
             "background-image": `url(${backgroundImageUrl()})`,
-            filter: "blur(3px) brightness(0.9)",
+            filter: "blur(3px) contrast(3) brightness(0.4)",
             "z-index": "0",
           }}
         />

@@ -325,9 +325,11 @@ export function SongRow(props: SongRowProps) {
                     {songData().album && <span class="mx-2">•</span>}
                     {songData().album}
                   </div>
-                  <div class="text-xs mt-1 text-magenta-200">
-                    added {relativeTime.signal()}
-                  </div>
+                  <Show when={isCurrentlyPlaying() || isCurrentlySelected()}>
+                    <div class="text-xs mt-1 text-magenta-200">
+                      added {relativeTime.signal()}
+                    </div>
+                  </Show>
                 </div>
               </div>
 
