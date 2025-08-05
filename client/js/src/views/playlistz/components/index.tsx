@@ -55,7 +55,6 @@ import {
 } from "../services/standaloneService.js";
 import {
   initializeOfflineSupport,
-  serviceWorkerReady,
   cacheAudioFile,
   updatePWAManifest,
 } from "../services/offlineService.js";
