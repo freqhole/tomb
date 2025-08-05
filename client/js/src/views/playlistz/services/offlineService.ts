@@ -43,12 +43,12 @@ function generatePWAManifest(): void {
     name: "Playlistz",
     short_name: "Playlistz",
     description: "Offline-capable music playlist manager",
-    start_url: "/",
+    start_url: "./",
     display: "standalone",
     background_color: "#000000",
     theme_color: "#000000",
     orientation: "portrait-primary",
-    scope: "/",
+    scope: "./",
     icons: [
       {
         src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%23fff'/%3E%3Ctext x='50' y='60' text-anchor='middle' font-size='40' fill='%23000'%3E♪%3C/text%3E%3C/svg%3E",
@@ -169,6 +169,32 @@ async function registerServiceWorker(): Promise<boolean> {
       registration.addEventListener("updatefound", () => {
         console.log("🔄 Service worker update found");
       });
+
+      // Ensure current page gets cached once SW is active
+      const ensurePageCached = async () => {
+        try {
+          const cache = await caches.open(CACHE_NAME);
+          const currentUrl = window.location.href;
+
+          // Check if already cached
+          const cached = await cache.match(currentUrl);
+          if (!cached) {
+            console.log(
+              "💾 Auto-caching current page for offline access:",
+              currentUrl
+            );
+            await cache.add(currentUrl);
+            console.log("✅ Page cached successfully");
+          } else {
+            console.log("✅ Page already cached");
+          }
+        } catch (error) {
+          console.warn("⚠️ Failed to auto-cache page:", error);
+        }
+      };
+
+      // Cache the page once SW is ready
+      setTimeout(ensurePageCached, 2000);
     } catch (error) {
       console.error("❌ Service worker registration failed:", error);
     }
