@@ -131,12 +131,13 @@ export async function downloadPlaylistAsZip(
         const htmlContent = await generateStandaloneHTML(playlistData);
         rootFolder!.file("playlistz.html", htmlContent);
 
-        // Add service worker file for offline functionality in data/ directory
+        // Add service worker file for offline functionality in root directory
+        // (SW must be at same level or higher than HTML to control it)
         try {
           const swResponse = await fetch("./sw.js");
           if (swResponse.ok) {
             const swContent = await swResponse.text();
-            dataFolder!.file("sw.js", swContent);
+            rootFolder!.file("sw.js", swContent);
           }
         } catch (swError) {
           console.warn(
