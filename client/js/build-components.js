@@ -6,6 +6,15 @@ import tailwindcss from "@tailwindcss/vite";
 import fs from "fs";
 import path from "path";
 
+// Read service worker template
+function getServiceWorkerCode() {
+  const swTemplatePath = path.resolve("src/sw-template.js");
+  if (fs.existsSync(swTemplatePath)) {
+    return fs.readFileSync(swTemplatePath, "utf-8");
+  }
+  return null;
+}
+
 // Component-specific attributes configuration
 const COMPONENT_ATTRIBUTES = {
   "webauthn-auth": {
@@ -220,9 +229,35 @@ async function buildAllComponents() {
 
                 console.log(`✅ Generated: ${elementName}.html`);
 
-                // Remove JS and CSS files from output
+                // Generate service worker for playlistz component
+                console.log(
+                  `🔍 Checking if should generate SW for: ${elementName}`
+                );
+                if (elementName === "freqhole-playlistz") {
+                  console.log(
+                    `📦 Generating service worker for ${elementName}...`
+                  );
+                  const swCode = getServiceWorkerCode();
+                  if (swCode) {
+                    this.emitFile({
+                      type: "asset",
+                      fileName: "sw.js",
+                      source: swCode,
+                    });
+                    console.log(`✅ Generated: sw.js`);
+                  } else {
+                    console.log(`❌ No service worker template found`);
+                  }
+                } else {
+                  console.log(`⏭️ Skipping SW generation for ${elementName}`);
+                }
+
+                // Remove JS and CSS files from output (but keep sw.js)
                 Object.keys(bundle).forEach((fileName) => {
-                  if (fileName.endsWith(".js") || fileName.endsWith(".css")) {
+                  if (
+                    (fileName.endsWith(".js") || fileName.endsWith(".css")) &&
+                    fileName !== "sw.js"
+                  ) {
                     delete bundle[fileName];
                   }
                 });

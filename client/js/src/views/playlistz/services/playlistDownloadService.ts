@@ -130,6 +130,21 @@ export async function downloadPlaylistAsZip(
       try {
         const htmlContent = await generateStandaloneHTML(playlistData);
         rootFolder!.file("playlistz.html", htmlContent);
+
+        // Add service worker file for offline functionality in data/ directory
+        try {
+          const swResponse = await fetch("./sw.js");
+          if (swResponse.ok) {
+            const swContent = await swResponse.text();
+            dataFolder!.file("sw.js", swContent);
+          }
+        } catch (swError) {
+          console.warn(
+            "⚠️ Could not include service worker in bundle:",
+            swError
+          );
+          // Continue without service worker - not critical
+        }
       } catch (error) {
         console.error("❌ Error generating HTML:", error);
         console.error(
