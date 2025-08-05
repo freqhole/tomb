@@ -21,6 +21,10 @@ const [duration, setDuration] = createSignal(0);
 const [currentIndex, setCurrentIndex] = createSignal(-1);
 const [volume, setVolume] = createSignal(1.0);
 const [isLoading, setIsLoading] = createSignal(false);
+const [loadingSongIds, setLoadingSongIds] = createSignal<Set<string>>(
+  new Set()
+);
+const [selectedSongId, setSelectedSongId] = createSignal<string | null>(null);
 const [repeatMode, setRepeatMode] = createSignal<"none" | "one" | "all">(
   "none"
 );
@@ -38,8 +42,14 @@ function initializeAudio(): HTMLAudioElement {
   audioElement.preload = "metadata";
 
   // Event listeners
-  audioElement.addEventListener("loadstart", () => setIsLoading(true));
-  audioElement.addEventListener("canplay", () => setIsLoading(false));
+  audioElement.addEventListener("loadstart", () => {
+    setIsLoading(true);
+    // Keep the loadingSongId from playSong function
+  });
+  audioElement.addEventListener("canplay", () => {
+    setIsLoading(false);
+    // Note: we don't clear loadingSongIds here as it's handled in playSong
+  });
   audioElement.addEventListener("loadedmetadata", () => {
     const newDuration = audioElement?.duration || 0;
     setDuration(newDuration);
@@ -68,6 +78,8 @@ function initializeAudio(): HTMLAudioElement {
     console.error("Audio error:", e);
     setIsPlaying(false);
     setIsLoading(false);
+    // Clear all loading songs on audio error
+    setLoadingSongIds(new Set());
     updatePageTitle();
   });
 
@@ -391,6 +403,9 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
   const audio = initializeAudio();
 
   try {
+    // Add this song to loading set
+    setLoadingSongIds((prev) => new Set([...prev, song.id]));
+
     // Clean up previous URL if exists
     if (audio.src && audio.src.startsWith("blob:")) {
       releaseAudioURL(audio.src);
@@ -491,6 +506,17 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
       );
     }
 
+    // Only continue if this song is still the selected one
+    if (selectedSongId() !== song.id) {
+      // Song is loaded but user has moved on to a different song
+      setLoadingSongIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(song.id);
+        return newSet;
+      });
+      return;
+    }
+
     audio.src = audioURL;
 
     // Add error event listener to catch loading issues
@@ -504,10 +530,23 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
     );
 
     await audio.play();
+
+    // Remove song from loading set since it's now playing
+    setLoadingSongIds((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(song.id);
+      return newSet;
+    });
+
     updateMediaSession();
   } catch (error) {
     console.error("Error playing song:", error);
     setIsLoading(false);
+    setLoadingSongIds((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(song.id);
+      return newSet;
+    });
     updatePageTitle();
     throw error;
   }
@@ -732,6 +771,8 @@ export const audioState = {
   volume,
   currentIndex,
   isLoading,
+  loadingSongIds,
+  selectedSongId,
   repeatMode,
   isShuffled,
 };
@@ -782,4 +823,17 @@ export function getSupportedFormats(): string[] {
   ];
 
   return formats.filter((format) => audio.canPlayType(format) !== "");
+}
+
+// Helper to select a song to play (sets immediate UI feedback)
+export function selectSong(songId: string): void {
+  // Pause current audio immediately
+  const audio = audioElement;
+  if (audio) {
+    audio.pause();
+    setIsPlaying(false);
+  }
+
+  // Set this as the selected song
+  setSelectedSongId(songId);
 }

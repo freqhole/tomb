@@ -26,6 +26,7 @@ import {
   togglePlayback,
   audioState,
   refreshPlaylistQueue,
+  selectSong,
 } from "../services/audioService.js";
 import {
   filterAudioFiles,
@@ -613,7 +614,9 @@ export function Playlistz() {
         // If it's the same song, just toggle playback (resume/pause)
         togglePlayback();
       } else {
-        // Different song, load and play it
+        // Different song - immediately select it for UI feedback, then load
+        selectSong(song.id);
+
         const currentPlaylist = selectedPlaylist();
         if (currentPlaylist) {
           await playSong(song, currentPlaylist);

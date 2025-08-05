@@ -53,6 +53,16 @@ export function SongRow(props: SongRowProps) {
     return current?.id === props.songId && playing;
   };
 
+  // Track if this song is currently selected (should show selected UI)
+  const isCurrentlySelected = () => {
+    return audioState.selectedSongId() === props.songId;
+  };
+
+  // Track if this song is currently loading
+  const isCurrentlyLoading = () => {
+    return audioState.loadingSongIds().has(props.songId);
+  };
+
   const formatDuration = (seconds: number | undefined) => {
     if (!seconds) return "0:00";
     const mins = Math.floor(seconds / 60);
@@ -169,7 +179,7 @@ export function SongRow(props: SongRowProps) {
           return (
             <div
               class={`group relative flex items-center p-3 group-hover:bg-opacity-70 hover:bg-magenta-500 transition-all duration-200 overflow-hidden ${
-                isCurrentlyPlaying()
+                isCurrentlyPlaying() || isCurrentlySelected()
                   ? "sticky top-0 bottom-0 bg-black z-1 border border-transparent border-opacity-50"
                   : draggedOver()
                     ? "border border-magenta-400 border-dashed"
@@ -195,11 +205,13 @@ export function SongRow(props: SongRowProps) {
                 style={{
                   background: isCurrentlyPlaying()
                     ? `linear-gradient(to right, rgba(236, 72, 153, 0.5) ${getProgressPercentage()}%, transparent ${getProgressPercentage()}%)`
-                    : draggedOver()
-                      ? "rgba(220, 38, 127, 0.2)"
-                      : isDragging()
-                        ? "rgba(107, 114, 128, 0.3)"
-                        : "transparent",
+                    : isCurrentlySelected()
+                      ? "rgba(236, 72, 153, 0.3)"
+                      : draggedOver()
+                        ? "rgba(220, 38, 127, 0.2)"
+                        : isDragging()
+                          ? "rgba(107, 114, 128, 0.3)"
+                          : "transparent",
                   "pointer-events": "none",
                 }}
               />
@@ -240,8 +252,29 @@ export function SongRow(props: SongRowProps) {
                     })()}
                   </Show>
 
-                  {/* Play/Pause overlay */}
-                  <Show when={isHovered() && !isMobile()}>
+                  {/* Loading overlay - always show when loading, highest priority */}
+                  <Show when={isCurrentlyLoading()}>
+                    <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
+                      <svg
+                        class="w-4 h-4 animate-spin text-magenta-300"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                    </div>
+                  </Show>
+
+                  {/* Play/Pause overlay - only show when not loading */}
+                  <Show
+                    when={!isCurrentlyLoading() && isHovered() && !isMobile()}
+                  >
                     <button
                       onClick={handlePlayPause}
                       class="absolute inset-0 bg-transparent flex items-center justify-center transition-opacity hover:bg-opacity-80 text-magenta-300 hover:text-magenta-100"
@@ -274,14 +307,18 @@ export function SongRow(props: SongRowProps) {
                 <div class="flex-1 min-w-0 text-lg">
                   <div
                     class={` ${
-                      isCurrentlyPlaying() ? "text-magenta-200" : "text-white"
+                      isCurrentlyPlaying() || isCurrentlySelected()
+                        ? "text-magenta-200"
+                        : "text-white"
                     }`}
                   >
                     {songData().title}
                   </div>
                   <div
                     class={`text-sm truncate ${
-                      isCurrentlyPlaying() ? "text-magenta-200" : "text-white"
+                      isCurrentlyPlaying() || isCurrentlySelected()
+                        ? "text-magenta-200"
+                        : "text-white"
                     }`}
                   >
                     {songData().artist}
@@ -297,7 +334,9 @@ export function SongRow(props: SongRowProps) {
               {/* Duration */}
               <div
                 class={`text-sm font-mono mr-4 ${
-                  isCurrentlyPlaying() ? "text-magenta-200" : "text-white"
+                  isCurrentlyPlaying() || isCurrentlySelected()
+                    ? "text-magenta-200"
+                    : "text-white"
                 }`}
               >
                 {formatDuration(songData().duration)}
