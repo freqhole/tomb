@@ -266,6 +266,8 @@ export async function parsePlaylistZip(file: File): Promise<{
     const zip = new JSZip();
     const zipContent = await zip.loadAsync(file);
 
+    console.log("🔍 All files in ZIP:", Object.keys(zipContent.files));
+
     let playlistInfo: any = null;
     let playlistImageData: ArrayBuffer | undefined;
     let playlistImageType: string | undefined;
@@ -274,9 +276,18 @@ export async function parsePlaylistZip(file: File): Promise<{
 
     // Parse playlist metadata - try new format first, then fall back to old format
     let playlistData: any = null;
-    const playlistJsonFile = zipContent.file("data/playlist.json");
-    if (playlistJsonFile) {
-      const playlistContent = await playlistJsonFile.async("string");
+    // Try with root folder first
+    let playlistJsonFiles = zipContent.file(/^[^/]+\/data\/playlist\.json$/i);
+    if (playlistJsonFiles.length === 0) {
+      // Fall back to direct data folder
+      const playlistJsonFile = zipContent.file("data/playlist.json");
+      if (playlistJsonFile) {
+        playlistJsonFiles = [playlistJsonFile];
+      }
+    }
+
+    if (playlistJsonFiles.length > 0) {
+      const playlistContent = await playlistJsonFiles[0]!.async("string");
       playlistData = JSON.parse(playlistContent);
       playlistInfo = playlistData.playlist;
     } else {
@@ -290,8 +301,13 @@ export async function parsePlaylistZip(file: File): Promise<{
 
     // Find playlist cover image - try data folder first, then root
     let coverFiles = zipContent.file(
-      /^data\/playlist-cover\.(jpg|jpeg|png|gif|webp)$/i
+      /^[^/]+\/data\/playlist-cover\.(jpg|jpeg|png|gif|webp)$/i
     );
+    if (coverFiles.length === 0) {
+      coverFiles = zipContent.file(
+        /^data\/playlist-cover\.(jpg|jpeg|png|gif|webp)$/i
+      );
+    }
     if (coverFiles.length === 0) {
       coverFiles = zipContent.file(
         /^playlist-cover\.(jpg|jpeg|png|gif|webp)$/i
@@ -315,12 +331,22 @@ export async function parsePlaylistZip(file: File): Promise<{
     }
 
     // Extract songs from data folder first, then fall back to root directory
+    // Account for root playlist folder in ZIP structure
     let songFiles = zipContent.file(
-      /^data\/[^/]+\.(mp3|m4a|wav|flac|ogg|webm)$/i
+      /^[^/]+\/data\/[^/]+\.(mp3|m4a|wav|flac|ogg|webm)$/i
     );
+    if (songFiles.length === 0) {
+      songFiles = zipContent.file(
+        /^data\/[^/]+\.(mp3|m4a|wav|flac|ogg|webm)$/i
+      );
+    }
     if (songFiles.length === 0) {
       songFiles = zipContent.file(/^[^/]+\.(mp3|m4a|wav|flac|ogg|webm)$/i);
     }
+    console.log(
+      "🔍 Found song files in ZIP:",
+      songFiles.map((f) => f.name)
+    );
 
     for (const songFile of songFiles) {
       const audioData = await songFile.async("arraybuffer");
@@ -366,10 +392,18 @@ export async function parsePlaylistZip(file: File): Promise<{
         // Check for image files in data folder first, then root
         let imageFiles = zipContent.file(
           new RegExp(
-            `^data/${baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-cover\\.(jpg|jpeg|png|gif|webp)$`,
+            `^[^/]+/data/${baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-cover\\.(jpg|jpeg|png|gif|webp)$`,
             "i"
           )
         );
+        if (imageFiles.length === 0) {
+          imageFiles = zipContent.file(
+            new RegExp(
+              `^data/${baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-cover\\.(jpg|jpeg|png|gif|webp)$`,
+              "i"
+            )
+          );
+        }
         if (imageFiles.length === 0) {
           imageFiles = zipContent.file(
             new RegExp(

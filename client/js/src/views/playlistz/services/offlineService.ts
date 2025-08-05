@@ -138,31 +138,15 @@ async function registerServiceWorker(): Promise<boolean> {
 
       setServiceWorkerReady(true);
 
-      // Force the SW to take control immediately
-      if (!navigator.serviceWorker.controller) {
-        console.log("🔄 Claiming SW control...");
-        const newWorker =
-          registration.active ||
-          registration.installing ||
-          registration.waiting;
-        if (newWorker) {
-          newWorker.postMessage({ type: "SKIP_WAITING" });
-        }
-        // Force reload to get SW control
-        setTimeout(() => {
-          if (!navigator.serviceWorker.controller) {
-            console.log("🔄 Reloading to activate service worker...");
-            window.location.reload();
-          }
-        }, 1000);
-      } else {
-        console.log("✅ Service worker is controlling this page");
-      }
-
       // Listen for service worker messages
       navigator.serviceWorker.addEventListener("message", (event) => {
         const { type, data } = event.data;
         console.log("📨 Message from SW:", type, data);
+
+        if (type === "SW_READY") {
+          // SW is now controlling the page, cache it
+          cacheCurrentPage();
+        }
       });
 
       // Listen for SW state changes
@@ -170,31 +154,21 @@ async function registerServiceWorker(): Promise<boolean> {
         console.log("🔄 Service worker update found");
       });
 
-      // Ensure current page gets cached once SW is active
-      const ensurePageCached = async () => {
-        try {
-          const cache = await caches.open(CACHE_NAME);
-          const currentUrl = window.location.href;
-
-          // Check if already cached
-          const cached = await cache.match(currentUrl);
-          if (!cached) {
-            console.log(
-              "💾 Auto-caching current page for offline access:",
-              currentUrl
-            );
-            await cache.add(currentUrl);
-            console.log("✅ Page cached successfully");
-          } else {
-            console.log("✅ Page already cached");
-          }
-        } catch (error) {
-          console.warn("⚠️ Failed to auto-cache page:", error);
+      // Check if SW is already controlling and cache page if so
+      if (navigator.serviceWorker.controller) {
+        console.log("✅ Service worker is already controlling this page");
+        cacheCurrentPage();
+      } else {
+        console.log("⚠️ Service worker registered but not controlling yet");
+        // Send message to SW to take control
+        const newWorker =
+          registration.active ||
+          registration.installing ||
+          registration.waiting;
+        if (newWorker) {
+          newWorker.postMessage({ type: "CLAIM_CLIENTS" });
         }
-      };
-
-      // Cache the page once SW is ready
-      setTimeout(ensurePageCached, 2000);
+      }
     } catch (error) {
       console.error("❌ Service worker registration failed:", error);
     }
@@ -202,6 +176,31 @@ async function registerServiceWorker(): Promise<boolean> {
 
   // Return false immediately to not block app initialization
   return false;
+}
+
+/**
+ * Cache the current page for offline access
+ */
+async function cacheCurrentPage(): Promise<void> {
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const currentUrl = window.location.href;
+
+    // Check if already cached
+    const cached = await cache.match(currentUrl);
+    if (!cached) {
+      console.log(
+        "💾 Auto-caching current page for offline access:",
+        currentUrl
+      );
+      await cache.add(currentUrl);
+      console.log("✅ Page cached successfully");
+    } else {
+      console.log("✅ Page already cached");
+    }
+  } catch (error) {
+    console.warn("⚠️ Failed to auto-cache page:", error);
+  }
 }
 
 /**
@@ -428,6 +427,15 @@ if (typeof window !== "undefined") {
   (window as any).testCacheNow = async () => {
     try {
       console.log("🧪 Testing cache manually...");
+      console.log("🔍 Cache API available:", "caches" in window);
+      console.log("🔍 Service Worker available:", "serviceWorker" in navigator);
+      console.log("🔍 Protocol:", window.location.protocol);
+
+      if (!("caches" in window)) {
+        console.error("❌ Cache API not available in this context");
+        return false;
+      }
+
       const cache = await caches.open(CACHE_NAME);
       const currentUrl = window.location.href;
 
@@ -447,7 +455,19 @@ if (typeof window !== "undefined") {
       return false;
     }
   };
+  (window as any).checkCacheSupport = () => {
+    console.log("🔍 Cache API support check:");
+    console.log("  - caches in window:", "caches" in window);
+    console.log(
+      "  - serviceWorker in navigator:",
+      "serviceWorker" in navigator
+    );
+    console.log("  - protocol:", window.location.protocol);
+    console.log("  - secure context:", window.isSecureContext);
+    console.log("  - SW controller:", !!navigator.serviceWorker?.controller);
+    console.log("  - SW ready:", serviceWorkerReady());
+  };
   console.log(
-    "🔧 Debug functions available: debugPlaylistzCache(), testCacheNow()"
+    "🔧 Debug functions available: debugPlaylistzCache(), testCacheNow(), checkCacheSupport()"
   );
 }
