@@ -915,9 +915,8 @@ export function Playlistz() {
           `Cached ${cached} of ${totalSongs} songs (${failed} failed)`
         );
       } else if (cached > 0) {
-        // Show success message briefly
-        setError(`Successfully cached ${cached} songs for offline use`);
-        setTimeout(() => setError(null), 3000);
+        // just console log it
+        console.log(`Successfully cached ${cached} songs for offline use`);
       }
     } catch (err) {
       setError("Failed to cache playlist for offline use");
