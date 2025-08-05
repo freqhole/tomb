@@ -1059,13 +1059,52 @@ export function Playlistz() {
                 >
                   {/* Playlist Header */}
                   <div
-                    class={`flex items-center justify-between ${isMobile() ? "p-2" : "mb-2 p-6"}`}
+                    class={`flex items-center justify-between ${isMobile() ? "p-2 flex-col" : "mb-2 p-6"}`}
                   >
+                    {/* Playlist Cover Image for mobile */}
+                    <div class={`${isMobile() ? "" : "hidden"}`}>
+                      <button
+                        onClick={() => {
+                          setModalImageIndex(0);
+                          setShowImageModal(true);
+                        }}
+                        class="w-full h-full overflow-hidden hover:bg-gray-900 flex items-center justify-center transition-colors group"
+                        title="view playlist images"
+                      >
+                        <Show
+                          when={playlist().imageData && playlist().imageType}
+                          fallback={
+                            <div class="text-center">
+                              <svg
+                                width="100"
+                                height="100"
+                                viewBox="0 0 100 100"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                              >
+                                <path
+                                  d="M50 81L25 31L75 31L60.7222 68.1429L50 81Z"
+                                  fill="#FF00FF"
+                                />
+                              </svg>
+                            </div>
+                          }
+                        >
+                          <img
+                            src={createImageUrlFromData(
+                              playlist().imageData!,
+                              playlist().imageType!
+                            )}
+                            alt="playlist cover"
+                            class="w-full h-full object-cover"
+                          />
+                        </Show>
+                      </button>
+                    </div>
+
                     <div class="flex items-center gap-4 w-full">
                       <div class="flex-1">
-                        <div
-                          class={`bg-black bg-opacity-80 ${isMobile() && "ml-8"}`}
-                        >
+                        <div class={`bg-black bg-opacity-80`}>
                           <input
                             type="text"
                             value={playlist().title}
@@ -1078,9 +1117,7 @@ export function Playlistz() {
                             placeholder="playlist title"
                           />
                         </div>
-                        <div
-                          class={`mt-2 bg-black bg-opacity-80 ${isMobile() && "ml-8"}`}
-                        >
+                        <div class={`mt-2 bg-black bg-opacity-80`}>
                           <input
                             type="text"
                             value={playlist().description || ""}
@@ -1096,7 +1133,7 @@ export function Playlistz() {
 
                         {/* Metadata row with song count, duration, and action buttons */}
                         <div
-                          class={`mt-3 flex justify-between ${isMobile() ? "gap-3 ml-8" : ""}`}
+                          class={`mt-3 flex justify-between ${isMobile() ? "gap-3" : ""}`}
                         >
                           <div class="flex items-center gap-2">
                             {/* Edit playlist image button */}
@@ -1276,7 +1313,7 @@ export function Playlistz() {
                     </div>
 
                     {/* Playlist Cover Image */}
-                    <div class={`${isMobile() ? "ml-2" : "ml-4"}`}>
+                    <div class={`${isMobile() ? "hidden" : "ml-4"}`}>
                       <button
                         onClick={() => {
                           setModalImageIndex(0);
