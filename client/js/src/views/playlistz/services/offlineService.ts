@@ -9,106 +9,7 @@ const [persistentStorageGranted, setPersistentStorageGranted] =
 // Export signals for components to use
 export { isOnline, serviceWorkerReady, persistentStorageGranted };
 
-/**
- * Service worker code as a string (will be converted to blob URL)
- */
-const SERVICE_WORKER_CODE = `
-// Inline Service Worker for Playlistz
-const CACHE_NAME = 'playlistz-cache-v1';
-const CACHE_URLS = [
-  // The current page (will be added dynamically)
-];
-
-// Install event - cache the current page
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      // Cache the current page URL
-      const currentUrl = self.location.href.split('?')[0]; // Remove query params
-      return cache.add(currentUrl);
-    }).catch((error) => {
-      console.error('❌ Service Worker install failed:', error);
-    })
-  );
-
-  // Force the waiting service worker to become the active service worker
-  self.skipWaiting();
-});
-
-// Activate event - clean up old caches
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    }).then(() => {
-      // Claim all clients immediately
-      return self.clients.claim();
-    })
-  );
-});
-
-// Fetch event - serve from cache when offline
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-
-  // Only handle same-origin requests and relative file paths
-  if (url.origin === self.location.origin || url.protocol === 'file:') {
-    event.respondWith(
-      caches.match(event.request).then((cachedResponse) => {
-        if (cachedResponse) {
-          return cachedResponse;
-        }
-
-        // Try to fetch from network
-        return fetch(event.request).then((response) => {
-          // Only cache successful responses
-          if (response.status === 200) {
-            const responseClone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseClone);
-            });
-          }
-          return response;
-        }).catch((error) => {
-          throw error;
-        });
-      })
-    );
-  }
-});
-
-// Handle messages from the main thread
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'CACHE_AUDIO_FILE') {
-    const { url, title } = event.data;
-
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.add(url);
-    }).then(() => {
-      // Send confirmation back to main thread
-      event.source.postMessage({
-        type: 'AUDIO_FILE_CACHED',
-        url: url,
-        title: title
-      });
-    }).catch((error) => {
-      console.error('❌ Failed to cache audio file:', title, error);
-      event.source.postMessage({
-        type: 'AUDIO_FILE_CACHE_FAILED',
-        url: url,
-        title: title,
-        error: error.message
-      });
-    });
-  }
-});
-`;
+const CACHE_NAME = "playlistz-cache-v1";
 
 /**
  * Request persistent storage
@@ -135,78 +36,56 @@ async function requestPersistentStorage(): Promise<boolean> {
 }
 
 /**
- * Register the inline service worker
+ * Register service worker using generated sw.js file
  */
 async function registerServiceWorker(): Promise<boolean> {
-  try {
-    if (!("serviceWorker" in navigator)) {
-      return false;
+  // Run service worker registration asynchronously to not block the app
+  setTimeout(async () => {
+    try {
+      if (!("serviceWorker" in navigator)) {
+        return;
+      }
+
+      // Use STANDALONE_MODE to determine correct service worker path
+      const swPath = (window as any).STANDALONE_MODE
+        ? "./data/sw.js"
+        : "./sw.js";
+
+      await navigator.serviceWorker.register(swPath);
+      await navigator.serviceWorker.ready;
+      setServiceWorkerReady(true);
+    } catch (error) {
+      // Silently fail - service worker should not interfere with app
     }
+  }, 100);
 
-    // Skip service worker for file:// protocol as it's not supported
-    if (window.location.protocol === "file:") {
-      return false;
-    }
-
-    // For HTTPS, create a data URL instead of blob URL for better compatibility
-    // Use unescape/encodeURIComponent to handle special characters properly
-    const encodedCode = btoa(unescape(encodeURIComponent(SERVICE_WORKER_CODE)));
-    const dataUrl = `data:application/javascript;base64,${encodedCode}`;
-
-    await navigator.serviceWorker.register(dataUrl);
-
-    // Wait for the service worker to be ready
-    await navigator.serviceWorker.ready;
-    setServiceWorkerReady(true);
-
-    return true;
-  } catch (error) {
-    console.error("❌ Service Worker registration failed:", error);
-    // Continue without service worker - offline features will be limited but app still works
-    return false;
-  }
+  // Return false immediately to not block app initialization
+  return false;
 }
 
 /**
  * Cache an audio file for offline access
  */
-export function cacheAudioFile(url: string, title: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!serviceWorkerReady()) {
-      reject(new Error("Service Worker not ready"));
-      return;
+export async function cacheAudioFile(
+  url: string,
+  title: string
+): Promise<void> {
+  try {
+    if (!("caches" in window)) {
+      throw new Error("Cache API not supported");
     }
 
     // Skip for file:// protocol
     if (window.location.protocol === "file:") {
-      resolve();
       return;
     }
 
-    if (!navigator.serviceWorker.controller) {
-      reject(new Error("No active Service Worker"));
-      return;
-    }
-
-    const messageChannel = new MessageChannel();
-
-    messageChannel.port1.onmessage = (event) => {
-      if (event.data.type === "AUDIO_FILE_CACHED") {
-        resolve();
-      } else if (event.data.type === "AUDIO_FILE_CACHE_FAILED") {
-        reject(new Error(event.data.error));
-      }
-    };
-
-    navigator.serviceWorker.controller.postMessage(
-      {
-        type: "CACHE_AUDIO_FILE",
-        url: url,
-        title: title,
-      },
-      [messageChannel.port2]
-    );
-  });
+    const cache = await caches.open(CACHE_NAME);
+    await cache.add(url);
+  } catch (error) {
+    console.error(`❌ Failed to cache audio file ${title}:`, error);
+    throw error;
+  }
 }
 
 /**
@@ -224,8 +103,8 @@ export async function initializeOfflineSupport(): Promise<void> {
   // Request persistent storage
   await requestPersistentStorage();
 
-  // Register service worker (will skip for file:// protocol)
-  await registerServiceWorker();
+  // Register service worker asynchronously (don't block initialization)
+  registerServiceWorker();
 }
 
 /**
@@ -286,7 +165,7 @@ export async function isUrlCached(url: string): Promise<boolean> {
       return false;
     }
 
-    const cache = await caches.open("playlistz-cache-v1");
+    const cache = await caches.open(CACHE_NAME);
     const response = await cache.match(url);
     return !!response;
   } catch (error) {

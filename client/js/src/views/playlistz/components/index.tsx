@@ -132,7 +132,7 @@ export function Playlistz() {
         );
         setPlaylistSongs(songs);
       } catch (err) {
-        // Silently handle error
+        console.error("Error loading playlist songs:", err);
       }
     } else {
       setPlaylistSongs([]);
@@ -250,8 +250,12 @@ export function Playlistz() {
     try {
       await setupDB();
 
-      // Initialize offline support
-      await initializeOfflineSupport();
+      // Initialize offline support (don't let this fail prevent app initialization)
+      try {
+        await initializeOfflineSupport();
+      } catch (offlineError) {
+        console.warn("Offline support initialization failed:", offlineError);
+      }
 
       setIsInitialized(true);
 
@@ -915,8 +919,7 @@ export function Playlistz() {
           `Cached ${cached} of ${totalSongs} songs (${failed} failed)`
         );
       } else if (cached > 0) {
-        // just console log it
-        console.log(`Successfully cached ${cached} songs for offline use`);
+        // Songs were cached successfully
       }
     } catch (err) {
       setError("Failed to cache playlist for offline use");
