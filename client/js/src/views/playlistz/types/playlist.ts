@@ -29,6 +29,7 @@ export interface Song {
   createdAt: number; // Timestamp
   updatedAt: number; // Timestamp
   playlistId: string; // Reference to parent playlist
+  standaloneFilePath?: string; // Path to audio file in standalone mode
 }
 
 export interface AudioState {

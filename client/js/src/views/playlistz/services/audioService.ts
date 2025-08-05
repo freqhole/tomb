@@ -4,6 +4,10 @@
 import { createSignal } from "solid-js";
 import type { Song, Playlist, AudioState } from "../types/playlist.js";
 import { getAllSongs, loadSongAudioData } from "./indexedDBService.js";
+import {
+  loadStandaloneSongAudioData,
+  songNeedsAudioData,
+} from "./standaloneService.js";
 
 // Audio state signals
 const [currentSong, setCurrentSong] = createSignal<Song | null>(null);
@@ -443,13 +447,27 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
         });
         testAudio.load();
       } else {
-        // Load audio data on-demand from IndexedDB
-        const loadedURL = await loadSongAudioData(song.id);
-        if (loadedURL) {
-          audioURL = loadedURL;
-        } else {
-          // Try standalone file path as fallback for HTTPS
-          if ((song as any).standaloneFilePath) {
+        // First, always try to load from IndexedDB (cached data)
+        let cachedURL = await loadSongAudioData(song.id);
+        if (cachedURL) {
+          audioURL = cachedURL;
+        } else if ((song as any).standaloneFilePath) {
+          // Song not cached yet, check if it needs loading in standalone mode
+          const needsData = await songNeedsAudioData(song);
+          if (needsData) {
+            // Load and cache the song data
+            const loadSuccess = await loadStandaloneSongAudioData(song.id);
+            if (loadSuccess) {
+              // Try to get the cached URL after loading
+              cachedURL = await loadSongAudioData(song.id);
+              if (cachedURL) {
+                audioURL = cachedURL;
+              }
+            }
+          }
+
+          // If still no audioURL, use direct fetch as fallback
+          if (!audioURL) {
             try {
               const response = await fetch((song as any).standaloneFilePath);
               if (response.ok) {
@@ -458,7 +476,6 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
                   type: song.mimeType || "audio/mpeg",
                 });
                 audioURL = URL.createObjectURL(blob);
-                console.warn("⚠️ Using fallback fetch for audio:", song.title);
               }
             } catch (fetchError) {
               console.error("❌ Fallback fetch failed:", fetchError);

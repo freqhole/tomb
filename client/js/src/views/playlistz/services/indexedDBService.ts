@@ -531,6 +531,7 @@ export async function loadSongAudioData(
   try {
     const db = await setupDB();
     const songData = await db.get(SONGS_STORE, songId);
+
     if (!songData || !songData.audioData || !songData.mimeType) return null;
 
     // Create blob URL from stored audio data

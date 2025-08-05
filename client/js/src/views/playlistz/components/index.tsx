@@ -49,6 +49,8 @@ import {
   initializeStandalonePlaylist,
   standaloneLoadingProgress,
   clearStandaloneLoadingProgress,
+  loadStandaloneSongAudioData,
+  songNeedsAudioData,
 } from "../services/standaloneService.js";
 import {
   initializeOfflineSupport,
@@ -76,7 +78,9 @@ export function Playlistz() {
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isInitialized, setIsInitialized] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(
+    (window as any).STANDALONE_MODE || false
+  );
   const [isMobile, setIsMobile] = createSignal(false);
   const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<
     string | null
@@ -90,6 +94,7 @@ export function Playlistz() {
   const [modalImageIndex, setModalImageIndex] = createSignal(0);
   const [isDownloading, setIsDownloading] = createSignal(false);
   const [isCaching, setIsCaching] = createSignal(false);
+  const [allSongsCached, setAllSongsCached] = createSignal(false);
 
   // Direct signal subscription approach (bypass hook)
   const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
@@ -785,6 +790,56 @@ export function Playlistz() {
     }
   };
 
+  // Refresh playlist songs from database
+  const refreshPlaylistSongs = async () => {
+    const playlist = selectedPlaylist();
+    if (playlist && playlist.songIds.length > 0) {
+      try {
+        const allSongs = await getAllSongs();
+        const songs = allSongs.filter((song) =>
+          playlist.songIds.includes(song.id)
+        );
+        setPlaylistSongs(songs);
+      } catch (err) {
+        console.error("Error refreshing playlist songs:", err);
+      }
+    }
+  };
+
+  // Check if all songs are cached
+  const checkAllSongsCached = async () => {
+    const songs = playlistSongs();
+    if (songs.length === 0) {
+      setAllSongsCached(false);
+      return;
+    }
+
+    // For file:// protocol, consider all songs as "cached" since they work directly
+    if (window.location.protocol === "file:") {
+      setAllSongsCached(true);
+      return;
+    }
+
+    // Check each song to see if it needs audio data
+    let allCached = true;
+    for (const song of songs) {
+      const needsData = await songNeedsAudioData(song);
+      if (needsData) {
+        allCached = false;
+        break;
+      }
+    }
+    setAllSongsCached(allCached);
+  };
+
+  // Check cache status when playlist songs change
+  createEffect(() => {
+    const songs = playlistSongs();
+    if (songs.length > 0) {
+      checkAllSongsCached();
+    }
+  });
+
   // Cache playlist for offline use
   const handleCachePlaylist = async () => {
     const playlist = selectedPlaylist();
@@ -795,16 +850,73 @@ export function Playlistz() {
     try {
       let cached = 0;
       let failed = 0;
+      let loaded = 0;
+      const totalSongs = songs.length;
 
-      for (const song of songs) {
-        if (song.blobUrl) {
+      for (let i = 0; i < songs.length; i++) {
+        const song = songs[i];
+
+        // First, check if this is a standalone song that needs audio data loading
+        if (await songNeedsAudioData(song)) {
           try {
-            await cacheAudioFile(song.blobUrl, song.title);
-            cached++;
+            const loadSuccess = await loadStandaloneSongAudioData(song.id);
+            if (loadSuccess) {
+              loaded++;
+              cached++; // In standalone mode, loading IS caching
+            } else {
+              failed++;
+              continue;
+            }
           } catch (error) {
             failed++;
+            continue;
+          }
+        } else {
+          // Song already has audio data cached
+          cached++;
+        }
+
+        // For service worker caching (when not in standalone mode)
+        if (!(window as any).STANDALONE_MODE) {
+          if (song.blobUrl) {
+            try {
+              await cacheAudioFile(song.blobUrl, song.title);
+            } catch (error) {
+              // Service worker caching failed, but we still count as cached in IndexedDB
+            }
+          } else if (song.audioData) {
+            try {
+              const blob = new Blob([song.audioData], {
+                type: song.mimeType || "audio/mpeg",
+              });
+              const blobUrl = URL.createObjectURL(blob);
+              await cacheAudioFile(blobUrl, song.title);
+              URL.revokeObjectURL(blobUrl);
+            } catch (error) {
+              // Service worker caching failed, but we still count as cached in IndexedDB
+            }
           }
         }
+      }
+
+      // Refresh the playlist to show updated audio data
+      if (loaded > 0) {
+        await refreshPlaylistSongs();
+        // Recheck cache status after refresh
+        await checkAllSongsCached();
+      }
+
+      if (failed > 0 && cached === 0) {
+        setError(
+          `Failed to cache any songs for offline use (${failed} of ${totalSongs} failed)`
+        );
+      } else if (failed > 0) {
+        console.warn(
+          `Cached ${cached} of ${totalSongs} songs (${failed} failed)`
+        );
+      } else if (cached > 0) {
+        // log success
+        console.log(`Successfully cached ${cached} songs for offline use`);
       }
     } catch (err) {
       setError("Failed to cache playlist for offline use");
@@ -1053,17 +1165,27 @@ export function Playlistz() {
                             {/* Cache for offline button */}
                             <Show
                               when={
-                                serviceWorkerReady() &&
-                                window.location.protocol !== "file:"
+                                ((window as any).STANDALONE_MODE &&
+                                  window.location.protocol !== "file:") ||
+                                (serviceWorkerReady() &&
+                                  window.location.protocol !== "file:")
                               }
                             >
                               <button
                                 onClick={handleCachePlaylist}
                                 disabled={
-                                  isCaching() || playlistSongs().length === 0
+                                  isCaching() ||
+                                  playlistSongs().length === 0 ||
+                                  allSongsCached()
                                 }
                                 class="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
-                                title="cache playlist for offline use"
+                                title={
+                                  allSongsCached()
+                                    ? "All songs are already cached"
+                                    : (window as any).STANDALONE_MODE
+                                      ? "Load and cache all songs for offline use"
+                                      : "Cache playlist for offline use"
+                                }
                               >
                                 <Show
                                   when={!isCaching()}
@@ -1097,6 +1219,99 @@ export function Playlistz() {
                                     />
                                   </svg>
                                 </Show>
+                              </button>
+                            </Show>
+
+                            {/* Debug button for checking IndexedDB state */}
+                            <Show when={(window as any).STANDALONE_MODE}>
+                              <button
+                                onClick={async () => {
+                                  const songs = playlistSongs();
+                                  console.log(
+                                    `🔍 Debug: ${songs.length} songs in playlist`
+                                  );
+
+                                  let totalMemorySize = 0;
+                                  let totalDbSize = 0;
+                                  let songsWithMemoryAudio = 0;
+                                  let songsWithDbAudio = 0;
+
+                                  for (const song of songs) {
+                                    const hasMemoryAudio = !!(
+                                      song.audioData &&
+                                      song.audioData.byteLength > 0
+                                    );
+                                    const memorySize = hasMemoryAudio
+                                      ? song.audioData.byteLength
+                                      : 0;
+
+                                    // Check database directly
+                                    const db = await setupDB();
+                                    const dbSong = await db.get(
+                                      "songs",
+                                      song.id
+                                    );
+                                    const hasDbAudio = !!(
+                                      dbSong?.audioData &&
+                                      dbSong.audioData.byteLength > 0
+                                    );
+                                    const dbSize = hasDbAudio
+                                      ? dbSong!.audioData!.byteLength
+                                      : 0;
+
+                                    if (hasMemoryAudio) songsWithMemoryAudio++;
+                                    if (hasDbAudio) songsWithDbAudio++;
+                                    totalMemorySize += memorySize;
+                                    totalDbSize += dbSize;
+
+                                    console.log(`🎵 ${song.title}:`);
+                                    console.log(
+                                      `  Memory: ${hasMemoryAudio ? `${Math.round(memorySize / 1024)}KB` : "NO"}`
+                                    );
+                                    console.log(
+                                      `  Database: ${hasDbAudio ? `${Math.round(dbSize / 1024)}KB` : "NO"}`
+                                    );
+                                    console.log(
+                                      `  Path: ${song.standaloneFilePath || "NO"}`
+                                    );
+
+                                    if (hasDbAudio && !hasMemoryAudio) {
+                                      console.log(
+                                        `  ⚠️ MISMATCH: Has DB data but not in memory!`
+                                      );
+                                    }
+                                  }
+
+                                  console.log(`\n📊 SUMMARY:`);
+                                  console.log(
+                                    `Songs with memory audio: ${songsWithMemoryAudio}/${songs.length}`
+                                  );
+                                  console.log(
+                                    `Songs with DB audio: ${songsWithDbAudio}/${songs.length}`
+                                  );
+                                  console.log(
+                                    `Total memory size: ${Math.round(totalMemorySize / 1024 / 1024)}MB`
+                                  );
+                                  console.log(
+                                    `Total DB size: ${Math.round(totalDbSize / 1024 / 1024)}MB`
+                                  );
+                                }}
+                                class="p-2 text-gray-400 hover:text-yellow-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80"
+                                title="Debug IndexedDB state"
+                              >
+                                <svg
+                                  class="w-4 h-4"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                                  />
+                                </svg>
                               </button>
                             </Show>
 

@@ -32,54 +32,6 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 }
 
 /**
- * Load audio data for a song based on the current protocol
- */
-async function loadSongAudioData(
-  songData: any,
-  standaloneFilePath: string
-): Promise<{
-  audioData?: ArrayBuffer;
-  mimeType: string;
-}> {
-  let audioData: ArrayBuffer | undefined;
-  // Use the MIME type from the original song data, not server headers or file extension guessing
-  const mimeType = songData.mimeType || "audio/mpeg";
-
-  try {
-    // Check if we're using file:// protocol
-    if (window.location.protocol === "file:") {
-      // For file:// protocol, we'll skip loading audio data into IndexedDB
-      // and let the audio service handle file:// URLs directly
-      audioData = undefined;
-    } else {
-      // Use fetch for http/https URLs
-      const response = await fetch(standaloneFilePath);
-
-      if (response.ok) {
-        audioData = await response.arrayBuffer();
-      } else {
-        console.error(
-          `❌ Failed to fetch audio for ${songData.title}: ${response.status} ${response.statusText}`
-        );
-        console.error(`❌ Response headers:`, [...response.headers.entries()]);
-        console.warn(`⚠️ Continuing without audio data for ${songData.title}`);
-      }
-    }
-  } catch (error) {
-    console.error(`❌ Error loading audio for ${songData.title}:`, error);
-    console.error(
-      `❌ Error type: ${error instanceof Error ? error.constructor.name : typeof error}`
-    );
-    if (error instanceof TypeError) {
-      console.error(`❌ This might be a CORS or network error`);
-    }
-    console.warn(`⚠️ Continuing without audio data for ${songData.title}`);
-  }
-
-  return { audioData, mimeType };
-}
-
-/**
  * Create a song object from playlist data
  */
 function createSongFromData(
@@ -123,9 +75,16 @@ function createSongFromData(
 }
 
 /**
- * Validate that a song has valid audio data
+ * Validate that a song has valid audio data OR is properly set up for lazy loading
  */
 function hasValidAudioData(song: any): boolean {
+  // For lazy loading: song is valid if it has a standaloneFilePath (can be loaded on-demand)
+  // OR if it already has audioData
+  if (song.standaloneFilePath && song.mimeType) {
+    return true; // Valid for lazy loading
+  }
+
+  // Traditional validation: has actual audio data
   return !!(song.audioData && song.audioData.byteLength > 0 && song.mimeType);
 }
 
@@ -157,23 +116,20 @@ async function updateExistingData(
       !existingSong ||
       !hasValidAudioData(existingSong) ||
       existingSong.mimeType !== songData.mimeType ||
-      !existingSong.standaloneFilePath;
+      !existingSong.standaloneFilePath ||
+      existingSong.standaloneFilePath !== standaloneFilePath;
 
     if (needsReload) {
-      // Reload song completely (invalid, missing, or stale)
-      const { audioData, mimeType } = await loadSongAudioData(
-        songData,
-        standaloneFilePath
-      );
+      // Create song for lazy loading (no audio data initially)
       song = createSongFromData(
         songData,
         idx,
         existingPlaylist.id,
         standaloneFilePath,
-        audioData,
-        mimeType
+        undefined, // No audio data initially - lazy loading
+        songData.mimeType || "audio/mpeg"
       );
-      console.warn(`🔄 Reloading stale song: ${songData.title}`);
+      console.log(`🔄 Updating song metadata: ${songData.title}`);
     } else {
       // Keep existing valid song, just update metadata
       song = {
@@ -278,14 +234,14 @@ async function createNewPlaylist(
     const songData = playlistData.songs[i];
     const standaloneFilePath = `data/${songData.safeFilename || songData.originalFilename}`;
 
-    // Create song without audio data initially
+    // Create song without audio data initially for lazy loading
     const song = createSongFromData(
       songData,
       i,
       finalPlaylist.id,
       standaloneFilePath,
-      undefined, // No audio data initially
-      "audio/mpeg"
+      undefined, // No audio data initially - will be loaded on-demand
+      songData.mimeType || "audio/mpeg"
     );
 
     virtualSongs.push(song);
@@ -311,80 +267,9 @@ async function createNewPlaylist(
     });
   }
 
-  // Load first few songs with audio data immediately for quick playback
-  const immediateLoadCount = Math.min(3, playlistData.songs.length);
-  for (let i = 0; i < immediateLoadCount; i++) {
-    const songData = playlistData.songs[i];
-    setStandaloneLoadingProgress({
-      current: i + 1,
-      total: immediateLoadCount,
-      currentSong: songData.title,
-      phase: "initializing",
-    });
-
-    const standaloneFilePath = `data/${songData.safeFilename || songData.originalFilename}`;
-    const { audioData, mimeType } = await loadSongAudioData(
-      songData,
-      standaloneFilePath
-    );
-
-    if (audioData) {
-      // Update the existing song with audio data
-      const updatedSong: any = {
-        ...virtualSongs[i],
-        audioData,
-        mimeType,
-      };
-
-      await mutateAndNotify({
-        dbName: DB_NAME,
-        storeName: SONGS_STORE,
-        key: updatedSong.id,
-        updateFn: () => updatedSong,
-      });
-
-      virtualSongs[i] = updatedSong;
-    }
-  }
-
-  // Load remaining songs with audio data in background
-  if (playlistData.songs.length > immediateLoadCount) {
-    setTimeout(async () => {
-      for (let i = immediateLoadCount; i < playlistData.songs.length; i++) {
-        const songData = playlistData.songs[i];
-        setStandaloneLoadingProgress({
-          current: i + 1 - immediateLoadCount,
-          total: playlistData.songs.length - immediateLoadCount,
-          currentSong: songData.title,
-          phase: "updating",
-        });
-
-        const standaloneFilePath = `data/${songData.safeFilename || songData.originalFilename}`;
-        const { audioData, mimeType } = await loadSongAudioData(
-          songData,
-          standaloneFilePath
-        );
-
-        if (audioData) {
-          // Update the existing song with audio data
-          const updatedSong: any = {
-            ...virtualSongs[i],
-            audioData,
-            mimeType,
-          };
-
-          await mutateAndNotify({
-            dbName: DB_NAME,
-            storeName: SONGS_STORE,
-            key: updatedSong.id,
-            updateFn: () => updatedSong,
-          });
-        }
-      }
-
-      setStandaloneLoadingProgress(null);
-    }, 100);
-  }
+  // In lazy loading mode, we don't pre-load any audio data
+  // Songs will be loaded on-demand when played
+  console.log(`📦 Created ${playlistData.songs.length} songs for lazy loading`);
 
   return { playlist: finalPlaylist, songs: virtualSongs };
 }
@@ -482,15 +367,116 @@ export async function initializeStandalonePlaylist(
     callbacks.setSelectedPlaylist(finalPlaylist);
     callbacks.setPlaylistSongs(finalSongs);
 
-    // Auto-collapse sidebar when loading standalone playlist
-    callbacks.setSidebarCollapsed(true);
-
     // Clear loading progress (if not already cleared by background tasks)
     setTimeout(() => setStandaloneLoadingProgress(null), 500);
   } catch (err) {
     console.error("Error initializing standalone playlist:", err);
     callbacks.setError("Failed to load standalone playlist");
     setStandaloneLoadingProgress(null);
+  }
+}
+
+/**
+ * Load audio data on-demand for a standalone song
+ * Follows the same pattern as addSongToPlaylist but gets ArrayBuffer from network/file
+ */
+export async function loadStandaloneSongAudioData(
+  songId: string
+): Promise<boolean> {
+  try {
+    const db = await setupDB();
+    const song = await db.get(SONGS_STORE, songId);
+
+    if (!song) {
+      console.error(`Song ${songId} not found in database`);
+      return false;
+    }
+
+    // If song already has audio data, no need to load
+    if (song.audioData && song.audioData.byteLength > 0) {
+      return true;
+    }
+
+    // If no standalone file path, can't load
+    if (!song.standaloneFilePath) {
+      console.error(`Song ${songId} has no standalone file path`);
+      return false;
+    }
+
+    // Skip caching for file:// protocol - songs work directly from disk
+    if (window.location.protocol === "file:") {
+      return true; // Return success but don't actually cache
+    }
+
+    // For http/https, actually cache the audio data
+    const response = await fetch(song.standaloneFilePath);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch: ${response.status} ${response.statusText}`
+      );
+    }
+    const audioData = await response.arrayBuffer();
+
+    // Store in IndexedDB using the same pattern as addSongToPlaylist
+    const updatedSong = {
+      ...song,
+      audioData, // Store audio as ArrayBuffer
+      mimeType: song.mimeType || "audio/mpeg", // Ensure mimeType is set
+      updatedAt: Date.now(),
+    };
+
+    await mutateAndNotify({
+      dbName: DB_NAME,
+      storeName: SONGS_STORE,
+      key: songId,
+      updateFn: () => updatedSong,
+    });
+
+    return true;
+  } catch (error) {
+    console.error(
+      `Error loading standalone song audio data for ${songId}:`,
+      error
+    );
+    return false;
+  }
+}
+
+/**
+ * Check if a song needs audio data to be loaded
+ */
+export async function songNeedsAudioData(song: any): Promise<boolean> {
+  // If no standalone file path, can't do on-demand loading
+  if (!song.standaloneFilePath) {
+    return false;
+  }
+
+  // Check the database directly for the most up-to-date audio data
+  try {
+    const db = await setupDB();
+    const dbSong = await db.get(SONGS_STORE, song.id);
+
+    if (!dbSong) {
+      return false;
+    }
+
+    // Skip caching check for file:// protocol - always return false (no caching needed)
+    if (window.location.protocol === "file:") {
+      return false;
+    }
+
+    // For http/https, check if it has actual audio data
+    return !dbSong.audioData || dbSong.audioData.byteLength === 0;
+  } catch (error) {
+    console.error(
+      `Error checking song audio data status for ${song.id}:`,
+      error
+    );
+    // Fallback to checking the in-memory song object
+    return !!(
+      song.standaloneFilePath &&
+      (!song.audioData || song.audioData.byteLength === 0)
+    );
   }
 }
 
