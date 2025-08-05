@@ -129,7 +129,6 @@ async function updateExistingData(
         undefined, // No audio data initially - lazy loading
         songData.mimeType || "audio/mpeg"
       );
-      console.log(`🔄 Updating song metadata: ${songData.title}`);
     } else {
       // Keep existing valid song, just update metadata
       song = {
@@ -269,7 +268,6 @@ async function createNewPlaylist(
 
   // In lazy loading mode, we don't pre-load any audio data
   // Songs will be loaded on-demand when played
-  console.log(`📦 Created ${playlistData.songs.length} songs for lazy loading`);
 
   return { playlist: finalPlaylist, songs: virtualSongs };
 }

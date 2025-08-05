@@ -915,8 +915,9 @@ export function Playlistz() {
           `Cached ${cached} of ${totalSongs} songs (${failed} failed)`
         );
       } else if (cached > 0) {
-        // log success
-        console.log(`Successfully cached ${cached} songs for offline use`);
+        // Show success message briefly
+        setError(`Successfully cached ${cached} songs for offline use`);
+        setTimeout(() => setError(null), 3000);
       }
     } catch (err) {
       setError("Failed to cache playlist for offline use");
@@ -1219,99 +1220,6 @@ export function Playlistz() {
                                     />
                                   </svg>
                                 </Show>
-                              </button>
-                            </Show>
-
-                            {/* Debug button for checking IndexedDB state */}
-                            <Show when={(window as any).STANDALONE_MODE}>
-                              <button
-                                onClick={async () => {
-                                  const songs = playlistSongs();
-                                  console.log(
-                                    `🔍 Debug: ${songs.length} songs in playlist`
-                                  );
-
-                                  let totalMemorySize = 0;
-                                  let totalDbSize = 0;
-                                  let songsWithMemoryAudio = 0;
-                                  let songsWithDbAudio = 0;
-
-                                  for (const song of songs) {
-                                    const hasMemoryAudio = !!(
-                                      song.audioData &&
-                                      song.audioData.byteLength > 0
-                                    );
-                                    const memorySize = hasMemoryAudio
-                                      ? song.audioData.byteLength
-                                      : 0;
-
-                                    // Check database directly
-                                    const db = await setupDB();
-                                    const dbSong = await db.get(
-                                      "songs",
-                                      song.id
-                                    );
-                                    const hasDbAudio = !!(
-                                      dbSong?.audioData &&
-                                      dbSong.audioData.byteLength > 0
-                                    );
-                                    const dbSize = hasDbAudio
-                                      ? dbSong!.audioData!.byteLength
-                                      : 0;
-
-                                    if (hasMemoryAudio) songsWithMemoryAudio++;
-                                    if (hasDbAudio) songsWithDbAudio++;
-                                    totalMemorySize += memorySize;
-                                    totalDbSize += dbSize;
-
-                                    console.log(`🎵 ${song.title}:`);
-                                    console.log(
-                                      `  Memory: ${hasMemoryAudio ? `${Math.round(memorySize / 1024)}KB` : "NO"}`
-                                    );
-                                    console.log(
-                                      `  Database: ${hasDbAudio ? `${Math.round(dbSize / 1024)}KB` : "NO"}`
-                                    );
-                                    console.log(
-                                      `  Path: ${song.standaloneFilePath || "NO"}`
-                                    );
-
-                                    if (hasDbAudio && !hasMemoryAudio) {
-                                      console.log(
-                                        `  ⚠️ MISMATCH: Has DB data but not in memory!`
-                                      );
-                                    }
-                                  }
-
-                                  console.log(`\n📊 SUMMARY:`);
-                                  console.log(
-                                    `Songs with memory audio: ${songsWithMemoryAudio}/${songs.length}`
-                                  );
-                                  console.log(
-                                    `Songs with DB audio: ${songsWithDbAudio}/${songs.length}`
-                                  );
-                                  console.log(
-                                    `Total memory size: ${Math.round(totalMemorySize / 1024 / 1024)}MB`
-                                  );
-                                  console.log(
-                                    `Total DB size: ${Math.round(totalDbSize / 1024 / 1024)}MB`
-                                  );
-                                }}
-                                class="p-2 text-gray-400 hover:text-yellow-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80"
-                                title="Debug IndexedDB state"
-                              >
-                                <svg
-                                  class="w-4 h-4"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"
-                                  />
-                                </svg>
                               </button>
                             </Show>
 
