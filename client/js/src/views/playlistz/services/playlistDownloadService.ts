@@ -266,8 +266,6 @@ export async function parsePlaylistZip(file: File): Promise<{
     const zip = new JSZip();
     const zipContent = await zip.loadAsync(file);
 
-    console.log("🔍 All files in ZIP:", Object.keys(zipContent.files));
-
     let playlistInfo: any = null;
     let playlistImageData: ArrayBuffer | undefined;
     let playlistImageType: string | undefined;
@@ -343,10 +341,6 @@ export async function parsePlaylistZip(file: File): Promise<{
     if (songFiles.length === 0) {
       songFiles = zipContent.file(/^[^/]+\.(mp3|m4a|wav|flac|ogg|webm)$/i);
     }
-    console.log(
-      "🔍 Found song files in ZIP:",
-      songFiles.map((f) => f.name)
-    );
 
     for (const songFile of songFiles) {
       const audioData = await songFile.async("arraybuffer");

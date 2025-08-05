@@ -107,8 +107,6 @@ function generatePWAManifest(): void {
     }
     existingMeta.setAttribute("content", content);
   });
-
-  console.log("✅ PWA manifest generated and registered");
 }
 
 /**
@@ -126,22 +124,14 @@ async function registerServiceWorker(): Promise<boolean> {
       // Service worker is always at ./sw.js (now at root level in both modes)
       const swPath = "./sw.js";
 
-      console.log("🔄 Registering service worker:", swPath);
-      console.log("🔍 Current URL:", window.location.href);
-      console.log("🔍 STANDALONE_MODE:", (window as any).STANDALONE_MODE);
-
       const registration = await navigator.serviceWorker.register(swPath);
-      console.log("✅ Service worker registered:", registration);
-
       await navigator.serviceWorker.ready;
-      console.log("✅ Service worker ready");
 
       setServiceWorkerReady(true);
 
       // Listen for service worker messages
       navigator.serviceWorker.addEventListener("message", (event) => {
-        const { type, data } = event.data;
-        console.log("📨 Message from SW:", type, data);
+        const { type } = event.data;
 
         if (type === "SW_READY") {
           // SW is now controlling the page, cache it
@@ -151,15 +141,13 @@ async function registerServiceWorker(): Promise<boolean> {
 
       // Listen for SW state changes
       registration.addEventListener("updatefound", () => {
-        console.log("🔄 Service worker update found");
+        // Service worker update found
       });
 
       // Check if SW is already controlling and cache page if so
       if (navigator.serviceWorker.controller) {
-        console.log("✅ Service worker is already controlling this page");
         cacheCurrentPage();
       } else {
-        console.log("⚠️ Service worker registered but not controlling yet");
         // Send message to SW to take control
         const newWorker =
           registration.active ||
@@ -189,14 +177,7 @@ async function cacheCurrentPage(): Promise<void> {
     // Check if already cached
     const cached = await cache.match(currentUrl);
     if (!cached) {
-      console.log(
-        "💾 Auto-caching current page for offline access:",
-        currentUrl
-      );
       await cache.add(currentUrl);
-      console.log("✅ Page cached successfully");
-    } else {
-      console.log("✅ Page already cached");
     }
   } catch (error) {
     console.warn("⚠️ Failed to auto-cache page:", error);
@@ -232,7 +213,6 @@ export async function cacheAudioFile(
     // Fallback to direct cache API
     const cache = await caches.open(CACHE_NAME);
     await cache.add(url);
-    console.log(`✅ Cached audio file: ${title}`);
   } catch (error) {
     console.error(`❌ Failed to cache audio file ${title}:`, error);
     throw error;
@@ -243,13 +223,10 @@ export async function cacheAudioFile(
  * Initialize offline support
  */
 export async function initializeOfflineSupport(): Promise<void> {
-  console.log("🔄 Initializing offline support...");
-
   // Set up online/offline listeners
   const updateOnlineStatus = () => {
     const online = navigator.onLine;
     setIsOnline(online);
-    console.log(`📡 Connection status: ${online ? "online" : "offline"}`);
   };
 
   window.addEventListener("online", updateOnlineStatus);
@@ -263,8 +240,6 @@ export async function initializeOfflineSupport(): Promise<void> {
 
   // Register service worker asynchronously (don't block initialization)
   registerServiceWorker();
-
-  console.log("✅ Offline support initialized");
 }
 
 /**
@@ -347,7 +322,6 @@ export async function clearCache(): Promise<void> {
           return caches.delete(cacheName);
         })
       );
-      console.log("✅ All caches cleared");
     }
   } catch (error) {
     console.error("❌ Error clearing cache:", error);
@@ -377,97 +351,6 @@ export async function getCacheStatus(): Promise<any> {
     };
   } catch (error) {
     console.error("❌ Error getting cache status:", error);
-    return { error: error.message };
+    return { error: error instanceof Error ? error.message : String(error) };
   }
-}
-
-/**
- * Debug cache contents - useful for troubleshooting
- */
-export async function debugCache(): Promise<void> {
-  try {
-    console.log("🔍 DEBUG: Cache debugging started");
-
-    if (!("caches" in window)) {
-      console.log("❌ DEBUG: Cache API not supported");
-      return;
-    }
-
-    const cacheNames = await caches.keys();
-    console.log("📂 DEBUG: Available caches:", cacheNames);
-
-    for (const cacheName of cacheNames) {
-      const cache = await caches.open(cacheName);
-      const keys = await cache.keys();
-      console.log(
-        `📦 DEBUG: Cache "${cacheName}" contains ${keys.length} items:`
-      );
-
-      keys.forEach((request, index) => {
-        console.log(`  ${index + 1}. ${request.url}`);
-      });
-    }
-
-    console.log("🔍 DEBUG: Service Worker status:");
-    console.log("  - SW supported:", "serviceWorker" in navigator);
-    console.log("  - SW ready:", serviceWorkerReady());
-    console.log("  - SW controller:", !!navigator.serviceWorker?.controller);
-    console.log("  - Online:", isOnline());
-    console.log("  - Persistent storage:", persistentStorageGranted());
-
-    console.log("✅ DEBUG: Cache debugging complete");
-  } catch (error) {
-    console.error("❌ DEBUG: Error debugging cache:", error);
-  }
-}
-
-// Make debug functions available on window for easy testing
-if (typeof window !== "undefined") {
-  (window as any).debugPlaylistzCache = debugCache;
-  (window as any).testCacheNow = async () => {
-    try {
-      console.log("🧪 Testing cache manually...");
-      console.log("🔍 Cache API available:", "caches" in window);
-      console.log("🔍 Service Worker available:", "serviceWorker" in navigator);
-      console.log("🔍 Protocol:", window.location.protocol);
-
-      if (!("caches" in window)) {
-        console.error("❌ Cache API not available in this context");
-        return false;
-      }
-
-      const cache = await caches.open(CACHE_NAME);
-      const currentUrl = window.location.href;
-
-      // Try to cache current page
-      console.log("💾 Manually caching current page:", currentUrl);
-      await cache.add(currentUrl);
-      console.log("✅ Manual cache successful");
-
-      // Check what's cached
-      const keys = await cache.keys();
-      console.log("📦 Cache now contains:", keys.length, "items");
-      keys.forEach((req, i) => console.log(`  ${i + 1}. ${req.url}`));
-
-      return true;
-    } catch (error) {
-      console.error("❌ Manual cache test failed:", error);
-      return false;
-    }
-  };
-  (window as any).checkCacheSupport = () => {
-    console.log("🔍 Cache API support check:");
-    console.log("  - caches in window:", "caches" in window);
-    console.log(
-      "  - serviceWorker in navigator:",
-      "serviceWorker" in navigator
-    );
-    console.log("  - protocol:", window.location.protocol);
-    console.log("  - secure context:", window.isSecureContext);
-    console.log("  - SW controller:", !!navigator.serviceWorker?.controller);
-    console.log("  - SW ready:", serviceWorkerReady());
-  };
-  console.log(
-    "🔧 Debug functions available: debugPlaylistzCache(), testCacheNow(), checkCacheSupport()"
-  );
 }

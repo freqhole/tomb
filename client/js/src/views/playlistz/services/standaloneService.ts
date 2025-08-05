@@ -16,8 +16,8 @@ const [standaloneLoadingProgress, setStandaloneLoadingProgress] = createSignal<{
   phase: "initializing" | "checking" | "updating" | "complete";
 } | null>(null);
 
-// Export the signal for UI components to use
-export { standaloneLoadingProgress };
+// Export the signal and setter for UI components to use
+export { standaloneLoadingProgress, setStandaloneLoadingProgress };
 
 /**
  * Helper function to convert base64 to ArrayBuffer

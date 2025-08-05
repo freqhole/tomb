@@ -51,6 +51,7 @@ import {
   clearStandaloneLoadingProgress,
   loadStandaloneSongAudioData,
   songNeedsAudioData,
+  setStandaloneLoadingProgress,
 } from "../services/standaloneService.js";
 import {
   initializeOfflineSupport,
@@ -259,7 +260,7 @@ export function Playlistz() {
 
       setIsInitialized(true);
 
-      // Set up responsive behavior
+      // Set up responsive beh avior
       const checkMobile = () => {
         const mobile = window.innerWidth < 900;
         setIsMobile(mobile);
@@ -851,6 +852,15 @@ export function Playlistz() {
     if (!playlist || songs.length === 0) return;
 
     setIsCaching(true);
+
+    // Show loading progress
+    setStandaloneLoadingProgress({
+      current: 0,
+      total: songs.length,
+      currentSong: "preparing...",
+      phase: "checking",
+    });
+
     try {
       let cached = 0;
       let failed = 0;
@@ -859,6 +869,14 @@ export function Playlistz() {
 
       for (let i = 0; i < songs.length; i++) {
         const song = songs[i];
+
+        // Update progress
+        setStandaloneLoadingProgress({
+          current: i + 1,
+          total: totalSongs,
+          currentSong: song.title,
+          phase: "updating",
+        });
 
         // First, check if this is a standalone song that needs audio data loading
         if (await songNeedsAudioData(song)) {
@@ -925,6 +943,8 @@ export function Playlistz() {
       setError("Failed to cache playlist for offline use");
     } finally {
       setIsCaching(false);
+      // Clear loading progress
+      setTimeout(() => setStandaloneLoadingProgress(null), 500);
     }
   };
 
@@ -1226,10 +1246,10 @@ export function Playlistz() {
                                 class="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
                                 title={
                                   allSongsCached()
-                                    ? "All songs are already cached"
+                                    ? "all songs are downloaded!"
                                     : (window as any).STANDALONE_MODE
-                                      ? "Load and cache all songs for offline use"
-                                      : "Cache playlist for offline use"
+                                      ? "load and cache all songs for offline use"
+                                      : "cache playlist for offline use"
                                 }
                               >
                                 <Show
