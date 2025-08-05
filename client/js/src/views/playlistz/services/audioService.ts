@@ -598,6 +598,7 @@ export async function playNext(): Promise<void> {
   const nextSong = queue[nextIndex];
   if (nextSong) {
     setCurrentIndex(nextIndex);
+    setSelectedSongId(nextSong.id);
     await playSong(nextSong, currentPlaylist() || undefined);
   }
 }
@@ -616,6 +617,7 @@ export async function playPrevious(): Promise<void> {
 
   if (prevSong) {
     setCurrentIndex(prevIndex);
+    setSelectedSongId(prevSong.id);
     await playSong(prevSong, currentPlaylist() || undefined);
   }
 }
