@@ -185,17 +185,8 @@ export function SongRow(props: SongRowProps) {
               onDrop={handleDrop}
               onMouseEnter={() => !isMobile() && setIsHovered(true)}
               onMouseLeave={() => !isMobile() && setIsHovered(false)}
-              onClick={handlePlayPause}
-              onDblClick={
-                !isMobile()
-                  ? () => {
-                      const songData = song();
-                      if (songData && !isCurrentlyPlaying()) {
-                        props.onPlay?.(songData);
-                      }
-                    }
-                  : undefined
-              }
+              onClick={isMobile() ? handlePlayPause : undefined}
+              onDblClick={isMobile() ? undefined : handlePlayPause}
               style={{ "-webkit-tap-highlight-color": "transparent" }}
             >
               {/* Progress background */}
