@@ -79,7 +79,7 @@ function initializeAudio(): HTMLAudioElement {
     setIsPlaying(false);
     setIsLoading(false);
     // Clear all loading songs on audio error
-    setLoadingSongIds(new Set());
+    setLoadingSongIds(new Set<string>());
     updatePageTitle();
   });
 

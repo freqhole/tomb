@@ -307,59 +307,66 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
       {/* Footer with stats */}
       <div class="p-4 bg-gray-900 bg-opacity-30">
         <div class="text-xs text-gray-400 space-y-1">
-          {/* First row: playlists, songs, filtered */}
-          <div class="grid grid-cols-3 gap-2">
-            <div class="text-center">
-              <div class="text-magenta-400 font-mono font-semibold">
-                {props.playlists.length}
-              </div>
-              <div>playlistz</div>
-            </div>
-            <div class="text-center">
-              <div class="text-magenta-400 font-mono font-semibold">
-                {props.playlists.reduce(
-                  (total, playlist) => total + (playlist.songIds?.length || 0),
-                  0
-                )}
-              </div>
-              <div>songz</div>
-            </div>
-            <Show
-              when={searchQuery()}
-              fallback={
-                <Show
-                  when={
-                    persistentStorageGranted() && storageInfo().usageFormatted
-                  }
-                >
-                  <div class="text-center">
-                    <div class="text-magenta-400 font-mono font-semibold text-[10px]">
-                      {storageInfo().usagePercent}%
-                    </div>
-                    <div>storage</div>
-                  </div>
-                </Show>
-              }
+          {/* First row: playlists, songs */}
+          <Show when={!searchQuery()}>
+            <div
+              class={`grid gap-2 ${
+                persistentStorageGranted() &&
+                storageInfo().usageFormatted &&
+                !searchQuery()
+                  ? "grid-cols-3"
+                  : "grid-cols-2"
+              }`}
             >
               <div class="text-center">
                 <div class="text-magenta-400 font-mono font-semibold">
-                  {filteredPlaylists().length}
+                  {props.playlists.length}
                 </div>
-                <div>filtered</div>
+                <div>playlistz</div>
               </div>
-            </Show>
-          </div>
+              <div class="text-center">
+                <div class="text-magenta-400 font-mono font-semibold">
+                  {props.playlists.reduce(
+                    (total, playlist) =>
+                      total + (playlist.songIds?.length || 0),
+                    0
+                  )}
+                </div>
+                <div>songz</div>
+              </div>
+              <Show
+                when={
+                  persistentStorageGranted() && storageInfo().usageFormatted
+                }
+              >
+                <div class="text-center">
+                  <div class="text-magenta-400 font-mono font-semibold text-[10px]">
+                    {storageInfo().usagePercent}%
+                  </div>
+                  <div>storage</div>
+                </div>
+              </Show>
+            </div>
+          </Show>
 
-          {/* Second row: storage details (only when persistent storage available) */}
+          {/* Second row: storage details or search results */}
           <Show
-            when={
-              persistentStorageGranted() &&
-              storageInfo().usageFormatted &&
-              !searchQuery()
+            when={searchQuery()}
+            fallback={
+              <Show
+                when={
+                  persistentStorageGranted() && storageInfo().usageFormatted
+                }
+              >
+                <div class="text-center text-[10px] text-gray-500">
+                  {storageInfo().usageFormatted} /{" "}
+                  {storageInfo().quotaFormatted}
+                </div>
+              </Show>
             }
           >
             <div class="text-center text-[10px] text-gray-500">
-              {storageInfo().usageFormatted} / {storageInfo().quotaFormatted}
+              {filteredPlaylists().length} filtered
             </div>
           </Show>
         </div>

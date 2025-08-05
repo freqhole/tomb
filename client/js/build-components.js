@@ -147,6 +147,13 @@ function generateHtmlTemplate(elementName, jsCode, cssCode) {
       background-color: black;
       color: white;
     }
+    /* Ensure proper text wrapping */
+    .break-words {
+      word-wrap: break-word;
+      word-break: break-word;
+      overflow-wrap: break-word;
+      hyphens: auto;
+    }
     ${cssCode || ""}
   </style>
 </head>

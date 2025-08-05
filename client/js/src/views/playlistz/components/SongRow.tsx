@@ -306,7 +306,7 @@ export function SongRow(props: SongRowProps) {
                 {/* Song info */}
                 <div class="flex-1 min-w-0 text-lg">
                   <div
-                    class={` ${
+                    class={`break-words ${
                       isCurrentlyPlaying() || isCurrentlySelected()
                         ? "text-magenta-200"
                         : "text-white"
@@ -315,7 +315,7 @@ export function SongRow(props: SongRowProps) {
                     {songData().title}
                   </div>
                   <div
-                    class={`text-sm truncate ${
+                    class={`text-sm break-words ${
                       isCurrentlyPlaying() || isCurrentlySelected()
                         ? "text-magenta-200"
                         : "text-white"
