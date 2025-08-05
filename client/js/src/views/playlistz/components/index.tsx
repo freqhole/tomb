@@ -927,7 +927,9 @@ export function Playlistz() {
   };
 
   return (
-    <div class="relative h-screen bg-black text-white overflow-hidden">
+    <div
+      class={`relative bg-black text-white ${isMobile() ? "min-h-screen" : "h-screen overflow-hidden"}`}
+    >
       {/* Dynamic background image */}
       <Show when={backgroundImageUrl()}>
         <div
@@ -1013,10 +1015,13 @@ export function Playlistz() {
         }
       >
         {/* Main content with sidebar layout */}
-        <div class="relative flex h-full" style={{ "z-index": "2" }}>
+        <div
+          class={`relative flex ${isMobile() ? "min-h-screen" : "h-full"}`}
+          style={{ "z-index": "2" }}
+        >
           {/* Left Sidebar */}
           <div
-            class={`transition-all duration-300 ease-out overflow-hidden ${
+            class={`transition-all duration-300 ease-out ${isMobile() ? "" : "overflow-hidden"} ${
               sidebarCollapsed()
                 ? "w-0 opacity-0"
                 : isMobile()
@@ -1050,12 +1055,12 @@ export function Playlistz() {
 
           {/* Main Content Area */}
           <div
-            class={`${isMobile() && !sidebarCollapsed() ? "hidden" : "flex-1"} flex flex-col h-full`}
+            class={`${isMobile() && !sidebarCollapsed() ? "hidden" : "flex-1"} flex flex-col ${isMobile() ? "" : "h-full"}`}
           >
             <Show when={selectedPlaylist()}>
               {(playlist) => (
                 <div
-                  class={`flex-1 flex flex-col h-full ${isMobile() ? "p-2" : "p-6"}`}
+                  class={`flex-1 flex flex-col ${isMobile() ? "p-2" : "h-full p-6"}`}
                 >
                   {/* Playlist Header */}
                   <div
@@ -1355,7 +1360,9 @@ export function Playlistz() {
                   </div>
 
                   {/* Songs List */}
-                  <div class="flex-1 overflow-y-auto">
+                  <div
+                    class={`${isMobile() ? "flex-1" : "flex-1 overflow-y-auto"}`}
+                  >
                     <div
                       class={`${isMobile() ? "space-y-1" : "p-6 space-y-2"}`}
                     >
