@@ -203,13 +203,10 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
           </button>
         </div>
 
-        {/* Content */}
+        {/* content */}
         <div class="p-6 space-y-6">
-          {/* Current Cover Preview */}
+          {/* current cover preview */}
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-3">
-              cover image
-            </label>
             <div class="w-48 h-48 mx-auto overflow-hidden bg-gray-700 flex items-center justify-center">
               <Show
                 when={selectedImageUrl()}
@@ -287,9 +284,6 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
           {/* songz with album art preview */}
           <Show when={songsWithArt.length > 0}>
             <div>
-              <label class="block text-sm font-medium text-gray-300 mb-3">
-                available album art
-              </label>
               <div class="grid grid-cols-4 gap-3">
                 {songsWithArt.slice(0, 8).map((song) => (
                   <button
