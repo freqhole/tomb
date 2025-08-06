@@ -1269,7 +1269,7 @@ export function Playlistz() {
                                   disabled={
                                     isCaching() || playlistSongs().length === 0
                                   }
-                                  class="p-2 text-gray-400 hover:text-magenta-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  class="ml-4 p-2 text-gray-400 hover:text-magenta-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
                                   title="download songz for offline use"
                                 >
                                   <Show
@@ -1298,7 +1298,7 @@ export function Playlistz() {
                           </div>
 
                           <div
-                            class={`flex items-center gap-4 text-sm ${isMobile() ? "flex-wrap justify-center" : ""}`}
+                            class={`flex items-center text-sm ${isMobile() ? "flex-wrap justify-end" : ""}`}
                           >
                             <span class="bg-black bg-opacity-80 p-2">
                               {playlist().songIds?.length || 0} song
