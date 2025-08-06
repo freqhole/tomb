@@ -58,9 +58,14 @@ export function SongRow(props: SongRowProps) {
     return audioState.selectedSongId() === props.songId;
   };
 
-  // Track if this song is currently loading
+  // Track if this song is currently loading or being preloaded
   const isCurrentlyLoading = () => {
     return audioState.loadingSongIds().has(props.songId);
+  };
+
+  // Track if this song is being preloaded
+  const isPreloading = () => {
+    return audioState.preloadingSongId() === props.songId;
   };
 
   const formatDuration = (seconds: number | undefined) => {
@@ -252,11 +257,13 @@ export function SongRow(props: SongRowProps) {
                     })()}
                   </Show>
 
-                  {/* Loading overlay - always show when loading, highest priority */}
-                  <Show when={isCurrentlyLoading()}>
+                  {/* Loading overlay - show when loading or preloading */}
+                  <Show when={isCurrentlyLoading() || isPreloading()}>
                     <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
                       <svg
-                        class="w-4 h-4 animate-spin text-magenta-300"
+                        class={`w-4 h-4 animate-spin ${
+                          isPreloading() ? "text-gray-400" : "text-magenta-300"
+                        }`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -271,9 +278,14 @@ export function SongRow(props: SongRowProps) {
                     </div>
                   </Show>
 
-                  {/* Play/Pause overlay - only show when not loading */}
+                  {/* Play/Pause overlay - only show when not loading or preloading */}
                   <Show
-                    when={!isCurrentlyLoading() && isHovered() && !isMobile()}
+                    when={
+                      !isCurrentlyLoading() &&
+                      !isPreloading() &&
+                      isHovered() &&
+                      !isMobile()
+                    }
                   >
                     <button
                       onClick={handlePlayPause}

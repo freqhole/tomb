@@ -25,6 +25,10 @@ const [loadingSongIds, setLoadingSongIds] = createSignal<Set<string>>(
   new Set()
 );
 const [selectedSongId, setSelectedSongId] = createSignal<string | null>(null);
+const [preloadingSongId, setPreloadingSongId] = createSignal<string | null>(
+  null
+);
+let hasTriggeredPreload = false;
 const [repeatMode, setRepeatMode] = createSignal<"none" | "one" | "all">(
   "none"
 );
@@ -59,10 +63,22 @@ function initializeAudio(): HTMLAudioElement {
   audioElement.addEventListener("timeupdate", () => {
     const newCurrentTime = audioElement?.currentTime || 0;
     setCurrentTime(newCurrentTime);
+
+    // Check for preloading next song at halfway point
+    const duration = audioElement?.duration || 0;
+    if (
+      duration > 0 &&
+      newCurrentTime / duration >= 0.5 &&
+      !hasTriggeredPreload
+    ) {
+      hasTriggeredPreload = true;
+      preloadNextSong();
+    }
   });
 
   audioElement.addEventListener("play", () => {
     setIsPlaying(true);
+    hasTriggeredPreload = false; // Reset preload flag for new song
     updateMediaSession();
   });
   audioElement.addEventListener("pause", () => {
@@ -405,6 +421,11 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
   try {
     // Add this song to loading set
     setLoadingSongIds((prev) => new Set([...prev, song.id]));
+
+    // Clear preloading state if this song was being preloaded
+    if (preloadingSongId() === song.id) {
+      setPreloadingSongId(null);
+    }
 
     // Clean up previous URL if exists
     if (audio.src && audio.src.startsWith("blob:")) {
@@ -775,6 +796,7 @@ export const audioState = {
   isLoading,
   loadingSongIds,
   selectedSongId,
+  preloadingSongId,
   repeatMode,
   isShuffled,
 };
@@ -825,6 +847,58 @@ export function getSupportedFormats(): string[] {
   ];
 
   return formats.filter((format) => audio.canPlayType(format) !== "");
+}
+
+// Helper to preload next song in background
+async function preloadNextSong(): Promise<void> {
+  const queue = playlistQueue();
+  const currentIdx = currentIndex();
+
+  if (queue.length === 0 || currentIdx < 0) return;
+
+  const nextIndex = currentIdx + 1;
+  if (nextIndex >= queue.length) return; // No next song
+
+  const nextSong = queue[nextIndex];
+  if (!nextSong) return;
+
+  // Don't preload if already loading or preloaded
+  if (loadingSongIds().has(nextSong.id) || preloadingSongId() === nextSong.id) {
+    return;
+  }
+
+  setPreloadingSongId(nextSong.id);
+  setLoadingSongIds((prev) => new Set([...prev, nextSong.id]));
+
+  try {
+    // Check if song already has cached audio data
+    const cachedURL = await loadSongAudioData(nextSong.id);
+    if (cachedURL) {
+      setLoadingSongIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(nextSong.id);
+        return newSet;
+      });
+      setPreloadingSongId(null);
+      return;
+    }
+
+    // Load and cache the song data
+    if ((nextSong as any).standaloneFilePath) {
+      const needsData = await songNeedsAudioData(nextSong);
+      if (needsData) {
+        await loadStandaloneSongAudioData(nextSong.id);
+      }
+    }
+  } catch (error) {
+  } finally {
+    setLoadingSongIds((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(nextSong.id);
+      return newSet;
+    });
+    setPreloadingSongId(null);
+  }
 }
 
 // Helper to select a song to play (sets immediate UI feedback)
