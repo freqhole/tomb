@@ -998,9 +998,7 @@ export function Playlistz() {
             <div class="flex items-center gap-4">
               <div class="w-1/2">
                 <div class="flex items-center justify-between text-xs text-gray-300 mb-1">
-                  <span class="capitalize">
-                    {standaloneLoadingProgress()!.phase}
-                  </span>
+                  <span>{standaloneLoadingProgress()!.phase}</span>
                   <span>
                     {standaloneLoadingProgress()!.current} /{" "}
                     {standaloneLoadingProgress()!.total}
@@ -1300,15 +1298,15 @@ export function Playlistz() {
                           </div>
 
                           <div
-                            class={`flex items-center gap-4 text-sm text-magenta-500 p-2 ${isMobile() ? "flex-wrap justify-center" : ""}`}
+                            class={`flex items-center gap-4 text-sm ${isMobile() ? "flex-wrap justify-center" : ""}`}
                           >
-                            <span class="bg-black bg-opacity-80">
+                            <span class="bg-black bg-opacity-80 p-2">
                               {playlist().songIds?.length || 0} song
                               {(playlist().songIds?.length || 0) !== 1
                                 ? "z"
                                 : ""}
                             </span>
-                            <span class="bg-black bg-opacity-80">
+                            <span class="bg-black bg-opacity-80 p-2">
                               {(() => {
                                 const totalSeconds = playlistSongs().reduce(
                                   (total, song) => total + (song.duration || 0),
