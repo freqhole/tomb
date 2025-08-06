@@ -62,18 +62,16 @@ import {
 
 import type { Playlist } from "../types/playlist.js";
 
-// Global function registration for standalone mode (happens immediately)
-// Global standalone mode detection and initialization
+// global fn registration for standalone mode
 if ((window as any).STANDALONE_MODE) {
-  // Define the function early so it's available for HTML initialization
+  // define the fn early so it's available for HTML initialization
   (window as any).initializeStandalonePlaylist = function (playlistData: any) {
-    // Store the data and defer to the real function when it's ready
+    // store the data and defer to the real function when it's ready
     (window as any).DEFERRED_PLAYLIST_DATA = playlistData;
   };
 }
 
 export function Playlistz() {
-  // State
   const [selectedPlaylist, setSelectedPlaylist] = createSignal<Playlist | null>(
     null
   );
@@ -98,16 +96,15 @@ export function Playlistz() {
   const [isCaching, setIsCaching] = createSignal(false);
   const [allSongsCached, setAllSongsCached] = createSignal(false);
 
-  // Direct signal subscription approach (bypass hook)
   const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
 
-  // Create and subscribe to query directly in component
+  // create and subscribe to query directly in component
   onMount(() => {
     const playlistQuery = createPlaylistsQuery();
     const unsubscribe = playlistQuery.subscribe((value) => {
-      setPlaylists([...value]); // Force new array reference
+      setPlaylists([...value]); // force new array reference
 
-      // Update selected playlist if it exists in the new data
+      // update selected playlist if it existz in the new data
       const current = selectedPlaylist();
       if (current) {
         const updated = value.find((p) => p.id === current.id);
@@ -123,7 +120,7 @@ export function Playlistz() {
     onCleanup(unsubscribe);
   });
 
-  // Load playlist songs when selected playlist changes
+  // load playlist songz when selected playlist changez
   createEffect(async () => {
     const playlist = selectedPlaylist();
     if (playlist && playlist.songIds.length > 0) {
@@ -134,17 +131,17 @@ export function Playlistz() {
         );
         setPlaylistSongs(songs);
       } catch (err) {
-        console.error("Error loading playlist songs:", err);
+        console.error("error loading playlist songz:", err);
       }
     } else {
       setPlaylistSongs([]);
     }
   });
 
-  // Cache for background image URLs to avoid recreating them
+  // cache for background image URLz to avoid recreating them
   const [imageUrlCache] = createSignal(new Map<string, string>());
 
-  // Update background image based on currently playing song or selected playlist
+  // update background image based on currently playing song or selected playlist
   createEffect(() => {
     const currentSong = audioState.currentSong();
     const currentPlaylist = audioState.currentPlaylist();
@@ -154,7 +151,7 @@ export function Playlistz() {
     let newImageUrl: string | null = null;
     let cacheKey: string | null = null;
 
-    // Priority 1: Use song's image if available (when playing)
+    // priority 1: use song's image if available (when playing)
     if (currentSong?.imageType) {
       cacheKey = `song-${currentSong.id}`;
       if (cache.has(cacheKey)) {
@@ -171,7 +168,7 @@ export function Playlistz() {
         }
       }
     }
-    // Priority 2: Use current playlist's image if song has no image (when playing)
+    // priority 2: use current playlist's image if song has no image (when playing)
     else if (currentSong && currentPlaylist?.imageType) {
       cacheKey = `playlist-${currentPlaylist.id}`;
       if (cache.has(cacheKey)) {
@@ -188,7 +185,7 @@ export function Playlistz() {
         }
       }
     }
-    // Priority 3: Use selected playlist's image (when not playing but playlist selected)
+    // priority 3: Use selected playlist's image (when not playing but playlist selected)
     else if (selectedPl?.imageType) {
       cacheKey = `playlist-${selectedPl.id}`;
       if (cache.has(cacheKey)) {
@@ -206,14 +203,14 @@ export function Playlistz() {
       }
     }
 
-    // Only update if URL actually changed
+    // only update if URL actually changed
     const prevUrl = backgroundImageUrl();
     if (prevUrl !== newImageUrl) {
       setBackgroundImageUrl(newImageUrl);
     }
   });
 
-  // Auto-clear errors after 5 seconds
+  // auto-clear errorz after 5 secondz, i guess.
   createEffect(() => {
     const errorMessage = error();
     if (errorMessage) {
@@ -223,9 +220,8 @@ export function Playlistz() {
     return undefined;
   });
 
-  // Initialize database
   onMount(async () => {
-    // Set up standalone mode initialization function immediately
+    // init standalone mode function immediately
     (window as any).initializeStandalonePlaylist = (playlistData: any) => {
       initializeStandalonePlaylist(playlistData, {
         setSelectedPlaylist,
@@ -235,7 +231,7 @@ export function Playlistz() {
       });
     };
 
-    // Check if we have deferred data from early initialization
+    // check if deferred data from early initialization
     if ((window as any).DEFERRED_PLAYLIST_DATA) {
       await initializeStandalonePlaylist(
         (window as any).DEFERRED_PLAYLIST_DATA,
@@ -252,17 +248,17 @@ export function Playlistz() {
     try {
       await setupDB();
 
-      // Initialize offline support (don't let this fail prevent app initialization)
+      // try to init offline support
       try {
         const currentPlaylist = selectedPlaylist();
         await initializeOfflineSupport(currentPlaylist?.title);
       } catch (offlineError) {
-        console.warn("Offline support initialization failed:", offlineError);
+        console.warn("offline support initialization failed:", offlineError);
       }
 
       setIsInitialized(true);
 
-      // Set up responsive beh avior
+      // responsive shit
       const checkMobile = () => {
         const mobile = window.innerWidth < 900;
         setIsMobile(mobile);
@@ -283,7 +279,7 @@ export function Playlistz() {
     }
   });
 
-  // Update PWA manifest when playlist changes
+  // update PWA manifest when playlist changez
   createEffect(() => {
     const playlist = selectedPlaylist();
     if (playlist) {
@@ -291,7 +287,7 @@ export function Playlistz() {
     }
   });
 
-  // Keyboard event handlers for modals
+  // keyboard event handlerz for modalz
   const handleKeyDown = (e: KeyboardEvent) => {
     if (showImageModal()) {
       if (e.key === "Escape") {
@@ -308,7 +304,7 @@ export function Playlistz() {
     }
   };
 
-  // Set up global keyboard listeners
+  // set up global keyboard listener
   createEffect(() => {
     if (showImageModal() || showDeleteConfirm()) {
       document.addEventListener("keydown", handleKeyDown);
@@ -316,12 +312,12 @@ export function Playlistz() {
     }
   });
 
-  // Cleanup on unmount
+  // unmount stuff, i guess.
   onCleanup(() => {
     cleanupAudio();
     cleanupTimeUtils();
 
-    // Clean up all cached background image URLs
+    // purge all cached background image URLs
     const cache = imageUrlCache();
     cache.forEach((url) => {
       if (url.startsWith("blob:")) {
@@ -330,33 +326,33 @@ export function Playlistz() {
     });
     cache.clear();
 
-    // Clean up current background image URL
+    // purge current background image URL
     const bgUrl = backgroundImageUrl();
     if (bgUrl && bgUrl.startsWith("blob:")) {
       URL.revokeObjectURL(bgUrl);
     }
   });
 
-  // Enhanced drag type detection
+  // get a better drag!
   const detectDragType = (dataTransfer: DataTransfer | null) => {
     if (!dataTransfer) return { type: "unknown", hasAudio: false };
 
     const items = Array.from(dataTransfer.items || []);
     const files = Array.from(dataTransfer.files || []);
 
-    // Priority 1: Check for song reordering (text/plain data indicates internal drag)
+    // priority 1: check for song reordering (text/plain data indicates internal drag)
     const hasTextData = items.some((item) => item.type === "text/plain");
     if (hasTextData) {
       return { type: "song-reorder", hasAudio: false };
     }
 
-    // Priority 2: Check for audio files
+    // priority 2: Check for audio filez
     const audioFiles = files.filter((file) => file.type.startsWith("audio/"));
     if (audioFiles.length > 0) {
       return { type: "audio-files", hasAudio: true };
     }
 
-    // Priority 3: Check for other files
+    // priority 3: check for other filez
     if (files.length > 0) {
       return { type: "non-audio-files", hasAudio: false };
     }
@@ -364,14 +360,14 @@ export function Playlistz() {
     return { type: "unknown", hasAudio: false };
   };
 
-  // Global drag and drop handlers
+  // global drag'n'drop handlers
   const handleDragEnter = (e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
     const dragInfo = detectDragType(e.dataTransfer);
 
-    // Only show drag overlay for actual file drops, not song reordering
+    // only show drag overlay for actual file drops, not song reordering
     if (dragInfo.type === "audio-files") {
       setIsDragOver(true);
     }
@@ -386,7 +382,7 @@ export function Playlistz() {
     e.preventDefault();
     e.stopPropagation();
 
-    // Only hide overlay if leaving the root element
+    // only hide overlay if leaving the root element
     if (e.target === e.currentTarget) {
       setIsDragOver(false);
     }
@@ -399,7 +395,7 @@ export function Playlistz() {
 
     const dragInfo = detectDragType(e.dataTransfer);
 
-    // Only handle file drops, ignore song reordering
+    // only handle file dropz, ignore song reordering
     if (dragInfo.type === "song-reorder") {
       return;
     }
@@ -407,7 +403,7 @@ export function Playlistz() {
     const files = e.dataTransfer?.files;
     if (!files) return;
 
-    // Check for ZIP files first
+    // check for ZIP files first
     const zipFiles = Array.from(files).filter(
       (file) =>
         file.type === "application/zip" ||
@@ -415,13 +411,13 @@ export function Playlistz() {
     );
 
     if (zipFiles.length > 0) {
-      // Handle ZIP file upload
+      // handle ZIP file upload
       try {
         for (const zipFile of zipFiles) {
           const { playlist: playlistData, songs: songsData } =
             await parsePlaylistZip(zipFile);
 
-          // Check if a playlist with the same name and songs already exists
+          // check if a playlist with the same name and songz already existz
           const existingPlaylist = playlists().find(
             (p) =>
               p.title === playlistData.title &&
@@ -434,12 +430,12 @@ export function Playlistz() {
             continue;
           }
 
-          // Create new playlist
+          // create new playlist
           const newPlaylist = await createPlaylist(playlistData);
 
-          // Add songs to the playlist
+          // add songs to the playlist
           for (const songData of songsData) {
-            // Create a File object from the audio data for compatibility
+            // create a File object from the audio data for compatibility
             const audioBlob = new Blob([songData.audioData!], {
               type: songData.mimeType,
             });
@@ -460,13 +456,13 @@ export function Playlistz() {
             });
           }
 
-          // Select the newly created playlist
+          // select the newly created playlist
           setSelectedPlaylist(newPlaylist);
         }
         return;
       } catch (err) {
-        console.error("Error processing ZIP file:", err);
-        setError("Failed to import playlist from ZIP file");
+        console.error("error processing ZIP file:", err);
+        setError("failed to import playlist from ZIP file");
         setTimeout(() => setError(null), 3000);
         return;
       }
@@ -474,14 +470,14 @@ export function Playlistz() {
 
     const audioFiles = filterAudioFiles(files);
     if (audioFiles.length === 0) {
-      // Provide contextual error messages
+      // provide contextual error messages
       if (dragInfo.type === "non-audio-files") {
         setError(
-          "Only audio files and ZIP playlist files can be added. Supported formats: MP3, WAV, M4A, FLAC, OGG, ZIP"
+          "only audio filez and ZIP playlist filez can be added. supported formatz: MP3, WAV, M4A, FLAC, OGG, ZIP"
         );
       } else {
         setError(
-          "No audio files or ZIP playlist files found in the dropped items"
+          "no audio filez or ZIP playlist filez found in the dropped item(z)"
         );
       }
       setTimeout(() => setError(null), 3000);
@@ -491,7 +487,7 @@ export function Playlistz() {
     try {
       let targetPlaylist = selectedPlaylist();
 
-      // If no playlist is selected, create a new one
+      // if no playlist is selected, create a new one!
       if (!targetPlaylist) {
         targetPlaylist = await createPlaylist({
           title: "new playlist",
@@ -501,11 +497,11 @@ export function Playlistz() {
         setSelectedPlaylist(targetPlaylist);
       }
 
-      // Process files and add to playlist
+      // process files and add to playlist
       const results = await processAudioFiles(audioFiles);
       const successfulFiles = results.filter((r) => r.success);
 
-      // Actually add the songs to the playlist in IndexedDB
+      // add the songs to the playlist in idb
       for (const result of successfulFiles) {
         if (result.song) {
           await addSongToPlaylist(targetPlaylist.id, result.song.file!, {
@@ -519,7 +515,7 @@ export function Playlistz() {
         }
       }
 
-      // Force refresh the selected playlist from database to get updated songIds
+      // force refresh the selected playlist from idb to get updated songIdz
       const updatedPlaylists = playlists();
       const refreshedPlaylist = updatedPlaylists.find(
         (p) => p.id === targetPlaylist.id
@@ -531,7 +527,7 @@ export function Playlistz() {
       if (results.some((r) => !r.success)) {
         const errorCount = results.filter((r) => !r.success).length;
         setError(
-          `${errorCount} file${errorCount > 1 ? "s" : ""} could not be processed`
+          `${errorCount} file${errorCount > 1 ? "z" : ""} could not be processed`
         );
       }
     } catch (err) {
@@ -540,7 +536,7 @@ export function Playlistz() {
     }
   };
 
-  // Set up global drag and drop listeners
+  // global drag'n'drop listenerz
   createEffect(() => {
     if (!isInitialized()) return;
 
@@ -559,7 +555,7 @@ export function Playlistz() {
     });
   });
 
-  // Handle creating new playlist
+  // handle creating new playlist
   const handleCreatePlaylist = async () => {
     try {
       const newPlaylist = await createPlaylist({
@@ -569,7 +565,7 @@ export function Playlistz() {
       });
       setSelectedPlaylist(newPlaylist);
 
-      // Auto-collapse on mobile when playlist is selected
+      // collapse on mobile when playlist is selected
       if (isMobile()) {
         setSidebarCollapsed(true);
       }
@@ -581,17 +577,17 @@ export function Playlistz() {
     }
   };
 
-  // Handle playlist title/description updates with debouncing
+  // handle playlist title/description updatez with debouncing
   let saveTimeout: number | undefined;
   const handlePlaylistUpdate = async (updates: Partial<Playlist>) => {
     const current = selectedPlaylist();
     if (!current) return;
 
-    // Update local state immediately for responsive UI
+    // update local state immediately
     const updated = { ...current, ...updates };
     setSelectedPlaylist(updated);
 
-    // Debounce database saves
+    // debounce database save(z)
     clearTimeout(saveTimeout);
     saveTimeout = window.setTimeout(async () => {
       try {
@@ -603,16 +599,16 @@ export function Playlistz() {
     }, 1000);
   };
 
-  // Audio player functions
+  // audio player fnz
   const handlePlaySong = async (song: any) => {
     try {
-      // Check if this song is already the current song
+      // so check if this song is already the current song
       const currentSong = audioState.currentSong();
       if (currentSong?.id === song.id) {
-        // If it's the same song, just toggle playback (resume/pause)
+        // if it's the same song, just toggle playback (resume/pause)
         togglePlayback();
       } else {
-        // Different song - immediately select it for UI feedback, then load
+        // different song - immediately select it for UI feedback, then load
         selectSong(song.id);
 
         const currentPlaylist = selectedPlaylist();
@@ -635,10 +631,10 @@ export function Playlistz() {
     try {
       await removeSongFromPlaylist(playlist.id, songId);
 
-      // Update audio queue if this playlist is currently active
+      // update audio queue if this playlist is currently active
       const currentPlaylist = audioState.currentPlaylist();
       if (currentPlaylist && currentPlaylist.id === playlist.id) {
-        // Get updated playlist data and refresh queue
+        // get updated playlist data and refresh queue
         const updatedPlaylists = await getAllPlaylists();
         const refreshedPlaylist = updatedPlaylists.find(
           (p) => p.id === playlist.id
@@ -658,12 +654,12 @@ export function Playlistz() {
   };
 
   const handleSongSaved = async (updatedSong: any) => {
-    // Update local playlist songs state
+    // update local playlist songz state
     setPlaylistSongs((prev) =>
       prev.map((song) => (song.id === updatedSong.id ? updatedSong : song))
     );
 
-    // Force refresh the playlist songs from database
+    // force refresh the playlist songz from idb
     const playlist = selectedPlaylist();
     if (playlist && playlist.songIds.length > 0) {
       try {
@@ -673,7 +669,7 @@ export function Playlistz() {
         );
         setPlaylistSongs(songs);
       } catch (err) {
-        console.error("Error refreshing songs:", err);
+        console.error("error refreshing songs:", err);
       }
     }
   };
@@ -689,7 +685,7 @@ export function Playlistz() {
     try {
       await reorderSongs(playlist.id, fromIndex, toIndex);
 
-      // Refresh playlist to show new order
+      // refresh playlist to show new order
       const updatedPlaylists = await getAllPlaylists();
       const refreshedPlaylist = updatedPlaylists.find(
         (p) => p.id === playlist.id
@@ -697,24 +693,24 @@ export function Playlistz() {
       if (refreshedPlaylist) {
         setSelectedPlaylist(refreshedPlaylist);
 
-        // Update audio queue if this playlist is currently active
+        // update audio queue if this playlist is currently active
         const currentPlaylist = audioState.currentPlaylist();
         if (currentPlaylist && currentPlaylist.id === refreshedPlaylist.id) {
           await refreshPlaylistQueue(refreshedPlaylist);
         }
       }
     } catch (err) {
-      console.error("❌ Error reordering songs:", err);
+      console.error("error reordering songs:", err);
       setError("failed to reorder songz");
     }
   };
 
   const handlePauseSong = () => {
-    // Use the new audio service
+    // use the audio service
     togglePlayback();
   };
 
-  // Image modal handlers
+  // image modal handlerz
   const handleNextImage = () => {
     const images = getModalImages();
     if (images.length > 0) {
@@ -733,7 +729,7 @@ export function Playlistz() {
     const playlist = selectedPlaylist();
     const images: { url: string; title: string }[] = [];
 
-    // Add playlist image first if it exists
+    // add playlist image first if it existz
     if (playlist?.imageType) {
       const url = getImageUrlForContext(
         playlist.thumbnailData,
@@ -749,7 +745,7 @@ export function Playlistz() {
       }
     }
 
-    // Add song images
+    // add song imagez
     playlistSongs().forEach((song) => {
       if (song.imageType) {
         const url = getImageUrlForContext(
@@ -770,7 +766,7 @@ export function Playlistz() {
     return images;
   };
 
-  // Delete playlist handler
+  // delete playlist handler
   const handleDeletePlaylist = async () => {
     const playlist = selectedPlaylist();
     if (!playlist) return;
@@ -780,12 +776,12 @@ export function Playlistz() {
       setSelectedPlaylist(null);
       setShowDeleteConfirm(false);
     } catch (err) {
-      console.error("❌ Error deleting playlist:", err);
+      console.error("rrror deleting playlist:", err);
       setError("failed to delete playlist");
     }
   };
 
-  // Download playlist handler
+  // download playlist handler
   const handleDownloadPlaylist = async () => {
     const playlist = selectedPlaylist();
     if (!playlist) return;
@@ -805,7 +801,7 @@ export function Playlistz() {
     }
   };
 
-  // Refresh playlist songs from database
+  // refresh playlist songs from database
   const refreshPlaylistSongs = async () => {
     const playlist = selectedPlaylist();
     if (playlist && playlist.songIds.length > 0) {
@@ -821,7 +817,7 @@ export function Playlistz() {
     }
   };
 
-  // Check if all songs are cached
+  // check if all songs are cached
   const checkAllSongsCached = async () => {
     const songs = playlistSongs();
     if (songs.length === 0) {
@@ -829,13 +825,13 @@ export function Playlistz() {
       return;
     }
 
-    // For file:// protocol, consider all songs as "cached" since they work directly
+    // for file:// protocol, consider all songs as "cached" since they work directly
     if (window.location.protocol === "file:") {
       setAllSongsCached(true);
       return;
     }
 
-    // Check each song to see if it needs audio data
+    // check each song to see if it needs audio data
     let allCached = true;
     for (const song of songs) {
       const needsData = await songNeedsAudioData(song);
@@ -847,7 +843,7 @@ export function Playlistz() {
     setAllSongsCached(allCached);
   };
 
-  // Check cache status when playlist songs change
+  // check cache status when playlist songs change
   createEffect(() => {
     const songs = playlistSongs();
     if (songs.length > 0) {
@@ -855,7 +851,7 @@ export function Playlistz() {
     }
   });
 
-  // Cache playlist for offline use
+  // cache playlist for offline use
   const handleCachePlaylist = async () => {
     const playlist = selectedPlaylist();
     const songs = playlistSongs();
@@ -863,7 +859,7 @@ export function Playlistz() {
 
     setIsCaching(true);
 
-    // Show loading progress
+    // show loading progress
     setStandaloneLoadingProgress({
       current: 0,
       total: songs.length,
@@ -880,7 +876,7 @@ export function Playlistz() {
       for (let i = 0; i < songs.length; i++) {
         const song = songs[i];
 
-        // Update progress
+        // update progress
         setStandaloneLoadingProgress({
           current: i + 1,
           total: totalSongs,
@@ -888,13 +884,13 @@ export function Playlistz() {
           phase: "updating",
         });
 
-        // First, check if this is a standalone song that needs audio data loading
+        // first, check if this is a standalone song that needs audio data loading
         if (await songNeedsAudioData(song)) {
           try {
             const loadSuccess = await loadStandaloneSongAudioData(song.id);
             if (loadSuccess) {
               loaded++;
-              cached++; // In standalone mode, loading IS caching
+              cached++; // in standalone mode, loading IS caching
             } else {
               failed++;
               continue;
@@ -904,17 +900,17 @@ export function Playlistz() {
             continue;
           }
         } else {
-          // Song already has audio data cached
+          // song already has audio data cached
           cached++;
         }
 
-        // For service worker caching (when not in standalone mode)
+        // for service worker caching (when not in standalone mode)
         if (!(window as any).STANDALONE_MODE) {
           if (song.blobUrl) {
             try {
               await cacheAudioFile(song.blobUrl, song.title);
             } catch (error) {
-              // Service worker caching failed, but we still count as cached in IndexedDB
+              // service worker caching failed, but we still count as cached in IndexedDB
             }
           } else if (song.audioData) {
             try {
@@ -925,16 +921,16 @@ export function Playlistz() {
               await cacheAudioFile(blobUrl, song.title);
               URL.revokeObjectURL(blobUrl);
             } catch (error) {
-              // Service worker caching failed, but we still count as cached in IndexedDB
+              // service worker caching failed, but we still count as cached in IndexedDB 🤷
             }
           }
         }
       }
 
-      // Refresh the playlist to show updated audio data
+      // refresh the playlist to show updated audio data
       if (loaded > 0) {
         await refreshPlaylistSongs();
-        // Recheck cache status after refresh
+        // recheck cache status after refresh
         await checkAllSongsCached();
       }
 
@@ -944,16 +940,16 @@ export function Playlistz() {
         );
       } else if (failed > 0) {
         console.warn(
-          `Cached ${cached} of ${totalSongs} songs (${failed} failed)`
+          `cached ${cached} of ${totalSongs} songz (${failed} failed)`
         );
       } else if (cached > 0) {
-        // Songs were cached successfully
+        // songz were cached successfully
       }
     } catch (err) {
       setError("failed to cache playlist for offline use");
     } finally {
       setIsCaching(false);
-      // Clear loading progress
+      // clear loading progress
       setTimeout(() => setStandaloneLoadingProgress(null), 500);
     }
   };
@@ -962,7 +958,7 @@ export function Playlistz() {
     <div
       class={`relative bg-black text-white ${isMobile() ? "min-h-screen" : "h-screen overflow-hidden"}`}
     >
-      {/* Dynamic background image */}
+      {/* background image cover */}
       <Show when={backgroundImageUrl()}>
         <div
           class="absolute inset-0 bg-cover bg-top bg-no-repeat transition-opacity duration-1000 ease-out"
@@ -975,7 +971,7 @@ export function Playlistz() {
         <div class="absolute inset-0 bg-black/20" style={{ "z-index": "1" }} />
       </Show>
 
-      {/* Background pattern (when no song playing) */}
+      {/* background pattern (when no song playing) */}
       <Show when={!backgroundImageUrl()}>
         <div
           class="absolute inset-0 opacity-5"
@@ -988,7 +984,7 @@ export function Playlistz() {
         />
       </Show>
 
-      {/* Standalone Loading Progress Strip */}
+      {/* standalone loading progress (strip at the bottom) */}
       <Show when={standaloneLoadingProgress()}>
         <div
           class="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-sm border-t border-gray-700 p-3"
@@ -1032,7 +1028,7 @@ export function Playlistz() {
         </div>
       </Show>
 
-      {/* Loading state or main content */}
+      {/* loading state or main content */}
       <Show
         when={isInitialized()}
         fallback={
@@ -1044,12 +1040,12 @@ export function Playlistz() {
           </div>
         }
       >
-        {/* Main content with sidebar layout */}
+        {/* main content wrapper with sidebar layout */}
         <div
           class={`relative flex ${isMobile() ? "min-h-screen" : "h-full"}`}
           style={{ "z-index": "2" }}
         >
-          {/* Left Sidebar */}
+          {/* left side nav */}
           <div
             class={`transition-all duration-300 ease-out ${isMobile() ? "" : "overflow-hidden"} ${
               sidebarCollapsed()
@@ -1083,7 +1079,7 @@ export function Playlistz() {
             </div>
           </div>
 
-          {/* Main Content Area */}
+          {/* main playlist content */}
           <div
             class={`${isMobile() && !sidebarCollapsed() ? "hidden" : "flex-1"} flex flex-col ${isMobile() ? "" : "h-full"}`}
           >
@@ -1096,7 +1092,7 @@ export function Playlistz() {
                   <div
                     class={`flex items-center justify-between ${isMobile() ? "p-2 flex-col" : "mb-2 p-6"}`}
                   >
-                    {/* Playlist Cover Image for mobile */}
+                    {/* playlist cover image for mobile */}
                     <div class={`${isMobile() ? "" : "hidden"}`}>
                       <button
                         onClick={() => {
@@ -1166,12 +1162,12 @@ export function Playlistz() {
                           />
                         </div>
 
-                        {/* Metadata row with song count, duration, and action buttons */}
+                        {/* metadata row with song count, duration, and action buttonz */}
                         <div
                           class={`mt-3 flex justify-between ${isMobile() ? "gap-3" : ""}`}
                         >
                           <div class="flex items-center gap-2">
-                            {/* Edit playlist image button */}
+                            {/* edit playlist image button */}
                             <button
                               onClick={() => setShowPlaylistCover(true)}
                               class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors bg-black bg-opacity-80"
@@ -1192,7 +1188,7 @@ export function Playlistz() {
                               </svg>
                             </button>
 
-                            {/* Download playlist button */}
+                            {/* download playlist .zip button */}
                             <Show when={window.location.protocol !== "file:"}>
                               <button
                                 onClick={handleDownloadPlaylist}
@@ -1235,7 +1231,7 @@ export function Playlistz() {
                               </button>
                             </Show>
 
-                            {/* Delete playlist button */}
+                            {/* delete playlist button */}
                             <button
                               onClick={() => setShowDeleteConfirm(true)}
                               class="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80"
@@ -1256,7 +1252,7 @@ export function Playlistz() {
                               </svg>
                             </button>
 
-                            {/* Cache for offline button */}
+                            {/* save offline button */}
                             <Show
                               when={
                                 (window as any).STANDALONE_MODE &&
@@ -1327,7 +1323,7 @@ export function Playlistz() {
                       </div>
                     </div>
 
-                    {/* Playlist Cover Image */}
+                    {/* playlist cover image */}
                     <div class={`${isMobile() ? "hidden" : "ml-4"}`}>
                       <button
                         onClick={() => {
@@ -1369,7 +1365,7 @@ export function Playlistz() {
                     </div>
                   </div>
 
-                  {/* Songs List */}
+                  {/* songz list */}
                   <div
                     class={`${isMobile() ? "flex-1" : "flex-1 overflow-y-auto"}`}
                   >
@@ -1423,8 +1419,7 @@ export function Playlistz() {
         </div>
       </Show>
 
-      {/* Sidebar Toggle Button */}
-
+      {/* sidebar toggle button */}
       <div
         class={`fixed "top-0" inset-0 bg-black bg-opacity-80 flex items-center justify-center z-10 transition-all duration-300 ease-in-out w-10 h-10 ${sidebarCollapsed() ? "left-0" : isMobile() ? "left-[calc(100vw-40px)]" : "left-72"}`}
       >
@@ -1449,7 +1444,7 @@ export function Playlistz() {
         </button>
       </div>
 
-      {/* Global drag overlay */}
+      {/* drag'n'drop overlay */}
       <Show when={isDragOver()}>
         <div class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 backdrop-blur-sm">
           <div class="text-center">
@@ -1465,7 +1460,7 @@ export function Playlistz() {
         </div>
       </Show>
 
-      {/* Error notification */}
+      {/* error notificationz */}
       <Show when={error()}>
         <div class="fixed top-4 right-4 z-50">
           <div class="bg-red-500 text-white px-6 py-3 shadow-lg max-w-sm">
@@ -1495,7 +1490,7 @@ export function Playlistz() {
         </div>
       </Show>
 
-      {/* Modals */}
+      {/* modalz */}
       <Show when={editingSong()}>
         <SongEditModal
           song={editingSong()!}
@@ -1515,7 +1510,7 @@ export function Playlistz() {
         />
       </Show>
 
-      {/* Image Modal */}
+      {/* image carousel modal */}
       <Show when={showImageModal()}>
         <div class="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
           <button
@@ -1581,7 +1576,7 @@ export function Playlistz() {
         </div>
       </Show>
 
-      {/* Delete Confirmation Modal */}
+      {/* delete confirmation modal */}
       <Show when={showDeleteConfirm()}>
         <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div class="bg-gray-800 p-6 border border-gray-600 max-w-md w-full mx-4">

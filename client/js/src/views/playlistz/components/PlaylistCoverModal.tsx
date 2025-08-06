@@ -96,11 +96,10 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
   };
 
   const handleUseFromSongs = () => {
-    // For now, just show error since we need to update this to work with ArrayBuffer data
-    // This would need to be updated to work with the new image data format
-    setError(
-      "using album art from songz not yet implemented with new image storage"
-    );
+    // #TODO: this would need to be updated to work with the new image data format
+    // setError(
+    //   "using album art from songz not yet implemented with new image storage"
+    // );
   };
 
   const handleSave = async () => {
@@ -262,8 +261,8 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
               </label>
             </div>
 
-            {/* Use from songs */}
-            <Show when={songsWithArt.length > 0}>
+            {/* Use from songs #TODO either fix this or yeet it */}
+            <Show when={false && songsWithArt.length > 0}>
               <button
                 onClick={handleUseFromSongs}
                 disabled={isLoading()}
@@ -285,7 +284,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
             </Show>
           </div>
 
-          {/* Songs with album art preview */}
+          {/* songz with album art preview */}
           <Show when={songsWithArt.length > 0}>
             <div>
               <label class="block text-sm font-medium text-gray-300 mb-3">
@@ -295,10 +294,10 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                 {songsWithArt.slice(0, 8).map((song) => (
                   <button
                     onClick={() => {
-                      // This needs to be updated to work with ArrayBuffer data
-                      setError(
-                        "selecting from song imagez not yet implemented with new image storage"
-                      );
+                      // #TODO: this needz to be updated to work with ArrayBuffer data
+                      // setError(
+                      //   "selecting from song imagez not yet implemented with new image storage"
+                      // );
                     }}
                     disabled={isLoading()}
                     class="aspect-square overflow-hidden bg-gray-700 hover:ring-2 hover:ring-magenta-500 transition-all"
