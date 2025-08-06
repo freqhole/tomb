@@ -170,7 +170,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                   }
                 >
                   <div class="text-gray-400">
-                    <div class="text-lg mb-2">no matches</div>
+                    <div class="text-lg mb-2">no matchez</div>
                     <p class="text-sm">...try a different search?</p>
                   </div>
                 </Show>

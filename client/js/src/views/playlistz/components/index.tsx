@@ -429,9 +429,7 @@ export function Playlistz() {
           );
 
           if (existingPlaylist) {
-            setError(
-              `Playlist "${playlistData.title}" already exists with similar content`
-            );
+            setError(`playlist "${playlistData.title}" already existz`);
             setTimeout(() => setError(null), 3000);
             continue;
           }
@@ -497,7 +495,7 @@ export function Playlistz() {
       if (!targetPlaylist) {
         targetPlaylist = await createPlaylist({
           title: "new playlist",
-          description: `created from ${audioFiles.length} dropped file${audioFiles.length > 1 ? "s" : ""}`,
+          description: `created from ${audioFiles.length} dropped file${audioFiles.length > 1 ? "z" : ""}`,
           songIds: [],
         });
         setSelectedPlaylist(targetPlaylist);
@@ -707,7 +705,7 @@ export function Playlistz() {
       }
     } catch (err) {
       console.error("❌ Error reordering songs:", err);
-      setError("failed to reorder songs");
+      setError("failed to reorder songz");
     }
   };
 
@@ -801,7 +799,7 @@ export function Playlistz() {
         includeHTML: true,
       });
     } catch (err) {
-      setError("Failed to download playlist");
+      setError("failed to download playlist");
     } finally {
       setIsDownloading(false);
     }
@@ -942,7 +940,7 @@ export function Playlistz() {
 
       if (failed > 0 && cached === 0) {
         setError(
-          `Failed to cache any songs for offline use (${failed} of ${totalSongs} failed)`
+          `failed to cache any songz for offline use (${failed} of ${totalSongs} failed)`
         );
       } else if (failed > 0) {
         console.warn(
@@ -952,7 +950,7 @@ export function Playlistz() {
         // Songs were cached successfully
       }
     } catch (err) {
-      setError("Failed to cache playlist for offline use");
+      setError("failed to cache playlist for offline use");
     } finally {
       setIsCaching(false);
       // Clear loading progress
@@ -1274,7 +1272,7 @@ export function Playlistz() {
                                     isCaching() || playlistSongs().length === 0
                                   }
                                   class="p-2 text-gray-400 hover:text-magenta-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  title="download songs for offline use"
+                                  title="download songz for offline use"
                                 >
                                   <Show
                                     when={!isCaching()}
@@ -1302,15 +1300,15 @@ export function Playlistz() {
                           </div>
 
                           <div
-                            class={`flex items-center gap-4 text-sm text-magenta-500 bg-black bg-opacity-80 p-2 ${isMobile() ? "flex-wrap justify-center" : ""}`}
+                            class={`flex items-center gap-4 text-sm text-magenta-500 p-2 ${isMobile() ? "flex-wrap justify-center" : ""}`}
                           >
-                            <span>
+                            <span class="bg-black bg-opacity-80">
                               {playlist().songIds?.length || 0} song
                               {(playlist().songIds?.length || 0) !== 1
-                                ? "s"
+                                ? "z"
                                 : ""}
                             </span>
-                            <span>
+                            <span class="bg-black bg-opacity-80">
                               {(() => {
                                 const totalSeconds = playlistSongs().reduce(
                                   (total, song) => total + (song.duration || 0),
@@ -1339,7 +1337,7 @@ export function Playlistz() {
                           setShowImageModal(true);
                         }}
                         class="w-32 h-32 overflow-hidden hover:bg-gray-900 flex items-center justify-center transition-colors group"
-                        title="view playlist images"
+                        title="view playlist imagez"
                       >
                         <Show
                           when={playlist().imageData && playlist().imageType}
@@ -1387,15 +1385,18 @@ export function Playlistz() {
                         fallback={
                           <div class="text-center py-16">
                             <div class="text-gray-400 text-xl mb-4">
-                              no songs yet
+                              no songz yet
                             </div>
                             <p class="text-gray-400 mb-4">
-                              drag and drop audio files here to add them to this
-                              playlist
+                              drag and drop audio filez (or a .zip file!) here
+                              to add them to this playlist
                             </p>
                             <div class="text-xs text-gray-500 space-y-1">
                               <div>playlist id: {playlist().id}</div>
-                              <div>supported formats: mp3, wav, flac, aiff</div>
+                              <div>
+                                supported formatz: mp3, wav, flac, aiff, ogg,
+                                mp4
+                              </div>
                             </div>
                           </div>
                         }
@@ -1456,19 +1457,12 @@ export function Playlistz() {
           <div class="text-center">
             <div class="text-4xl mb-6 font-bold">drop zone</div>
             <h2 class="text-4xl font-light mb-4 text-magenta-400">
-              drop your music here
+              drop your filez here
             </h2>
             <p class="text-xl text-gray-300">
-              release to add files to{" "}
+              release to add filez to{" "}
               {selectedPlaylist()?.title || "a new playlist"}
             </p>
-            <div class="mt-6 flex justify-center">
-              <div class="px-4 py-2 bg-magenta-500 bg-opacity-20 border-2 border-magenta-500 border-dashed">
-                <p class="text-magenta-300">
-                  supports mp3, wav, flac, aiff, and more
-                </p>
-              </div>
-            </div>
           </div>
         </div>
       </Show>
@@ -1553,9 +1547,9 @@ export function Playlistz() {
             if (!currentImage) {
               return (
                 <div class="text-white text-center">
-                  <p class="text-lg mb-2">no images available</p>
+                  <p class="text-lg mb-2">no imagez available</p>
                   <p class="text-sm text-gray-400">
-                    add a playlist cover or songs with album art
+                    add a playlist cover or songz with album art
                   </p>
                 </div>
               );

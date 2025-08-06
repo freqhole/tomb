@@ -113,7 +113,7 @@ export function SongEditModal(props: SongEditModalProps) {
       props.onSave(updatedSong);
       props.onClose();
     } catch (err) {
-      setError("failed to save changes");
+      setError("failed to save");
       console.error("Save error:", err);
     } finally {
       setIsLoading(false);
@@ -252,7 +252,7 @@ export function SongEditModal(props: SongEditModalProps) {
           {/* Title */}
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-2">
-              title *
+              title
             </label>
             <input
               type="text"

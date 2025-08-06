@@ -99,7 +99,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
     // For now, just show error since we need to update this to work with ArrayBuffer data
     // This would need to be updated to work with the new image data format
     setError(
-      "using album art from songs not yet implemented with new image storage"
+      "using album art from songz not yet implemented with new image storage"
     );
   };
 
@@ -127,7 +127,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
       props.onSave(updatedPlaylist);
       props.onClose();
     } catch (err) {
-      setError("failed to save changes");
+      setError("failed to save");
       console.error("Save error:", err);
     } finally {
       setIsLoading(false);
@@ -269,7 +269,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                 disabled={isLoading()}
                 class="block w-full px-4 py-3 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white font-medium transition-colors"
               >
-                use album art from songs ({songsWithArt.length} available)
+                use album art from songz ({songsWithArt.length} available)
               </button>
             </Show>
 
@@ -297,7 +297,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                     onClick={() => {
                       // This needs to be updated to work with ArrayBuffer data
                       setError(
-                        "selecting from song images not yet implemented with new image storage"
+                        "selecting from song imagez not yet implemented with new image storage"
                       );
                     }}
                     disabled={isLoading()}
@@ -340,7 +340,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
               </div>
               <Show when={songsWithArt.length > 8}>
                 <p class="text-sm text-gray-400 mt-2 text-center">
-                  +{songsWithArt.length - 8} more images available
+                  +{songsWithArt.length - 8} more imagez available
                 </p>
               </Show>
             </div>
@@ -353,7 +353,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
             </h3>
             <div class="text-sm text-gray-400 space-y-1">
               <div>title: {props.playlist.title}</div>
-              <div>songs: {props.playlist.songIds.length}</div>
+              <div>songz: {props.playlist.songIds.length}</div>
               <div>with album art: {songsWithArt.length}</div>
             </div>
           </div>
