@@ -1,5 +1,5 @@
-// Audio Service with Functional Approach
-// Uses SolidJS-style signals for reactive state management
+// audio service with functional approach
+// uses solidjs-style signals for reactive state management
 
 import { createSignal } from "solid-js";
 import type { Song, Playlist, AudioState } from "../types/playlist.js";
@@ -10,7 +10,7 @@ import {
   isSongDownloading,
 } from "./streamingAudioService.js";
 
-// Audio state signals
+// audio state signals
 const [currentSong, setCurrentSong] = createSignal<Song | null>(null);
 const [currentPlaylist, setCurrentPlaylist] = createSignal<Playlist | null>(
   null
@@ -35,7 +35,7 @@ const [repeatMode, setRepeatMode] = createSignal<"none" | "one" | "all">(
 );
 const [isShuffled, setIsShuffled] = createSignal(false);
 
-// Download progress tracking
+// download progress tracking
 const [downloadProgress, setDownloadProgress] = createSignal<
   Map<string, number>
 >(new Map());
@@ -43,7 +43,7 @@ const [cachingSongIds, setCachingSongIds] = createSignal<Set<string>>(
   new Set()
 );
 
-// Single audio element for the entire app
+// single audio element for the entire app
 let audioElement: HTMLAudioElement | null = null;
 
 // Initialize audio element
@@ -66,7 +66,9 @@ function initializeAudio(): HTMLAudioElement {
   audioElement.addEventListener("loadedmetadata", () => {
     const newDuration = audioElement?.duration || 0;
     setDuration(newDuration);
-    setCurrentTime(0); // Ensure current time is reset
+    setIsLoading(false);
+    // update media session now that we have proper metadata
+    updateMediaSession();
   });
 
   audioElement.addEventListener("timeupdate", () => {
@@ -88,7 +90,10 @@ function initializeAudio(): HTMLAudioElement {
   audioElement.addEventListener("play", () => {
     setIsPlaying(true);
     hasTriggeredPreload = false; // Reset preload flag for new song
-    updateMediaSession();
+    // Only update media session if we're not in a loading state
+    if (!isLoading()) {
+      updateMediaSession();
+    }
   });
   audioElement.addEventListener("pause", () => {
     setIsPlaying(false);
@@ -138,6 +143,7 @@ async function updateMediaSession(): Promise<void> {
 
   const song = currentSong();
   const playlist = currentPlaylist();
+  const loading = isLoading();
 
   if (song) {
     // Get artwork first
@@ -148,16 +154,20 @@ async function updateMediaSession(): Promise<void> {
 
     // Set metadata directly
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: song.title,
-      artist: song.artist || "Unknown Artist",
-      album: song.album || playlist?.title || "Unknown Album",
-      artwork: artwork,
+      title: loading ? `loading... ${song.title}` : song.title,
+      artist: song.artist || "unknown artist",
+      album: song.album || playlist?.title || "unknown album",
+      artwork,
     });
 
-    // Set playback state
-    navigator.mediaSession.playbackState = isPlaying() ? "playing" : "paused";
+    // set playback state - show paused during loading to prevent timing issues
+    navigator.mediaSession.playbackState = loading
+      ? "paused"
+      : isPlaying()
+        ? "playing"
+        : "paused";
 
-    // Set action handlers
+    // set action handlers
     navigator.mediaSession.setActionHandler("play", () => {
       togglePlayback();
     });
@@ -175,21 +185,31 @@ async function updateMediaSession(): Promise<void> {
     });
 
     navigator.mediaSession.setActionHandler("seekto", (details) => {
-      if (details.seekTime !== undefined) {
+      if (details.seekTime !== undefined && !loading) {
         seek(details.seekTime);
       }
     });
 
-    // Update position state
+    // set position state only if we have valid duration and are not loading
     const duration = audioState.duration();
     const currentTime = audioState.currentTime();
-
-    if (duration > 0) {
+    if (duration > 0 && !loading) {
       navigator.mediaSession.setPositionState({
         duration,
         playbackRate: 1,
         position: currentTime,
       });
+    } else if (loading) {
+      // clear position state during loading
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: 0,
+          playbackRate: 1,
+          position: 0,
+        });
+      } catch (e) {
+        // some browsers don't support clearing position state, ignore error
+      }
     }
   } else {
     navigator.mediaSession.metadata = null;
@@ -199,12 +219,12 @@ async function updateMediaSession(): Promise<void> {
   updatePageTitle();
 }
 
-// Resize image if it's too large for iOS Safari MediaSession
+// resize image if it's too large for ios safari mediasession
 async function resizeImageForMediaSession(
   imageData: ArrayBuffer,
   mimeType: string
 ): Promise<ArrayBuffer> {
-  // If image is smaller than 500KB, use as-is
+  // if image is smaller than 500kb, use as-is
   if (imageData.byteLength < 500000) {
     return imageData;
   }
@@ -216,7 +236,7 @@ async function resizeImageForMediaSession(
     const ctx = canvas.getContext("2d");
 
     img.onload = () => {
-      // Resize to max 300x300 to keep file size reasonable
+      // resize to max 300x300 to keep file size reasonable
       const maxSize = 300;
       let { width, height } = img;
 
@@ -237,26 +257,26 @@ async function resizeImageForMediaSession(
             if (resizedBlob) {
               resizedBlob.arrayBuffer().then(resolve);
             } else {
-              resolve(imageData); // Fallback to original
+              resolve(imageData); // fallback to original
             }
           },
           mimeType,
           0.8
         );
       } else {
-        resolve(imageData); // Fallback to original
+        resolve(imageData); // fallback to original
       }
     };
 
     img.onerror = () => {
-      resolve(imageData); // Fallback to original
+      resolve(imageData); // fallback to original
     };
 
     img.src = URL.createObjectURL(blob);
   });
 }
 
-// Get artwork for Media Session
+// get artwork for Media Session
 async function getMediaSessionArtwork(
   song: any,
   playlist: any
@@ -272,7 +292,7 @@ async function getMediaSessionArtwork(
     );
     const blob = new Blob([resizedImageData], { type: song.imageType });
     const url = URL.createObjectURL(blob);
-    // Add multiple sizes for iOS Safari compatibility
+    // add multiple sizes for ios safari compatibility
     artwork.push({
       src: url,
       sizes: "512x512",
@@ -289,7 +309,7 @@ async function getMediaSessionArtwork(
       type: song.imageType,
     });
   }
-  // Fallback to playlist image (prefer thumbnail for MediaSession)
+  // fallback to playlist image (prefer thumbnail for mediasession)
   else {
     const playlistImageData = playlist?.thumbnailData || playlist?.imageData;
     if (playlistImageData && playlist?.imageType) {
@@ -299,7 +319,7 @@ async function getMediaSessionArtwork(
       );
       const blob = new Blob([resizedImageData], { type: playlist.imageType });
       const url = URL.createObjectURL(blob);
-      // Add multiple sizes for iOS Safari compatibility
+      // add multiple sizes for ios safari compatibility
       artwork.push({
         src: url,
         sizes: "512x512",
@@ -417,7 +437,7 @@ async function handleSongEnded(): Promise<void> {
   if (nextSong) {
     await playNext();
   } else {
-    // Stay on last song but stop playing
+    // stay on last song but stop playing
     setIsPlaying(false);
     updateMediaSession();
   }
@@ -428,20 +448,20 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
   const audio = initializeAudio();
 
   try {
-    // Add this song to loading set
+    // add this song to loading set
     setLoadingSongIds((prev) => new Set([...prev, song.id]));
 
-    // Clear preloading state if this song was being preloaded
+    // clear preloading state if this song was being preloaded
     if (preloadingSongId() === song.id) {
       setPreloadingSongId(null);
     }
 
-    // Clean up previous URL if exists
+    // clean up previous url if exists
     if (audio.src && audio.src.startsWith("blob:")) {
       releaseAudioURL(audio.src);
     }
 
-    // Reset time/duration immediately to prevent stale values
+    // reset time/duration immediately to prevent stale values
     setCurrentTime(0);
     setDuration(0);
     audio.currentTime = 0;
@@ -449,8 +469,23 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
     setIsLoading(true);
     setCurrentSong(song);
 
+    // clear media session position state during loading to prevent timing issues
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.playbackState = "paused";
+      // clear position state to stop time updates from old song
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: 0,
+          playbackRate: 1,
+          position: 0,
+        });
+      } catch (e) {
+        // some browsers don't support clearing position state, ignore error
+      }
+    }
+
     if (playlist) {
-      // Only reload queue if it's a different playlist or queue is empty
+      // only reload queue if it's a different playlist or queue is empty
       const currentPl = currentPlaylist();
       if (
         !currentPl ||
@@ -464,10 +499,10 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
       setCurrentIndex(index >= 0 ? index : 0);
     }
 
-    // Try to get audio URL in order of preference:
-    // 1. Existing blobUrl from song
-    // 2. Create from file if available
-    // 3. Load from IndexedDB on-demand
+    // try to get audio url in order of preference:
+    // 1. existing bloburl from song
+    // 2. create from file if available
+    // 3. load from indexeddb on-demand
     let audioURL = song.blobUrl;
 
     if (!audioURL && song.file) {
@@ -475,21 +510,21 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
     }
 
     if (!audioURL) {
-      // Check for standalone file path when using file:// protocol
+      // check for standalone file path when using file:// protocol
       if (window.location.protocol === "file:" && song.standaloneFilePath) {
         const filePath = song.standaloneFilePath;
         audioURL = new URL(filePath, window.location.href).href;
 
-        // Test if the file is accessible
+        // test if the file is accessible
         const testAudio = document.createElement("audio");
         testAudio.src = audioURL;
         testAudio.addEventListener("error", (e) => {
-          console.error("Audio file test failed:", e);
-          console.error("Audio error:", testAudio.error);
+          console.error("audio file test failed:", e);
+          console.error("audio error:", testAudio.error);
         });
         testAudio.load();
       } else {
-        // First, always try to load from IndexedDB (cached data)
+        // first, always try to load from indexeddb (cached data)
         let cachedURL = await loadSongAudioData(song.id);
         if (cachedURL) {
           audioURL = cachedURL;
@@ -524,13 +559,13 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
               downloadPromise
                 .then((success) => {
                   if (success) {
-                    console.log(`Successfully cached ${song.title}`);
+                    console.log(`successfully cached ${song.title}`);
                   } else {
-                    console.warn(`Failed to cache ${song.title}`);
+                    console.warn(`failed to cache ${song.title}`);
                   }
                 })
                 .catch((error) => {
-                  console.error(`Error caching ${song.title}:`, error);
+                  console.error(`error caching ${song.title}:`, error);
                 })
                 .finally(() => {
                   // clean up progress tracking
@@ -547,7 +582,7 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
                 });
             } catch (streamError) {
               console.error(
-                "Streaming approach failed, using direct URL:",
+                "streaming approach failed, using direct url:",
                 streamError
               );
               // for http/https, fall back to direct url streaming
@@ -582,13 +617,13 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
 
     if (!audioURL) {
       throw new Error(
-        `No audio source available for song: ${song.title}. Check that audio files are accessible.`
+        `no audio source available for song: ${song.title}. check that audio files are accessible.`
       );
     }
 
-    // Only continue if this song is still the selected one
+    // only continue if this song is still the selected one
     if (selectedSongId() !== song.id) {
-      // Song is loaded but user has moved on to a different song
+      // song is loaded but user has moved on to a different song
       setLoadingSongIds((prev) => {
         const newSet = new Set(prev);
         newSet.delete(song.id);
@@ -599,28 +634,28 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
 
     audio.src = audioURL;
 
-    // Add error event listener to catch loading issues
+    // add error event listener to catch loading issues
     audio.addEventListener(
       "error",
       (e) => {
-        console.error("❌ Audio loading error:", e);
-        console.error("❌ Audio error details:", audio.error);
+        console.error("audio loading error:", e);
+        console.error("audio error details:", audio.error);
       },
       { once: true }
     );
 
     await audio.play();
 
-    // Remove song from loading set since it's now playing
+    // remove song from loading set since it's now playing
     setLoadingSongIds((prev) => {
       const newSet = new Set(prev);
       newSet.delete(song.id);
       return newSet;
     });
 
-    updateMediaSession();
+    // media session will be updated by loadedmetadata event
   } catch (error) {
-    console.error("Error playing song:", error);
+    console.error("error playing song:", error);
     setIsLoading(false);
     setLoadingSongIds((prev) => {
       const newSet = new Set(prev);
@@ -842,7 +877,7 @@ export function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-// Export state getters for components to use
+// export state getters for components to use
 export const audioState = {
   currentSong,
   currentPlaylist,
@@ -862,13 +897,13 @@ export const audioState = {
   cachingSongIds,
 };
 
-// Cleanup function
+// cleanup function
 export function cleanup(): void {
   stop();
 
   const audio = audioElement;
   if (audio) {
-    // Remove all event listeners
+    // remove all event listeners
     audio.removeEventListener("loadstart", () => {});
     audio.removeEventListener("canplay", () => {});
     audio.removeEventListener("loadedmetadata", () => {});
@@ -888,29 +923,29 @@ export function cleanup(): void {
   setIsShuffled(false);
 }
 
-// Helper to check if audio is supported
+// helper to check if audio is supported
 export function isAudioSupported(file: File): boolean {
   return file.type.startsWith("audio/");
 }
 
-// Helper to get supported audio formats
+// helper to get supported audio formats
 export function getSupportedFormats(): string[] {
   const audio = document.createElement("audio");
   const formats = [
-    "audio/mpeg", // MP3
-    "audio/wav", // WAV
-    "audio/ogg", // OGG
-    "audio/aac", // AAC
-    "audio/mp4", // M4A
-    "audio/flac", // FLAC
-    "audio/aiff", // AIFF
-    "audio/x-aiff", // AIF
+    "audio/mpeg", // mp3
+    "audio/wav", // wav
+    "audio/ogg", // ogg
+    "audio/aac", // aac
+    "audio/mp4", // m4a
+    "audio/flac", // flac
+    "audio/aiff", // aiff
+    "audio/x-aiff", // aif
   ];
 
   return formats.filter((format) => audio.canPlayType(format) !== "");
 }
 
-// Helper to preload next song in background
+// helper to preload next song in background
 async function preloadNextSong(): Promise<void> {
   const queue = playlistQueue();
   const currentIdx = currentIndex();
@@ -918,12 +953,12 @@ async function preloadNextSong(): Promise<void> {
   if (queue.length === 0 || currentIdx < 0) return;
 
   const nextIndex = currentIdx + 1;
-  if (nextIndex >= queue.length) return; // No next song
+  if (nextIndex >= queue.length) return; // no next song
 
   const nextSong = queue[nextIndex];
   if (!nextSong) return;
 
-  // Don't preload if already loading or preloaded
+  // don't preload if already loading or preloaded
   if (loadingSongIds().has(nextSong.id) || preloadingSongId() === nextSong.id) {
     return;
   }
@@ -932,7 +967,7 @@ async function preloadNextSong(): Promise<void> {
   setLoadingSongIds((prev) => new Set([...prev, nextSong.id]));
 
   try {
-    // Check if song already has cached audio data
+    // check if song already has cached audio data
     const cachedURL = await loadSongAudioData(nextSong.id);
     if (cachedURL) {
       setLoadingSongIds((prev) => {
@@ -974,13 +1009,13 @@ async function preloadNextSong(): Promise<void> {
       )
         .then((success) => {
           if (success) {
-            console.log(`Successfully preloaded ${nextSong.title}`);
+            console.log(`successfully preloaded ${nextSong.title}`);
           } else {
-            console.warn(`Failed to preload ${nextSong.title}`);
+            console.warn(`failed to preload ${nextSong.title}`);
           }
         })
         .catch((error) => {
-          console.error(`Error preloading ${nextSong.title}:`, error);
+          console.error(`error preloading ${nextSong.title}:`, error);
         })
         .finally(() => {
           // clean up preload progress tracking
@@ -1008,30 +1043,30 @@ async function preloadNextSong(): Promise<void> {
   }
 }
 
-// Helper to select a song to play (sets immediate UI feedback)
+// helper to select a song to play (sets immediate ui feedback)
 export function selectSong(songId: string): void {
-  // Pause current audio immediately
+  // pause current audio immediately
   const audio = audioElement;
   if (audio) {
     audio.pause();
     setIsPlaying(false);
   }
 
-  // Set this as the selected song
+  // set this as the selected song
   setSelectedSongId(songId);
 }
 
-// Helper functions for streaming downloads
+// helper functions for streaming downloads
 
 /**
- * Gets the download progress percentage for a song
+ * gets the download progress percentage for a song
  */
 export function getSongDownloadProgress(songId: string): number {
   return downloadProgress().get(songId) || 0;
 }
 
 /**
- * Checks if a song is currently being cached
+ * checks if a song is currently being cached
  */
 export function isSongCaching(songId: string): boolean {
   return cachingSongIds().has(songId);
