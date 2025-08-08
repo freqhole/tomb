@@ -199,7 +199,7 @@ export function SongRow(props: SongRowProps) {
             <div
               class={`group relative flex items-center p-3 group-hover:bg-opacity-70 hover:bg-magenta-500 transition-all duration-200 overflow-hidden ${
                 isCurrentlyPlaying() || isCurrentlySelected()
-                  ? "sticky top-0 bottom-0 bg-black z-100 border border-transparent border-opacity-50"
+                  ? "sticky top-0 bottom-0 bg-black z-100"
                   : draggedOver()
                     ? "border border-magenta-400 border-dashed"
                     : isDragging()
