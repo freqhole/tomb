@@ -3,11 +3,12 @@
 
 import { createSignal } from "solid-js";
 import type { Song, Playlist, AudioState } from "../types/playlist.js";
-import { getAllSongs, loadSongAudioData } from "./indexedDBService.js";
+import { loadSongAudioData, getAllSongs } from "./indexedDBService.js";
 import {
-  loadStandaloneSongAudioData,
-  songNeedsAudioData,
-} from "./standaloneService.js";
+  streamAudioWithCaching,
+  downloadSongIfNeeded,
+  isSongDownloading,
+} from "./streamingAudioService.js";
 
 // Audio state signals
 const [currentSong, setCurrentSong] = createSignal<Song | null>(null);
@@ -33,6 +34,14 @@ const [repeatMode, setRepeatMode] = createSignal<"none" | "one" | "all">(
   "none"
 );
 const [isShuffled, setIsShuffled] = createSignal(false);
+
+// Download progress tracking
+const [downloadProgress, setDownloadProgress] = createSignal<
+  Map<string, number>
+>(new Map());
+const [cachingSongIds, setCachingSongIds] = createSignal<Set<string>>(
+  new Set()
+);
 
 // Single audio element for the entire app
 let audioElement: HTMLAudioElement | null = null;
@@ -488,33 +497,86 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
         if (cachedURL) {
           audioURL = cachedURL;
         } else if ((song as any).standaloneFilePath) {
-          // Song not cached yet, check if it needs loading in standalone mode
-          const needsData = await songNeedsAudioData(song);
-          if (needsData) {
-            // Load and cache the song data
-            const loadSuccess = await loadStandaloneSongAudioData(song.id);
-            if (loadSuccess) {
-              // Try to get the cached URL after loading
-              cachedURL = await loadSongAudioData(song.id);
-              if (cachedURL) {
-                audioURL = cachedURL;
-              }
-            }
-          }
+          const filePath = (song as any).standaloneFilePath;
 
-          // If still no audioURL, use direct fetch as fallback
-          if (!audioURL) {
+          // For file:// protocol, use direct path (no caching needed - it's local)
+          if (window.location.protocol === "file:") {
+            audioURL = new URL(filePath, window.location.href).href;
+          } else {
+            // For http/https, use streaming approach for immediate playback
             try {
-              const response = await fetch((song as any).standaloneFilePath);
-              if (response.ok) {
-                const audioData = await response.arrayBuffer();
-                const blob = new Blob([audioData], {
-                  type: song.mimeType || "audio/mpeg",
+              const { blobUrl, downloadPromise } = await streamAudioWithCaching(
+                song,
+                filePath,
+                (progress) => {
+                  // Update progress tracking
+                  setDownloadProgress((prev) => {
+                    const newMap = new Map(prev);
+                    newMap.set(song.id, progress.percentage);
+                    return newMap;
+                  });
+                }
+              );
+
+              // Track that this song is being cached
+              setCachingSongIds((prev) => new Set([...prev, song.id]));
+
+              audioURL = blobUrl;
+
+              // Handle caching completion in background
+              downloadPromise
+                .then((success) => {
+                  if (success) {
+                    console.log(`✅ Successfully cached ${song.title}`);
+                  } else {
+                    console.warn(`⚠️ Failed to cache ${song.title}`);
+                  }
+                })
+                .catch((error) => {
+                  console.error(`❌ Error caching ${song.title}:`, error);
+                })
+                .finally(() => {
+                  // Clean up progress tracking
+                  setDownloadProgress((prev) => {
+                    const newMap = new Map(prev);
+                    newMap.delete(song.id);
+                    return newMap;
+                  });
+                  setCachingSongIds((prev) => {
+                    const newSet = new Set(prev);
+                    newSet.delete(song.id);
+                    return newSet;
+                  });
                 });
-                audioURL = URL.createObjectURL(blob);
-              }
-            } catch (fetchError) {
-              console.error("❌ Fallback fetch failed:", fetchError);
+            } catch (streamError) {
+              console.error(
+                "❌ Streaming approach failed, using direct URL:",
+                streamError
+              );
+              // For http/https, fall back to direct URL streaming
+              audioURL = filePath;
+
+              // Start background caching separately
+              setCachingSongIds((prev) => new Set([...prev, song.id]));
+              downloadSongIfNeeded(song, filePath, (progress) => {
+                setDownloadProgress((prev) => {
+                  const newMap = new Map(prev);
+                  newMap.set(song.id, progress.percentage);
+                  return newMap;
+                });
+              }).finally(() => {
+                // Clean up progress tracking
+                setDownloadProgress((prev) => {
+                  const newMap = new Map(prev);
+                  newMap.delete(song.id);
+                  return newMap;
+                });
+                setCachingSongIds((prev) => {
+                  const newSet = new Set(prev);
+                  newSet.delete(song.id);
+                  return newSet;
+                });
+              });
             }
           }
         }
@@ -791,14 +853,16 @@ export const audioState = {
   isPlaying,
   currentTime,
   duration,
-  volume,
   currentIndex,
+  volume,
   isLoading,
   loadingSongIds,
   selectedSongId,
   preloadingSongId,
   repeatMode,
   isShuffled,
+  downloadProgress,
+  cachingSongIds,
 };
 
 // Cleanup function
@@ -883,15 +947,53 @@ async function preloadNextSong(): Promise<void> {
       return;
     }
 
-    // Load and cache the song data
+    // Check if song is already being downloaded
+    if (isSongDownloading(nextSong.id)) {
+      setLoadingSongIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(nextSong.id);
+        return newSet;
+      });
+      setPreloadingSongId(null);
+      return;
+    }
+
     if ((nextSong as any).standaloneFilePath) {
-      const needsData = await songNeedsAudioData(nextSong);
-      if (needsData) {
-        await loadStandaloneSongAudioData(nextSong.id);
-      }
+      // Start new download
+      downloadSongIfNeeded(
+        nextSong,
+        (nextSong as any).standaloneFilePath,
+        (progress) => {
+          // Update preload progress tracking
+          setDownloadProgress((prev) => {
+            const newMap = new Map(prev);
+            newMap.set(nextSong.id, progress.percentage);
+            return newMap;
+          });
+        }
+      )
+        .then((success) => {
+          if (success) {
+            console.log(`✅ Successfully preloaded ${nextSong.title}`);
+          } else {
+            console.warn(`⚠️ Failed to preload ${nextSong.title}`);
+          }
+        })
+        .catch((error) => {
+          console.error(`❌ Error preloading ${nextSong.title}:`, error);
+        })
+        .finally(() => {
+          // Clean up preload progress tracking
+          setDownloadProgress((prev) => {
+            const newMap = new Map(prev);
+            newMap.delete(nextSong.id);
+            return newMap;
+          });
+        });
     }
   } catch (error) {
   } finally {
+    // Always clean up loading state for preloading
     setLoadingSongIds((prev) => {
       const newSet = new Set(prev);
       newSet.delete(nextSong.id);
@@ -912,4 +1014,20 @@ export function selectSong(songId: string): void {
 
   // Set this as the selected song
   setSelectedSongId(songId);
+}
+
+// Helper functions for streaming downloads
+
+/**
+ * Gets the download progress percentage for a song
+ */
+export function getSongDownloadProgress(songId: string): number {
+  return downloadProgress().get(songId) || 0;
+}
+
+/**
+ * Checks if a song is currently being cached
+ */
+export function isSongCaching(songId: string): boolean {
+  return cachingSongIds().has(songId);
 }

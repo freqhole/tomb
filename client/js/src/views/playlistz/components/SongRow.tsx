@@ -3,7 +3,11 @@ import { createSignal, createResource, Show, onMount } from "solid-js";
 import { getSongById } from "../services/indexedDBService.js";
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
 import { songUpdateTrigger } from "../services/songReactivity.js";
-import { audioState } from "../services/audioService.js";
+import {
+  audioState,
+  getSongDownloadProgress,
+  isSongCaching,
+} from "../services/audioService.js";
 import { getImageUrlForContext } from "../services/imageService.js";
 import type { Song } from "../types/playlist.js";
 
@@ -66,6 +70,16 @@ export function SongRow(props: SongRowProps) {
   // Track if this song is being preloaded
   const isPreloading = () => {
     return audioState.preloadingSongId() === props.songId;
+  };
+
+  // Track download progress
+  const downloadProgress = () => {
+    return getSongDownloadProgress(props.songId);
+  };
+
+  // Track if this song is being cached
+  const isCachingActive = () => {
+    return isSongCaching(props.songId);
   };
 
   const formatDuration = (seconds: number | undefined) => {
@@ -185,7 +199,7 @@ export function SongRow(props: SongRowProps) {
             <div
               class={`group relative flex items-center p-3 group-hover:bg-opacity-70 hover:bg-magenta-500 transition-all duration-200 overflow-hidden ${
                 isCurrentlyPlaying() || isCurrentlySelected()
-                  ? "sticky top-0 bottom-0 bg-black z-1 border border-transparent border-opacity-50"
+                  ? "sticky top-0 bottom-0 bg-black z-100 border border-transparent border-opacity-50"
                   : draggedOver()
                     ? "border border-magenta-400 border-dashed"
                     : isDragging()
@@ -258,23 +272,67 @@ export function SongRow(props: SongRowProps) {
                   </Show>
 
                   {/* Loading overlay - show when loading or preloading */}
-                  <Show when={isCurrentlyLoading() || isPreloading()}>
-                    <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
-                      <svg
-                        class={`w-4 h-4 animate-spin ${
-                          isPreloading() ? "text-gray-400" : "text-magenta-300"
-                        }`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
+                  <Show
+                    when={
+                      isCurrentlyLoading() ||
+                      isPreloading() ||
+                      isCachingActive()
+                    }
+                  >
+                    <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-1">
+                      <div class="relative w-8 h-8">
+                        {/* Circular progress background */}
+                        <Show
+                          when={
+                            downloadProgress() > 0 && downloadProgress() < 100
+                          }
+                        >
+                          <svg
+                            class="absolute inset-0 w-8 h-8 transform -rotate-90"
+                            viewBox="0 0 32 32"
+                          >
+                            {/* Background circle */}
+                            <circle
+                              cx="16"
+                              cy="16"
+                              r="14"
+                              stroke="rgba(255, 255, 255, 0.2)"
+                              stroke-width="2"
+                              fill="none"
+                            />
+                            {/* Progress circle */}
+                            <circle
+                              cx="16"
+                              cy="16"
+                              r="14"
+                              stroke={isPreloading() ? "#9ca3af" : "#ec4899"}
+                              stroke-width="2"
+                              fill="none"
+                              stroke-linecap="round"
+                              stroke-dasharray={`${(downloadProgress() / 100) * 87.96} 87.96`}
+                              class="transition-all duration-300"
+                            />
+                          </svg>
+                        </Show>
+                        {/* Rotating loading icon */}
+                        <svg
+                          class={`w-4 h-4 animate-spin absolute inset-0 m-auto ${
+                            isPreloading()
+                              ? "text-gray-400"
+                              : "text-magenta-300"
+                          }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                          />
+                        </svg>
+                      </div>
                     </div>
                   </Show>
 
@@ -283,6 +341,7 @@ export function SongRow(props: SongRowProps) {
                     when={
                       !isCurrentlyLoading() &&
                       !isPreloading() &&
+                      !isCachingActive() &&
                       isHovered() &&
                       !isMobile()
                     }
