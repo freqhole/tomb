@@ -1,5 +1,5 @@
-// Streaming Audio Service
-// Handles efficient audio streaming with parallel caching to IndexedDB
+// streaming audio service
+// handles efficient audio streaming with parallel caching to indexeddb
 
 import {
   setupDB,
@@ -32,11 +32,11 @@ export async function streamAudioWithCaching(
   onProgress?: ProgressCallback
 ): Promise<StreamingDownloadResult> {
   try {
-    // For http/https URLs, return the direct URL for immediate streaming
-    // The browser will handle progressive download/streaming automatically
+    // for http/https urls, return the direct url for immediate streaming
+    // the browser will handle progressive download/streaming automatically
     const blobUrl = standaloneFilePath;
 
-    // Start background download and caching to IndexedDB
+    // start background download and caching to indexeddb
     const downloadPromise = downloadAndCacheAudio(
       song,
       standaloneFilePath,
@@ -54,7 +54,7 @@ export async function streamAudioWithCaching(
 }
 
 /**
- * Downloads and caches audio file in the background
+ * downloads and caches audio file in the background
  */
 export async function downloadAndCacheAudio(
   song: Song,
@@ -62,12 +62,12 @@ export async function downloadAndCacheAudio(
   onProgress?: ProgressCallback
 ): Promise<boolean> {
   try {
-    // Check if already cached to avoid duplicate downloads
+    // check if already cached to avoid duplicate downloads
     const db = await setupDB();
     const existingSong = await db.get(SONGS_STORE, song.id);
 
     if (existingSong?.audioData && existingSong.audioData.byteLength > 0) {
-      return true; // Already cached
+      return true; // already cached
     }
 
     const response = await fetch(standaloneFilePath);
@@ -108,7 +108,7 @@ export async function downloadAndCacheAudio(
       }
     }
 
-    // Combine chunks into ArrayBuffer
+    // combine chunks into arraybuffer
     const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
     const audioData = new ArrayBuffer(totalLength);
     const uint8View = new Uint8Array(audioData);
@@ -119,7 +119,7 @@ export async function downloadAndCacheAudio(
       offset += chunk.length;
     }
 
-    // Store in IndexedDB
+    // store in indexeddb
     const mimeType =
       song.mimeType || response.headers.get("content-type") || "audio/mpeg";
     const updatedSong = {
@@ -144,7 +144,7 @@ export async function downloadAndCacheAudio(
 }
 
 /**
- * Checks if a song is currently being downloaded/cached
+ * checks if a song is currently being downloaded/cached
  */
 const activeDownloads = new Map<string, Promise<boolean>>();
 
@@ -153,32 +153,32 @@ export function isSongDownloading(songId: string): boolean {
 }
 
 /**
- * Wrapper that tracks active downloads to prevent duplicates
+ * wrapper that tracks active downloads to prevent duplicates
  */
 export async function downloadSongIfNeeded(
   song: Song,
   standaloneFilePath: string,
   onProgress?: ProgressCallback
 ): Promise<boolean> {
-  // Check if already downloading
+  // check if already downloading
   const existingDownload = activeDownloads.get(song.id);
   if (existingDownload) {
     return existingDownload;
   }
 
-  // Check if already cached
+  // check if already cached
   try {
     const db = await setupDB();
     const existingSong = await db.get(SONGS_STORE, song.id);
 
     if (existingSong?.audioData && existingSong.audioData.byteLength > 0) {
-      return true; // Already cached
+      return true; // already cached
     }
   } catch (error) {
     console.error("Error checking cache status:", error);
   }
 
-  // Start new download
+  // start new download
   const downloadPromise = downloadAndCacheAudio(
     song,
     standaloneFilePath,
@@ -187,7 +187,7 @@ export async function downloadSongIfNeeded(
 
   activeDownloads.set(song.id, downloadPromise);
 
-  // Clean up when done
+  // clean up when done
   downloadPromise.finally(() => {
     activeDownloads.delete(song.id);
   });

@@ -334,7 +334,7 @@ export async function initializeStandalonePlaylist(
 
     // Count successfully loaded songs
     const songsWithoutAudio = finalSongs.filter(
-      (song) => !song.audioData && !(song as any).standaloneFilePath
+      (song) => !song.audioData && !song.standaloneFilePath
     );
 
     if (songsWithoutAudio.length > 0) {

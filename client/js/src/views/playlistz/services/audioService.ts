@@ -476,19 +476,16 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
 
     if (!audioURL) {
       // Check for standalone file path when using file:// protocol
-      if (
-        window.location.protocol === "file:" &&
-        (song as any).standaloneFilePath
-      ) {
-        const filePath = (song as any).standaloneFilePath;
+      if (window.location.protocol === "file:" && song.standaloneFilePath) {
+        const filePath = song.standaloneFilePath;
         audioURL = new URL(filePath, window.location.href).href;
 
         // Test if the file is accessible
         const testAudio = document.createElement("audio");
         testAudio.src = audioURL;
         testAudio.addEventListener("error", (e) => {
-          console.error("❌ Audio file test failed:", e);
-          console.error("❌ Audio error:", testAudio.error);
+          console.error("Audio file test failed:", e);
+          console.error("Audio error:", testAudio.error);
         });
         testAudio.load();
       } else {
@@ -496,20 +493,20 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
         let cachedURL = await loadSongAudioData(song.id);
         if (cachedURL) {
           audioURL = cachedURL;
-        } else if ((song as any).standaloneFilePath) {
-          const filePath = (song as any).standaloneFilePath;
+        } else if (song.standaloneFilePath) {
+          const filePath = song.standaloneFilePath;
 
-          // For file:// protocol, use direct path (no caching needed - it's local)
+          // for file:// protocol, use direct path (no caching needed - it's local)
           if (window.location.protocol === "file:") {
             audioURL = new URL(filePath, window.location.href).href;
           } else {
-            // For http/https, use streaming approach for immediate playback
+            // for http/https, use streaming approach for immediate playback
             try {
               const { blobUrl, downloadPromise } = await streamAudioWithCaching(
                 song,
                 filePath,
                 (progress) => {
-                  // Update progress tracking
+                  // update progress tracking
                   setDownloadProgress((prev) => {
                     const newMap = new Map(prev);
                     newMap.set(song.id, progress.percentage);
@@ -518,25 +515,25 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
                 }
               );
 
-              // Track that this song is being cached
+              // track that this song is being cached
               setCachingSongIds((prev) => new Set([...prev, song.id]));
 
               audioURL = blobUrl;
 
-              // Handle caching completion in background
+              // handle caching completion in background
               downloadPromise
                 .then((success) => {
                   if (success) {
-                    console.log(`✅ Successfully cached ${song.title}`);
+                    console.log(`Successfully cached ${song.title}`);
                   } else {
-                    console.warn(`⚠️ Failed to cache ${song.title}`);
+                    console.warn(`Failed to cache ${song.title}`);
                   }
                 })
                 .catch((error) => {
-                  console.error(`❌ Error caching ${song.title}:`, error);
+                  console.error(`Error caching ${song.title}:`, error);
                 })
                 .finally(() => {
-                  // Clean up progress tracking
+                  // clean up progress tracking
                   setDownloadProgress((prev) => {
                     const newMap = new Map(prev);
                     newMap.delete(song.id);
@@ -550,13 +547,13 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
                 });
             } catch (streamError) {
               console.error(
-                "❌ Streaming approach failed, using direct URL:",
+                "Streaming approach failed, using direct URL:",
                 streamError
               );
-              // For http/https, fall back to direct URL streaming
+              // for http/https, fall back to direct url streaming
               audioURL = filePath;
 
-              // Start background caching separately
+              // start background caching separately
               setCachingSongIds((prev) => new Set([...prev, song.id]));
               downloadSongIfNeeded(song, filePath, (progress) => {
                 setDownloadProgress((prev) => {
@@ -565,7 +562,7 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
                   return newMap;
                 });
               }).finally(() => {
-                // Clean up progress tracking
+                // clean up progress tracking
                 setDownloadProgress((prev) => {
                   const newMap = new Map(prev);
                   newMap.delete(song.id);
@@ -947,7 +944,7 @@ async function preloadNextSong(): Promise<void> {
       return;
     }
 
-    // Check if song is already being downloaded
+    // check if song is already being downloaded
     if (isSongDownloading(nextSong.id)) {
       setLoadingSongIds((prev) => {
         const newSet = new Set(prev);
@@ -958,13 +955,16 @@ async function preloadNextSong(): Promise<void> {
       return;
     }
 
-    if ((nextSong as any).standaloneFilePath) {
-      // Start new download
+    if (nextSong.standaloneFilePath) {
+      // track that this song is being cached for preloading
+      setCachingSongIds((prev) => new Set([...prev, nextSong.id]));
+
+      // start preload download
       downloadSongIfNeeded(
         nextSong,
-        (nextSong as any).standaloneFilePath,
+        nextSong.standaloneFilePath,
         (progress) => {
-          // Update preload progress tracking
+          // update preload progress tracking
           setDownloadProgress((prev) => {
             const newMap = new Map(prev);
             newMap.set(nextSong.id, progress.percentage);
@@ -974,26 +974,31 @@ async function preloadNextSong(): Promise<void> {
       )
         .then((success) => {
           if (success) {
-            console.log(`✅ Successfully preloaded ${nextSong.title}`);
+            console.log(`Successfully preloaded ${nextSong.title}`);
           } else {
-            console.warn(`⚠️ Failed to preload ${nextSong.title}`);
+            console.warn(`Failed to preload ${nextSong.title}`);
           }
         })
         .catch((error) => {
-          console.error(`❌ Error preloading ${nextSong.title}:`, error);
+          console.error(`Error preloading ${nextSong.title}:`, error);
         })
         .finally(() => {
-          // Clean up preload progress tracking
+          // clean up preload progress tracking
           setDownloadProgress((prev) => {
             const newMap = new Map(prev);
             newMap.delete(nextSong.id);
             return newMap;
           });
+          setCachingSongIds((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(nextSong.id);
+            return newSet;
+          });
         });
     }
   } catch (error) {
   } finally {
-    // Always clean up loading state for preloading
+    // always clean up loading state for preloading
     setLoadingSongIds((prev) => {
       const newSet = new Set(prev);
       newSet.delete(nextSong.id);
