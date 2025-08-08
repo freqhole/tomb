@@ -7,6 +7,7 @@ import {
   audioState,
   getSongDownloadProgress,
   isSongCaching,
+  seek,
 } from "../services/audioService.js";
 import { getImageUrlForContext } from "../services/imageService.js";
 import type { Song } from "../types/playlist.js";
@@ -84,6 +85,12 @@ export function SongRow(props: SongRowProps) {
 
   const formatDuration = (seconds: number | undefined) => {
     if (!seconds) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
@@ -396,9 +403,55 @@ export function SongRow(props: SongRowProps) {
                     {songData().album && <span class="mx-2">•</span>}
                     {songData().album}
                   </div>
-                  <Show when={isCurrentlyPlaying() || isCurrentlySelected()}>
+                  <Show
+                    when={
+                      (isCurrentlyPlaying() || isCurrentlySelected()) &&
+                      !isHovered()
+                    }
+                  >
                     <div class="text-xs mt-1 text-magenta-200">
                       added {relativeTime.signal()}
+                    </div>
+                  </Show>
+                  <Show when={isCurrentlySelected() && isHovered()}>
+                    <div class="text-xs mt-1 text-magenta-200 flex items-center gap-3 px-2">
+                      {/* current time with fixed width */}
+                      <span class="font-mono w-12 text-right tabular-nums">
+                        {isCurrentlySelected()
+                          ? formatTime(audioState.currentTime())
+                          : "0:00"}
+                      </span>
+
+                      {/* seek bar */}
+                      <div class="flex-1 relative h-4 flex items-center">
+                        <input
+                          type="range"
+                          min="0"
+                          max={songData().duration || 0}
+                          value={
+                            isCurrentlySelected() ? audioState.currentTime() : 0
+                          }
+                          onInput={(e) => {
+                            if (isCurrentlySelected()) {
+                              const seekTime = parseFloat(
+                                e.currentTarget.value
+                              );
+                              seek(seekTime);
+                            }
+                          }}
+                          class="w-full h-2 bg-gray-700 rounded-full appearance-none cursor-pointer hover:bg-gray-600 transition-colors seek-slider"
+                          style={{
+                            background: isCurrentlySelected()
+                              ? `linear-gradient(to right, #ec4899 0%, #ec4899 ${(audioState.currentTime() / (songData().duration || 1)) * 100}%, #374151 ${(audioState.currentTime() / (songData().duration || 1)) * 100}%, #374151 100%)`
+                              : "#374151",
+                          }}
+                        />
+                      </div>
+
+                      {/* total time with fixed width */}
+                      <span class="font-mono w-12 text-left tabular-nums">
+                        {formatDuration(songData().duration)}
+                      </span>
                     </div>
                   </Show>
                 </div>
