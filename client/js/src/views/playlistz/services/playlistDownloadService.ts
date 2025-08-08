@@ -499,10 +499,11 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
     playlist.description ||
     `a playlist with ${songCount} song${songCount === 1 ? "" : "z"}`;
 
-  // Create base64 data URL for playlist image if available
-  let imageDataUrl = "";
-  if (playlist.imageBase64 && playlist.imageMimeType) {
-    imageDataUrl = `data:${playlist.imageMimeType};base64,${playlist.imageBase64}`;
+  // Get relative path to playlist cover image if available
+  let imageUrl = "";
+  if (playlist.imageMimeType) {
+    const extension = getFileExtensionFromMimeType(playlist.imageMimeType);
+    imageUrl = `/data/playlist-cover${extension}`;
   }
 
   const ogMetaTags = `
@@ -511,15 +512,14 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
     <meta property="og:title" content="${playlist.title.replace(/"/g, "&quot;")}" />
     <meta property="og:description" content="${description.replace(/"/g, "&quot;")}" />
     <meta property="og:site_name" content="playlistz" />
-    ${imageDataUrl ? `<meta property="og:image" content="${imageDataUrl}" />` : ""}
-    ${imageDataUrl ? `<meta property="og:image:type" content="${playlist.imageMimeType}" />` : ""}
-    ${imageDataUrl ? `<meta property="og:image:width" content="512" />` : ""}
-    ${imageDataUrl ? `<meta property="og:image:height" content="512" />` : ""}
+    ${imageUrl ? `<meta property="og:image" content="${imageUrl}" />` : ""}
+    ${imageUrl ? `<meta property="og:image:width" content="512" />` : ""}
+    ${imageUrl ? `<meta property="og:image:height" content="512" />` : ""}
 
-    <!-- Standard meta tags -->
+    <!-- standard meta tags -->
     <meta name="description" content="${description.replace(/"/g, "&quot;")}" />`;
 
-  // Create the standalone initialization script with embedded data
+  // create the standalone initialization script with embedded data
   const standaloneScript = `
     <script>
       // Flag to indicate this is a standalone version
