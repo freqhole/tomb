@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js";
+import type { Playlist } from "../types/playlist.js";
 
 // Offline state signals
 const [isOnline, setIsOnline] = createSignal(navigator.onLine);
@@ -38,8 +39,29 @@ async function requestPersistentStorage(): Promise<boolean> {
 /**
  * Generate and register PWA manifest - simplified approach
  */
-function generatePWAManifest(playlistTitle?: string): void {
+function generatePWAManifest(
+  playlistTitle?: string,
+  playlistImagePath?: string
+): void {
   const appName = playlistTitle || "playlistz";
+
+  // use playlist cover image if available, otherwise fallback to svg
+  let iconSrc;
+  let iconType;
+  if (playlistImagePath) {
+    iconSrc = playlistImagePath;
+    // determine type from file extension
+    if (playlistImagePath.endsWith(".png")) {
+      iconType = "image/png";
+    } else if (playlistImagePath.endsWith(".webp")) {
+      iconType = "image/webp";
+    } else {
+      iconType = "image/jpeg"; // default to jpeg
+    }
+  } else {
+    iconSrc = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><rect width="192" height="192" fill="#000000"/><text x="96" y="125" text-anchor="middle" font-size="100" font-family="Arial,sans-serif" font-weight="bold" fill="magenta">z</text></svg>')}`;
+    iconType = "image/svg+xml";
+  }
 
   // Create a super simple manifest object
   const manifest = {
@@ -52,9 +74,9 @@ function generatePWAManifest(playlistTitle?: string): void {
     theme_color: "#000000",
     icons: [
       {
-        src: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><rect width="192" height="192" fill="#000000"/><text x="96" y="125" text-anchor="middle" font-size="100" font-family="Arial,sans-serif" font-weight="bold" fill="magenta">z</text></svg>')}`,
+        src: iconSrc,
         sizes: "192x192",
-        type: "image/svg+xml",
+        type: iconType,
       },
     ],
   };
@@ -116,28 +138,56 @@ function generatePWAManifest(playlistTitle?: string): void {
     "152x152",
     "180x180",
   ];
-  const iconSvg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180"><rect width="180" height="180" fill="#000000"/><text x="90" y="117" text-anchor="middle" font-size="94" font-family="Arial,sans-serif" font-weight="bold" fill="magenta">z</text></svg>')}`;
+  // use playlist image for apple touch icons if available
+  const appleIconSrc =
+    playlistImagePath ||
+    `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180"><rect width="180" height="180" fill="#000000"/><text x="90" y="117" text-anchor="middle" font-size="94" font-family="Arial,sans-serif" font-weight="bold" fill="magenta">z</text></svg>')}`;
 
   iconSizes.forEach((size) => {
     const iconLink = document.createElement("link");
     iconLink.rel = "apple-touch-icon";
     iconLink.sizes = size;
-    iconLink.href = `${iconSvg}#${Date.now()}`;
+    iconLink.href = `${appleIconSrc}#${Date.now()}`;
     document.head.appendChild(iconLink);
   });
 
   // Default apple-touch-icon
   const defaultIcon = document.createElement("link");
   defaultIcon.rel = "apple-touch-icon";
-  defaultIcon.href = `${iconSvg}#${Date.now()}`;
+  defaultIcon.href = `${appleIconSrc}#${Date.now()}`;
   document.head.appendChild(defaultIcon);
+}
+
+/**
+ * helper function to generate playlist image path for pwa manifest
+ */
+function getPlaylistImagePath(playlist: Playlist): string | undefined {
+  if (!playlist.imageData || !playlist.imageType) {
+    return undefined;
+  }
+
+  // determine file extension from mime type
+  let extension = ".jpg"; // default
+  if (playlist.imageType === "image/png") {
+    extension = ".png";
+  } else if (playlist.imageType === "image/webp") {
+    extension = ".webp";
+  } else if (playlist.imageType === "image/gif") {
+    extension = ".gif";
+  }
+
+  return `/data/playlist-cover${extension}`;
 }
 
 /**
  * Update PWA manifest with new playlist title
  */
-export function updatePWAManifest(playlistTitle: string): void {
-  generatePWAManifest(playlistTitle);
+export function updatePWAManifest(
+  playlistTitle: string,
+  playlist?: Playlist
+): void {
+  const imagePath = playlist ? getPlaylistImagePath(playlist) : undefined;
+  generatePWAManifest(playlistTitle, imagePath);
 }
 
 /**
@@ -237,7 +287,8 @@ export async function cacheAudioFile(
  * Initialize offline support
  */
 export async function initializeOfflineSupport(
-  playlistTitle?: string
+  playlistTitle?: string,
+  playlist?: Playlist
 ): Promise<void> {
   const updateOnlineStatus = () => {
     setIsOnline(navigator.onLine);
@@ -246,7 +297,8 @@ export async function initializeOfflineSupport(
   window.addEventListener("online", updateOnlineStatus);
   window.addEventListener("offline", updateOnlineStatus);
 
-  generatePWAManifest(playlistTitle);
+  const imagePath = playlist ? getPlaylistImagePath(playlist) : undefined;
+  generatePWAManifest(playlistTitle, imagePath);
   await requestPersistentStorage();
   registerServiceWorker();
 }

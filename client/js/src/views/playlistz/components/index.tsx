@@ -251,7 +251,10 @@ export function Playlistz() {
       // try to init offline support
       try {
         const currentPlaylist = selectedPlaylist();
-        await initializeOfflineSupport(currentPlaylist?.title);
+        await initializeOfflineSupport(
+          currentPlaylist?.title,
+          currentPlaylist || undefined
+        );
       } catch (offlineError) {
         console.warn("offline support initialization failed:", offlineError);
       }
@@ -283,7 +286,7 @@ export function Playlistz() {
   createEffect(() => {
     const playlist = selectedPlaylist();
     if (playlist) {
-      updatePWAManifest(playlist.title);
+      updatePWAManifest(playlist.title, playlist);
     }
   });
 
