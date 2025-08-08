@@ -28,6 +28,7 @@ export function SongRow(props: SongRowProps) {
   const [isDragging, setIsDragging] = createSignal(false);
   const [draggedOver, setDraggedOver] = createSignal(false);
   const [isMobile, setIsMobile] = createSignal(false);
+  const [isSeekBarActive, setIsSeekBarActive] = createSignal(false);
 
   // Check if device has touch capability
   onMount(() => {
@@ -213,7 +214,7 @@ export function SongRow(props: SongRowProps) {
                       ? "border border-gray-500"
                       : "border border-transparent"
               }`}
-              draggable={true}
+              draggable={!isSeekBarActive()}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
               onDragOver={handleDragOver}
@@ -403,27 +404,25 @@ export function SongRow(props: SongRowProps) {
                     {songData().album && <span class="mx-2">•</span>}
                     {songData().album}
                   </div>
+                  {/* seek'n destroy! */}
                   <Show
-                    when={
-                      (isCurrentlyPlaying() || isCurrentlySelected()) &&
-                      !isHovered()
-                    }
+                    when={isCurrentlySelected() && (isHovered() || isMobile())}
                   >
-                    <div class="text-xs mt-1 text-magenta-200">
-                      added {relativeTime.signal()}
-                    </div>
-                  </Show>
-                  <Show when={isCurrentlySelected() && isHovered()}>
-                    <div class="text-xs mt-1 text-magenta-200 flex items-center gap-3 px-2">
+                    <div class="text-xs mt-1 text-magenta-200 flex items-center">
                       {/* current time with fixed width */}
-                      <span class="font-mono w-12 text-right tabular-nums">
+                      <span class="font-mono w-12 text-left tabular-nums">
                         {isCurrentlySelected()
                           ? formatTime(audioState.currentTime())
                           : "0:00"}
                       </span>
 
                       {/* seek bar */}
-                      <div class="flex-1 relative h-4 flex items-center">
+                      <div
+                        class="flex-1 relative h-4 flex items-center seek-bar-container"
+                        onMouseDown={() => setIsSeekBarActive(true)}
+                        onMouseUp={() => setIsSeekBarActive(false)}
+                        onMouseLeave={() => setIsSeekBarActive(false)}
+                      >
                         <input
                           type="range"
                           min="0"
@@ -439,6 +438,8 @@ export function SongRow(props: SongRowProps) {
                               seek(seekTime);
                             }
                           }}
+                          onMouseDown={() => setIsSeekBarActive(true)}
+                          onMouseUp={() => setIsSeekBarActive(false)}
                           class="w-full h-2 bg-gray-700 rounded-full appearance-none cursor-pointer hover:bg-gray-600 transition-colors seek-slider"
                           style={{
                             background: isCurrentlySelected()
@@ -449,9 +450,21 @@ export function SongRow(props: SongRowProps) {
                       </div>
 
                       {/* total time with fixed width */}
-                      <span class="font-mono w-12 text-left tabular-nums">
-                        {formatDuration(songData().duration)}
-                      </span>
+                      <Show when={!isMobile()}>
+                        <span class="font-mono w-12 text-right tabular-nums">
+                          {formatDuration(songData().duration)}
+                        </span>
+                      </Show>
+                    </div>
+                  </Show>
+                  <Show
+                    when={
+                      (isCurrentlyPlaying() || isCurrentlySelected()) &&
+                      !isHovered()
+                    }
+                  >
+                    <div class="text-xs mt-1 text-magenta-200">
+                      added {relativeTime.signal()}
                     </div>
                   </Show>
                 </div>

@@ -276,31 +276,51 @@
 /* Seek slider styling */
 .seek-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #ec4899;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  background-color: #000000;
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 500 500' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M250 405L125 155L375 155L303.611 340.714L250 405Z' fill='%23ec4899'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
   cursor: pointer;
   border: none;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  outline: none;
 }
 
 .seek-slider::-webkit-slider-thumb:hover {
-  background: #f472b6;
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 500 500' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M250 405L125 155L375 155L303.611 340.714L250 405Z' fill='%23f472b6'/%3E%3C/svg%3E");
   transform: scale(1.1);
 }
 
 .seek-slider::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #ec4899;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  background-color: #000000;
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 500 500' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M250 405L125 155L375 155L303.611 340.714L250 405Z' fill='%23ec4899'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
   cursor: pointer;
   border: none;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  outline: none;
 }
 
 .seek-slider::-moz-range-thumb:hover {
-  background: #f472b6;
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 500 500' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M250 405L125 155L375 155L303.611 340.714L250 405Z' fill='%23f472b6'/%3E%3C/svg%3E");
   transform: scale(1.1);
+}
+
+.seek-slider:focus {
+  outline: none;
+}
+
+.seek-slider:focus::-webkit-slider-thumb {
+  outline: none;
+}
+
+.seek-slider:focus::-moz-range-thumb {
+  outline: none;
 }
