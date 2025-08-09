@@ -119,8 +119,6 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
 
   describe("Current Broken Behavior", () => {
     it("should demonstrate that audio player lacks playlist queue management", async () => {
-      console.log("🧪 Testing current broken behavior: No playlist queue");
-
       const currentSong = mockSongs[0];
       mockAudioState.currentSong.mockReturnValue(currentSong);
       mockAudioState.isPlaying.mockReturnValue(true);
@@ -144,13 +142,9 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
       fireEvent.click(nextButton);
 
       // No queue management functions should be called
-      console.log("🐛 BUG CONFIRMED: Next button has no functionality");
-      console.log("🐛 BUG CONFIRMED: No playlist queue system exists");
     });
 
     it("should show that song end events don't trigger auto-advance", async () => {
-      console.log("🧪 Testing song end behavior: No auto-advance");
-
       const currentSong = mockSongs[0];
       mockAudioState.currentSong.mockReturnValue(currentSong);
       mockAudioState.isPlaying.mockReturnValue(true);
@@ -168,26 +162,18 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
 
       // Song should still be the same (no auto-advance)
       expect(mockAudioState.currentSong()).toBe(currentSong);
-      console.log("🐛 BUG CONFIRMED: Song end doesn't trigger auto-advance");
     });
 
     it("should show missing playlist context in audio service", () => {
-      console.log("🧪 Testing audio service playlist context");
-
       // Current audio state lacks playlist information
       expect(mockAudioState.currentPlaylist()).toBeNull();
       expect(mockAudioState.currentSongIndex()).toBe(-1);
       expect(mockAudioState.queue()).toHaveLength(0);
-
-      console.log("🐛 BUG CONFIRMED: Audio service has no playlist context");
-      console.log("🐛 BUG CONFIRMED: No queue management system");
     });
   });
 
   describe("Expected Correct Behavior", () => {
     it("should define playlist queue requirements", () => {
-      console.log("🎯 Defining playlist queue requirements");
-
       const expectedQueueBehavior = {
         // Core queue management
         loadPlaylist: "Should load entire playlist into queue",
@@ -211,17 +197,10 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
         queueLength: "Should provide total queue length",
       };
 
-      Object.entries(expectedQueueBehavior).forEach(([feature, description]) => {
-        console.log(`📋 ${feature}: ${description}`);
-      });
-
       expect(expectedQueueBehavior).toBeDefined();
-      console.log("✅ Queue requirements defined");
     });
 
     it("should define audio service enhancements needed", () => {
-      console.log("🔧 Defining audio service enhancements");
-
       const requiredEnhancements = {
         // Enhanced audio state
         playlistQueue: "Array of songs in current playlist order",
@@ -240,23 +219,15 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
         onQueueChanged: "() => void - notifies queue updates",
       };
 
-      Object.entries(requiredEnhancements).forEach(([enhancement, description]) => {
-        console.log(`🔧 ${enhancement}: ${description}`);
-      });
-
       expect(requiredEnhancements).toBeDefined();
-      console.log("✅ Audio service enhancements defined");
     });
   });
 
   describe("Queue Management Testing", () => {
     it("should test playlist queue loading", async () => {
-      console.log("🔧 Testing playlist queue loading");
-
       // Mock enhanced audio service with queue
       const mockQueue = [...mockSongs];
       const mockLoadPlaylistQueue = vi.fn().mockImplementation((playlist: Playlist, songs: Song[]) => {
-        console.log(`📥 Loading playlist queue: ${playlist.title} with ${songs.length} songs`);
         mockAudioState.currentPlaylist.mockReturnValue(playlist);
         mockAudioState.queue.mockReturnValue(songs);
         mockAudioState.currentSongIndex.mockReturnValue(0);
@@ -268,13 +239,9 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
       expect(mockLoadPlaylistQueue).toHaveBeenCalledWith(mockPlaylist, mockSongs);
       expect(mockAudioState.queue()).toEqual(mockSongs);
       expect(mockAudioState.currentSongIndex()).toBe(0);
-
-      console.log("✅ Playlist queue loading tested");
     });
 
     it("should test next song functionality", async () => {
-      console.log("🔧 Testing next song functionality");
-
       // Setup queue state
       mockAudioState.currentPlaylist.mockReturnValue(mockPlaylist);
       mockAudioState.queue.mockReturnValue(mockSongs);
@@ -289,14 +256,11 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
           const nextIndex = currentIndex + 1;
           const nextSong = queue[nextIndex];
 
-          console.log(`⏭️ Playing next song: ${nextSong.title} (index ${nextIndex})`);
-
           mockAudioState.currentSongIndex.mockReturnValue(nextIndex);
           mockAudioState.currentSong.mockReturnValue(nextSong);
 
           return nextSong;
         } else {
-          console.log("⏭️ Reached end of queue");
           return null;
         }
       });
@@ -307,13 +271,9 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
       expect(nextSong).toEqual(mockSongs[1]);
       expect(mockAudioState.currentSongIndex()).toBe(1);
       expect(mockAudioState.currentSong()).toEqual(mockSongs[1]);
-
-      console.log("✅ Next song functionality tested");
     });
 
     it("should test previous song functionality", async () => {
-      console.log("🔧 Testing previous song functionality");
-
       // Setup queue state (start at second song)
       mockAudioState.currentPlaylist.mockReturnValue(mockPlaylist);
       mockAudioState.queue.mockReturnValue(mockSongs);
@@ -327,14 +287,11 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
           const prevIndex = currentIndex - 1;
           const prevSong = mockAudioState.queue()[prevIndex];
 
-          console.log(`⏮️ Playing previous song: ${prevSong.title} (index ${prevIndex})`);
-
           mockAudioState.currentSongIndex.mockReturnValue(prevIndex);
           mockAudioState.currentSong.mockReturnValue(prevSong);
 
           return prevSong;
         } else {
-          console.log("⏮️ Already at beginning of queue");
           return null;
         }
       });
@@ -345,13 +302,9 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
       expect(prevSong).toEqual(mockSongs[0]);
       expect(mockAudioState.currentSongIndex()).toBe(0);
       expect(mockAudioState.currentSong()).toEqual(mockSongs[0]);
-
-      console.log("✅ Previous song functionality tested");
     });
 
     it("should test auto-advance on song end", async () => {
-      console.log("🔧 Testing auto-advance on song end");
-
       // Setup queue state
       mockAudioState.currentPlaylist.mockReturnValue(mockPlaylist);
       mockAudioState.queue.mockReturnValue(mockSongs);
@@ -359,8 +312,6 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
       mockAudioState.currentSong.mockReturnValue(mockSongs[0]);
 
       const mockOnSongEnded = vi.fn().mockImplementation(async () => {
-        console.log("🔚 Song ended, checking for auto-advance");
-
         const currentIndex = mockAudioState.currentSongIndex();
         const queue = mockAudioState.queue();
 
@@ -368,8 +319,6 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
           // Auto-advance to next song
           const nextIndex = currentIndex + 1;
           const nextSong = queue[nextIndex];
-
-          console.log(`🔄 Auto-advancing to: ${nextSong.title}`);
 
           mockAudioState.currentSongIndex.mockReturnValue(nextIndex);
           mockAudioState.currentSong.mockReturnValue(nextSong);
@@ -380,7 +329,6 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
 
           return true; // Auto-advance happened
         } else {
-          console.log("🔚 Reached end of playlist");
           return false; // No more songs
         }
       });
@@ -391,15 +339,11 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
       expect(autoAdvanced).toBe(true);
       expect(mockAudioState.currentSong()).toEqual(mockSongs[1]);
       expect(mockAudio.play).toHaveBeenCalled();
-
-      console.log("✅ Auto-advance on song end tested");
     });
   });
 
   describe("UI Integration Testing", () => {
     it("should test next/previous button functionality", async () => {
-      console.log("🔧 Testing UI button functionality");
-
       // Setup with enhanced audio service
       mockAudioState.currentSong.mockReturnValue(mockSongs[1]);
       mockAudioState.currentPlaylist.mockReturnValue(mockPlaylist);
@@ -432,13 +376,9 @@ describe("🎵 Playlist Auto-Advance Audio Flow Tests", () => {
 
       // In enhanced version, this should call playPrevious
       // expect(mockPlayPrevious).toHaveBeenCalled();
-
-      console.log("✅ UI button functionality tested");
     });
 
     it("should test queue state indicators", async () => {
-      console.log("🔧 Testing queue state indicators");
-
       // Test at beginning of queue
       mockAudioState.currentSong.mockReturnValue(mockSongs[0]);
       mockAudioState.currentSongIndex.mockReturnValue(0);
