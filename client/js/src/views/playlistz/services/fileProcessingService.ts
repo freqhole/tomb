@@ -13,22 +13,6 @@ export function isAudioFile(file: File): boolean {
   return file.type.startsWith("audio/");
 }
 
-// Get list of supported audio file extensions
-export function getSupportedExtensions(): string[] {
-  return [
-    ".mp3",
-    ".wav",
-    ".ogg",
-    ".aac",
-    ".m4a",
-    ".flac",
-    ".aiff",
-    ".aif",
-    ".wma",
-    ".opus",
-  ];
-}
-
 // Validate file size (default 100MB limit)
 export function validateFileSize(file: File, maxSizeMB = 100): boolean {
   const maxBytes = maxSizeMB * 1024 * 1024;
@@ -249,49 +233,4 @@ export async function processAudioFiles(
 // Filter files to only include audio files
 export function filterAudioFiles(files: FileList | File[]): File[] {
   return Array.from(files).filter(isAudioFile);
-}
-
-// Get file type description for UI
-export function getFileTypeDescription(file: File): string {
-  const type = file.type.toLowerCase();
-
-  if (type.includes("mp3") || type.includes("mpeg")) return "MP3 Audio";
-  if (type.includes("wav")) return "WAV Audio";
-  if (type.includes("flac")) return "FLAC Audio";
-  if (type.includes("aac")) return "AAC Audio";
-  if (type.includes("ogg")) return "OGG Audio";
-  if (type.includes("aiff")) return "AIFF Audio";
-  if (type.includes("m4a")) return "M4A Audio";
-  if (type.includes("wma")) return "WMA Audio";
-
-  return "Audio File";
-}
-
-// Format file size for display
-export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 Bytes";
-
-  const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-}
-
-// Create a preview URL for an audio file
-export function createPreviewURL(file: File): string {
-  return URL.createObjectURL(file);
-}
-
-// Clean up preview URL
-export function revokePreviewURL(url: string): void {
-  URL.revokeObjectURL(url);
-}
-
-// Validate and sanitize filename for display
-export function sanitizeFilename(filename: string): string {
-  return filename
-    .replace(/[<>:"/\\|?*]/g, "") // Remove invalid characters
-    .replace(/\s+/g, " ") // Collapse multiple spaces
-    .trim();
 }

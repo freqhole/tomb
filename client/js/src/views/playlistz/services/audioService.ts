@@ -923,28 +923,6 @@ export function cleanup(): void {
   setIsShuffled(false);
 }
 
-// helper to check if audio is supported
-export function isAudioSupported(file: File): boolean {
-  return file.type.startsWith("audio/");
-}
-
-// helper to get supported audio formats
-export function getSupportedFormats(): string[] {
-  const audio = document.createElement("audio");
-  const formats = [
-    "audio/mpeg", // mp3
-    "audio/wav", // wav
-    "audio/ogg", // ogg
-    "audio/aac", // aac
-    "audio/mp4", // m4a
-    "audio/flac", // flac
-    "audio/aiff", // aiff
-    "audio/x-aiff", // aif
-  ];
-
-  return formats.filter((format) => audio.canPlayType(format) !== "");
-}
-
 // helper to preload next song in background
 async function preloadNextSong(): Promise<void> {
   const queue = playlistQueue();

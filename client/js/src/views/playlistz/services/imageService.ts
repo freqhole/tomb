@@ -273,101 +273,6 @@ async function createThumbnailData(
   });
 }
 
-// Generate playlist thumbnail from song album art
-export function generatePlaylistThumbnail(
-  songImages: (string | undefined)[]
-): string | null {
-  const validImages = songImages.filter((img): img is string => !!img);
-
-  if (validImages.length === 0) {
-    return null;
-  }
-
-  if (validImages.length === 1) {
-    return validImages[0] || null;
-  }
-
-  // For multiple images, return the first one for now
-  // TODO: Could create a collage of multiple album arts
-  return validImages[0] || null;
-}
-
-// Create collage from multiple album arts (future enhancement)
-export async function createAlbumArtCollage(
-  imageUrls: string[],
-  size: number = 300
-): Promise<string> {
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-
-  if (!ctx) {
-    throw new Error("Cannot create canvas context");
-  }
-
-  canvas.width = size;
-  canvas.height = size;
-
-  // Fill with dark background
-  ctx.fillStyle = "#1a1a1a";
-  ctx.fillRect(0, 0, size, size);
-
-  if (imageUrls.length === 0) {
-    const blob = await new Promise<Blob>((resolve) => {
-      canvas.toBlob(resolve as BlobCallback, "image/jpeg", 0.8);
-    });
-    return URL.createObjectURL(blob);
-  }
-
-  const gridSize = Math.ceil(Math.sqrt(Math.min(imageUrls.length, 4)));
-  const cellSize = size / gridSize;
-
-  try {
-    const loadImage = (src: string): Promise<HTMLImageElement> => {
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = src;
-      });
-    };
-
-    const images = await Promise.all(
-      imageUrls.slice(0, 4).map((url) => loadImage(url).catch(() => null))
-    );
-
-    images.forEach((img, index) => {
-      if (!img) return;
-
-      const row = Math.floor(index / gridSize);
-      const col = index % gridSize;
-      const x = col * cellSize;
-      const y = row * cellSize;
-
-      ctx.drawImage(img, x, y, cellSize, cellSize);
-    });
-
-    const blob = await new Promise<Blob>((resolve) => {
-      canvas.toBlob(resolve as BlobCallback, "image/jpeg", 0.8);
-    });
-    return URL.createObjectURL(blob);
-  } catch (error) {
-    console.error("❌ Error creating collage:", error);
-
-    // Return single color as fallback
-    const gradient = ctx.createLinearGradient(0, 0, size, size);
-    gradient.addColorStop(0, "#4a90e2");
-    gradient.addColorStop(1, "#7b68ee");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, size, size);
-
-    const blob = await new Promise<Blob>((resolve) => {
-      canvas.toBlob(resolve as BlobCallback, "image/jpeg", 0.8);
-    });
-    return URL.createObjectURL(blob);
-  }
-}
-
 // Validate image file type and size
 export function validateImageFile(file: File): {
   valid: boolean;
@@ -398,15 +303,6 @@ export function cleanupImageUrl(url: string): void {
   if (url.startsWith("blob:")) {
     URL.revokeObjectURL(url);
   }
-}
-
-// Batch cleanup for multiple URLs
-export function cleanupImageUrls(urls: (string | undefined)[]): void {
-  urls.forEach((url) => {
-    if (url) {
-      cleanupImageUrl(url);
-    }
-  });
 }
 
 // Convert stored image data to blob URL for display
@@ -459,44 +355,4 @@ export function getImageUrlForContext(
   }
 
   return null;
-}
-
-// Generate placeholder image for songs without album art
-export function generatePlaceholderImage(
-  text: string,
-  size: number = 300,
-  backgroundColor: string = "#4a5568",
-  textColor: string = "#ffffff"
-): string {
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-
-  if (!ctx) {
-    // Return a data URL for a simple colored square
-    return `data:image/svg+xml;base64,${btoa(`
-      <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-        <rect width="100%" height="100%" fill="${backgroundColor}"/>
-        <text x="50%" y="50%" text-anchor="middle" dy="0.3em" fill="${textColor}" font-family="Arial, sans-serif" font-size="${size * 0.1}">${text}</text>
-      </svg>
-    `)}`;
-  }
-
-  canvas.width = size;
-  canvas.height = size;
-
-  // Background
-  ctx.fillStyle = backgroundColor;
-  ctx.fillRect(0, 0, size, size);
-
-  // Text
-  ctx.fillStyle = textColor;
-  ctx.font = `bold ${size * 0.1}px Arial, sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  // Get first letter or first two letters of text
-  const displayText = text.slice(0, 2).toUpperCase();
-  ctx.fillText(displayText, size / 2, size / 2);
-
-  return canvas.toDataURL("image/png");
 }
