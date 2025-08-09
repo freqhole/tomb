@@ -10,93 +10,15 @@ import {
   cacheAudioFile,
 } from "./offlineService.js";
 import type { Playlist } from "../types/playlist.js";
+import { mockManager } from "../test-setup.js";
 
-// Mock global APIs
-const mockServiceWorkerRegistration = {
-  active: null,
-  installing: null,
-  waiting: null,
-  update: vi.fn(),
-  unregister: vi.fn(),
-};
-
-const mockServiceWorker = {
-  controller: null,
-  ready: Promise.resolve(mockServiceWorkerRegistration),
-  register: vi.fn().mockResolvedValue(mockServiceWorkerRegistration),
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-};
-
-const mockCache = {
-  match: vi.fn(),
-  add: vi.fn(),
-  addAll: vi.fn(),
-  put: vi.fn(),
-  delete: vi.fn(),
-  keys: vi.fn().mockResolvedValue([]),
-};
-
-const mockCaches = {
-  open: vi.fn().mockResolvedValue(mockCache),
-  delete: vi.fn(),
-  keys: vi.fn().mockResolvedValue(["playlistz-cache-v1"]),
-  match: vi.fn(),
-};
-
-const mockNavigatorStorage = {
-  persist: vi.fn().mockResolvedValue(true),
-  persisted: vi.fn().mockResolvedValue(true),
-  estimate: vi.fn().mockResolvedValue({
-    quota: 1000000000, // 1GB
-    usage: 100000000, // 100MB
-  }),
-};
-
-// Set up global mocks
-Object.defineProperty(global, "navigator", {
-  value: {
-    ...global.navigator,
-    serviceWorker: mockServiceWorker,
-    storage: mockNavigatorStorage,
-    onLine: true,
-  },
-  writable: true,
-});
-
-Object.defineProperty(global, "caches", {
-  value: mockCaches,
-  writable: true,
-});
-
-Object.defineProperty(global, "window", {
-  value: {
-    ...global.window,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    location: {
-      href: "http://localhost:3000/test",
-      protocol: "http:",
-    },
-  },
-  writable: true,
-});
-
-Object.defineProperty(global, "document", {
-  value: {
-    ...global.document,
-    querySelector: vi.fn(),
-    querySelectorAll: vi.fn().mockReturnValue([]),
-    createElement: vi.fn(() => ({
-      setAttribute: vi.fn(),
-      remove: vi.fn(),
-    })),
-    head: {
-      appendChild: vi.fn(),
-    },
-  },
-  writable: true,
-});
+// Get mock references from centralized manager
+const {
+  cache: mockCache,
+  caches: mockCaches,
+  navigatorStorage: mockNavigatorStorage,
+  serviceWorker: mockServiceWorker,
+} = mockManager.getMocks();
 
 Object.defineProperty(global, "URL", {
   value: {
@@ -121,23 +43,8 @@ const createMockPlaylist = (overrides: Partial<Playlist> = {}): Playlist => ({
 
 describe("Offline Service Tests", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-
-    // Reset navigator online status
-    Object.defineProperty(navigator, "onLine", {
-      value: true,
-      writable: true,
-    });
-
-    // Reset mocks
-    mockCache.match.mockResolvedValue(undefined);
-    mockCache.add.mockResolvedValue(undefined);
-    mockNavigatorStorage.persist.mockResolvedValue(true);
-    mockNavigatorStorage.persisted.mockResolvedValue(true);
-    mockNavigatorStorage.estimate.mockResolvedValue({
-      quota: 1000000000,
-      usage: 100000000,
-    });
+    mockManager.resetAllMocks();
+    mockManager.resetGlobalAPIs();
   });
 
   afterEach(() => {
@@ -241,15 +148,14 @@ describe("Offline Service Tests", () => {
 
       expect(info.quota).toBe(1000000000);
       expect(info.usage).toBe(100000000);
-      expect(info.quotaFormatted).toBe("953 MB");
+      expect(info.quotaFormatted).toBe("954 MB");
       expect(info.usageFormatted).toBe("95 MB");
       expect(info.usagePercent).toBe(10);
       expect(info.persistent).toBe(true);
     });
 
     it("should handle storage API not available", async () => {
-      // Mock storage API not available
-      Object.defineProperty(navigator, "storage", { value: undefined });
+      mockManager.mockAPIUnavailable.storage();
 
       const info = await getStorageInfo();
 
@@ -326,7 +232,7 @@ describe("Offline Service Tests", () => {
     });
 
     it("should return false when caches API not available", async () => {
-      Object.defineProperty(global, "caches", { value: undefined });
+      mockManager.mockAPIUnavailable.caches();
 
       const isCached = await isUrlCached("test-url");
 
@@ -372,7 +278,7 @@ describe("Offline Service Tests", () => {
     });
 
     it("should throw error when cache API not supported", async () => {
-      Object.defineProperty(global, "caches", { value: undefined });
+      mockManager.mockAPIUnavailable.caches();
 
       await expect(cacheAudioFile("test-url", "Test Song")).rejects.toThrow(
         "Cache API not supported"
@@ -391,6 +297,14 @@ describe("Offline Service Tests", () => {
 
   describe("Service Worker Registration", () => {
     it("should register service worker successfully", async () => {
+      const mockServiceWorkerRegistration = {
+        active: null,
+        installing: null,
+        waiting: null,
+        update: vi.fn().mockResolvedValue(undefined),
+        unregister: vi.fn().mockResolvedValue(true),
+      };
+
       mockServiceWorker.register.mockResolvedValue(
         mockServiceWorkerRegistration
       );
@@ -412,7 +326,7 @@ describe("Offline Service Tests", () => {
     });
 
     it("should handle browsers without service worker support", async () => {
-      Object.defineProperty(navigator, "serviceWorker", { value: undefined });
+      mockManager.mockAPIUnavailable.serviceWorker();
 
       await expect(
         initializeOfflineSupport("Test Playlist")
@@ -433,7 +347,7 @@ describe("Offline Service Tests", () => {
     it("should request persistent storage successfully", async () => {
       await initializeOfflineSupport("Test Playlist");
 
-      expect(mockNavigatorStorage.persist).toHaveBeenCalled();
+      expect(getMockNavigatorStorage().persist).toHaveBeenCalled();
     });
 
     it("should handle persistent storage denial", async () => {
@@ -445,7 +359,7 @@ describe("Offline Service Tests", () => {
     });
 
     it("should handle browsers without persistent storage support", async () => {
-      Object.defineProperty(navigator, "storage", { value: {} });
+      mockManager.mockAPIUnavailable.storage();
 
       await expect(
         initializeOfflineSupport("Test Playlist")

@@ -51,6 +51,238 @@ Object.defineProperty(global, "crypto", {
 global.URL.createObjectURL = vi.fn(() => "blob:mock-url");
 global.URL.revokeObjectURL = vi.fn();
 
+// Mock Cache API - create consistent cache instance
+const createMockCache = () => ({
+  match: vi.fn(),
+  add: vi.fn().mockResolvedValue(undefined),
+  addAll: vi.fn().mockResolvedValue(undefined),
+  put: vi.fn().mockResolvedValue(undefined),
+  delete: vi.fn().mockResolvedValue(true),
+  keys: vi.fn().mockResolvedValue([]),
+});
+
+const mockCache = createMockCache();
+
+const mockCaches = {
+  open: vi.fn().mockResolvedValue(mockCache),
+  delete: vi.fn().mockResolvedValue(true),
+  keys: vi.fn().mockResolvedValue(["playlistz-cache-v1"]),
+  match: vi.fn(),
+  has: vi.fn().mockResolvedValue(true),
+};
+
+Object.defineProperty(global, "caches", {
+  value: mockCaches,
+  writable: true,
+});
+
+// Export mock objects for direct access in tests
+global.__mockCache = mockCache;
+global.__mockCaches = mockCaches;
+
+// Mock management functions
+export const mockManager = {
+  // Reset all mocks to default state
+  resetAllMocks() {
+    vi.clearAllMocks();
+
+    // Reset cache mocks
+    mockCache.match.mockResolvedValue(undefined);
+    mockCache.add.mockResolvedValue(undefined);
+    mockCache.addAll.mockResolvedValue(undefined);
+    mockCache.put.mockResolvedValue(undefined);
+    mockCache.delete.mockResolvedValue(true);
+    mockCache.keys.mockResolvedValue([]);
+
+    // Reset caches API mock
+    mockCaches.open.mockResolvedValue(mockCache);
+    mockCaches.delete.mockResolvedValue(true);
+    mockCaches.keys.mockResolvedValue(["playlistz-cache-v1"]);
+
+    // Reset storage API mock
+    mockNavigatorStorage.persist.mockResolvedValue(true);
+    mockNavigatorStorage.persisted.mockResolvedValue(true);
+    mockNavigatorStorage.estimate.mockResolvedValue({
+      quota: 1000000000,
+      usage: 100000000,
+    });
+
+    // Reset service worker mock
+    mockServiceWorker.controller = null;
+    mockServiceWorker.register.mockResolvedValue({
+      active: null,
+      installing: null,
+      waiting: null,
+      update: vi.fn().mockResolvedValue(undefined),
+      unregister: vi.fn().mockResolvedValue(true),
+    });
+  },
+
+  // Reset global API availability
+  resetGlobalAPIs() {
+    // Reset navigator properties safely
+    try {
+      Object.defineProperty(global.navigator, "storage", {
+        value: mockNavigatorStorage,
+        writable: true,
+        configurable: true,
+      });
+    } catch {
+      // Property already exists and is not configurable
+      if (global.navigator.storage !== mockNavigatorStorage) {
+        (global.navigator as any).storage = mockNavigatorStorage;
+      }
+    }
+
+    try {
+      Object.defineProperty(global.navigator, "serviceWorker", {
+        value: mockServiceWorker,
+        writable: true,
+        configurable: true,
+      });
+    } catch {
+      // Property already exists and is not configurable
+      if (global.navigator.serviceWorker !== mockServiceWorker) {
+        (global.navigator as any).serviceWorker = mockServiceWorker;
+      }
+    }
+
+    try {
+      Object.defineProperty(global.navigator, "onLine", {
+        value: true,
+        writable: true,
+        configurable: true,
+      });
+    } catch {
+      // Property already exists and is not configurable
+      if (global.navigator.onLine !== true) {
+        (global.navigator as any).onLine = true;
+      }
+    }
+
+    // Reset caches API safely
+    try {
+      Object.defineProperty(global, "caches", {
+        value: mockCaches,
+        writable: true,
+        configurable: true,
+      });
+    } catch {
+      // Property already exists and is not configurable
+      if (global.caches !== mockCaches) {
+        (global as any).caches = mockCaches;
+      }
+    }
+
+    // Reset window properties safely
+    try {
+      Object.defineProperty(global.window, "caches", {
+        value: mockCaches,
+        writable: true,
+        configurable: true,
+      });
+    } catch {
+      // Property already exists and is not configurable
+      if (global.window.caches !== mockCaches) {
+        (global.window as any).caches = mockCaches;
+      }
+    }
+  },
+
+  // Mock API as unavailable
+  mockAPIUnavailable: {
+    storage() {
+      Object.defineProperty(global.navigator, "storage", {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+    },
+
+    caches() {
+      Object.defineProperty(global, "caches", {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(global.window, "caches", {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+    },
+
+    serviceWorker() {
+      Object.defineProperty(global.navigator, "serviceWorker", {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+    },
+  },
+
+  // Get mock references
+  getMocks() {
+    return {
+      cache: mockCache,
+      caches: mockCaches,
+      navigatorStorage: mockNavigatorStorage,
+      serviceWorker: mockServiceWorker,
+    };
+  },
+};
+
+// Mock Service Worker
+const mockServiceWorkerRegistration = {
+  active: null,
+  installing: null,
+  waiting: null,
+  update: vi.fn().mockResolvedValue(undefined),
+  unregister: vi.fn().mockResolvedValue(true),
+};
+
+const mockServiceWorker = {
+  controller: null,
+  ready: Promise.resolve(mockServiceWorkerRegistration),
+  register: vi.fn().mockResolvedValue(mockServiceWorkerRegistration),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  getRegistration: vi.fn().mockResolvedValue(mockServiceWorkerRegistration),
+};
+
+// Mock Storage API
+const mockNavigatorStorage = {
+  persist: vi.fn().mockResolvedValue(true),
+  persisted: vi.fn().mockResolvedValue(true),
+  estimate: vi.fn().mockResolvedValue({
+    quota: 1000000000, // 1GB
+    usage: 100000000, // 100MB
+  }),
+};
+
+// Mock MediaMetadata for media session
+global.MediaMetadata = vi.fn().mockImplementation((metadata) => ({
+  title: metadata?.title || "",
+  artist: metadata?.artist || "",
+  album: metadata?.album || "",
+  artwork: metadata?.artwork || [],
+}));
+
+// Mock Navigator API with all needed properties
+Object.defineProperty(global, "navigator", {
+  value: {
+    ...global.navigator,
+    onLine: true,
+    serviceWorker: mockServiceWorker,
+    storage: mockNavigatorStorage,
+    mediaSession: {
+      setActionHandler: vi.fn(),
+      metadata: null,
+    },
+  },
+  writable: true,
+});
+
 // Mock FileReader for audio metadata extraction
 global.FileReader = vi.fn(() => ({
   readAsArrayBuffer: vi.fn(function (this: any) {
@@ -77,6 +309,49 @@ global.Audio = vi.fn(() => ({
   volume: 1,
   muted: false,
 })) as any;
+
+// Mock document API for canvas operations and DOM manipulation
+Object.defineProperty(global, "document", {
+  value: {
+    ...global.document,
+    title: "Test Page",
+    querySelector: vi.fn(() => null),
+    querySelectorAll: vi.fn(() => []),
+    createElement: vi.fn(() => ({
+      width: 0,
+      height: 0,
+      setAttribute: vi.fn(),
+      remove: vi.fn(),
+      getContext: vi.fn(() => ({
+        drawImage: vi.fn(),
+      })),
+      toBlob: vi.fn((callback) => callback(new Blob())),
+    })),
+    head: {
+      appendChild: vi.fn(),
+    },
+  },
+  writable: true,
+});
+
+// Mock window object with needed properties
+Object.defineProperty(global, "window", {
+  value: {
+    ...global.window,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+    location: {
+      href: "http://localhost:3000/test",
+      protocol: "http:",
+      host: "localhost:3000",
+      origin: "http://localhost:3000",
+    },
+    caches: mockCaches,
+    navigator: global.navigator,
+  },
+  writable: true,
+});
 
 // Mock window.matchMedia (only in jsdom environment)
 if (typeof window !== "undefined") {

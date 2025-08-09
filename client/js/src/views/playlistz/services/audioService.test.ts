@@ -1,71 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as audioService from "./audioService.js";
 import type { Song, Playlist } from "../types/playlist.js";
+import { mockManager } from "../test-setup.js";
 
-// Mock HTML Audio API
-const mockAudio = {
-  play: vi.fn().mockResolvedValue(undefined),
-  pause: vi.fn(),
-  load: vi.fn(),
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  currentTime: 0,
-  duration: 180,
-  volume: 1,
-  src: "",
-  ended: false,
-  paused: true,
-  readyState: 4,
-  networkState: 1,
-  error: null,
-  dispatchEvent: vi.fn(),
+// Helper to get the current mocked Audio instance
+const getMockAudio = () => {
+  const audioInstances = (global.Audio as any).mock.results;
+  return (
+    audioInstances[audioInstances.length - 1]?.value || (global.Audio as any)()
+  );
 };
-
-global.Audio = vi.fn(() => mockAudio) as any;
-
-// Mock URL API
-global.URL = {
-  createObjectURL: vi.fn((file) => `blob:mock-url-${Math.random()}`),
-  revokeObjectURL: vi.fn(),
-} as any;
-
-// Mock Navigator API
-Object.defineProperty(global, "navigator", {
-  value: {
-    ...global.navigator,
-    mediaSession: {
-      setActionHandler: vi.fn(),
-      metadata: null,
-    },
-  },
-  writable: true,
-});
-
-// Mock document API
-Object.defineProperty(global, "document", {
-  value: {
-    ...global.document,
-    title: "Test Page",
-    createElement: vi.fn(() => ({
-      width: 0,
-      height: 0,
-      getContext: vi.fn(() => ({
-        drawImage: vi.fn(),
-      })),
-      toBlob: vi.fn((callback) => callback(new Blob())),
-    })),
-  },
-  writable: true,
-});
-
-// Mock crypto API for ID generation
-Object.defineProperty(global, "crypto", {
-  value: {
-    ...global.crypto,
-    randomUUID: vi.fn(() => `test-uuid-${Math.random()}`),
-  },
-  writable: true,
-});
 
 // Test data
 const createMockSong = (overrides: Partial<Song> = {}): Song => ({
@@ -100,10 +44,12 @@ describe("Audio Service Tests", () => {
   let mockPlaylist: Playlist;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    mockManager.resetAllMocks();
+    mockManager.resetGlobalAPIs();
 
     // Reset audio mock state
-    Object.assign(mockAudio, {
+    const audio = getMockAudio();
+    Object.assign(audio, {
       currentTime: 0,
       duration: 180,
       volume: 1,
@@ -162,7 +108,7 @@ describe("Audio Service Tests", () => {
       const state = audioService.getAudioState();
       expect(state.currentSong).toEqual(mockSong1);
       expect(state.isPlaying).toBe(true);
-      expect(mockAudio.play).toHaveBeenCalled();
+      expect(getMockAudio().play).toHaveBeenCalled();
     });
 
     it("should pause playback", () => {
@@ -170,7 +116,7 @@ describe("Audio Service Tests", () => {
 
       const state = audioService.getAudioState();
       expect(state.isPlaying).toBe(false);
-      expect(mockAudio.pause).toHaveBeenCalled();
+      expect(getMockAudio().pause).toHaveBeenCalled();
     });
 
     it("should stop playback", () => {
@@ -179,7 +125,7 @@ describe("Audio Service Tests", () => {
       const state = audioService.getAudioState();
       expect(state.isPlaying).toBe(false);
       expect(state.currentSong).toBeNull();
-      expect(mockAudio.pause).toHaveBeenCalled();
+      expect(getMockAudio().pause).toHaveBeenCalled();
     });
 
     it("should toggle playback when playing", async () => {
@@ -191,7 +137,7 @@ describe("Audio Service Tests", () => {
 
       const state = audioService.getAudioState();
       expect(state.isPlaying).toBe(false);
-      expect(mockAudio.pause).toHaveBeenCalled();
+      expect(getMockAudio().pause).toHaveBeenCalled();
     });
 
     it("should toggle playback when paused", async () => {
@@ -202,14 +148,14 @@ describe("Audio Service Tests", () => {
       // Then toggle (should resume)
       await audioService.togglePlayback();
 
-      expect(mockAudio.play).toHaveBeenCalledTimes(2); // Once for initial play, once for resume
+      expect(getMockAudio().play).toHaveBeenCalledTimes(2); // Once for initial play, once for resume
     });
 
     it("should seek to specific time", () => {
       const seekTime = 30;
       audioService.seek(seekTime);
 
-      expect(mockAudio.currentTime).toBe(seekTime);
+      expect(getMockAudio().currentTime).toBe(seekTime);
     });
 
     it("should set volume", () => {
@@ -218,7 +164,7 @@ describe("Audio Service Tests", () => {
 
       const state = audioService.getAudioState();
       expect(state.volume).toBe(newVolume);
-      expect(mockAudio.volume).toBe(newVolume);
+      expect(getMockAudio().volume).toBe(newVolume);
     });
 
     it("should clamp volume to valid range", () => {
@@ -370,7 +316,7 @@ describe("Audio Service Tests", () => {
       await audioService.playSong(mockSong1);
 
       // Simulate song ending
-      mockAudio.ended = true;
+      getMockAudio().ended = true;
       await audioService.handleSongEnded();
 
       const state = audioService.getAudioState();
@@ -384,7 +330,7 @@ describe("Audio Service Tests", () => {
       await audioService.playSong(mockSong3); // Last song
 
       // Simulate song ending
-      mockAudio.ended = true;
+      getMockAudio().ended = true;
       await audioService.handleSongEnded();
 
       const state = audioService.getAudioState();
@@ -398,7 +344,7 @@ describe("Audio Service Tests", () => {
       await audioService.playSong(mockSong3); // Last song
 
       // Simulate song ending
-      mockAudio.ended = true;
+      getMockAudio().ended = true;
       await audioService.handleSongEnded();
 
       const state = audioService.getAudioState();
@@ -467,7 +413,7 @@ describe("Audio Service Tests", () => {
 
   describe("Error Handling", () => {
     it("should handle audio play errors", async () => {
-      mockAudio.play.mockRejectedValueOnce(new Error("Audio play failed"));
+      getMockAudio().play.mockRejectedValueOnce(new Error("Audio play failed"));
 
       await audioService.playSong(mockSong1);
 
@@ -491,12 +437,12 @@ describe("Audio Service Tests", () => {
     });
 
     it("should handle audio load errors", async () => {
-      mockAudio.error = { code: 4, message: "Media not supported" };
+      getMockAudio().error = { code: 4, message: "Media not supported" };
 
       await audioService.playSong(mockSong1);
 
       // Should handle load errors gracefully
-      expect(mockAudio.load).toHaveBeenCalled();
+      expect(getMockAudio().load).toHaveBeenCalled();
     });
   });
 
@@ -535,7 +481,7 @@ describe("Audio Service Tests", () => {
     it("should use existing blob URL when available", async () => {
       await audioService.playSong(mockSong1);
 
-      expect(mockAudio.src).toBe(mockSong1.blobUrl);
+      expect(getMockAudio().src).toBe(mockSong1.blobUrl);
     });
 
     it("should cleanup audio resources", () => {
@@ -555,13 +501,14 @@ describe("Audio Service Tests", () => {
       await audioService.playSong(mockSong1);
 
       // Simulate being near end of song (trigger preload threshold)
-      mockAudio.currentTime = 170; // 10 seconds from end of 180s song
-      mockAudio.duration = 180;
+      getMockAudio().currentTime = 170; // 10 seconds from end of 180s song
+      getMockAudio().duration = 180;
 
       // Trigger time update
-      const timeUpdateCallback = mockAudio.addEventListener.mock.calls.find(
-        (call) => call[0] === "timeupdate"
-      )?.[1];
+      const timeUpdateCallback =
+        getMockAudio().addEventListener.mock.calls.find(
+          (call) => call[0] === "timeupdate"
+        )?.[1];
 
       if (timeUpdateCallback) {
         timeUpdateCallback();
@@ -578,10 +525,11 @@ describe("Audio Service Tests", () => {
       await audioService.playSong(mockSong1);
 
       // Simulate time update
-      mockAudio.currentTime = 30;
-      const timeUpdateCallback = mockAudio.addEventListener.mock.calls.find(
-        (call) => call[0] === "timeupdate"
-      )?.[1];
+      getMockAudio().currentTime = 30;
+      const timeUpdateCallback =
+        getMockAudio().addEventListener.mock.calls.find(
+          (call) => call[0] === "timeupdate"
+        )?.[1];
 
       if (timeUpdateCallback) {
         timeUpdateCallback();
@@ -595,10 +543,11 @@ describe("Audio Service Tests", () => {
       await audioService.playSong(mockSong1);
 
       // Simulate duration loaded
-      mockAudio.duration = 240;
-      const durationChangeCallback = mockAudio.addEventListener.mock.calls.find(
-        (call) => call[0] === "durationchange"
-      )?.[1];
+      getMockAudio().duration = 240;
+      const durationChangeCallback =
+        getMockAudio().addEventListener.mock.calls.find(
+          (call) => call[0] === "durationchange"
+        )?.[1];
 
       if (durationChangeCallback) {
         durationChangeCallback();
@@ -614,8 +563,8 @@ describe("Audio Service Tests", () => {
       await audioService.playSong(mockSong1);
 
       // Simulate song ended
-      mockAudio.ended = true;
-      const endedCallback = mockAudio.addEventListener.mock.calls.find(
+      getMockAudio().ended = true;
+      const endedCallback = getMockAudio().addEventListener.mock.calls.find(
         (call) => call[0] === "ended"
       )?.[1];
 

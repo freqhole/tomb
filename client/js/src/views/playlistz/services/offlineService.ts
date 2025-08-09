@@ -318,7 +318,7 @@ export async function getStorageInfo(): Promise<{
   try {
     const info: any = {};
 
-    if ("storage" in navigator) {
+    if ("storage" in navigator && navigator.storage) {
       if ("estimate" in navigator.storage) {
         const estimate = await navigator.storage.estimate();
         info.quota = estimate.quota;
