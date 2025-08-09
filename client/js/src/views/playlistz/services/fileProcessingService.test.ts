@@ -103,18 +103,28 @@ describe("File Processing Service Tests", () => {
       const fileList = {
         length: files.length,
         item: (index: number) => files[index],
-        ...files,
+        [Symbol.iterator]: function* () {
+          for (let i = 0; i < files.length; i++) {
+            yield files[i];
+          }
+        },
+        0: files[0],
+        1: files[1],
+        2: files[2],
+        3: files[3],
+        4: files[4],
+        5: files[5],
       } as FileList;
 
       const audioFiles = filterAudioFiles(fileList);
 
       expect(audioFiles).toHaveLength(3);
-      expect(audioFiles[0].name).toBe("song1.mp3");
-      expect(audioFiles[0].type).toBe("audio/mpeg");
-      expect(audioFiles[1].name).toBe("song2.wav");
-      expect(audioFiles[1].type).toBe("audio/wav");
-      expect(audioFiles[2].name).toBe("song3.flac");
-      expect(audioFiles[2].type).toBe("audio/flac");
+      expect(audioFiles[0]!.name).toBe("song1.mp3");
+      expect(audioFiles[0]!.type).toBe("audio/mpeg");
+      expect(audioFiles[1]!.name).toBe("song2.wav");
+      expect(audioFiles[1]!.type).toBe("audio/wav");
+      expect(audioFiles[2]!.name).toBe("song3.flac");
+      expect(audioFiles[2]!.type).toBe("audio/flac");
     });
 
     it("should return empty array when no audio files present", () => {
@@ -127,7 +137,14 @@ describe("File Processing Service Tests", () => {
       const fileList = {
         length: files.length,
         item: (index: number) => files[index],
-        ...files,
+        [Symbol.iterator]: function* () {
+          for (let i = 0; i < files.length; i++) {
+            yield files[i];
+          }
+        },
+        0: files[0],
+        1: files[1],
+        2: files[2],
       } as FileList;
 
       const audioFiles = filterAudioFiles(fileList);
@@ -139,6 +156,7 @@ describe("File Processing Service Tests", () => {
       const fileList = {
         length: 0,
         item: () => null,
+        [Symbol.iterator]: function* () {},
       } as FileList;
 
       const audioFiles = filterAudioFiles(fileList);
@@ -167,7 +185,16 @@ describe("File Processing Service Tests", () => {
       const fileList = {
         length: files.length,
         item: (index: number) => files[index],
-        ...files,
+        [Symbol.iterator]: function* () {
+          for (let i = 0; i < files.length; i++) {
+            yield files[i];
+          }
+        },
+        0: files[0],
+        1: files[1],
+        2: files[2],
+        3: files[3],
+        4: files[4],
       } as FileList;
 
       const audioFiles = filterAudioFiles(fileList);
@@ -427,13 +454,16 @@ describe("File Processing Service Tests", () => {
         length: 1,
         item: () => file,
         0: file,
+        [Symbol.iterator]: function* () {
+          yield file;
+        },
       } as FileList;
 
       const audioFiles = filterAudioFiles(fileList);
 
       // Should be included because MIME type is audio
       expect(audioFiles).toHaveLength(1);
-      expect(audioFiles[0].type).toBe("audio/mpeg");
+      expect(audioFiles[0]!.type).toBe("audio/mpeg");
     });
 
     it("should handle files with missing MIME types", () => {
@@ -443,6 +473,9 @@ describe("File Processing Service Tests", () => {
         length: 1,
         item: () => file,
         0: file,
+        [Symbol.iterator]: function* () {
+          yield file;
+        },
       } as FileList;
 
       const audioFiles = filterAudioFiles(fileList);

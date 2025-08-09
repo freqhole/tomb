@@ -77,8 +77,8 @@ Object.defineProperty(global, "caches", {
 });
 
 // Export mock objects for direct access in tests
-global.__mockCache = mockCache;
-global.__mockCaches = mockCaches;
+(global as any).__mockCache = mockCache;
+(global as any).__mockCaches = mockCaches;
 
 // Mock management functions
 export const mockManager = {
@@ -129,9 +129,7 @@ export const mockManager = {
       });
     } catch {
       // Property already exists and is not configurable
-      if (global.navigator.storage !== mockNavigatorStorage) {
-        (global.navigator as any).storage = mockNavigatorStorage;
-      }
+      (global.navigator as any).storage = mockNavigatorStorage;
     }
 
     try {
@@ -142,9 +140,7 @@ export const mockManager = {
       });
     } catch {
       // Property already exists and is not configurable
-      if (global.navigator.serviceWorker !== mockServiceWorker) {
-        (global.navigator as any).serviceWorker = mockServiceWorker;
-      }
+      (global.navigator as any).serviceWorker = mockServiceWorker;
     }
 
     try {
@@ -155,9 +151,7 @@ export const mockManager = {
       });
     } catch {
       // Property already exists and is not configurable
-      if (global.navigator.onLine !== true) {
-        (global.navigator as any).onLine = true;
-      }
+      (global.navigator as any).onLine = true;
     }
 
     // Reset caches API safely
@@ -169,9 +163,7 @@ export const mockManager = {
       });
     } catch {
       // Property already exists and is not configurable
-      if (global.caches !== mockCaches) {
-        (global as any).caches = mockCaches;
-      }
+      (global as any).caches = mockCaches;
     }
 
     // Reset window properties safely
@@ -183,9 +175,7 @@ export const mockManager = {
       });
     } catch {
       // Property already exists and is not configurable
-      if (global.window.caches !== mockCaches) {
-        (global.window as any).caches = mockCaches;
-      }
+      (global.window as any).caches = mockCaches;
     }
   },
 
@@ -268,6 +258,26 @@ global.MediaMetadata = vi.fn().mockImplementation((metadata) => ({
   artwork: metadata?.artwork || [],
 }));
 
+// Enhanced Blob mock with arrayBuffer method
+const originalBlob = global.Blob;
+global.Blob = vi.fn().mockImplementation((...args) => {
+  const blob = new originalBlob(...args);
+
+  // Add arrayBuffer method if missing
+  if (!blob.arrayBuffer) {
+    Object.defineProperty(blob, "arrayBuffer", {
+      value: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+      writable: true,
+      configurable: true,
+    });
+  }
+
+  return blob;
+}) as any;
+
+// Ensure global Blob constructor maintains prototype
+Object.setPrototypeOf(global.Blob, originalBlob);
+
 // Mock Navigator API with all needed properties
 Object.defineProperty(global, "navigator", {
   value: {
@@ -325,7 +335,10 @@ Object.defineProperty(global, "document", {
       getContext: vi.fn(() => ({
         drawImage: vi.fn(),
       })),
-      toBlob: vi.fn((callback) => callback(new Blob())),
+      toBlob: vi.fn((callback) => {
+        const blob = new Blob(["mock-image-data"], { type: "image/png" });
+        callback(blob);
+      }),
     })),
     head: {
       appendChild: vi.fn(),

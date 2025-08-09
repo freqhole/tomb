@@ -73,12 +73,14 @@
     "globals": "^16.2.0",
     "jsdom": "^26.1.0",
     "prettier": "^3.1.0",
+    "service-worker-mock": "^2.0.5",
     "solid-element": "^1.9.1",
     "tailwindcss": "^4.1.11",
     "typescript": "^5.3.2",
     "vite": "^6.3.5",
     "vite-plugin-solid": "^2.11.6",
-    "vitest": "^1.6.1"
+    "vitest": "^1.6.1",
+    "vitest-dom": "^0.1.1"
   },
   "files": [
     "dist/**/*",

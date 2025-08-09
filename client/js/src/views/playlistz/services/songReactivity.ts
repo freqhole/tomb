@@ -91,7 +91,7 @@ export function triggerSongUpdateWithOptions(options: {
 }
 
 // Development helpers
-if (import.meta.env.DEV) {
+if (typeof globalThis !== "undefined" && (globalThis as any).__DEV__) {
   // Expose debugging functions to window in development
   (globalThis as any).__songReactivity = {
     getSongUpdateTrigger,

@@ -12,17 +12,9 @@ import {
 import type { Playlist } from "../types/playlist.js";
 import { mockManager } from "../test-setup.js";
 
-// Get mock references from centralized manager
-const {
-  cache: mockCache,
-  caches: mockCaches,
-  navigatorStorage: mockNavigatorStorage,
-  serviceWorker: mockServiceWorker,
-} = mockManager.getMocks();
-
 Object.defineProperty(global, "URL", {
   value: {
-    createObjectURL: vi.fn((blob) => `blob:mock-url-${Math.random()}`),
+    createObjectURL: vi.fn(() => `blob:mock-url-${Math.random()}`),
     revokeObjectURL: vi.fn(),
   },
   writable: true,
@@ -181,9 +173,8 @@ describe("Offline Service Tests", () => {
     });
 
     it("should handle storage errors", async () => {
-      mockNavigatorStorage.estimate.mockRejectedValue(
-        new Error("Storage error")
-      );
+      const { navigatorStorage } = mockManager.getMocks();
+      navigatorStorage.estimate.mockRejectedValue(new Error("Storage error"));
 
       const info = await getStorageInfo();
 
@@ -191,7 +182,8 @@ describe("Offline Service Tests", () => {
     });
 
     it("should calculate usage percentage correctly", async () => {
-      mockNavigatorStorage.estimate.mockResolvedValue({
+      const { navigatorStorage } = mockManager.getMocks();
+      navigatorStorage.estimate.mockResolvedValue({
         quota: 1000,
         usage: 250,
       });
@@ -205,18 +197,20 @@ describe("Offline Service Tests", () => {
   describe("Cache Management", () => {
     it("should check if URL is cached", async () => {
       const testUrl = "http://freqhole.net/audio.mp3";
-      mockCache.match.mockResolvedValue(new Response());
+      const { cache, caches } = mockManager.getMocks();
+      cache.match.mockResolvedValue(new Response());
 
       const isCached = await isUrlCached(testUrl);
 
       expect(isCached).toBe(true);
-      expect(mockCaches.open).toHaveBeenCalledWith("playlistz-cache-v1");
-      expect(mockCache.match).toHaveBeenCalledWith(testUrl);
+      expect(caches.open).toHaveBeenCalledWith("playlistz-cache-v1");
+      expect(cache.match).toHaveBeenCalledWith(testUrl);
     });
 
     it("should return false for non-cached URLs", async () => {
       const testUrl = "http://freqhole.net/not-cached.mp3";
-      mockCache.match.mockResolvedValue(undefined);
+      const { cache } = mockManager.getMocks();
+      cache.match.mockResolvedValue(undefined);
 
       const isCached = await isUrlCached(testUrl);
 
@@ -224,7 +218,8 @@ describe("Offline Service Tests", () => {
     });
 
     it("should handle cache check errors", async () => {
-      mockCaches.open.mockRejectedValue(new Error("Cache error"));
+      const { caches } = mockManager.getMocks();
+      caches.open.mockRejectedValue(new Error("Cache error"));
 
       const isCached = await isUrlCached("test-url");
 
@@ -245,13 +240,14 @@ describe("Offline Service Tests", () => {
       const testUrl = "blob:http://localhost/audio.mp3";
       const testTitle = "Test Song";
 
-      mockServiceWorker.controller = {
+      const { serviceWorker } = mockManager.getMocks();
+      serviceWorker.controller = {
         postMessage: vi.fn(),
       };
 
       await cacheAudioFile(testUrl, testTitle);
 
-      expect(mockServiceWorker.controller.postMessage).toHaveBeenCalledWith({
+      expect(serviceWorker.controller.postMessage).toHaveBeenCalledWith({
         type: "CACHE_URL",
         data: { url: testUrl },
       });
@@ -261,11 +257,12 @@ describe("Offline Service Tests", () => {
       const testUrl = "http://freqhole.net/audio.mp3";
       const testTitle = "Test Song";
 
-      mockServiceWorker.controller = null;
+      const { serviceWorker, cache } = mockManager.getMocks();
+      serviceWorker.controller = null;
 
       await cacheAudioFile(testUrl, testTitle);
 
-      expect(mockCache.add).toHaveBeenCalledWith(testUrl);
+      expect(cache.add).toHaveBeenCalledWith(testUrl);
     });
 
     it("should handle file:// protocol gracefully", async () => {
@@ -286,8 +283,9 @@ describe("Offline Service Tests", () => {
     });
 
     it("should handle cache add failures", async () => {
-      mockCache.add.mockRejectedValue(new Error("Cache add failed"));
-      mockServiceWorker.controller = null;
+      const { cache, serviceWorker } = mockManager.getMocks();
+      cache.add.mockRejectedValue(new Error("Cache add failed"));
+      serviceWorker.controller = null;
 
       await expect(cacheAudioFile("test-url", "Test Song")).rejects.toThrow(
         "Cache add failed"
@@ -305,17 +303,17 @@ describe("Offline Service Tests", () => {
         unregister: vi.fn().mockResolvedValue(true),
       };
 
-      mockServiceWorker.register.mockResolvedValue(
-        mockServiceWorkerRegistration
-      );
+      const { serviceWorker } = mockManager.getMocks();
+      serviceWorker.register.mockResolvedValue(mockServiceWorkerRegistration);
 
       await initializeOfflineSupport("Test Playlist");
 
-      expect(mockServiceWorker.register).toHaveBeenCalledWith("./sw.js");
+      expect(serviceWorker.register).toHaveBeenCalledWith("./sw.js");
     });
 
     it("should handle service worker registration failure", async () => {
-      mockServiceWorker.register.mockRejectedValue(
+      const { serviceWorker } = mockManager.getMocks();
+      serviceWorker.register.mockRejectedValue(
         new Error("SW registration failed")
       );
 
@@ -336,7 +334,8 @@ describe("Offline Service Tests", () => {
     it("should set up service worker message listener", async () => {
       await initializeOfflineSupport("Test Playlist");
 
-      expect(mockServiceWorker.addEventListener).toHaveBeenCalledWith(
+      const { serviceWorker } = mockManager.getMocks();
+      expect(serviceWorker.addEventListener).toHaveBeenCalledWith(
         "message",
         expect.any(Function)
       );
@@ -347,15 +346,17 @@ describe("Offline Service Tests", () => {
     it("should request persistent storage successfully", async () => {
       await initializeOfflineSupport("Test Playlist");
 
-      expect(getMockNavigatorStorage().persist).toHaveBeenCalled();
+      const { navigatorStorage } = mockManager.getMocks();
+      expect(navigatorStorage.persist).toHaveBeenCalled();
     });
 
     it("should handle persistent storage denial", async () => {
-      mockNavigatorStorage.persist.mockResolvedValue(false);
+      const { navigatorStorage } = mockManager.getMocks();
+      navigatorStorage.persist.mockResolvedValue(false);
 
       await initializeOfflineSupport("Test Playlist");
 
-      expect(mockNavigatorStorage.persist).toHaveBeenCalled();
+      expect(navigatorStorage.persist).toHaveBeenCalled();
     });
 
     it("should handle browsers without persistent storage support", async () => {
@@ -367,9 +368,8 @@ describe("Offline Service Tests", () => {
     });
 
     it("should handle persistent storage errors", async () => {
-      mockNavigatorStorage.persist.mockRejectedValue(
-        new Error("Storage error")
-      );
+      const { navigatorStorage } = mockManager.getMocks();
+      navigatorStorage.persist.mockRejectedValue(new Error("Storage error"));
 
       await expect(
         initializeOfflineSupport("Test Playlist")
@@ -407,8 +407,12 @@ describe("Offline Service Tests", () => {
       expect(offlineHandler).toBeDefined();
 
       // These would update the signals when called
-      if (onlineHandler) onlineHandler();
-      if (offlineHandler) offlineHandler();
+      if (onlineHandler && typeof onlineHandler === "function") {
+        onlineHandler(new Event("online"));
+      }
+      if (offlineHandler && typeof offlineHandler === "function") {
+        offlineHandler(new Event("offline"));
+      }
     });
   });
 
@@ -416,9 +420,10 @@ describe("Offline Service Tests", () => {
     it("should initialize with playlist title only", async () => {
       await initializeOfflineSupport("Test Playlist");
 
+      const { navigatorStorage, serviceWorker } = mockManager.getMocks();
       expect(document.createElement).toHaveBeenCalled();
-      expect(mockNavigatorStorage.persist).toHaveBeenCalled();
-      expect(mockServiceWorker.register).toHaveBeenCalled();
+      expect(navigatorStorage.persist).toHaveBeenCalled();
+      expect(serviceWorker.register).toHaveBeenCalled();
     });
 
     it("should initialize with playlist title and data", async () => {

@@ -449,7 +449,7 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
 
   try {
     // add this song to loading set
-    setLoadingSongIds((prev) => new Set([...prev, song.id]));
+    setLoadingSongIds((prev) => new Set(Array.from(prev).concat([song.id])));
 
     // clear preloading state if this song was being preloaded
     if (preloadingSongId() === song.id) {
@@ -551,7 +551,9 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
               );
 
               // track that this song is being cached
-              setCachingSongIds((prev) => new Set([...prev, song.id]));
+              setCachingSongIds(
+                (prev) => new Set(Array.from(prev).concat([song.id]))
+              );
 
               audioURL = blobUrl;
 
@@ -589,7 +591,9 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
               audioURL = filePath;
 
               // start background caching separately
-              setCachingSongIds((prev) => new Set([...prev, song.id]));
+              setCachingSongIds(
+                (prev) => new Set(Array.from(prev).concat([song.id]))
+              );
               downloadSongIfNeeded(song, filePath, (progress) => {
                 setDownloadProgress((prev) => {
                   const newMap = new Map(prev);
@@ -942,7 +946,7 @@ async function preloadNextSong(): Promise<void> {
   }
 
   setPreloadingSongId(nextSong.id);
-  setLoadingSongIds((prev) => new Set([...prev, nextSong.id]));
+  setLoadingSongIds((prev) => new Set(Array.from(prev).concat([nextSong.id])));
 
   try {
     // check if song already has cached audio data
@@ -970,7 +974,9 @@ async function preloadNextSong(): Promise<void> {
 
     if (nextSong.standaloneFilePath) {
       // track that this song is being cached for preloading
-      setCachingSongIds((prev) => new Set([...prev, nextSong.id]));
+      setCachingSongIds(
+        (prev) => new Set(Array.from(prev).concat([nextSong.id]))
+      );
 
       // start preload download
       downloadSongIfNeeded(

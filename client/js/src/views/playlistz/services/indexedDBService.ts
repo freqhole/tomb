@@ -214,7 +214,7 @@ export async function mutateAndNotify({
   const registryKey = `${dbName}-${storeName}`;
   const querySet = globalQueryRegistry.get(registryKey);
   if (querySet) {
-    for (const fetchAndUpdate of querySet) {
+    for (const fetchAndUpdate of Array.from(querySet)) {
       try {
         fetchAndUpdate();
       } catch (error) {
