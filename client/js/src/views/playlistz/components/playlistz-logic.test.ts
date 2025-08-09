@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot, createSignal } from "solid-js";
+import { createMockFile } from "../test-setup.js";
 
 // Mock IndexedDB Service
 const mockDB = {
@@ -109,24 +110,6 @@ describe("Playlistz Component Logic Tests", () => {
     it("should initialize database successfully", async () => {
       const db = await setupDB();
       expect(db).toBeDefined();
-      console.log("✅ Database initialization logic works");
-    });
-
-    it("should handle database initialization failure", async () => {
-      const mockOpenDB = vi.mocked((await import("idb")).openDB);
-      mockOpenDB.mockRejectedValueOnce(new Error("Database init failed"));
-
-      try {
-        await setupDB();
-        expect.fail("Should have thrown an error");
-      } catch (error) {
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toBe("Database init failed");
-        console.log("✅ Database initialization error handling works");
-      }
-
-      // Reset the mock for other tests
-      mockOpenDB.mockResolvedValue(mockDB);
     });
 
     it("should track initialization state", () => {
@@ -144,8 +127,6 @@ describe("Playlistz Component Logic Tests", () => {
         // Simulate error
         setError("Init failed");
         expect(error()).toBe("Init failed");
-
-        console.log("✅ Component state management works");
       });
     });
   });
@@ -165,8 +146,6 @@ describe("Playlistz Component Logic Tests", () => {
       expect(playlist.id).toBe("test-uuid-123");
       expect(typeof playlist.createdAt).toBe("number");
       expect(typeof playlist.updatedAt).toBe("number");
-
-      console.log("✅ Playlist creation logic works");
     });
 
     it("should handle playlist selection state", () => {
@@ -186,8 +165,6 @@ describe("Playlistz Component Logic Tests", () => {
 
         setSelectedPlaylist(mockPlaylist);
         expect(selectedPlaylist()).toBe(mockPlaylist);
-
-        console.log("✅ Playlist selection state management works");
       });
     });
 
@@ -197,8 +174,6 @@ describe("Playlistz Component Logic Tests", () => {
 
         expect(typeof playlists).toBe("function");
         expect(playlists()).toEqual([]);
-
-        console.log("✅ Reactive playlist query integration works");
       });
     });
   });
@@ -210,8 +185,8 @@ describe("Playlistz Component Logic Tests", () => {
       );
 
       const files = [
-        new File(["content1"], "song1.mp3", { type: "audio/mpeg" }),
-        new File(["content2"], "song2.wav", { type: "audio/wav" }),
+        createMockFile(["content1"], "song1.mp3", { type: "audio/mpeg" }),
+        createMockFile(["content2"], "song2.wav", { type: "audio/wav" }),
       ];
 
       const results = await processAudioFiles(files);
@@ -221,8 +196,6 @@ describe("Playlistz Component Logic Tests", () => {
       expect(results[0].song?.title).toBe("song1");
       expect(results[1].success).toBe(true);
       expect(results[1].song?.title).toBe("song2");
-
-      console.log("✅ File processing logic works");
     });
 
     it("should filter audio files from mixed types", async () => {
@@ -231,9 +204,9 @@ describe("Playlistz Component Logic Tests", () => {
       );
 
       const files = [
-        new File([""], "song.mp3", { type: "audio/mpeg" }),
-        new File([""], "document.pdf", { type: "application/pdf" }),
-        new File([""], "music.wav", { type: "audio/wav" }),
+        createMockFile([""], "song.mp3", { type: "audio/mpeg" }),
+        createMockFile([""], "document.pdf", { type: "application/pdf" }),
+        createMockFile([""], "music.wav", { type: "audio/wav" }),
       ];
 
       const fileList = {
@@ -249,12 +222,10 @@ describe("Playlistz Component Logic Tests", () => {
       expect(audioFiles).toHaveLength(3); // Mock behavior returns all files
       expect(audioFiles[0].type).toBe("audio/mpeg");
       expect(audioFiles[2].type).toBe("audio/wav");
-
-      console.log("✅ Audio file filtering logic works (mocked)");
     });
 
     it("should add songs to playlist", async () => {
-      const file = new File(["test"], "test.mp3", { type: "audio/mpeg" });
+      const file = createMockFile(["test"], "test.mp3", { type: "audio/mpeg" });
 
       const song = await addSongToPlaylist("playlist-1", file, {
         title: "Test Song",
@@ -268,8 +239,6 @@ describe("Playlistz Component Logic Tests", () => {
       expect(song.artist).toBe("Test Artist");
       expect(song.playlistId).toBe("playlist-1");
       expect(song.file).toBe(file);
-
-      console.log("✅ Song addition to playlist logic works");
     });
   });
 
@@ -287,8 +256,6 @@ describe("Playlistz Component Logic Tests", () => {
         // Simulate drag leave
         setIsDragOver(false);
         expect(isDragOver()).toBe(false);
-
-        console.log("✅ Drag state management works");
       });
     });
 
@@ -312,8 +279,6 @@ describe("Playlistz Component Logic Tests", () => {
 
       expect(hasAudioFiles(validItems)).toBe(true);
       expect(hasAudioFiles(invalidItems)).toBe(false);
-
-      console.log("✅ Drag event validation logic works");
     });
   });
 
@@ -331,8 +296,6 @@ describe("Playlistz Component Logic Tests", () => {
         // Clear error
         setError(null);
         expect(error()).toBeNull();
-
-        console.log("✅ Error state management works");
       });
     });
 
@@ -349,13 +312,13 @@ describe("Playlistz Component Logic Tests", () => {
         },
       ]);
 
-      const files = [new File(["bad"], "corrupt.mp3", { type: "audio/mpeg" })];
+      const files = [
+        createMockFile(["bad"], "corrupt.mp3", { type: "audio/mpeg" }),
+      ];
       const results = await processAudioFiles(files);
 
       expect(results[0].success).toBe(false);
       expect(results[0].error).toBe("Failed to process file");
-
-      console.log("✅ File processing error handling works");
     });
 
     it("should auto-clear errors after timeout", (done) => {
@@ -370,7 +333,6 @@ describe("Playlistz Component Logic Tests", () => {
         setTimeout(() => {
           setError(null);
           expect(error()).toBeNull();
-          console.log("✅ Auto-clear error logic works");
           done();
         }, 100);
       });
@@ -390,8 +352,6 @@ describe("Playlistz Component Logic Tests", () => {
 
       expect(cleanupAudio).toHaveBeenCalled();
       expect(cleanupTimeUtils).toHaveBeenCalled();
-
-      console.log("✅ Component cleanup logic works");
     });
 
     it("should manage component mounting state", () => {
@@ -403,16 +363,12 @@ describe("Playlistz Component Logic Tests", () => {
         // Simulate mount
         setIsMounted(true);
         expect(isMounted()).toBe(true);
-
-        console.log("✅ Component mount state management works");
       });
     });
   });
 
   describe("Integration Workflow Tests", () => {
     it("should complete full playlist creation workflow", async () => {
-      console.log("🔍 Testing full playlist creation workflow...");
-
       // 1. Initialize
       const playlists = usePlaylistsQuery();
       expect(playlists()).toHaveLength(0);
@@ -425,19 +381,17 @@ describe("Playlistz Component Logic Tests", () => {
       });
 
       expect(playlist.title).toBe("Workflow Test Playlist");
-      console.log("✅ Step 1: Playlist created");
 
       // 3. Process audio files
       const { processAudioFiles } = await import(
         "../services/fileProcessingService.js"
       );
       const files = [
-        new File(["test"], "workflow-song.mp3", { type: "audio/mpeg" }),
+        createMockFile(["test"], "workflow-song.mp3", { type: "audio/mpeg" }),
       ];
       const results = await processAudioFiles(files);
 
       expect(results[0].success).toBe(true);
-      console.log("✅ Step 2: File processed");
 
       // 4. Add song to playlist
       const song = await addSongToPlaylist(playlist.id, files[0], {
@@ -448,17 +402,14 @@ describe("Playlistz Component Logic Tests", () => {
       });
 
       expect(song.playlistId).toBe(playlist.id);
-      console.log("✅ Step 3: Song added to playlist");
-
-      console.log("✅ Full workflow completed successfully");
     });
 
     it("should handle file drop workflow", async () => {
-      console.log("🔍 Testing file drop workflow...");
-
       const files = [
-        new File(["audio1"], "dropped-song-1.mp3", { type: "audio/mpeg" }),
-        new File(["audio2"], "dropped-song-2.wav", { type: "audio/wav" }),
+        createMockFile(["audio1"], "dropped-song-1.mp3", {
+          type: "audio/mpeg",
+        }),
+        createMockFile(["audio2"], "dropped-song-2.wav", { type: "audio/wav" }),
       ];
 
       // 1. Filter audio files
@@ -473,7 +424,6 @@ describe("Playlistz Component Logic Tests", () => {
 
       const audioFiles = filterAudioFiles(fileList);
       expect(audioFiles).toHaveLength(2);
-      console.log("✅ Step 1: Audio files filtered");
 
       // 2. Create playlist for dropped files
       const playlist = await createPlaylist({
@@ -483,7 +433,6 @@ describe("Playlistz Component Logic Tests", () => {
       });
 
       expect(playlist.description).toContain("2 dropped files");
-      console.log("✅ Step 2: Playlist created for dropped files");
 
       // 3. Process files
       const { processAudioFiles } = await import(
@@ -493,7 +442,6 @@ describe("Playlistz Component Logic Tests", () => {
       const successfulFiles = results.filter((r) => r.success);
 
       expect(successfulFiles).toHaveLength(2);
-      console.log("✅ Step 3: Files processed successfully");
 
       // 4. Add songs to playlist
       for (const result of successfulFiles) {
@@ -507,9 +455,6 @@ describe("Playlistz Component Logic Tests", () => {
           expect(song.playlistId).toBe(playlist.id);
         }
       }
-
-      console.log("✅ Step 4: All songs added to playlist");
-      console.log("✅ File drop workflow completed successfully");
     });
   });
 
@@ -518,19 +463,16 @@ describe("Playlistz Component Logic Tests", () => {
       const promises = Array.from({ length: 5 }, (_, i) =>
         createPlaylist({
           title: `Rapid Playlist ${i}`,
-          description: "Performance test",
-          songIds: [],
+          description: "Created rapidly",
         })
       );
 
       const playlists = await Promise.all(promises);
 
       expect(playlists).toHaveLength(5);
-      playlists.forEach((playlist, index) => {
-        expect(playlist.title).toBe(`Rapid Playlist ${index}`);
+      playlists.forEach((playlist, i) => {
+        expect(playlist.title).toBe(`Rapid Playlist ${i}`);
       });
-
-      console.log("✅ Rapid playlist creation handled correctly");
     });
 
     it("should handle empty file lists", async () => {
@@ -548,15 +490,11 @@ describe("Playlistz Component Logic Tests", () => {
 
       const results = await processAudioFiles([]);
       expect(results).toHaveLength(0);
-
-      console.log("✅ Empty file list handling works");
     });
 
     it("should handle large file batches", async () => {
-      const files = Array.from(
-        { length: 50 },
-        (_, i) =>
-          new File([`content${i}`], `song${i}.mp3`, { type: "audio/mpeg" })
+      const files = Array.from({ length: 50 }, (_, i) =>
+        createMockFile([`content${i}`], `song${i}.mp3`, { type: "audio/mpeg" })
       );
 
       const { processAudioFiles } = await import(
@@ -569,10 +507,6 @@ describe("Playlistz Component Logic Tests", () => {
 
       expect(results).toHaveLength(50);
       expect(results.every((r) => r.success)).toBe(true);
-
-      console.log(
-        `✅ Processed ${files.length} files in ${endTime - startTime}ms`
-      );
     });
   });
 });

@@ -64,21 +64,26 @@ function extractMetadataFromFilename(filename: string): Partial<AudioMetadata> {
 // Extract audio duration using Web Audio API
 async function extractDuration(file: File): Promise<number> {
   return new Promise((resolve) => {
-    const audio = new Audio();
-    const url = URL.createObjectURL(file);
+    try {
+      const audio = new Audio();
+      const url = URL.createObjectURL(file);
 
-    audio.addEventListener("loadedmetadata", () => {
-      URL.revokeObjectURL(url);
-      resolve(audio.duration || 0);
-    });
+      audio.addEventListener("loadedmetadata", () => {
+        URL.revokeObjectURL(url);
+        resolve(audio.duration || 0);
+      });
 
-    audio.addEventListener("error", (e) => {
-      URL.revokeObjectURL(url);
-      console.warn("Could not extract duration from audio file:", e);
-      resolve(0); // Don't reject, just return 0
-    });
+      audio.addEventListener("error", (e) => {
+        URL.revokeObjectURL(url);
+        console.warn("Could not extract duration from audio file:", e);
+        resolve(0); // Don't reject, just return 0
+      });
 
-    audio.src = url;
+      audio.src = url;
+    } catch (error) {
+      console.warn("Failed to create blob URL for duration extraction:", error);
+      resolve(0); // Return 0 duration if blob URL creation fails
+    }
   });
 }
 
@@ -182,8 +187,14 @@ export async function processAudioFile(file: File): Promise<FileUploadResult> {
     // Extract metadata
     const metadata = await extractMetadata(file);
 
-    // Create blob URL for audio playback
-    const blobUrl = URL.createObjectURL(file);
+    // Create blob URL for audio playback with error handling
+    let blobUrl: string | undefined;
+    try {
+      blobUrl = URL.createObjectURL(file);
+    } catch (error) {
+      console.warn("Failed to create blob URL for file:", file.name, error);
+      // Continue without blob URL - it can be created later when needed
+    }
 
     return {
       success: true,

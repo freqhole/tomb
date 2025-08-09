@@ -3,6 +3,7 @@ import { createRoot, createSignal } from "solid-js";
 import * as indexedDBService from "../services/indexedDBService.js";
 import * as fileProcessingService from "../services/fileProcessingService.js";
 import type { Playlist, Song } from "../types/playlist.js";
+import { createMockFile } from "../test-setup.js";
 
 // Mock implementations
 const mockPlaylistsSignal = createSignal<Playlist[]>([]);
@@ -177,10 +178,6 @@ describe("UI Behavior Tests", () => {
         createSignal<Playlist | null>(mockPlaylists[0]);
       const [playlists, setPlaylists] = createSignal<Playlist[]>(mockPlaylists);
 
-      console.log("📊 Initial state:");
-      console.log(`- Selected playlist: ${selectedPlaylist()?.title}`);
-      console.log(`- Songs in playlist: ${selectedPlaylist()?.songIds.length}`);
-
       // Simulate file drop
       const mockFile = new File(["fake audio"], "new-song.mp3", {
         type: "audio/mp3",
@@ -204,12 +201,6 @@ describe("UI Behavior Tests", () => {
         (p) => p.id === currentPlaylist.id
       );
 
-      console.log("📊 After file drop:");
-      console.log(
-        `- Updated playlist songs: ${updatedPlaylist?.songIds.length}`
-      );
-      console.log(`- Song IDs: ${JSON.stringify(updatedPlaylist?.songIds)}`);
-
       // THIS IS THE BUG: UI should update selectedPlaylist to show new songs
       // The fix: component should update selectedPlaylist when playlists signal changes
       if (
@@ -218,7 +209,6 @@ describe("UI Behavior Tests", () => {
           JSON.stringify(currentPlaylist.songIds)
       ) {
         setSelectedPlaylist(updatedPlaylist);
-        console.log("✅ UI updated with new songs");
       }
 
       expect(updatedPlaylist?.songIds.length).toBe(3); // Original 2 + new 1
@@ -240,7 +230,6 @@ describe("UI Behavior Tests", () => {
         const song = await indexedDBService.getSongById(songId);
         expect(song).toBeDefined();
         expect(song?.title).toBeDefined();
-        console.log(`✅ Found song: ${song?.title}`);
       }
     });
   });
@@ -284,23 +273,6 @@ describe("UI Behavior Tests", () => {
 
       // Verify only one actual database call was made (in real debounced implementation)
       expect(selectedPlaylist()?.title).toBe("My New Playlist");
-      console.log("✅ Playlist title updated with debouncing");
-    });
-
-    it("should provide visual feedback for save status", () => {
-      // Test should verify:
-      // 1. Immediate UI update (optimistic)
-      // 2. Save indicator while saving
-      // 3. Success/error feedback
-      // 4. Revert on save failure
-
-      console.log("💡 Visual feedback requirements:");
-      console.log("- Show typing indicator while editing");
-      console.log("- Show 'saving...' during debounce period");
-      console.log("- Show 'saved' confirmation briefly");
-      console.log("- Show error and revert on failure");
-
-      expect(true).toBe(true); // Placeholder - requires UI component testing
     });
   });
 
@@ -316,7 +288,6 @@ describe("UI Behavior Tests", () => {
 
       expect(mockAudio.play).toHaveBeenCalled();
       expect(audio.src).toBe(testSong.blobUrl);
-      console.log(`🎵 Playing: ${testSong.title}`);
     });
 
     it("should pause current song when playing a new one", async () => {
@@ -337,7 +308,6 @@ describe("UI Behavior Tests", () => {
 
       expect(mockAudio.pause).toHaveBeenCalled();
       expect(currentSong()).toBe(mockSongs[1].id);
-      console.log("✅ Switched to new song, paused previous");
     });
 
     it("should handle audio playback errors gracefully", async () => {
@@ -352,7 +322,6 @@ describe("UI Behavior Tests", () => {
         await audio.play();
       } catch (error) {
         errorOccurred = true;
-        console.log("❌ Audio error handled:", error);
       }
 
       expect(errorOccurred).toBe(true);
@@ -367,11 +336,9 @@ describe("UI Behavior Tests", () => {
       // Verify song with image
       expect(songWithImage.image).toBeDefined();
       expect(songWithImage.image).toMatch(/^data:image/);
-      console.log("✅ Song has album art");
 
       // Verify fallback for song without image
       expect(songWithoutImage.image).toBeUndefined();
-      console.log("✅ Song without image shows fallback");
     });
 
     it("should allow setting playlist cover images", async () => {
@@ -387,7 +354,6 @@ describe("UI Behavior Tests", () => {
 
       const updatedPlaylist = mockPlaylists.find((p) => p.id === playlist.id);
       expect(updatedPlaylist?.image).toBe(imageUrl);
-      console.log("✅ Playlist cover image set");
     });
 
     it("should generate playlist thumbnails from song album art", () => {
@@ -399,13 +365,10 @@ describe("UI Behavior Tests", () => {
       if (songsWithArt.length > 0) {
         // Should use first song's album art as playlist thumbnail
         const thumbnailSource = songsWithArt[0].image;
-        console.log("✅ Generated playlist thumbnail from song album art");
         expect(thumbnailSource).toBeDefined();
       } else {
-        console.log(
-          "ℹ️ No songs with album art found - show default thumbnail"
-        );
-        expect(true).toBe(true);
+        // TODO: Test default thumbnail generation
+        expect(songsWithArt.length).toBe(0);
       }
     });
   });
@@ -416,12 +379,10 @@ describe("UI Behavior Tests", () => {
       const [selectedPlaylist, setSelectedPlaylist] =
         createSignal<Playlist | null>(mockPlaylists[0]);
 
-      console.log("🔄 Testing reactive updates...");
-
       // Simulate database change (new song added)
       const newSong = await indexedDBService.addSongToPlaylist(
         mockPlaylists[0].id,
-        new File(["audio"], "test.mp3", { type: "audio/mp3" }),
+        createMockFile(["audio"], "test.mp3", { type: "audio/mp3" }),
         { title: "Reactive Test Song" }
       );
 
@@ -438,7 +399,6 @@ describe("UI Behavior Tests", () => {
         JSON.stringify(updated.songIds) !== JSON.stringify(current?.songIds)
       ) {
         setSelectedPlaylist(updated);
-        console.log("✅ Reactive update triggered UI refresh");
       }
 
       expect(selectedPlaylist()?.songIds.length).toBe(3); // 2 original + 1 new
@@ -474,10 +434,8 @@ describe("UI Behavior Tests", () => {
 
       try {
         await Promise.all(operations.map((op) => op()));
-        console.log("✅ All rapid operations completed");
       } catch (err) {
         setError("Operation failed");
-        console.log("❌ Rapid operations failed");
       } finally {
         setIsLoading(false);
       }
@@ -494,11 +452,9 @@ describe("UI Behavior Tests", () => {
 
       // Empty playlists state
       expect(playlists().length).toBe(0);
-      console.log("✅ Empty playlists state handled");
 
       // No selected playlist
       expect(selectedPlaylist()).toBeNull();
-      console.log("✅ No selected playlist state handled");
     });
 
     it("should validate data integrity", async () => {
@@ -510,8 +466,6 @@ describe("UI Behavior Tests", () => {
         expect(song).toBeDefined();
         expect(song?.playlistId).toBe(playlist.id);
       }
-
-      console.log("✅ Data integrity validated");
     });
 
     it("should handle concurrent user actions", async () => {
@@ -547,9 +501,6 @@ describe("UI Behavior Tests", () => {
       const results = await Promise.allSettled(concurrentActions);
       const successes = results.filter((r) => r.status === "fulfilled").length;
 
-      console.log(
-        `✅ ${successes}/${results.length} concurrent actions succeeded`
-      );
       expect(successes).toBeGreaterThan(0);
     });
   });

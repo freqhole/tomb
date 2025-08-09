@@ -63,7 +63,7 @@ import {
 import type { Playlist } from "../types/playlist.js";
 
 // global fn registration for standalone mode
-if ((window as any).STANDALONE_MODE) {
+if (typeof window !== "undefined" && (window as any).STANDALONE_MODE) {
   // define the fn early so it's available for HTML initialization
   (window as any).initializeStandalonePlaylist = function (playlistData: any) {
     // store the data and defer to the real function when it's ready

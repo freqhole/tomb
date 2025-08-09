@@ -120,6 +120,30 @@ export async function cleanupTestDB(): Promise<void> {
   }
 }
 
+// Helper function to create File mocks with arrayBuffer method
+export function createMockFile(
+  content: string[] | string,
+  filename: string,
+  options: { type: string; lastModified?: number } = {
+    type: "application/octet-stream",
+  }
+): File {
+  const file = new File(
+    Array.isArray(content) ? content : [content],
+    filename,
+    options
+  );
+
+  // Add arrayBuffer method that File objects should have
+  Object.defineProperty(file, "arrayBuffer", {
+    value: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+    writable: true,
+    configurable: true,
+  });
+
+  return file;
+}
+
 // Clean up after each test
 import { afterEach } from "vitest";
 

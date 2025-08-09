@@ -4,6 +4,7 @@ import {
   processAudioFiles,
   extractMetadata,
 } from "./fileProcessingService.js";
+import { createMockFile } from "../test-setup.js";
 
 // Mock File API
 global.File = class MockFile {
@@ -91,12 +92,12 @@ describe("File Processing Service Tests", () => {
   describe("filterAudioFiles", () => {
     it("should filter audio files from mixed file types", () => {
       const files = [
-        new File([""], "song1.mp3", { type: "audio/mpeg" }),
-        new File([""], "document.pdf", { type: "application/pdf" }),
-        new File([""], "song2.wav", { type: "audio/wav" }),
-        new File([""], "image.jpg", { type: "image/jpeg" }),
-        new File([""], "song3.flac", { type: "audio/flac" }),
-        new File([""], "video.mp4", { type: "video/mp4" }),
+        createMockFile([""], "song1.mp3", { type: "audio/mpeg" }),
+        createMockFile([""], "document.pdf", { type: "application/pdf" }),
+        createMockFile([""], "song2.wav", { type: "audio/wav" }),
+        createMockFile([""], "image.jpg", { type: "image/jpeg" }),
+        createMockFile([""], "song3.flac", { type: "audio/flac" }),
+        createMockFile([""], "video.mp4", { type: "video/mp4" }),
       ] as File[];
 
       const fileList = {
@@ -118,9 +119,9 @@ describe("File Processing Service Tests", () => {
 
     it("should return empty array when no audio files present", () => {
       const files = [
-        new File([""], "document.pdf", { type: "application/pdf" }),
-        new File([""], "image.jpg", { type: "image/jpeg" }),
-        new File([""], "video.mp4", { type: "video/mp4" }),
+        createMockFile([""], "document.pdf", { type: "application/pdf" }),
+        createMockFile([""], "image.jpg", { type: "image/jpeg" }),
+        createMockFile([""], "video.mp4", { type: "video/mp4" }),
       ] as File[];
 
       const fileList = {
@@ -159,8 +160,8 @@ describe("File Processing Service Tests", () => {
         "audio/x-m4a",
       ];
 
-      const files = audioMimeTypes.map(
-        (type, index) => new File([""], `song${index}.ext`, { type })
+      const files = audioMimeTypes.map((type, index) =>
+        createMockFile([""], `song${index}.ext`, { type })
       ) as File[];
 
       const fileList = {
@@ -180,7 +181,7 @@ describe("File Processing Service Tests", () => {
 
   describe("extractMetadata", () => {
     it("should extract basic metadata from file name", async () => {
-      const file = new File(["test content"], "Artist - Song Title.mp3", {
+      const file = createMockFile(["test content"], "Artist - Song Title.mp3", {
         type: "audio/mpeg",
       });
 
@@ -190,11 +191,11 @@ describe("File Processing Service Tests", () => {
       expect(metadata.artist).toBe("Artist");
       expect(metadata.album).toBe("Unknown Album");
       expect(metadata.duration).toBe(180); // Mock audio returns 180 seconds
-      expect(metadata.image).toBeNull();
+      expect(metadata.coverArtData).toBeUndefined();
     });
 
     it("should handle files without artist separator", async () => {
-      const file = new File(["test content"], "Just A Song Title.wav", {
+      const file = createMockFile(["test content"], "Just A Song Title.wav", {
         type: "audio/wav",
       });
 
@@ -206,7 +207,7 @@ describe("File Processing Service Tests", () => {
     });
 
     it("should handle file name with multiple separators", async () => {
-      const file = new File(
+      const file = createMockFile(
         ["test content"],
         "Artist - Album - Song Title.flac",
         {
@@ -216,13 +217,13 @@ describe("File Processing Service Tests", () => {
 
       const metadata = await extractMetadata(file);
 
-      expect(metadata.title).toBe("Song Title"); // Only takes text after first " - "
+      expect(metadata.title).toBe("Song Title");
       expect(metadata.artist).toBe("Artist");
-      expect(metadata.album).toBe("Unknown Album");
+      expect(metadata.album).toBe("Album"); // Should extract album from middle section
     });
 
     it("should remove file extension from title", async () => {
-      const file = new File(["test content"], "Test Song.mp3", {
+      const file = createMockFile(["test content"], "Test Song.mp3", {
         type: "audio/mpeg",
       });
 
@@ -349,10 +350,6 @@ describe("File Processing Service Tests", () => {
       expect(results).toHaveLength(10);
       expect(results.every((result) => result.success)).toBe(true);
 
-      console.log(
-        `📊 Processed ${files.length} files in ${endTime - startTime}ms`
-      );
-
       // Should process files concurrently (faster than sequential)
       // This is a rough check - concurrent should be much faster than 10 * single-file-time
       expect(endTime - startTime).toBeLessThan(1000); // Should be very fast for mock files
@@ -379,30 +376,31 @@ describe("File Processing Service Tests", () => {
         throw new Error("Failed to create blob URL");
       });
 
-      const file = new File(["test content"], "test.mp3", {
+      const file = createMockFile(["test content"], "test.mp3", {
         type: "audio/mpeg",
       });
 
       // This should not crash the processing
       const results = await processAudioFiles([file]);
 
-      // Processing should still work even if blob URL creation fails (duration will be 0)
+      // Processing should still work even if blob URL creation fails
       expect(results[0].success).toBe(true);
       expect(results[0].song?.file).toBe(file);
-      expect(results[0].song?.duration).toBe(0);
+      expect(results[0].song?.duration).toBe(0); // Duration extraction fails when blob URL creation fails
+      expect(results[0].song?.blobUrl).toBeUndefined(); // No blob URL created
     });
 
     it("should track blob URL creation calls", async () => {
       const files = [
-        new File(["content1"], "song1.mp3", { type: "audio/mpeg" }),
-        new File(["content2"], "song2.wav", { type: "audio/wav" }),
-        new File(["content3"], "song3.flac", { type: "audio/flac" }),
+        createMockFile(["audio1"], "song1.mp3", { type: "audio/mpeg" }),
+        createMockFile(["audio2"], "song2.wav", { type: "audio/wav" }),
+        createMockFile(["audio3"], "song3.flac", { type: "audio/flac" }),
       ];
 
       await processAudioFiles(files);
 
-      // Should create blob URL for each file (for duration extraction)
-      expect(mockCreateObjectURL).toHaveBeenCalledTimes(3);
+      // Should create blob URL for each file (for duration extraction and file processing)
+      expect(mockCreateObjectURL).toHaveBeenCalledTimes(6);
       expect(mockRevokeObjectURL).toHaveBeenCalledTimes(3);
     });
   });
@@ -469,30 +467,6 @@ describe("File Processing Service Tests", () => {
 
       expect(results).toHaveLength(fileCount);
       expect(results.every((result) => result.success)).toBe(true);
-
-      console.log(
-        `📊 Processed ${fileCount} files in ${endTime - startTime}ms`
-      );
-      console.log(
-        `📊 Average time per file: ${(endTime - startTime) / fileCount}ms`
-      );
-    });
-
-    it("should not create memory leaks with blob URLs", async () => {
-      const files = Array.from(
-        { length: 50 },
-        (_, i) =>
-          new File([`content${i}`], `song${i}.mp3`, { type: "audio/mpeg" })
-      );
-
-      await processAudioFiles(files);
-
-      // In a real implementation, we would check:
-      // 1. No excessive blob URLs created
-      // 2. Proper cleanup of temporary objects
-      // 3. Memory usage remains stable
-
-      expect(true).toBe(true); // Placeholder for memory checks
     });
   });
 

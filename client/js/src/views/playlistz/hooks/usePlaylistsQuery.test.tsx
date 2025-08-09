@@ -57,8 +57,6 @@ describe("Playlist Signal Integration Tests", () => {
         // Both should return empty arrays initially
         expect(customQuery.get()).toEqual([]);
         expect(solidSignal()).toEqual([]);
-
-        console.log("✅ Basic signal interface compatibility works");
       });
     });
 
@@ -86,8 +84,6 @@ describe("Playlist Signal Integration Tests", () => {
 
         expect(typeof playlists).toBe("function"); // Should be SolidJS signal function
         expect(playlists()).toEqual([]); // Should return empty array initially
-
-        console.log("✅ Hook creates SolidJS signal correctly");
       });
     });
 
@@ -113,11 +109,6 @@ describe("Playlist Signal Integration Tests", () => {
         // Wait for potential updates
         setTimeout(() => {
           signalValue = playlists();
-          console.log(
-            "📊 Hook signal updated:",
-            signalValue.length,
-            "playlists"
-          );
         }, 100);
       });
     });
@@ -187,8 +178,6 @@ describe("Playlist Signal Integration Tests", () => {
         // Should have access to current value
         const currentValue = playlists();
         expect(Array.isArray(currentValue)).toBe(true);
-
-        console.log("✅ Hook bridges custom signal to SolidJS signal");
       });
     });
 
@@ -200,8 +189,6 @@ describe("Playlist Signal Integration Tests", () => {
 
         // Simulate component unmount
         dispose();
-
-        console.log("🧹 Hook cleanup should be handled by onCleanup");
       });
     });
   });
@@ -218,23 +205,7 @@ describe("Playlist Signal Integration Tests", () => {
         // Both should work independently
         expect(hook1()).toEqual([]);
         expect(hook2()).toEqual([]);
-
-        console.log("✅ Multiple hook instances work correctly");
       });
-    });
-
-    it("should not create memory leaks", () => {
-      // Create and dispose multiple hooks
-      for (let i = 0; i < 10; i++) {
-        createRoot((dispose) => {
-          const playlists = usePlaylistsQuery();
-          expect(typeof playlists).toBe("function");
-          dispose();
-        });
-      }
-
-      console.log("✅ No memory leaks with multiple hook creation/disposal");
-      expect(true).toBe(true);
     });
   });
 });
