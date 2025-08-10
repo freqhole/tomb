@@ -603,18 +603,13 @@ export async function loadStandaloneSongAudioData(
  * Check if a song needs audio data to be loaded
  */
 export async function songNeedsAudioData(song: any): Promise<boolean> {
-  // If no standalone file path, can't do on-demand loading
-  if (!song.standaloneFilePath) {
-    return false;
-  }
-
   // Check the database directly for the most up-to-date audio data
   try {
     const db = await setupDB();
     const dbSong = await db.get(SONGS_STORE, song.id);
 
     if (!dbSong) {
-      return false;
+      return true; // song doesn't exist, needs data
     }
 
     // Skip caching check for file:// protocol - always return false (no caching needed)
@@ -622,18 +617,14 @@ export async function songNeedsAudioData(song: any): Promise<boolean> {
       return false;
     }
 
-    // For http/https, check if it has actual audio data
+    // Check if it has actual audio data (raw blob data)
     return !dbSong.audioData || dbSong.audioData.byteLength === 0;
   } catch (error) {
     console.error(
       `Error checking song audio data status for ${song.id}:`,
       error
     );
-    // Fallback to checking the in-memory song object
-    return !!(
-      song.standaloneFilePath &&
-      (!song.audioData || song.audioData.byteLength === 0)
-    );
+    return true; // assume needs data on error
   }
 }
 
