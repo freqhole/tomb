@@ -684,6 +684,7 @@ export async function playPlaylist(
   const song = queue[startIndex];
   if (song) {
     setCurrentIndex(startIndex);
+    setSelectedSongId(song.id);
     await playSong(song, playlist);
   }
 }
@@ -1038,6 +1039,11 @@ export function selectSong(songId: string): void {
 
   // set this as the selected song
   setSelectedSongId(songId);
+}
+
+// Clear the selected song
+export function clearSelectedSong(): void {
+  setSelectedSongId(null);
 }
 
 // helper functions for streaming downloads

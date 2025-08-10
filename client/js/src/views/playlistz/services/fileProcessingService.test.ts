@@ -290,19 +290,21 @@ describe("File Processing Service Tests", () => {
 
       expect(results).toHaveLength(2);
 
-      expect(results[0].success).toBe(true);
-      expect(results[0].error).toBeUndefined();
-      expect(results[0].song).toBeDefined();
-      expect(results[0].song?.title).toBe("Song1");
-      expect(results[0].song?.artist).toBe("Artist1");
-      expect(results[0].song?.file).toBe(files[0]);
+      expect(results[0]).toBeDefined();
+      expect(results[0]!.success).toBe(true);
+      expect(results[0]!.error).toBeUndefined();
+      expect(results[0]!.song).toBeDefined();
+      expect(results[0]!.song?.title).toBe("Song1");
+      expect(results[0]!.song?.artist).toBe("Artist1");
+      expect(results[0]!.song?.file).toBe(files[0]);
 
-      expect(results[1].success).toBe(true);
-      expect(results[1].error).toBeUndefined();
-      expect(results[1].song).toBeDefined();
-      expect(results[1].song?.title).toBe("Song2");
-      expect(results[1].song?.artist).toBe("Artist2");
-      expect(results[1].song?.file).toBe(files[1]);
+      expect(results[1]).toBeDefined();
+      expect(results[1]!.success).toBe(true);
+      expect(results[1]!.error).toBeUndefined();
+      expect(results[1]!.song).toBeDefined();
+      expect(results[1]!.song?.title).toBe("Song2");
+      expect(results[1]!.song?.artist).toBe("Artist2");
+      expect(results[1]!.song?.file).toBe(files[1]);
     });
 
     it("should handle processing failures gracefully", async () => {
@@ -340,12 +342,14 @@ describe("File Processing Service Tests", () => {
       expect(results).toHaveLength(2);
 
       // First file should succeed
-      expect(results[0].success).toBe(true);
-      expect(results[0].song).toBeDefined();
+      expect(results[0]).toBeDefined();
+      expect(results[0]!.success).toBe(true);
+      expect(results[0]!.song).toBeDefined();
 
       // Second file should succeed since we're not actually using the mocked extractMetadata
-      expect(results[1].success).toBe(true);
-      expect(results[1].song).toBeDefined();
+      expect(results[1]).toBeDefined();
+      expect(results[1]!.success).toBe(true);
+      expect(results[1]!.song).toBeDefined();
 
       // Restore original function
       Object.defineProperty(
@@ -393,9 +397,10 @@ describe("File Processing Service Tests", () => {
 
       // URL.createObjectURL should be called for duration extraction
       expect(mockCreateObjectURL).toHaveBeenCalledWith(file);
-      expect(results[0].success).toBe(true);
-      expect(results[0].song?.file).toBe(file);
-      expect(results[0].song?.duration).toBe(180); // Mock duration
+      expect(results[0]).toBeDefined();
+      expect(results[0]!.success).toBe(true);
+      expect(results[0]!.song?.file).toBe(file);
+      expect(results[0]!.song?.duration).toBe(180); // Mock duration
     });
 
     it("should handle blob URL creation failures", async () => {
@@ -411,10 +416,11 @@ describe("File Processing Service Tests", () => {
       const results = await processAudioFiles([file]);
 
       // Processing should still work even if blob URL creation fails
-      expect(results[0].success).toBe(true);
-      expect(results[0].song?.file).toBe(file);
-      expect(results[0].song?.duration).toBe(0); // Duration extraction fails when blob URL creation fails
-      expect(results[0].song?.blobUrl).toBeUndefined(); // No blob URL created
+      expect(results[0]).toBeDefined();
+      expect(results[0]!.success).toBe(true);
+      expect(results[0]!.song?.file).toBe(file);
+      expect(results[0]!.song?.duration).toBe(0); // Duration extraction fails when blob URL creation fails
+      expect(results[0]!.song?.blobUrl).toBeUndefined(); // No blob URL created
     });
 
     it("should track blob URL creation calls", async () => {
@@ -494,9 +500,11 @@ describe("File Processing Service Tests", () => {
           new File([`content${i}`], `song${i}.mp3`, { type: "audio/mpeg" })
       );
 
-      const startTime = performance.now();
+      // Track performance timing
+      performance.now();
       const results = await processAudioFiles(files);
-      const endTime = performance.now();
+      // End performance timing
+      performance.now();
 
       expect(results).toHaveLength(fileCount);
       expect(results.every((result) => result.success)).toBe(true);
@@ -539,7 +547,8 @@ describe("File Processing Service Tests", () => {
       expect(results).toHaveLength(1);
       // Since mocking doesn't actually replace the real function in this test,
       // the result will be successful
-      expect(results[0].success).toBe(true);
+      expect(results[0]).toBeDefined();
+      expect(results[0]!.success).toBe(true);
     });
   });
 });

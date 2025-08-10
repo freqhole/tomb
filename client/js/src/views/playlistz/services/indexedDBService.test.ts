@@ -42,7 +42,7 @@ Object.defineProperty(global, "crypto", {
 });
 
 describe("Database Efficiency Tests", () => {
-  let mockOpenDB: ReturnType<typeof vi.fn>;
+  let mockOpenDB: any;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -96,7 +96,8 @@ describe("Database Efficiency Tests", () => {
         songIds: [],
       });
 
-      const initialCalls = mockOpenDB.mock.calls.length;
+      // Track initial calls
+      mockDB.getAll.mock.calls.length;
 
       // 2. Add song to playlist (this triggers multiple setupDB calls)
       await addSongToPlaylist(playlist.id, mockFile, {
@@ -114,9 +115,10 @@ describe("Database Efficiency Tests", () => {
 
     it("should track setupDB calls for multiple queries", async () => {
       // Create multiple playlist queries (simulating UI with multiple components)
-      const query1 = createPlaylistsQuery();
-      const query2 = createPlaylistsQuery();
-      const query3 = createPlaylistsQuery();
+      // Create multiple playlist queries (simulating UI with multiple components)
+      createPlaylistsQuery();
+      createPlaylistsQuery();
+      createPlaylistsQuery();
 
       // Each query creation likely triggers setupDB
       await new Promise((resolve) => setTimeout(resolve, 100)); // Wait for async setup
@@ -201,9 +203,7 @@ describe("Database Efficiency Tests", () => {
         createPlaylist({ title: "Playlist 3", description: "", songIds: [] }),
       ];
 
-      const startTime = performance.now();
       await Promise.all(operations);
-      const endTime = performance.now();
 
       // ✅ Fixed: Concurrent operations reuse cached connection
       expect(mockOpenDB.mock.calls.length).toBeLessThanOrEqual(1);

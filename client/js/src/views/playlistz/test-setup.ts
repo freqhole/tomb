@@ -287,7 +287,9 @@ Object.defineProperty(global, "navigator", {
     storage: mockNavigatorStorage,
     mediaSession: {
       setActionHandler: vi.fn(),
+      setPositionState: vi.fn(),
       metadata: null,
+      playbackState: "none",
     },
   },
   writable: true,
@@ -307,18 +309,104 @@ global.FileReader = vi.fn(() => ({
 })) as any;
 
 // Mock Audio constructor for audio file testing
-global.Audio = vi.fn(() => ({
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  load: vi.fn(),
-  play: vi.fn(() => Promise.resolve()),
-  pause: vi.fn(),
-  currentTime: 0,
-  duration: 180, // Default 3 minutes
-  src: "",
-  volume: 1,
-  muted: false,
-})) as any;
+global.Audio = vi.fn(() => {
+  const eventListeners = new Map();
+
+  const mockAudio = {
+    addEventListener: vi.fn((event, handler) => {
+      if (!eventListeners.has(event)) {
+        eventListeners.set(event, []);
+      }
+      eventListeners.get(event).push(handler);
+    }),
+    removeEventListener: vi.fn((event, handler) => {
+      if (eventListeners.has(event)) {
+        const handlers = eventListeners.get(event);
+        const index = handlers.indexOf(handler);
+        if (index > -1) {
+          handlers.splice(index, 1);
+        }
+      }
+    }),
+    load: vi.fn(),
+    play: vi.fn(() => {
+      mockAudio.paused = false;
+      // Fire play event synchronously
+      const playHandlers = eventListeners.get("play") || [];
+      playHandlers.forEach((handler) => handler());
+      return Promise.resolve();
+    }),
+    pause: vi.fn(() => {
+      mockAudio.paused = true;
+      // Fire pause event synchronously
+      const pauseHandlers = eventListeners.get("pause") || [];
+      pauseHandlers.forEach((handler) => handler());
+    }),
+    currentTime: 0,
+    duration: 180, // Default 3 minutes
+    src: "",
+    volume: 1,
+    muted: false,
+    paused: true,
+    ended: false,
+    readyState: 4,
+    networkState: 1,
+    error: null,
+    preload: "metadata",
+    _volume: 1,
+    _currentTime: 0,
+    _src: "",
+  };
+
+  // Make properties writable so the service can set them
+  Object.defineProperty(mockAudio, "volume", {
+    get() {
+      return mockAudio._volume;
+    },
+    set(value) {
+      mockAudio._volume = value;
+    },
+    enumerable: true,
+    configurable: true,
+  });
+
+  Object.defineProperty(mockAudio, "currentTime", {
+    get() {
+      return mockAudio._currentTime;
+    },
+    set(value) {
+      mockAudio._currentTime = value;
+    },
+    enumerable: true,
+    configurable: true,
+  });
+
+  Object.defineProperty(mockAudio, "src", {
+    get() {
+      return mockAudio._src;
+    },
+    set(value) {
+      mockAudio._src = value;
+      // Simulate events when src is set - fire synchronously
+      if (value) {
+        const loadstartHandlers = eventListeners.get("loadstart") || [];
+        loadstartHandlers.forEach((handler) => handler());
+
+        // Also fire loadedmetadata and canplay events
+        const loadedmetadataHandlers =
+          eventListeners.get("loadedmetadata") || [];
+        loadedmetadataHandlers.forEach((handler) => handler());
+
+        const canplayHandlers = eventListeners.get("canplay") || [];
+        canplayHandlers.forEach((handler) => handler());
+      }
+    },
+    enumerable: true,
+    configurable: true,
+  });
+
+  return mockAudio;
+}) as any;
 
 // Mock document API for canvas operations and DOM manipulation
 Object.defineProperty(global, "document", {

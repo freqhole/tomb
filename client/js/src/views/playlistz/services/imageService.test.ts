@@ -46,7 +46,7 @@ global.document = {
 } as any;
 
 global.URL = {
-  createObjectURL: vi.fn((blob) => `blob:mock-url-${Math.random()}`),
+  createObjectURL: vi.fn(() => `blob:mock-url-${Math.random()}`),
   revokeObjectURL: vi.fn(),
 } as any;
 
@@ -122,10 +122,10 @@ function createMockAudioFileWithID3(): ArrayBuffer {
   view.setUint8(offset++, 0x00);
 
   // Image data (mock JPEG header)
-  view.setUint8(offset++, 0xFF);
-  view.setUint8(offset++, 0xD8);
-  view.setUint8(offset++, 0xFF);
-  view.setUint8(offset++, 0xE0);
+  view.setUint8(offset++, 0xff);
+  view.setUint8(offset++, 0xd8);
+  view.setUint8(offset++, 0xff);
+  view.setUint8(offset++, 0xe0);
 
   return buffer;
 }
@@ -222,7 +222,9 @@ describe("Image Service Tests", () => {
     it("should handle extraction errors", async () => {
       const mockFile = createMockFile("fake audio", "test.mp3", "audio/mpeg");
 
-      vi.mocked(mockFile.arrayBuffer).mockRejectedValue(new Error("Read failed"));
+      vi.mocked(mockFile.arrayBuffer).mockRejectedValue(
+        new Error("Read failed")
+      );
 
       const result = await extractAlbumArt(mockFile);
 
@@ -256,7 +258,11 @@ describe("Image Service Tests", () => {
     });
 
     it("should reject non-image files", async () => {
-      const mockFile = createMockFile("fake text", "document.txt", "text/plain");
+      const mockFile = createMockFile(
+        "fake text",
+        "document.txt",
+        "text/plain"
+      );
 
       const result = await processPlaylistCover(mockFile);
 
@@ -275,7 +281,11 @@ describe("Image Service Tests", () => {
     });
 
     it("should handle image load errors", async () => {
-      const mockFile = createMockFile("fake image", "corrupted.jpg", "image/jpeg");
+      const mockFile = createMockFile(
+        "fake image",
+        "corrupted.jpg",
+        "image/jpeg"
+      );
 
       // Mock image load error
       setTimeout(() => {
@@ -406,7 +416,9 @@ describe("Image Service Tests", () => {
       expect(global.URL.createObjectURL).toHaveBeenCalled();
 
       // Verify blob was created with correct type
-      const blob = vi.mocked(global.URL.createObjectURL).mock.calls[0][0] as Blob;
+      const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
+      expect(calls).toHaveLength(1);
+      const blob = calls[0]![0] as Blob;
       expect(blob.type).toBe(mimeType);
     });
 
@@ -415,7 +427,9 @@ describe("Image Service Tests", () => {
 
       createImageUrlFromData(imageData);
 
-      const blob = vi.mocked(global.URL.createObjectURL).mock.calls[0][0] as Blob;
+      const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
+      expect(calls).toHaveLength(1);
+      const blob = calls[0]![0] as Blob;
       expect(blob.type).toBe("image/jpeg");
     });
   });
@@ -426,7 +440,11 @@ describe("Image Service Tests", () => {
       const fullSizeData = new ArrayBuffer(8);
       const mimeType = "image/png";
 
-      const result = createImageUrlsFromData(thumbnailData, fullSizeData, mimeType);
+      const result = createImageUrlsFromData(
+        thumbnailData,
+        fullSizeData,
+        mimeType
+      );
 
       expect(result.thumbnailUrl).toMatch(/^blob:/);
       expect(result.fullSizeUrl).toMatch(/^blob:/);
@@ -434,8 +452,9 @@ describe("Image Service Tests", () => {
 
       // Verify both blobs were created with correct type
       const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
-      expect((calls[0][0] as Blob).type).toBe(mimeType);
-      expect((calls[1][0] as Blob).type).toBe(mimeType);
+      expect(calls).toHaveLength(2);
+      expect((calls[0]![0] as Blob).type).toBe(mimeType);
+      expect((calls[1]![0] as Blob).type).toBe(mimeType);
     });
   });
 
@@ -445,45 +464,80 @@ describe("Image Service Tests", () => {
     const mimeType = "image/jpeg";
 
     it("should return full-size image for background context", () => {
-      const url = getImageUrlForContext(thumbnailData, fullSizeData, mimeType, "background");
+      const url = getImageUrlForContext(
+        thumbnailData,
+        fullSizeData,
+        mimeType,
+        "background"
+      );
 
       expect(url).toMatch(/^blob:/);
       // Should prefer full-size for background
-      const blob = vi.mocked(global.URL.createObjectURL).mock.calls[0][0] as Blob;
+      const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const blob = calls[0]![0] as Blob;
       expect(blob.size).toBe(8); // full-size data size
     });
 
     it("should return full-size image for modal context", () => {
-      const url = getImageUrlForContext(thumbnailData, fullSizeData, mimeType, "modal");
+      const url = getImageUrlForContext(
+        thumbnailData,
+        fullSizeData,
+        mimeType,
+        "modal"
+      );
 
       expect(url).toMatch(/^blob:/);
       // Should prefer full-size for modal
-      const blob = vi.mocked(global.URL.createObjectURL).mock.calls[0][0] as Blob;
+      const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const blob = calls[0]![0] as Blob;
       expect(blob.size).toBe(8); // full-size data size
     });
 
     it("should return thumbnail for thumbnail context", () => {
-      const url = getImageUrlForContext(thumbnailData, fullSizeData, mimeType, "thumbnail");
+      const url = getImageUrlForContext(
+        thumbnailData,
+        fullSizeData,
+        mimeType,
+        "thumbnail"
+      );
 
       expect(url).toMatch(/^blob:/);
       // Should prefer thumbnail for thumbnail context
-      const blob = vi.mocked(global.URL.createObjectURL).mock.calls[0][0] as Blob;
+      const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const blob = calls[0]![0] as Blob;
       expect(blob.size).toBe(4); // thumbnail data size
     });
 
     it("should fallback to thumbnail when full-size not available", () => {
-      const url = getImageUrlForContext(thumbnailData, undefined, mimeType, "background");
+      const url = getImageUrlForContext(
+        thumbnailData,
+        undefined,
+        mimeType,
+        "background"
+      );
 
       expect(url).toMatch(/^blob:/);
-      const blob = vi.mocked(global.URL.createObjectURL).mock.calls[0][0] as Blob;
+      const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const blob = calls[0]![0] as Blob;
       expect(blob.size).toBe(4); // thumbnail data size
     });
 
     it("should fallback to full-size when thumbnail not available", () => {
-      const url = getImageUrlForContext(undefined, fullSizeData, mimeType, "thumbnail");
+      const url = getImageUrlForContext(
+        undefined,
+        fullSizeData,
+        mimeType,
+        "thumbnail"
+      );
 
       expect(url).toMatch(/^blob:/);
-      const blob = vi.mocked(global.URL.createObjectURL).mock.calls[0][0] as Blob;
+      const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const blob = calls[0]![0] as Blob;
       expect(blob.size).toBe(8); // full-size data size
     });
 
@@ -505,7 +559,9 @@ describe("Image Service Tests", () => {
       const url = getImageUrlForContext(thumbnailData, fullSizeData, mimeType);
 
       expect(url).toMatch(/^blob:/);
-      const blob = vi.mocked(global.URL.createObjectURL).mock.calls[0][0] as Blob;
+      const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const blob = calls[0]![0] as Blob;
       expect(blob.size).toBe(4); // thumbnail data size (default behavior)
     });
   });
@@ -529,7 +585,9 @@ describe("Image Service Tests", () => {
       const mockFile = createMockFile("fake", "test.jpg", "image/jpeg");
 
       // Mock unexpected error during array buffer reading
-      vi.mocked(mockFile.arrayBuffer).mockRejectedValue(new Error("Buffer read failed"));
+      vi.mocked(mockFile.arrayBuffer).mockRejectedValue(
+        new Error("Buffer read failed")
+      );
 
       const result = await processPlaylistCover(mockFile);
 

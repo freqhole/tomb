@@ -15,7 +15,7 @@ class MockIndexedDB {
     return Promise.resolve(Array.from(store.values()));
   }
 
-  transaction(storeName: string, mode: string) {
+  transaction(storeName: string, _mode: string) {
     const store = this.stores.get(storeName) || new Map();
     return {
       objectStore: () => ({
