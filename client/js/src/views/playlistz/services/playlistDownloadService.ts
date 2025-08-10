@@ -525,8 +525,19 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
       // Flag to indicate this is a standalone version
       window.STANDALONE_MODE = true;
 
-      // Embedded playlist data
-      window.EMBEDDED_PLAYLIST_DATA = ${JSON.stringify(playlistData, null, 2)};
+      // Load playlist data from data/ directory instead of embedding
+      async function loadPlaylistData() {
+        try {
+          const dataResponse = await fetch('data/playlist.json');
+          if (!dataResponse.ok) {
+            throw new Error('Failed to load playlist data: ' + dataResponse.status);
+          }
+          return await dataResponse.json();
+        } catch (error) {
+          console.error('Error loading playlist data:', error);
+          throw error;
+        }
+      }
 
       // Wait for the function to be available and then initialize
       async function waitForInitialization() {
@@ -536,9 +547,9 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
         while (attempts < maxAttempts) {
           if (window.initializeStandalonePlaylist) {
             try {
-              const playlistData = window.EMBEDDED_PLAYLIST_DATA;
+              const loadedPlaylistData = await loadPlaylistData();
 
-              window.initializeStandalonePlaylist(playlistData);
+              window.initializeStandalonePlaylist(loadedPlaylistData);
               return; // Success, exit
             } catch (error) {
               console.error('Failed to initialize playlist:', error);
