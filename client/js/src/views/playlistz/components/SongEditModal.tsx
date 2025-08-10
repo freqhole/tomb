@@ -43,6 +43,7 @@ export function SongEditModal(props: SongEditModalProps) {
         setImageType(props.song.imageType);
         // Use imageData if available, fallback to thumbnailData for preview
         const displayData = props.song.imageData || props.song.thumbnailData;
+        if (!displayData) return;
         const url = createImageUrlFromData(displayData, props.song.imageType);
         setImageUrl(url);
       }

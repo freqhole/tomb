@@ -153,10 +153,10 @@ export function formatAbsoluteDate(timestamp: number): string {
 export function getTimeGreeting(): string {
   const hour = new Date().getHours();
 
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  if (hour < 21) return "Good evening";
-  return "Good night";
+  if (hour < 12) return "good morning";
+  if (hour < 17) return "good afternoon";
+  if (hour < 21) return "good evening";
+  return "good night";
 }
 
 // Global cleanup function

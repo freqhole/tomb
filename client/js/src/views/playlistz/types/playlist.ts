@@ -8,6 +8,8 @@ export interface Playlist {
   createdAt: number; // Timestamp
   updatedAt: number; // Timestamp
   songIds: string[]; // Ordered array of song IDs
+  needsImageLoad?: boolean;
+  imageFilePath?: string;
 }
 
 export interface Song {
@@ -30,6 +32,8 @@ export interface Song {
   updatedAt: number; // Timestamp
   playlistId: string; // Reference to parent playlist
   standaloneFilePath?: string; // Path to audio file in standalone mode
+  needsImageLoad?: boolean;
+  imageFilePath?: string;
 }
 
 export interface AudioState {

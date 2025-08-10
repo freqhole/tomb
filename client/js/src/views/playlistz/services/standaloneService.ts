@@ -24,18 +24,6 @@ export { standaloneLoadingProgress, setStandaloneLoadingProgress };
 const loadingImages = new Set<string>();
 
 /**
- * Helper function to convert base64 to ArrayBuffer
- */
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-
-/**
  * Create a song object from playlist data
  */
 function createSongFromData(
@@ -67,6 +55,8 @@ function createSongFromData(
     playlistId: playlistId,
     // Always store standalone file path for potential file:// usage
     standaloneFilePath: standaloneFilePath,
+    needsImageLoad: true,
+    imageFilePath: "",
   };
 
   // Set song image metadata for loading from file
@@ -209,6 +199,8 @@ async function createNewPlaylist(
     imageData: undefined as ArrayBuffer | undefined,
     thumbnailData: undefined as ArrayBuffer | undefined,
     imageType: undefined as string | undefined,
+    needsImageLoad: true,
+    imageFilePath: undefined as string | undefined,
   };
 
   // Set playlist image metadata for loading from file
