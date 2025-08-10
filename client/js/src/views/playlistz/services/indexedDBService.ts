@@ -242,8 +242,8 @@ export async function createPlaylist(
     id,
     createdAt: now,
     updatedAt: now,
-    rev: 0, // Initialize revision to 0
     ...playlist,
+    rev: playlist.rev ?? 0, // Use provided rev or default to 0
     songIds: playlist.songIds || [],
   };
 

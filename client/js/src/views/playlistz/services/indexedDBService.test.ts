@@ -10,6 +10,17 @@ vi.mock("./songReactivity.js", () => ({
   triggerSongUpdateWithOptions: vi.fn(),
 }));
 
+// Mock hashUtils functions to return predictable values
+vi.mock("../utils/hashUtils.js", () => ({
+  calculateSHA256: vi
+    .fn()
+    .mockResolvedValue(
+      "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    ),
+  calculateFileSHA256: vi.fn().mockResolvedValue("b".repeat(64)),
+  verifySHA256: vi.fn(),
+}));
+
 // Now import the modules that depend on idb
 import {
   setupDB,
@@ -18,8 +29,12 @@ import {
   createPlaylist,
   getAllPlaylists,
   removeSongFromPlaylist,
+  updatePlaylist,
+  updateSong,
+  createPlaylistSongsQuery,
 } from "./indexedDBService.js";
 import { triggerSongUpdateWithOptions } from "./songReactivity.js";
+import { calculateSHA256, calculateFileSHA256 } from "../utils/hashUtils.js";
 
 // Define mock objects
 const mockDB = {
@@ -60,13 +75,17 @@ Object.defineProperty(global, "crypto", {
   value: {
     randomUUID: vi.fn(() => "test-uuid-123"),
     subtle: {
-      digest: vi.fn().mockImplementation((algorithm, data) => {
+      digest: vi.fn().mockImplementation((_algorithm, _data) => {
         // Mock SHA-256 digest - return a fixed hash for testing
         const mockHash = new Uint8Array(32); // SHA-256 produces 32 bytes
         for (let i = 0; i < 32; i++) {
-          mockHash[i] = i; // Simple pattern for testing
+          mockHash[i] = i % 256; // Simple pattern for testing
         }
-        return Promise.resolve(mockHash.buffer);
+        // Create a proper ArrayBuffer
+        const buffer = new ArrayBuffer(32);
+        const view = new Uint8Array(buffer);
+        view.set(mockHash);
+        return Promise.resolve(buffer);
       }),
     },
   },
@@ -102,6 +121,15 @@ describe("Database Efficiency Tests", () => {
     // Clear the mock for triggerSongUpdateWithOptions
     vi.mocked(triggerSongUpdateWithOptions).mockClear();
 
+    // Mock hash functions to return predictable values
+    vi.mocked(calculateSHA256).mockResolvedValue(
+      "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    );
+    vi.mocked(calculateFileSHA256).mockResolvedValue("b".repeat(64)); // 64-char hex string
+
+    // Clear crypto.subtle.digest mock call count
+    vi.mocked(crypto.subtle.digest).mockClear();
+
     // Get the mocked openDB function
     const { openDB } = await import("idb");
     mockOpenDB = vi.mocked(openDB);
@@ -109,6 +137,7 @@ describe("Database Efficiency Tests", () => {
     // Setup consistent mock chain for all database operations
     mockDB.transaction.mockReturnValue(mockTransaction);
     mockTransaction.objectStore.mockReturnValue(mockStore);
+    mockTransaction.done = Promise.resolve();
 
     // Mock setupDB to return our configured mockDB
     mockOpenDB.mockResolvedValue(mockDB);
@@ -116,6 +145,7 @@ describe("Database Efficiency Tests", () => {
       id: "default-playlist",
       songIds: ["song1", "song2"],
       title: "Default Playlist",
+      rev: 1,
     });
     mockStore.put.mockResolvedValue(undefined);
     mockStore.delete.mockResolvedValue(undefined);
@@ -123,18 +153,29 @@ describe("Database Efficiency Tests", () => {
     mockOpenDB.mockResolvedValue(mockDB);
     mockDB.getAll.mockResolvedValue([]);
 
-    // Setup successful transaction mocks
-    mockDB.transaction.mockReturnValue({
-      objectStore: vi.fn(() => ({
-        put: vi.fn().mockResolvedValue(undefined),
-        get: vi.fn().mockResolvedValue(null),
-        delete: vi.fn().mockResolvedValue(undefined),
-        index: vi.fn(() => ({
-          openCursor: vi.fn(() => Promise.resolve(null)),
-        })),
+    // Setup successful transaction mocks for mutateAndNotify operations
+    const mockTransactionStore = {
+      put: vi.fn().mockResolvedValue(undefined),
+      get: vi.fn().mockResolvedValue({
+        id: "test-id",
+        rev: 1,
+        title: "Test Playlist",
+      }),
+      delete: vi.fn().mockResolvedValue(undefined),
+      index: vi.fn(() => ({
+        openCursor: vi.fn(() => Promise.resolve(null)),
       })),
+    };
+
+    mockDB.transaction.mockReturnValue({
+      objectStore: vi.fn(() => mockTransactionStore),
       done: Promise.resolve(),
     });
+
+    // Also set up mockStore to use the same mock functions
+    mockStore.put = mockTransactionStore.put;
+    mockStore.get = mockTransactionStore.get;
+    mockStore.delete = mockTransactionStore.delete;
   });
 
   afterEach(() => {
@@ -643,10 +684,7 @@ describe("Database Efficiency Tests", () => {
 
           expect(song.sha).toBeDefined();
           expect(song.sha).toHaveLength(64); // SHA-256 hex string length
-          expect(crypto.subtle.digest).toHaveBeenCalledWith(
-            "SHA-256",
-            expect.any(ArrayBuffer)
-          );
+          expect(calculateSHA256).toHaveBeenCalledWith(expect.any(ArrayBuffer));
         });
 
         it("should include SHA in song data", async () => {
@@ -711,9 +749,17 @@ describe("Database Efficiency Tests", () => {
         });
 
         it("should handle songs without SHA field", () => {
-          const legacySong = {
+          const legacySong: {
+            id: string;
+            title: string;
+            artist: string;
+            mimeType: string;
+            originalFilename: string;
+            sha?: string;
+          } = {
             id: "legacy-song",
             title: "Legacy Song",
+            artist: "Legacy Artist",
             mimeType: "audio/mpeg",
             originalFilename: "legacy.mp3",
             // sha is undefined
@@ -757,7 +803,7 @@ describe("Database Efficiency Tests", () => {
           for (const scenario of scenarios) {
             const playlist = {
               title: "Test Playlist",
-              rev: scenario.input,
+              rev: scenario.input === null ? undefined : scenario.input,
               songIds: [],
             };
 

@@ -9,12 +9,15 @@ vi.mock("./indexedDBService.js", () => ({
   SONGS_STORE: "songs",
 }));
 
+// Import the mocked modules
+import { setupDB } from "./indexedDBService.js";
+
 // Mock crypto.subtle for testing
 Object.defineProperty(global, "crypto", {
   value: {
     randomUUID: vi.fn(() => "test-uuid-123"),
     subtle: {
-      digest: vi.fn().mockImplementation((algorithm, data) => {
+      digest: vi.fn().mockImplementation((_algorithm, _data) => {
         // Mock SHA-256 digest - return a fixed hash for testing
         const mockHash = new Uint8Array(32); // SHA-256 produces 32 bytes
         for (let i = 0; i < 32; i++) {
@@ -39,7 +42,6 @@ describe("Standalone Service", () => {
       put: vi.fn(),
     };
 
-    const { setupDB } = require("./indexedDBService.js");
     vi.mocked(setupDB).mockResolvedValue(mockDB);
   });
 
@@ -168,10 +170,11 @@ describe("Standalone Service", () => {
       ];
 
       scenarios.forEach(({ existing, incoming, expected }) => {
-        const shouldPreserve =
+        const shouldPreserve = !!(
           existing.sha &&
           incoming.sha &&
-          existing.sha === incoming.sha;
+          existing.sha === incoming.sha
+        );
 
         expect(shouldPreserve).toBe(expected);
       });
@@ -180,7 +183,7 @@ describe("Standalone Service", () => {
 
   describe("Song Needs Audio Data Logic", () => {
     it("should return true when song has no audio data", () => {
-      const song = {
+      const song: { id: string; audioData?: ArrayBuffer } = {
         id: "test-song",
         audioData: undefined,
       };
@@ -190,9 +193,9 @@ describe("Standalone Service", () => {
     });
 
     it("should return true when song has empty audio data", () => {
-      const song = {
+      const song: { id: string; audioData?: ArrayBuffer } = {
         id: "test-song",
-        audioData: new ArrayBuffer(0),
+        audioData: new ArrayBuffer(0), // Empty buffer
       };
 
       const needsData = !song.audioData || song.audioData.byteLength === 0;
@@ -200,9 +203,9 @@ describe("Standalone Service", () => {
     });
 
     it("should return false when song has valid audio data", () => {
-      const song = {
+      const song: { id: string; audioData?: ArrayBuffer } = {
         id: "test-song",
-        audioData: new ArrayBuffer(1024),
+        audioData: new ArrayBuffer(1024), // Valid buffer
       };
 
       const needsData = !song.audioData || song.audioData.byteLength === 0;
@@ -226,12 +229,12 @@ describe("Standalone Service", () => {
 
     it("should return true for http/https protocol with missing data", () => {
       // Mock window.location
-      Object.defineProperty(global.window, "location", {
-        value: { protocol: "http:" },
+      Object.defineProperty(window, "location", {
+        value: { protocol: "https:" },
         writable: true,
       });
 
-      const song = {
+      const song: { id: string; audioData?: ArrayBuffer } = {
         id: "test-song",
         audioData: undefined,
       };
@@ -258,7 +261,10 @@ describe("Standalone Service", () => {
 
       mockDB.get.mockResolvedValue(null); // No existing playlist
 
-      const existingPlaylist = await mockDB.get("playlists", playlistData.playlist.id);
+      const existingPlaylist = await mockDB.get(
+        "playlists",
+        playlistData.playlist.id
+      );
       const shouldCreate = !existingPlaylist;
 
       expect(shouldCreate).toBe(true);
@@ -410,9 +416,7 @@ describe("Standalone Service", () => {
         }
 
         const shaMatches =
-          existing.sha &&
-          incoming.sha &&
-          existing.sha === incoming.sha;
+          existing.sha && incoming.sha && existing.sha === incoming.sha;
 
         if (shaMatches) {
           return {
@@ -427,10 +431,10 @@ describe("Standalone Service", () => {
         }
       });
 
-      expect(results[0].action).toBe("preserve");
-      expect(results[1].action).toBe("reload");
-      expect(results[2].action).toBe("reload");
-      expect(results[3].action).toBe("create");
+      expect(results[0]?.action).toBe("preserve");
+      expect(results[1]?.action).toBe("reload");
+      expect(results[2]?.action).toBe("reload");
+      expect(results[3]?.action).toBe("create");
     });
   });
 
@@ -441,7 +445,9 @@ describe("Standalone Service", () => {
         songs: undefined,
       };
 
-      const isValid = corruptedData.playlist && Array.isArray(corruptedData.songs);
+      const isValid = !!(
+        corruptedData.playlist && Array.isArray(corruptedData.songs)
+      );
       expect(isValid).toBe(false);
     });
 
@@ -542,8 +548,8 @@ describe("Standalone Service", () => {
         }
       });
 
-      expect(finalSongs[0].audioData).toBeDefined(); // Preserved
-      expect(finalSongs[1].audioData).toBeUndefined(); // New (lazy load)
+      expect(finalSongs[0]?.audioData).toBeDefined(); // Preserved
+      expect(finalSongs[1]?.audioData).toBeUndefined(); // New (lazy load)
     });
 
     it("should handle first-time standalone setup", () => {
@@ -553,9 +559,7 @@ describe("Standalone Service", () => {
           title: "New Playlist",
           rev: 0,
         },
-        songs: [
-          { id: "song1", title: "Song 1", sha: "sha1" },
-        ],
+        songs: [{ id: "song1", title: "Song 1", sha: "sha1" }],
       };
 
       const existingPlaylist = null; // No existing playlist
@@ -570,8 +574,8 @@ describe("Standalone Service", () => {
           audioData: undefined, // Lazy loading
         }));
 
-        expect(newSongs[0].audioData).toBeUndefined();
-        expect(newSongs[0].sha).toBe("sha1");
+        expect(newSongs[0]?.audioData).toBeUndefined();
+        expect(newSongs[0]?.sha).toBe("sha1");
       }
     });
   });

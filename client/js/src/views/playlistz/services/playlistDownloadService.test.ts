@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { calculateSHA256, calculateFileSHA256, verifySHA256 } from "../utils/hashUtils.js";
+import {
+  calculateSHA256,
+  calculateFileSHA256,
+  verifySHA256,
+} from "../utils/hashUtils.js";
 
 // Mock dependencies
 vi.mock("jszip", () => ({
@@ -21,7 +25,7 @@ Object.defineProperty(global, "crypto", {
   value: {
     randomUUID: vi.fn(() => "test-uuid-123"),
     subtle: {
-      digest: vi.fn().mockImplementation((algorithm, data) => {
+      digest: vi.fn().mockImplementation((_algorithm, _data) => {
         // Mock SHA-256 digest - return a fixed hash for testing
         const mockHash = new Uint8Array(32); // SHA-256 produces 32 bytes
         for (let i = 0; i < 32; i++) {
@@ -65,7 +69,9 @@ describe("Playlist Download Service", () => {
         const hash = await calculateSHA256(data);
 
         expect(crypto.subtle.digest).toHaveBeenCalledWith("SHA-256", data);
-        expect(hash).toBe("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+        expect(hash).toBe(
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        );
       });
 
       it("should handle empty ArrayBuffer", async () => {
@@ -73,7 +79,9 @@ describe("Playlist Download Service", () => {
         const hash = await calculateSHA256(data);
 
         expect(crypto.subtle.digest).toHaveBeenCalledWith("SHA-256", data);
-        expect(hash).toBe("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+        expect(hash).toBe(
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        );
       });
 
       it("should handle large ArrayBuffer", async () => {
@@ -94,8 +102,13 @@ describe("Playlist Download Service", () => {
         const hash = await calculateFileSHA256(mockFile);
 
         expect(mockFile.arrayBuffer).toHaveBeenCalled();
-        expect(crypto.subtle.digest).toHaveBeenCalledWith("SHA-256", new ArrayBuffer(8));
-        expect(hash).toBe("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+        expect(crypto.subtle.digest).toHaveBeenCalledWith(
+          "SHA-256",
+          new ArrayBuffer(8)
+        );
+        expect(hash).toBe(
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        );
       });
 
       it("should handle File.arrayBuffer() errors", async () => {
@@ -103,14 +116,17 @@ describe("Playlist Download Service", () => {
           arrayBuffer: vi.fn().mockRejectedValue(new Error("File read error")),
         } as any;
 
-        await expect(calculateFileSHA256(mockFile)).rejects.toThrow("File read error");
+        await expect(calculateFileSHA256(mockFile)).rejects.toThrow(
+          "File read error"
+        );
       });
     });
 
     describe("verifySHA256", () => {
       it("should verify correct SHA-256 hash", async () => {
         const data = new ArrayBuffer(8);
-        const expectedHash = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+        const expectedHash =
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 
         const isValid = await verifySHA256(data, expectedHash);
 
@@ -120,7 +136,8 @@ describe("Playlist Download Service", () => {
 
       it("should return false for incorrect SHA-256 hash", async () => {
         const data = new ArrayBuffer(8);
-        const wrongHash = "1111111111111111111111111111111111111111111111111111111111111111";
+        const wrongHash =
+          "1111111111111111111111111111111111111111111111111111111111111111";
 
         const isValid = await verifySHA256(data, wrongHash);
 
@@ -226,14 +243,18 @@ describe("Playlist Download Service", () => {
         })
       );
 
-      expect(songsWithSHA[0].sha).toBe("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
-      expect(songsWithSHA[1].sha).toBe("existing-sha");
-      expect(songsWithSHA[2].sha).toBeUndefined();
+      expect(songsWithSHA[0]?.sha).toBe(
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      );
+      expect(songsWithSHA[1]?.sha).toBe("existing-sha");
+      expect(songsWithSHA[2]?.sha).toBeUndefined();
     });
 
     it("should handle SHA calculation errors gracefully", async () => {
       // Mock crypto.subtle.digest to throw an error
-      vi.mocked(crypto.subtle.digest).mockRejectedValueOnce(new Error("Crypto error"));
+      vi.mocked(crypto.subtle.digest).mockRejectedValueOnce(
+        new Error("Crypto error")
+      );
 
       const song = {
         id: "song1",
@@ -269,8 +290,8 @@ describe("Playlist Download Service", () => {
         sha: song.sha,
       }));
 
-      expect(exportedSongs[0].sha).toBe("abc123def456");
-      expect(exportedSongs[1].sha).toBeUndefined();
+      expect(exportedSongs[0]?.sha).toBe("abc123def456");
+      expect(exportedSongs[1]?.sha).toBeUndefined();
     });
   });
 
@@ -321,7 +342,11 @@ describe("Playlist Download Service", () => {
 
   describe("Edge Cases and Error Handling", () => {
     it("should handle songs with audio data but no SHA", async () => {
-      const song = {
+      const song: {
+        id: string;
+        audioData?: ArrayBuffer;
+        sha?: string;
+      } = {
         id: "test-song",
         audioData: new ArrayBuffer(1024),
         sha: undefined,
@@ -366,7 +391,8 @@ describe("Playlist Download Service", () => {
     });
 
     it("should validate SHA format", () => {
-      const validSHA = "a1b2c3d4e5f6789012345678901234567890123456789012345678901234567890";
+      const validSHA =
+        "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678";
       const invalidSHA = "not-a-valid-sha";
 
       expect(validSHA.length).toBe(64);
@@ -407,10 +433,10 @@ describe("Playlist Download Service", () => {
         })
       );
 
-      expect(processedSongs[0].sha).toBe("existing1"); // Unchanged
-      expect(processedSongs[1].sha).toBeDefined(); // Calculated
-      expect(processedSongs[2].sha).toBe("existing3"); // Unchanged
-      expect(processedSongs[3].sha).toBeUndefined(); // No change possible
+      expect(processedSongs[0]?.sha).toBe("existing1"); // Unchanged
+      expect(processedSongs[1]?.sha).toBeDefined(); // Calculated
+      expect(processedSongs[2]?.sha).toBe("existing3"); // Unchanged
+      expect(processedSongs[3]?.sha).toBeUndefined(); // No change possible
     });
 
     it("should simulate complete download workflow", async () => {
@@ -455,8 +481,8 @@ describe("Playlist Download Service", () => {
       };
 
       expect(playlistData.playlist.rev).toBe(2);
-      expect(playlistData.songs[0].sha).toBeDefined();
-      expect(playlistData.songs[1].sha).toBe("existing");
+      expect(playlistData.songs[0]?.sha).toBeDefined();
+      expect(playlistData.songs[1]?.sha).toBe("existing");
     });
 
     it("should handle first-time playlist download", async () => {
