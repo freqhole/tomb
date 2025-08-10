@@ -31,7 +31,7 @@ global.BroadcastChannel = vi.fn(() => ({
   dispatchEvent: vi.fn(),
 })) as any;
 
-// Mock crypto.randomUUID
+// Mock crypto.randomUUID and crypto.subtle
 Object.defineProperty(global, "crypto", {
   value: {
     randomUUID: vi.fn(
@@ -43,6 +43,16 @@ Object.defineProperty(global, "crypto", {
       }
       return arr;
     }),
+    subtle: {
+      digest: vi.fn().mockImplementation((_algorithm, _data) => {
+        // Mock SHA-256 digest - return a fixed hash for testing
+        const mockHash = new Uint8Array(32); // SHA-256 produces 32 bytes
+        for (let i = 0; i < 32; i++) {
+          mockHash[i] = i; // Simple pattern for testing
+        }
+        return Promise.resolve(mockHash.buffer);
+      }),
+    },
   },
   writable: true,
 });
@@ -333,14 +343,14 @@ global.Audio = vi.fn(() => {
       mockAudio.paused = false;
       // Fire play event synchronously
       const playHandlers = eventListeners.get("play") || [];
-      playHandlers.forEach((handler) => handler());
+      playHandlers.forEach((handler: any) => handler());
       return Promise.resolve();
     }),
     pause: vi.fn(() => {
       mockAudio.paused = true;
       // Fire pause event synchronously
       const pauseHandlers = eventListeners.get("pause") || [];
-      pauseHandlers.forEach((handler) => handler());
+      pauseHandlers.forEach((handler: any) => handler());
     }),
     currentTime: 0,
     duration: 180, // Default 3 minutes
@@ -390,15 +400,15 @@ global.Audio = vi.fn(() => {
       // Simulate events when src is set - fire synchronously
       if (value) {
         const loadstartHandlers = eventListeners.get("loadstart") || [];
-        loadstartHandlers.forEach((handler) => handler());
+        loadstartHandlers.forEach((handler: any) => handler());
 
         // Also fire loadedmetadata and canplay events
         const loadedmetadataHandlers =
           eventListeners.get("loadedmetadata") || [];
-        loadedmetadataHandlers.forEach((handler) => handler());
+        loadedmetadataHandlers.forEach((handler: any) => handler());
 
         const canplayHandlers = eventListeners.get("canplay") || [];
-        canplayHandlers.forEach((handler) => handler());
+        canplayHandlers.forEach((handler: any) => handler());
       }
     },
     enumerable: true,

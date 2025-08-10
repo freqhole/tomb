@@ -484,12 +484,12 @@ describe("Image Service Tests", () => {
     const mimeType = "image/jpeg";
 
     it("should return full-size image for background context", () => {
-      const url = getImageUrlForContext(
+      const mockItem = {
         thumbnailData,
-        fullSizeData,
-        mimeType,
-        "background"
-      );
+        imageData: fullSizeData,
+        imageType: mimeType,
+      };
+      const url = getImageUrlForContext(mockItem, "background");
 
       expect(url).toMatch(/^blob:/);
       // Should prefer full-size for background
@@ -500,12 +500,12 @@ describe("Image Service Tests", () => {
     });
 
     it("should return full-size image for modal context", () => {
-      const url = getImageUrlForContext(
+      const mockItem = {
         thumbnailData,
-        fullSizeData,
-        mimeType,
-        "modal"
-      );
+        imageData: fullSizeData,
+        imageType: mimeType,
+      };
+      const url = getImageUrlForContext(mockItem, "modal");
 
       expect(url).toMatch(/^blob:/);
       // Should prefer full-size for modal
@@ -516,12 +516,12 @@ describe("Image Service Tests", () => {
     });
 
     it("should return thumbnail for thumbnail context", () => {
-      const url = getImageUrlForContext(
+      const mockItem = {
         thumbnailData,
-        fullSizeData,
-        mimeType,
-        "thumbnail"
-      );
+        imageData: fullSizeData,
+        imageType: mimeType,
+      };
+      const url = getImageUrlForContext(mockItem, "thumbnail");
 
       expect(url).toMatch(/^blob:/);
       // Should prefer thumbnail for thumbnail context
@@ -532,12 +532,12 @@ describe("Image Service Tests", () => {
     });
 
     it("should fallback to thumbnail when full-size not available", () => {
-      const url = getImageUrlForContext(
+      const mockItem = {
         thumbnailData,
-        undefined,
-        mimeType,
-        "background"
-      );
+        imageData: undefined,
+        imageType: mimeType,
+      };
+      const url = getImageUrlForContext(mockItem, "background");
 
       expect(url).toMatch(/^blob:/);
       const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
@@ -547,12 +547,12 @@ describe("Image Service Tests", () => {
     });
 
     it("should fallback to full-size when thumbnail not available", () => {
-      const url = getImageUrlForContext(
-        undefined,
-        fullSizeData,
-        mimeType,
-        "thumbnail"
-      );
+      const mockItem = {
+        thumbnailData: undefined,
+        imageData: fullSizeData,
+        imageType: mimeType,
+      };
+      const url = getImageUrlForContext(mockItem, "thumbnail");
 
       expect(url).toMatch(/^blob:/);
       const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
@@ -562,21 +562,36 @@ describe("Image Service Tests", () => {
     });
 
     it("should return null when no data available", () => {
-      const url = getImageUrlForContext(undefined, undefined, mimeType);
+      const mockItem = {
+        thumbnailData: undefined,
+        imageData: undefined,
+        imageType: undefined,
+      };
+      const url = getImageUrlForContext(mockItem);
 
       expect(url).toBeNull();
       expect(global.URL.createObjectURL).not.toHaveBeenCalled();
     });
 
-    it("should return null when no mime type provided", () => {
-      const url = getImageUrlForContext(thumbnailData, fullSizeData, undefined);
+    it("should return null when no image data provided", () => {
+      const mockItem = {
+        thumbnailData: undefined,
+        imageData: undefined,
+        imageType: mimeType,
+      };
+      const url = getImageUrlForContext(mockItem);
 
       expect(url).toBeNull();
       expect(global.URL.createObjectURL).not.toHaveBeenCalled();
     });
 
     it("should default to thumbnail context when not specified", () => {
-      const url = getImageUrlForContext(thumbnailData, fullSizeData, mimeType);
+      const mockItem = {
+        thumbnailData,
+        imageData: fullSizeData,
+        imageType: mimeType,
+      };
+      const url = getImageUrlForContext(mockItem);
 
       expect(url).toMatch(/^blob:/);
       const calls = vi.mocked(global.URL.createObjectURL).mock.calls;
