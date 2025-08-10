@@ -170,12 +170,17 @@ describe("Audio Service Tests", () => {
     it("should toggle playback when paused", async () => {
       // First play and then pause a song
       await audioService.playSong(mockSong1);
+      const audio = getMockAudio();
+
+      // Clear the call count from initial play
+      audio.play.mockClear();
+
       audioService.pause();
 
       // Then toggle (should resume)
       await audioService.togglePlayback();
 
-      expect(getMockAudio().play).toHaveBeenCalledTimes(2); // Once for initial play, once for resume
+      expect(audio.play).toHaveBeenCalledTimes(1); // Should be called once for resume
     });
 
     it("should seek to specific time", async () => {
@@ -228,7 +233,7 @@ describe("Audio Service Tests", () => {
 
     it("should get queue info", async () => {
       await audioService.loadPlaylistQueue(mockPlaylist);
-      await audioService.playSong(mockSong2);
+      await audioService.playSong(mockSong2, mockPlaylist);
 
       const queueInfo = audioService.getQueueInfo();
       expect(queueInfo.currentIndex).toBe(1);
@@ -273,7 +278,7 @@ describe("Audio Service Tests", () => {
     });
 
     it("should handle next at end of queue", async () => {
-      await audioService.playSong(mockSong3);
+      await setupAudioState(mockSong3, mockPlaylist);
       await audioService.playNext();
 
       const state = audioService.getAudioState();
@@ -345,12 +350,20 @@ describe("Audio Service Tests", () => {
 
     it("should handle repeat one mode on song end", async () => {
       audioService.setRepeatModeValue("one");
-      await audioService.playSong(mockSong1);
+      await setupAudioState(mockSong1, mockPlaylist);
 
-      // Simulate song ending
-      getMockAudio().ended = true;
-      // Simulate song ended event - this is handled internally by audio element events
-      getMockAudio().ended = true;
+      // Simulate song ending by triggering the ended event
+      const audio = getMockAudio();
+      audio.ended = true;
+
+      // Manually trigger the ended event handlers
+      const endedHandlers = audio.addEventListener.mock.calls
+        .filter((call) => call[0] === "ended")
+        .map((call) => call[1]);
+
+      for (const handler of endedHandlers) {
+        await handler();
+      }
 
       const state = audioService.getAudioState();
       // Should replay the same song
@@ -360,12 +373,20 @@ describe("Audio Service Tests", () => {
 
     it("should handle repeat all mode at end of queue", async () => {
       audioService.setRepeatModeValue("all");
-      await audioService.playSong(mockSong3); // Last song
+      await setupAudioState(mockSong3, mockPlaylist); // Last song
 
-      // Simulate song ending
-      getMockAudio().ended = true;
-      // Simulate song ended event - this is handled internally by audio element events
-      getMockAudio().ended = true;
+      // Simulate song ending by triggering the ended event
+      const audio = getMockAudio();
+      audio.ended = true;
+
+      // Manually trigger the ended event handlers
+      const endedHandlers = audio.addEventListener.mock.calls
+        .filter((call) => call[0] === "ended")
+        .map((call) => call[1]);
+
+      for (const handler of endedHandlers) {
+        await handler();
+      }
 
       const state = audioService.getAudioState();
       // Should loop back to first song
@@ -375,12 +396,20 @@ describe("Audio Service Tests", () => {
 
     it("should handle none repeat mode at end of queue", async () => {
       audioService.setRepeatModeValue("none");
-      await audioService.playSong(mockSong3); // Last song
+      await setupAudioState(mockSong3, mockPlaylist); // Last song
 
-      // Simulate song ending
-      getMockAudio().ended = true;
-      // Simulate song ended event - this is handled internally by audio element events
-      getMockAudio().ended = true;
+      // Simulate song ending by triggering the ended event
+      const audio = getMockAudio();
+      audio.ended = true;
+
+      // Manually trigger the ended event handlers
+      const endedHandlers = audio.addEventListener.mock.calls
+        .filter((call) => call[0] === "ended")
+        .map((call) => call[1]);
+
+      for (const handler of endedHandlers) {
+        await handler();
+      }
 
       const state = audioService.getAudioState();
       // Should stop playback
@@ -474,18 +503,30 @@ describe("Audio Service Tests", () => {
     });
 
     it("should handle audio load errors", async () => {
-      getMockAudio().error = { code: 4, message: "Media not supported" };
+      const audio = getMockAudio();
+      audio.error = { code: 4, message: "Media load error" };
+
+      // Mock the load method to trigger error event
+      audio.load = vi.fn(() => {
+        const errorHandlers = audio.addEventListener.mock.calls
+          .filter((call) => call[0] === "error")
+          .map((call) => call[1]);
+        errorHandlers.forEach((handler) => handler());
+      });
 
       await audioService.playSong(mockSong1);
 
       // Should handle load errors gracefully
-      expect(getMockAudio().load).toHaveBeenCalled();
+      expect(audio.load).toHaveBeenCalled();
     });
   });
 
   describe("Media Session Integration", () => {
     it("should update page title when playing", async () => {
       await audioService.playSong(mockSong1);
+
+      // Wait for media session to be updated (happens on loadedmetadata event)
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // Should update document title
       expect(document.title).toContain(mockSong1.title);
@@ -495,6 +536,9 @@ describe("Audio Service Tests", () => {
     it("should set media session metadata", async () => {
       await audioService.playSong(mockSong1);
 
+      // Wait for media session to be updated (happens on loadedmetadata event)
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
       // Should set media session metadata
       expect(navigator.mediaSession.setActionHandler).toHaveBeenCalled();
     });
@@ -503,6 +547,9 @@ describe("Audio Service Tests", () => {
       const songWithoutArt = { ...mockSong1, imageData: undefined };
       await audioService.playSong(songWithoutArt);
 
+      // Wait for media session to be updated (happens on loadedmetadata event)
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
       // Should still work without artwork
       expect(navigator.mediaSession.setActionHandler).toHaveBeenCalled();
     });
@@ -510,18 +557,33 @@ describe("Audio Service Tests", () => {
 
   describe("Audio Element Management", () => {
     it("should create audio URL from file", async () => {
-      await audioService.playSong(mockSong1);
+      const songWithoutBlobUrl = { ...mockSong1, blobUrl: undefined };
+      await audioService.playSong(songWithoutBlobUrl);
 
       expect(global.URL.createObjectURL).toHaveBeenCalledWith(mockSong1.file);
     });
 
     it("should use existing blob URL when available", async () => {
+      console.log("Test: mockSong1.blobUrl =", mockSong1.blobUrl);
+      console.log(
+        "Test: mockSong1.file =",
+        mockSong1.file ? "exists" : "missing"
+      );
+
       await audioService.playSong(mockSong1);
 
-      expect(getMockAudio().src).toBe(mockSong1.blobUrl);
+      const audio = getMockAudio();
+      console.log("Test: audio.src after playSong =", audio.src);
+      console.log("Test: expected =", mockSong1.blobUrl);
+
+      expect(audio.src).toBe(mockSong1.blobUrl);
     });
 
-    it("should cleanup audio resources", () => {
+    it("should cleanup audio resources", async () => {
+      // First create some audio resources
+      const songWithoutBlobUrl = { ...mockSong1, blobUrl: undefined };
+      await audioService.playSong(songWithoutBlobUrl);
+
       audioService.cleanup();
 
       expect(global.URL.revokeObjectURL).toHaveBeenCalled();
@@ -536,8 +598,8 @@ describe("Audio Service Tests", () => {
     it("should trigger preload near end of song", async () => {
       await audioService.playSong(mockSong1);
 
-      // Simulate being near end of song (trigger preload threshold)
-      getMockAudio().currentTime = 170; // 10 seconds from end of 180s song
+      // Simulate being at 50% of song (trigger preload threshold)
+      getMockAudio().currentTime = 90; // 50% of 180s song
       getMockAudio().duration = 180;
 
       // Trigger time update
@@ -550,9 +612,8 @@ describe("Audio Service Tests", () => {
         timeUpdateCallback();
       }
 
-      // Should start preloading next song
+      // Should not be in loading state (preload happens in background)
       const state = audioService.getAudioState();
-      // preloadingSongId is internal state - just verify preloading is working
       expect(state.isLoading).toBe(false);
     });
   });
@@ -579,15 +640,15 @@ describe("Audio Service Tests", () => {
     it("should handle duration change", async () => {
       await audioService.playSong(mockSong1);
 
-      // Simulate duration loaded
+      // Simulate duration loaded through loadedmetadata event
       getMockAudio().duration = 240;
-      const durationChangeCallback =
+      const loadedMetadataCallback =
         getMockAudio().addEventListener.mock.calls.find(
-          (call: any) => call[0] === "durationchange"
+          (call: any) => call[0] === "loadedmetadata"
         )?.[1];
 
-      if (durationChangeCallback) {
-        durationChangeCallback();
+      if (loadedMetadataCallback) {
+        loadedMetadataCallback();
       }
 
       const state = audioService.getAudioState();
@@ -630,7 +691,7 @@ describe("Audio Service Tests", () => {
       state = audioService.getAudioState();
       // selectedSongId is internal state - check if correct song is selected
       expect(state.currentSong?.id).toBe(mockSong3.id);
-      expect(state.currentSong).toEqual(mockSong1); // Should still be playing song 1
+      expect(state.isPlaying).toBe(false); // Should pause when selecting different song
 
       // Play selected song
       await audioService.playSong(mockSong3);

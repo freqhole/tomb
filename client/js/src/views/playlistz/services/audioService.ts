@@ -448,6 +448,9 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
   const audio = initializeAudio();
 
   try {
+    // set this as the selected song immediately
+    setSelectedSongId(song.id);
+
     // add this song to loading set
     setLoadingSongIds((prev) => new Set(Array.from(prev).concat([song.id])));
 
@@ -504,7 +507,6 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
     // 2. create from file if available
     // 3. load from indexeddb on-demand
     let audioURL = song.blobUrl;
-
     if (!audioURL && song.file) {
       audioURL = createAudioURL(song.file);
     }
@@ -875,7 +877,7 @@ export function getAudioState(): AudioState {
 
 // Format time for display
 export function formatTime(seconds: number): string {
-  if (isNaN(seconds)) return "0:00";
+  if (isNaN(seconds) || seconds < 0 || !isFinite(seconds)) return "0:00";
 
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
