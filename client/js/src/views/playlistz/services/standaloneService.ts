@@ -59,10 +59,9 @@ function createSongFromData(
     imageFilePath: "",
   };
 
-  // Set song image metadata for loading from file
+  // Set song image metadata for file-based loading
   if (songData.imageExtension && songData.imageMimeType) {
     song.imageType = songData.imageMimeType;
-    // Mark that this song needs image loading
     song.needsImageLoad = true;
     song.imageFilePath = `data/${songData.safeFilename?.replace(/\.[^.]+$/, "") || songData.originalFilename?.replace(/\.[^.]+$/, "")}-cover${songData.imageExtension}`;
   }
@@ -139,7 +138,6 @@ async function updateExistingData(
       // Update image metadata if changed
       if (songData.imageExtension && songData.imageMimeType) {
         song.imageType = songData.imageMimeType;
-        // Mark that this song needs image loading
         song.needsImageLoad = true;
         song.imageFilePath = `data/${songData.safeFilename?.replace(/\.[^.]+$/, "") || songData.originalFilename?.replace(/\.[^.]+$/, "")}-cover${songData.imageExtension}`;
       }
@@ -169,7 +167,6 @@ async function updateExistingData(
     playlistData.playlist.imageMimeType
   ) {
     updatedPlaylist.imageType = playlistData.playlist.imageMimeType;
-    // Mark that this playlist needs image loading
     updatedPlaylist.needsImageLoad = true;
     updatedPlaylist.imageFilePath = `data/playlist-cover${playlistData.playlist.imageExtension}`;
   }
@@ -209,7 +206,6 @@ async function createNewPlaylist(
     playlistData.playlist.imageMimeType
   ) {
     playlistToCreate.imageType = playlistData.playlist.imageMimeType;
-    // Mark that this playlist needs image loading
     playlistToCreate.needsImageLoad = true;
     playlistToCreate.imageFilePath = `data/playlist-cover${playlistData.playlist.imageExtension}`;
   }
@@ -503,7 +499,8 @@ async function loadStandaloneImages(
     setError: (error: string) => void;
   }
 ): Promise<void> {
-  // Skip loading for file:// protocol - images work directly from paths
+  // For file:// protocol, images work directly from paths, no need to load into IndexedDB
+  // For HTTP/HTTPS, load images from files into IndexedDB
   if (window.location.protocol === "file:") {
     return;
   }
@@ -579,6 +576,7 @@ async function loadImageIntoIndexedDB(
     // Mark as loading
     loadingImages.add(item.imageFilePath);
 
+    // For file:// protocol, load image from file path
     const response = await fetch(item.imageFilePath);
     if (!response.ok) {
       console.warn(`Failed to load image: ${item.imageFilePath}`);

@@ -331,27 +331,36 @@ export function createImageUrlsFromData(
 
 // Helper to determine which image size to use for different contexts
 export function getImageUrlForContext(
-  thumbnailData?: ArrayBuffer,
-  fullSizeData?: ArrayBuffer,
-  mimeType?: string,
+  item: any, // Song or Playlist object
   context: "thumbnail" | "background" | "modal" = "thumbnail"
 ): string | null {
-  if (!mimeType) return null;
+  if (!item?.imageType) return null;
+
+  const { thumbnailData, imageData, imageType, imageFilePath } = item;
 
   // For backgrounds and modals, prefer full-size, fallback to thumbnail
   if (context === "background" || context === "modal") {
-    if (fullSizeData) {
-      return createImageUrlFromData(fullSizeData, mimeType);
+    if (imageData) {
+      return createImageUrlFromData(imageData, imageType);
     } else if (thumbnailData) {
-      return createImageUrlFromData(thumbnailData, mimeType);
+      return createImageUrlFromData(thumbnailData, imageType);
     }
   }
 
   // For thumbnails, prefer thumbnail size, fallback to full-size
   if (thumbnailData) {
-    return createImageUrlFromData(thumbnailData, mimeType);
-  } else if (fullSizeData) {
-    return createImageUrlFromData(fullSizeData, mimeType);
+    return createImageUrlFromData(thumbnailData, imageType);
+  } else if (imageData) {
+    return createImageUrlFromData(imageData, imageType);
+  }
+
+  // Fallback for file:// protocol - use direct file paths
+  if (
+    window.STANDALONE_MODE &&
+    window.location.protocol === "file:" &&
+    imageFilePath
+  ) {
+    return imageFilePath;
   }
 
   return null;

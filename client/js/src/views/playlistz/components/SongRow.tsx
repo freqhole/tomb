@@ -262,9 +262,7 @@ export function SongRow(props: SongRowProps) {
                   >
                     {(() => {
                       const imageUrl = getImageUrlForContext(
-                        songData().thumbnailData,
-                        songData().imageData,
-                        songData().imageType!,
+                        songData(),
                         "thumbnail"
                       );
                       return imageUrl ? (

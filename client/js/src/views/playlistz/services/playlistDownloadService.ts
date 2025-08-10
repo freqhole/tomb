@@ -519,60 +519,35 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
       // Flag to indicate this is a standalone version
       window.STANDALONE_MODE = true;
 
-      // Show early loading indicator
-      function showLoadingIndicator() {
-        const loadingDiv = document.createElement('div');
-        loadingDiv.id = 'early-loading';
-        loadingDiv.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.9); color: white; padding: 30px; border-radius: 12px; z-index: 10000; text-align: center; font-family: monospace;';
-        loadingDiv.innerHTML = '<div style="margin-bottom: 15px; font-size: 18px;">loading playlist...</div><div style="width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.3); border-top: 3px solid #ff00ff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
-        document.body.appendChild(loadingDiv);
-        return loadingDiv;
-      }
-
-      // Remove early loading indicator
-      function hideLoadingIndicator(indicator) {
-        if (indicator && indicator.parentNode) {
-          indicator.parentNode.removeChild(indicator);
-        }
-      }
-
-      // Load playlist data from data/ directory asynchronously
-      async function loadPlaylistData() {
+      // Load playlist data from embedded JSON
+      function loadPlaylistData() {
         try {
-          const response = await fetch('data/playlist.json');
-          if (!response.ok) {
-            throw new Error('Failed to load playlist data: ' + response.status);
+          const playlistElement = document.getElementById('playlist-data');
+          if (!playlistElement) {
+            throw new Error('Playlist data not found in document');
           }
-          return await response.json();
+          return JSON.parse(playlistElement.textContent);
         } catch (error) {
-          console.error('Error loading playlist data:', error);
+          console.error('Error loading embedded playlist data:', error);
           throw error;
         }
       }
 
       // Wait for the function to be available and then initialize
       async function waitForInitialization() {
-        let loadingIndicator = null;
         let attempts = 0;
         const maxAttempts = 50; // Wait up to 5 seconds
 
         while (attempts < maxAttempts) {
           if (window.initializeStandalonePlaylist) {
             try {
-              // Show loading indicator during data fetch
-              loadingIndicator = showLoadingIndicator();
-
-              // Load playlist data asynchronously
-              const playlistData = await loadPlaylistData();
-
-              // Hide early loading indicator before initializing
-              hideLoadingIndicator(loadingIndicator);
+              // Load playlist data from embedded JSON
+              const playlistData = loadPlaylistData();
 
               // Initialize playlist (this will show its own loading progress)
               window.initializeStandalonePlaylist(playlistData);
               return; // Success, exit
             } catch (error) {
-              hideLoadingIndicator(loadingIndicator);
               console.error('Failed to initialize playlist:', error);
               showError('Failed to initialize playlist: ' + error.message);
               return;
@@ -585,7 +560,6 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
         }
 
         // Function never became available
-        hideLoadingIndicator(loadingIndicator);
         console.error('initializeStandalonePlaylist function not found after waiting');
         showError('Playlist initialization function not found. The app may not have loaded properly.');
       }
@@ -603,7 +577,13 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
     </script>
   `;
 
-  // Insert the meta tags and script before the closing </head> tag
+  // Create embedded playlist data as JSON script tag
+  const playlistDataScript = `
+    <script type="application/json" id="playlist-data">
+${JSON.stringify(playlistData, null, 2)}
+    </script>`;
+
+  // Insert the meta tags, playlist data, and script before the closing </head> tag
   // Also update the title
   let modifiedHTML = currentHTML.replace(
     /<title>.*?<\/title>/i,
@@ -612,7 +592,7 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
 
   modifiedHTML = modifiedHTML.replace(
     "</head>",
-    `${ogMetaTags}\n${standaloneScript}\n</head>`
+    `${ogMetaTags}\n${playlistDataScript}\n${standaloneScript}\n</head>`
   );
 
   return modifiedHTML;

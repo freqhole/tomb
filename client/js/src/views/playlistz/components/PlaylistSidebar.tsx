@@ -219,9 +219,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
                           >
                             {(() => {
                               const imageUrl = getImageUrlForContext(
-                                playlist.thumbnailData,
-                                playlist.imageData,
-                                playlist.imageType!,
+                                playlist,
                                 "thumbnail"
                               );
                               return imageUrl ? (

@@ -161,12 +161,7 @@ export function Playlistz() {
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        newImageUrl = getImageUrlForContext(
-          currentSong.thumbnailData,
-          currentSong.imageData,
-          currentSong.imageType,
-          "background"
-        );
+        newImageUrl = getImageUrlForContext(currentSong, "background");
         if (newImageUrl) {
           cache.set(cacheKey, newImageUrl);
         }
@@ -178,12 +173,7 @@ export function Playlistz() {
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        newImageUrl = getImageUrlForContext(
-          currentPlaylist.thumbnailData,
-          currentPlaylist.imageData,
-          currentPlaylist.imageType,
-          "background"
-        );
+        newImageUrl = getImageUrlForContext(currentPlaylist, "background");
         if (newImageUrl) {
           cache.set(cacheKey, newImageUrl);
         }
@@ -195,12 +185,7 @@ export function Playlistz() {
       if (cache.has(cacheKey)) {
         newImageUrl = cache.get(cacheKey)!;
       } else {
-        newImageUrl = getImageUrlForContext(
-          selectedPl.thumbnailData,
-          selectedPl.imageData,
-          selectedPl.imageType,
-          "background"
-        );
+        newImageUrl = getImageUrlForContext(selectedPl, "background");
         if (newImageUrl) {
           cache.set(cacheKey, newImageUrl);
         }
@@ -742,12 +727,7 @@ export function Playlistz() {
 
     // add playlist image first if it existz
     if (playlist?.imageType) {
-      const url = getImageUrlForContext(
-        playlist.thumbnailData,
-        playlist.imageData,
-        playlist.imageType,
-        "modal"
-      );
+      const url = getImageUrlForContext(playlist, "modal");
       if (url) {
         images.push({
           url,
@@ -759,12 +739,7 @@ export function Playlistz() {
     // add song imagez
     playlistSongs().forEach((song) => {
       if (song.imageType) {
-        const url = getImageUrlForContext(
-          song.thumbnailData,
-          song.imageData,
-          song.imageType,
-          "modal"
-        );
+        const url = getImageUrlForContext(song, "modal");
         if (url) {
           images.push({
             url,
@@ -1118,7 +1093,7 @@ export function Playlistz() {
                         title="view playlist images"
                       >
                         <Show
-                          when={playlist().imageData && playlist().imageType}
+                          when={playlist().imageType}
                           fallback={
                             <div class="text-center">
                               <svg
@@ -1136,14 +1111,34 @@ export function Playlistz() {
                             </div>
                           }
                         >
-                          <img
-                            src={createImageUrlFromData(
-                              playlist().imageData!,
-                              playlist().imageType!
-                            )}
-                            alt="playlist cover"
-                            class="w-full h-full object-cover"
-                          />
+                          {(() => {
+                            const imageUrl = getImageUrlForContext(
+                              playlist(),
+                              "modal"
+                            );
+                            return imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt="playlist cover"
+                                class="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div class="text-center">
+                                <svg
+                                  width="100"
+                                  height="100"
+                                  viewBox="0 0 100 100"
+                                  fill="none"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                >
+                                  <path
+                                    d="M50 81L25 31L75 31L60.7222 68.1429L50 81Z"
+                                    fill="#FF00FF"
+                                  />
+                                </svg>
+                              </div>
+                            );
+                          })()}
                         </Show>
                       </button>
                     </div>
@@ -1349,7 +1344,7 @@ export function Playlistz() {
                         title="view playlist imagez"
                       >
                         <Show
-                          when={playlist().imageData && playlist().imageType}
+                          when={playlist().imageType}
                           fallback={
                             <div class="text-center">
                               <svg
@@ -1367,14 +1362,34 @@ export function Playlistz() {
                             </div>
                           }
                         >
-                          <img
-                            src={createImageUrlFromData(
-                              playlist().imageData!,
-                              playlist().imageType!
-                            )}
-                            alt="playlist cover"
-                            class="w-full h-full object-cover"
-                          />
+                          {(() => {
+                            const imageUrl = getImageUrlForContext(
+                              playlist(),
+                              "modal"
+                            );
+                            return imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt="playlist cover"
+                                class="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div class="text-center">
+                                <svg
+                                  width="100"
+                                  height="100"
+                                  viewBox="0 0 100 100"
+                                  fill="none"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                >
+                                  <path
+                                    d="M50 81L25 31L75 31L60.7222 68.1429L50 81Z"
+                                    fill="#FF00FF"
+                                  />
+                                </svg>
+                              </div>
+                            );
+                          })()}
                         </Show>
                       </button>
                     </div>
