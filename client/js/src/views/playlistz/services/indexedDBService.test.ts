@@ -41,6 +41,18 @@ Object.defineProperty(global, "crypto", {
   writable: true,
 });
 
+// Mock File with arrayBuffer method
+const OriginalFile = global.File;
+global.File = class MockFile extends OriginalFile {
+  constructor(content: any[], name: string, options?: FilePropertyBag) {
+    super(content, name, options);
+  }
+
+  async arrayBuffer(): Promise<ArrayBuffer> {
+    return new ArrayBuffer(8);
+  }
+} as any;
+
 describe("Database Efficiency Tests", () => {
   let mockOpenDB: any;
 

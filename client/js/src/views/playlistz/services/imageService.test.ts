@@ -50,6 +50,26 @@ global.URL = {
   revokeObjectURL: vi.fn(),
 } as any;
 
+// Mock Blob with proper methods and properties
+global.Blob = class MockBlob {
+  public type: string;
+  public size: number;
+
+  constructor(content: any[], options: { type?: string } = {}) {
+    this.type = options.type || "";
+    this.size = content.reduce((acc, item) => {
+      if (typeof item === "string") return acc + item.length;
+      if (item instanceof ArrayBuffer) return acc + item.byteLength;
+      if (item instanceof Uint8Array) return acc + item.byteLength;
+      return acc + 1;
+    }, 0);
+  }
+
+  async arrayBuffer(): Promise<ArrayBuffer> {
+    return new ArrayBuffer(this.size);
+  }
+} as any;
+
 // Helper to create mock file
 function createMockFile(
   content: string,
