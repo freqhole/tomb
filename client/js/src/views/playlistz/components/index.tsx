@@ -20,7 +20,6 @@ import {
   removeSongFromPlaylist,
   getAllSongs,
   reorderSongs,
-  getPlaylist,
 } from "../services/indexedDBService.js";
 import {
   cleanup as cleanupAudio,
@@ -35,10 +34,7 @@ import {
   processAudioFiles,
 } from "../services/fileProcessingService.js";
 import { cleanupTimeUtils } from "../utils/timeUtils.js";
-import {
-  createImageUrlFromData,
-  getImageUrlForContext,
-} from "../services/imageService.js";
+import { getImageUrlForContext } from "../services/imageService.js";
 import {
   downloadPlaylistAsZip,
   parsePlaylistZip,
