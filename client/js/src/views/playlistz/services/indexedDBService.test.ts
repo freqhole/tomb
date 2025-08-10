@@ -48,7 +48,7 @@ global.File = class MockFile extends OriginalFile {
     super(content, name, options);
   }
 
-  async arrayBuffer(): Promise<ArrayBuffer> {
+  override async arrayBuffer(): Promise<ArrayBuffer> {
     return new ArrayBuffer(8);
   }
 } as any;

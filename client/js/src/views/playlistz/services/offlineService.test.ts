@@ -335,24 +335,23 @@ describe("Offline Service Tests", () => {
     });
 
     it("should handle cache add failures", async () => {
-      const { cache } = mockManager.getMocks();
+      const { cache, caches, serviceWorker } = mockManager.getMocks();
 
-      // Mock navigator.serviceWorker.controller as null to force direct cache path
-      Object.defineProperty(global.navigator, "serviceWorker", {
+      // Force direct cache path by setting serviceWorker.controller to null
+      serviceWorker.controller = null;
+
+      // Mock window.location.protocol to not be "file:"
+      Object.defineProperty(window, "location", {
         value: {
-          controller: null,
+          protocol: "http:",
+          href: "http://localhost:3000",
         },
+        writable: true,
         configurable: true,
       });
 
-      // Mock the global caches.open to return our mocked cache
-      Object.defineProperty(global, "caches", {
-        value: {
-          open: vi.fn().mockResolvedValue(cache),
-        },
-        configurable: true,
-      });
-
+      // Use the existing caches mock from mockManager
+      caches.open.mockResolvedValue(cache);
       cache.add.mockRejectedValue(new Error("Cache add failed"));
 
       await expect(cacheAudioFile("test-url", "Test Song")).rejects.toThrow(
@@ -376,19 +375,21 @@ describe("Offline Service Tests", () => {
         .fn()
         .mockResolvedValue(mockServiceWorkerRegistration);
       const mockAddEventListener = vi.fn();
-      Object.defineProperty(global.navigator, "serviceWorker", {
-        value: {
+
+      // Mock the service worker with register function
+      vi.stubGlobal("navigator", {
+        ...global.navigator,
+        serviceWorker: {
           register: mockRegister,
           ready: Promise.resolve(mockServiceWorkerRegistration),
           addEventListener: mockAddEventListener,
         },
-        configurable: true,
       });
 
       await initializeOfflineSupport("Test Playlist");
 
       // Wait for setTimeout to execute service worker registration
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       expect(mockRegister).toHaveBeenCalledWith("./sw.js");
     });
@@ -414,20 +415,26 @@ describe("Offline Service Tests", () => {
     });
 
     it("should set up service worker message listener", async () => {
+      const mockServiceWorkerRegistration = {
+        active: null,
+        installing: null,
+        waiting: null,
+        update: vi.fn().mockResolvedValue(undefined),
+        unregister: vi.fn().mockResolvedValue(true),
+      };
+
       const mockAddEventListener = vi.fn();
-      Object.defineProperty(global.navigator, "serviceWorker", {
-        value: {
-          register: vi.fn().mockResolvedValue(mockServiceWorkerRegistration),
-          ready: Promise.resolve(mockServiceWorkerRegistration),
-          addEventListener: mockAddEventListener,
-        },
-        configurable: true,
-      });
+
+      // Mock the service worker with message listener support
+      const { serviceWorker } = mockManager.getMocks();
+      serviceWorker.register.mockResolvedValue(mockServiceWorkerRegistration);
+      serviceWorker.ready = Promise.resolve(mockServiceWorkerRegistration);
+      serviceWorker.addEventListener = mockAddEventListener;
 
       await initializeOfflineSupport("Test Playlist");
 
-      // Wait for setTimeout to execute service worker registration
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Wait for service worker registration and message listener setup
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Check if addEventListener was called on navigator.serviceWorker
       expect(mockAddEventListener).toHaveBeenCalledWith(
@@ -516,14 +523,12 @@ describe("Offline Service Tests", () => {
       await initializeOfflineSupport("Test Playlist");
 
       // Wait for setTimeout to execute service worker registration
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 150));
 
-      const { navigatorStorage } = mockManager.getMocks();
+      const { navigatorStorage, serviceWorker } = mockManager.getMocks();
       expect(document.createElement).toHaveBeenCalledWith("link");
       expect(navigatorStorage.persist).toHaveBeenCalled();
-      expect(global.navigator.serviceWorker.register).toHaveBeenCalledWith(
-        "./sw.js"
-      );
+      expect(serviceWorker.register).toHaveBeenCalledWith("./sw.js");
     });
 
     it("should initialize with playlist title and data", async () => {
