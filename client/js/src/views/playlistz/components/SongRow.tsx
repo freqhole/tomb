@@ -2,7 +2,7 @@
 import { createSignal, createResource, Show, onMount } from "solid-js";
 import { getSongById } from "../services/indexedDBService.js";
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
-import { songUpdateTrigger } from "../services/songReactivity.js";
+import { getSongSpecificTrigger } from "../services/songReactivity.js";
 import {
   audioState,
   getSongDownloadProgress,
@@ -35,9 +35,9 @@ export function SongRow(props: SongRowProps) {
     setIsMobile("ontouchstart" in window || navigator.maxTouchPoints > 0);
   });
 
-  // Fetch song data with reactivity to global song updates
+  // Fetch song data with reactivity to specific song updates only
   const [song] = createResource(
-    () => [props.songId, songUpdateTrigger()] as const,
+    () => [props.songId, getSongSpecificTrigger(props.songId)()] as const,
     async ([songId, _trigger]) => {
       try {
         const fetchedSong = await getSongById(songId);

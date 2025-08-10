@@ -52,9 +52,6 @@ export async function downloadPlaylistAsZip(
         imageExtension: playlist.imageData
           ? getFileExtensionFromMimeType(playlist.imageType || "image/jpeg")
           : null,
-        imageBase64: playlist.imageData
-          ? arrayBufferToBase64(playlist.imageData)
-          : null,
         imageMimeType: playlist.imageType || null,
       },
       songs: playlistSongs.map((song) => ({
@@ -71,9 +68,6 @@ export async function downloadPlaylistAsZip(
         mimeType: song.mimeType || "audio/mpeg",
         imageExtension: song.imageData
           ? getFileExtensionFromMimeType(song.imageType || "image/jpeg")
-          : null,
-        imageBase64: song.imageData
-          ? arrayBufferToBase64(song.imageData)
           : null,
         imageMimeType: song.imageType || null,
       })),
@@ -525,14 +519,31 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
       // Flag to indicate this is a standalone version
       window.STANDALONE_MODE = true;
 
-      // Load playlist data from data/ directory instead of embedding
+      // Show early loading indicator
+      function showLoadingIndicator() {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'early-loading';
+        loadingDiv.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.9); color: white; padding: 30px; border-radius: 12px; z-index: 10000; text-align: center; font-family: monospace;';
+        loadingDiv.innerHTML = '<div style="margin-bottom: 15px; font-size: 18px;">loading playlist...</div><div style="width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.3); border-top: 3px solid #ff00ff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
+        document.body.appendChild(loadingDiv);
+        return loadingDiv;
+      }
+
+      // Remove early loading indicator
+      function hideLoadingIndicator(indicator) {
+        if (indicator && indicator.parentNode) {
+          indicator.parentNode.removeChild(indicator);
+        }
+      }
+
+      // Load playlist data from data/ directory asynchronously
       async function loadPlaylistData() {
         try {
-          const dataResponse = await fetch('data/playlist.json');
-          if (!dataResponse.ok) {
-            throw new Error('Failed to load playlist data: ' + dataResponse.status);
+          const response = await fetch('data/playlist.json');
+          if (!response.ok) {
+            throw new Error('Failed to load playlist data: ' + response.status);
           }
-          return await dataResponse.json();
+          return await response.json();
         } catch (error) {
           console.error('Error loading playlist data:', error);
           throw error;
@@ -541,17 +552,27 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
 
       // Wait for the function to be available and then initialize
       async function waitForInitialization() {
+        let loadingIndicator = null;
         let attempts = 0;
         const maxAttempts = 50; // Wait up to 5 seconds
 
         while (attempts < maxAttempts) {
           if (window.initializeStandalonePlaylist) {
             try {
-              const loadedPlaylistData = await loadPlaylistData();
+              // Show loading indicator during data fetch
+              loadingIndicator = showLoadingIndicator();
 
-              window.initializeStandalonePlaylist(loadedPlaylistData);
+              // Load playlist data asynchronously
+              const playlistData = await loadPlaylistData();
+
+              // Hide early loading indicator before initializing
+              hideLoadingIndicator(loadingIndicator);
+
+              // Initialize playlist (this will show its own loading progress)
+              window.initializeStandalonePlaylist(playlistData);
               return; // Success, exit
             } catch (error) {
+              hideLoadingIndicator(loadingIndicator);
               console.error('Failed to initialize playlist:', error);
               showError('Failed to initialize playlist: ' + error.message);
               return;
@@ -564,6 +585,7 @@ async function generateStandaloneHTML(playlistData: any): Promise<string> {
         }
 
         // Function never became available
+        hideLoadingIndicator(loadingIndicator);
         console.error('initializeStandalonePlaylist function not found after waiting');
         showError('Playlist initialization function not found. The app may not have loaded properly.');
       }

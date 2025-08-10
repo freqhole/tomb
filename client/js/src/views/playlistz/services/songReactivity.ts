@@ -19,6 +19,12 @@ const [songUpdateTrigger, setSongUpdateTrigger] = createSignal(0);
 // Map to track which songs have been updated (for debugging and optimization)
 const updatedSongs = new Map<string, number>();
 
+// Map of song-specific signals for targeted reactivity
+const songSpecificSignals = new Map<
+  string,
+  ReturnType<typeof createSignal<number>>
+>();
+
 /**
  * Reactive signal that triggers whenever any song is updated.
  * Components can access this signal to know when to refetch song data.
@@ -56,10 +62,35 @@ export function getLastUpdateTime(songId: string): number | undefined {
 }
 
 /**
+ * Get or create a song-specific reactivity signal
+ */
+export function getSongSpecificTrigger(songId: string): () => number {
+  if (!songSpecificSignals.has(songId)) {
+    songSpecificSignals.set(songId, createSignal(0));
+  }
+  const [getter] = songSpecificSignals.get(songId)!;
+  return getter;
+}
+
+/**
+ * Trigger update for a specific song only
+ */
+export function triggerSpecificSongUpdate(songId: string): void {
+  if (songSpecificSignals.has(songId)) {
+    const [, setter] = songSpecificSignals.get(songId)!;
+    setter((prev) => prev + 1);
+  }
+
+  // Also update the tracking map
+  updatedSongs.set(songId, Date.now());
+}
+
+/**
  * Clear the update history (useful for cleanup or testing).
  */
 export function clearUpdateHistory(): void {
   updatedSongs.clear();
+  songSpecificSignals.clear();
 }
 
 /**
@@ -84,10 +115,17 @@ export function triggerSongUpdateWithOptions(options: {
   songId?: string;
   type?: "edit" | "create" | "delete" | "reorder";
   metadata?: Record<string, any>;
+  specificOnly?: boolean; // Only trigger specific song, not global
 }): void {
-  const { songId } = options;
+  const { songId, specificOnly = false } = options;
 
-  triggerSongUpdate(songId);
+  if (songId && specificOnly) {
+    // Only trigger the specific song update
+    triggerSpecificSongUpdate(songId);
+  } else {
+    // Use the existing global trigger behavior
+    triggerSongUpdate(songId);
+  }
 }
 
 // Development helpers

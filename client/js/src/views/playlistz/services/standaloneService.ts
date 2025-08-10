@@ -6,6 +6,7 @@ import {
   SONGS_STORE,
 } from "./indexedDBService.js";
 import { mutateAndNotify } from "./indexedDBService.js";
+import { triggerSongUpdateWithOptions } from "./songReactivity.js";
 import type { Playlist } from "../types/playlist.js";
 
 // Loading progress signal
@@ -18,6 +19,9 @@ const [standaloneLoadingProgress, setStandaloneLoadingProgress] = createSignal<{
 
 // Export the signal and setter for UI components to use
 export { standaloneLoadingProgress, setStandaloneLoadingProgress };
+
+// Track which images are currently being loaded to prevent duplicates
+const loadingImages = new Set<string>();
 
 /**
  * Helper function to convert base64 to ArrayBuffer
@@ -65,10 +69,12 @@ function createSongFromData(
     standaloneFilePath: standaloneFilePath,
   };
 
-  // Set song image from base64 data
-  if (songData.imageBase64) {
-    song.imageData = base64ToArrayBuffer(songData.imageBase64);
+  // Set song image metadata for loading from file
+  if (songData.imageExtension && songData.imageMimeType) {
     song.imageType = songData.imageMimeType;
+    // Mark that this song needs image loading
+    song.needsImageLoad = true;
+    song.imageFilePath = `data/${songData.safeFilename?.replace(/\.[^.]+$/, "") || songData.originalFilename?.replace(/\.[^.]+$/, "")}-cover${songData.imageExtension}`;
   }
 
   return song;
@@ -140,10 +146,12 @@ async function updateExistingData(
         updatedAt: Date.now(),
       };
 
-      // Update image if changed
-      if (songData.imageBase64) {
-        song.imageData = base64ToArrayBuffer(songData.imageBase64);
+      // Update image metadata if changed
+      if (songData.imageExtension && songData.imageMimeType) {
         song.imageType = songData.imageMimeType;
+        // Mark that this song needs image loading
+        song.needsImageLoad = true;
+        song.imageFilePath = `data/${songData.safeFilename?.replace(/\.[^.]+$/, "") || songData.originalFilename?.replace(/\.[^.]+$/, "")}-cover${songData.imageExtension}`;
       }
     }
 
@@ -166,11 +174,14 @@ async function updateExistingData(
     updatedAt: Date.now(),
   };
 
-  if (playlistData.playlist.imageBase64) {
-    updatedPlaylist.imageData = base64ToArrayBuffer(
-      playlistData.playlist.imageBase64
-    );
+  if (
+    playlistData.playlist.imageExtension &&
+    playlistData.playlist.imageMimeType
+  ) {
     updatedPlaylist.imageType = playlistData.playlist.imageMimeType;
+    // Mark that this playlist needs image loading
+    updatedPlaylist.needsImageLoad = true;
+    updatedPlaylist.imageFilePath = `data/playlist-cover${playlistData.playlist.imageExtension}`;
   }
 
   await mutateAndNotify({
@@ -200,12 +211,15 @@ async function createNewPlaylist(
     imageType: undefined as string | undefined,
   };
 
-  // Set playlist image from base64 data
-  if (playlistData.playlist.imageBase64) {
-    playlistToCreate.imageData = base64ToArrayBuffer(
-      playlistData.playlist.imageBase64
-    );
+  // Set playlist image metadata for loading from file
+  if (
+    playlistData.playlist.imageExtension &&
+    playlistData.playlist.imageMimeType
+  ) {
     playlistToCreate.imageType = playlistData.playlist.imageMimeType;
+    // Mark that this playlist needs image loading
+    playlistToCreate.needsImageLoad = true;
+    playlistToCreate.imageFilePath = `data/playlist-cover${playlistData.playlist.imageExtension}`;
   }
 
   // Manually store playlist using mutateAndNotify to trigger reactive updates
@@ -367,6 +381,12 @@ export async function initializeStandalonePlaylist(
 
     // Clear loading progress (if not already cleared by background tasks)
     setTimeout(() => setStandaloneLoadingProgress(null), 500);
+
+    // Load images in background after playlist is initialized
+    setTimeout(
+      () => loadStandaloneImages(finalPlaylist, finalSongs, callbacks),
+      1000
+    );
   } catch (err) {
     console.error("Error initializing standalone playlist:", err);
     callbacks.setError("Failed to load standalone playlist");
@@ -475,6 +495,142 @@ export async function songNeedsAudioData(song: any): Promise<boolean> {
       song.standaloneFilePath &&
       (!song.audioData || song.audioData.byteLength === 0)
     );
+  }
+}
+
+/**
+ * Load images from files into IndexedDB for standalone mode
+ */
+async function loadStandaloneImages(
+  playlist: Playlist,
+  songs: any[],
+  callbacks: {
+    setSelectedPlaylist: (playlist: Playlist) => void;
+    setPlaylistSongs: (songs: any[]) => void;
+    setSidebarCollapsed: (collapsed: boolean) => void;
+    setError: (error: string) => void;
+  }
+): Promise<void> {
+  // Skip loading for file:// protocol - images work directly from paths
+  if (window.location.protocol === "file:") {
+    return;
+  }
+
+  try {
+    // Load playlist image if needed
+    if (
+      playlist.needsImageLoad &&
+      playlist.imageFilePath &&
+      !playlist.imageData
+    ) {
+      const updatedPlaylist = await loadImageIntoIndexedDB(playlist, true);
+      if (updatedPlaylist) {
+        // Update the selectedPlaylist signal to trigger UI reactivity
+        callbacks.setSelectedPlaylist(updatedPlaylist);
+      }
+    }
+
+    // Load song images if needed
+    let songsUpdated = false;
+    for (const song of songs) {
+      if (song.needsImageLoad && song.imageFilePath && !song.imageData) {
+        const updatedSong = await loadImageIntoIndexedDB(song, false);
+        if (updatedSong) {
+          songsUpdated = true;
+        }
+      }
+    }
+
+    // If any songs were updated, refresh the playlistSongs signal for carousel
+    if (songsUpdated) {
+      try {
+        const db = await setupDB();
+        const allSongs = await db.getAll(SONGS_STORE);
+        const updatedPlaylistSongs = allSongs
+          .filter((song: any) => playlist.songIds.includes(song.id))
+          .sort((a, b) => {
+            const indexA = playlist.songIds.indexOf(a.id);
+            const indexB = playlist.songIds.indexOf(b.id);
+            return indexA - indexB;
+          });
+        callbacks.setPlaylistSongs(updatedPlaylistSongs);
+      } catch (error) {
+        console.warn(
+          "Error refreshing playlist songs after image loading:",
+          error
+        );
+      }
+    }
+  } catch (error) {
+    console.warn("Error loading standalone images:", error);
+  }
+}
+
+/**
+ * Load a single image file into IndexedDB
+ */
+async function loadImageIntoIndexedDB(
+  item: any,
+  isPlaylist: boolean
+): Promise<any> {
+  try {
+    // Double-check that we actually need to load this image
+    if (item.imageData && item.imageData.byteLength > 0) {
+      return; // Already has image data
+    }
+
+    // Check if this image is already being loaded
+    if (loadingImages.has(item.imageFilePath)) {
+      return null; // Already loading
+    }
+
+    // Mark as loading
+    loadingImages.add(item.imageFilePath);
+
+    const response = await fetch(item.imageFilePath);
+    if (!response.ok) {
+      console.warn(`Failed to load image: ${item.imageFilePath}`);
+      loadingImages.delete(item.imageFilePath);
+      return null;
+    }
+
+    const imageData = await response.arrayBuffer();
+
+    // Update the item with loaded image data
+    const updatedItem = {
+      ...item,
+      imageData,
+      needsImageLoad: false,
+      updatedAt: Date.now(),
+    };
+
+    const storeName = isPlaylist ? PLAYLISTS_STORE : SONGS_STORE;
+
+    await mutateAndNotify({
+      dbName: DB_NAME,
+      storeName,
+      key: item.id,
+      updateFn: () => updatedItem,
+    });
+
+    // Trigger reactivity to update UI (specific song only to prevent flickering)
+    if (!isPlaylist) {
+      triggerSongUpdateWithOptions({
+        songId: item.id,
+        type: "edit",
+        specificOnly: true,
+      });
+    }
+    // For playlists, mutateAndNotify should automatically trigger reactivity
+
+    // Remove from loading set
+    loadingImages.delete(item.imageFilePath);
+
+    return updatedItem;
+  } catch (error) {
+    console.warn(`Error loading image for ${item.id}:`, error);
+    loadingImages.delete(item.imageFilePath);
+    return null;
   }
 }
 
