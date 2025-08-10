@@ -697,4 +697,149 @@ describe("Audio Service Tests", () => {
       expect(state.duration).toBe(0);
     });
   });
+
+  describe("Media Session Integration", () => {
+    let mockMediaSession: any;
+    let originalMediaSession: any;
+
+    beforeEach(() => {
+      // Store original mediaSession
+      originalMediaSession = (navigator as any).mediaSession;
+
+      // Create mock media session
+      mockMediaSession = {
+        metadata: null,
+        playbackState: "none" as MediaSessionPlaybackState,
+        setActionHandler: vi.fn(),
+        setPositionState: vi.fn(),
+      };
+
+      Object.defineProperty(navigator, "mediaSession", {
+        value: mockMediaSession,
+        writable: true,
+        configurable: true,
+      });
+
+      // Mock MediaMetadata constructor
+      global.MediaMetadata = vi.fn().mockImplementation((metadata) => metadata);
+
+      // Mock URL.createObjectURL for artwork
+      global.URL.createObjectURL = vi.fn(() => "blob:test-image-url");
+      global.URL.revokeObjectURL = vi.fn();
+    });
+
+    afterEach(() => {
+      // Restore original mediaSession
+      if (originalMediaSession) {
+        Object.defineProperty(navigator, "mediaSession", {
+          value: originalMediaSession,
+          writable: true,
+          configurable: true,
+        });
+      }
+    });
+
+    it("should update media session immediately when playing song", async () => {
+      const songWithImage = createMockSong({
+        thumbnailData: new ArrayBuffer(512),
+        imageType: "image/jpeg",
+      });
+
+      await audioService.playSong(songWithImage, mockPlaylist);
+
+      expect(mockMediaSession.metadata).toBeDefined();
+      expect(mockMediaSession.metadata.title).toBe(songWithImage.title);
+      expect(mockMediaSession.metadata.artist).toBe(songWithImage.artist);
+      expect(mockMediaSession.metadata.artwork).toBeDefined();
+      expect(URL.createObjectURL).toHaveBeenCalled();
+    });
+
+    it("should update media session when using playNext", async () => {
+      await audioService.loadPlaylistQueue(mockPlaylist);
+      await audioService.playSong(mockSong1, mockPlaylist);
+
+      // Clear previous calls
+      vi.mocked(URL.createObjectURL).mockClear();
+      mockMediaSession.metadata = null;
+
+      await audioService.playNext();
+
+      expect(mockMediaSession.metadata).toBeDefined();
+      expect(mockMediaSession.metadata.title).toBe(mockSong2.title);
+    });
+
+    it("should update media session when using playPrevious", async () => {
+      await audioService.loadPlaylistQueue(mockPlaylist);
+      await audioService.playSong(mockSong2, mockPlaylist);
+
+      // Clear previous calls
+      vi.mocked(URL.createObjectURL).mockClear();
+      mockMediaSession.metadata = null;
+
+      await audioService.playPrevious();
+
+      expect(mockMediaSession.metadata).toBeDefined();
+      expect(mockMediaSession.metadata.title).toBe(mockSong1.title);
+    });
+
+    it("should use playlist artwork fallback when song has no image", async () => {
+      const songWithoutImage = createMockSong({
+        thumbnailData: undefined,
+        imageType: undefined,
+      });
+
+      const playlistWithImage = createMockPlaylist({
+        thumbnailData: new ArrayBuffer(256),
+        imageType: "image/png",
+      });
+
+      await audioService.playSong(songWithoutImage, playlistWithImage);
+
+      expect(mockMediaSession.metadata).toBeDefined();
+      expect(mockMediaSession.metadata.artwork).toBeDefined();
+      expect(URL.createObjectURL).toHaveBeenCalled();
+    });
+
+    it("should handle songs and playlists with no artwork", async () => {
+      const songWithoutImage = createMockSong({
+        thumbnailData: undefined,
+        imageType: undefined,
+      });
+
+      const playlistWithoutImage = createMockPlaylist({
+        thumbnailData: undefined,
+        imageType: undefined,
+      });
+
+      await audioService.playSong(songWithoutImage, playlistWithoutImage);
+
+      expect(mockMediaSession.metadata).toBeDefined();
+      expect(mockMediaSession.metadata.artwork).toEqual([]);
+    });
+
+    it("should set media session action handlers", async () => {
+      await audioService.playSong(mockSong1, mockPlaylist);
+
+      expect(mockMediaSession.setActionHandler).toHaveBeenCalledWith(
+        "play",
+        expect.any(Function)
+      );
+      expect(mockMediaSession.setActionHandler).toHaveBeenCalledWith(
+        "pause",
+        expect.any(Function)
+      );
+      expect(mockMediaSession.setActionHandler).toHaveBeenCalledWith(
+        "nexttrack",
+        expect.any(Function)
+      );
+      expect(mockMediaSession.setActionHandler).toHaveBeenCalledWith(
+        "previoustrack",
+        expect.any(Function)
+      );
+      expect(mockMediaSession.setActionHandler).toHaveBeenCalledWith(
+        "seekto",
+        expect.any(Function)
+      );
+    });
+  });
 });

@@ -433,7 +433,6 @@ function getPreviousSong(): Song | null {
 // Handle song ended - auto-advance logic
 async function handleSongEnded(): Promise<void> {
   const nextSong = getNextSong();
-
   if (nextSong) {
     await playNext();
   } else {
@@ -471,6 +470,9 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
 
     setIsLoading(true);
     setCurrentSong(song);
+
+    // Update media session immediately with new song info (fixes iOS lock screen image issue)
+    await updateMediaSession();
 
     // clear media session position state during loading to prevent timing issues
     if ("mediaSession" in navigator) {
