@@ -126,9 +126,13 @@ export function Playlistz() {
     if (playlist && playlist.songIds.length > 0) {
       try {
         const allSongs = await getAllSongs();
-        const songs = allSongs.filter((song) =>
-          playlist.songIds.includes(song.id)
-        );
+        const songs = allSongs
+          .filter((song) => playlist.songIds.includes(song.id))
+          .sort((a, b) => {
+            const indexA = playlist.songIds.indexOf(a.id);
+            const indexB = playlist.songIds.indexOf(b.id);
+            return indexA - indexB;
+          });
         setPlaylistSongs(songs);
       } catch (err) {
         console.error("error loading playlist songz:", err);
@@ -667,9 +671,13 @@ export function Playlistz() {
     if (playlist && playlist.songIds.length > 0) {
       try {
         const allSongs = await getAllSongs();
-        const songs = allSongs.filter((song) =>
-          playlist.songIds.includes(song.id)
-        );
+        const songs = allSongs
+          .filter((song) => playlist.songIds.includes(song.id))
+          .sort((a, b) => {
+            const indexA = playlist.songIds.indexOf(a.id);
+            const indexB = playlist.songIds.indexOf(b.id);
+            return indexA - indexB;
+          });
         setPlaylistSongs(songs);
       } catch (err) {
         console.error("error refreshing songs:", err);
@@ -810,9 +818,13 @@ export function Playlistz() {
     if (playlist && playlist.songIds.length > 0) {
       try {
         const allSongs = await getAllSongs();
-        const songs = allSongs.filter((song) =>
-          playlist.songIds.includes(song.id)
-        );
+        const songs = allSongs
+          .filter((song) => playlist.songIds.includes(song.id))
+          .sort((a, b) => {
+            const indexA = playlist.songIds.indexOf(a.id);
+            const indexB = playlist.songIds.indexOf(b.id);
+            return indexA - indexB;
+          });
         setPlaylistSongs(songs);
       } catch (err) {
         console.error("Error refreshing playlist songs:", err);
@@ -1568,7 +1580,7 @@ export function Playlistz() {
                     {currentImage.title}{" "}
                     {images.length > 1 && (
                       <span class="text-xs text-gray-300 mt-1">
-                        ({modalImageIndex() + 1} of {images.length})
+                        ({modalImageIndex()} of {images.length - 1})
                       </span>
                     )}
                   </div>

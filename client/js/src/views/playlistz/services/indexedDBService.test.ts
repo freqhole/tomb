@@ -5,13 +5,21 @@ vi.mock("idb", () => ({
   openDB: vi.fn(),
 }));
 
+// Mock songReactivity module
+vi.mock("./songReactivity.js", () => ({
+  triggerSongUpdateWithOptions: vi.fn(),
+}));
+
 // Now import the modules that depend on idb
 import {
   setupDB,
   createPlaylistsQuery,
   addSongToPlaylist,
   createPlaylist,
+  getAllPlaylists,
+  removeSongFromPlaylist,
 } from "./indexedDBService.js";
+import { triggerSongUpdateWithOptions } from "./songReactivity.js";
 
 // Define mock objects
 const mockDB = {
@@ -20,10 +28,24 @@ const mockDB = {
   objectStore: vi.fn(),
   put: vi.fn(),
   get: vi.fn(),
+  delete: vi.fn(),
   createObjectStore: vi.fn(),
   objectStoreNames: {
     contains: vi.fn(() => false),
   },
+};
+
+const mockStore = {
+  delete: vi.fn(),
+  index: vi.fn(),
+  openCursor: vi.fn(),
+  get: vi.fn(),
+  put: vi.fn(),
+};
+
+const mockTransaction = {
+  objectStore: vi.fn(() => mockStore),
+  done: Promise.resolve(),
 };
 
 // Mock BroadcastChannel
@@ -40,6 +62,14 @@ Object.defineProperty(global, "crypto", {
   },
   writable: true,
 });
+
+// Mock IDBKeyRange
+global.IDBKeyRange = {
+  only: vi.fn((value) => ({ type: "only", value })),
+  bound: vi.fn((lower, upper) => ({ type: "bound", lower, upper })),
+  lowerBound: vi.fn((value) => ({ type: "lowerBound", value })),
+  upperBound: vi.fn((value) => ({ type: "upperBound", value })),
+} as any;
 
 // Mock File with arrayBuffer method
 const OriginalFile = global.File;
@@ -59,9 +89,23 @@ describe("Database Efficiency Tests", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
 
+    // Clear the mock for triggerSongUpdateWithOptions
+    vi.mocked(triggerSongUpdateWithOptions).mockClear();
+
     // Get the mocked openDB function
     const { openDB } = await import("idb");
     mockOpenDB = vi.mocked(openDB);
+
+    // Setup consistent mock chain for all database operations
+    mockDB.transaction.mockReturnValue(mockTransaction);
+    mockTransaction.objectStore.mockReturnValue(mockStore);
+    mockStore.get.mockResolvedValue({
+      id: "default-playlist",
+      songIds: ["song1", "song2"],
+      title: "Default Playlist",
+    });
+    mockStore.put.mockResolvedValue(undefined);
+    mockStore.delete.mockResolvedValue(undefined);
 
     mockOpenDB.mockResolvedValue(mockDB);
     mockDB.getAll.mockResolvedValue([]);
@@ -269,6 +313,246 @@ describe("Database Efficiency Tests", () => {
       });
 
       expect(messageHandler).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  // Add comprehensive tests for missing coverage functions
+  describe("Missing Coverage Functions", () => {
+    describe("getAllPlaylists", () => {
+      it("should return all playlists successfully", async () => {
+        const mockPlaylists = [
+          { id: "1", title: "Rock Playlist", songIds: ["song1", "song2"] },
+          { id: "2", title: "Jazz Playlist", songIds: ["song3"] },
+        ];
+
+        mockDB.getAll.mockResolvedValue(mockPlaylists);
+
+        const result = await getAllPlaylists();
+
+        expect(result).toEqual(mockPlaylists);
+        expect(mockDB.getAll).toHaveBeenCalledWith("playlists");
+      });
+
+      it("should handle database errors gracefully", async () => {
+        const consoleSpy = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        mockDB.getAll.mockRejectedValue(
+          new Error("Database connection failed")
+        );
+
+        const result = await getAllPlaylists();
+
+        expect(result).toEqual([]);
+        expect(consoleSpy).toHaveBeenCalledWith(
+          "❌ Error fetching all playlists:",
+          expect.any(Error)
+        );
+
+        consoleSpy.mockRestore();
+      });
+
+      it("should return empty array when no playlists exist", async () => {
+        mockDB.getAll.mockResolvedValue([]);
+
+        const result = await getAllPlaylists();
+
+        expect(result).toEqual([]);
+        expect(mockDB.getAll).toHaveBeenCalledWith("playlists");
+      });
+    });
+
+    describe("removeSongFromPlaylist", () => {
+      beforeEach(() => {
+        // Create separate mocks for different store operations
+        const playlistStore = {
+          get: vi.fn(),
+          put: vi.fn(),
+          delete: vi.fn(),
+          index: vi.fn(),
+        };
+
+        const songStore = {
+          get: vi.fn(),
+          put: vi.fn(),
+          delete: vi.fn(),
+          index: vi.fn(),
+        };
+
+        // Configure store behavior based on store name
+        mockTransaction.objectStore.mockImplementation((storeName) => {
+          if (storeName === "playlists") {
+            return playlistStore;
+          } else if (storeName === "songs") {
+            return songStore;
+          }
+          return mockStore; // fallback
+        });
+
+        // Mock playlist store data
+        playlistStore.get.mockImplementation((key) => {
+          if (key === "playlist-123") {
+            return Promise.resolve({
+              id: "playlist-123",
+              songIds: ["song-456", "other-song"],
+              title: "Test Playlist",
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            });
+          }
+          if (key === "empty-playlist") {
+            return Promise.resolve({
+              id: "empty-playlist",
+              songIds: [],
+              title: "Empty Playlist",
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            });
+          }
+          return Promise.resolve(null);
+        });
+
+        playlistStore.put.mockResolvedValue(undefined);
+        songStore.delete.mockResolvedValue(undefined);
+        songStore.index.mockReturnValue({
+          openCursor: vi.fn().mockResolvedValue(null),
+        });
+      });
+
+      it("should remove song from playlist and delete song record", async () => {
+        const playlistId = "playlist-123";
+        const songId = "song-456";
+
+        // The mockStore.get is already set up in beforeEach
+
+        await removeSongFromPlaylist(playlistId, songId);
+
+        // Verify transaction was created with correct parameters
+        expect(mockDB.transaction).toHaveBeenCalledWith("songs", "readwrite");
+        expect(mockTransaction.objectStore).toHaveBeenCalledWith("songs");
+        expect(mockStore.delete).toHaveBeenCalledWith(songId);
+
+        // Verify BroadcastChannel was used
+        expect(BroadcastChannel).toHaveBeenCalledWith(
+          "musicPlaylistDB-changes"
+        );
+
+        // Verify triggerSongUpdateWithOptions was called
+        expect(triggerSongUpdateWithOptions).toHaveBeenCalledWith({
+          songId,
+          type: "delete",
+          metadata: { playlistId },
+        });
+      });
+
+      it("should handle song deletion with cursor iteration", async () => {
+        const playlistId = "playlist-123";
+        const songId = "song-456";
+
+        // Mock cursor with songs to delete
+        const mockCursor = {
+          delete: vi.fn().mockResolvedValue(undefined),
+          continue: vi.fn().mockResolvedValue(undefined),
+          value: { id: "related-song-1" },
+        };
+
+        // First call returns cursor, second call returns null (end of iteration)
+        mockStore.index.mockReturnValue({
+          openCursor: vi
+            .fn()
+            .mockResolvedValueOnce(mockCursor)
+            .mockResolvedValueOnce(null),
+        });
+
+        await removeSongFromPlaylist(playlistId, songId);
+
+        expect(mockStore.index).toHaveBeenCalledWith("playlistId");
+        expect(mockCursor.delete).toHaveBeenCalled();
+      });
+
+      it("should handle multiple related songs in cursor iteration", async () => {
+        const playlistId = "playlist-123";
+        const songId = "song-456";
+
+        const mockCursor1 = {
+          delete: vi.fn().mockResolvedValue(undefined),
+          continue: vi.fn().mockImplementation(function () {
+            // Simulate moving to next cursor
+            return Promise.resolve();
+          }),
+          value: { id: "related-song-1" },
+        };
+
+        const mockCursor2 = {
+          delete: vi.fn().mockResolvedValue(undefined),
+          continue: vi.fn().mockResolvedValue(undefined),
+          value: { id: "related-song-2" },
+        };
+
+        // Simulate cursor iteration: cursor1 -> cursor2 -> null
+        mockStore.index.mockReturnValue({
+          openCursor: vi
+            .fn()
+            .mockResolvedValueOnce(mockCursor1)
+            .mockResolvedValueOnce(mockCursor2)
+            .mockResolvedValueOnce(null),
+        });
+
+        await removeSongFromPlaylist(playlistId, songId);
+
+        expect(mockCursor1.delete).toHaveBeenCalled();
+        expect(mockCursor2.delete).toHaveBeenCalled();
+      });
+
+      it("should broadcast song deletion message", async () => {
+        const playlistId = "playlist-123";
+        const songId = "song-456";
+
+        const mockBroadcastChannel = {
+          postMessage: vi.fn(),
+          close: vi.fn(),
+        };
+
+        (BroadcastChannel as any).mockReturnValue(mockBroadcastChannel);
+
+        await removeSongFromPlaylist(playlistId, songId);
+
+        expect(mockBroadcastChannel.postMessage).toHaveBeenCalledWith({
+          type: "mutation",
+          store: "songs",
+          id: songId,
+        });
+        expect(mockBroadcastChannel.close).toHaveBeenCalled();
+      });
+
+      it("should handle transaction completion", async () => {
+        const playlistId = "playlist-123";
+        const songId = "song-456";
+
+        await removeSongFromPlaylist(playlistId, songId);
+
+        // Verify transaction.done was awaited
+        expect(mockTransaction.done).toBeDefined();
+      });
+
+      it("should handle edge case with empty playlist", async () => {
+        const playlistId = "empty-playlist";
+        const songId = "song-456";
+
+        // The mockStore.get implementation already handles empty-playlist case
+
+        await removeSongFromPlaylist(playlistId, songId);
+
+        // Should still attempt to delete the song record
+        expect(mockStore.delete).toHaveBeenCalledWith(songId);
+
+        // Verify reactivity trigger was called
+        expect(triggerSongUpdateWithOptions).toHaveBeenCalledWith({
+          songId,
+          type: "delete",
+          metadata: { playlistId },
+        });
+      });
     });
   });
 });

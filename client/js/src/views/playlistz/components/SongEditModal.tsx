@@ -20,6 +20,9 @@ export function SongEditModal(props: SongEditModalProps) {
   const [artist, setArtist] = createSignal("");
   const [album, setAlbum] = createSignal("");
   const [imageData, setImageData] = createSignal<ArrayBuffer | undefined>();
+  const [thumbnailData, setThumbnailData] = createSignal<
+    ArrayBuffer | undefined
+  >();
   const [imageType, setImageType] = createSignal<string | undefined>();
   const [imageUrl, setImageUrl] = createSignal<string | undefined>();
   const [isLoading, setIsLoading] = createSignal(false);
@@ -31,13 +34,16 @@ export function SongEditModal(props: SongEditModalProps) {
       setTitle(props.song.title);
       setArtist(props.song.artist || "");
       setAlbum(props.song.album || "");
-      if (props.song.imageData && props.song.imageType) {
+      if (
+        (props.song.imageData || props.song.thumbnailData) &&
+        props.song.imageType
+      ) {
         setImageData(props.song.imageData);
+        setThumbnailData(props.song.thumbnailData);
         setImageType(props.song.imageType);
-        const url = createImageUrlFromData(
-          props.song.imageData,
-          props.song.imageType
-        );
+        // Use imageData if available, fallback to thumbnailData for preview
+        const displayData = props.song.imageData || props.song.thumbnailData;
+        const url = createImageUrlFromData(displayData, props.song.imageType);
         setImageUrl(url);
       }
     }
@@ -60,18 +66,19 @@ export function SongEditModal(props: SongEditModalProps) {
       setError(null);
 
       const result = await processPlaylistCover(file);
-      if (result.success && result.thumbnailData) {
+      if (result.success && result.imageData && result.thumbnailData) {
         // Clean up previous URL if exists
         const prevUrl = imageUrl();
         if (prevUrl) {
           URL.revokeObjectURL(prevUrl);
         }
 
-        setImageData(result.thumbnailData);
+        setImageData(result.imageData);
+        setThumbnailData(result.thumbnailData);
         setImageType(file.type);
 
-        // Create new display URL
-        const newUrl = createImageUrlFromData(result.thumbnailData, file.type);
+        // Create new display URL using full-size image for preview
+        const newUrl = createImageUrlFromData(result.imageData, file.type);
         setImageUrl(newUrl);
       } else {
         setError(result.error || "failed to process image");
@@ -99,6 +106,7 @@ export function SongEditModal(props: SongEditModalProps) {
         artist: artist().trim() || "Unknown Artist",
         album: album().trim() || "Unknown Album",
         imageData: imageData(),
+        thumbnailData: thumbnailData(),
         imageType: imageType(),
         updatedAt: Date.now(),
       };
@@ -136,6 +144,7 @@ export function SongEditModal(props: SongEditModalProps) {
       URL.revokeObjectURL(url);
     }
     setImageData(undefined);
+    setThumbnailData(undefined);
     setImageType(undefined);
     setImageUrl(undefined);
   };
