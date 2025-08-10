@@ -359,8 +359,8 @@ describe("Audio Service Tests", () => {
 
       // Manually trigger the ended event handlers
       const endedHandlers = audio.addEventListener.mock.calls
-        .filter((call) => call[0] === "ended")
-        .map((call) => call[1]);
+        .filter((call: any) => call[0] === "ended")
+        .map((call: any) => call[1]);
 
       for (const handler of endedHandlers) {
         await handler();
@@ -382,8 +382,8 @@ describe("Audio Service Tests", () => {
 
       // Manually trigger the ended event handlers
       const endedHandlers = audio.addEventListener.mock.calls
-        .filter((call) => call[0] === "ended")
-        .map((call) => call[1]);
+        .filter((call: any) => call[0] === "ended")
+        .map((call: any) => call[1]);
 
       for (const handler of endedHandlers) {
         await handler();
@@ -405,8 +405,8 @@ describe("Audio Service Tests", () => {
 
       // Manually trigger the ended event handlers
       const endedHandlers = audio.addEventListener.mock.calls
-        .filter((call) => call[0] === "ended")
-        .map((call) => call[1]);
+        .filter((call: any) => call[0] === "ended")
+        .map((call: any) => call[1]);
 
       for (const handler of endedHandlers) {
         await handler();
@@ -648,8 +648,8 @@ describe("Audio Service Tests", () => {
 
       // Manually trigger the ended event handlers
       const endedHandlers = audio.addEventListener.mock.calls
-        .filter((call) => call[0] === "ended")
-        .map((call) => call[1]);
+        .filter((call: any) => call[0] === "ended")
+        .map((call: any) => call[1]);
 
       for (const handler of endedHandlers) {
         await handler();
