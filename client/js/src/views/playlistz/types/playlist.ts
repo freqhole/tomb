@@ -10,6 +10,7 @@ export interface Playlist {
   songIds: string[]; // Ordered array of song IDs
   needsImageLoad?: boolean;
   imageFilePath?: string;
+  rev?: number; // Revision number for standalone mode (starts at 0, incremented on download)
 }
 
 export interface Song {
@@ -34,6 +35,7 @@ export interface Song {
   standaloneFilePath?: string; // Path to audio file in standalone mode
   needsImageLoad?: boolean;
   imageFilePath?: string;
+  sha?: string; // SHA-256 hash of the raw audio data
 }
 
 export interface AudioState {

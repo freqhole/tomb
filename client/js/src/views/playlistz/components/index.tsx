@@ -12,6 +12,7 @@ import {
   setupDB,
   createPlaylist,
   createPlaylistsQuery,
+  createPlaylistSongsQuery,
   updatePlaylist,
   getAllPlaylists,
   deletePlaylist,
@@ -19,6 +20,7 @@ import {
   removeSongFromPlaylist,
   getAllSongs,
   reorderSongs,
+  getPlaylist,
 } from "../services/indexedDBService.js";
 import {
   cleanup as cleanupAudio,
@@ -91,6 +93,7 @@ export function Playlistz() {
   const [showImageModal, setShowImageModal] = createSignal(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [playlistSongs, setPlaylistSongs] = createSignal<any[]>([]);
+  let songsQueryUnsubscribe: (() => void) | null = null;
   const [modalImageIndex, setModalImageIndex] = createSignal(0);
   const [isDownloading, setIsDownloading] = createSignal(false);
   const [isCaching, setIsCaching] = createSignal(false);
@@ -108,10 +111,7 @@ export function Playlistz() {
       const current = selectedPlaylist();
       if (current) {
         const updated = value.find((p) => p.id === current.id);
-        if (
-          updated &&
-          JSON.stringify(updated.songIds) !== JSON.stringify(current.songIds)
-        ) {
+        if (updated) {
           setSelectedPlaylist(updated);
         }
       }
@@ -120,26 +120,38 @@ export function Playlistz() {
     onCleanup(unsubscribe);
   });
 
-  // load playlist songz when selected playlist changez
-  createEffect(async () => {
+  // load playlist songz when selected playlist changez using reactive queries
+  createEffect(() => {
     const playlist = selectedPlaylist();
+
+    // cleanup previous songs query subscription
+    if (songsQueryUnsubscribe) {
+      songsQueryUnsubscribe();
+      songsQueryUnsubscribe = null;
+    }
+
     if (playlist && playlist.songIds.length > 0) {
-      try {
-        const allSongs = await getAllSongs();
-        const songs = allSongs
-          .filter((song) => playlist.songIds.includes(song.id))
-          .sort((a, b) => {
-            const indexA = playlist.songIds.indexOf(a.id);
-            const indexB = playlist.songIds.indexOf(b.id);
-            return indexA - indexB;
-          });
-        setPlaylistSongs(songs);
-      } catch (err) {
-        console.error("error loading playlist songz:", err);
-      }
+      // create reactive query for this playlist's songs
+      const songsQuery = createPlaylistSongsQuery(playlist.id);
+      songsQueryUnsubscribe = songsQuery.subscribe((songs) => {
+        // sort songs according to playlist order
+        const sortedSongs = songs.sort((a, b) => {
+          const indexA = playlist.songIds.indexOf(a.id);
+          const indexB = playlist.songIds.indexOf(b.id);
+          return indexA - indexB;
+        });
+        setPlaylistSongs(sortedSongs);
+      });
     } else {
       setPlaylistSongs([]);
     }
+
+    // cleanup songs query subscription on unmount
+    onCleanup(() => {
+      if (songsQueryUnsubscribe) {
+        songsQueryUnsubscribe();
+      }
+    });
   });
 
   // cache for background image URLz to avoid recreating them
@@ -562,7 +574,7 @@ export function Playlistz() {
         setSidebarCollapsed(true);
       }
     } catch (err) {
-      console.error("❌ Error creating playlist:", err);
+      console.error("Error creating playlist:", err);
       setError(
         err instanceof Error ? err.message : "failed to create playlist"
       );
@@ -585,7 +597,7 @@ export function Playlistz() {
       try {
         await updatePlaylist(current.id, updates);
       } catch (err) {
-        console.error("❌ Failed to save playlist:", err);
+        console.error("Failed to save playlist:", err);
         setError("failed to save changes");
       }
     }, 1000);
@@ -611,7 +623,7 @@ export function Playlistz() {
         }
       }
     } catch (err) {
-      console.error("❌ Error playing song:", err);
+      console.error("Error playing song:", err);
       setError("failed to play song");
     }
   };
@@ -636,7 +648,7 @@ export function Playlistz() {
         }
       }
     } catch (err) {
-      console.error("❌ Error removing song:", err);
+      console.error("Error removing song:", err);
       setError("failed to remove song");
     }
   };
@@ -780,6 +792,8 @@ export function Playlistz() {
         generateM3U: true,
         includeHTML: true,
       });
+
+      // reactive queries will automatically update the UI
     } catch (err) {
       setError("failed to download playlist");
     } finally {

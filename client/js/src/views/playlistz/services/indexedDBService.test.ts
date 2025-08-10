@@ -345,7 +345,7 @@ describe("Database Efficiency Tests", () => {
 
         expect(result).toEqual([]);
         expect(consoleSpy).toHaveBeenCalledWith(
-          "❌ Error fetching all playlists:",
+          "error fetching all playlists:",
           expect.any(Error)
         );
 

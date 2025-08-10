@@ -145,7 +145,7 @@ export async function extractAlbumArt(
 
     return { success: false, error: "No album art found in ID3 tags" };
   } catch (error) {
-    console.error("❌ Error extracting album art:", error);
+    console.error("Error extracting album art:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
@@ -219,7 +219,7 @@ export async function processPlaylistCover(
       img.src = tempUrl;
     });
   } catch (error) {
-    console.error("❌ Error processing playlist cover:", error);
+    console.error("Error processing playlist cover:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
@@ -356,7 +356,7 @@ export function getImageUrlForContext(
 
   // Fallback for file:// protocol - use direct file paths
   if (
-    window.STANDALONE_MODE &&
+    (window as any).STANDALONE_MODE &&
     window.location.protocol === "file:" &&
     imageFilePath
   ) {

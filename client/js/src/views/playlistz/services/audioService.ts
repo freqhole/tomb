@@ -563,7 +563,7 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
               downloadPromise
                 .then((success) => {
                   if (success) {
-                    console.log(`successfully cached ${song.title}`);
+                    console.debug(`successfully cached ${song.title}`);
                   } else {
                     console.warn(`failed to cache ${song.title}`);
                   }
@@ -996,7 +996,7 @@ async function preloadNextSong(): Promise<void> {
       )
         .then((success) => {
           if (success) {
-            console.log(`successfully preloaded ${nextSong.title}`);
+            console.debug(`successfully preloaded ${nextSong.title}`);
           } else {
             console.warn(`failed to preload ${nextSong.title}`);
           }

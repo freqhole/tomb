@@ -319,6 +319,9 @@ export function SongEditModal(props: SongEditModalProps) {
                 </div>
               </Show>
               <div>duration: {formatDuration(props.song.duration)}</div>
+              <Show when={props.song.sha}>
+                <div class="break-all">sha: {props.song.sha}</div>
+              </Show>
             </div>
           </div>
 

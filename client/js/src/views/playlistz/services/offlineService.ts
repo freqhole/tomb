@@ -31,7 +31,7 @@ async function requestPersistentStorage(): Promise<boolean> {
       return false;
     }
   } catch (error) {
-    console.error("❌ Error requesting persistent storage:", error);
+    console.error("Error requesting persistent storage:", error);
     return false;
   }
 }
@@ -278,7 +278,7 @@ export async function cacheAudioFile(
     const cache = await caches.open(CACHE_NAME);
     await cache.add(url);
   } catch (error) {
-    console.error(`❌ Failed to cache audio file ${title}:`, error);
+    console.error(`Failed to cache audio file ${title}:`, error);
     throw error;
   }
 }
@@ -348,7 +348,7 @@ export async function getStorageInfo(): Promise<{
 
     return info;
   } catch (error) {
-    console.error("❌ Error getting storage info:", error);
+    console.error("Error getting storage info:", error);
     return { error: error instanceof Error ? error.message : String(error) };
   }
 }
@@ -366,7 +366,7 @@ export async function isUrlCached(url: string): Promise<boolean> {
     const response = await cache.match(url);
     return !!response;
   } catch (error) {
-    console.error("❌ Error checking cache:", error);
+    console.error("Error checking cache:", error);
     return false;
   }
 }

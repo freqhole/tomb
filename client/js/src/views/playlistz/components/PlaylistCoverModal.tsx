@@ -346,6 +346,8 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
             </h3>
             <div class="text-sm text-gray-400 space-y-1">
               <div>title: {props.playlist.title}</div>
+              <div>id: {props.playlist.id}</div>
+              <div>rev: {props.playlist.rev || 0}</div>
               <div>songz: {props.playlist.songIds.length}</div>
               <div>with album art: {songsWithArt.length}</div>
             </div>

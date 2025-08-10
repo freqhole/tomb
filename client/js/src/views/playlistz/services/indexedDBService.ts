@@ -4,6 +4,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type { Playlist, Song } from "../types/playlist.js";
 import { triggerSongUpdateWithOptions } from "./songReactivity.js";
+import { calculateSHA256 } from "../utils/hashUtils.js";
 
 // Simple signal implementation (matching the demo pattern)
 interface Signal<T> {
@@ -146,7 +147,7 @@ export function createLiveQuery<T>({
         signal.set(filtered);
       }
     } catch (error) {
-      console.error("Error in fetchAndUpdate:", error);
+      console.error("error in fetchAndUpdate:", error);
     }
   }
 
@@ -218,7 +219,7 @@ export async function mutateAndNotify({
       try {
         fetchAndUpdate();
       } catch (error) {
-        console.error("Error in direct query update:", error);
+        console.error("error in direct query update:", error);
       }
     }
   }
@@ -241,6 +242,7 @@ export async function createPlaylist(
     id,
     createdAt: now,
     updatedAt: now,
+    rev: 0, // Initialize revision to 0
     ...playlist,
     songIds: playlist.songIds || [],
   };
@@ -308,6 +310,9 @@ export async function addSongToPlaylist(
   // Convert File to ArrayBuffer for persistent storage
   const audioData = await file.arrayBuffer();
 
+  // Calculate SHA-256 hash of the audio data
+  const sha = await calculateSHA256(audioData);
+
   const song: Song = {
     id: songId,
     file, // Temporary - only available during creation
@@ -321,6 +326,7 @@ export async function addSongToPlaylist(
     playlistId,
     createdAt: now,
     updatedAt: now,
+    sha, // Include calculated SHA
     ...metadata,
   };
 
@@ -481,6 +487,7 @@ export function createPlaylistsQuery() {
       "createdAt",
       "updatedAt",
       "songIds",
+      "rev",
     ],
   });
 }
@@ -519,7 +526,7 @@ export async function getSongById(songId: string): Promise<Song | null> {
       audioData: undefined, // Don't expose raw audio data in metadata
     };
   } catch (error) {
-    console.error(`❌ Error fetching song ${songId}:`, error);
+    console.error(`error fetching song ${songId}:`, error);
     return null;
   }
 }
@@ -540,7 +547,7 @@ export async function loadSongAudioData(
 
     return blobUrl;
   } catch (error) {
-    console.error(`❌ Error loading audio data for song ${songId}:`, error);
+    console.error(`Error loading audio data for song ${songId}:`, error);
     return null;
   }
 }
@@ -558,7 +565,7 @@ export async function getAllSongs(): Promise<Song[]> {
       })) || []
     );
   } catch (error) {
-    console.error("❌ Error fetching all songs:", error);
+    console.error("error fetching all songs:", error);
     return [];
   }
 }
@@ -586,7 +593,7 @@ export async function getSongsWithAudioData(
       return aIndex - bIndex;
     });
   } catch (error) {
-    console.error("❌ Error getting songs with audio data:", error);
+    console.error("error getting songs with audio data:", error);
     return [];
   }
 }
@@ -611,14 +618,27 @@ export async function cleanupInvalidSongs(): Promise<number> {
       if (!hasValidAudioData(song)) {
         await db.delete(SONGS_STORE, song.id);
         cleanedCount++;
-        console.warn(`🗑️ Removed invalid song: ${song.title}`);
+        console.warn(`removed invalid song: ${song.title}`);
       }
     }
 
     return cleanedCount;
   } catch (error) {
-    console.error("❌ Error cleaning up invalid songs:", error);
+    console.error("error cleaning up invalid songs:", error);
     return 0;
+  }
+}
+
+export async function getPlaylist(
+  playlistId: string
+): Promise<Playlist | null> {
+  try {
+    const db = await setupDB();
+    const playlist = await db.get(PLAYLISTS_STORE, playlistId);
+    return playlist || null;
+  } catch (error) {
+    console.error("error fetching playlist:", error);
+    return null;
   }
 }
 
@@ -628,7 +648,7 @@ export async function getAllPlaylists(): Promise<Playlist[]> {
     const playlists = await db.getAll(PLAYLISTS_STORE);
     return playlists;
   } catch (error) {
-    console.error("❌ Error fetching all playlists:", error);
+    console.error("error fetching all playlists:", error);
     return [];
   }
 }

@@ -1,6 +1,11 @@
 import JSZip from "jszip";
 import type { Playlist, Song } from "../types/playlist.js";
-import { getSongsWithAudioData } from "./indexedDBService.js";
+import {
+  getSongsWithAudioData,
+  updatePlaylist,
+  updateSong,
+} from "./indexedDBService.js";
+import { calculateSHA256 } from "../utils/hashUtils.js";
 
 export interface PlaylistDownloadOptions {
   includeMetadata?: boolean;
@@ -24,37 +29,70 @@ export async function downloadPlaylistAsZip(
   try {
     const zip = new JSZip();
 
-    // Get all songs for this playlist with audio data
+    // increment playlist revision before download
+    const currentRev = playlist.rev || 0;
+    const newRev = currentRev + 1;
+
+    // update playlist with new revision
+    await updatePlaylist(playlist.id, { rev: newRev });
+
+    const updatedPlaylist = { ...playlist, rev: newRev };
+
+    // get all songs for this playlist with audio data
     const playlistSongs = await getSongsWithAudioData(playlist.songIds);
 
-    // Audio data is now always stored in IndexedDB during initialization
+    // calculate sha for songs that don't have it yet (legacy support)
+    const songsWithSHA = await Promise.all(
+      playlistSongs.map(async (song) => {
+        if (!song.sha && song.audioData) {
+          try {
+            const sha = await calculateSHA256(song.audioData);
+            // update the song in indexeddb with the calculated sha
+            await updateSong(song.id, { sha });
+            return { ...song, sha };
+          } catch (error) {
+            console.warn(
+              `Failed to calculate SHA for song ${song.title}:`,
+              error
+            );
+            return song;
+          }
+        }
+        return song;
+      })
+    );
 
-    // Create root folder with playlist name
-    const rootFolderName = createSafeFileName("", playlist.title);
+    // audio data is now always stored in indexeddb during initialization
+
+    // create root folder with playlist name
+    const rootFolderName = createSafeFileName("", updatedPlaylist.title);
     const rootFolder = zip.folder(rootFolderName);
 
-    // Create data folder inside root folder
+    // create data folder inside root folder
     const dataFolder = rootFolder!.folder("data");
 
-    // Create comprehensive playlist data file in data folder
+    // create comprehensive playlist data file in data folder
     const playlistData = {
       playlist: {
-        id: playlist.id,
-        title: playlist.title,
-        description: playlist.description || "",
-        createdAt: new Date(playlist.createdAt).toISOString(),
-        updatedAt: new Date(playlist.updatedAt).toISOString(),
-        songCount: playlistSongs.length,
-        totalDuration: playlistSongs.reduce(
+        id: updatedPlaylist.id,
+        title: updatedPlaylist.title,
+        description: updatedPlaylist.description || "",
+        createdAt: new Date(updatedPlaylist.createdAt).toISOString(),
+        updatedAt: new Date(updatedPlaylist.updatedAt).toISOString(),
+        rev: updatedPlaylist.rev,
+        songCount: songsWithSHA.length,
+        totalDuration: songsWithSHA.reduce(
           (total, song) => total + (song.duration || 0),
           0
         ),
-        imageExtension: playlist.imageData
-          ? getFileExtensionFromMimeType(playlist.imageType || "image/jpeg")
+        imageExtension: updatedPlaylist.imageData
+          ? getFileExtensionFromMimeType(
+              updatedPlaylist.imageType || "image/jpeg"
+            )
           : null,
-        imageMimeType: playlist.imageType || null,
+        imageMimeType: updatedPlaylist.imageType || null,
       },
-      songs: playlistSongs.map((song) => ({
+      songs: songsWithSHA.map((song) => ({
         id: song.id,
         title: song.title,
         artist: song.artist,
@@ -66,6 +104,7 @@ export async function downloadPlaylistAsZip(
           : "",
         fileSize: song.fileSize || song.audioData?.byteLength,
         mimeType: song.mimeType || "audio/mpeg",
+        sha: song.sha,
         imageExtension: song.imageData
           ? getFileExtensionFromMimeType(song.imageType || "image/jpeg")
           : null,
@@ -73,60 +112,64 @@ export async function downloadPlaylistAsZip(
       })),
     };
 
-    // Add single playlist JSON file to data folder
+    // add single playlist json file to data folder
     dataFolder!.file("playlist.json", JSON.stringify(playlistData, null, 2));
 
-    // Add playlist cover image to data folder if it exists
-    if (options.includeImages && playlist.imageData && playlist.imageType) {
-      const extension = getFileExtensionFromMimeType(playlist.imageType);
-      dataFolder!.file(`playlist-cover${extension}`, playlist.imageData);
+    // add playlist cover image to data folder if it exists
+    if (
+      options.includeImages &&
+      updatedPlaylist.imageData &&
+      updatedPlaylist.imageType
+    ) {
+      const extension = getFileExtensionFromMimeType(updatedPlaylist.imageType);
+      dataFolder!.file(`playlist-cover${extension}`, updatedPlaylist.imageData);
     }
 
-    // Add all audio files to data folder
+    // add all audio files to data folder
     const songFileNames: string[] = [];
 
-    for (const song of playlistSongs) {
+    for (const song of songsWithSHA) {
       if (song.audioData && song.originalFilename) {
-        // Create safe filename for ZIP while keeping original in metadata
+        // create safe filename for zip while keeping original in metadata
         const safeFileName = sanitizeFilename(song.originalFilename);
         const baseName = safeFileName.replace(/\.[^.]+$/, "");
 
         dataFolder!.file(safeFileName, song.audioData);
         songFileNames.push(safeFileName);
 
-        // Add song cover art if it exists
+        // add song cover art if it exists
         if (options.includeImages && song.imageData && song.imageType) {
           const imageExtension = getFileExtensionFromMimeType(song.imageType);
           const imageFileName = `${baseName}-cover${imageExtension}`;
           dataFolder!.file(imageFileName, song.imageData);
         }
 
-        // Add individual song metadata
-        // Metadata is now included in the main playlist.json file
+        // add individual song metadata
+        // metadata is now included in the main playlist.json file
       }
     }
 
-    // Generate M3U8 playlist file in data folder
+    // generate m3u8 playlist file in data folder
     if (options.generateM3U) {
       const m3uContent = generateM3UContent(
-        playlist,
-        playlistSongs,
+        updatedPlaylist,
+        songsWithSHA,
         songFileNames
       );
       dataFolder!.file(
-        `${createSafeFileName("", playlist.title)}.m3u8`,
+        `${createSafeFileName("", updatedPlaylist.title)}.m3u8`,
         m3uContent
       );
     }
 
-    // Generate standalone HTML page in root folder
+    // generate standalone html page in root folder
     if (options.includeHTML) {
       try {
         const htmlContent = await generateStandaloneHTML(playlistData);
         rootFolder!.file("playlistz.html", htmlContent);
 
-        // Add service worker file for offline functionality in root directory
-        // (SW must be at same level or higher than HTML to control it)
+        // add service worker file for offline functionality in root directory
+        // (sw must be at same level or higher than html to control it)
         try {
           const swResponse = await fetch("./sw.js");
           if (swResponse.ok) {
@@ -138,19 +181,19 @@ export async function downloadPlaylistAsZip(
             "⚠️ Could not include service worker in bundle:",
             swError
           );
-          // Continue without service worker - not critical
+          // continue without service worker - not critical
         }
       } catch (error) {
-        console.error("❌ Error generating HTML:", error);
+        console.error("Error generating HTML:", error);
         console.error(
-          "❌ Error stack:",
+          "Error stack:",
           error instanceof Error ? error.stack : "Unknown error"
         );
-        // Continue without HTML file rather than failing
+        // continue without html file rather than failing
       }
     }
 
-    // Generate and download the ZIP file
+    // generate and download the zip file
     const blob = await zip.generateAsync({ type: "blob" });
     const url = URL.createObjectURL(blob);
 
@@ -161,7 +204,7 @@ export async function downloadPlaylistAsZip(
     link.click();
     document.body.removeChild(link);
 
-    // Clean up the URL
+    // clean up the url
     URL.revokeObjectURL(url);
   } catch (error) {
     console.error("Error downloading playlist:", error);

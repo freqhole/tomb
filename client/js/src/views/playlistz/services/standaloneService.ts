@@ -14,7 +14,7 @@ const [standaloneLoadingProgress, setStandaloneLoadingProgress] = createSignal<{
   current: number;
   total: number;
   currentSong: string;
-  phase: "initializing" | "checking" | "updating" | "complete";
+  phase: "initializing" | "checking" | "updating" | "complete" | "reloading";
 } | null>(null);
 
 // Export the signal and setter for UI components to use
@@ -57,6 +57,7 @@ function createSongFromData(
     standaloneFilePath: standaloneFilePath,
     needsImageLoad: true,
     imageFilePath: "",
+    sha: songData.sha, // Include SHA from standalone data
   };
 
   // Set song image metadata for file-based loading
@@ -112,7 +113,8 @@ async function updateExistingData(
       !hasValidAudioData(existingSong) ||
       existingSong.mimeType !== songData.mimeType ||
       !existingSong.standaloneFilePath ||
-      existingSong.standaloneFilePath !== standaloneFilePath;
+      existingSong.standaloneFilePath !== standaloneFilePath ||
+      (existingSong.sha && songData.sha && existingSong.sha !== songData.sha);
 
     if (needsReload) {
       // Create song for lazy loading (no audio data initially)
@@ -125,17 +127,18 @@ async function updateExistingData(
         songData.mimeType || "audio/mpeg"
       );
     } else {
-      // Keep existing valid song, just update metadata
+      // keep existing valid song, just update metadata (including sha)
       song = {
         ...existingSong,
         title: songData.title,
         artist: songData.artist,
         album: songData.album,
         standaloneFilePath,
+        sha: songData.sha || existingSong.sha, // update sha if provided
         updatedAt: Date.now(),
       };
 
-      // Update image metadata if changed
+      // update image metadata if changed
       if (songData.imageExtension && songData.imageMimeType) {
         song.imageType = songData.imageMimeType;
         song.needsImageLoad = true;
@@ -159,6 +162,7 @@ async function updateExistingData(
     title: playlistData.playlist.title,
     description: playlistData.playlist.description,
     songIds: playlistData.songs.map((s: any) => s.id),
+    rev: playlistData.playlist.rev || existingPlaylist.rev || 0, // Update revision
     updatedAt: Date.now(),
   };
 
@@ -182,12 +186,142 @@ async function updateExistingData(
 }
 
 /**
- * Create a new playlist with all songs
+ * smart update function that preserves audio data when sha matches
+ */
+async function smartUpdatePlaylistWithSongs(
+  existingPlaylist: Playlist | null,
+  existingSongs: any[],
+  playlistData: any
+): Promise<{ playlist: Playlist; songs: any[] }> {
+  // create or update playlist
+  const playlistToUpdate = {
+    id: playlistData.playlist.id,
+    title: playlistData.playlist.title,
+    description: playlistData.playlist.description,
+    rev: playlistData.playlist.rev || 0,
+    songIds: [],
+    imageData: undefined as ArrayBuffer | undefined,
+    thumbnailData: undefined as ArrayBuffer | undefined,
+    imageType: undefined as string | undefined,
+    needsImageLoad: true,
+    imageFilePath: undefined as string | undefined,
+  };
+
+  // set playlist image metadata for loading from file
+  if (
+    playlistData.playlist.imageExtension &&
+    playlistData.playlist.imageMimeType
+  ) {
+    playlistToUpdate.imageType = playlistData.playlist.imageMimeType;
+    playlistToUpdate.needsImageLoad = true;
+    playlistToUpdate.imageFilePath = `data/playlist-cover${playlistData.playlist.imageExtension}`;
+  }
+
+  const finalPlaylist: Playlist = {
+    ...playlistToUpdate,
+    createdAt: existingPlaylist?.createdAt || Date.now(),
+    updatedAt: Date.now(),
+    songIds: [],
+  };
+
+  await mutateAndNotify({
+    dbName: DB_NAME,
+    storeName: PLAYLISTS_STORE,
+    key: finalPlaylist.id,
+    updateFn: () => finalPlaylist,
+  });
+
+  // smart song updating: preserve audio data when sha matches
+  const updatedSongs: any[] = [];
+  const finalSongIds: string[] = [];
+
+  for (let i = 0; i < playlistData.songs.length; i++) {
+    const songData = playlistData.songs[i];
+    const standaloneFilePath = `data/${songData.safeFilename || songData.originalFilename}`;
+
+    setStandaloneLoadingProgress({
+      current: i + 1,
+      total: playlistData.songs.length,
+      currentSong: songData.title,
+      phase: "reloading",
+    });
+
+    // check if this song already exists
+    const existingSong = existingSongs.find((s) => s.id === songData.id);
+
+    let finalSong;
+
+    if (
+      existingSong &&
+      existingSong.sha &&
+      songData.sha &&
+      existingSong.sha === songData.sha
+    ) {
+      // sha matches - preserve existing audio data but update metadata
+      finalSong = {
+        ...existingSong,
+        title: songData.title,
+        artist: songData.artist,
+        album: songData.album,
+        duration: songData.duration,
+        position: i,
+        originalFilename: songData.originalFilename,
+        fileSize: songData.fileSize,
+        mimeType: songData.mimeType || existingSong.mimeType,
+        standaloneFilePath,
+        updatedAt: Date.now(),
+        sha: songData.sha, // keep the sha
+      };
+
+      // update image metadata if changed
+      if (songData.imageExtension && songData.imageMimeType) {
+        finalSong.imageType = songData.imageMimeType;
+        finalSong.needsImageLoad = true;
+        finalSong.imageFilePath = `data/${songData.safeFilename?.replace(/\.[^.]+$/, "") || songData.originalFilename?.replace(/\.[^.]+$/, "")}-cover${songData.imageExtension}`;
+      }
+    } else {
+      // sha different or missing - create new song without audio data (lazy loading)
+      finalSong = createSongFromData(
+        songData,
+        i,
+        finalPlaylist.id,
+        standaloneFilePath,
+        undefined, // no audio data initially - will be loaded on-demand
+        songData.mimeType || "audio/mpeg"
+      );
+    }
+
+    updatedSongs.push(finalSong);
+    finalSongIds.push(finalSong.id);
+
+    // store song in indexeddb
+    await mutateAndNotify({
+      dbName: DB_NAME,
+      storeName: SONGS_STORE,
+      key: finalSong.id,
+      updateFn: () => finalSong,
+    });
+  }
+
+  // update playlist with all song ids
+  finalPlaylist.songIds = finalSongIds;
+  await mutateAndNotify({
+    dbName: DB_NAME,
+    storeName: PLAYLISTS_STORE,
+    key: finalPlaylist.id,
+    updateFn: () => finalPlaylist,
+  });
+
+  return { playlist: finalPlaylist, songs: updatedSongs };
+}
+
+/**
+ * create a new playlist with all songs (used for first-time loading)
  */
 async function createNewPlaylist(
   playlistData: any
 ): Promise<{ playlist: Playlist; songs: any[] }> {
-  // Create playlist using service function to trigger reactive updates
+  // create playlist using service function to trigger reactive updates
   const playlistToCreate = {
     id: playlistData.playlist.id, // Override the auto-generated ID
     title: playlistData.playlist.title,
@@ -200,7 +334,7 @@ async function createNewPlaylist(
     imageFilePath: undefined as string | undefined,
   };
 
-  // Set playlist image metadata for loading from file
+  // set playlist image metadata for loading from file
   if (
     playlistData.playlist.imageExtension &&
     playlistData.playlist.imageMimeType
@@ -210,12 +344,13 @@ async function createNewPlaylist(
     playlistToCreate.imageFilePath = `data/playlist-cover${playlistData.playlist.imageExtension}`;
   }
 
-  // Manually store playlist using mutateAndNotify to trigger reactive updates
+  // manually store playlist using mutateandnotify to trigger reactive updates
   const finalPlaylist: Playlist = {
     ...playlistToCreate,
     id: playlistData.playlist.id,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    rev: playlistData.playlist.rev || 0,
     songIds: [],
   };
 
@@ -226,22 +361,22 @@ async function createNewPlaylist(
     updateFn: () => finalPlaylist,
   });
 
-  // Create and store songs
+  // create and store songs
   const virtualSongs: any[] = [];
   const finalSongIds: string[] = [];
 
-  // Create placeholder songs for all songs first so UI shows complete list
+  // create placeholder songs for all songs first so ui shows complete list
   for (let i = 0; i < playlistData.songs.length; i++) {
     const songData = playlistData.songs[i];
     const standaloneFilePath = `data/${songData.safeFilename || songData.originalFilename}`;
 
-    // Create song without audio data initially for lazy loading
+    // create song without audio data initially for lazy loading
     const song = createSongFromData(
       songData,
       i,
       finalPlaylist.id,
       standaloneFilePath,
-      undefined, // No audio data initially - will be loaded on-demand
+      undefined, // no audio data initially - will be loaded on-demand
       songData.mimeType || "audio/mpeg"
     );
 
@@ -249,7 +384,7 @@ async function createNewPlaylist(
     finalSongIds.push(song.id);
   }
 
-  // Update playlist with all song IDs immediately for UI
+  // update playlist with all song ids immediately for ui
   finalPlaylist.songIds = finalSongIds;
   await mutateAndNotify({
     dbName: DB_NAME,
@@ -258,7 +393,7 @@ async function createNewPlaylist(
     updateFn: () => finalPlaylist,
   });
 
-  // Store placeholder songs in IndexedDB
+  // store placeholder songs in indexeddb
   for (const song of virtualSongs) {
     await mutateAndNotify({
       dbName: DB_NAME,
@@ -268,8 +403,8 @@ async function createNewPlaylist(
     });
   }
 
-  // In lazy loading mode, we don't pre-load any audio data
-  // Songs will be loaded on-demand when played
+  // in lazy loading mode, we don't pre-load any audio data
+  // songs will be loaded on-demand when played
 
   return { playlist: finalPlaylist, songs: virtualSongs };
 }
@@ -306,28 +441,44 @@ export async function initializeStandalonePlaylist(
     let finalSongs: any[];
 
     if (existingPlaylist) {
-      // Load existing songs for this playlist
-      const existingSongs = await db.getAll(SONGS_STORE);
-      const playlistSongs = existingSongs.filter(
-        (song: any) => song.playlistId === existingPlaylist.id
-      );
+      // check if playlist revision has changed and needs full reload
+      const existingRev = existingPlaylist.rev || 0;
+      const incomingRev = playlistData.playlist.rev || 0;
+      const needsFullReload = incomingRev > existingRev;
 
-      // Update songs and playlist data
-      setStandaloneLoadingProgress({
-        current: 0,
-        total: playlistData.songs.length,
-        currentSong: "checking for stale songs...",
-        phase: "checking",
-      });
+      if (needsFullReload) {
+        // load existing songs for this playlist
+        const existingSongs = await db.getAll(SONGS_STORE);
+        const playlistSongs = existingSongs.filter(
+          (song: any) => song.playlistId === existingPlaylist.id
+        );
 
-      const { updatedPlaylist, updatedSongs } = await updateExistingData(
-        existingPlaylist,
-        playlistSongs,
-        playlistData
-      );
+        // smart update that preserves audio data when sha matches
+        setStandaloneLoadingProgress({
+          current: 0,
+          total: playlistData.songs.length,
+          currentSong: "updating playlist revision...",
+          phase: "reloading",
+        });
 
-      finalPlaylist = updatedPlaylist;
-      finalSongs = updatedSongs;
+        const { playlist, songs } = await smartUpdatePlaylistWithSongs(
+          existingPlaylist,
+          playlistSongs,
+          playlistData
+        );
+        finalPlaylist = playlist;
+        finalSongs = songs;
+      } else {
+        // rev hasn't changed, so playlist and songs are identical
+        // just use existing data without any processing
+        const existingSongs = await db.getAll(SONGS_STORE);
+        const playlistSongs = existingSongs.filter(
+          (song: any) => song.playlistId === existingPlaylist.id
+        );
+
+        finalPlaylist = existingPlaylist;
+        finalSongs = playlistSongs;
+      }
     } else {
       const { playlist, songs } = await createNewPlaylist(playlistData);
       finalPlaylist = playlist;
