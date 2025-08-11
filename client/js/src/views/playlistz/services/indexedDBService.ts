@@ -89,6 +89,13 @@ export async function setupDB(): Promise<IDBPDatabase<PlaylistDB>> {
   return cachedDB;
 }
 
+/**
+ * Reset the database cache - for testing purposes only
+ */
+export function resetDBCache(): void {
+  cachedDB = null;
+}
+
 // Live query configuration
 interface LiveQueryConfig {
   dbName: string;
@@ -226,9 +233,12 @@ export async function mutateAndNotify({
 
   // BroadcastChannel for cross-tab updates (async)
   const bc = new BroadcastChannel(`${dbName}-changes`);
-  const message = { type: "mutation", store: storeName, id: key };
-  bc.postMessage(message);
-  bc.close();
+  try {
+    const message = { type: "mutation", store: storeName, id: key };
+    bc.postMessage(message);
+  } finally {
+    bc.close();
+  }
 }
 
 // Playlist operations
@@ -294,8 +304,12 @@ export async function deletePlaylist(id: string): Promise<void> {
   await tx2.done;
 
   const bc = new BroadcastChannel(`${DB_NAME}-changes`);
-  bc.postMessage({ type: "mutation", store: PLAYLISTS_STORE, id });
-  bc.postMessage({ type: "mutation", store: SONGS_STORE, id });
+  try {
+    bc.postMessage({ type: "mutation", store: PLAYLISTS_STORE, id });
+    bc.postMessage({ type: "mutation", store: SONGS_STORE, id });
+  } finally {
+    bc.close();
+  }
 }
 
 // Song operations
@@ -416,7 +430,11 @@ export async function deleteSong(songId: string): Promise<void> {
   await tx.done;
 
   const bc = new BroadcastChannel(`${DB_NAME}-changes`);
-  bc.postMessage({ type: "mutation", store: SONGS_STORE, id: songId });
+  try {
+    bc.postMessage({ type: "mutation", store: SONGS_STORE, id: songId });
+  } finally {
+    bc.close();
+  }
 }
 
 // Reorder songs in playlist
@@ -665,11 +683,17 @@ export async function removeSongFromPlaylist(
     dbName: DB_NAME,
     storeName: PLAYLISTS_STORE,
     key: playlistId,
-    updateFn: (playlist) => ({
-      ...playlist,
-      songIds: playlist.songIds.filter((id: string) => id !== songId),
-      updatedAt: Date.now(),
-    }),
+    updateFn: (playlist) => {
+      if (!playlist || !playlist.songIds) {
+        console.warn(`Playlist ${playlistId} not found or has no songIds`);
+        return playlist; // Return unchanged if playlist doesn't exist
+      }
+      return {
+        ...playlist,
+        songIds: playlist.songIds.filter((id: string) => id !== songId),
+        updatedAt: Date.now(),
+      };
+    },
   });
 
   // Delete the song record itself
@@ -680,12 +704,15 @@ export async function removeSongFromPlaylist(
 
   // Broadcast the song deletion
   const bc = new BroadcastChannel(`${DB_NAME}-changes`);
-  bc.postMessage({
-    type: "mutation",
-    store: SONGS_STORE,
-    id: songId,
-  });
-  bc.close();
+  try {
+    bc.postMessage({
+      type: "mutation",
+      store: SONGS_STORE,
+      id: songId,
+    });
+  } finally {
+    bc.close();
+  }
 
   // Trigger reactivity for UI updates
   triggerSongUpdateWithOptions({
