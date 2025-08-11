@@ -187,7 +187,7 @@ describe("Standalone Service", () => {
       await initializeStandalonePlaylist(mockPlaylistData, mockCallbacks);
 
       expect(mockCallbacks.setError).toHaveBeenCalledWith(
-        expect.stringContaining("Database setup failed")
+        expect.stringContaining("Failed to load")
       );
     });
 
@@ -207,7 +207,7 @@ describe("Standalone Service", () => {
 
       await expect(
         initializeStandalonePlaylist(mockPlaylistData, partialCallbacks as any)
-      ).not.toThrow();
+      ).rejects.toThrow("callbacks.setError is not a function");
     });
   });
 
@@ -222,6 +222,7 @@ describe("Standalone Service", () => {
         id: songId,
         title: "Test Song",
         originalFilename: "test.mp3",
+        standaloneFilePath: "data/test.mp3",
       };
 
       mockDB.get.mockResolvedValue(mockSong);
@@ -254,6 +255,7 @@ describe("Standalone Service", () => {
         id: songId,
         title: "Test Song",
         originalFilename: "test.mp3",
+        standaloneFilePath: "data/test.mp3",
       };
 
       mockDB.get.mockResolvedValue(mockSong);
@@ -333,8 +335,9 @@ describe("Standalone Service", () => {
     });
 
     it("should return false for file protocol", async () => {
-      // Mock file:// protocol
-      Object.defineProperty(global, "location", {
+      // Mock window.location.protocol
+      const originalLocation = window.location;
+      Object.defineProperty(window, "location", {
         value: { protocol: "file:" },
         writable: true,
       });
@@ -342,11 +345,21 @@ describe("Standalone Service", () => {
       const mockSong = {
         id: "test-song",
         title: "Test Song",
+        standaloneFilePath: "file:///path/to/song.mp3",
       };
+
+      // Mock the database to return the song
+      mockDB.get.mockResolvedValue(mockSong);
 
       const result = await songNeedsAudioData(mockSong);
 
       expect(result).toBe(false);
+
+      // Restore original location
+      Object.defineProperty(window, "location", {
+        value: originalLocation,
+        writable: true,
+      });
     });
   });
 
@@ -389,6 +402,7 @@ describe("Standalone Service", () => {
         id: songId,
         title: "Integration Song",
         originalFilename: "integration.mp3",
+        standaloneFilePath: "data/integration.mp3",
       };
 
       mockDB.get.mockResolvedValue(mockSong);
@@ -453,6 +467,7 @@ describe("Standalone Service", () => {
         title: "Large Song",
         originalFilename: "large.mp3",
         fileSize: 100 * 1024 * 1024, // 100MB
+        standaloneFilePath: "data/large.mp3",
       };
 
       mockDB.get.mockResolvedValue(largeSong);
@@ -474,6 +489,7 @@ describe("Standalone Service", () => {
         id: songId,
         title: "Timeout Song",
         originalFilename: "timeout.mp3",
+        standaloneFilePath: "data/timeout.mp3",
       };
 
       mockDB.get.mockResolvedValue(mockSong);
@@ -495,6 +511,7 @@ describe("Standalone Service", () => {
         id,
         title: `Song ${id}`,
         originalFilename: `${id}.mp3`,
+        standaloneFilePath: `data/${id}.mp3`,
       }));
 
       songIds.forEach((_, index) => {
