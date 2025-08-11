@@ -285,8 +285,8 @@ describe("Song Reactivity System", () => {
 
         if (recentUpdates.length >= 2) {
           // More recent update should have higher or equal timestamp
-          expect(recentUpdates[0][1]).toBeGreaterThanOrEqual(
-            recentUpdates[1][1]
+          expect(recentUpdates[0]?.[1]).toBeGreaterThanOrEqual(
+            recentUpdates[1]?.[1] || 0
           );
         }
       });

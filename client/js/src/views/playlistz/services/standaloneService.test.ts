@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { Playlist } from "../types/playlist.js";
 
 // Mock dependencies using factory pattern
 vi.mock("./indexedDBService.js", () => ({
@@ -24,7 +23,6 @@ import {
   clearStandaloneLoadingProgress,
 } from "./standaloneService.js";
 import { setupDB, mutateAndNotify } from "./indexedDBService.js";
-import { triggerSongUpdateWithOptions } from "./songReactivity.js";
 
 // Mock solid-js
 vi.mock("solid-js", () => {
@@ -499,7 +497,7 @@ describe("Standalone Service", () => {
         originalFilename: `${id}.mp3`,
       }));
 
-      songIds.forEach((songId, index) => {
+      songIds.forEach((_, index) => {
         mockDB.get.mockResolvedValueOnce(mockSongs[index]);
       });
 
