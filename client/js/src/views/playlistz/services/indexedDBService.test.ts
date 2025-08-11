@@ -492,7 +492,7 @@ describe("Database Efficiency Tests", () => {
         });
       });
 
-      it.skip("should remove song from playlist and delete song record", async () => {
+      it("should remove song from playlist and delete song record", async () => {
         const playlistId = "playlist-123";
         const songId = "song-456";
 
@@ -518,7 +518,7 @@ describe("Database Efficiency Tests", () => {
         });
       });
 
-      it.skip("should handle song deletion with cursor iteration", async () => {
+      it("should handle song deletion with cursor iteration", async () => {
         const playlistId = "playlist-123";
         const songId = "song-456";
 
@@ -543,7 +543,7 @@ describe("Database Efficiency Tests", () => {
         expect(mockCursor.delete).toHaveBeenCalled();
       });
 
-      it.skip("should handle multiple related songs in cursor iteration", async () => {
+      it("should handle multiple related songs in cursor iteration", async () => {
         const playlistId = "playlist-123";
         const songId = "song-456";
 
@@ -577,7 +577,7 @@ describe("Database Efficiency Tests", () => {
         expect(mockCursor2.delete).toHaveBeenCalled();
       });
 
-      it.skip("should broadcast song deletion message", async () => {
+      it("should broadcast song deletion message", async () => {
         const playlistId = "playlist-123";
         const songId = "song-456";
 
@@ -598,7 +598,7 @@ describe("Database Efficiency Tests", () => {
         expect(mockBroadcastChannel.close).toHaveBeenCalled();
       });
 
-      it.skip("should handle transaction completion", async () => {
+      it("should handle transaction completion", async () => {
         const playlistId = "playlist-123";
         const songId = "song-456";
 
@@ -608,7 +608,7 @@ describe("Database Efficiency Tests", () => {
         expect(mockTransaction.done).toBeDefined();
       });
 
-      it.skip("should handle edge case with empty playlist", async () => {
+      it("should handle edge case with empty playlist", async () => {
         const playlistId = "empty-playlist";
         const songId = "song-456";
 
@@ -837,6 +837,367 @@ describe("Database Efficiency Tests", () => {
           const putCall = mockStore.put.mock.calls[0];
           expect(putCall[0].sha).toBe("not-a-valid-sha");
           // Note: We store whatever is provided - validation happens elsewhere
+        });
+      });
+
+      describe("Database Connection and Setup", () => {
+        it("should handle database connection errors", async () => {
+          const mockOpenDB = vi.mocked(openDB);
+          mockOpenDB.mockRejectedValueOnce(
+            new Error("Database connection failed")
+          );
+
+          await expect(setupDB()).rejects.toThrow("Database connection failed");
+        });
+
+        it("should handle database upgrade scenarios", async () => {
+          const mockDB = {
+            objectStoreNames: {
+              contains: vi.fn().mockReturnValue(false),
+            },
+            createObjectStore: vi.fn().mockImplementation((name, options) => ({
+              createIndex: vi.fn(),
+            })),
+          };
+
+          const mockOpenDB = vi.mocked(openDB);
+          mockOpenDB.mockImplementation((name, version, options) => {
+            if (options?.upgrade) {
+              options.upgrade(mockDB as any, 0, version);
+            }
+            return Promise.resolve(mockDB as any);
+          });
+
+          const db = await setupDB();
+          expect(mockDB.createObjectStore).toHaveBeenCalledWith("playlists", {
+            keyPath: "id",
+          });
+          expect(mockDB.createObjectStore).toHaveBeenCalledWith("songs", {
+            keyPath: "id",
+          });
+        });
+
+        it("should handle partial upgrade scenarios", async () => {
+          const mockDB = {
+            objectStoreNames: {
+              contains: vi.fn((name) => name === "playlists"), // Only playlists exists
+            },
+            createObjectStore: vi.fn().mockImplementation((name, options) => ({
+              createIndex: vi.fn(),
+            })),
+          };
+
+          const mockOpenDB = vi.mocked(openDB);
+          mockOpenDB.mockImplementation((name, version, options) => {
+            if (options?.upgrade) {
+              options.upgrade(mockDB as any, 2, version);
+            }
+            return Promise.resolve(mockDB as any);
+          });
+
+          await setupDB();
+          expect(mockDB.createObjectStore).toHaveBeenCalledWith("songs", {
+            keyPath: "id",
+          });
+          expect(mockDB.createObjectStore).not.toHaveBeenCalledWith(
+            "playlists",
+            { keyPath: "id" }
+          );
+        });
+      });
+
+      describe("Transaction Error Handling", () => {
+        it("should handle transaction creation errors", async () => {
+          mockDB.transaction.mockImplementation(() => {
+            throw new Error("Transaction creation failed");
+          });
+
+          await expect(
+            addSongToPlaylist("playlist-123", {} as any)
+          ).rejects.toThrow("Transaction creation failed");
+        });
+
+        it("should handle store access errors", async () => {
+          mockTransaction.objectStore.mockImplementation(() => {
+            throw new Error("Store access failed");
+          });
+
+          await expect(updatePlaylist("playlist-123", {})).rejects.toThrow(
+            "Store access failed"
+          );
+        });
+
+        it("should handle put operation errors", async () => {
+          mockStore.put.mockRejectedValueOnce(
+            new Error("Put operation failed")
+          );
+
+          await expect(
+            updateSong("song-123", { title: "New Title" })
+          ).rejects.toThrow("Put operation failed");
+        });
+
+        it("should handle delete operation errors", async () => {
+          mockStore.delete.mockRejectedValueOnce(
+            new Error("Delete operation failed")
+          );
+
+          await expect(
+            removeSongFromPlaylist("playlist-123", "song-456")
+          ).rejects.toThrow("Delete operation failed");
+        });
+
+        it("should handle cursor iteration errors", async () => {
+          const mockCursor = {
+            delete: vi
+              .fn()
+              .mockRejectedValue(new Error("Cursor delete failed")),
+            continue: vi.fn(),
+            value: { id: "test-song" },
+          };
+
+          mockStore.index.mockReturnValue({
+            openCursor: vi.fn().mockResolvedValue(mockCursor),
+          });
+
+          await expect(
+            removeSongFromPlaylist("playlist-123", "song-456")
+          ).rejects.toThrow("Cursor delete failed");
+        });
+      });
+
+      describe("Concurrent Operations", () => {
+        it("should handle concurrent playlist creation", async () => {
+          const playlist1 = { title: "Playlist 1", songIds: [] };
+          const playlist2 = { title: "Playlist 2", songIds: [] };
+
+          const promises = [
+            createPlaylist(playlist1),
+            createPlaylist(playlist2),
+          ];
+          const results = await Promise.all(promises);
+
+          expect(results).toHaveLength(2);
+          expect(results[0].id).toBeDefined();
+          expect(results[1].id).toBeDefined();
+          expect(results[0].id).not.toBe(results[1].id);
+        });
+
+        it("should handle concurrent song updates", async () => {
+          const songId = "concurrent-song";
+          const updates1 = { title: "Title 1" };
+          const updates2 = { artist: "Artist 2" };
+
+          const promises = [
+            updateSong(songId, updates1),
+            updateSong(songId, updates2),
+          ];
+          await Promise.allSettled(promises);
+
+          expect(mockStore.put).toHaveBeenCalledTimes(2);
+        });
+
+        it("should handle concurrent removeSongFromPlaylist operations", async () => {
+          const playlistId = "concurrent-playlist";
+          const song1 = "song1";
+          const song2 = "song2";
+
+          const promises = [
+            removeSongFromPlaylist(playlistId, song1),
+            removeSongFromPlaylist(playlistId, song2),
+          ];
+          await Promise.allSettled(promises);
+
+          expect(mockStore.delete).toHaveBeenCalledWith(song1);
+          expect(mockStore.delete).toHaveBeenCalledWith(song2);
+        });
+      });
+
+      describe("Memory Management and Performance", () => {
+        it("should handle large playlist operations", async () => {
+          const largePlaylist = {
+            title: "Large Playlist",
+            songIds: Array.from({ length: 1000 }, (_, i) => `song-${i}`),
+          };
+
+          const result = await createPlaylist(largePlaylist);
+          expect(result.songIds).toHaveLength(1000);
+          expect(mockStore.put).toHaveBeenCalled();
+        });
+
+        it("should handle batch song operations efficiently", async () => {
+          const songCount = 100;
+          const updatePromises = [];
+
+          for (let i = 0; i < songCount; i++) {
+            updatePromises.push(
+              updateSong(`song-${i}`, { title: `Song ${i}` })
+            );
+          }
+
+          await Promise.all(updatePromises);
+          expect(mockStore.put).toHaveBeenCalledTimes(songCount);
+        });
+
+        it("should handle memory pressure during large operations", async () => {
+          // Simulate memory pressure by making operations slower
+          let callCount = 0;
+          mockStore.put.mockImplementation(() => {
+            callCount++;
+            if (callCount > 50) {
+              // Simulate slower operations under memory pressure
+              return new Promise((resolve) => setTimeout(resolve, 1));
+            }
+            return Promise.resolve();
+          });
+
+          const playlist = {
+            title: "Memory Test Playlist",
+            songIds: Array.from({ length: 100 }, (_, i) => `song-${i}`),
+          };
+
+          const result = await createPlaylist(playlist);
+          expect(result).toBeDefined();
+        });
+      });
+
+      describe("Data Integrity", () => {
+        it("should maintain referential integrity during song removal", async () => {
+          const playlistId = "integrity-playlist";
+          const songId = "integrity-song";
+
+          // Mock a playlist with the song
+          mockStore.get.mockResolvedValue({
+            id: playlistId,
+            title: "Test Playlist",
+            songIds: [songId, "other-song"],
+          });
+
+          await removeSongFromPlaylist(playlistId, songId);
+
+          // Should remove song from database
+          expect(mockStore.delete).toHaveBeenCalledWith(songId);
+
+          // Should trigger reactivity for the deleted song
+          expect(triggerSongUpdateWithOptions).toHaveBeenCalledWith({
+            songId,
+            type: "delete",
+            metadata: { playlistId },
+          });
+        });
+
+        it("should handle orphaned song records", async () => {
+          const playlistId = "non-existent-playlist";
+          const songId = "orphaned-song";
+
+          // Mock playlist not found
+          mockStore.get.mockResolvedValue(undefined);
+
+          // Should still attempt to remove the song
+          await removeSongFromPlaylist(playlistId, songId);
+
+          expect(mockStore.delete).toHaveBeenCalledWith(songId);
+        });
+
+        it("should validate song data before updates", async () => {
+          const songId = "validation-song";
+          const invalidUpdates = {
+            title: "", // Empty title
+            duration: -1, // Negative duration
+          };
+
+          // The service should still apply the updates (validation happens at UI level)
+          await updateSong(songId, invalidUpdates);
+
+          expect(mockStore.put).toHaveBeenCalled();
+          const putCall = mockStore.put.mock.calls[0];
+          expect(putCall[0].title).toBe("");
+          expect(putCall[0].duration).toBe(-1);
+        });
+      });
+
+      describe("BroadcastChannel Integration", () => {
+        it("should handle BroadcastChannel creation errors", async () => {
+          (BroadcastChannel as any).mockImplementation(() => {
+            throw new Error("BroadcastChannel not supported");
+          });
+
+          // Should not throw, just skip broadcasting
+          await expect(
+            removeSongFromPlaylist("playlist-123", "song-456")
+          ).resolves.not.toThrow();
+        });
+
+        it("should handle BroadcastChannel postMessage errors", async () => {
+          const mockBroadcastChannel = {
+            postMessage: vi.fn().mockImplementation(() => {
+              throw new Error("postMessage failed");
+            }),
+            close: vi.fn(),
+          };
+
+          (BroadcastChannel as any).mockReturnValue(mockBroadcastChannel);
+
+          // Should not throw, just skip broadcasting
+          await expect(
+            removeSongFromPlaylist("playlist-123", "song-456")
+          ).resolves.not.toThrow();
+        });
+
+        it("should always close BroadcastChannel even on errors", async () => {
+          const mockBroadcastChannel = {
+            postMessage: vi.fn().mockImplementation(() => {
+              throw new Error("postMessage failed");
+            }),
+            close: vi.fn(),
+          };
+
+          (BroadcastChannel as any).mockReturnValue(mockBroadcastChannel);
+
+          await removeSongFromPlaylist("playlist-123", "song-456");
+
+          expect(mockBroadcastChannel.close).toHaveBeenCalled();
+        });
+      });
+
+      describe("Edge Cases with Special Characters", () => {
+        it("should handle playlist titles with special characters", async () => {
+          const playlist = {
+            title: 'Playlist/With\\Special:Chars|<>*?"',
+            description: "Description with émojis 🎵🎶",
+            songIds: [],
+          };
+
+          const result = await createPlaylist(playlist);
+          expect(result.title).toBe(playlist.title);
+          expect(result.description).toBe(playlist.description);
+        });
+
+        it("should handle song metadata with Unicode characters", async () => {
+          const songId = "unicode-song";
+          const updates = {
+            title: "Café de Flore",
+            artist: "François Beaumont",
+            album: "Musique Française",
+          };
+
+          await updateSong(songId, updates);
+
+          expect(mockStore.put).toHaveBeenCalled();
+          const putCall = mockStore.put.mock.calls[0];
+          expect(putCall[0].title).toBe("Café de Flore");
+          expect(putCall[0].artist).toBe("François Beaumont");
+        });
+
+        it("should handle very long metadata fields", async () => {
+          const longTitle = "A".repeat(1000);
+          const songId = "long-metadata-song";
+
+          await updateSong(songId, { title: longTitle });
+
+          expect(mockStore.put).toHaveBeenCalled();
+          const putCall = mockStore.put.mock.calls[0];
+          expect(putCall[0].title).toBe(longTitle);
         });
       });
     });

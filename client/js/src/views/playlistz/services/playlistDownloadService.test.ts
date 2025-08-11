@@ -1,50 +1,48 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import JSZip from "jszip";
 import {
-  calculateSHA256,
-  calculateFileSHA256,
-  verifySHA256,
-} from "../utils/hashUtils.js";
+  downloadPlaylistAsZip,
+  parsePlaylistZip,
+  type PlaylistDownloadOptions,
+} from "./playlistDownloadService.js";
+import type { Playlist, Song } from "../types/playlist.js";
 
 // Mock dependencies
-vi.mock("jszip", () => ({
-  default: vi.fn(() => ({
-    folder: vi.fn().mockReturnThis(),
-    file: vi.fn().mockReturnThis(),
-    generateAsync: vi.fn().mockResolvedValue(new Blob()),
-  })),
-}));
+const mockGetSongsWithAudioData = vi.fn();
+const mockUpdatePlaylist = vi.fn();
+const mockUpdateSong = vi.fn();
+const mockCalculateSHA256 = vi.fn();
 
 vi.mock("./indexedDBService.js", () => ({
-  getSongsWithAudioData: vi.fn(),
-  updatePlaylist: vi.fn(),
-  updateSong: vi.fn(),
+  getSongsWithAudioData: mockGetSongsWithAudioData,
+  updatePlaylist: mockUpdatePlaylist,
+  updateSong: mockUpdateSong,
 }));
 
-// Mock crypto.subtle for testing
-Object.defineProperty(global, "crypto", {
-  value: {
-    randomUUID: vi.fn(() => "test-uuid-123"),
-    subtle: {
-      digest: vi.fn().mockImplementation((_algorithm, _data) => {
-        // Mock SHA-256 digest - return a fixed hash for testing
-        const mockHash = new Uint8Array(32); // SHA-256 produces 32 bytes
-        for (let i = 0; i < 32; i++) {
-          mockHash[i] = i; // Simple pattern for testing
-        }
-        return Promise.resolve(mockHash.buffer);
-      }),
-    },
-  },
-  writable: true,
-});
+vi.mock("../utils/hashUtils.js", () => ({
+  calculateSHA256: mockCalculateSHA256,
+}));
 
-// Mock URL for blob creation
+// Mock JSZip
+const mockZipFile = vi.fn();
+const mockZipFolder = vi.fn();
+const mockZipGenerateAsync = vi.fn();
+const mockZipInstance = {
+  file: mockZipFile,
+  folder: mockZipFolder.mockReturnThis(),
+  generateAsync: mockZipGenerateAsync,
+};
+
+vi.mock("jszip", () => ({
+  default: vi.fn(() => mockZipInstance),
+}));
+
+// Mock global objects
 global.URL = {
   createObjectURL: vi.fn(() => "blob:mock-url"),
   revokeObjectURL: vi.fn(),
 } as any;
 
-// Mock document for DOM manipulation
 global.document = {
   createElement: vi.fn(() => ({
     href: "",
@@ -58,468 +56,529 @@ global.document = {
 } as any;
 
 describe("Playlist Download Service", () => {
+  let mockPlaylist: Playlist;
+  let mockSongs: Song[];
+
   beforeEach(() => {
     vi.clearAllMocks();
+
+    mockPlaylist = {
+      id: "playlist-123",
+      title: "Test Playlist",
+      description: "A test playlist",
+      songIds: ["song1", "song2"],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      rev: 1,
+      imageData: new ArrayBuffer(100),
+      imageType: "image/jpeg",
+    };
+
+    mockSongs = [
+      {
+        id: "song1",
+        title: "Song One",
+        artist: "Artist One",
+        album: "Album One",
+        duration: 180,
+        audioData: new ArrayBuffer(1000),
+        sha: "existing-sha-1",
+        imageData: new ArrayBuffer(50),
+        imageType: "image/jpeg",
+      },
+      {
+        id: "song2",
+        title: "Song Two",
+        artist: "Artist Two",
+        album: "Album Two",
+        duration: 240,
+        audioData: new ArrayBuffer(1500),
+        sha: undefined, // Will need SHA calculation
+        imageData: new ArrayBuffer(75),
+        imageType: "image/png",
+      },
+    ];
+
+    // Default mock implementations
+    mockGetSongsWithAudioData.mockResolvedValue(mockSongs);
+    mockUpdatePlaylist.mockResolvedValue(undefined);
+    mockUpdateSong.mockResolvedValue(undefined);
+    mockCalculateSHA256.mockResolvedValue("calculated-sha-256");
+    mockZipGenerateAsync.mockResolvedValue(new Blob(["mock zip content"]));
+    mockZipFolder.mockReturnValue(mockZipInstance);
   });
 
-  describe("Hash Utilities", () => {
-    describe("calculateSHA256", () => {
-      it("should calculate SHA-256 hash from ArrayBuffer", async () => {
-        const data = new ArrayBuffer(8);
-        const hash = await calculateSHA256(data);
-
-        expect(crypto.subtle.digest).toHaveBeenCalledWith("SHA-256", data);
-        expect(hash).toBe(
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        );
-      });
-
-      it("should handle empty ArrayBuffer", async () => {
-        const data = new ArrayBuffer(0);
-        const hash = await calculateSHA256(data);
-
-        expect(crypto.subtle.digest).toHaveBeenCalledWith("SHA-256", data);
-        expect(hash).toBe(
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        );
-      });
-
-      it("should handle large ArrayBuffer", async () => {
-        const data = new ArrayBuffer(1024 * 1024); // 1MB
-        const hash = await calculateSHA256(data);
-
-        expect(crypto.subtle.digest).toHaveBeenCalledWith("SHA-256", data);
-        expect(hash).toHaveLength(64); // SHA-256 hex string length
-      });
-    });
-
-    describe("calculateFileSHA256", () => {
-      it("should calculate SHA-256 hash from File", async () => {
-        const mockFile = {
-          arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
-        } as any;
-
-        const hash = await calculateFileSHA256(mockFile);
-
-        expect(mockFile.arrayBuffer).toHaveBeenCalled();
-        expect(crypto.subtle.digest).toHaveBeenCalledWith(
-          "SHA-256",
-          new ArrayBuffer(8)
-        );
-        expect(hash).toBe(
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        );
-      });
-
-      it("should handle File.arrayBuffer() errors", async () => {
-        const mockFile = {
-          arrayBuffer: vi.fn().mockRejectedValue(new Error("File read error")),
-        } as any;
-
-        await expect(calculateFileSHA256(mockFile)).rejects.toThrow(
-          "File read error"
-        );
-      });
-    });
-
-    describe("verifySHA256", () => {
-      it("should verify correct SHA-256 hash", async () => {
-        const data = new ArrayBuffer(8);
-        const expectedHash =
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
-
-        const isValid = await verifySHA256(data, expectedHash);
-
-        expect(isValid).toBe(true);
-        expect(crypto.subtle.digest).toHaveBeenCalledWith("SHA-256", data);
-      });
-
-      it("should return false for incorrect SHA-256 hash", async () => {
-        const data = new ArrayBuffer(8);
-        const wrongHash =
-          "1111111111111111111111111111111111111111111111111111111111111111";
-
-        const isValid = await verifySHA256(data, wrongHash);
-
-        expect(isValid).toBe(false);
-      });
-
-      it("should handle empty hash string", async () => {
-        const data = new ArrayBuffer(8);
-        const emptyHash = "";
-
-        const isValid = await verifySHA256(data, emptyHash);
-
-        expect(isValid).toBe(false);
-      });
-
-      it("should handle malformed hash", async () => {
-        const data = new ArrayBuffer(8);
-        const malformedHash = "not-a-valid-hash";
-
-        const isValid = await verifySHA256(data, malformedHash);
-
-        expect(isValid).toBe(false);
-      });
-    });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  describe("Playlist Revision Management", () => {
-    it("should increment playlist revision before download", () => {
-      const playlist = {
-        id: "test-playlist",
-        title: "Test Playlist",
+  describe("downloadPlaylistAsZip", () => {
+    it("should create a ZIP file with playlist and songs", async () => {
+      await downloadPlaylistAsZip(mockPlaylist);
+
+      expect(mockGetSongsWithAudioData).toHaveBeenCalledWith(
+        mockPlaylist.songIds
+      );
+      expect(mockUpdatePlaylist).toHaveBeenCalledWith(mockPlaylist.id, {
         rev: 2,
-      };
-
-      // Simulate download logic
-      const currentRev = playlist.rev || 0;
-      const newRev = currentRev + 1;
-
-      expect(newRev).toBe(3);
+      });
+      expect(JSZip).toHaveBeenCalled();
+      expect(mockZipFolder).toHaveBeenCalled();
+      expect(mockZipGenerateAsync).toHaveBeenCalledWith({ type: "blob" });
     });
 
-    it("should handle undefined revision", () => {
-      const playlist = {
-        id: "test-playlist",
-        title: "Test Playlist",
-        // rev is undefined
-      } as any;
+    it("should increment playlist revision before download", async () => {
+      const playlistWithRev = { ...mockPlaylist, rev: 5 };
 
-      const currentRev = playlist.rev || 0;
-      const newRev = currentRev + 1;
+      await downloadPlaylistAsZip(playlistWithRev);
 
-      expect(newRev).toBe(1);
+      expect(mockUpdatePlaylist).toHaveBeenCalledWith(playlistWithRev.id, {
+        rev: 6,
+      });
     });
 
-    it("should handle multiple revision increments", () => {
-      let currentRev = 0;
+    it("should handle playlist without revision", async () => {
+      const playlistNoRev = { ...mockPlaylist, rev: undefined };
 
-      // First download
-      currentRev = (currentRev || 0) + 1;
-      expect(currentRev).toBe(1);
+      await downloadPlaylistAsZip(playlistNoRev);
 
-      // Second download
-      currentRev = (currentRev || 0) + 1;
-      expect(currentRev).toBe(2);
-
-      // Third download
-      currentRev = (currentRev || 0) + 1;
-      expect(currentRev).toBe(3);
+      expect(mockUpdatePlaylist).toHaveBeenCalledWith(playlistNoRev.id, {
+        rev: 1,
+      });
     });
-  });
 
-  describe("SHA Calculation in Download Process", () => {
-    it("should calculate SHA for songs without it during download", async () => {
-      const songs = [
-        {
-          id: "song1",
-          title: "Song 1",
-          audioData: new ArrayBuffer(8),
-          sha: undefined, // Missing SHA
-        },
-        {
-          id: "song2",
-          title: "Song 2",
-          audioData: new ArrayBuffer(16),
-          sha: "existing-sha", // Already has SHA
-        },
-        {
-          id: "song3",
-          title: "Song 3",
-          audioData: undefined, // No audio data
-          sha: undefined,
-        },
-      ];
+    it("should calculate SHA for songs that don't have it", async () => {
+      await downloadPlaylistAsZip(mockPlaylist);
 
-      // Simulate the download logic
-      const songsWithSHA = await Promise.all(
-        songs.map(async (song) => {
-          if (!song.sha && song.audioData) {
-            const sha = await calculateSHA256(song.audioData);
-            return { ...song, sha };
-          }
-          return song;
-        })
-      );
+      expect(mockCalculateSHA256).toHaveBeenCalledWith(mockSongs[1].audioData);
+      expect(mockUpdateSong).toHaveBeenCalledWith("song2", {
+        sha: "calculated-sha-256",
+      });
+    });
 
-      expect(songsWithSHA[0]?.sha).toBe(
-        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-      );
-      expect(songsWithSHA[1]?.sha).toBe("existing-sha");
-      expect(songsWithSHA[2]?.sha).toBeUndefined();
+    it("should not calculate SHA for songs that already have it", async () => {
+      await downloadPlaylistAsZip(mockPlaylist);
+
+      // Should only be called once for song2, not for song1
+      expect(mockCalculateSHA256).toHaveBeenCalledTimes(1);
+      expect(mockUpdateSong).toHaveBeenCalledTimes(1);
     });
 
     it("should handle SHA calculation errors gracefully", async () => {
-      // Mock crypto.subtle.digest to throw an error
-      vi.mocked(crypto.subtle.digest).mockRejectedValueOnce(
-        new Error("Crypto error")
+      mockCalculateSHA256.mockRejectedValue(
+        new Error("SHA calculation failed")
       );
 
-      const song = {
-        id: "song1",
-        audioData: new ArrayBuffer(8),
-        sha: undefined,
-      };
+      // Should not throw
+      await expect(downloadPlaylistAsZip(mockPlaylist)).resolves.not.toThrow();
 
-      try {
-        await calculateSHA256(song.audioData);
-      } catch (error) {
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toBe("Crypto error");
-      }
+      // Should still proceed with download
+      expect(mockZipGenerateAsync).toHaveBeenCalled();
     });
 
-    it("should include SHA in exported playlist data", () => {
-      const songs = [
-        {
-          id: "song1",
-          title: "Song 1",
-          sha: "abc123def456",
-        },
-        {
-          id: "song2",
-          title: "Song 2",
-          sha: undefined,
-        },
+    it("should create proper folder structure", async () => {
+      await downloadPlaylistAsZip(mockPlaylist);
+
+      expect(mockZipFolder).toHaveBeenCalledWith("Test_Playlist");
+      expect(mockZipFolder).toHaveBeenCalledWith("data");
+    });
+
+    it("should include metadata when option is enabled", async () => {
+      const options: PlaylistDownloadOptions = { includeMetadata: true };
+
+      await downloadPlaylistAsZip(mockPlaylist, options);
+
+      expect(mockZipFile).toHaveBeenCalledWith(
+        "playlist.json",
+        expect.stringContaining(mockPlaylist.id)
+      );
+    });
+
+    it("should include images when option is enabled", async () => {
+      const options: PlaylistDownloadOptions = { includeImages: true };
+
+      await downloadPlaylistAsZip(mockPlaylist, options);
+
+      // Should add playlist image and song images
+      expect(mockZipFile).toHaveBeenCalledWith(
+        expect.stringMatching(/playlist\.(jpeg|jpg|png)/),
+        expect.any(ArrayBuffer)
+      );
+    });
+
+    it("should generate M3U when option is enabled", async () => {
+      const options: PlaylistDownloadOptions = { generateM3U: true };
+
+      await downloadPlaylistAsZip(mockPlaylist, options);
+
+      expect(mockZipFile).toHaveBeenCalledWith(
+        "playlist.m3u",
+        expect.stringContaining("#EXTM3U")
+      );
+    });
+
+    it("should include standalone HTML when option is enabled", async () => {
+      const options: PlaylistDownloadOptions = { includeHTML: true };
+
+      await downloadPlaylistAsZip(mockPlaylist, options);
+
+      expect(mockZipFile).toHaveBeenCalledWith(
+        "playlist.html",
+        expect.stringContaining("<!DOCTYPE html>")
+      );
+    });
+
+    it("should handle empty playlist", async () => {
+      const emptyPlaylist = { ...mockPlaylist, songIds: [] };
+      mockGetSongsWithAudioData.mockResolvedValue([]);
+
+      await downloadPlaylistAsZip(emptyPlaylist);
+
+      expect(mockZipGenerateAsync).toHaveBeenCalled();
+      expect(mockCalculateSHA256).not.toHaveBeenCalled();
+    });
+
+    it("should handle songs without audio data", async () => {
+      const songsWithoutAudio = [
+        { ...mockSongs[0], audioData: undefined },
+        { ...mockSongs[1], audioData: undefined },
       ];
+      mockGetSongsWithAudioData.mockResolvedValue(songsWithoutAudio);
 
-      const exportedSongs = songs.map((song) => ({
-        id: song.id,
-        title: song.title,
-        sha: song.sha,
-      }));
+      await downloadPlaylistAsZip(mockPlaylist);
 
-      expect(exportedSongs[0]?.sha).toBe("abc123def456");
-      expect(exportedSongs[1]?.sha).toBeUndefined();
+      expect(mockCalculateSHA256).not.toHaveBeenCalled();
+      expect(mockZipGenerateAsync).toHaveBeenCalled();
+    });
+
+    it("should trigger download in browser", async () => {
+      const mockAnchorElement = {
+        href: "",
+        download: "",
+        click: vi.fn(),
+      };
+      (document.createElement as any).mockReturnValue(mockAnchorElement);
+
+      await downloadPlaylistAsZip(mockPlaylist);
+
+      expect(document.createElement).toHaveBeenCalledWith("a");
+      expect(mockAnchorElement.click).toHaveBeenCalled();
+      expect(document.body.appendChild).toHaveBeenCalledWith(mockAnchorElement);
+      expect(document.body.removeChild).toHaveBeenCalledWith(mockAnchorElement);
+    });
+
+    it("should handle ZIP generation errors", async () => {
+      mockZipGenerateAsync.mockRejectedValue(
+        new Error("ZIP generation failed")
+      );
+
+      await expect(downloadPlaylistAsZip(mockPlaylist)).rejects.toThrow(
+        "ZIP generation failed"
+      );
+    });
+
+    it("should handle database update errors", async () => {
+      mockUpdatePlaylist.mockRejectedValue(new Error("Database error"));
+
+      await expect(downloadPlaylistAsZip(mockPlaylist)).rejects.toThrow(
+        "Database error"
+      );
     });
   });
 
-  describe("Playlist Data Structure", () => {
-    it("should include revision in playlist data", () => {
-      const playlist = {
-        id: "test-playlist",
-        title: "Test Playlist",
-        description: "Test description",
-        rev: 3,
-        songIds: ["song1", "song2"],
-      };
+  describe("M3U Generation (via ZIP download)", () => {
+    it("should include M3U content when generateM3U option is true", async () => {
+      const options: PlaylistDownloadOptions = { generateM3U: true };
 
-      const playlistData = {
-        playlist: {
-          id: playlist.id,
-          title: playlist.title,
-          description: playlist.description,
-          rev: playlist.rev,
-          songCount: playlist.songIds.length,
-        },
-        songs: [],
-      };
+      await downloadPlaylistAsZip(mockPlaylist, options);
 
-      expect(playlistData.playlist.rev).toBe(3);
+      expect(mockZipFile).toHaveBeenCalledWith(
+        "playlist.m3u",
+        expect.stringContaining("#EXTM3U")
+      );
     });
 
-    it("should handle missing revision in playlist data", () => {
-      const playlist = {
-        id: "test-playlist",
-        title: "Test Playlist",
-        // rev is undefined
-        songIds: [],
-      } as any;
+    it("should not include M3U when generateM3U option is false", async () => {
+      const options: PlaylistDownloadOptions = { generateM3U: false };
 
-      const playlistData = {
-        playlist: {
-          id: playlist.id,
-          title: playlist.title,
-          rev: playlist.rev || 0,
-        },
-        songs: [],
-      };
+      await downloadPlaylistAsZip(mockPlaylist, options);
 
-      expect(playlistData.playlist.rev).toBe(0);
+      expect(mockZipFile).not.toHaveBeenCalledWith(
+        "playlist.m3u",
+        expect.any(String)
+      );
     });
   });
 
-  describe("Edge Cases and Error Handling", () => {
-    it("should handle songs with audio data but no SHA", async () => {
-      const song: {
-        id: string;
-        audioData?: ArrayBuffer;
-        sha?: string;
-      } = {
-        id: "test-song",
-        audioData: new ArrayBuffer(1024),
-        sha: undefined,
+  describe("Filename Safety (via ZIP download)", () => {
+    it("should create safe filenames for songs with special characters", async () => {
+      const playlistWithSpecialChars = {
+        ...mockPlaylist,
+        title: 'Playlist/With\\Special:Chars|<>*?"',
       };
 
-      const hasAudioData = Boolean(song.audioData);
-      const hasSHA = Boolean(song.sha);
-
-      expect(hasAudioData).toBe(true);
-      expect(hasSHA).toBe(false);
-
-      // Should calculate SHA
-      if (!song.sha && song.audioData) {
-        song.sha = await calculateSHA256(song.audioData);
-      }
-
-      expect(song.sha).toBeDefined();
-    });
-
-    it("should handle songs with SHA but no audio data", () => {
-      const song = {
-        id: "test-song",
-        sha: "abc123",
-        audioData: undefined,
-      };
-
-      const hasAudioData = Boolean(song.audioData);
-      const hasSHA = Boolean(song.sha);
-
-      expect(hasAudioData).toBe(false);
-      expect(hasSHA).toBe(true);
-    });
-
-    it("should handle empty SHA string", () => {
-      const song = {
-        id: "test-song",
-        sha: "",
-      };
-
-      const hasSHA = Boolean(song.sha);
-      expect(hasSHA).toBe(false);
-    });
-
-    it("should validate SHA format", () => {
-      const validSHA =
-        "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678";
-      const invalidSHA = "not-a-valid-sha";
-
-      expect(validSHA.length).toBe(64);
-      expect(invalidSHA.length).not.toBe(64);
-    });
-
-    it("should handle revision type coercion", () => {
-      const scenarios = [
-        { input: "2", expected: 2 },
-        { input: 3.14, expected: 3 },
-        { input: null, expected: 0 },
-        { input: undefined, expected: 0 },
-        { input: "invalid", expected: 0 },
+      const songsWithSpecialChars = [
+        {
+          ...mockSongs[0],
+          title: 'Song/With\\Special:Chars|<>*?"',
+          artist: 'Artist/With\\Special:Chars|<>*?"',
+        },
       ];
+      mockGetSongsWithAudioData.mockResolvedValue(songsWithSpecialChars);
 
-      scenarios.forEach(({ input, expected }) => {
-        const rev = parseInt(String(input)) || 0;
-        expect(rev).toBe(expected);
+      await downloadPlaylistAsZip(playlistWithSpecialChars);
+
+      expect(mockZipFolder).toHaveBeenCalledWith(
+        expect.stringMatching(/^[a-zA-Z0-9_]+$/)
+      );
+    });
+  });
+
+  describe("File Extension Handling (via ZIP download)", () => {
+    it("should handle different audio file types", async () => {
+      const songsWithDifferentTypes = [
+        {
+          ...mockSongs[0],
+          mimeType: "audio/mpeg",
+        },
+        {
+          ...mockSongs[1],
+          mimeType: "audio/wav",
+        },
+      ];
+      mockGetSongsWithAudioData.mockResolvedValue(songsWithDifferentTypes);
+
+      await downloadPlaylistAsZip(mockPlaylist);
+
+      expect(mockZipFile).toHaveBeenCalledWith(
+        expect.stringMatching(/\.mp3$/),
+        expect.any(ArrayBuffer)
+      );
+      expect(mockZipFile).toHaveBeenCalledWith(
+        expect.stringMatching(/\.wav$/),
+        expect.any(ArrayBuffer)
+      );
+    });
+  });
+
+  describe("MIME Type Handling", () => {
+    it("should preserve MIME types during download", async () => {
+      const songsWithMimeTypes = [
+        {
+          ...mockSongs[0],
+          mimeType: "audio/mpeg",
+        },
+        {
+          ...mockSongs[1],
+          mimeType: "audio/flac",
+        },
+      ];
+      mockGetSongsWithAudioData.mockResolvedValue(songsWithMimeTypes);
+
+      await downloadPlaylistAsZip(mockPlaylist);
+
+      expect(mockZipGenerateAsync).toHaveBeenCalled();
+    });
+  });
+
+  describe("Base64 Handling (internal)", () => {
+    it("should handle playlist with base64 image data", async () => {
+      const playlistWithBase64Image = {
+        ...mockPlaylist,
+        imageData: "SGVsbG8gV29ybGQ=", // base64 data instead of ArrayBuffer
+      };
+
+      await downloadPlaylistAsZip(playlistWithBase64Image);
+
+      expect(mockZipGenerateAsync).toHaveBeenCalled();
+    });
+  });
+
+  describe("Filename Sanitization (internal)", () => {
+    it("should sanitize problematic filenames in downloads", async () => {
+      const problemPlaylist = {
+        ...mockPlaylist,
+        title: "CON", // Reserved Windows filename
+      };
+
+      await downloadPlaylistAsZip(problemPlaylist);
+
+      expect(mockZipFolder).toHaveBeenCalledWith(
+        expect.not.stringMatching(/^CON$/)
+      );
+    });
+  });
+
+  describe("parsePlaylistZip", () => {
+    let mockZipFile: any;
+
+    beforeEach(() => {
+      mockZipFile = {
+        files: {
+          "playlist.json": {
+            async: vi.fn().mockResolvedValue(
+              JSON.stringify({
+                playlist: mockPlaylist,
+                songs: mockSongs,
+              })
+            ),
+          },
+          "song1.mp3": {
+            async: vi.fn().mockResolvedValue(new ArrayBuffer(1000)),
+          },
+          "song2.mp3": {
+            async: vi.fn().mockResolvedValue(new ArrayBuffer(1500)),
+          },
+        },
+      };
+
+      vi.mocked(JSZip).mockImplementation(
+        () =>
+          ({
+            loadAsync: vi.fn().mockResolvedValue(mockZipFile),
+          }) as any
+      );
+    });
+
+    it("should parse playlist ZIP file correctly", async () => {
+      const zipBlob = new Blob(["mock zip content"]);
+      const result = await parsePlaylistZip(zipBlob);
+
+      expect(result).toHaveProperty("playlist");
+      expect(result).toHaveProperty("songs");
+      expect(result.playlist.id).toBe(mockPlaylist.id);
+      expect(result.songs).toHaveLength(2);
+    });
+
+    it("should handle ZIP files without playlist.json", async () => {
+      mockZipFile.files = {}; // No playlist.json
+
+      const zipBlob = new Blob(["mock zip content"]);
+
+      await expect(parsePlaylistZip(zipBlob)).rejects.toThrow();
+    });
+
+    it("should handle corrupted ZIP files", async () => {
+      vi.mocked(JSZip).mockImplementation(
+        () =>
+          ({
+            loadAsync: vi.fn().mockRejectedValue(new Error("Corrupted ZIP")),
+          }) as any
+      );
+
+      const zipBlob = new Blob(["corrupted content"]);
+
+      await expect(parsePlaylistZip(zipBlob)).rejects.toThrow("Corrupted ZIP");
+    });
+
+    it("should handle invalid JSON in playlist.json", async () => {
+      mockZipFile.files["playlist.json"].async.mockResolvedValue(
+        "invalid json"
+      );
+
+      const zipBlob = new Blob(["mock zip content"]);
+
+      await expect(parsePlaylistZip(zipBlob)).rejects.toThrow();
+    });
+  });
+
+  describe("Standalone HTML Generation", () => {
+    it("should include HTML when includeHTML option is true", async () => {
+      const options: PlaylistDownloadOptions = { includeHTML: true };
+
+      await downloadPlaylistAsZip(mockPlaylist, options);
+
+      expect(mockZipFile).toHaveBeenCalledWith(
+        "playlist.html",
+        expect.stringContaining("<!DOCTYPE html>")
+      );
+    });
+
+    it("should not include HTML when includeHTML option is false", async () => {
+      const options: PlaylistDownloadOptions = { includeHTML: false };
+
+      await downloadPlaylistAsZip(mockPlaylist, options);
+
+      expect(mockZipFile).not.toHaveBeenCalledWith(
+        "playlist.html",
+        expect.any(String)
+      );
+    });
+
+    it("should handle HTML generation errors gracefully", async () => {
+      // Mock fetch to fail (used in HTML generation)
+      global.fetch = vi.fn().mockRejectedValue(new Error("Fetch failed"));
+
+      const options: PlaylistDownloadOptions = { includeHTML: true };
+
+      // Should not throw, should skip HTML generation
+      await expect(
+        downloadPlaylistAsZip(mockPlaylist, options)
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe("Integration Tests", () => {
+    it("should complete full download workflow", async () => {
+      const options: PlaylistDownloadOptions = {
+        includeMetadata: true,
+        includeImages: true,
+        generateM3U: true,
+        includeHTML: true,
+      };
+
+      await downloadPlaylistAsZip(mockPlaylist, options);
+
+      // Verify all major steps were executed
+      expect(mockGetSongsWithAudioData).toHaveBeenCalled();
+      expect(mockUpdatePlaylist).toHaveBeenCalled();
+      expect(mockCalculateSHA256).toHaveBeenCalled();
+      expect(mockZipGenerateAsync).toHaveBeenCalled();
+
+      // Verify content was added to ZIP
+      expect(mockZipFile).toHaveBeenCalledWith(
+        "playlist.json",
+        expect.any(String)
+      );
+      expect(mockZipFile).toHaveBeenCalledWith(
+        "playlist.m3u",
+        expect.any(String)
+      );
+      expect(mockZipFile).toHaveBeenCalledWith(
+        "playlist.html",
+        expect.any(String)
+      );
+    });
+
+    it("should handle mixed scenarios with partial data", async () => {
+      // Mix of songs with and without SHA, images, etc.
+      const mixedSongs = [
+        { ...mockSongs[0], sha: "existing-sha" },
+        { ...mockSongs[1], sha: undefined, imageData: undefined },
+      ];
+      mockGetSongsWithAudioData.mockResolvedValue(mixedSongs);
+
+      await downloadPlaylistAsZip(mockPlaylist);
+
+      // Should only calculate SHA for the song that needs it
+      expect(mockCalculateSHA256).toHaveBeenCalledTimes(1);
+      expect(mockZipGenerateAsync).toHaveBeenCalled();
+    });
+
+    it("should maintain data integrity throughout workflow", async () => {
+      const originalSongCount = mockPlaylist.songIds.length;
+
+      await downloadPlaylistAsZip(mockPlaylist);
+
+      // Verify playlist revision was incremented
+      expect(mockUpdatePlaylist).toHaveBeenCalledWith(mockPlaylist.id, {
+        rev: mockPlaylist.rev! + 1,
       });
-    });
-  });
 
-  describe("Integration Scenarios", () => {
-    it("should handle mixed SHA states in download", async () => {
-      const songs = [
-        { id: "song1", sha: "existing1", audioData: new ArrayBuffer(8) },
-        { id: "song2", sha: undefined, audioData: new ArrayBuffer(16) },
-        { id: "song3", sha: "existing3", audioData: undefined },
-        { id: "song4", sha: undefined, audioData: undefined },
-      ];
-
-      const processedSongs = await Promise.all(
-        songs.map(async (song) => {
-          if (!song.sha && song.audioData) {
-            return { ...song, sha: await calculateSHA256(song.audioData) };
-          }
-          return song;
-        })
+      // Verify all songs were processed
+      expect(mockGetSongsWithAudioData).toHaveBeenCalledWith(
+        expect.arrayContaining(mockPlaylist.songIds)
       );
-
-      expect(processedSongs[0]?.sha).toBe("existing1"); // Unchanged
-      expect(processedSongs[1]?.sha).toBeDefined(); // Calculated
-      expect(processedSongs[2]?.sha).toBe("existing3"); // Unchanged
-      expect(processedSongs[3]?.sha).toBeUndefined(); // No change possible
-    });
-
-    it("should simulate complete download workflow", async () => {
-      const playlist = {
-        id: "test-playlist",
-        title: "Test Playlist",
-        rev: 1,
-        songIds: ["song1", "song2"],
-      };
-
-      // Step 1: Increment revision
-      const currentRev = playlist.rev || 0;
-      const newRev = currentRev + 1;
-      expect(newRev).toBe(2);
-
-      // Step 2: Process songs
-      const songs = [
-        { id: "song1", audioData: new ArrayBuffer(8), sha: undefined },
-        { id: "song2", audioData: new ArrayBuffer(16), sha: "existing" },
-      ];
-
-      const songsWithSHA = await Promise.all(
-        songs.map(async (song) => {
-          if (!song.sha && song.audioData) {
-            return { ...song, sha: await calculateSHA256(song.audioData) };
-          }
-          return song;
-        })
-      );
-
-      // Step 3: Create playlist data
-      const playlistData = {
-        playlist: {
-          id: playlist.id,
-          title: playlist.title,
-          rev: newRev,
-        },
-        songs: songsWithSHA.map((song) => ({
-          id: song.id,
-          sha: song.sha,
-        })),
-      };
-
-      expect(playlistData.playlist.rev).toBe(2);
-      expect(playlistData.songs[0]?.sha).toBeDefined();
-      expect(playlistData.songs[1]?.sha).toBe("existing");
-    });
-
-    it("should handle first-time playlist download", async () => {
-      const newPlaylist = {
-        id: "new-playlist",
-        title: "New Playlist",
-        rev: undefined, // First time
-        songIds: ["song1"],
-      };
-
-      const currentRev = newPlaylist.rev || 0;
-      const newRev = currentRev + 1;
-
-      expect(newRev).toBe(1); // First revision
-    });
-
-    it("should handle playlist with no songs", () => {
-      const emptyPlaylist = {
-        id: "empty-playlist",
-        title: "Empty Playlist",
-        rev: 0,
-        songIds: [],
-      };
-
-      const playlistData = {
-        playlist: {
-          id: emptyPlaylist.id,
-          title: emptyPlaylist.title,
-          rev: (emptyPlaylist.rev || 0) + 1,
-          songCount: emptyPlaylist.songIds.length,
-        },
-        songs: [],
-      };
-
-      expect(playlistData.playlist.rev).toBe(1);
-      expect(playlistData.playlist.songCount).toBe(0);
-      expect(playlistData.songs).toHaveLength(0);
     });
   });
 });

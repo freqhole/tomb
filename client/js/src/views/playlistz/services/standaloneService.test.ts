@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { Playlist } from "../types/playlist.js";
 
-// Mock dependencies
+// Mock dependencies using factory pattern
 vi.mock("./indexedDBService.js", () => ({
   setupDB: vi.fn(),
   mutateAndNotify: vi.fn(),
@@ -9,574 +10,561 @@ vi.mock("./indexedDBService.js", () => ({
   SONGS_STORE: "songs",
 }));
 
-// Import the mocked modules
-import { setupDB } from "./indexedDBService.js";
+vi.mock("./songReactivity.js", () => ({
+  triggerSongUpdateWithOptions: vi.fn(),
+}));
 
-// Mock crypto.subtle for testing
-Object.defineProperty(global, "crypto", {
-  value: {
-    randomUUID: vi.fn(() => "test-uuid-123"),
-    subtle: {
-      digest: vi.fn().mockImplementation((_algorithm, _data) => {
-        // Mock SHA-256 digest - return a fixed hash for testing
-        const mockHash = new Uint8Array(32); // SHA-256 produces 32 bytes
-        for (let i = 0; i < 32; i++) {
-          mockHash[i] = i; // Simple pattern for testing
-        }
-        return Promise.resolve(mockHash.buffer);
-      }),
-    },
-  },
-  writable: true,
+// Import after mocks are set up
+import {
+  standaloneLoadingProgress,
+  setStandaloneLoadingProgress,
+  initializeStandalonePlaylist,
+  loadStandaloneSongAudioData,
+  songNeedsAudioData,
+  clearStandaloneLoadingProgress,
+} from "./standaloneService.js";
+import { setupDB, mutateAndNotify } from "./indexedDBService.js";
+import { triggerSongUpdateWithOptions } from "./songReactivity.js";
+
+// Mock solid-js
+vi.mock("solid-js", () => {
+  let currentProgress: any = null;
+
+  return {
+    createSignal: vi.fn(() => [
+      () => currentProgress,
+      (value: any) => {
+        currentProgress = value;
+      },
+    ]),
+  };
 });
+
+// Mock global objects
+global.fetch = vi.fn();
 
 describe("Standalone Service", () => {
   let mockDB: any;
+  let mockTransaction: any;
+  let mockStore: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
 
-    mockDB = {
+    mockStore = {
       get: vi.fn(),
-      getAll: vi.fn(),
       put: vi.fn(),
+      getAll: vi.fn(),
+      delete: vi.fn(),
+    };
+
+    mockTransaction = {
+      objectStore: vi.fn().mockReturnValue(mockStore),
+      done: Promise.resolve(),
+    };
+
+    mockDB = {
+      transaction: vi.fn().mockReturnValue(mockTransaction),
+      get: vi.fn(),
+      put: vi.fn(),
+      getAll: vi.fn(),
     };
 
     vi.mocked(setupDB).mockResolvedValue(mockDB);
+    vi.mocked(mutateAndNotify).mockResolvedValue(undefined);
+
+    // Reset progress
+    setStandaloneLoadingProgress(null);
   });
 
-  describe("Playlist Revision Loading Logic", () => {
-    it("should trigger full reload when playlist rev is higher", () => {
-      const existingRev = 2;
-      const incomingRev = 3;
-      const needsFullReload = incomingRev > existingRev;
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
-      expect(needsFullReload).toBe(true);
+  describe("Loading Progress Management", () => {
+    it("should initialize with null progress", () => {
+      expect(standaloneLoadingProgress()).toBeNull();
     });
 
-    it("should skip reload when playlist rev is same", () => {
-      const existingRev = 2;
-      const incomingRev = 2;
-      const needsFullReload = incomingRev > existingRev;
+    it("should update loading progress", () => {
+      const progress = {
+        current: 5,
+        total: 10,
+        currentSong: "Song Title",
+        phase: "updating" as const,
+      };
 
-      expect(needsFullReload).toBe(false);
+      setStandaloneLoadingProgress(progress);
+      expect(standaloneLoadingProgress()).toEqual(progress);
     });
 
-    it("should skip reload when playlist rev is lower", () => {
-      const existingRev = 3;
-      const incomingRev = 2;
-      const needsFullReload = incomingRev > existingRev;
+    it("should clear loading progress", () => {
+      setStandaloneLoadingProgress({
+        current: 5,
+        total: 10,
+        currentSong: "Song Title",
+        phase: "updating",
+      });
 
-      expect(needsFullReload).toBe(false);
+      setStandaloneLoadingProgress(null);
+      expect(standaloneLoadingProgress()).toBeNull();
     });
 
-    it("should handle undefined revisions gracefully", () => {
-      const scenarios = [
-        { existing: undefined, incoming: undefined, expected: false },
-        { existing: undefined, incoming: 1, expected: true },
-        { existing: 1, incoming: undefined, expected: false },
-        { existing: 0, incoming: 1, expected: true },
-        { existing: 1, incoming: 0, expected: false },
-      ];
+    it("should handle different loading phases", () => {
+      const phases = [
+        "initializing",
+        "checking",
+        "updating",
+        "complete",
+        "reloading",
+      ] as const;
 
-      scenarios.forEach(({ existing, incoming, expected }) => {
-        const needsFullReload = (incoming || 0) > (existing || 0);
-        expect(needsFullReload).toBe(expected);
+      phases.forEach((phase) => {
+        setStandaloneLoadingProgress({
+          current: 1,
+          total: 1,
+          currentSong: "Test Song",
+          phase,
+        });
+
+        expect(standaloneLoadingProgress()?.phase).toBe(phase);
       });
     });
   });
 
-  describe("Song Audio Data Preservation", () => {
-    it("should preserve audio data when SHA matches", () => {
-      const existingSong = {
-        id: "test-song",
-        audioData: new ArrayBuffer(1024),
-        sha: "abc123def456",
-        title: "Old Title",
-      };
+  describe("initializeStandalonePlaylist", () => {
+    let mockPlaylistData: any;
+    let mockCallbacks: any;
 
-      const incomingSong = {
-        id: "test-song",
-        title: "New Title",
-        artist: "New Artist",
-        sha: "abc123def456", // Same SHA
-      };
-
-      const shouldPreserveAudio =
-        existingSong.sha &&
-        incomingSong.sha &&
-        existingSong.sha === incomingSong.sha;
-
-      expect(shouldPreserveAudio).toBe(true);
-
-      // Simulate the preservation logic
-      if (shouldPreserveAudio) {
-        const updatedSong = {
-          ...existingSong,
-          title: incomingSong.title,
-          artist: incomingSong.artist,
-          // audioData preserved
-        };
-
-        expect(updatedSong.audioData).toBe(existingSong.audioData);
-        expect(updatedSong.title).toBe("New Title");
-        expect(updatedSong.artist).toBe("New Artist");
-      }
-    });
-
-    it("should reload audio data when SHA differs", () => {
-      const existingSong = {
-        id: "test-song",
-        audioData: new ArrayBuffer(1024),
-        sha: "abc123def456",
-      };
-
-      const incomingSong = {
-        id: "test-song",
-        title: "Updated Title",
-        sha: "different-sha",
-      };
-
-      const shouldPreserveAudio =
-        existingSong.sha &&
-        incomingSong.sha &&
-        existingSong.sha === incomingSong.sha;
-
-      expect(shouldPreserveAudio).toBe(false);
-    });
-
-    it("should reload audio data when SHA is missing from either song", () => {
-      const scenarios = [
-        {
-          existing: { sha: "abc123" },
-          incoming: { sha: undefined },
-          expected: false,
-        },
-        {
-          existing: { sha: undefined },
-          incoming: { sha: "abc123" },
-          expected: false,
-        },
-        {
-          existing: { sha: undefined },
-          incoming: { sha: undefined },
-          expected: false,
-        },
-        {
-          existing: { sha: "" },
-          incoming: { sha: "abc123" },
-          expected: false,
-        },
-      ];
-
-      scenarios.forEach(({ existing, incoming, expected }) => {
-        const shouldPreserve = !!(
-          existing.sha &&
-          incoming.sha &&
-          existing.sha === incoming.sha
-        );
-
-        expect(shouldPreserve).toBe(expected);
-      });
-    });
-  });
-
-  describe("Song Needs Audio Data Logic", () => {
-    it("should return true when song has no audio data", () => {
-      const song: { id: string; audioData?: ArrayBuffer } = {
-        id: "test-song",
-        audioData: undefined,
-      };
-
-      const needsData = !song.audioData || song.audioData.byteLength === 0;
-      expect(needsData).toBe(true);
-    });
-
-    it("should return true when song has empty audio data", () => {
-      const song: { id: string; audioData?: ArrayBuffer } = {
-        id: "test-song",
-        audioData: new ArrayBuffer(0), // Empty buffer
-      };
-
-      const needsData = !song.audioData || song.audioData.byteLength === 0;
-      expect(needsData).toBe(true);
-    });
-
-    it("should return false when song has valid audio data", () => {
-      const song: { id: string; audioData?: ArrayBuffer } = {
-        id: "test-song",
-        audioData: new ArrayBuffer(1024), // Valid buffer
-      };
-
-      const needsData = !song.audioData || song.audioData.byteLength === 0;
-      expect(needsData).toBe(false);
-    });
-
-    it("should return false for file:// protocol", () => {
-      // Mock window.location
-      Object.defineProperty(global.window, "location", {
-        value: { protocol: "file:" },
-        writable: true,
-      });
-
-      const isFileProtocol = window.location.protocol === "file:";
-      expect(isFileProtocol).toBe(true);
-
-      // For file:// protocol, songs don't need caching
-      const needsData = isFileProtocol ? false : true;
-      expect(needsData).toBe(false);
-    });
-
-    it("should return true for http/https protocol with missing data", () => {
-      // Mock window.location
-      Object.defineProperty(window, "location", {
-        value: { protocol: "https:" },
-        writable: true,
-      });
-
-      const song: { id: string; audioData?: ArrayBuffer } = {
-        id: "test-song",
-        audioData: undefined,
-      };
-
-      const isFileProtocol = window.location.protocol === "file:";
-      const needsData = isFileProtocol
-        ? false
-        : !song.audioData || song.audioData.byteLength === 0;
-
-      expect(needsData).toBe(true);
-    });
-  });
-
-  describe("Standalone Loading Scenarios", () => {
-    it("should create new playlist when none exists", async () => {
-      const playlistData = {
+    beforeEach(() => {
+      mockPlaylistData = {
         playlist: {
-          id: "new-playlist",
-          title: "New Playlist",
-          rev: 0,
-        },
-        songs: [],
-      };
-
-      mockDB.get.mockResolvedValue(null); // No existing playlist
-
-      const existingPlaylist = await mockDB.get(
-        "playlists",
-        playlistData.playlist.id
-      );
-      const shouldCreate = !existingPlaylist;
-
-      expect(shouldCreate).toBe(true);
-    });
-
-    it("should use existing data when rev is unchanged", async () => {
-      const existingPlaylist = {
-        id: "test-playlist",
-        rev: 2,
-      };
-
-      const playlistData = {
-        playlist: {
-          id: "test-playlist",
-          rev: 2, // Same revision
-        },
-        songs: [],
-      };
-
-      const existingRev = existingPlaylist.rev || 0;
-      const incomingRev = playlistData.playlist.rev || 0;
-      const needsFullReload = incomingRev > existingRev;
-
-      expect(needsFullReload).toBe(false);
-    });
-
-    it("should perform smart reload when rev is higher", async () => {
-      const existingPlaylist = {
-        id: "test-playlist",
-        rev: 1,
-      };
-
-      const playlistData = {
-        playlist: {
-          id: "test-playlist",
-          rev: 2, // Higher revision
+          id: "standalone-playlist",
+          title: "Standalone Playlist",
+          description: "A test playlist",
+          songCount: 2,
+          rev: 1,
         },
         songs: [
           {
             id: "song1",
-            title: "Song 1",
-            sha: "abc123",
+            title: "Song One",
+            artist: "Artist One",
+            album: "Album One",
+            duration: 180,
+            originalFilename: "song1.mp3",
+            fileSize: 1000000,
+          },
+          {
+            id: "song2",
+            title: "Song Two",
+            artist: "Artist Two",
+            album: "Album Two",
+            duration: 240,
+            originalFilename: "song2.mp3",
+            fileSize: 1500000,
           },
         ],
       };
 
-      const existingRev = existingPlaylist.rev || 0;
-      const incomingRev = playlistData.playlist.rev || 0;
-      const needsFullReload = incomingRev > existingRev;
+      mockCallbacks = {
+        setSelectedPlaylist: vi.fn(),
+        setPlaylistSongs: vi.fn(),
+        setSidebarCollapsed: vi.fn(),
+        setError: vi.fn(),
+      };
+    });
 
-      expect(needsFullReload).toBe(true);
+    it("should initialize standalone playlist successfully", async () => {
+      await initializeStandalonePlaylist(mockPlaylistData, mockCallbacks);
+
+      expect(setupDB).toHaveBeenCalled();
+      expect(mockCallbacks.setSelectedPlaylist).toHaveBeenCalled();
+      expect(mockCallbacks.setPlaylistSongs).toHaveBeenCalled();
+    });
+
+    it("should handle database errors gracefully", async () => {
+      vi.mocked(setupDB).mockRejectedValue(new Error("Database setup failed"));
+
+      await initializeStandalonePlaylist(mockPlaylistData, mockCallbacks);
+
+      expect(mockCallbacks.setError).toHaveBeenCalledWith(
+        expect.stringContaining("Database setup failed")
+      );
+    });
+
+    it("should handle invalid playlist data", async () => {
+      const invalidData = null;
+
+      await initializeStandalonePlaylist(invalidData, mockCallbacks);
+
+      expect(mockCallbacks.setError).toHaveBeenCalled();
+    });
+
+    it("should handle missing callbacks gracefully", async () => {
+      const partialCallbacks = {
+        setSelectedPlaylist: vi.fn(),
+        // Missing other callbacks
+      };
+
+      await expect(
+        initializeStandalonePlaylist(mockPlaylistData, partialCallbacks as any)
+      ).not.toThrow();
     });
   });
 
-  describe("Smart Update Logic", () => {
-    it("should update song metadata while preserving audio data", () => {
-      const existingSong = {
-        id: "song1",
-        title: "Old Title",
-        artist: "Old Artist",
-        audioData: new ArrayBuffer(1024),
-        sha: "same-sha",
-      };
-
-      const incomingSongData = {
-        id: "song1",
-        title: "New Title",
-        artist: "New Artist",
-        album: "New Album",
-        sha: "same-sha",
-      };
-
-      const shaMatches =
-        existingSong.sha &&
-        incomingSongData.sha &&
-        existingSong.sha === incomingSongData.sha;
-
-      expect(shaMatches).toBe(true);
-
-      if (shaMatches) {
-        const updatedSong = {
-          ...existingSong,
-          title: incomingSongData.title,
-          artist: incomingSongData.artist,
-          album: incomingSongData.album,
-          // audioData preserved
-          updatedAt: Date.now(),
-        };
-
-        expect(updatedSong.audioData).toBe(existingSong.audioData);
-        expect(updatedSong.title).toBe("New Title");
-        expect(updatedSong.artist).toBe("New Artist");
-        expect(updatedSong.album).toBe("New Album");
-      }
+  describe("loadStandaloneSongAudioData", () => {
+    beforeEach(() => {
+      global.fetch = vi.fn();
     });
 
-    it("should create new song when SHA differs", () => {
-      const existingSong = {
-        id: "song1",
-        audioData: new ArrayBuffer(1024),
-        sha: "old-sha",
+    it("should load audio data for song successfully", async () => {
+      const songId = "test-song";
+      const mockSong = {
+        id: songId,
+        title: "Test Song",
+        originalFilename: "test.mp3",
       };
 
-      const incomingSongData = {
-        id: "song1",
-        title: "Updated Song",
-        sha: "new-sha",
-      };
+      mockDB.get.mockResolvedValue(mockSong);
 
-      const shaMatches =
-        existingSong.sha &&
-        incomingSongData.sha &&
-        existingSong.sha === incomingSongData.sha;
+      const mockAudioData = new ArrayBuffer(2000);
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        arrayBuffer: vi.fn().mockResolvedValue(mockAudioData),
+      } as any);
 
-      expect(shaMatches).toBe(false);
+      const result = await loadStandaloneSongAudioData(songId);
 
-      if (!shaMatches) {
-        const newSong = {
-          id: incomingSongData.id,
-          title: incomingSongData.title,
-          audioData: undefined, // Will be loaded on-demand
-          sha: incomingSongData.sha,
-        };
-
-        expect(newSong.audioData).toBeUndefined();
-        expect(newSong.sha).toBe("new-sha");
-      }
+      expect(setupDB).toHaveBeenCalled();
+      expect(mockDB.get).toHaveBeenCalledWith("songs", songId);
+      expect(result).toBe(true);
     });
 
-    it("should handle mixed SHA states in playlist", () => {
-      const existingSongs = [
-        { id: "song1", sha: "sha1", audioData: new ArrayBuffer(100) },
-        { id: "song2", sha: "sha2", audioData: new ArrayBuffer(200) },
-        { id: "song3", sha: undefined, audioData: new ArrayBuffer(300) },
-      ];
+    it("should handle song not found", async () => {
+      const songId = "non-existent-song";
+      mockDB.get.mockResolvedValue(undefined);
 
-      const incomingSongs = [
-        { id: "song1", sha: "sha1", title: "Same SHA" }, // Preserve
-        { id: "song2", sha: "new-sha2", title: "Different SHA" }, // Reload
-        { id: "song3", sha: "new-sha3", title: "Added SHA" }, // Reload
-        { id: "song4", sha: "sha4", title: "New Song" }, // Create
-      ];
+      const result = await loadStandaloneSongAudioData(songId);
 
-      const results = incomingSongs.map((incoming) => {
-        const existing = existingSongs.find((e) => e.id === incoming.id);
+      expect(result).toBe(false);
+    });
 
-        if (!existing) {
-          return { action: "create", song: incoming };
-        }
+    it("should handle audio loading errors", async () => {
+      const songId = "test-song";
+      const mockSong = {
+        id: songId,
+        title: "Test Song",
+        originalFilename: "test.mp3",
+      };
 
-        const shaMatches =
-          existing.sha && incoming.sha && existing.sha === incoming.sha;
+      mockDB.get.mockResolvedValue(mockSong);
+      vi.mocked(fetch).mockRejectedValue(new Error("Network error"));
 
-        if (shaMatches) {
-          return {
-            action: "preserve",
-            song: { ...existing, title: incoming.title },
-          };
-        } else {
-          return {
-            action: "reload",
-            song: { ...incoming, audioData: undefined },
-          };
-        }
+      const result = await loadStandaloneSongAudioData(songId);
+
+      expect(result).toBe(false);
+    });
+
+    it("should handle database errors", async () => {
+      const songId = "test-song";
+      vi.mocked(setupDB).mockRejectedValue(new Error("Database error"));
+
+      const result = await loadStandaloneSongAudioData(songId);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe("songNeedsAudioData", () => {
+    beforeEach(() => {
+      global.fetch = vi.fn();
+    });
+
+    it("should return true for song without audio data", async () => {
+      const mockSong = {
+        id: "test-song",
+        title: "Test Song",
+      };
+
+      mockDB.get.mockResolvedValue(mockSong);
+
+      const result = await songNeedsAudioData(mockSong);
+
+      expect(result).toBe(true);
+    });
+
+    it("should return false for song with audio data", async () => {
+      const mockSong = {
+        id: "test-song",
+        title: "Test Song",
+        audioData: new ArrayBuffer(1000),
+      };
+
+      mockDB.get.mockResolvedValue(mockSong);
+
+      const result = await songNeedsAudioData(mockSong);
+
+      expect(result).toBe(false);
+    });
+
+    it("should return true for song not in database", async () => {
+      const mockSong = {
+        id: "non-existent-song",
+        title: "Non-existent Song",
+      };
+
+      mockDB.get.mockResolvedValue(undefined);
+
+      const result = await songNeedsAudioData(mockSong);
+
+      expect(result).toBe(true);
+    });
+
+    it("should handle database errors gracefully", async () => {
+      const mockSong = {
+        id: "test-song",
+        title: "Test Song",
+      };
+
+      vi.mocked(setupDB).mockRejectedValue(new Error("Database error"));
+
+      const result = await songNeedsAudioData(mockSong);
+
+      expect(result).toBe(true); // Default to needing data on error
+    });
+
+    it("should return false for file protocol", async () => {
+      // Mock file:// protocol
+      Object.defineProperty(global, "location", {
+        value: { protocol: "file:" },
+        writable: true,
       });
 
-      expect(results[0]?.action).toBe("preserve");
-      expect(results[1]?.action).toBe("reload");
-      expect(results[2]?.action).toBe("reload");
-      expect(results[3]?.action).toBe("create");
+      const mockSong = {
+        id: "test-song",
+        title: "Test Song",
+      };
+
+      const result = await songNeedsAudioData(mockSong);
+
+      expect(result).toBe(false);
     });
   });
 
-  describe("Edge Cases", () => {
-    it("should handle corrupted playlist data", () => {
-      const corruptedData = {
-        playlist: null,
-        songs: undefined,
-      };
+  describe("clearStandaloneLoadingProgress", () => {
+    it("should clear loading progress", () => {
+      // Set some progress first
+      setStandaloneLoadingProgress({
+        current: 5,
+        total: 10,
+        currentSong: "Test Song",
+        phase: "updating",
+      });
 
-      const isValid = !!(
-        corruptedData.playlist && Array.isArray(corruptedData.songs)
-      );
-      expect(isValid).toBe(false);
+      expect(standaloneLoadingProgress()).not.toBeNull();
+
+      // Clear progress
+      clearStandaloneLoadingProgress();
+
+      expect(standaloneLoadingProgress()).toBeNull();
     });
 
-    it("should handle playlist with no songs", () => {
-      const emptyPlaylistData = {
-        playlist: {
-          id: "empty-playlist",
-          rev: 1,
-        },
+    it("should handle clearing when already null", () => {
+      // Ensure it's already null
+      setStandaloneLoadingProgress(null);
+      expect(standaloneLoadingProgress()).toBeNull();
+
+      // Should not throw when clearing already null progress
+      expect(() => {
+        clearStandaloneLoadingProgress();
+      }).not.toThrow();
+
+      expect(standaloneLoadingProgress()).toBeNull();
+    });
+  });
+
+  describe("Integration with other services", () => {
+    it("should properly integrate with setupDB", async () => {
+      const songId = "integration-song";
+      const mockSong = {
+        id: songId,
+        title: "Integration Song",
+        originalFilename: "integration.mp3",
+      };
+
+      mockDB.get.mockResolvedValue(mockSong);
+
+      const mockAudioData = new ArrayBuffer(2000);
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        arrayBuffer: vi.fn().mockResolvedValue(mockAudioData),
+      } as any);
+
+      const result = await loadStandaloneSongAudioData(songId);
+
+      expect(setupDB).toHaveBeenCalled();
+      expect(result).toBe(true);
+    });
+
+    it("should handle progress updates correctly", () => {
+      const progressStates = [
+        { phase: "initializing", current: 0, total: 5 },
+        { phase: "checking", current: 1, total: 5 },
+        { phase: "updating", current: 3, total: 5 },
+        { phase: "complete", current: 5, total: 5 },
+      ] as const;
+
+      progressStates.forEach((state) => {
+        setStandaloneLoadingProgress({
+          ...state,
+          currentSong: "Test Song",
+        });
+
+        const currentProgress = standaloneLoadingProgress();
+        expect(currentProgress?.phase).toBe(state.phase);
+        expect(currentProgress?.current).toBe(state.current);
+        expect(currentProgress?.total).toBe(state.total);
+      });
+    });
+  });
+
+  describe("Error Handling and Edge Cases", () => {
+    it("should handle malformed playlist data", async () => {
+      const malformedData = {
+        // Missing playlist object
         songs: [],
       };
 
-      const hasSongs = emptyPlaylistData.songs.length > 0;
-      expect(hasSongs).toBe(false);
-    });
-
-    it("should handle songs with malformed SHA", () => {
-      const song = {
-        id: "test-song",
-        sha: "invalid-sha-format",
+      const mockCallbacks = {
+        setSelectedPlaylist: vi.fn(),
+        setPlaylistSongs: vi.fn(),
+        setSidebarCollapsed: vi.fn(),
+        setError: vi.fn(),
       };
 
-      const isValidSHA = song.sha && song.sha.length === 64;
-      expect(isValidSHA).toBe(false);
+      await initializeStandalonePlaylist(malformedData as any, mockCallbacks);
+
+      expect(mockCallbacks.setError).toHaveBeenCalled();
     });
 
-    it("should handle negative or invalid rev values", () => {
-      const scenarios = [
-        { rev: -1, expected: 0 },
-        { rev: "invalid", expected: 0 },
-        { rev: null, expected: 0 },
-        { rev: undefined, expected: 0 },
-        { rev: 3.14, expected: 3 },
-      ];
+    it("should handle very large song datasets", async () => {
+      const songId = "large-song";
+      const largeSong = {
+        id: songId,
+        title: "Large Song",
+        originalFilename: "large.mp3",
+        fileSize: 100 * 1024 * 1024, // 100MB
+      };
 
-      scenarios.forEach(({ rev, expected }) => {
-        const normalizedRev = Math.max(0, parseInt(String(rev)) || 0);
-        expect(normalizedRev).toBe(expected);
+      mockDB.get.mockResolvedValue(largeSong);
+
+      const largeAudioData = new ArrayBuffer(100 * 1024 * 1024);
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        arrayBuffer: vi.fn().mockResolvedValue(largeAudioData),
+      } as any);
+
+      const result = await loadStandaloneSongAudioData(songId);
+
+      expect(result).toBe(true);
+    });
+
+    it("should handle network timeouts gracefully", async () => {
+      const songId = "timeout-song";
+      const mockSong = {
+        id: songId,
+        title: "Timeout Song",
+        originalFilename: "timeout.mp3",
+      };
+
+      mockDB.get.mockResolvedValue(mockSong);
+
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Network timeout")), 100);
       });
+
+      vi.mocked(fetch).mockReturnValue(timeoutPromise as any);
+
+      const result = await loadStandaloneSongAudioData(songId);
+
+      expect(result).toBe(false);
+    });
+
+    it("should handle concurrent song loading", async () => {
+      const songIds = ["song1", "song2", "song3"];
+      const mockSongs = songIds.map((id) => ({
+        id,
+        title: `Song ${id}`,
+        originalFilename: `${id}.mp3`,
+      }));
+
+      songIds.forEach((songId, index) => {
+        mockDB.get.mockResolvedValueOnce(mockSongs[index]);
+      });
+
+      const mockAudioData = new ArrayBuffer(2000);
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        arrayBuffer: vi.fn().mockResolvedValue(mockAudioData),
+      } as any);
+
+      const promises = songIds.map((songId) =>
+        loadStandaloneSongAudioData(songId)
+      );
+      const results = await Promise.all(promises);
+
+      expect(results.every((result) => result === true)).toBe(true);
+      expect(fetch).toHaveBeenCalledTimes(3);
     });
   });
 
-  describe("Integration Workflow", () => {
-    it("should simulate complete standalone initialization", async () => {
-      const playlistData = {
-        playlist: {
-          id: "test-playlist",
-          title: "Test Playlist",
-          rev: 2,
-        },
-        songs: [
-          { id: "song1", title: "Song 1", sha: "sha1" },
-          { id: "song2", title: "Song 2", sha: "sha2" },
-        ],
-      };
+  describe("Performance Considerations", () => {
+    it("should handle rapid progress updates efficiently", async () => {
+      const startTime = performance.now();
 
-      // Step 1: Check for existing playlist
-      const existingPlaylist = {
-        id: "test-playlist",
-        rev: 1, // Lower revision
-      };
+      // Simulate rapid progress updates
+      for (let i = 0; i < 1000; i++) {
+        setStandaloneLoadingProgress({
+          current: i,
+          total: 1000,
+          currentSong: `Song ${i}`,
+          phase: "updating",
+        });
+      }
 
-      // Step 2: Determine action needed
-      const existingRev = existingPlaylist.rev || 0;
-      const incomingRev = playlistData.playlist.rev || 0;
-      const needsFullReload = incomingRev > existingRev;
+      const endTime = performance.now();
+      const duration = endTime - startTime;
 
-      expect(needsFullReload).toBe(true);
-
-      // Step 3: If full reload needed, check existing songs
-      const existingSongs = [
-        { id: "song1", sha: "sha1", audioData: new ArrayBuffer(100) },
-        { id: "song2", sha: "old-sha2", audioData: new ArrayBuffer(200) },
-      ];
-
-      // Step 4: Process each song
-      const finalSongs = playlistData.songs.map((songData) => {
-        const existingSong = existingSongs.find((s) => s.id === songData.id);
-
-        if (
-          existingSong &&
-          existingSong.sha &&
-          songData.sha &&
-          existingSong.sha === songData.sha
-        ) {
-          // Preserve audio data
-          return {
-            ...existingSong,
-            title: songData.title,
-            updatedAt: Date.now(),
-          };
-        } else {
-          // Create new song for lazy loading
-          return {
-            ...songData,
-            audioData: undefined,
-          };
-        }
-      });
-
-      expect(finalSongs[0]?.audioData).toBeDefined(); // Preserved
-      expect(finalSongs[1]?.audioData).toBeUndefined(); // New (lazy load)
+      // Should complete quickly (less than 50ms on most systems)
+      expect(duration).toBeLessThan(50);
+      expect(standaloneLoadingProgress()?.current).toBe(999);
     });
 
-    it("should handle first-time standalone setup", () => {
-      const playlistData = {
-        playlist: {
-          id: "new-playlist",
-          title: "New Playlist",
-          rev: 0,
-        },
-        songs: [{ id: "song1", title: "Song 1", sha: "sha1" }],
-      };
+    it("should handle audio data checking efficiently", async () => {
+      const startTime = performance.now();
 
-      const existingPlaylist = null; // No existing playlist
+      // Test multiple songs
+      const songs = Array.from({ length: 100 }, (_, i) => ({
+        id: `song${i}`,
+        title: `Song ${i}`,
+      }));
 
-      const shouldCreate = !existingPlaylist;
-      expect(shouldCreate).toBe(true);
-
-      if (shouldCreate) {
-        // All songs will be created fresh
-        const newSongs = playlistData.songs.map((songData) => ({
-          ...songData,
-          audioData: undefined, // Lazy loading
-        }));
-
-        expect(newSongs[0]?.audioData).toBeUndefined();
-        expect(newSongs[0]?.sha).toBe("sha1");
+      // Mock some songs with audio data, some without
+      for (let i = 0; i < 100; i++) {
+        const songWithAudio =
+          i % 2 === 0 ? { audioData: new ArrayBuffer(1000) } : {};
+        mockDB.get.mockResolvedValueOnce({ ...songs[i], ...songWithAudio });
       }
+
+      const promises = songs.map((song) => songNeedsAudioData(song));
+      await Promise.all(promises);
+
+      const endTime = performance.now();
+      const duration = endTime - startTime;
+
+      // Should complete efficiently
+      expect(duration).toBeLessThan(200);
     });
   });
 });
