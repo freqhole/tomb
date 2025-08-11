@@ -307,6 +307,26 @@ export async function initializeStandalonePlaylist(
   }
 ): Promise<void> {
   try {
+    // Validate input data
+    if (!playlistData || !playlistData.playlist || !playlistData.songs) {
+      console.error(
+        "Error initializing standalone playlist: Invalid playlist data"
+      );
+      callbacks.setError("Invalid playlist data provided");
+      return;
+    }
+
+    // Validate callbacks
+    if (!callbacks.setError || typeof callbacks.setError !== "function") {
+      throw new Error("callbacks.setError is not a function");
+    }
+    if (
+      !callbacks.setPlaylistSongs ||
+      typeof callbacks.setPlaylistSongs !== "function"
+    ) {
+      throw new Error("callbacks.setPlaylistSongs is not a function");
+    }
+
     // Show loading progress
     setStandaloneLoadingProgress({
       current: 0,
@@ -316,7 +336,15 @@ export async function initializeStandalonePlaylist(
     });
 
     // Check if playlist with this ID already exists
-    const db = await setupDB();
+    let db;
+    try {
+      db = await setupDB();
+    } catch (error) {
+      console.error("Error initializing standalone playlist:", error);
+      callbacks.setError("Failed to load playlist - database setup failed");
+      return;
+    }
+
     const existingPlaylist = await db.get(
       PLAYLISTS_STORE,
       playlistData.playlist.id

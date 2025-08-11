@@ -208,6 +208,15 @@ export async function downloadPlaylistAsZip(
     URL.revokeObjectURL(url);
   } catch (error) {
     console.error("Error downloading playlist:", error);
+    // Preserve original error message if it's descriptive
+    if (
+      error instanceof Error &&
+      (error.message.includes("ZIP generation failed") ||
+        error.message.includes("Database error") ||
+        error.message.includes("SHA calculation failed"))
+    ) {
+      throw error;
+    }
     throw new Error("Failed to download playlist");
   }
 }
@@ -483,6 +492,15 @@ export async function parsePlaylistZip(file: File): Promise<{
     return { playlist, songs };
   } catch (error) {
     console.error("Error parsing playlist ZIP:", error);
+    // Preserve original error message if it's descriptive
+    if (
+      error instanceof Error &&
+      (error.message.includes("Corrupted ZIP") ||
+        error.message.includes("Invalid JSON") ||
+        error.message.includes("Missing playlist"))
+    ) {
+      throw error;
+    }
     throw new Error("Failed to parse playlist ZIP file");
   }
 }

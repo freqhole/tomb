@@ -24,7 +24,47 @@ vi.mock("jszip", () => ({
     file: vi.fn(),
     folder: vi.fn(),
     generateAsync: vi.fn(),
-    loadAsync: vi.fn(),
+    loadAsync: vi.fn().mockResolvedValue({
+      file: vi.fn((pattern) => {
+        if (typeof pattern === "string") {
+          // Return a single file object or null
+          return pattern === "data/playlist.json" ||
+            pattern === "playlist-info.json"
+            ? {
+                async: vi.fn().mockResolvedValue(
+                  JSON.stringify({
+                    playlist: {
+                      title: "Test Playlist",
+                      description: "Test Description",
+                    },
+                    songs: [],
+                  })
+                ),
+              }
+            : null;
+        } else if (pattern instanceof RegExp) {
+          // Return array of file objects for regex patterns
+          if (pattern.test("playlist.json")) {
+            return [
+              {
+                async: vi.fn().mockResolvedValue(
+                  JSON.stringify({
+                    playlist: {
+                      title: "Test Playlist",
+                      description: "Test Description",
+                    },
+                    songs: [],
+                  })
+                ),
+              },
+            ];
+          }
+          return [];
+        }
+        return [];
+      }),
+      files: {},
+    }),
     files: {},
   })),
 }));
@@ -526,6 +566,55 @@ describe("Playlist Download Service", () => {
             async: vi.fn().mockResolvedValue(new ArrayBuffer(1500)),
           },
         },
+        file: vi.fn((pattern) => {
+          if (typeof pattern === "string") {
+            // Return a single file object or null
+            if (pattern === "data/playlist.json") {
+              return {
+                async: vi.fn().mockResolvedValue(
+                  JSON.stringify({
+                    playlist: mockPlaylist,
+                    songs: mockSongs,
+                  })
+                ),
+              };
+            }
+            if (pattern === "playlist-info.json") {
+              return {
+                async: vi.fn().mockResolvedValue(JSON.stringify(mockPlaylist)),
+              };
+            }
+            return null;
+          } else if (pattern instanceof RegExp) {
+            // Return array of file objects for regex patterns
+            if (pattern.test("playlist.json")) {
+              return [
+                {
+                  async: vi.fn().mockResolvedValue(
+                    JSON.stringify({
+                      playlist: mockPlaylist,
+                      songs: mockSongs,
+                    })
+                  ),
+                },
+              ];
+            }
+            if (pattern.test("song1.mp3") || pattern.test("song2.mp3")) {
+              return [
+                {
+                  name: "song1.mp3",
+                  async: vi.fn().mockResolvedValue(new ArrayBuffer(1000)),
+                },
+                {
+                  name: "song2.mp3",
+                  async: vi.fn().mockResolvedValue(new ArrayBuffer(1500)),
+                },
+              ];
+            }
+            return [];
+          }
+          return [];
+        }),
       };
 
       vi.mocked(JSZip).mockImplementation(
