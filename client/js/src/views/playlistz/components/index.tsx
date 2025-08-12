@@ -59,6 +59,7 @@ import {
 } from "../services/offlineService.js";
 
 import type { Playlist } from "../types/playlist.js";
+import { AudioPlayer } from "./AudioPlayer.jsx";
 
 // global fn registration for standalone mode
 if (typeof window !== "undefined" && (window as any).STANDALONE_MODE) {
@@ -1187,6 +1188,10 @@ export function Playlistz() {
                           class={`mt-3 flex justify-between ${isMobile() ? "gap-3" : ""}`}
                         >
                           <div class="flex items-center gap-2">
+                            <AudioPlayer
+                              playlist={selectedPlaylist() || undefined}
+                            />
+
                             {/* edit playlist image button */}
                             <button
                               onClick={() => setShowPlaylistCover(true)}
