@@ -1169,7 +1169,7 @@ export function Playlistz() {
                             placeholder="playlist title"
                           />
                         </div>
-                        <div class={`mt-2 bg-black bg-opacity-80`}>
+                        <div class={`bg-black bg-opacity-80`}>
                           <input
                             type="text"
                             value={playlist().description || ""}
@@ -1183,14 +1183,96 @@ export function Playlistz() {
                           />
                         </div>
 
-                        {/* metadata row with song count, duration, and action buttonz */}
+                        {/* 2x2 grid layout with AudioPlayer spanning left side */}
                         <div
-                          class={`mt-3 flex justify-between ${isMobile() ? "gap-3" : ""}`}
+                          class="grid gap-3"
+                          style="grid-template-columns: auto 1fr; grid-template-areas: 'player info' 'player buttons';"
                         >
-                          <div class="flex items-center gap-2">
+                          {/* AudioPlayer spans 2 rows on the left */}
+                          <div
+                            class="flex items-center justify-center"
+                            style="grid-area: player;"
+                          >
                             <AudioPlayer
                               playlist={selectedPlaylist() || undefined}
+                              size="w-12 h-12"
                             />
+                          </div>
+
+                          {/* Top right: song info */}
+                          <div
+                            id="song-info"
+                            class="flex items-center justify-end text-sm gap-0"
+                            style="grid-area: info;"
+                          >
+                            <span class="bg-black bg-opacity-80 p-2">
+                              {playlist().songIds?.length || 0} song
+                              {(playlist().songIds?.length || 0) !== 1
+                                ? "z"
+                                : ""}
+                            </span>
+                            <span class="bg-black bg-opacity-80 p-2">
+                              {(() => {
+                                const totalSeconds = playlistSongs().reduce(
+                                  (total, song) => total + (song.duration || 0),
+                                  0
+                                );
+                                const hours = Math.floor(totalSeconds / 3600);
+                                const minutes = Math.floor(
+                                  (totalSeconds % 3600) / 60
+                                );
+                                const seconds = Math.floor(totalSeconds % 60);
+                                return hours > 0
+                                  ? `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+                                  : `${minutes}:${seconds.toString().padStart(2, "0")}`;
+                              })()}
+                            </span>
+                          </div>
+
+                          {/* Bottom right: action buttons */}
+                          <div
+                            class="flex items-center justify-end gap-2"
+                            style="grid-area: buttons;"
+                          >
+                            {/* save offline button */}
+                            <Show
+                              when={
+                                (window as any).STANDALONE_MODE &&
+                                window.location.protocol !== "file:"
+                              }
+                            >
+                              <Show when={!allSongsCached()}>
+                                <button
+                                  onClick={handleCachePlaylist}
+                                  disabled={
+                                    isCaching() || playlistSongs().length === 0
+                                  }
+                                  class="p-2 text-gray-400 hover:text-magenta-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="download songz for offline use"
+                                >
+                                  <Show
+                                    when={!isCaching()}
+                                    fallback={
+                                      <svg
+                                        class="w-4 h-4 animate-spin"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path
+                                          stroke-linecap="round"
+                                          stroke-linejoin="round"
+                                          stroke-width="2"
+                                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                        />
+                                      </svg>
+                                    }
+                                  >
+                                    SAVE OFFLINE
+                                  </Show>
+                                </button>
+                              </Show>
+                            </Show>
 
                             {/* edit playlist image button */}
                             <button
@@ -1276,73 +1358,6 @@ export function Playlistz() {
                                 />
                               </svg>
                             </button>
-
-                            {/* save offline button */}
-                            <Show
-                              when={
-                                (window as any).STANDALONE_MODE &&
-                                window.location.protocol !== "file:"
-                              }
-                            >
-                              <Show when={!allSongsCached()}>
-                                <button
-                                  onClick={handleCachePlaylist}
-                                  disabled={
-                                    isCaching() || playlistSongs().length === 0
-                                  }
-                                  class="ml-4 p-2 text-gray-400 hover:text-magenta-400 hover:bg-gray-700 transition-colors bg-black bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  title="download songz for offline use"
-                                >
-                                  <Show
-                                    when={!isCaching()}
-                                    fallback={
-                                      <svg
-                                        class="w-4 h-4 animate-spin"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                      >
-                                        <path
-                                          stroke-linecap="round"
-                                          stroke-linejoin="round"
-                                          stroke-width="2"
-                                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                                        />
-                                      </svg>
-                                    }
-                                  >
-                                    SAVE OFFLINE
-                                  </Show>
-                                </button>
-                              </Show>
-                            </Show>
-                          </div>
-
-                          <div
-                            class={`flex items-center text-sm ${isMobile() ? "flex-wrap justify-end" : ""}`}
-                          >
-                            <span class="bg-black bg-opacity-80 p-2">
-                              {playlist().songIds?.length || 0} song
-                              {(playlist().songIds?.length || 0) !== 1
-                                ? "z"
-                                : ""}
-                            </span>
-                            <span class="bg-black bg-opacity-80 p-2">
-                              {(() => {
-                                const totalSeconds = playlistSongs().reduce(
-                                  (total, song) => total + (song.duration || 0),
-                                  0
-                                );
-                                const hours = Math.floor(totalSeconds / 3600);
-                                const minutes = Math.floor(
-                                  (totalSeconds % 3600) / 60
-                                );
-                                const seconds = Math.floor(totalSeconds % 60);
-                                return hours > 0
-                                  ? `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
-                                  : `${minutes}:${seconds.toString().padStart(2, "0")}`;
-                              })()}
-                            </span>
                           </div>
                         </div>
                       </div>
@@ -1355,7 +1370,15 @@ export function Playlistz() {
                           setModalImageIndex(0);
                           setShowImageModal(true);
                         }}
-                        class="w-32 h-32 overflow-hidden hover:bg-gray-900 flex items-center justify-center transition-colors group"
+                        class="w-39 h-39 overflow-hidden hover:bg-gray-900 flex items-center justify-center transition-colors group"
+                        style="filter: blur(2px) contrast(2) brightness(0.9);"
+                        onMouseEnter={(e) =>
+                          (e.currentTarget.style.filter = "none")
+                        }
+                        onMouseLeave={(e) =>
+                          (e.currentTarget.style.filter =
+                            "blur(2px) contrast(2) brightness(0.9)")
+                        }
                         title="view playlist imagez"
                       >
                         <Show
@@ -1552,6 +1575,10 @@ export function Playlistz() {
           isOpen={showPlaylistCover()}
           onClose={() => setShowPlaylistCover(false)}
           onSave={handlePlaylistCoverSaved}
+          onDelete={() => {
+            setSelectedPlaylist(null);
+            setShowPlaylistCover(false);
+          }}
         />
       </Show>
 

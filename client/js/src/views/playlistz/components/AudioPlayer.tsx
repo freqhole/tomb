@@ -10,6 +10,7 @@ import type { Playlist } from "../types/playlist.js";
 
 interface AudioPlayerProps {
   playlist?: Playlist;
+  size?: string;
 }
 
 export function AudioPlayer(props: AudioPlayerProps) {
@@ -45,7 +46,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
   return (
     <button
       onClick={handleClick}
-      class="inline-flex items-center justify-center w-12 h-12 bg-magenta-500 hover:bg-magenta-600 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-full text-white transition-colors m-4"
+      class={`inline-flex items-center justify-center ${props.size || "w-12 h-12"} bg-magenta-500 hover:bg-magenta-600 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-full text-white transition-colors mx-2`}
     >
       <Show
         when={isCurrentlyLoading()}
@@ -54,7 +55,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
             when={audioState.isPlaying()}
             fallback={
               <svg
-                class="w-6 h-6 ml-0.5"
+                class="w-8 h-8 ml-0.5"
                 fill="currentColor"
                 viewBox="0 0 20 20"
               >
@@ -66,7 +67,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
               </svg>
             }
           >
-            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+            <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
               <path
                 fill-rule="evenodd"
                 d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z"
@@ -77,7 +78,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         }
       >
         <svg
-          class="w-4 h-4 animate-spin"
+          class="w-6 h-6 animate-spin"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
