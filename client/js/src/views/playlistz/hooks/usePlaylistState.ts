@@ -8,12 +8,8 @@ import {
   removeSongFromPlaylist,
   reorderSongs,
 } from "../services/indexedDBService.js";
-import {
-  downloadPlaylistAsZip,
-} from "../services/playlistDownloadService.js";
-import {
-  cacheAudioFile,
-} from "../services/offlineService.js";
+import { downloadPlaylistAsZip } from "../services/playlistDownloadService.js";
+import { cacheAudioFile } from "../services/offlineService.js";
 
 export function usePlaylistState(initialPlaylist: Playlist | null = null) {
   // Core playlist state
@@ -135,7 +131,7 @@ export function usePlaylistState(initialPlaylist: Playlist | null = null) {
       await removeSongFromPlaylist(playlist.id, songId);
 
       // Update local playlist state
-      const updatedSongIds = playlist.songIds.filter(id => id !== songId);
+      const updatedSongIds = playlist.songIds.filter((id) => id !== songId);
       const updatedPlaylist: Playlist = {
         ...playlist,
         songIds: updatedSongIds,
@@ -157,12 +153,14 @@ export function usePlaylistState(initialPlaylist: Playlist | null = null) {
 
     try {
       setError(null);
-      await reorderSongs(playlist.id, oldIndex, newIndex);
+      await reorderSongs(playlist.id as string, oldIndex, newIndex);
 
       // Update local state
       const newSongIds = [...playlist.songIds];
       const [removed] = newSongIds.splice(oldIndex, 1);
-      newSongIds.splice(newIndex, 0, removed);
+      if (removed) {
+        newSongIds.splice(newIndex, 0, removed);
+      }
 
       const updatedPlaylist: Playlist = {
         ...playlist,
@@ -190,8 +188,17 @@ export function usePlaylistState(initialPlaylist: Playlist | null = null) {
 
       // Cache all songs in the playlist
       for (const song of songs) {
-        if (song.audioData) {
-          await cacheAudioFile(song.id, song.audioData);
+        if (song.audioData && song.id) {
+          // Create blob URL for caching
+          const blob = new Blob([song.audioData], {
+            type: song.mimeType || "audio/mpeg",
+          });
+          const blobUrl = URL.createObjectURL(blob);
+          try {
+            await cacheAudioFile(blobUrl, song.title || "Unknown Song");
+          } finally {
+            URL.revokeObjectURL(blobUrl);
+          }
         }
       }
 

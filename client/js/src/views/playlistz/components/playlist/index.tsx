@@ -7,7 +7,10 @@ import { getImageUrlForContext } from "../../services/imageService.js";
 import { AudioPlayer } from "../AudioPlayer.js";
 import { SongRow } from "../SongRow.js";
 
-export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
+export function PlaylistContainer(props: {
+  playlist: Accessor<Playlist>;
+  onOpenImageModal?: (startIndex?: number) => void;
+}) {
   const { playlist } = props;
 
   // Initialize hooks
@@ -19,8 +22,6 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
   const {
     playlistSongs,
     setShowPlaylistCover,
-    setModalImageIndex,
-    setShowImageModal,
     setShowDeleteConfirm,
     isDownloading,
     isCaching,
@@ -46,8 +47,7 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
         <div class={`${isMobile() ? "" : "hidden"}`}>
           <button
             onClick={() => {
-              setModalImageIndex(0);
-              setShowImageModal(true);
+              props.onOpenImageModal?.(0);
             }}
             class="w-full h-full overflow-hidden hover:bg-gray-900 flex items-center justify-center transition-colors group"
             title="view playlist images"
@@ -304,8 +304,7 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
         <div class={`${isMobile() ? "hidden" : "ml-4"}`}>
           <button
             onClick={() => {
-              setModalImageIndex(0);
-              setShowImageModal(true);
+              props.onOpenImageModal?.(0);
             }}
             class="w-39 h-39 overflow-hidden hover:bg-gray-900 flex items-center justify-center transition-colors group"
             style="filter: blur(3px) contrast(3) brightness(0.4);"

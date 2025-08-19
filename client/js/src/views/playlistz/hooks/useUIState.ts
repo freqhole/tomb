@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import { createSignal, onMount, onCleanup } from "solid-js";
 
 export function useUIState() {
   // Mobile detection
@@ -14,7 +14,9 @@ export function useUIState() {
   const [isDragOver, setIsDragOver] = createSignal(false);
 
   // Background image state
-  const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<string | null>(null);
+  const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<
+    string | null
+  >(null);
 
   // Image URL cache
   const [imageUrlCache] = createSignal(new Map<string, string>());
@@ -39,6 +41,7 @@ export function useUIState() {
       // This can be extended by components using this hook
       return { key: e.key, preventDefault: () => e.preventDefault() };
     }
+    return undefined;
   };
 
   // Initialize mobile detection

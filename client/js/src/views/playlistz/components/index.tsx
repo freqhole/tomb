@@ -1,66 +1,21 @@
 /* @jsxImportSource solid-js */
-import {
-  createSignal,
-  createEffect,
-  onMount,
-  onCleanup,
-  Show,
-  For,
-} from "solid-js";
+import { Show } from "solid-js";
 
 import {
-  setupDB,
-  createPlaylist,
-  createPlaylistsQuery,
-  createPlaylistSongsQuery,
-  updatePlaylist,
-  getAllPlaylists,
-  deletePlaylist,
-  addSongToPlaylist,
-  removeSongFromPlaylist,
-  getAllSongs,
-  reorderSongs,
-} from "../services/indexedDBService.js";
-import {
-  cleanup as cleanupAudio,
-  playSong,
-  togglePlayback,
-  audioState,
-  refreshPlaylistQueue,
-  selectSong,
-} from "../services/audioService.js";
-import {
-  filterAudioFiles,
-  processAudioFiles,
-} from "../services/fileProcessingService.js";
-import { cleanupTimeUtils } from "../utils/timeUtils.js";
-import { getImageUrlForContext } from "../services/imageService.js";
-import {
-  downloadPlaylistAsZip,
-  parsePlaylistZip,
-} from "../services/playlistDownloadService.js";
+  usePlaylistManager,
+  usePlaylistState,
+  useSongState,
+  useUIState,
+  useDragAndDrop,
+  useImageModal,
+} from "../hooks/index.js";
 
 import { PlaylistSidebar } from "./PlaylistSidebar.js";
-import { SongRow } from "./SongRow.js";
 import { SongEditModal } from "./SongEditModal.js";
 import { PlaylistCoverModal } from "./PlaylistCoverModal.js";
-import {
-  initializeStandalonePlaylist,
-  standaloneLoadingProgress,
-  clearStandaloneLoadingProgress,
-  loadStandaloneSongAudioData,
-  songNeedsAudioData,
-  setStandaloneLoadingProgress,
-} from "../services/standaloneService.js";
-import {
-  initializeOfflineSupport,
-  cacheAudioFile,
-  updatePWAManifest,
-} from "../services/offlineService.js";
+import { PlaylistContainer } from "./playlist/index.js";
 
 import type { Playlist } from "../types/playlist.js";
-import { AudioPlayer } from "./AudioPlayer.jsx";
-import { PlaylistContainer } from "./playlist/index.jsx";
 
 // global fn registration for standalone mode
 if (typeof window !== "undefined" && (window as any).STANDALONE_MODE) {
@@ -72,893 +27,114 @@ if (typeof window !== "undefined" && (window as any).STANDALONE_MODE) {
 }
 
 export function Playlistz() {
-  const [selectedPlaylist, setSelectedPlaylist] = createSignal<Playlist | null>(
-    null
-  );
-  const [isDragOver, setIsDragOver] = createSignal(false);
-  const [isInitialized, setIsInitialized] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(
-    (window as any).STANDALONE_MODE || false
-  );
-  const [isMobile, setIsMobile] = createSignal(false);
-  const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<
-    string | null
-  >(null);
+  // Initialize hooks
+  const playlistManager = usePlaylistManager();
+  const playlistState = usePlaylistState();
+  const songState = useSongState();
+  const uiState = useUIState();
+  const dragAndDrop = useDragAndDrop();
+  const imageModal = useImageModal();
 
-  const [editingSong, setEditingSong] = createSignal<any | null>(null);
-  const [showPlaylistCover, setShowPlaylistCover] = createSignal(false);
-  const [showImageModal, setShowImageModal] = createSignal(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
-  const [playlistSongs, setPlaylistSongs] = createSignal<any[]>([]);
-  let songsQueryUnsubscribe: (() => void) | null = null;
-  const [modalImageIndex, setModalImageIndex] = createSignal(0);
-  const [isDownloading, setIsDownloading] = createSignal(false);
-  const [isCaching, setIsCaching] = createSignal(false);
-  const [allSongsCached, setAllSongsCached] = createSignal(false);
+  // Extract state and functions from hooks
+  const {
+    playlists,
+    selectedPlaylist,
+    playlistSongs,
+    isInitialized,
+    error: managerError,
+    backgroundImageUrl,
+    selectPlaylist,
+    createNewPlaylist,
+  } = playlistManager;
 
-  const [playlists, setPlaylists] = createSignal<Playlist[]>([]);
+  const {
+    showPlaylistCover,
+    setShowPlaylistCover,
+    showDeleteConfirm,
+    setShowDeleteConfirm,
+    handleDeletePlaylist,
+  } = playlistState;
 
-  // create and subscribe to query directly in component
-  onMount(() => {
-    const playlistQuery = createPlaylistsQuery();
-    const unsubscribe = playlistQuery.subscribe((value) => {
-      setPlaylists([...value]); // force new array reference
+  const {
+    editingSong,
+    setEditingSong,
+    handleSongSaved,
+    error: songError,
+  } = songState;
 
-      // update selected playlist if it existz in the new data
-      const current = selectedPlaylist();
-      if (current) {
-        const updated = value.find((p) => p.id === current.id);
-        if (updated) {
-          setSelectedPlaylist(updated);
-        }
-      }
-    });
+  const { isMobile, sidebarCollapsed, setSidebarCollapsed } = uiState;
 
-    onCleanup(unsubscribe);
-  });
+  const {
+    isDragOver,
+    handleDragEnter,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+    error: dragError,
+  } = dragAndDrop;
 
-  // load playlist songz when selected playlist changez using reactive queries
-  createEffect(() => {
-    const playlist = selectedPlaylist();
+  const {
+    showImageModal,
+    openImageModal,
+    closeImageModal,
+    handleNextImage,
+    handlePrevImage,
+    getCurrentImageUrl,
+    getImageCount,
+    getCurrentImageNumber,
+    hasMultipleImages,
+  } = imageModal;
 
-    // cleanup previous songs query subscription
-    if (songsQueryUnsubscribe) {
-      songsQueryUnsubscribe();
-      songsQueryUnsubscribe = null;
-    }
+  // Combine errors from all hooks
+  const error = () => managerError() || songError() || dragError();
 
-    if (playlist && playlist.songIds.length > 0) {
-      // create reactive query for this playlist's songs
-      const songsQuery = createPlaylistSongsQuery(playlist.id);
-      songsQueryUnsubscribe = songsQuery.subscribe((songs) => {
-        // sort songs according to playlist order
-        const sortedSongs = songs.sort((a, b) => {
-          const indexA = playlist.songIds.indexOf(a.id);
-          const indexB = playlist.songIds.indexOf(b.id);
-          return indexA - indexB;
-        });
-        setPlaylistSongs(sortedSongs);
-      });
-    } else {
-      setPlaylistSongs([]);
-    }
-
-    // cleanup songs query subscription on unmount
-    onCleanup(() => {
-      if (songsQueryUnsubscribe) {
-        songsQueryUnsubscribe();
-      }
-    });
-  });
-
-  // cache for background image URLz to avoid recreating them
-  const [imageUrlCache] = createSignal(new Map<string, string>());
-
-  // update background image based on currently playing song or selected playlist
-  createEffect(() => {
-    const currentSong = audioState.currentSong();
-    const currentPlaylist = audioState.currentPlaylist();
-    const selectedPl = selectedPlaylist();
-    const cache = imageUrlCache();
-
-    let newImageUrl: string | null = null;
-    let cacheKey: string | null = null;
-
-    // priority 1: use song's image if available (when playing)
-    if (currentSong?.imageType) {
-      cacheKey = `song-${currentSong.id}`;
-      if (cache.has(cacheKey)) {
-        newImageUrl = cache.get(cacheKey)!;
-      } else {
-        newImageUrl = getImageUrlForContext(currentSong, "background");
-        if (newImageUrl) {
-          cache.set(cacheKey, newImageUrl);
-        }
-      }
-    }
-    // priority 2: use current playlist's image if song has no image (when playing)
-    else if (currentSong && currentPlaylist?.imageType) {
-      cacheKey = `playlist-${currentPlaylist.id}`;
-      if (cache.has(cacheKey)) {
-        newImageUrl = cache.get(cacheKey)!;
-      } else {
-        newImageUrl = getImageUrlForContext(currentPlaylist, "background");
-        if (newImageUrl) {
-          cache.set(cacheKey, newImageUrl);
-        }
-      }
-    }
-    // priority 3: Use selected playlist's image (when not playing but playlist selected)
-    else if (selectedPl?.imageType) {
-      cacheKey = `playlist-${selectedPl.id}`;
-      if (cache.has(cacheKey)) {
-        newImageUrl = cache.get(cacheKey)!;
-      } else {
-        newImageUrl = getImageUrlForContext(selectedPl, "background");
-        if (newImageUrl) {
-          cache.set(cacheKey, newImageUrl);
-        }
-      }
-    }
-
-    // only update if URL actually changed
-    const prevUrl = backgroundImageUrl();
-    if (prevUrl !== newImageUrl) {
-      setBackgroundImageUrl(newImageUrl);
-    }
-  });
-
-  // auto-clear errorz after 5 secondz, i guess.
-  createEffect(() => {
-    const errorMessage = error();
-    if (errorMessage) {
-      const timer = setTimeout(() => setError(null), 5000);
-      return () => clearTimeout(timer);
-    }
-    return undefined;
-  });
-
-  onMount(async () => {
-    // init standalone mode function immediately
-    (window as any).initializeStandalonePlaylist = (playlistData: any) => {
-      initializeStandalonePlaylist(playlistData, {
-        setSelectedPlaylist,
-        setPlaylistSongs,
-        setSidebarCollapsed,
-        setError,
-      });
-    };
-
-    // check if deferred data from early initialization
-    if ((window as any).DEFERRED_PLAYLIST_DATA) {
-      await initializeStandalonePlaylist(
-        (window as any).DEFERRED_PLAYLIST_DATA,
-        {
-          setSelectedPlaylist,
-          setPlaylistSongs,
-          setSidebarCollapsed,
-          setError,
-        }
-      );
-      delete (window as any).DEFERRED_PLAYLIST_DATA;
-    }
-
-    try {
-      await setupDB();
-
-      // try to init offline support
-      try {
-        const currentPlaylist = selectedPlaylist();
-        await initializeOfflineSupport(
-          currentPlaylist?.title,
-          currentPlaylist || undefined
-        );
-      } catch (offlineError) {
-        console.warn("offline support initialization failed:", offlineError);
-      }
-
-      setIsInitialized(true);
-
-      // responsive shit
-      const checkMobile = () => {
-        const mobile = window.innerWidth < 900;
-        setIsMobile(mobile);
-        if (mobile && selectedPlaylist()) {
-          setSidebarCollapsed(true);
-        }
-      };
-
-      checkMobile();
-      window.addEventListener("resize", checkMobile);
-
-      onCleanup(() => {
-        window.removeEventListener("resize", checkMobile);
-        clearStandaloneLoadingProgress();
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to initialize");
-    }
-  });
-
-  // update PWA manifest when playlist changez
-  createEffect(() => {
-    const playlist = selectedPlaylist();
-    if (playlist) {
-      updatePWAManifest(playlist.title, playlist);
-    }
-  });
-
-  // keyboard event handlerz for modalz
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (showImageModal()) {
-      if (e.key === "Escape") {
-        setShowImageModal(false);
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        handlePrevImage();
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        handleNextImage();
-      }
-    } else if (showDeleteConfirm() && e.key === "Escape") {
-      setShowDeleteConfirm(false);
+  // Handle playlist selection
+  const handlePlaylistSelect = (playlist: Playlist) => {
+    selectPlaylist(playlist);
+    // Auto-collapse on mobile when playlist is selected
+    if (isMobile()) {
+      setSidebarCollapsed(true);
     }
   };
 
-  // set up global keyboard listener
-  createEffect(() => {
-    if (showImageModal() || showDeleteConfirm()) {
-      document.addEventListener("keydown", handleKeyDown);
-      onCleanup(() => document.removeEventListener("keydown", handleKeyDown));
-    }
-  });
-
-  // unmount stuff, i guess.
-  onCleanup(() => {
-    cleanupAudio();
-    cleanupTimeUtils();
-
-    // purge all cached background image URLs
-    const cache = imageUrlCache();
-    cache.forEach((url) => {
-      if (url.startsWith("blob:")) {
-        URL.revokeObjectURL(url);
-      }
-    });
-    cache.clear();
-
-    // purge current background image URL
-    const bgUrl = backgroundImageUrl();
-    if (bgUrl && bgUrl.startsWith("blob:")) {
-      URL.revokeObjectURL(bgUrl);
-    }
-  });
-
-  // get a better drag!
-  const detectDragType = (dataTransfer: DataTransfer | null) => {
-    if (!dataTransfer) return { type: "unknown", hasAudio: false };
-
-    const items = Array.from(dataTransfer.items || []);
-    const files = Array.from(dataTransfer.files || []);
-
-    // priority 1: check for song reordering (text/plain data indicates internal drag)
-    const hasTextData = items.some((item) => item.type === "text/plain");
-    if (hasTextData) {
-      return { type: "song-reorder", hasAudio: false };
-    }
-
-    // priority 2: Check for audio filez
-    const audioFiles = files.filter((file) => file.type.startsWith("audio/"));
-    if (audioFiles.length > 0) {
-      return { type: "audio-files", hasAudio: true };
-    }
-
-    // priority 3: check for other filez
-    if (files.length > 0) {
-      return { type: "non-audio-files", hasAudio: false };
-    }
-
-    return { type: "unknown", hasAudio: false };
-  };
-
-  // global drag'n'drop handlers
-  const handleDragEnter = (e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const dragInfo = detectDragType(e.dataTransfer);
-
-    // only show drag overlay for actual file drops, not song reordering
-    if (dragInfo.type === "audio-files") {
-      setIsDragOver(true);
-    }
-  };
-
-  const handleDragOver = (e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDragLeave = (e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    // only hide overlay if leaving the root element
-    if (e.target === e.currentTarget) {
-      setIsDragOver(false);
-    }
-  };
-
-  const handleDrop = async (e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-
-    const dragInfo = detectDragType(e.dataTransfer);
-
-    // only handle file dropz, ignore song reordering
-    if (dragInfo.type === "song-reorder") {
-      return;
-    }
-
-    const files = e.dataTransfer?.files;
-    if (!files) return;
-
-    // check for ZIP files first
-    const zipFiles = Array.from(files).filter(
-      (file) =>
-        file.type === "application/zip" ||
-        file.name.toLowerCase().endsWith(".zip")
-    );
-
-    if (zipFiles.length > 0) {
-      // handle ZIP file upload
-      try {
-        for (const zipFile of zipFiles) {
-          const { playlist: playlistData, songs: songsData } =
-            await parsePlaylistZip(zipFile);
-
-          // check if a playlist with the same name and songz already existz
-          const existingPlaylist = playlists().find(
-            (p) =>
-              p.title === playlistData.title &&
-              p.songIds.length === songsData.length
-          );
-
-          if (existingPlaylist) {
-            setError(`playlist "${playlistData.title}" already existz`);
-            setTimeout(() => setError(null), 3000);
-            continue;
-          }
-
-          // create new playlist
-          const newPlaylist = await createPlaylist(playlistData);
-
-          // add songs to the playlist
-          for (const songData of songsData) {
-            // create a File object from the audio data for compatibility
-            const audioBlob = new Blob([songData.audioData!], {
-              type: songData.mimeType,
-            });
-            const audioFile = new File(
-              [audioBlob],
-              songData.originalFilename ||
-                `${songData.artist} - ${songData.title}`,
-              { type: songData.mimeType }
-            );
-
-            await addSongToPlaylist(newPlaylist.id, audioFile, {
-              title: songData.title,
-              artist: songData.artist,
-              album: songData.album,
-              duration: songData.duration,
-              imageData: songData.imageData,
-              imageType: songData.imageType,
-            });
-          }
-
-          // select the newly created playlist
-          setSelectedPlaylist(newPlaylist);
-        }
-        return;
-      } catch (err) {
-        console.error("error processing ZIP file:", err);
-        setError("failed to import playlist from ZIP file");
-        setTimeout(() => setError(null), 3000);
-        return;
-      }
-    }
-
-    const audioFiles = filterAudioFiles(files);
-    if (audioFiles.length === 0) {
-      // provide contextual error messages
-      if (dragInfo.type === "non-audio-files") {
-        setError(
-          "only audio filez and ZIP playlist filez can be added. supported formatz: MP3, WAV, M4A, FLAC, OGG, ZIP"
-        );
-      } else {
-        setError(
-          "no audio filez or ZIP playlist filez found in the dropped item(z)"
-        );
-      }
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
-
-    try {
-      let targetPlaylist = selectedPlaylist();
-
-      // if no playlist is selected, create a new one!
-      if (!targetPlaylist) {
-        targetPlaylist = await createPlaylist({
-          title: "new playlist",
-          description: `created from ${audioFiles.length} dropped file${audioFiles.length > 1 ? "z" : ""}`,
-          songIds: [],
-        });
-        setSelectedPlaylist(targetPlaylist);
-      }
-
-      // process files and add to playlist
-      const results = await processAudioFiles(audioFiles);
-      const successfulFiles = results.filter((r) => r.success);
-
-      // add the songs to the playlist in idb
-      for (const result of successfulFiles) {
-        if (result.song) {
-          await addSongToPlaylist(targetPlaylist.id, result.song.file!, {
-            title: result.song.title,
-            artist: result.song.artist,
-            album: result.song.album,
-            duration: result.song.duration,
-            imageData: result.song.imageData,
-            imageType: result.song.imageType,
-          });
-        }
-      }
-
-      // force refresh the selected playlist from idb to get updated songIdz
-      const updatedPlaylists = playlists();
-      const refreshedPlaylist = updatedPlaylists.find(
-        (p) => p.id === targetPlaylist.id
-      );
-      if (refreshedPlaylist) {
-        setSelectedPlaylist(refreshedPlaylist);
-      }
-
-      if (results.some((r) => !r.success)) {
-        const errorCount = results.filter((r) => !r.success).length;
-        setError(
-          `${errorCount} file${errorCount > 1 ? "z" : ""} could not be processed`
-        );
-      }
-    } catch (err) {
-      console.error("Error handling dropped files:", err);
-      setError("failed to process dropped files");
-    }
-  };
-
-  // global drag'n'drop listenerz
-  createEffect(() => {
-    if (!isInitialized()) return;
-
-    const root = document.documentElement;
-
-    root.addEventListener("dragenter", handleDragEnter);
-    root.addEventListener("dragover", handleDragOver);
-    root.addEventListener("dragleave", handleDragLeave);
-    root.addEventListener("drop", handleDrop);
-
-    onCleanup(() => {
-      root.removeEventListener("dragenter", handleDragEnter);
-      root.removeEventListener("dragover", handleDragOver);
-      root.removeEventListener("dragleave", handleDragLeave);
-      root.removeEventListener("drop", handleDrop);
-    });
-  });
-
-  // handle creating new playlist
+  // Handle creating new playlist
   const handleCreatePlaylist = async () => {
-    try {
-      const newPlaylist = await createPlaylist({
-        title: "new playlist",
-        description: "",
-        songIds: [],
-      });
-      setSelectedPlaylist(newPlaylist);
-
-      // collapse on mobile when playlist is selected
+    const newPlaylist = await createNewPlaylist("New Playlist");
+    if (newPlaylist) {
+      selectPlaylist(newPlaylist);
+      // Collapse on mobile when playlist is selected
       if (isMobile()) {
         setSidebarCollapsed(true);
       }
-    } catch (err) {
-      console.error("Error creating playlist:", err);
-      setError(
-        err instanceof Error ? err.message : "failed to create playlist"
-      );
     }
   };
 
-  // handle playlist title/description updatez with debouncing
-  let saveTimeout: number | undefined;
-  const handlePlaylistUpdate = async (updates: Partial<Playlist>) => {
-    const current = selectedPlaylist();
-    if (!current) return;
-
-    // update local state immediately
-    const updated = { ...current, ...updates };
-    setSelectedPlaylist(updated);
-
-    // debounce database save(z)
-    clearTimeout(saveTimeout);
-    saveTimeout = window.setTimeout(async () => {
-      try {
-        await updatePlaylist(current.id, updates);
-      } catch (err) {
-        console.error("Failed to save playlist:", err);
-        setError("failed to save changes");
-      }
-    }, 1000);
-  };
-
-  // audio player fnz
-  const handlePlaySong = async (song: any) => {
-    try {
-      // so check if this song is already the current song
-      const currentSong = audioState.currentSong();
-      if (currentSong?.id === song.id) {
-        // if it's the same song, just toggle playback (resume/pause)
-        togglePlayback();
-      } else {
-        // different song - immediately select it for UI feedback, then load
-        selectSong(song.id);
-
-        const currentPlaylist = selectedPlaylist();
-        if (currentPlaylist) {
-          await playSong(song, currentPlaylist);
-        } else {
-          await playSong(song);
-        }
-      }
-    } catch (err) {
-      console.error("Error playing song:", err);
-      setError("failed to play song");
-    }
-  };
-
-  const handleRemoveSong = async (songId: string) => {
-    const playlist = selectedPlaylist();
-    if (!playlist) return;
-
-    try {
-      await removeSongFromPlaylist(playlist.id, songId);
-
-      // update audio queue if this playlist is currently active
-      const currentPlaylist = audioState.currentPlaylist();
-      if (currentPlaylist && currentPlaylist.id === playlist.id) {
-        // get updated playlist data and refresh queue
-        const updatedPlaylists = await getAllPlaylists();
-        const refreshedPlaylist = updatedPlaylists.find(
-          (p) => p.id === playlist.id
-        );
-        if (refreshedPlaylist) {
-          await refreshPlaylistQueue(refreshedPlaylist);
-        }
-      }
-    } catch (err) {
-      console.error("Error removing song:", err);
-      setError("failed to remove song");
-    }
-  };
-
-  const handleEditSong = async (song: any) => {
-    setEditingSong(song);
-  };
-
-  const handleSongSaved = async (updatedSong: any) => {
-    // update local playlist songz state
-    setPlaylistSongs((prev) =>
-      prev.map((song) => (song.id === updatedSong.id ? updatedSong : song))
-    );
-
-    // force refresh the playlist songz from idb
-    const playlist = selectedPlaylist();
-    if (playlist && playlist.songIds.length > 0) {
-      try {
-        const allSongs = await getAllSongs();
-        const songs = allSongs
-          .filter((song) => playlist.songIds.includes(song.id))
-          .sort((a, b) => {
-            const indexA = playlist.songIds.indexOf(a.id);
-            const indexB = playlist.songIds.indexOf(b.id);
-            return indexA - indexB;
-          });
-        setPlaylistSongs(songs);
-      } catch (err) {
-        console.error("error refreshing songs:", err);
-      }
-    }
-  };
-
-  const handlePlaylistCoverSaved = (updatedPlaylist: any) => {
-    setSelectedPlaylist(updatedPlaylist);
-  };
-
-  const handleReorderSongs = async (fromIndex: number, toIndex: number) => {
-    const playlist = selectedPlaylist();
-    if (!playlist) return;
-
-    try {
-      await reorderSongs(playlist.id, fromIndex, toIndex);
-
-      // refresh playlist to show new order
-      const updatedPlaylists = await getAllPlaylists();
-      const refreshedPlaylist = updatedPlaylists.find(
-        (p) => p.id === playlist.id
-      );
-      if (refreshedPlaylist) {
-        setSelectedPlaylist(refreshedPlaylist);
-
-        // update audio queue if this playlist is currently active
-        const currentPlaylist = audioState.currentPlaylist();
-        if (currentPlaylist && currentPlaylist.id === refreshedPlaylist.id) {
-          await refreshPlaylistQueue(refreshedPlaylist);
-        }
-      }
-    } catch (err) {
-      console.error("error reordering songs:", err);
-      setError("failed to reorder songz");
-    }
-  };
-
-  const handlePauseSong = () => {
-    // use the audio service
-    togglePlayback();
-  };
-
-  // image modal handlerz
-  const handleNextImage = () => {
-    const images = getModalImages();
-    if (images.length > 0) {
-      setModalImageIndex((prev) => (prev + 1) % images.length);
-    }
-  };
-
-  const handlePrevImage = () => {
-    const images = getModalImages();
-    if (images.length > 0) {
-      setModalImageIndex((prev) => (prev - 1 + images.length) % images.length);
-    }
-  };
-
-  const getModalImages = () => {
-    const playlist = selectedPlaylist();
-    const images: { url: string; title: string }[] = [];
-
-    // add playlist image first if it existz
-    if (playlist?.imageType) {
-      const url = getImageUrlForContext(playlist, "modal");
-      if (url) {
-        images.push({
-          url,
-          title: playlist.title,
-        });
-      }
-    }
-
-    // add song imagez
-    playlistSongs().forEach((song) => {
-      if (song.imageType) {
-        const url = getImageUrlForContext(song, "modal");
-        if (url) {
-          images.push({
-            url,
-            title: song.title,
-          });
-        }
-      }
+  // Handle file drop
+  const handleFileDrop = async (e: DragEvent) => {
+    await handleDrop(e, {
+      selectedPlaylist: selectedPlaylist(),
+      playlists: playlists(),
+      onPlaylistCreated: () => {
+        // Playlist will be automatically added via reactive query
+      },
+      onPlaylistSelected: (playlist) => {
+        selectPlaylist(playlist);
+      },
     });
-
-    return images;
   };
 
-  // delete playlist handler
-  const handleDeletePlaylist = async () => {
-    const playlist = selectedPlaylist();
-    if (!playlist) return;
-
-    try {
-      await deletePlaylist(playlist.id);
-      setSelectedPlaylist(null);
-      setShowDeleteConfirm(false);
-    } catch (err) {
-      console.error("rrror deleting playlist:", err);
-      setError("failed to delete playlist");
-    }
-  };
-
-  // download playlist handler
-  const handleDownloadPlaylist = async () => {
-    const playlist = selectedPlaylist();
-    if (!playlist) return;
-
-    setIsDownloading(true);
-    try {
-      await downloadPlaylistAsZip(playlist, {
-        includeMetadata: true,
-        includeImages: true,
-        generateM3U: true,
-        includeHTML: true,
-      });
-
-      // reactive queries will automatically update the UI
-    } catch (err) {
-      setError("failed to download playlist");
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
-  // refresh playlist songs from database
-  const refreshPlaylistSongs = async () => {
-    const playlist = selectedPlaylist();
-    if (playlist && playlist.songIds.length > 0) {
-      try {
-        const allSongs = await getAllSongs();
-        const songs = allSongs
-          .filter((song) => playlist.songIds.includes(song.id))
-          .sort((a, b) => {
-            const indexA = playlist.songIds.indexOf(a.id);
-            const indexB = playlist.songIds.indexOf(b.id);
-            return indexA - indexB;
-          });
-        setPlaylistSongs(songs);
-      } catch (err) {
-        console.error("Error refreshing playlist songs:", err);
-      }
-    }
-  };
-
-  // check if all songs are cached
-  const checkAllSongsCached = async () => {
-    const songs = playlistSongs();
-    if (songs.length === 0) {
-      setAllSongsCached(false);
-      return;
-    }
-
-    // for file:// protocol, consider all songs as "cached" since they work directly
-    if (window.location.protocol === "file:") {
-      setAllSongsCached(true);
-      return;
-    }
-
-    // check each song to see if it needs audio data
-    let allCached = true;
-    for (const song of songs) {
-      const needsData = await songNeedsAudioData(song);
-      if (needsData) {
-        allCached = false;
-        break;
-      }
-    }
-    setAllSongsCached(allCached);
-  };
-
-  // check cache status when playlist songs change
-  createEffect(() => {
-    const songs = playlistSongs();
-    if (songs.length > 0) {
-      checkAllSongsCached();
-    }
-  });
-
-  // cache playlist for offline use
-  const handleCachePlaylist = async () => {
-    const playlist = selectedPlaylist();
-    const songs = playlistSongs();
-    if (!playlist || songs.length === 0) return;
-
-    setIsCaching(true);
-
-    // show loading progress
-    setStandaloneLoadingProgress({
-      current: 0,
-      total: songs.length,
-      currentSong: "preparing...",
-      phase: "checking",
-    });
-
-    try {
-      let cached = 0;
-      let failed = 0;
-      let loaded = 0;
-      const totalSongs = songs.length;
-
-      for (let i = 0; i < songs.length; i++) {
-        const song = songs[i];
-
-        // update progress
-        setStandaloneLoadingProgress({
-          current: i + 1,
-          total: totalSongs,
-          currentSong: song.title,
-          phase: "updating",
-        });
-
-        // first, check if this is a standalone song that needs audio data loading
-        if (await songNeedsAudioData(song)) {
-          try {
-            const loadSuccess = await loadStandaloneSongAudioData(song.id);
-            if (loadSuccess) {
-              loaded++;
-              cached++; // in standalone mode, loading IS caching
-            } else {
-              failed++;
-              continue;
-            }
-          } catch (error) {
-            failed++;
-            continue;
-          }
-        } else {
-          // song already has audio data cached
-          cached++;
-        }
-
-        // for service worker caching (when not in standalone mode)
-        if (!(window as any).STANDALONE_MODE) {
-          if (song.blobUrl) {
-            try {
-              await cacheAudioFile(song.blobUrl, song.title);
-            } catch (error) {
-              // service worker caching failed, but we still count as cached in IndexedDB
-            }
-          } else if (song.audioData) {
-            try {
-              const blob = new Blob([song.audioData], {
-                type: song.mimeType || "audio/mpeg",
-              });
-              const blobUrl = URL.createObjectURL(blob);
-              await cacheAudioFile(blobUrl, song.title);
-              URL.revokeObjectURL(blobUrl);
-            } catch (error) {
-              // service worker caching failed, but we still count as cached in IndexedDB 🤷
-            }
-          }
-        }
-      }
-
-      // refresh the playlist to show updated audio data
-      if (loaded > 0) {
-        await refreshPlaylistSongs();
-        // recheck cache status after refresh
-        await checkAllSongsCached();
-      }
-
-      if (failed > 0 && cached === 0) {
-        setError(
-          `failed to cache any songz for offline use (${failed} of ${totalSongs} failed)`
-        );
-      } else if (failed > 0) {
-        console.warn(
-          `cached ${cached} of ${totalSongs} songz (${failed} failed)`
-        );
-      } else if (cached > 0) {
-        // songz were cached successfully
-      }
-    } catch (err) {
-      setError("failed to cache playlist for offline use");
-    } finally {
-      setIsCaching(false);
-      // clear loading progress
-      setTimeout(() => setStandaloneLoadingProgress(null), 500);
-    }
+  // Handle playlist cover saved
+  const handlePlaylistCoverSaved = (updatedPlaylist: Playlist) => {
+    selectPlaylist(updatedPlaylist);
   };
 
   return (
     <div
       class={`relative bg-black text-white ${isMobile() ? "min-h-screen" : "h-screen overflow-hidden"}`}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleFileDrop}
     >
       {/* background image cover */}
       <Show when={backgroundImageUrl()}>
@@ -986,51 +162,7 @@ export function Playlistz() {
         />
       </Show>
 
-      {/* standalone loading progress (strip at the bottom) */}
-      <Show when={standaloneLoadingProgress()}>
-        <div
-          class="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-sm border-t border-gray-700 p-3"
-          style={{ "z-index": "9999" }}
-        >
-          <div class="max-w-4xl mx-auto">
-            <div class="flex items-center gap-4">
-              <div class="w-1/2">
-                <div class="flex items-center justify-between text-xs text-gray-300 mb-1">
-                  <span>{standaloneLoadingProgress()!.phase}</span>
-                  <span>
-                    {standaloneLoadingProgress()!.current} /{" "}
-                    {standaloneLoadingProgress()!.total}
-                  </span>
-                </div>
-                <div class="w-full bg-gray-700 rounded-full h-1.5">
-                  <div
-                    class="bg-magenta-500 h-1.5 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${
-                        (standaloneLoadingProgress()!.current /
-                          standaloneLoadingProgress()!.total) *
-                        100
-                      }%`,
-                    }}
-                  />
-                </div>
-              </div>
-              <div class="text-right min-w-0 flex-1">
-                <div class="text-xs text-gray-300 truncate max-w-48">
-                  {standaloneLoadingProgress()!.currentSong}
-                </div>
-                <div class="text-xs text-gray-500">
-                  {standaloneLoadingProgress()!.phase === "initializing"
-                    ? "loading..."
-                    : "updating..."}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Show>
-
-      {/* loading state or main content */}
+      {/* main app content */}
       <Show
         when={isInitialized()}
         fallback={
@@ -1065,13 +197,7 @@ export function Playlistz() {
               <PlaylistSidebar
                 playlists={playlists()}
                 selectedPlaylist={selectedPlaylist()}
-                onPlaylistSelect={(playlist) => {
-                  setSelectedPlaylist(playlist);
-                  // Auto-collapse on mobile when playlist is selected
-                  if (isMobile()) {
-                    setSidebarCollapsed(true);
-                  }
-                }}
+                onPlaylistSelect={handlePlaylistSelect}
                 onCreatePlaylist={handleCreatePlaylist}
                 isLoading={false}
                 onCollapse={() => setSidebarCollapsed(true)}
@@ -1086,7 +212,18 @@ export function Playlistz() {
             class={`${isMobile() && !sidebarCollapsed() ? "hidden" : "flex-1"} flex flex-col ${isMobile() ? "" : "h-full"}`}
           >
             <Show when={selectedPlaylist()}>
-              {(playlist) => <PlaylistContainer playlist={playlist} />}
+              {(playlist) => (
+                <PlaylistContainer
+                  playlist={playlist}
+                  onOpenImageModal={(startIndex = 0) =>
+                    openImageModal(
+                      selectedPlaylist(),
+                      playlistSongs(),
+                      startIndex
+                    )
+                  }
+                />
+              )}
             </Show>
           </div>
         </div>
@@ -1094,7 +231,7 @@ export function Playlistz() {
 
       {/* sidebar toggle button */}
       <div
-        class={`fixed "top-0" inset-0 bg-black bg-opacity-80 flex items-center justify-center z-10 transition-all duration-300 ease-in-out w-10 h-10 ${sidebarCollapsed() ? "left-0" : isMobile() ? "left-[calc(100vw-40px)]" : "left-72"}`}
+        class={`fixed top-0 inset-0 bg-black bg-opacity-80 flex items-center justify-center z-10 transition-all duration-300 ease-in-out w-10 h-10 ${sidebarCollapsed() ? "left-0" : isMobile() ? "left-[calc(100vw-40px)]" : "left-72"}`}
       >
         <button
           onClick={() => setSidebarCollapsed((prev) => !prev)}
@@ -1133,37 +270,45 @@ export function Playlistz() {
         </div>
       </Show>
 
-      {/* error notificationz */}
+      {/* error notifications */}
       <Show when={error()}>
-        <div class="fixed top-4 right-4 z-50">
-          <div class="bg-red-500 text-white px-6 py-3 shadow-lg max-w-sm">
-            <div class="flex items-center">
-              <div class="flex-shrink-0">
-                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fill-rule="evenodd"
-                    d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
-              </div>
-              <div class="ml-3">
-                <p class="text-sm font-medium">{error()}</p>
-              </div>
-              <div class="ml-4 flex-shrink-0">
-                <button
-                  onClick={() => setError(null)}
-                  class="text-white hover:text-gray-200 focus:outline-none"
-                >
-                  ×
-                </button>
-              </div>
+        <div class="fixed bottom-4 right-4 z-50 max-w-sm">
+          <div class="bg-red-900 bg-opacity-90 border border-red-500 p-4 shadow-lg">
+            <div class="text-red-200 text-sm">{error()}</div>
+          </div>
+        </div>
+      </Show>
+
+      {/* delete confirmation modal */}
+      <Show when={showDeleteConfirm()}>
+        <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div class="bg-gray-900 border border-gray-600 p-6 max-w-md w-full mx-4">
+            <h3 class="text-lg font-semibold text-white mb-4">
+              delete playlist?
+            </h3>
+            <p class="text-gray-300 mb-6">
+              are you sure you want to delete "{selectedPlaylist()?.title}"?
+              this action cannot be undone.
+            </p>
+            <div class="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                class="px-4 py-2 text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              >
+                cancel
+              </button>
+              <button
+                onClick={handleDeletePlaylist}
+                class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+              >
+                delete
+              </button>
             </div>
           </div>
         </div>
       </Show>
 
-      {/* modalz */}
+      {/* song edit modal */}
       <Show when={editingSong()}>
         <SongEditModal
           song={editingSong()!}
@@ -1173,6 +318,7 @@ export function Playlistz() {
         />
       </Show>
 
+      {/* playlist cover modal */}
       <Show when={showPlaylistCover()}>
         <PlaylistCoverModal
           playlist={selectedPlaylist()!}
@@ -1180,23 +326,20 @@ export function Playlistz() {
           isOpen={showPlaylistCover()}
           onClose={() => setShowPlaylistCover(false)}
           onSave={handlePlaylistCoverSaved}
-          onDelete={() => {
-            setSelectedPlaylist(null);
-            setShowPlaylistCover(false);
-          }}
+          onDelete={handleDeletePlaylist}
         />
       </Show>
 
-      {/* image carousel modal */}
+      {/* image modal */}
       <Show when={showImageModal()}>
         <div class="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
           <button
-            onClick={() => setShowImageModal(false)}
-            class="absolute top-6 right-4 z-51 hover:text-magenta-500"
-            title="close (ESC)"
+            onClick={closeImageModal}
+            class="absolute top-4 right-4 text-white hover:text-magenta-400 transition-colors z-10 p-2 bg-black bg-opacity-50 rounded"
+            title="close (esc)"
           >
             <svg
-              class="w-8 h-8"
+              class="w-6 h-6"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -1210,75 +353,63 @@ export function Playlistz() {
             </svg>
           </button>
 
-          {(() => {
-            const images = getModalImages();
-            const currentImage = images[modalImageIndex()];
+          <Show when={getCurrentImageUrl()}>
+            <div class="relative w-full h-full flex items-center justify-center p-4">
+              <img
+                src={getCurrentImageUrl()!}
+                alt="playlist image"
+                class="max-w-full max-h-full object-contain"
+              />
 
-            if (!currentImage) {
-              return (
-                <div class="text-white text-center">
-                  <p class="text-lg mb-2">no imagez available</p>
-                  <p class="text-sm text-gray-400">
-                    add a playlist cover or songz with album art
-                  </p>
-                </div>
-              );
-            }
+              {/* navigation arrows */}
+              <Show when={hasMultipleImages()}>
+                <button
+                  onClick={handlePrevImage}
+                  class="absolute left-4 top-1/2 transform -translate-y-1/2 text-white hover:text-magenta-400 transition-colors p-2 bg-black bg-opacity-50 rounded"
+                  title="previous image (←)"
+                >
+                  <svg
+                    class="w-8 h-8"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M15 19l-7-7 7-7"
+                    />
+                  </svg>
+                </button>
 
-            return (
-              <div class="relative w-full h-full flex items-center justify-center p-4">
                 <button
                   onClick={handleNextImage}
-                  class="absolute inset-0 cursor-pointer z-50"
-                  title="next image"
-                />
-                <img
-                  src={currentImage.url}
-                  alt={currentImage.title}
-                  class="w-full h-full object-contain pointer-events-none"
-                />
-                <div class="absolute top-4 right-16 text-white text-center bg-black bg-opacity-50 p-3">
-                  <div class="text-sm font-medium">
-                    {currentImage.title}{" "}
-                    {images.length > 1 && (
-                      <span class="text-xs text-gray-300 mt-1">
-                        ({modalImageIndex()} of {images.length - 1})
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      </Show>
+                  class="absolute right-4 top-1/2 transform -translate-y-1/2 text-white hover:text-magenta-400 transition-colors p-2 bg-black bg-opacity-50 rounded"
+                  title="next image (→)"
+                >
+                  <svg
+                    class="w-8 h-8"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </button>
 
-      {/* delete confirmation modal */}
-      <Show when={showDeleteConfirm()}>
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div class="bg-gray-800 p-6 border border-gray-600 max-w-md w-full mx-4">
-            <h3 class="text-lg font-semibold text-white mb-4">
-              delete playlist
-            </h3>
-            <p class="text-gray-300 mb-6">
-              are you sure you want to delete "{selectedPlaylist()?.title}"? no
-              take-backz!
-            </p>
-            <div class="flex justify-end gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                class="px-4 py-2 text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-              >
-                cancel
-              </button>
-              <button
-                onClick={handleDeletePlaylist}
-                class="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded transition-colors"
-              >
-                delete
-              </button>
+                {/* image counter */}
+                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-3 py-1 rounded">
+                  {getCurrentImageNumber()} / {getImageCount()}
+                </div>
+              </Show>
             </div>
-          </div>
+          </Show>
         </div>
       </Show>
     </div>
