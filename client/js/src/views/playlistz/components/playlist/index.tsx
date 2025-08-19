@@ -14,14 +14,12 @@ import { SongRow } from "../SongRow.js";
 export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
   const { playlist } = props;
 
-  // Use context hooks
   const playlistManager = usePlaylistzManager();
   const playlistState = usePlaylistzState();
   const songState = usePlaylistzSongs();
   const uiState = usePlaylistzUI();
   const imageModal = usePlaylistzImageModal();
 
-  // Extract needed state and functions
   const { playlistSongs } = playlistManager;
 
   const {
@@ -45,7 +43,7 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
 
   return (
     <div class={`flex-1 flex flex-col ${isMobile() ? "p-2" : "h-full p-6"}`}>
-      {/* Playlist Header */}
+      {/* playlist header */}
       <div
         class={`flex items-center justify-between ${isMobile() ? "p-2 flex-col" : "mb-2 p-6"}`}
       >
@@ -145,10 +143,10 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
                 class="flex items-center justify-center"
                 style="grid-area: player;"
               >
-                <AudioPlayer playlist={playlist()} size="w-12 h-12" />
+                <AudioPlayer playlist={playlist()} size="w-14 h-14" />
               </div>
 
-              {/* Top right: song info */}
+              {/* top right song info stuff */}
               <div
                 id="song-info"
                 class="flex items-center justify-end text-sm gap-0"
@@ -174,7 +172,7 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
                 </span>
               </div>
 
-              {/* Bottom right: action buttons */}
+              {/* bottom right: action buttonz */}
               <div
                 class="flex items-center justify-end gap-2"
                 style="grid-area: buttons;"

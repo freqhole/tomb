@@ -16,8 +16,6 @@ import { SongEditModal } from "./SongEditModal.js";
 import { PlaylistCoverModal } from "./PlaylistCoverModal.js";
 import { PlaylistContainer } from "./playlist/index.js";
 
-import type { Playlist } from "../types/playlist.js";
-
 // global fn registration for standalone mode
 if (typeof window !== "undefined" && (window as any).STANDALONE_MODE) {
   // define the fn early so it's available for HTML initialization
@@ -87,23 +85,18 @@ function PlaylistzInner() {
   // Combine errors from all hooks
   const error = () => managerError() || songError() || dragError();
 
-  // Handle file drop
+  // handle file drop here i guess.
   const handleFileDrop = async (e: DragEvent) => {
     await handleDrop(e, {
       selectedPlaylist: selectedPlaylist(),
       playlists: playlists(),
       onPlaylistCreated: () => {
-        // Playlist will be automatically added via reactive query
+        // hmm, i guess playlist will be automatically added via reactive query...
       },
       onPlaylistSelected: (playlist) => {
         selectPlaylist(playlist);
       },
     });
-  };
-
-  // Handle playlist cover saved
-  const handlePlaylistCoverSaved = (updatedPlaylist: Playlist) => {
-    selectPlaylist(updatedPlaylist);
   };
 
   return (
@@ -283,7 +276,7 @@ function PlaylistzInner() {
           playlistSongs={playlistSongs()}
           isOpen={showPlaylistCover()}
           onClose={() => setShowPlaylistCover(false)}
-          onSave={handlePlaylistCoverSaved}
+          onSave={selectPlaylist}
           onDelete={handleDeletePlaylist}
         />
       </Show>
