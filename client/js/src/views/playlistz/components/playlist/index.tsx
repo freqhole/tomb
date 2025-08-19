@@ -1,22 +1,23 @@
 import { Accessor, Show, For } from "solid-js";
 import type { Playlist } from "../../types/playlist.js";
-import { usePlaylistState } from "../../hooks/usePlaylistState.js";
-import { useSongState } from "../../hooks/useSongState.js";
-import { useUIState } from "../../hooks/useUIState.js";
+import {
+  usePlaylistzState,
+  usePlaylistzSongs,
+  usePlaylistzUI,
+  usePlaylistzImageModal,
+} from "../../context/PlaylistzContext.js";
 import { getImageUrlForContext } from "../../services/imageService.js";
 import { AudioPlayer } from "../AudioPlayer.js";
 import { SongRow } from "../SongRow.js";
 
-export function PlaylistContainer(props: {
-  playlist: Accessor<Playlist>;
-  onOpenImageModal?: (startIndex?: number) => void;
-}) {
+export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
   const { playlist } = props;
 
-  // Initialize hooks
-  const playlistState = usePlaylistState(playlist());
-  const songState = useSongState();
-  const uiState = useUIState();
+  // Use context hooks
+  const playlistState = usePlaylistzState();
+  const songState = usePlaylistzSongs();
+  const uiState = usePlaylistzUI();
+  const imageModal = usePlaylistzImageModal();
 
   // Extract needed state and functions
   const {
@@ -37,6 +38,8 @@ export function PlaylistContainer(props: {
 
   const { isMobile } = uiState;
 
+  const { openImageModal } = imageModal;
+
   return (
     <div class={`flex-1 flex flex-col ${isMobile() ? "p-2" : "h-full p-6"}`}>
       {/* Playlist Header */}
@@ -47,7 +50,7 @@ export function PlaylistContainer(props: {
         <div class={`${isMobile() ? "" : "hidden"}`}>
           <button
             onClick={() => {
-              props.onOpenImageModal?.(0);
+              openImageModal(playlist(), playlistSongs(), 0);
             }}
             class="w-full h-full overflow-hidden hover:bg-gray-900 flex items-center justify-center transition-colors group"
             title="view playlist images"
@@ -304,7 +307,7 @@ export function PlaylistContainer(props: {
         <div class={`${isMobile() ? "hidden" : "ml-4"}`}>
           <button
             onClick={() => {
-              props.onOpenImageModal?.(0);
+              openImageModal(playlist(), playlistSongs(), 0);
             }}
             class="w-39 h-39 overflow-hidden hover:bg-gray-900 flex items-center justify-center transition-colors group"
             style="filter: blur(3px) contrast(3) brightness(0.4);"

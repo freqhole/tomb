@@ -8,29 +8,36 @@ import {
   persistentStorageGranted,
 } from "../services/offlineService.js";
 import type { Playlist } from "../types/playlist.js";
+import {
+  usePlaylistzManager,
+  usePlaylistzUI,
+} from "../context/PlaylistzContext.js";
 
-interface PlaylistSidebarProps {
-  playlists: Playlist[];
-  selectedPlaylist: Playlist | null;
-  onPlaylistSelect: (playlist: Playlist) => void;
-  onCreatePlaylist: () => void;
-  isLoading?: boolean;
-  onCollapse?: () => void;
-  collapsed?: boolean;
-  isMobile?: boolean;
-}
-
-export function PlaylistSidebar(props: PlaylistSidebarProps) {
+export function PlaylistSidebar() {
   const [isCreating, setIsCreating] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
   const [storageInfo, setStorageInfo] = createSignal<any>({});
 
+  // Use context hooks
+  const playlistManager = usePlaylistzManager();
+  const uiState = usePlaylistzUI();
+
+  const {
+    playlists,
+    selectedPlaylist,
+    createNewPlaylist,
+    selectPlaylist,
+    isInitialized,
+  } = playlistManager;
+
+  const { isMobile, setSidebarCollapsed } = uiState;
+
   // Filter playlists based on search
   const filteredPlaylists = () => {
     const query = searchQuery().toLowerCase();
-    if (!query) return props.playlists;
+    if (!query) return playlists();
 
-    return props.playlists.filter(
+    return playlists().filter(
       (playlist) =>
         playlist.title.toLowerCase().includes(query) ||
         (playlist.description || "").toLowerCase().includes(query)
@@ -42,7 +49,14 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
 
     setIsCreating(true);
     try {
-      await props.onCreatePlaylist();
+      const newPlaylist = await createNewPlaylist("New Playlist");
+      if (newPlaylist) {
+        selectPlaylist(newPlaylist);
+        // Auto-collapse on mobile when playlist is selected
+        if (isMobile()) {
+          setSidebarCollapsed(true);
+        }
+      }
     } finally {
       setIsCreating(false);
     }
@@ -72,13 +86,13 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
 
   return (
     <div
-      class={`${props.isMobile ? "w-full" : "w-80"} bg-black/50 backdrop-blur-sm flex flex-col h-full`}
+      class={`${isMobile() ? "w-full" : "w-80"} bg-black/50 backdrop-blur-sm flex flex-col h-full`}
     >
       {/* Header */}
-      <div class={`p-6 ${props.isMobile ? "text-center" : ""}`}>
+      <div class={`p-6 ${isMobile() ? "text-center" : ""}`}>
         <div class="flex items-center justify-between mb-4">
           <h1
-            class={`text-2xl font-mono font-stretch-expanded font-bold text-white ${props.isMobile ? "text-3xl" : ""}`}
+            class={`text-2xl font-mono font-stretch-expanded font-bold text-white ${isMobile() ? "text-3xl" : ""}`}
           >
             playlist<span class="text-magenta-500">z</span>
           </h1>
@@ -146,7 +160,7 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
       {/* Playlists list */}
       <div class="flex-1 overflow-y-auto">
         <Show
-          when={!props.isLoading}
+          when={isInitialized()}
           fallback={
             <div class="p-6 text-center">
               <div class="inline-block w-6 h-6 border-2 border-magenta-500 border-t-transparent rounded-full animate-spin mb-3"></div>
@@ -181,14 +195,20 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
               <For each={filteredPlaylists()}>
                 {(playlist) => {
                   const isSelected = () =>
-                    props.selectedPlaylist?.id === playlist.id;
+                    selectedPlaylist()?.id === playlist.id;
                   const relativeTime = createRelativeTimeSignal(
                     playlist.updatedAt
                   );
 
                   return (
                     <button
-                      onClick={() => props.onPlaylistSelect(playlist)}
+                      onClick={() => {
+                        selectPlaylist(playlist);
+                        // Auto-collapse on mobile when playlist is selected
+                        if (isMobile()) {
+                          setSidebarCollapsed(true);
+                        }
+                      }}
                       class={`w-full text-left p-4 transition-all duration-500 group ${
                         isSelected()
                           ? "bg-magenta-500 bg-opacity-20 shadow-lg"
@@ -318,14 +338,14 @@ export function PlaylistSidebar(props: PlaylistSidebarProps) {
             >
               <div class="text-center">
                 <div class="text-magenta-400 font-mono font-semibold">
-                  {props.playlists.length}
+                  {playlists().length}
                 </div>
                 <div>playlistz</div>
               </div>
               <div class="text-center">
                 <div class="text-magenta-400 font-mono font-semibold">
-                  {props.playlists.reduce(
-                    (total, playlist) =>
+                  {playlists().reduce(
+                    (total: number, playlist: Playlist) =>
                       total + (playlist.songIds?.length || 0),
                     0
                   )}

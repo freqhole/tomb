@@ -2,13 +2,14 @@
 import { Show } from "solid-js";
 
 import {
-  usePlaylistManager,
-  usePlaylistState,
-  useSongState,
-  useUIState,
-  useDragAndDrop,
-  useImageModal,
-} from "../hooks/index.js";
+  PlaylistzProvider,
+  usePlaylistzManager,
+  usePlaylistzState,
+  usePlaylistzSongs,
+  usePlaylistzUI,
+  usePlaylistzDragDrop,
+  usePlaylistzImageModal,
+} from "../context/PlaylistzContext.js";
 
 import { PlaylistSidebar } from "./PlaylistSidebar.js";
 import { SongEditModal } from "./SongEditModal.js";
@@ -26,14 +27,14 @@ if (typeof window !== "undefined" && (window as any).STANDALONE_MODE) {
   };
 }
 
-export function Playlistz() {
-  // Initialize hooks
-  const playlistManager = usePlaylistManager();
-  const playlistState = usePlaylistState();
-  const songState = useSongState();
-  const uiState = useUIState();
-  const dragAndDrop = useDragAndDrop();
-  const imageModal = useImageModal();
+function PlaylistzInner() {
+  // Use context hooks
+  const playlistManager = usePlaylistzManager();
+  const playlistState = usePlaylistzState();
+  const songState = usePlaylistzSongs();
+  const uiState = usePlaylistzUI();
+  const dragAndDrop = usePlaylistzDragDrop();
+  const imageModal = usePlaylistzImageModal();
 
   // Extract state and functions from hooks
   const {
@@ -44,7 +45,6 @@ export function Playlistz() {
     error: managerError,
     backgroundImageUrl,
     selectPlaylist,
-    createNewPlaylist,
   } = playlistManager;
 
   const {
@@ -75,7 +75,6 @@ export function Playlistz() {
 
   const {
     showImageModal,
-    openImageModal,
     closeImageModal,
     handleNextImage,
     handlePrevImage,
@@ -87,27 +86,6 @@ export function Playlistz() {
 
   // Combine errors from all hooks
   const error = () => managerError() || songError() || dragError();
-
-  // Handle playlist selection
-  const handlePlaylistSelect = (playlist: Playlist) => {
-    selectPlaylist(playlist);
-    // Auto-collapse on mobile when playlist is selected
-    if (isMobile()) {
-      setSidebarCollapsed(true);
-    }
-  };
-
-  // Handle creating new playlist
-  const handleCreatePlaylist = async () => {
-    const newPlaylist = await createNewPlaylist("New Playlist");
-    if (newPlaylist) {
-      selectPlaylist(newPlaylist);
-      // Collapse on mobile when playlist is selected
-      if (isMobile()) {
-        setSidebarCollapsed(true);
-      }
-    }
-  };
 
   // Handle file drop
   const handleFileDrop = async (e: DragEvent) => {
@@ -194,16 +172,7 @@ export function Playlistz() {
                 sidebarCollapsed() ? "-translate-x-full" : "translate-x-0"
               }`}
             >
-              <PlaylistSidebar
-                playlists={playlists()}
-                selectedPlaylist={selectedPlaylist()}
-                onPlaylistSelect={handlePlaylistSelect}
-                onCreatePlaylist={handleCreatePlaylist}
-                isLoading={false}
-                onCollapse={() => setSidebarCollapsed(true)}
-                collapsed={sidebarCollapsed()}
-                isMobile={isMobile()}
-              />
+              <PlaylistSidebar />
             </div>
           </div>
 
@@ -212,18 +181,7 @@ export function Playlistz() {
             class={`${isMobile() && !sidebarCollapsed() ? "hidden" : "flex-1"} flex flex-col ${isMobile() ? "" : "h-full"}`}
           >
             <Show when={selectedPlaylist()}>
-              {(playlist) => (
-                <PlaylistContainer
-                  playlist={playlist}
-                  onOpenImageModal={(startIndex = 0) =>
-                    openImageModal(
-                      selectedPlaylist(),
-                      playlistSongs(),
-                      startIndex
-                    )
-                  }
-                />
-              )}
+              {(playlist) => <PlaylistContainer playlist={playlist} />}
             </Show>
           </div>
         </div>
@@ -413,5 +371,13 @@ export function Playlistz() {
         </div>
       </Show>
     </div>
+  );
+}
+
+export function Playlistz() {
+  return (
+    <PlaylistzProvider>
+      <PlaylistzInner />
+    </PlaylistzProvider>
   );
 }
