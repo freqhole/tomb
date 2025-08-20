@@ -77,6 +77,7 @@ function PlaylistzInner() {
     handleNextImage,
     handlePrevImage,
     getCurrentImageUrl,
+    getCurrentImageTitle,
     getImageCount,
     getCurrentImageNumber,
     hasMultipleImages,
@@ -308,7 +309,8 @@ function PlaylistzInner() {
             <div class="relative w-full h-full flex items-center justify-center p-4">
               <img
                 src={getCurrentImageUrl()!}
-                alt="playlist image"
+                onClick={handleNextImage}
+                alt={getCurrentImageTitle() || "song image"}
                 class="max-w-full max-h-full object-contain"
               />
 
@@ -352,9 +354,16 @@ function PlaylistzInner() {
                     />
                   </svg>
                 </button>
-                {currentImage.title} {/* image counter */}
+
+                {/* image counter */}
                 <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-3 py-1 rounded">
-                  {getCurrentImageNumber()} / {getImageCount()}
+                  {/* image title */}
+                  <Show when={getCurrentImageTitle()}>
+                    {getCurrentImageTitle()}{" "}
+                  </Show>
+                  <span class="text-xs">
+                    {getCurrentImageNumber()}/{getImageCount()}
+                  </span>
                 </div>
               </Show>
             </div>

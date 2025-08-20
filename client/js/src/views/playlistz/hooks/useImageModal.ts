@@ -3,24 +3,37 @@ import { createSignal, createEffect, onCleanup } from "solid-js";
 import type { Playlist, Song } from "../types/playlist.js";
 import { getImageUrlForContext } from "../services/imageService.js";
 
+// Interface for tracking image metadata
+interface ImageWithMetadata {
+  url: string;
+  title: string;
+  type: "playlist" | "song";
+  id: string;
+}
+
 export function useImageModal() {
   // Modal state
   const [showImageModal, setShowImageModal] = createSignal(false);
   const [modalImageIndex, setModalImageIndex] = createSignal(0);
-  const [modalImages, setModalImages] = createSignal<string[]>([]);
+  const [modalImages, setModalImages] = createSignal<ImageWithMetadata[]>([]);
 
   // Generate image list from playlist and songs
   const generateImageList = (
     playlist: Playlist | null,
     playlistSongs: Song[] = []
   ) => {
-    const images: string[] = [];
+    const images: ImageWithMetadata[] = [];
 
     // Add playlist cover image if available
     if (playlist?.imageType) {
       const playlistImageUrl = getImageUrlForContext(playlist, "modal");
       if (playlistImageUrl) {
-        images.push(playlistImageUrl);
+        images.push({
+          url: playlistImageUrl,
+          title: playlist.title,
+          type: "playlist",
+          id: playlist.id,
+        });
       }
     }
 
@@ -29,7 +42,12 @@ export function useImageModal() {
       if (song.imageType && (song.imageData || song.thumbnailData)) {
         const songImageUrl = getImageUrlForContext(song, "modal");
         if (songImageUrl) {
-          images.push(songImageUrl);
+          images.push({
+            url: songImageUrl,
+            title: song.title,
+            type: "song",
+            id: song.id,
+          });
         }
       }
     });
@@ -86,7 +104,21 @@ export function useImageModal() {
   const getCurrentImageUrl = () => {
     const images = modalImages();
     const index = modalImageIndex();
+    return images[index]?.url || null;
+  };
+
+  // Get current image metadata
+  const getCurrentImageMetadata = () => {
+    const images = modalImages();
+    const index = modalImageIndex();
     return images[index] || null;
+  };
+
+  // Get current image title
+  const getCurrentImageTitle = () => {
+    const images = modalImages();
+    const index = modalImageIndex();
+    return images[index]?.title || null;
   };
 
   // Get total image count
@@ -167,6 +199,8 @@ export function useImageModal() {
 
     // Utilities
     getCurrentImageUrl,
+    getCurrentImageMetadata,
+    getCurrentImageTitle,
     getImageCount,
     getCurrentImageNumber,
     hasMultipleImages,
