@@ -46,7 +46,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
   return (
     <button
       onClick={handleClick}
-      class={`inline-flex items-center justify-center ${props.size || "w-12 h-12"} bg-magenta-500 hover:bg-magenta-600 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-full text-white transition-colors mx-2`}
+      class={`inline-flex items-center justify-center ${props.size || "w-12 h-12"} disabled:bg-gray-600 disabled:cursor-not-allowed rounded-full text-white hover:text-magenta-200 transition-colors mx-2 ${audioState.isPlaying() ? "bg-magenta-500" : "hover:bg-magenta-500"}`}
     >
       <Show
         when={isCurrentlyLoading()}
@@ -54,7 +54,11 @@ export function AudioPlayer(props: AudioPlayerProps) {
           <Show
             when={audioState.isPlaying()}
             fallback={
-              <svg class="w-10 h-10 ml-0.5" fill="#eeddee" viewBox="0 0 20 20">
+              <svg
+                class="w-10 h-10 ml-0.5"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
                 <path
                   fill-opacity="1.0"
                   fill-rule="evenodd"

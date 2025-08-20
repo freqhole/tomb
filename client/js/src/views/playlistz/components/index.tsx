@@ -139,7 +139,7 @@ function PlaylistzInner() {
         fallback={
           <div class="flex items-center justify-center h-full">
             <div class="text-center">
-              <div class="inline-block animate-spin rounded-full h-8 w-8 mb-4"></div>
+              <div class="inline-block animate-spin rounded-full h-8 w-8"></div>
               <p class="text-lg">loading playlistz...</p>
             </div>
           </div>
@@ -333,7 +333,6 @@ function PlaylistzInner() {
                     />
                   </svg>
                 </button>
-
                 <button
                   onClick={handleNextImage}
                   class="absolute right-4 top-1/2 transform -translate-y-1/2 text-white hover:text-magenta-400 transition-colors p-2 bg-black bg-opacity-50 rounded"
@@ -353,8 +352,7 @@ function PlaylistzInner() {
                     />
                   </svg>
                 </button>
-
-                {/* image counter */}
+                {currentImage.title} {/* image counter */}
                 <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-3 py-1 rounded">
                   {getCurrentImageNumber()} / {getImageCount()}
                 </div>

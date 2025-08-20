@@ -10,7 +10,10 @@ export function useImageModal() {
   const [modalImages, setModalImages] = createSignal<string[]>([]);
 
   // Generate image list from playlist and songs
-  const generateImageList = (playlist: Playlist | null, playlistSongs: Song[] = []) => {
+  const generateImageList = (
+    playlist: Playlist | null,
+    playlistSongs: Song[] = []
+  ) => {
     const images: string[] = [];
 
     // Add playlist cover image if available

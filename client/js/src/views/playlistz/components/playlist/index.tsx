@@ -45,7 +45,7 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
     <div class={`flex-1 flex flex-col ${isMobile() ? "p-2" : "h-full p-6"}`}>
       {/* playlist header */}
       <div
-        class={`flex items-center justify-between ${isMobile() ? "p-2 flex-col" : "mb-2 p-6"}`}
+        class={`flex items-center justify-between ${isMobile() ? "p-2 flex-col" : "p-6"}`}
       >
         {/* playlist cover image for mobile */}
         <div class={`${isMobile() ? "" : "hidden"}`}>
@@ -143,7 +143,7 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
                 class="flex items-center justify-center"
                 style="grid-area: player;"
               >
-                <AudioPlayer playlist={playlist()} size="w-14 h-14" />
+                <AudioPlayer playlist={playlist()} size="w-12 h-12" />
               </div>
 
               {/* top right song info stuff */}
