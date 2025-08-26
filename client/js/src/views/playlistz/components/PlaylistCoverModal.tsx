@@ -100,13 +100,6 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
     }
   };
 
-  const handleUseFromSongs = () => {
-    // #TODO: this would need to be updated to work with the new image data format
-    // setError(
-    //   "using album art from songz not yet implemented with new image storage"
-    // );
-  };
-
   const handleDownloadPlaylist = async () => {
     setIsDownloading(true);
     try {
