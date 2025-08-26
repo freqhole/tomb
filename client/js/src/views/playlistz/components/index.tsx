@@ -83,7 +83,7 @@ function PlaylistzInner() {
     hasMultipleImages,
   } = imageModal;
 
-  // Combine errors from all hooks
+  // 1 error 2 rule 'em all!
   const error = () => managerError() || songError() || dragError();
 
   // handle file drop here i guess.
