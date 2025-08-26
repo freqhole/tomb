@@ -39,14 +39,13 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
   const [isDownloading, setIsDownloading] = createSignal(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
 
-  // Initialize form with playlist data when modal opens
   onMount(() => {
     if (props.isOpen && props.playlist) {
       if (props.playlist.imageData && props.playlist.imageType) {
         setSelectedImageData(props.playlist.imageData);
         setSelectedThumbnailData(props.playlist.thumbnailData);
         setSelectedImageType(props.playlist.imageType);
-        // Create temporary display URL using thumbnail if available, otherwise full size
+        // temporary display URL using thumbnail if available, otherwise full size
         const displayData =
           props.playlist.thumbnailData || props.playlist.imageData;
         const url = createImageUrlFromData(
@@ -77,7 +76,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
       const result = await processPlaylistCover(file);
 
       if (result.success && result.thumbnailData && result.imageData) {
-        // Clean up previous URL if exists
+        // trash previous URL if exists
         const prevUrl = selectedImageUrl();
         if (prevUrl) {
           URL.revokeObjectURL(prevUrl);
@@ -87,7 +86,6 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
         setSelectedThumbnailData(result.thumbnailData);
         setSelectedImageType(file.type);
 
-        // Create new display URL using thumbnail
         const newUrl = createImageUrlFromData(result.thumbnailData, file.type);
 
         setSelectedImageUrl(newUrl);
@@ -96,7 +94,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
       }
     } catch (err) {
       setError("error uploading image");
-      console.error("Image upload error:", err);
+      console.error("image upload error:", err);
     } finally {
       setIsLoading(false);
     }
@@ -120,7 +118,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
       });
     } catch (err) {
       setError("failed to download playlist");
-      console.error("Download error:", err);
+      console.error("download error:", err);
     } finally {
       setIsDownloading(false);
     }
@@ -136,7 +134,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
       props.onClose();
     } catch (err) {
       setError("failed to delete playlist");
-      console.error("Delete error:", err);
+      console.error("delete error:", err);
     } finally {
       setIsLoading(false);
     }
@@ -156,7 +154,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
 
       await updatePlaylist(props.playlist.id, updates);
 
-      // Create updated playlist object, removing old image property if it exists
+      // create updated playlist object, removing old image property if it exists
       const { image, ...playlistWithoutOldImage } = props.playlist as any;
       const updatedPlaylist: Playlist = {
         ...playlistWithoutOldImage,
@@ -167,14 +165,14 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
       props.onClose();
     } catch (err) {
       setError("failed to save");
-      console.error("Save error:", err);
+      console.error("save error:", err);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleCancel = () => {
-    // Clean up any temporary URLs
+    // trash any temporary URLs
     const url = selectedImageUrl();
     if (url) {
       URL.revokeObjectURL(url);
@@ -195,7 +193,6 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
     setSelectedImageUrl(undefined);
   };
 
-  // Handle escape key
   createEffect(() => {
     if (props.isOpen) {
       const handleKeyDown = (e: KeyboardEvent) => {
@@ -218,7 +215,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
   return (
     <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
       <div class="bg-gray-900 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
+        {/* header */}
         <div class="flex items-center justify-between p-6 border-b border-gray-700">
           <h2 class="text-xl font-bold text-white font-mono">
             cover<span class="text-magenta-500">z</span>
@@ -246,28 +243,24 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
 
         {/* content */}
         <div class="p-6 space-y-6">
-          {/* current cover preview */}
-          <div>
-            <div class="w-48 h-48 mx-auto overflow-hidden bg-gray-700 flex items-center justify-center">
+          <div class="flex items-center gap-4">
+            <div class="w-25 h-25 overflow-hidden bg-gray-700 flex items-center justify-center">
               <Show
                 when={selectedImageUrl()}
                 fallback={
-                  <div class="text-center">
-                    <svg
-                      class="w-16 h-16 text-gray-400 mx-auto mb-2"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
-                      />
-                    </svg>
-                    <p class="text-gray-400 text-sm">no cover image</p>
-                  </div>
+                  <svg
+                    class="w-8 h-8 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                    />
+                  </svg>
                 }
               >
                 <img
@@ -277,12 +270,8 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                 />
               </Show>
             </div>
-          </div>
 
-          {/* Upload Options */}
-          <div class="space-y-4">
-            {/* Upload from file */}
-            <div>
+            <div class="flex-1 space-y-2">
               <input
                 type="file"
                 accept="image/*"
@@ -297,36 +286,72 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
               >
                 upload image
               </label>
+
+              <Show when={selectedImageData()}>
+                <button
+                  onClick={handleRemoveImage}
+                  disabled={isLoading()}
+                  class="block w-full px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium transition-colors"
+                >
+                  remove cover image
+                </button>
+              </Show>
             </div>
+          </div>
 
-            {/* Use from songs #TODO either fix this or yeet it */}
-            <Show when={false && songsWithArt.length > 0}>
+          {/* playlist actions */}
+          <div class="space-y-3">
+            {/* download playlist */}
+            <Show when={window.location.protocol !== "file:"}>
               <button
-                onClick={handleUseFromSongs}
-                disabled={isLoading()}
-                class="block w-full px-4 py-3 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white font-medium transition-colors"
+                onClick={handleDownloadPlaylist}
+                disabled={isDownloading() || isLoading()}
+                class="w-full px-4 py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-medium transition-colors flex items-center justify-center gap-2"
               >
-                use album art from songz ({songsWithArt.length} available)
+                <Show
+                  when={!isDownloading()}
+                  fallback={
+                    <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  }
+                >
+                  <svg
+                    class="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    />
+                  </svg>
+                </Show>
+                {isDownloading() ? "downloading..." : "download playlist"}
               </button>
             </Show>
+          </div>
 
-            {/* Remove image */}
-            <Show when={selectedImageData()}>
-              <button
-                onClick={handleRemoveImage}
-                disabled={isLoading()}
-                class="block w-full px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium transition-colors"
-              >
-                remove cover image
-              </button>
-            </Show>
+          {/* playlist info */}
+          <div class="bg-gray-800 p-4">
+            <h3 class="text-sm font-medium text-gray-300 mb-2">
+              playlist information
+            </h3>
+            <div class="text-sm text-gray-400 space-y-1">
+              <div>title: {props.playlist.title}</div>
+              <div>id: {props.playlist.id}</div>
+              <div>rev: {props.playlist.rev || 0}</div>
+              <div>songz: {props.playlist.songIds.length}</div>
+              <div>with album art: {songsWithArt.length}</div>
+            </div>
           </div>
 
           {/* songz with album art preview */}
           <Show when={songsWithArt.length > 0}>
             <div>
               <div class="grid grid-cols-4 gap-3">
-                {songsWithArt.slice(0, 8).map((song) => (
+                {songsWithArt.map((song) => (
                   <button
                     onClick={() => {
                       // #TODO: this needz to be updated to work with ArrayBuffer data
@@ -335,7 +360,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                       // );
                     }}
                     disabled={isLoading()}
-                    class="aspect-square overflow-hidden bg-gray-700 hover:ring-2 hover:ring-magenta-500 transition-all"
+                    class="aspect-square overflow-hidden bg-gray-700" //hover:ring-2 hover:ring-magenta-500 transition-all
                     title={`${song.title} - ${song.artist}`}
                   >
                     <Show
@@ -372,67 +397,16 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                   </button>
                 ))}
               </div>
-              <Show when={songsWithArt.length > 8}>
-                <p class="text-sm text-gray-400 mt-2 text-center">
-                  +{songsWithArt.length - 8} more imagez available
-                </p>
-              </Show>
             </div>
           </Show>
 
-          {/* Playlist info */}
-          <div class="bg-gray-800 p-4">
-            <h3 class="text-sm font-medium text-gray-300 mb-2">
-              playlist information
-            </h3>
-            <div class="text-sm text-gray-400 space-y-1">
-              <div>title: {props.playlist.title}</div>
-              <div>id: {props.playlist.id}</div>
-              <div>rev: {props.playlist.rev || 0}</div>
-              <div>songz: {props.playlist.songIds.length}</div>
-              <div>with album art: {songsWithArt.length}</div>
-            </div>
-          </div>
-
-          {/* playlist actions */}
+          {/* delete playlist */}
           <div class="space-y-3">
-            {/* download playlist */}
-            <Show when={window.location.protocol !== "file:"}>
-              <button
-                onClick={handleDownloadPlaylist}
-                disabled={isDownloading() || isLoading()}
-                class="block w-full px-4 py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-medium transition-colors flex items-center justify-center gap-2"
-              >
-                <Show
-                  when={!isDownloading()}
-                  fallback={
-                    <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  }
-                >
-                  <svg
-                    class="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
-                </Show>
-                {isDownloading() ? "downloading..." : "download playlist"}
-              </button>
-            </Show>
-
-            {/* delete playlist */}
             <Show
               when={!showDeleteConfirm()}
               fallback={
                 <div class="bg-red-900 bg-opacity-30 border border-red-500 p-4 space-y-3">
-                  <p class="text-red-400 text-sm">
+                  <p class="text-white text-sm">
                     are you sure you want to delete this playlist? this action
                     cannot be undone.
                   </p>
@@ -458,7 +432,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
               <button
                 onClick={() => setShowDeleteConfirm(true)}
                 disabled={isLoading()}
-                class="block w-full px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium transition-colors flex items-center justify-center gap-2"
+                class="w-full px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium transition-colors flex items-center justify-center gap-2"
               >
                 <svg
                   class="w-4 h-4"
@@ -478,7 +452,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
             </Show>
           </div>
 
-          {/* Error message */}
+          {/* error message */}
           <Show when={error()}>
             <div class="bg-red-900 bg-opacity-30 border border-red-500 p-3">
               <div class="text-red-400 text-sm">{error()}</div>
@@ -486,8 +460,8 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
           </Show>
         </div>
 
-        {/* Footer */}
-        <div class="flex items-center justify-end gap-3 p-6 border-t border-gray-700">
+        {/* footer */}
+        <div class="flex items-center justify-end gap-3 p-6 border-t border-gray-700 sticky bottom-0 z-10 bg-gray-900">
           <button
             onClick={handleCancel}
             disabled={isLoading() || isDownloading()}
@@ -520,7 +494,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
                 />
               </svg>
             </Show>
-            {isLoading() ? "saving..." : "save cover"}
+            {isLoading() ? "saving..." : "save"}
           </button>
         </div>
       </div>

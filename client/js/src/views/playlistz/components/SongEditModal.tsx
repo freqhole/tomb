@@ -7,6 +7,7 @@ import {
   createImageUrlFromData,
 } from "../services/imageService.js";
 import type { Song } from "../types/playlist.js";
+import { usePlaylistzState } from "../context/PlaylistzContext.jsx";
 
 interface SongEditModalProps {
   song: Song;
@@ -26,9 +27,13 @@ export function SongEditModal(props: SongEditModalProps) {
   const [imageType, setImageType] = createSignal<string | undefined>();
   const [imageUrl, setImageUrl] = createSignal<string | undefined>();
   const [isLoading, setIsLoading] = createSignal(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
-  // Initialize form with song data when modal opens
+  const playlistState = usePlaylistzState();
+
+  const { handleRemoveSong } = playlistState;
+
   onMount(() => {
     if (props.isOpen && props.song) {
       setTitle(props.song.title);
@@ -41,7 +46,7 @@ export function SongEditModal(props: SongEditModalProps) {
         setImageData(props.song.imageData);
         setThumbnailData(props.song.thumbnailData);
         setImageType(props.song.imageType);
-        // Use imageData if available, fallback to thumbnailData for preview
+        // imageData if available, fallback to thumbnailData for preview
         const displayData = props.song.imageData || props.song.thumbnailData;
         if (!displayData) return;
         const url = createImageUrlFromData(displayData, props.song.imageType);
@@ -68,7 +73,7 @@ export function SongEditModal(props: SongEditModalProps) {
 
       const result = await processPlaylistCover(file);
       if (result.success && result.imageData && result.thumbnailData) {
-        // Clean up previous URL if exists
+        // trash previous URL
         const prevUrl = imageUrl();
         if (prevUrl) {
           URL.revokeObjectURL(prevUrl);
@@ -78,7 +83,7 @@ export function SongEditModal(props: SongEditModalProps) {
         setThumbnailData(result.thumbnailData);
         setImageType(file.type);
 
-        // Create new display URL using full-size image for preview
+        // create new display URL using full-size image for preview
         const newUrl = createImageUrlFromData(result.imageData, file.type);
         setImageUrl(newUrl);
       } else {
@@ -94,7 +99,7 @@ export function SongEditModal(props: SongEditModalProps) {
 
   const handleSave = async () => {
     if (!title().trim()) {
-      setError("Title is required");
+      setError("title is required");
       return;
     }
 
@@ -104,8 +109,8 @@ export function SongEditModal(props: SongEditModalProps) {
 
       const updates = {
         title: title().trim(),
-        artist: artist().trim() || "Unknown Artist",
-        album: album().trim() || "Unknown Album",
+        artist: artist().trim() || "Unknown Artist", // #TODO: don't default to this :/
+        album: album().trim() || "Unknown Album", // #TODO: don't default to this :/
         imageData: imageData(),
         thumbnailData: thumbnailData(),
         imageType: imageType(),
@@ -130,7 +135,7 @@ export function SongEditModal(props: SongEditModalProps) {
   };
 
   const handleCancel = () => {
-    // Clean up any temporary URLs
+    // trash any temporary URLz
     const url = imageUrl();
     if (url) {
       URL.revokeObjectURL(url);
@@ -150,7 +155,7 @@ export function SongEditModal(props: SongEditModalProps) {
     setImageUrl(undefined);
   };
 
-  // Handle escape key
+  // handle escape key
   createEffect(() => {
     if (props.isOpen) {
       const handleKeyDown = (e: KeyboardEvent) => {
@@ -169,10 +174,10 @@ export function SongEditModal(props: SongEditModalProps) {
   return (
     <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
       <div class="bg-gray-900 shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto relative">
-        {/* Header */}
+        {/* header */}
         <div class="flex items-center justify-between p-6 border-b border-gray-700 relative">
           <h2 class="text-xl font-bold text-white font-mono">
-            edit<span class="text-magenta-500">z</span>
+            song<span class="text-magenta-500">z</span>
           </h2>
           <button
             onClick={handleCancel}
@@ -195,9 +200,9 @@ export function SongEditModal(props: SongEditModalProps) {
           </button>
         </div>
 
-        {/* Content */}
+        {/* content */}
         <div class="p-6 space-y-6">
-          {/* Album Art */}
+          {/* album art */}
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-3">
               album art
@@ -224,7 +229,7 @@ export function SongEditModal(props: SongEditModalProps) {
                 >
                   <img
                     src={imageUrl()}
-                    alt="Album art"
+                    alt="album art"
                     class="w-full h-full object-cover"
                   />
                 </Show>
@@ -241,7 +246,7 @@ export function SongEditModal(props: SongEditModalProps) {
                 />
                 <label
                   for="image-upload"
-                  class="inline-block px-4 py-2 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white cursor-pointer text-sm font-medium transition-colors"
+                  class="inline-block w-full px-4 py-2 bg-magenta-500 hover:bg-magenta-600 disabled:bg-magenta-400 text-white cursor-pointer text-sm text-center font-medium transition-colors"
                 >
                   choose image
                 </label>
@@ -250,7 +255,7 @@ export function SongEditModal(props: SongEditModalProps) {
                   <button
                     onClick={handleRemoveImage}
                     disabled={isLoading()}
-                    class="block px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white text-sm font-medium transition-colors"
+                    class="block w-full px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white text-sm text-center font-medium transition-colors"
                   >
                     remove image
                   </button>
@@ -259,7 +264,7 @@ export function SongEditModal(props: SongEditModalProps) {
             </div>
           </div>
 
-          {/* Title */}
+          {/* title */}
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-2">
               title
@@ -274,7 +279,7 @@ export function SongEditModal(props: SongEditModalProps) {
             />
           </div>
 
-          {/* Artist */}
+          {/* artist */}
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-2">
               artist
@@ -289,7 +294,7 @@ export function SongEditModal(props: SongEditModalProps) {
             />
           </div>
 
-          {/* Album */}
+          {/* album */}
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-2">
               album
@@ -304,28 +309,84 @@ export function SongEditModal(props: SongEditModalProps) {
             />
           </div>
 
-          {/* File info */}
-          <div class="bg-gray-800 p-4">
-            <h3 class="text-sm font-medium text-gray-300 mb-2">
+          {/* file info */}
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-3">
               file information
-            </h3>
-            <div class="text-sm text-gray-400 space-y-1">
-              <div>filename: {props.song.originalFilename || "Unknown"}</div>
-              <Show when={props.song.fileSize}>
-                <div>
-                  size:{" "}
-                  {Math.round((props.song.fileSize! / 1024 / 1024) * 100) / 100}{" "}
-                  mb
-                </div>
-              </Show>
-              <div>duration: {formatDuration(props.song.duration)}</div>
-              <Show when={props.song.sha}>
-                <div class="break-all">sha: {props.song.sha}</div>
-              </Show>
+            </label>
+
+            <div class="bg-gray-800 p-4">
+              <div class="text-sm text-gray-400 space-y-1">
+                <div>filename: {props.song.originalFilename || "Unknown"}</div>
+                <Show when={props.song.fileSize}>
+                  <div>
+                    size:{" "}
+                    {Math.round((props.song.fileSize! / 1024 / 1024) * 100) /
+                      100}{" "}
+                    mb
+                  </div>
+                </Show>
+                <div>duration: {formatDuration(props.song.duration)}</div>
+                <Show when={props.song.sha}>
+                  <div class="break-all">sha: {props.song.sha}</div>
+                </Show>
+              </div>
             </div>
           </div>
 
-          {/* Error message */}
+          {/* delete song */}
+          <div class="space-y-3">
+            <Show
+              when={!showDeleteConfirm()}
+              fallback={
+                <div class="bg-red-900 bg-opacity-30 border border-red-500 p-4 space-y-3">
+                  <p class="text-white text-sm">
+                    are you sure you want to delete this song? this action
+                    cannot be undone.
+                  </p>
+                  <div class="flex gap-2">
+                    <button
+                      onClick={() => handleRemoveSong(props.song.id)}
+                      disabled={isLoading()}
+                      class="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium transition-colors"
+                    >
+                      yes, delete
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteConfirm(false)}
+                      disabled={isLoading()}
+                      class="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white font-medium transition-colors"
+                    >
+                      cancel
+                    </button>
+                  </div>
+                </div>
+              }
+            >
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isLoading()}
+                class="w-full px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+                delete song
+              </button>
+            </Show>
+          </div>
+
+          {/* error message */}
           <Show when={error()}>
             <div class="bg-red-900 bg-opacity-30 border border-red-500 p-3">
               <div class="text-red-400 text-sm">{error()}</div>
@@ -333,8 +394,8 @@ export function SongEditModal(props: SongEditModalProps) {
           </Show>
         </div>
 
-        {/* Footer */}
-        <div class="flex items-center justify-end gap-3 p-6 border-t border-gray-700">
+        {/* footer */}
+        <div class="flex items-center justify-end gap-3 p-6 border-t border-gray-700 sticky bottom-0 z-10 bg-gray-900">
           <button
             onClick={handleCancel}
             disabled={isLoading()}
@@ -367,7 +428,7 @@ export function SongEditModal(props: SongEditModalProps) {
                 />
               </svg>
             </Show>
-            {isLoading() ? "saving..." : "save changes"}
+            {isLoading() ? "saving..." : "save"}
           </button>
         </div>
       </div>

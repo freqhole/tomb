@@ -219,7 +219,7 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
                 <button
                   onClick={() => setShowPlaylistCover(true)}
                   class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors bg-black bg-opacity-80"
-                  title="change playlist cover"
+                  title="edit playlist"
                 >
                   <svg
                     class="w-4 h-4"

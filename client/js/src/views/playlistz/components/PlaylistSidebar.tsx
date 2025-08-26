@@ -18,7 +18,6 @@ export function PlaylistSidebar() {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [storageInfo, setStorageInfo] = createSignal<any>({});
 
-  // Use context hooks
   const playlistManager = usePlaylistzManager();
   const uiState = usePlaylistzUI();
 
@@ -32,7 +31,6 @@ export function PlaylistSidebar() {
 
   const { isMobile, setSidebarCollapsed } = uiState;
 
-  // Filter playlists based on search
   const filteredPlaylists = () => {
     const query = searchQuery().toLowerCase();
     if (!query) return playlists();
@@ -52,7 +50,7 @@ export function PlaylistSidebar() {
       const newPlaylist = await createNewPlaylist("New Playlist");
       if (newPlaylist) {
         selectPlaylist(newPlaylist);
-        // Auto-collapse on mobile when playlist is selected
+        // auto-collapse on mobile when playlist is selected
         if (isMobile()) {
           setSidebarCollapsed(true);
         }
@@ -64,23 +62,22 @@ export function PlaylistSidebar() {
 
   const getSongCount = (playlist: Playlist) => {
     const count = playlist.songIds?.length || 0;
-    return count === 1 ? "1 song" : `${count} songs`;
+    return count === 1 ? "1 song" : `${count} songz`;
   };
 
-  // Update storage info periodically
+  // update storage info periodically
   onMount(async () => {
     const updateStorageInfo = async () => {
       const info = await getStorageInfo();
       setStorageInfo(info);
     };
 
-    // Initial load
+    // once on initial load
     await updateStorageInfo();
 
-    // Update every 30 seconds
+    // update every 30 secondz
     const interval = setInterval(updateStorageInfo, 30000);
 
-    // Cleanup
     return () => clearInterval(interval);
   });
 
@@ -88,7 +85,7 @@ export function PlaylistSidebar() {
     <div
       class={`${isMobile() ? "w-full" : "w-80"} bg-black/50 backdrop-blur-sm flex flex-col h-full`}
     >
-      {/* Header */}
+      {/* header */}
       <div class={`p-6 ${isMobile() ? "text-center" : ""}`}>
         <div class="flex items-center justify-between mb-4">
           <h1
@@ -101,33 +98,35 @@ export function PlaylistSidebar() {
           </div>
         </div>
 
-        {/* Search */}
-        <div class="relative">
-          <input
-            type="text"
-            placeholder="search..."
-            value={searchQuery()}
-            onInput={(e) => setSearchQuery(e.currentTarget.value)}
-            class="w-full bg-black text-white px-4 py-2 pl-10 text-sm border border-magenta-200 focus:border-magenta-500 focus:outline-none focus:ring-1 focus:ring-magenta-500"
-          />
-          <div class="absolute left-3 top-2.5 text-gray-400">
-            <svg
-              class="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+        {/* search only if more than 10 playlistz */}
+        <Show when={playlists().length > 10}>
+          <div class="relative">
+            <input
+              type="text"
+              placeholder="search..."
+              value={searchQuery()}
+              onInput={(e) => setSearchQuery(e.currentTarget.value)}
+              class="w-full bg-black text-white px-4 py-2 pl-10 text-sm border border-magenta-200 focus:border-magenta-500 focus:outline-none focus:ring-1 focus:ring-magenta-500"
+            />
+            <div class="absolute left-3 top-2.5 text-gray-400">
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+            </div>
           </div>
-        </div>
+        </Show>
 
-        {/* Create new playlist button */}
+        {/* new playlist button */}
         <button
           onClick={handleCreatePlaylist}
           disabled={isCreating()}
@@ -157,7 +156,7 @@ export function PlaylistSidebar() {
         </button>
       </div>
 
-      {/* Playlists list */}
+      {/* playlistz list */}
       <div class="flex-1 overflow-y-auto">
         <Show
           when={isInitialized()}
@@ -204,7 +203,7 @@ export function PlaylistSidebar() {
                     <button
                       onClick={() => {
                         selectPlaylist(playlist);
-                        // Auto-collapse on mobile when playlist is selected
+                        // auto-collapse on mobile when playlist is selected
                         if (isMobile()) {
                           setSidebarCollapsed(true);
                         }
@@ -216,7 +215,7 @@ export function PlaylistSidebar() {
                       }`}
                     >
                       <div class="flex items-start gap-3">
-                        {/* Playlist thumbnail */}
+                        {/* playlist thumbnail */}
                         <div class="flex-shrink-0 w-12 h-12 overflow-hidden bg-transparent">
                           <Show
                             when={playlist.imageType}
@@ -322,10 +321,10 @@ export function PlaylistSidebar() {
         </Show>
       </div>
 
-      {/* Footer with stats */}
+      {/* footer with statz */}
       <div class="p-4 bg-gray-900 bg-opacity-30">
         <div class="text-xs text-gray-400 space-y-1">
-          {/* First row: playlists, songs */}
+          {/* first row: playlistz, songz */}
           <Show when={!searchQuery()}>
             <div
               class={`grid gap-2 ${
@@ -367,7 +366,7 @@ export function PlaylistSidebar() {
             </div>
           </Show>
 
-          {/* Second row: storage details or search results */}
+          {/* second row: storage detailz or search resultz count */}
           <Show
             when={searchQuery()}
             fallback={
