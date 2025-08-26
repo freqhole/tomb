@@ -4,7 +4,6 @@ import { Show } from "solid-js";
 import {
   PlaylistzProvider,
   usePlaylistzManager,
-  usePlaylistzState,
   usePlaylistzSongs,
   usePlaylistzUI,
   usePlaylistzDragDrop,
@@ -28,7 +27,6 @@ if (typeof window !== "undefined" && (window as any).STANDALONE_MODE) {
 function PlaylistzInner() {
   // Use context hooks
   const playlistManager = usePlaylistzManager();
-  const playlistState = usePlaylistzState();
   const songState = usePlaylistzSongs();
   const uiState = usePlaylistzUI();
   const dragAndDrop = usePlaylistzDragDrop();
@@ -51,7 +49,7 @@ function PlaylistzInner() {
     showDeleteConfirm,
     setShowDeleteConfirm,
     handleDeletePlaylist,
-  } = playlistState;
+  } = playlistManager;
 
   const {
     editingSong,

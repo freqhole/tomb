@@ -7,7 +7,7 @@ import {
   createImageUrlFromData,
 } from "../services/imageService.js";
 import type { Song } from "../types/playlist.js";
-import { usePlaylistzState } from "../context/PlaylistzContext.jsx";
+import { usePlaylistzManager } from "../context/PlaylistzContext.jsx";
 
 interface SongEditModalProps {
   song: Song;
@@ -30,9 +30,9 @@ export function SongEditModal(props: SongEditModalProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
-  const playlistState = usePlaylistzState();
+  const playlistManager = usePlaylistzManager();
 
-  const { handleRemoveSong } = playlistState;
+  const { handleRemoveSong } = playlistManager;
 
   onMount(() => {
     if (props.isOpen && props.song) {

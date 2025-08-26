@@ -2,12 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot } from "solid-js";
 import { useDragAndDrop } from "./useDragAndDrop.js";
 import { createMockFile } from "../test-setup.js";
-import type { Playlist } from "../types/playlist.js";
 
 // Mock the services
 vi.mock("../services/fileProcessingService.js", () => ({
   filterAudioFiles: vi.fn((files) =>
-    Array.from(files).filter((f) => f.type.startsWith("audio/"))
+    Array.from(files).filter((f: any) => f.type.startsWith("audio/"))
   ),
   extractMetadata: vi.fn((file) =>
     Promise.resolve({
@@ -62,20 +61,21 @@ class MockDataTransfer {
       getAsString: vi.fn(),
     }));
 
-    return {
-      length: items.length,
+    const list = {
       ...items,
       add: vi.fn(),
       remove: vi.fn(),
       clear: vi.fn(),
     } as any;
+    list.length = items.length;
+    return list;
   }
 
-  getData(format: string): string {
+  getData(_format: string): string {
     return "";
   }
 
-  setData(format: string, data: string): void {}
+  setData(_format: string, _data: string): void {}
 }
 
 // Create mock DragEvent that simulates real browser behavior
@@ -206,6 +206,8 @@ describe("useDragAndDrop", () => {
             position: 0,
             playlistId,
             fileSize: file.size,
+            mimeType: file.type || "audio/mp3",
+            originalFilename: file.name,
             createdAt: Date.now(),
             updatedAt: Date.now(),
           };
@@ -237,7 +239,7 @@ describe("useDragAndDrop", () => {
 
       // Verify that metadata was extracted and passed to addSongToPlaylist
       const call = vi.mocked(addSongToPlaylist).mock.calls[0];
-      const metadata = call[2];
+      const metadata = call?.[2];
 
       // Now this should pass - duration should be extracted from the file
       expect(metadata?.duration).toBeGreaterThan(0);
@@ -323,8 +325,10 @@ describe("useDragAndDrop", () => {
         album: "Test Album",
         duration: 180,
         position: 0,
-        playlistId: "test-playlist",
+        playlistId: "new-playlist",
         fileSize: 1024,
+        mimeType: "audio/mp3",
+        originalFilename: "song.mp3",
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -395,6 +399,8 @@ describe("useDragAndDrop", () => {
         position: 0,
         playlistId: "new-playlist",
         fileSize: 1024,
+        mimeType: "audio/mp3",
+        originalFilename: "song.mp3",
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });

@@ -4,7 +4,7 @@ import type { Playlist, Song } from "../types/playlist.js";
 import { getImageUrlForContext } from "../services/imageService.js";
 
 // Interface for tracking image metadata
-interface ImageWithMetadata {
+export interface ImageWithMetadata {
   url: string;
   title: string;
   type: "playlist" | "song";

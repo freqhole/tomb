@@ -4,12 +4,20 @@ import type { Playlist } from "../types/playlist.js";
 import {
   setupDB,
   createPlaylist,
+  updatePlaylist,
+  deletePlaylist,
+  removeSongFromPlaylist,
+  reorderSongs,
   createPlaylistsQuery,
   createPlaylistSongsQuery,
   addSongToPlaylist,
 } from "../services/indexedDBService.js";
 import { filterAudioFiles } from "../services/fileProcessingService.js";
-import { parsePlaylistZip } from "../services/playlistDownloadService.js";
+import {
+  parsePlaylistZip,
+  downloadPlaylistAsZip,
+} from "../services/playlistDownloadService.js";
+import { cacheAudioFile } from "../services/offlineService.js";
 import {
   initializeStandalonePlaylist,
   clearStandaloneLoadingProgress,
@@ -30,6 +38,17 @@ export function usePlaylistManager() {
   const [playlistSongs, setPlaylistSongs] = createSignal<any[]>([]);
   const [isInitialized, setIsInitialized] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+
+  // Modal and UI state (consolidated from usePlaylistState)
+  const [showPlaylistCover, setShowPlaylistCover] = createSignal(false);
+  const [showImageModal, setShowImageModal] = createSignal(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [modalImageIndex, setModalImageIndex] = createSignal(0);
+
+  // Loading and operation state (consolidated from usePlaylistState)
+  const [isDownloading, setIsDownloading] = createSignal(false);
+  const [isCaching, setIsCaching] = createSignal(false);
+  const [allSongsCached, setAllSongsCached] = createSignal(false);
 
   // Background image state
   const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<
@@ -289,6 +308,133 @@ export function usePlaylistManager() {
     setSelectedPlaylist(playlist);
   };
 
+  // CRUD operations (consolidated from usePlaylistState)
+
+  // Handle playlist updates
+  const handlePlaylistUpdate = async (updates: Partial<Playlist>) => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    try {
+      setError(null);
+
+      const updatedFields = {
+        ...updates,
+        updatedAt: Date.now(),
+      };
+
+      await updatePlaylist(playlist.id, updatedFields);
+
+      // Update local state - the reactive query will update the selectedPlaylist
+    } catch (err) {
+      console.error("Error updating playlist:", err);
+      setError("Failed to update playlist");
+    }
+  };
+
+  // Handle playlist deletion
+  const handleDeletePlaylist = async () => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    try {
+      setError(null);
+      await deletePlaylist(playlist.id);
+      setSelectedPlaylist(null);
+      setShowDeleteConfirm(false);
+    } catch (err) {
+      console.error("Error deleting playlist:", err);
+      setError("Failed to delete playlist");
+    }
+  };
+
+  // Handle playlist download
+  const handleDownloadPlaylist = async () => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    setIsDownloading(true);
+    try {
+      setError(null);
+      await downloadPlaylistAsZip(playlist, {
+        includeMetadata: true,
+        includeImages: true,
+        generateM3U: true,
+        includeHTML: true,
+      });
+    } catch (err) {
+      console.error("Error downloading playlist:", err);
+      setError("Failed to download playlist");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  // Handle song removal from playlist
+  const handleRemoveSong = async (songId: string) => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    try {
+      setError(null);
+      await removeSongFromPlaylist(playlist.id, songId);
+      // The reactive queries will update the state automatically
+    } catch (err) {
+      console.error("Error removing song from playlist:", err);
+      setError("Failed to remove song from playlist");
+    }
+  };
+
+  // Handle song reordering
+  const handleReorderSongs = async (oldIndex: number, newIndex: number) => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    try {
+      setError(null);
+      await reorderSongs(playlist.id as string, oldIndex, newIndex);
+      // The reactive queries will update the state automatically
+    } catch (err) {
+      console.error("Error reordering songs:", err);
+      setError("Failed to reorder songs");
+    }
+  };
+
+  // Handle playlist caching for offline use
+  const handleCachePlaylist = async () => {
+    const playlist = selectedPlaylist();
+    const songs = playlistSongs();
+    if (!playlist || songs.length === 0) return;
+
+    setIsCaching(true);
+    try {
+      setError(null);
+
+      // Cache all songs in the playlist
+      for (const song of songs) {
+        if (song.audioData && song.id) {
+          // Create blob URL for caching
+          const blob = new Blob([song.audioData], {
+            type: song.mimeType || "audio/mpeg",
+          });
+          const blobUrl = URL.createObjectURL(blob);
+          try {
+            await cacheAudioFile(blobUrl, song.title || "Unknown Song");
+          } finally {
+            URL.revokeObjectURL(blobUrl);
+          }
+        }
+      }
+
+      setAllSongsCached(true);
+    } catch (err) {
+      console.error("Error caching playlist:", err);
+      setError("Failed to cache playlist for offline use");
+    } finally {
+      setIsCaching(false);
+    }
+  };
+
   // Initialize on mount
   onMount(initialize);
 
@@ -333,15 +479,34 @@ export function usePlaylistManager() {
     backgroundImageUrl,
     imageUrlCache,
 
+    // Modal and UI state
+    showPlaylistCover,
+    showImageModal,
+    showDeleteConfirm,
+    modalImageIndex,
+    isDownloading,
+    isCaching,
+    allSongsCached,
+
     // Setters
     setSelectedPlaylist,
     setPlaylistSongs,
+    setShowPlaylistCover,
+    setShowImageModal,
+    setShowDeleteConfirm,
+    setModalImageIndex,
 
     // Actions
     initialize,
     createNewPlaylist,
     handleFileDrop,
     selectPlaylist,
+    handlePlaylistUpdate,
+    handleDeletePlaylist,
+    handleDownloadPlaylist,
+    handleRemoveSong,
+    handleReorderSongs,
+    handleCachePlaylist,
 
     // Utilities
     getPlaylistById,

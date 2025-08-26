@@ -2,7 +2,6 @@ import { Accessor, Show, For } from "solid-js";
 import type { Playlist } from "../../types/playlist.js";
 import {
   usePlaylistzManager,
-  usePlaylistzState,
   usePlaylistzSongs,
   usePlaylistzUI,
   usePlaylistzImageModal,
@@ -15,14 +14,12 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
   const { playlist } = props;
 
   const playlistManager = usePlaylistzManager();
-  const playlistState = usePlaylistzState();
   const songState = usePlaylistzSongs();
   const uiState = usePlaylistzUI();
   const imageModal = usePlaylistzImageModal();
 
-  const { playlistSongs } = playlistManager;
-
   const {
+    playlistSongs,
     setShowPlaylistCover,
     setShowDeleteConfirm,
     isDownloading,
@@ -33,7 +30,7 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
     handleCachePlaylist,
     handleRemoveSong,
     handleReorderSongs,
-  } = playlistState;
+  } = playlistManager;
 
   const { handleEditSong, handlePlaySong, handlePauseSong } = songState;
 

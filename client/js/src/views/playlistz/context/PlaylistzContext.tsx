@@ -1,7 +1,7 @@
 /* @jsxImportSource solid-js */
 import { createContext, useContext, ParentComponent } from "solid-js";
 import { usePlaylistManager } from "../hooks/usePlaylistManager.js";
-import { usePlaylistState } from "../hooks/usePlaylistState.js";
+
 import { useSongState } from "../hooks/useSongState.js";
 import { useUIState } from "../hooks/useUIState.js";
 import { useDragAndDrop } from "../hooks/useDragAndDrop.js";
@@ -10,7 +10,6 @@ import { useImageModal } from "../hooks/useImageModal.js";
 // Create context type
 interface PlaylistzContextType {
   playlistManager: ReturnType<typeof usePlaylistManager>;
-  playlistState: ReturnType<typeof usePlaylistState>;
   songState: ReturnType<typeof useSongState>;
   uiState: ReturnType<typeof useUIState>;
   dragAndDrop: ReturnType<typeof useDragAndDrop>;
@@ -24,7 +23,6 @@ const PlaylistzContext = createContext<PlaylistzContextType>();
 export const PlaylistzProvider: ParentComponent = (props) => {
   // Initialize all hooks once at the top level
   const playlistManager = usePlaylistManager();
-  const playlistState = usePlaylistState();
   const songState = useSongState();
   const uiState = useUIState();
   const dragAndDrop = useDragAndDrop();
@@ -32,7 +30,6 @@ export const PlaylistzProvider: ParentComponent = (props) => {
 
   const contextValue: PlaylistzContextType = {
     playlistManager,
-    playlistState,
     songState,
     uiState,
     dragAndDrop,
@@ -50,7 +47,9 @@ export const PlaylistzProvider: ParentComponent = (props) => {
 export function usePlaylistzContext() {
   const context = useContext(PlaylistzContext);
   if (!context) {
-    throw new Error("usePlaylistzContext must be used within a PlaylistzProvider");
+    throw new Error(
+      "usePlaylistzContext must be used within a PlaylistzProvider"
+    );
   }
   return context;
 }
@@ -58,10 +57,6 @@ export function usePlaylistzContext() {
 // Individual hooks for convenience
 export function usePlaylistzManager() {
   return usePlaylistzContext().playlistManager;
-}
-
-export function usePlaylistzState() {
-  return usePlaylistzContext().playlistState;
 }
 
 export function usePlaylistzSongs() {
