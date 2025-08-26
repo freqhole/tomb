@@ -26,7 +26,7 @@ import {
   initializeOfflineSupport,
   updatePWAManifest,
 } from "../services/offlineService.js";
-import { audioState } from "../services/audioService.js";
+import { audioState, stop } from "../services/audioService.js";
 import { getImageUrlForContext } from "../services/imageService.js";
 
 export function usePlaylistManager() {
@@ -339,6 +339,13 @@ export function usePlaylistManager() {
 
     try {
       setError(null);
+
+      // Check if a song from this playlist is currently playing and stop it
+      const currentSong = audioState.currentSong();
+      if (currentSong && currentSong.playlistId === playlist.id) {
+        stop();
+      }
+
       await deletePlaylist(playlist.id);
       setSelectedPlaylist(null);
       setShowDeleteConfirm(false);
@@ -371,13 +378,26 @@ export function usePlaylistManager() {
   };
 
   // Handle song removal from playlist
-  const handleRemoveSong = async (songId: string) => {
+  const handleRemoveSong = async (songId: string, onClose?: () => void) => {
     const playlist = selectedPlaylist();
     if (!playlist) return;
 
     try {
       setError(null);
+
+      // Check if the deleted song is currently playing and stop it
+      const currentSong = audioState.currentSong();
+      if (currentSong && currentSong.id === songId) {
+        stop();
+      }
+
       await removeSongFromPlaylist(playlist.id, songId);
+
+      // Close modal if callback provided (for SongEditModal)
+      if (onClose) {
+        onClose();
+      }
+
       // The reactive queries will update the state automatically
     } catch (err) {
       console.error("Error removing song from playlist:", err);

@@ -53,6 +53,7 @@ vi.mock("../services/audioService.js", () => ({
     currentSong: vi.fn(() => null),
     currentPlaylist: vi.fn(() => null),
   },
+  stop: vi.fn(),
 }));
 
 vi.mock("../services/imageService.js", () => ({
@@ -127,6 +128,72 @@ describe("usePlaylistManager consolidated delete operations", () => {
       expect(hook.error()).toBe("Failed to delete playlist");
       expect(hook.selectedPlaylist()).toBeTruthy(); // Should remain selected on error
     });
+
+    it("should stop playback if deleted playlist contains currently playing song", async () => {
+      const { deletePlaylist } = await import(
+        "../services/indexedDBService.js"
+      );
+      const { audioState, stop } = await import("../services/audioService.js");
+
+      vi.mocked(deletePlaylist).mockResolvedValue();
+
+      // Mock that a song from this playlist is currently playing
+      vi.mocked(audioState.currentSong).mockReturnValue({
+        id: "song1",
+        title: "Song 1",
+        artist: "Artist 1",
+        album: "Album 1",
+        duration: 180,
+        position: 0,
+        playlistId: "test-playlist", // Same as the playlist being deleted
+        fileSize: 1024,
+        mimeType: "audio/mp3",
+        originalFilename: "song1.mp3",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      hook.selectPlaylist(mockPlaylist);
+
+      await hook.handleDeletePlaylist();
+
+      expect(stop).toHaveBeenCalled();
+      expect(deletePlaylist).toHaveBeenCalledWith("test-playlist");
+      expect(hook.selectedPlaylist()).toBeNull();
+    });
+
+    it("should not stop playback if deleted playlist does not contain currently playing song", async () => {
+      const { deletePlaylist } = await import(
+        "../services/indexedDBService.js"
+      );
+      const { audioState, stop } = await import("../services/audioService.js");
+
+      vi.mocked(deletePlaylist).mockResolvedValue();
+
+      // Mock that a song from a different playlist is currently playing
+      vi.mocked(audioState.currentSong).mockReturnValue({
+        id: "song1",
+        title: "Song 1",
+        artist: "Artist 1",
+        album: "Album 1",
+        duration: 180,
+        position: 0,
+        playlistId: "different-playlist", // Different from the playlist being deleted
+        fileSize: 1024,
+        mimeType: "audio/mp3",
+        originalFilename: "song1.mp3",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      hook.selectPlaylist(mockPlaylist);
+
+      await hook.handleDeletePlaylist();
+
+      expect(stop).not.toHaveBeenCalled();
+      expect(deletePlaylist).toHaveBeenCalledWith("test-playlist");
+      expect(hook.selectedPlaylist()).toBeNull();
+    });
   });
 
   describe("song removal", () => {
@@ -162,6 +229,117 @@ describe("usePlaylistManager consolidated delete operations", () => {
       await hook.handleRemoveSong("song1");
 
       expect(hook.error()).toBe("Failed to remove song from playlist");
+    });
+  });
+
+  describe("song deletion side effects", () => {
+    it("should close edit modal when onClose callback is provided", async () => {
+      const { removeSongFromPlaylist } = await import(
+        "../services/indexedDBService.js"
+      );
+
+      vi.mocked(removeSongFromPlaylist).mockResolvedValue();
+
+      hook.selectPlaylist(mockPlaylist);
+
+      const mockOnClose = vi.fn();
+
+      await hook.handleRemoveSong("song1", mockOnClose);
+
+      expect(removeSongFromPlaylist).toHaveBeenCalledWith(
+        "test-playlist",
+        "song1"
+      );
+      expect(mockOnClose).toHaveBeenCalled();
+    });
+
+    it("should work without onClose callback for regular delete operations", async () => {
+      const { removeSongFromPlaylist } = await import(
+        "../services/indexedDBService.js"
+      );
+
+      vi.mocked(removeSongFromPlaylist).mockResolvedValue();
+
+      hook.selectPlaylist(mockPlaylist);
+
+      // Should work without callback (SongRow delete button case)
+      await hook.handleRemoveSong("song1");
+
+      expect(removeSongFromPlaylist).toHaveBeenCalledWith(
+        "test-playlist",
+        "song1"
+      );
+      expect(hook.error()).toBeNull();
+    });
+
+    it("should stop playback if deleted song is currently playing", async () => {
+      const { removeSongFromPlaylist } = await import(
+        "../services/indexedDBService.js"
+      );
+      const { audioState, stop } = await import("../services/audioService.js");
+
+      vi.mocked(removeSongFromPlaylist).mockResolvedValue();
+
+      // Mock that song1 is currently playing
+      vi.mocked(audioState.currentSong).mockReturnValue({
+        id: "song1",
+        title: "Song 1",
+        artist: "Artist 1",
+        album: "Album 1",
+        duration: 180,
+        position: 0,
+        playlistId: "test-playlist",
+        fileSize: 1024,
+        mimeType: "audio/mp3",
+        originalFilename: "song1.mp3",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      hook.selectPlaylist(mockPlaylist);
+
+      await hook.handleRemoveSong("song1");
+
+      expect(stop).toHaveBeenCalled();
+      expect(removeSongFromPlaylist).toHaveBeenCalledWith(
+        "test-playlist",
+        "song1"
+      );
+    });
+
+    it("should not stop playback if deleted song is not currently playing", async () => {
+      const { removeSongFromPlaylist } = await import(
+        "../services/indexedDBService.js"
+      );
+      const { audioState, stop } = await import("../services/audioService.js");
+
+      vi.mocked(removeSongFromPlaylist).mockResolvedValue();
+
+      // Mock that song2 is currently playing (different from deleted song)
+      vi.mocked(audioState.currentSong).mockReturnValue({
+        id: "song2",
+        title: "Song 2",
+        artist: "Artist 2",
+        album: "Album 2",
+        duration: 200,
+        position: 1,
+        playlistId: "test-playlist",
+        fileSize: 2048,
+        mimeType: "audio/mp3",
+        originalFilename: "song2.mp3",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      hook.selectPlaylist(mockPlaylist);
+
+      await hook.handleRemoveSong("song1");
+
+      expect(stop).not.toHaveBeenCalled();
+      expect(removeSongFromPlaylist).toHaveBeenCalledWith(
+        "test-playlist",
+        "song1"
+      );
     });
   });
 
