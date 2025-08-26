@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { Show } from "solid-js";
+import { Show, createEffect } from "solid-js";
 
 import {
   PlaylistzProvider,
@@ -68,8 +68,14 @@ function PlaylistzInner() {
     handleDragOver,
     handleDragLeave,
     handleDrop,
+    setIsDragOver,
     error: dragError,
   } = dragAndDrop;
+
+  // Debug drag state changes
+  createEffect(() => {
+    console.log("isDragOver changed to:", isDragOver());
+  });
 
   const {
     showImageModal,
@@ -88,25 +94,49 @@ function PlaylistzInner() {
 
   // handle file drop here i guess.
   const handleFileDrop = async (e: DragEvent) => {
-    await handleDrop(e, {
-      selectedPlaylist: selectedPlaylist(),
-      playlists: playlists(),
-      onPlaylistCreated: () => {
-        // hmm, i guess playlist will be automatically added via reactive query...
-      },
-      onPlaylistSelected: (playlist) => {
-        selectPlaylist(playlist);
-      },
-    });
+    console.log("handleFileDrop called");
+    console.log("isDragOver before:", isDragOver());
+    try {
+      await handleDrop(e, {
+        selectedPlaylist: selectedPlaylist(),
+        playlists: playlists(),
+        onPlaylistCreated: () => {
+          console.log("onPlaylistCreated callback called");
+          // hmm, i guess playlist will be automatically added via reactive query...
+        },
+        onPlaylistSelected: (playlist) => {
+          console.log("onPlaylistSelected callback called with:", playlist);
+          selectPlaylist(playlist);
+        },
+      });
+      console.log("handleDrop completed successfully");
+    } catch (error) {
+      console.error("Error in handleFileDrop:", error);
+      // Ensure drag overlay is cleared even on error
+      setIsDragOver(false);
+    }
+    console.log("isDragOver after:", isDragOver());
   };
 
   return (
     <div
       class={`relative bg-black text-white ${isMobile() ? "min-h-screen" : "h-screen overflow-hidden"}`}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleFileDrop}
+      onDragEnter={(e) => {
+        console.log("onDragEnter DOM event");
+        handleDragEnter(e);
+      }}
+      onDragOver={(e) => {
+        console.log("onDragOver DOM event");
+        handleDragOver(e);
+      }}
+      onDragLeave={(e) => {
+        console.log("onDragLeave DOM event");
+        handleDragLeave(e);
+      }}
+      onDrop={(e) => {
+        console.log("onDrop DOM event");
+        handleFileDrop(e);
+      }}
     >
       {/* background image cover */}
       <Show when={backgroundImageUrl()}>

@@ -24,8 +24,6 @@ export function useDragAndDrop() {
 
   // Analyze drag data to determine what's being dragged
   const analyzeDragData = (e: DragEvent): DragInfo => {
-    const files = e.dataTransfer?.files;
-
     // Check if it's a song reorder operation
     const dragData = e.dataTransfer?.getData("application/json");
     if (dragData) {
@@ -39,42 +37,67 @@ export function useDragAndDrop() {
       }
     }
 
-    if (!files || files.length === 0) {
-      return { type: "unknown", itemCount: 0 };
+    // During dragenter/dragover, files array is often empty for security reasons
+    // Use items or types to detect if files are being dragged
+    const items = e.dataTransfer?.items;
+    const types = e.dataTransfer?.types;
+
+    // Check if files are being dragged using types
+    if (types && types.includes("Files")) {
+      // We can't know the exact count or types during drag, so assume audio files
+      return { type: "audio-files", itemCount: 1 };
     }
 
-    // Check for ZIP files
-    const zipFiles = Array.from(files).filter(
-      (file) =>
-        file.type === "application/zip" ||
-        file.name.toLowerCase().endsWith(".zip")
-    );
-
-    if (zipFiles.length > 0) {
-      return { type: "audio-files", itemCount: zipFiles.length };
+    // Check using items if available
+    if (items && items.length > 0) {
+      const hasFiles = Array.from(items).some((item) => item.kind === "file");
+      if (hasFiles) {
+        return { type: "audio-files", itemCount: items.length };
+      }
     }
 
-    // Check for audio files
-    const audioFiles = filterAudioFiles(files);
-    if (audioFiles.length > 0) {
-      return { type: "audio-files", itemCount: audioFiles.length };
+    // Fallback to checking files (available during drop event)
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      // Check for ZIP files
+      const zipFiles = Array.from(files).filter(
+        (file) =>
+          file.type === "application/zip" ||
+          file.name.toLowerCase().endsWith(".zip")
+      );
+
+      if (zipFiles.length > 0) {
+        return { type: "audio-files", itemCount: zipFiles.length };
+      }
+
+      // Check for audio files
+      const audioFiles = filterAudioFiles(files);
+      if (audioFiles.length > 0) {
+        return { type: "audio-files", itemCount: audioFiles.length };
+      }
+
+      return { type: "non-audio-files", itemCount: files.length };
     }
 
-    return { type: "non-audio-files", itemCount: files.length };
+    return { type: "unknown", itemCount: 0 };
   };
 
   // Handle drag enter
   const handleDragEnter = (e: DragEvent) => {
+    console.log("handleDragEnter called");
     e.preventDefault();
     e.stopPropagation();
 
     const info = analyzeDragData(e);
+    console.log("analyzeDragData result:", info);
     setDragInfo(info);
     setIsDragOver(true);
+    console.log("setIsDragOver(true) called");
   };
 
   // Handle drag over
   const handleDragOver = (e: DragEvent) => {
+    console.log("handleDragOver called");
     e.preventDefault();
     e.stopPropagation();
 
@@ -89,6 +112,7 @@ export function useDragAndDrop() {
 
   // Handle drag leave
   const handleDragLeave = (e: DragEvent) => {
+    console.log("handleDragLeave called");
     e.preventDefault();
     e.stopPropagation();
 
@@ -98,6 +122,7 @@ export function useDragAndDrop() {
     const y = e.clientY;
 
     if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      console.log("Leaving main container, setIsDragOver(false)");
       setIsDragOver(false);
       setDragInfo({ type: "unknown", itemCount: 0 });
     }
@@ -113,20 +138,28 @@ export function useDragAndDrop() {
       onPlaylistSelected?: (playlist: Playlist) => void;
     }
   ) => {
+    console.log("handleDrop called in useDragAndDrop");
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
+    console.log("setIsDragOver(false) called immediately");
 
     const info = dragInfo();
+    console.log("dragInfo:", info);
     setDragInfo({ type: "unknown", itemCount: 0 });
 
     // Only handle file drops, ignore song reordering
     if (info.type === "song-reorder") {
+      console.log("Ignoring song reorder operation");
       return;
     }
 
     const files = e.dataTransfer?.files;
-    if (!files) return;
+    if (!files) {
+      console.log("No files found in drop event");
+      return;
+    }
+    console.log("Files dropped:", files.length);
 
     try {
       setError(null);
@@ -150,11 +183,14 @@ export function useDragAndDrop() {
         return;
       }
 
+      console.log("Processing audio files:", audioFiles.length);
       await handleAudioFiles(audioFiles, options);
+      console.log("Audio files processed successfully");
     } catch (err) {
       console.error("Error handling file drop:", err);
       setError("Failed to process dropped files");
       setTimeout(() => setError(null), 5000);
+      throw err;
     }
   };
 
