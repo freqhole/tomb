@@ -1,7 +1,10 @@
 /* @jsxImportSource solid-js */
 import { createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import type { Playlist } from "../types/playlist.js";
-import { filterAudioFiles } from "../services/fileProcessingService.js";
+import {
+  filterAudioFiles,
+  extractMetadata,
+} from "../services/fileProcessingService.js";
 import { parsePlaylistZip } from "../services/playlistDownloadService.js";
 import {
   createPlaylist,
@@ -84,20 +87,16 @@ export function useDragAndDrop() {
 
   // Handle drag enter
   const handleDragEnter = (e: DragEvent) => {
-    console.log("handleDragEnter called");
     e.preventDefault();
     e.stopPropagation();
 
     const info = analyzeDragData(e);
-    console.log("analyzeDragData result:", info);
     setDragInfo(info);
     setIsDragOver(true);
-    console.log("setIsDragOver(true) called");
   };
 
   // Handle drag over
   const handleDragOver = (e: DragEvent) => {
-    console.log("handleDragOver called");
     e.preventDefault();
     e.stopPropagation();
 
@@ -112,7 +111,6 @@ export function useDragAndDrop() {
 
   // Handle drag leave
   const handleDragLeave = (e: DragEvent) => {
-    console.log("handleDragLeave called");
     e.preventDefault();
     e.stopPropagation();
 
@@ -122,7 +120,6 @@ export function useDragAndDrop() {
     const y = e.clientY;
 
     if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-      console.log("Leaving main container, setIsDragOver(false)");
       setIsDragOver(false);
       setDragInfo({ type: "unknown", itemCount: 0 });
     }
@@ -138,28 +135,20 @@ export function useDragAndDrop() {
       onPlaylistSelected?: (playlist: Playlist) => void;
     }
   ) => {
-    console.log("handleDrop called in useDragAndDrop");
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
-    console.log("setIsDragOver(false) called immediately");
 
     const info = dragInfo();
-    console.log("dragInfo:", info);
     setDragInfo({ type: "unknown", itemCount: 0 });
 
     // Only handle file drops, ignore song reordering
     if (info.type === "song-reorder") {
-      console.log("Ignoring song reorder operation");
       return;
     }
 
     const files = e.dataTransfer?.files;
-    if (!files) {
-      console.log("No files found in drop event");
-      return;
-    }
-    console.log("Files dropped:", files.length);
+    if (!files) return;
 
     try {
       setError(null);
@@ -183,9 +172,7 @@ export function useDragAndDrop() {
         return;
       }
 
-      console.log("Processing audio files:", audioFiles.length);
       await handleAudioFiles(audioFiles, options);
-      console.log("Audio files processed successfully");
     } catch (err) {
       console.error("Error handling file drop:", err);
       setError("Failed to process dropped files");
@@ -277,7 +264,8 @@ export function useDragAndDrop() {
 
     // Add audio files to playlist
     for (const songFile of audioFiles) {
-      await addSongToPlaylist(targetPlaylist.id, songFile);
+      const metadata = await extractMetadata(songFile);
+      await addSongToPlaylist(targetPlaylist.id, songFile, metadata);
     }
   };
 
