@@ -1,5 +1,11 @@
 /* @jsxImportSource solid-js */
-import { createSignal, createResource, Show, onMount } from "solid-js";
+import {
+  createSignal,
+  createResource,
+  Show,
+  onMount,
+  onCleanup,
+} from "solid-js";
 import { getSongById } from "../services/indexedDBService.js";
 import { createRelativeTimeSignal } from "../utils/timeUtils.js";
 import { getSongSpecificTrigger } from "../services/songReactivity.js";
@@ -35,6 +41,18 @@ export function SongRow(props: SongRowProps) {
   // this could probably be in hooks/ so it's the same everywhere...
   onMount(() => {
     setIsMobile("ontouchstart" in window || navigator.maxTouchPoints > 0);
+
+    // add global dragend cleanup to prevent stuck borders
+    const handleGlobalDragEnd = () => {
+      setDraggedOver(false);
+      setIsDragging(false);
+    };
+
+    document.addEventListener("dragend", handleGlobalDragEnd);
+
+    onCleanup(() => {
+      document.removeEventListener("dragend", handleGlobalDragEnd);
+    });
   });
 
   // fetch song data with reactivity to specific song updates only
@@ -130,7 +148,12 @@ export function SongRow(props: SongRowProps) {
 
   const handleDragLeave = (e: DragEvent) => {
     e.stopPropagation(); // prevent global handler from firing!
-    if (e.currentTarget === e.target) {
+    // more reliable check for actually leaving the element
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
       setDraggedOver(false);
     }
   };

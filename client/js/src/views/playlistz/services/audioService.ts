@@ -437,7 +437,6 @@ async function skipToNextPlayableSong(): Promise<void> {
         testIndex = 0;
       } else {
         // end of queue, no repeat
-        console.log("reached end of queue, stopping playback");
         setIsPlaying(false);
         updateMediaSession();
         return;
@@ -446,7 +445,6 @@ async function skipToNextPlayableSong(): Promise<void> {
 
     // don't retry the same song we just failed on
     if (testIndex === currentIdx) {
-      console.log("cycled back to original song, stopping playback");
       setIsPlaying(false);
       updateMediaSession();
       return;
@@ -460,13 +458,9 @@ async function skipToNextPlayableSong(): Promise<void> {
     }
 
     try {
-      console.log(
-        `trying to play song at index ${testIndex}: ${testSong.title}`
-      );
       setCurrentIndex(testIndex);
       setSelectedSongId(testSong.id);
       await playSong(testSong);
-      console.log(`successfully started playing: ${testSong.title}`);
       return; // success!
     } catch (error) {
       console.error(`failed to play song "${testSong.title}":`, error);

@@ -32,20 +32,17 @@ export function useDragAndDrop() {
 
     // song reorder: SongRow sets text/plain data, so types will include "text/plain" but not "Files"
     if (types && types.includes("text/plain") && !types.includes("Files")) {
-      // console.log("detected song reorder via types array");
       return { type: "song-reorder", itemCount: 1 };
     }
 
     // file drops: will have "Files" in types array
     if (types && types.includes("Files")) {
-      // console.log("detected file drop via types array");
       return { type: "audio-files", itemCount: 1 };
     }
 
     // fallback: try to read data directly (works during drop events)
     const textData = e.dataTransfer?.getData("text/plain");
     if (textData && !isNaN(parseInt(textData, 10))) {
-      // console.log("detected song reorder via text data");
       return { type: "song-reorder", itemCount: 1 };
     }
 

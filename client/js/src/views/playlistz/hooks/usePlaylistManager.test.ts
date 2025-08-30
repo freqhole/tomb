@@ -125,7 +125,7 @@ describe("usePlaylistManager consolidated delete operations", () => {
 
       await hook.handleDeletePlaylist();
 
-      expect(hook.error()).toBe("Failed to delete playlist");
+      expect(hook.error()).toBe("failed to delete playlist!");
       expect(hook.selectedPlaylist()).toBeTruthy(); // Should remain selected on error
     });
 
@@ -228,7 +228,7 @@ describe("usePlaylistManager consolidated delete operations", () => {
 
       await hook.handleRemoveSong("song1");
 
-      expect(hook.error()).toBe("Failed to remove song from playlist");
+      expect(hook.error()).toBe("failed to remove song from playlist!");
     });
   });
 
