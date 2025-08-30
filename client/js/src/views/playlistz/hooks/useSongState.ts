@@ -4,6 +4,7 @@ import type { Song, Playlist } from "../types/playlist.js";
 import { updateSong } from "../services/indexedDBService.js";
 import {
   playSong,
+  playSongFromPlaylist,
   togglePlayback,
   audioState,
 } from "../services/audioService.js";
@@ -32,7 +33,11 @@ export function useSongState() {
   const handlePlaySong = async (song: Song, playlist?: Playlist) => {
     try {
       setError(null);
-      await playSong(song, playlist);
+      if (playlist) {
+        await playSongFromPlaylist(song, playlist);
+      } else {
+        await playSong(song);
+      }
     } catch (err) {
       console.error("error playing song:", err);
       setError("failed to play song");

@@ -343,8 +343,8 @@ async function getMediaSessionArtwork(
   return artwork;
 }
 
-// Load playlist into queue
-export async function loadPlaylistQueue(playlist: Playlist): Promise<void> {
+// Load playlist songs into queue
+async function loadPlaylistQueue(playlist: Playlist): Promise<void> {
   try {
     const allSongs = await getAllSongs();
     const playlistSongs = allSongs
@@ -356,7 +356,6 @@ export async function loadPlaylistQueue(playlist: Playlist): Promise<void> {
 
     setPlaylistQueue(playlistSongs);
     setCurrentPlaylist(playlist);
-    setCurrentIndex(-1); // No song selected yet
   } catch (error) {
     console.error("Error loading playlist queue:", error);
     throw error;
@@ -367,22 +366,12 @@ export async function loadPlaylistQueue(playlist: Playlist): Promise<void> {
 export async function refreshPlaylistQueue(playlist: Playlist): Promise<void> {
   try {
     const currentSong = audioState.currentSong();
-    const allSongs = await getAllSongs();
-    const playlistSongs = allSongs
-      .filter((song) => playlist.songIds.includes(song.id))
-      .sort(
-        (a, b) =>
-          playlist.songIds.indexOf(a.id) - playlist.songIds.indexOf(b.id)
-      );
-
-    setPlaylistQueue(playlistSongs);
-    setCurrentPlaylist(playlist);
+    await loadPlaylistQueue(playlist);
 
     // Update current index to match new position of currently playing song
     if (currentSong) {
-      const newIndex = playlistSongs.findIndex(
-        (song) => song.id === currentSong.id
-      );
+      const queue = playlistQueue();
+      const newIndex = queue.findIndex((song) => song.id === currentSong.id);
       setCurrentIndex(newIndex >= 0 ? newIndex : -1);
     }
   } catch (error) {
@@ -476,7 +465,7 @@ async function skipToNextPlayableSong(): Promise<void> {
       );
       setCurrentIndex(testIndex);
       setSelectedSongId(testSong.id);
-      await playSong(testSong, currentPlaylist() || undefined);
+      await playSong(testSong);
       console.log(`successfully started playing: ${testSong.title}`);
       return; // success!
     } catch (error) {
@@ -511,7 +500,7 @@ async function handleSongEnded(): Promise<void> {
 }
 
 // Play a specific song
-export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
+export async function playSong(song: Song): Promise<void> {
   const audio = initializeAudio();
 
   try {
@@ -557,19 +546,19 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
       }
     }
 
-    if (playlist) {
-      // only reload queue if it's a different playlist or queue is empty
-      const currentPl = currentPlaylist();
-      if (
-        !currentPl ||
-        currentPl.id !== playlist.id ||
-        playlistQueue().length === 0
-      ) {
-        await loadPlaylistQueue(playlist);
-      }
-      const queue = playlistQueue();
-      const index = queue.findIndex((queueSong) => queueSong.id === song.id);
-      setCurrentIndex(index >= 0 ? index : 0);
+    // check playlist context and load queue if needed
+    const queue = playlistQueue();
+
+    // try to find song in current queue first
+    const queueIndex = queue.findIndex((queueSong) => queueSong.id === song.id);
+    if (queueIndex >= 0) {
+      // song is in current queue, use it
+      setCurrentIndex(queueIndex);
+    } else {
+      // song not in current queue, clear playlist context for single song play
+      setCurrentPlaylist(null);
+      setPlaylistQueue([]);
+      setCurrentIndex(-1);
     }
 
     // try to get audio url in order of preference:
@@ -743,6 +732,31 @@ export async function playSong(song: Song, playlist?: Playlist): Promise<void> {
   }
 }
 
+// play a song with playlist context (loads queue if needed)
+export async function playSongFromPlaylist(
+  song: Song,
+  playlist: Playlist
+): Promise<void> {
+  // only reload queue if it's a different playlist or queue is empty
+  const currentPl = currentPlaylist();
+  if (
+    !currentPl ||
+    currentPl.id !== playlist.id ||
+    playlistQueue().length === 0
+  ) {
+    await loadPlaylistQueue(playlist);
+  }
+
+  // find song in queue and play it
+  const queue = playlistQueue();
+  const index = queue.findIndex((queueSong) => queueSong.id === song.id);
+  if (index >= 0) {
+    setCurrentIndex(index);
+  }
+
+  await playSong(song);
+}
+
 // Play entire playlist starting from specific index
 export async function playPlaylist(
   playlist: Playlist,
@@ -753,11 +767,23 @@ export async function playPlaylist(
   const queue = playlistQueue();
   if (!queue.length || startIndex >= queue.length || startIndex < 0) return;
 
+  await tryPlaySongFromIndex(startIndex);
+}
+
+// try to play song at index, falling back to skipToNextPlayableSong if it fails
+async function tryPlaySongFromIndex(startIndex: number): Promise<void> {
+  const queue = playlistQueue();
   const song = queue[startIndex];
-  if (song) {
+  if (!song) return;
+
+  try {
     setCurrentIndex(startIndex);
     setSelectedSongId(song.id);
-    await playSong(song, playlist);
+    await playSong(song);
+  } catch (error) {
+    console.error(`failed to play song "${song.title}":`, error);
+    // use existing skip logic
+    await skipToNextPlayableSong();
   }
 }
 
@@ -792,7 +818,7 @@ export async function playNext(): Promise<void> {
     setCurrentIndex(nextIndex);
     setSelectedSongId(nextSong.id);
     try {
-      await playSong(nextSong, currentPlaylist() || undefined);
+      await playSong(nextSong);
     } catch (error) {
       console.error("error playing next song:", error);
       throw error; // re-throw for handleSongEnded to catch
@@ -815,7 +841,7 @@ export async function playPrevious(): Promise<void> {
   if (prevSong) {
     setCurrentIndex(prevIndex);
     setSelectedSongId(prevSong.id);
-    await playSong(prevSong, currentPlaylist() || undefined);
+    await playSong(prevSong);
   }
 }
 
@@ -998,7 +1024,7 @@ export function cleanup(): void {
 
   audioElement = null;
 
-  // Clear queue state
+  // clear queue state
   setPlaylistQueue([]);
   setCurrentIndex(-1);
   setRepeatMode("none");

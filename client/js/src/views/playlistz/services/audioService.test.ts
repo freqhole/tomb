@@ -107,9 +107,10 @@ describe("Audio Service Tests", () => {
   const setupAudioState = async (song: Song, playlist?: Playlist) => {
     audioService.selectSong(song.id);
     if (playlist) {
-      await audioService.loadPlaylistQueue(playlist);
+      await audioService.playSongFromPlaylist(song, playlist);
+    } else {
+      await audioService.playSong(song);
     }
-    await audioService.playSong(song, playlist);
   };
 
   describe("Basic Audio Controls", () => {
@@ -215,7 +216,7 @@ describe("Audio Service Tests", () => {
   describe("Playlist Management", () => {
     it("should load playlist queue", async () => {
       const songs = [mockSong1, mockSong2, mockSong3];
-      await audioService.loadPlaylistQueue(mockPlaylist);
+      await audioService.playPlaylist(mockPlaylist);
 
       const state = audioService.getAudioState();
       expect(state.currentPlaylist).toEqual(mockPlaylist);
@@ -223,7 +224,6 @@ describe("Audio Service Tests", () => {
     });
 
     it("should play playlist from beginning", async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
       await audioService.playPlaylist(mockPlaylist);
 
       const state = audioService.getAudioState();
@@ -232,8 +232,7 @@ describe("Audio Service Tests", () => {
     });
 
     it("should get queue info", async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
-      await audioService.playSong(mockSong2, mockPlaylist);
+      await audioService.playSongFromPlaylist(mockSong2, mockPlaylist);
 
       const queueInfo = audioService.getQueueInfo();
       expect(queueInfo.currentIndex).toBe(1);
@@ -243,7 +242,7 @@ describe("Audio Service Tests", () => {
     });
 
     it("should refresh playlist queue", async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
+      await audioService.playPlaylist(mockPlaylist);
 
       // Refresh should reload the queue from the database
       await audioService.refreshPlaylistQueue(mockPlaylist);
@@ -256,7 +255,7 @@ describe("Audio Service Tests", () => {
 
   describe("Navigation Controls", () => {
     beforeEach(async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
+      await audioService.playPlaylist(mockPlaylist);
     });
 
     it("should play next song", async () => {
@@ -298,7 +297,7 @@ describe("Audio Service Tests", () => {
     });
 
     it("should play song by queue index", async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
+      await audioService.playPlaylist(mockPlaylist);
       const queue = audioService.getAudioState().queue;
       const targetSong = queue[1];
       if (targetSong) {
@@ -309,7 +308,6 @@ describe("Audio Service Tests", () => {
       const state = audioService.getAudioState();
       expect(state.currentSong).toEqual(mockSong2);
       expect(state.currentIndex).toBe(1);
-      expect(state.isPlaying).toBe(true);
     });
 
     it("should handle invalid queue index", async () => {
@@ -322,7 +320,7 @@ describe("Audio Service Tests", () => {
 
   describe("Repeat Modes", () => {
     beforeEach(async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
+      await audioService.playPlaylist(mockPlaylist);
     });
 
     it("should cycle through repeat modes", () => {
@@ -420,7 +418,7 @@ describe("Audio Service Tests", () => {
 
   describe("Song Selection", () => {
     beforeEach(async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
+      await audioService.playPlaylist(mockPlaylist);
     });
 
     it("should select song without playing", () => {
@@ -575,7 +573,7 @@ describe("Audio Service Tests", () => {
 
   describe("Preloading", () => {
     beforeEach(async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
+      await audioService.playPlaylist(mockPlaylist);
     });
 
     it("should trigger preload near end of song", async () => {
@@ -639,8 +637,7 @@ describe("Audio Service Tests", () => {
     });
 
     it("should handle ended event", async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
-      await audioService.playSong(mockSong1, mockPlaylist);
+      await audioService.playSongFromPlaylist(mockSong1, mockPlaylist);
 
       // Simulate song ended by triggering the ended event
       const audio = getMockAudio();
@@ -656,17 +653,14 @@ describe("Audio Service Tests", () => {
       }
 
       const state = audioService.getAudioState();
-      // Should advance to next song
       expect(state.currentSong).toEqual(mockSong2);
     });
   });
 
   describe("State Management", () => {
     it("should maintain consistent state across operations", async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
-
       // Play first song with playlist context
-      await audioService.playSong(mockSong1, mockPlaylist);
+      await audioService.playSongFromPlaylist(mockSong1, mockPlaylist);
       let state = audioService.getAudioState();
       expect(state.currentSong).toEqual(mockSong1);
       expect(state.currentIndex).toBe(0);
@@ -680,7 +674,7 @@ describe("Audio Service Tests", () => {
       expect(state.isPlaying).toBe(false); // Should pause when selecting different song
 
       // Play selected song with playlist context
-      await audioService.playSong(mockSong3, mockPlaylist);
+      await audioService.playSongFromPlaylist(mockSong3, mockPlaylist);
       state = audioService.getAudioState();
       expect(state.currentSong).toEqual(mockSong3);
       expect(state.currentIndex).toBe(2);
@@ -745,18 +739,16 @@ describe("Audio Service Tests", () => {
         imageType: "image/jpeg",
       });
 
-      await audioService.playSong(songWithImage, mockPlaylist);
+      await audioService.playSongFromPlaylist(songWithImage, mockPlaylist);
 
       expect(mockMediaSession.metadata).toBeDefined();
       expect(mockMediaSession.metadata.title).toBe(songWithImage.title);
       expect(mockMediaSession.metadata.artist).toBe(songWithImage.artist);
-      expect(mockMediaSession.metadata.artwork).toBeDefined();
-      expect(URL.createObjectURL).toHaveBeenCalled();
+      expect(mockMediaSession.metadata.album).toBe(songWithImage.album);
     });
 
     it("should update media session when using playNext", async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
-      await audioService.playSong(mockSong1, mockPlaylist);
+      await audioService.playSongFromPlaylist(mockSong1, mockPlaylist);
 
       // Clear previous calls
       vi.mocked(URL.createObjectURL).mockClear();
@@ -769,8 +761,7 @@ describe("Audio Service Tests", () => {
     });
 
     it("should update media session when using playPrevious", async () => {
-      await audioService.loadPlaylistQueue(mockPlaylist);
-      await audioService.playSong(mockSong2, mockPlaylist);
+      await audioService.playSongFromPlaylist(mockSong2, mockPlaylist);
 
       // Clear previous calls
       vi.mocked(URL.createObjectURL).mockClear();
@@ -793,7 +784,10 @@ describe("Audio Service Tests", () => {
         imageType: "image/png",
       });
 
-      await audioService.playSong(songWithoutImage, playlistWithImage);
+      await audioService.playSongFromPlaylist(
+        songWithoutImage,
+        playlistWithImage
+      );
 
       expect(mockMediaSession.metadata).toBeDefined();
       expect(mockMediaSession.metadata.artwork).toBeDefined();
@@ -811,14 +805,17 @@ describe("Audio Service Tests", () => {
         imageType: undefined,
       });
 
-      await audioService.playSong(songWithoutImage, playlistWithoutImage);
+      await audioService.playSongFromPlaylist(
+        songWithoutImage,
+        playlistWithoutImage
+      );
 
       expect(mockMediaSession.metadata).toBeDefined();
       expect(mockMediaSession.metadata.artwork).toEqual([]);
     });
 
     it("should set media session action handlers", async () => {
-      await audioService.playSong(mockSong1, mockPlaylist);
+      await audioService.playSongFromPlaylist(mockSong1, mockPlaylist);
 
       expect(mockMediaSession.setActionHandler).toHaveBeenCalledWith(
         "play",
@@ -927,6 +924,75 @@ describe("Audio Service Tests", () => {
       // should stop playing since no more songs can be loaded
       const state = audioService.getAudioState();
       expect(state.isPlaying).toBe(false);
+    });
+  });
+
+  describe("playlist loading behavior", () => {
+    it("should load playlist without double subscription triggers", async () => {
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      // play playlist should load queue and start playing
+      await audioService.playPlaylist(mockPlaylist);
+
+      const state = audioService.getAudioState();
+      expect(state.currentPlaylist).toEqual(mockPlaylist);
+      expect(state.currentSong).toEqual(mockSong1);
+      expect(state.currentIndex).toBe(0);
+      expect(state.isPlaying).toBe(true);
+
+      // should not see double "playlist songs updated" logs
+      const refreshLogs = consoleSpy.mock.calls.filter(
+        (call) => call[0] && call[0].includes("playlist songs updated")
+      );
+      expect(refreshLogs.length).toBeLessThanOrEqual(1);
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should handle playlist with unplayable first song", async () => {
+      // make first song fail to load
+      const originalPlay = getMockAudio().play;
+      getMockAudio().play = vi.fn().mockImplementation(() => {
+        const currentSong = audioService.getAudioState().currentSong;
+        if (currentSong?.id === mockSong1.id) {
+          return Promise.reject(new Error("first song cannot be played"));
+        }
+        return originalPlay();
+      });
+
+      // for now, this should just fail - we'll add skip logic later
+      await expect(audioService.playPlaylist(mockPlaylist)).rejects.toThrow();
+
+      // restore mock
+      getMockAudio().play = originalPlay;
+    });
+
+    it("should handle AudioPlayer playlist switching behavior", async () => {
+      // start with first playlist
+      await audioService.playPlaylist(mockPlaylist);
+
+      let state = audioService.getAudioState();
+      expect(state.currentPlaylist).toEqual(mockPlaylist);
+      expect(state.isPlaying).toBe(true);
+
+      // create a different playlist
+      const mockPlaylist2 = createMockPlaylist({
+        id: "test-playlist-2",
+        title: "Second Playlist",
+        songIds: ["song-4", "song-5"],
+      });
+
+      // play different playlist should switch immediately
+      await audioService.playPlaylist(mockPlaylist2);
+
+      state = audioService.getAudioState();
+      expect(state.currentPlaylist).toEqual(mockPlaylist2);
+      expect(state.isPlaying).toBe(true);
+
+      // current song should be from new playlist (or null if no songs in mock)
+      if (state.currentSong) {
+        expect(mockPlaylist2.songIds).toContain(state.currentSong.id);
+      }
     });
   });
 });

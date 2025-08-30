@@ -3,8 +3,7 @@ import { Show } from "solid-js";
 import {
   audioState,
   togglePlayback,
-  playQueueIndex,
-  loadPlaylistQueue,
+  playPlaylist,
 } from "../services/audioService.js";
 import type { Playlist } from "../types/playlist.js";
 
@@ -16,43 +15,58 @@ interface AudioPlayerProps {
 export function AudioPlayer(props: AudioPlayerProps) {
   const handleClick = async () => {
     try {
-      const currentSong = audioState.currentSong();
-      const queue = audioState.playlistQueue();
+      if (!props.playlist || props.playlist.songIds.length === 0) {
+        return;
+      }
 
-      // so if there's a current song, toggle playback
-      if (currentSong) {
+      const currentPlaylist = audioState.currentPlaylist();
+      const isPlaying = audioState.isPlaying();
+      const isCurrentPlaylist =
+        currentPlaylist && currentPlaylist.id === props.playlist.id;
+
+      // if this playlist is currently playing, toggle playback
+      if (isCurrentPlaylist && isPlaying) {
         await togglePlayback();
       }
-      // if no current song but there's a queue, start playing first song
-      else if (queue.length > 0) {
-        await playQueueIndex(0);
-      }
-      // if no queue but we have a playlist prop, load its queue
-      else if (props.playlist && props.playlist.songIds.length > 0) {
-        await loadPlaylistQueue(props.playlist);
-        await playQueueIndex(0);
+      // otherwise, play this playlist
+      else {
+        await playPlaylist(props.playlist);
       }
     } catch (error) {
-      console.error("Error in AudioPlayer:", error);
+      console.error("error in audio player:", error);
     }
   };
 
   // check if current song is loading (mirrorz SongRow logic)
   const isCurrentlyLoading = () => {
     const currentSong = audioState.currentSong();
-    return currentSong && audioState.loadingSongIds().has(currentSong.id);
+    return (
+      currentSong?.id === audioState.selectedSongId() && audioState.isLoading()
+    );
+  };
+
+  // check if this playlist is currently playing
+  const isThisPlaylistPlaying = () => {
+    if (!props.playlist) return false;
+
+    const currentPlaylist = audioState.currentPlaylist();
+    const isPlaying = audioState.isPlaying();
+
+    return (
+      isPlaying && currentPlaylist && currentPlaylist.id === props.playlist.id
+    );
   };
 
   return (
     <button
       onClick={handleClick}
-      class={`inline-flex items-center justify-center ${props.size || "w-12 h-12"} disabled:bg-gray-600 disabled:cursor-not-allowed rounded-full text-white hover:text-magenta-200 transition-colors mx-2 ${audioState.isPlaying() ? "bg-magenta-500" : "hover:bg-magenta-500"}`}
+      class={`inline-flex items-center justify-center ${props.size || "w-12 h-12"} disabled:bg-gray-600 disabled:cursor-not-allowed rounded-full text-white hover:text-magenta-200 transition-colors mx-2 ${isThisPlaylistPlaying() ? "bg-magenta-500" : "hover:bg-magenta-500"}`}
     >
       <Show
         when={isCurrentlyLoading()}
         fallback={
           <Show
-            when={audioState.isPlaying()}
+            when={isThisPlaylistPlaying()}
             fallback={
               <svg
                 class="w-10 h-10 ml-0.5"

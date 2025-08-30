@@ -12,21 +12,25 @@ import {
   createPlaylistSongsQuery,
   addSongToPlaylist,
 } from "../services/indexedDBService.js";
+import {
+  refreshPlaylistQueue,
+  audioState,
+  stop,
+} from "../services/audioService.js";
 import { filterAudioFiles } from "../services/fileProcessingService.js";
 import {
   parsePlaylistZip,
   downloadPlaylistAsZip,
 } from "../services/playlistDownloadService.js";
-import { cacheAudioFile } from "../services/offlineService.js";
+import {
+  cacheAudioFile,
+  initializeOfflineSupport,
+  updatePWAManifest,
+} from "../services/offlineService.js";
 import {
   initializeStandalonePlaylist,
   clearStandaloneLoadingProgress,
 } from "../services/standaloneService.js";
-import {
-  initializeOfflineSupport,
-  updatePWAManifest,
-} from "../services/offlineService.js";
-import { audioState, stop } from "../services/audioService.js";
 import { getImageUrlForContext } from "../services/imageService.js";
 
 export function usePlaylistManager() {
@@ -397,7 +401,12 @@ export function usePlaylistManager() {
     try {
       setError(null);
       await reorderSongs(playlist.id as string, oldIndex, newIndex);
-      // reactive query should update the state automatically
+
+      // manually refresh audio queue if this playlist is currently playing
+      const currentPlaylist = audioState.currentPlaylist();
+      if (currentPlaylist && currentPlaylist.id === playlist.id) {
+        await refreshPlaylistQueue(playlist);
+      }
     } catch (err) {
       console.error("Error reordering songs:", err);
       setError("Failed to reorder songs");
