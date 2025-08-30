@@ -64,7 +64,7 @@ function PlaylistzInner() {
     handleDragEnter,
     handleDragOver,
     handleDragLeave,
-    handleDrop,
+    handleFileDrop,
     setIsDragOver,
     error: dragError,
   } = dragAndDrop;
@@ -84,24 +84,18 @@ function PlaylistzInner() {
   // 1 error 2 rule 'em all!
   const error = () => managerError() || songError() || dragError();
 
-  // handle file drop here i guess. #TODO: move this into useDragAndDrop.ts
-  const handleFileDrop = async (e: DragEvent) => {
-    try {
-      await handleDrop(e, {
-        selectedPlaylist: selectedPlaylist(),
-        playlists: playlists(),
-        onPlaylistCreated: () => {
-          // hmm, i guess playlist will be automatically added via reactive query...
-        },
-        onPlaylistSelected: (playlist) => {
-          selectPlaylist(playlist);
-        },
-      });
-    } catch (error) {
-      console.error("Error in handleFileDrop:", error);
-      // ensure drag overlay is cleared, even on error
-      setIsDragOver(false);
-    }
+  // create a wrapper that provides the necessary options to handleFileDrop
+  const handleFileDropWrapper = async (e: DragEvent) => {
+    await handleFileDrop(e, {
+      selectedPlaylist: selectedPlaylist(),
+      playlists: playlists(),
+      onPlaylistCreated: () => {
+        // hmm, i guess playlist will be automatically added via reactive query...
+      },
+      onPlaylistSelected: (playlist) => {
+        selectPlaylist(playlist);
+      },
+    });
   };
 
   return (
@@ -110,7 +104,7 @@ function PlaylistzInner() {
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
-      onDrop={handleFileDrop}
+      onDrop={handleFileDropWrapper}
     >
       {/* background image cover */}
       <Show when={backgroundImageUrl()}>
@@ -212,7 +206,12 @@ function PlaylistzInner() {
 
       {/* drag'n'drop overlay */}
       <Show when={isDragOver()}>
-        <div class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 backdrop-blur-sm">
+        <div
+          onClick={() => {
+            setIsDragOver(false);
+          }}
+          class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 backdrop-blur-sm"
+        >
           <div class="text-center">
             <div class="text-4xl mb-6 font-bold">drop zone</div>
             <h2 class="text-4xl font-light mb-4 text-magenta-400">

@@ -27,7 +27,29 @@ export function useDragAndDrop() {
 
   // what's being dragged?
   const analyzeDragData = (e: DragEvent): DragInfo => {
-    // first check if it's a song reorder operation
+    // check types array first since getData() is restricted during dragenter
+    const types = e.dataTransfer?.types;
+
+    // song reorder: SongRow sets text/plain data, so types will include "text/plain" but not "Files"
+    if (types && types.includes("text/plain") && !types.includes("Files")) {
+      // console.log("detected song reorder via types array");
+      return { type: "song-reorder", itemCount: 1 };
+    }
+
+    // file drops: will have "Files" in types array
+    if (types && types.includes("Files")) {
+      // console.log("detected file drop via types array");
+      return { type: "audio-files", itemCount: 1 };
+    }
+
+    // fallback: try to read data directly (works during drop events)
+    const textData = e.dataTransfer?.getData("text/plain");
+    if (textData && !isNaN(parseInt(textData, 10))) {
+      // console.log("detected song reorder via text data");
+      return { type: "song-reorder", itemCount: 1 };
+    }
+
+    // legacy support for json data
     const dragData = e.dataTransfer?.getData("application/json");
     if (dragData) {
       try {
@@ -36,19 +58,12 @@ export function useDragAndDrop() {
           return { type: "song-reorder", itemCount: 1 };
         }
       } catch (err) {
-        // i guess not JSON, continue with file analysis...
+        // not json, continue with file analysis...
       }
     }
 
-    // during dragenter/dragover, files array is often empty for ...reasonz
-    // use .items or .types to detect if files are being dragged
+    // check items array as additional fallback
     const items = e.dataTransfer?.items;
-    const types = e.dataTransfer?.types;
-
-    if (types && types.includes("Files")) {
-      // don't know the exact count or types during drag, so assume audio files
-      return { type: "audio-files", itemCount: 1 };
-    }
 
     if (items && items.length > 0) {
       const hasFiles = Array.from(items).some((item) => item.kind === "file");
@@ -87,7 +102,11 @@ export function useDragAndDrop() {
 
     const info = analyzeDragData(e);
     setDragInfo(info);
-    setIsDragOver(true);
+
+    // only show drag overlay for file drops, not song reordering
+    if (info.type !== "song-reorder") {
+      setIsDragOver(true);
+    }
   };
 
   const handleDragOver = (e: DragEvent) => {
@@ -106,6 +125,12 @@ export function useDragAndDrop() {
   const handleDragLeave = (e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // only handle drag leave for file drops, not song reordering
+    const info = dragInfo();
+    if (info.type === "song-reorder") {
+      return;
+    }
 
     // only set drag over to false if leaving the main container
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -134,7 +159,7 @@ export function useDragAndDrop() {
     const info = dragInfo();
     setDragInfo({ type: "unknown", itemCount: 0 });
 
-    // so only handle file drops, here; ignore song reordering
+    // only handle file drops here; ignore song reordering
     if (info.type === "song-reorder") {
       return;
     }
@@ -304,6 +329,25 @@ export function useDragAndDrop() {
     }
   });
 
+  // handle file drop wrapper (moved from components/index.tsx)
+  const handleFileDrop = async (
+    e: DragEvent,
+    options: {
+      selectedPlaylist?: Playlist | null;
+      playlists: Playlist[];
+      onPlaylistCreated?: (playlist: Playlist) => void;
+      onPlaylistSelected?: (playlist: Playlist) => void;
+    }
+  ) => {
+    try {
+      await handleDrop(e, options);
+    } catch (error) {
+      console.error("onoz! error in handleFileDrop:", error);
+      // ensure drag overlay is cleared, even on error
+      setIsDragOver(false);
+    }
+  };
+
   return {
     isDragOver,
     dragInfo,
@@ -317,6 +361,7 @@ export function useDragAndDrop() {
     handleDragOver,
     handleDragLeave,
     handleDrop,
+    handleFileDrop,
 
     // utilz
     analyzeDragData,

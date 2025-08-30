@@ -34,12 +34,21 @@ class MockDataTransfer {
   types: string[];
   dropEffect: string = "none";
   effectAllowed: string = "all";
+  private data: Map<string, string> = new Map();
 
   constructor(files: File[] = [], isDragEnter: boolean = false) {
     // During dragenter/dragover, files array is empty for security
     this.files = isDragEnter ? ([] as any) : this.createFileList(files);
     this.items = this.createDataTransferItemList(files, isDragEnter);
     this.types = files.length > 0 ? ["Files"] : [];
+  }
+
+  setData(format: string, data: string): void {
+    this.data.set(format, data);
+  }
+
+  getData(format: string): string {
+    return this.data.get(format) || "";
   }
 
   createFileList(files: File[]): FileList {
@@ -70,12 +79,6 @@ class MockDataTransfer {
     list.length = items.length;
     return list;
   }
-
-  getData(_format: string): string {
-    return "";
-  }
-
-  setData(_format: string, _data: string): void {}
 }
 
 // Create mock DragEvent that simulates real browser behavior
@@ -134,6 +137,36 @@ describe("useDragAndDrop", () => {
     if (dispose) {
       dispose();
     }
+  });
+
+  describe("song reordering", () => {
+    it("should detect song reorder and not show drag overlay", () => {
+      // simulate song reorder drag event - songrow sets text/plain data with index
+      const dragEvent = createMockDragEvent("dragenter", []);
+
+      // mock the types array to simulate song reorder (text/plain but no Files)
+      Object.defineProperty(dragEvent.dataTransfer, "types", {
+        value: ["text/plain"],
+        writable: false,
+      });
+
+      expect(hook.isDragOver()).toBe(false);
+      hook.handleDragEnter(dragEvent);
+
+      expect(hook.dragInfo().type).toBe("song-reorder");
+      expect(hook.isDragOver()).toBe(false); // no overlay for song reordering
+    });
+
+    it("should show drag overlay for file drops", () => {
+      const audioFile = createMockFile("test.mp3", "audio/mpeg");
+      const dragEvent = createMockDragEvent("dragenter", [audioFile]);
+
+      expect(hook.isDragOver()).toBe(false);
+      hook.handleDragEnter(dragEvent);
+
+      expect(hook.dragInfo().type).toBe("audio-files");
+      expect(hook.isDragOver()).toBe(true);
+    });
   });
 
   describe("drag detection during browser events", () => {
