@@ -842,4 +842,91 @@ describe("Audio Service Tests", () => {
       );
     });
   });
+
+  describe("auto-advance functionality", () => {
+    it("should automatically play next song when current song ends", async () => {
+      await setupAudioState(mockSong1, mockPlaylist);
+
+      // simulate song ending by triggering the ended event
+      const audio = getMockAudio();
+      audio.ended = true;
+
+      // manually trigger the ended event handlers
+      const endedHandlers = audio.addEventListener.mock.calls
+        .filter((call: any) => call[0] === "ended")
+        .map((call: any) => call[1]);
+
+      for (const handler of endedHandlers) {
+        await handler();
+      }
+
+      // should advance to next song
+      const state = audioService.getAudioState();
+      expect(state.currentSong).toEqual(mockSong2);
+      expect(state.currentIndex).toBe(1);
+      expect(state.isPlaying).toBe(true);
+    });
+
+    it("should skip to next song if current next song fails to load", async () => {
+      await setupAudioState(mockSong1, mockPlaylist);
+
+      // make mockSong2 fail to load
+      const originalPlay = getMockAudio().play;
+      getMockAudio().play = vi.fn().mockImplementation(() => {
+        const currentSong = audioService.getAudioState().currentSong;
+        if (currentSong?.id === mockSong2.id) {
+          return Promise.reject(new Error("audio source not available"));
+        }
+        return originalPlay();
+      });
+
+      // simulate song ending
+      const audio = getMockAudio();
+      audio.ended = true;
+
+      const endedHandlers = audio.addEventListener.mock.calls
+        .filter((call: any) => call[0] === "ended")
+        .map((call: any) => call[1]);
+
+      for (const handler of endedHandlers) {
+        await handler();
+      }
+
+      // should skip mockSong2 and play mockSong3
+      const state = audioService.getAudioState();
+      expect(state.currentSong).toEqual(mockSong3);
+      expect(state.currentIndex).toBe(2);
+      expect(state.isPlaying).toBe(true);
+    });
+
+    it("should stop playing if all remaining songs fail to load", async () => {
+      await setupAudioState(mockSong1, mockPlaylist);
+
+      // make all subsequent songs fail to load
+      const originalPlay = getMockAudio().play;
+      getMockAudio().play = vi.fn().mockImplementation(() => {
+        const currentSong = audioService.getAudioState().currentSong;
+        if (currentSong?.id !== mockSong1.id) {
+          return Promise.reject(new Error("audio source not available"));
+        }
+        return originalPlay();
+      });
+
+      // simulate song ending
+      const audio = getMockAudio();
+      audio.ended = true;
+
+      const endedHandlers = audio.addEventListener.mock.calls
+        .filter((call: any) => call[0] === "ended")
+        .map((call: any) => call[1]);
+
+      for (const handler of endedHandlers) {
+        await handler();
+      }
+
+      // should stop playing since no more songs can be loaded
+      const state = audioService.getAudioState();
+      expect(state.isPlaying).toBe(false);
+    });
+  });
 });

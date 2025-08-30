@@ -1,6 +1,6 @@
 /* @jsxImportSource solid-js */
 import { createSignal } from "solid-js";
-import type { Song } from "../types/playlist.js";
+import type { Song, Playlist } from "../types/playlist.js";
 import { updateSong } from "../services/indexedDBService.js";
 import {
   playSong,
@@ -29,13 +29,13 @@ export function useSongState() {
     }
   };
 
-  const handlePlaySong = async (song: Song) => {
+  const handlePlaySong = async (song: Song, playlist?: Playlist) => {
     try {
       setError(null);
-      await playSong(song);
+      await playSong(song, playlist);
     } catch (err) {
-      console.error("Error playing song:", err);
-      setError("Failed to play song");
+      console.error("error playing song:", err);
+      setError("failed to play song");
     }
   };
 

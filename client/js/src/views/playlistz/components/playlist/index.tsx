@@ -1,5 +1,5 @@
 import { Accessor, Show, For } from "solid-js";
-import type { Playlist } from "../../types/playlist.js";
+import type { Playlist, Song } from "../../types/playlist.js";
 import {
   usePlaylistzManager,
   usePlaylistzSongs,
@@ -33,6 +33,11 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
   } = playlistManager;
 
   const { handleEditSong, handlePlaySong, handlePauseSong } = songState;
+
+  // create a wrapper that passes the playlist context
+  const handlePlaySongWithPlaylist = async (song: Song) => {
+    await handlePlaySong(song, playlist());
+  };
 
   const { isMobile } = uiState;
 
@@ -391,7 +396,7 @@ export function PlaylistContainer(props: { playlist: Accessor<Playlist> }) {
                   index={index()}
                   showRemoveButton={true}
                   onRemove={handleRemoveSong}
-                  onPlay={handlePlaySong}
+                  onPlay={handlePlaySongWithPlaylist}
                   onPause={handlePauseSong}
                   onEdit={handleEditSong}
                   onReorder={handleReorderSongs}

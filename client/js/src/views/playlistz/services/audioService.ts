@@ -430,11 +430,79 @@ function getPreviousSong(): Song | null {
   return queue[currentIdx - 1] || null;
 }
 
-// Handle song ended - auto-advance logic
+// skip to next playable song when current next song fails
+async function skipToNextPlayableSong(): Promise<void> {
+  const queue = playlistQueue();
+  const currentIdx = currentIndex();
+  const repeat = repeatMode();
+
+  // try each subsequent song until we find one that plays or reach the end
+  let testIndex = currentIdx + 1;
+  const maxAttempts = queue.length; // prevent infinite loops
+  let attempts = 0;
+
+  while (attempts < maxAttempts) {
+    // handle wrap-around for repeat all mode
+    if (testIndex >= queue.length) {
+      if (repeat === "all") {
+        testIndex = 0;
+      } else {
+        // end of queue, no repeat
+        console.log("reached end of queue, stopping playback");
+        setIsPlaying(false);
+        updateMediaSession();
+        return;
+      }
+    }
+
+    // don't retry the same song we just failed on
+    if (testIndex === currentIdx) {
+      console.log("cycled back to original song, stopping playback");
+      setIsPlaying(false);
+      updateMediaSession();
+      return;
+    }
+
+    const testSong = queue[testIndex];
+    if (!testSong) {
+      testIndex++;
+      attempts++;
+      continue;
+    }
+
+    try {
+      console.log(
+        `trying to play song at index ${testIndex}: ${testSong.title}`
+      );
+      setCurrentIndex(testIndex);
+      setSelectedSongId(testSong.id);
+      await playSong(testSong, currentPlaylist() || undefined);
+      console.log(`successfully started playing: ${testSong.title}`);
+      return; // success!
+    } catch (error) {
+      console.error(`failed to play song "${testSong.title}":`, error);
+      testIndex++;
+      attempts++;
+    }
+  }
+
+  // if we get here, all songs failed to load
+  console.error("all remaining songs failed to load, stopping playback");
+  setIsPlaying(false);
+  updateMediaSession();
+}
+
+// handle song ended - auto-advance logic
 async function handleSongEnded(): Promise<void> {
   const nextSong = getNextSong();
   if (nextSong) {
-    await playNext();
+    try {
+      await playNext();
+    } catch (error) {
+      console.error("error during auto-advance:", error);
+      // if playNext fails, try to skip to the song after that
+      await skipToNextPlayableSong();
+    }
   } else {
     // stay on last song but stop playing
     setIsPlaying(false);
@@ -706,16 +774,16 @@ export async function playNext(): Promise<void> {
   let nextIndex: number;
 
   if (repeat === "one") {
-    // Repeat current song
+    // repeat current song
     nextIndex = currentIdx;
   } else if (currentIdx + 1 < queue.length) {
-    // Normal next song
+    // normal next song
     nextIndex = currentIdx + 1;
   } else if (repeat === "all") {
-    // Loop back to first song
+    // loop back to first song
     nextIndex = 0;
   } else {
-    // End of queue, no repeat
+    // end of queue, no repeat
     return;
   }
 
@@ -723,7 +791,12 @@ export async function playNext(): Promise<void> {
   if (nextSong) {
     setCurrentIndex(nextIndex);
     setSelectedSongId(nextSong.id);
-    await playSong(nextSong, currentPlaylist() || undefined);
+    try {
+      await playSong(nextSong, currentPlaylist() || undefined);
+    } catch (error) {
+      console.error("error playing next song:", error);
+      throw error; // re-throw for handleSongEnded to catch
+    }
   }
 }
 
