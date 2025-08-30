@@ -19,15 +19,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
       const currentSong = audioState.currentSong();
       const queue = audioState.playlistQueue();
 
-      // If there's a current song, toggle playback
+      // so if there's a current song, toggle playback
       if (currentSong) {
         await togglePlayback();
       }
-      // If no current song but there's a queue, start playing first song
+      // if no current song but there's a queue, start playing first song
       else if (queue.length > 0) {
         await playQueueIndex(0);
       }
-      // If no queue but we have a playlist prop, load its queue
+      // if no queue but we have a playlist prop, load its queue
       else if (props.playlist && props.playlist.songIds.length > 0) {
         await loadPlaylistQueue(props.playlist);
         await playQueueIndex(0);
@@ -37,7 +37,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     }
   };
 
-  // Check if current song is loading (mirrors SongRow logic)
+  // check if current song is loading (mirrorz SongRow logic)
   const isCurrentlyLoading = () => {
     const currentSong = audioState.currentSong();
     return currentSong && audioState.loadingSongIds().has(currentSong.id);

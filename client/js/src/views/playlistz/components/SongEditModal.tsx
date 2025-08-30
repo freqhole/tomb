@@ -109,8 +109,8 @@ export function SongEditModal(props: SongEditModalProps) {
 
       const updates = {
         title: title().trim(),
-        artist: artist().trim() || "Unknown Artist", // #TODO: don't default to this :/
-        album: album().trim() || "Unknown Album", // #TODO: don't default to this :/
+        artist: artist().trim() || "unknown artist", // #TODO: don't default to this :/
+        album: album().trim() || "unknown album", // #TODO: don't default to this :/
         imageData: imageData(),
         thumbnailData: thumbnailData(),
         imageType: imageType(),

@@ -25,14 +25,13 @@ if (typeof window !== "undefined" && (window as any).STANDALONE_MODE) {
 }
 
 function PlaylistzInner() {
-  // Use context hooks
+  // context hooks
   const playlistManager = usePlaylistzManager();
   const songState = usePlaylistzSongs();
   const uiState = usePlaylistzUI();
   const dragAndDrop = usePlaylistzDragDrop();
   const imageModal = usePlaylistzImageModal();
 
-  // Extract state and functions from hooks
   const {
     playlists,
     selectedPlaylist,
@@ -85,7 +84,7 @@ function PlaylistzInner() {
   // 1 error 2 rule 'em all!
   const error = () => managerError() || songError() || dragError();
 
-  // handle file drop here i guess.
+  // handle file drop here i guess. #TODO: move this into useDragAndDrop.ts
   const handleFileDrop = async (e: DragEvent) => {
     try {
       await handleDrop(e, {
@@ -100,7 +99,7 @@ function PlaylistzInner() {
       });
     } catch (error) {
       console.error("Error in handleFileDrop:", error);
-      // Ensure drag overlay is cleared even on error
+      // ensure drag overlay is cleared, even on error
       setIsDragOver(false);
     }
   };
@@ -315,13 +314,14 @@ function PlaylistzInner() {
               <img
                 src={getCurrentImageUrl()!}
                 onClick={handleNextImage}
+                onContextMenu={isMobile() ? handlePrevImage : undefined}
                 alt={getCurrentImageTitle() || "song image"}
                 class="max-w-full max-h-full object-contain"
               />
 
-              {/* navigation arrows */}
+              {/* navigation arrows (currently disabled 🤷) */}
               <Show when={hasMultipleImages()}>
-                <button
+                {/*<button
                   onClick={handlePrevImage}
                   class="absolute left-4 top-1/2 transform -translate-y-1/2 text-white hover:text-magenta-400 transition-colors p-2 bg-black bg-opacity-50 rounded"
                   title="previous image (←)"
@@ -358,10 +358,10 @@ function PlaylistzInner() {
                       d="M9 5l7 7-7 7"
                     />
                   </svg>
-                </button>
+                </button>*/}
 
                 {/* image counter */}
-                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-3 py-1 rounded">
+                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-3 py-1">
                   {/* image title */}
                   <Show when={getCurrentImageTitle()}>
                     {getCurrentImageTitle()}{" "}

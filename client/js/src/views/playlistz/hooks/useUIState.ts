@@ -2,26 +2,20 @@
 import { createSignal, onMount, onCleanup } from "solid-js";
 
 export function useUIState() {
-  // Mobile detection
   const [isMobile, setIsMobile] = createSignal(false);
 
-  // Sidebar state
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(
     (window as any).STANDALONE_MODE || false
   );
 
-  // Drag and drop state
   const [isDragOver, setIsDragOver] = createSignal(false);
 
-  // Background image state
   const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<
     string | null
   >(null);
 
-  // Image URL cache
   const [imageUrlCache] = createSignal(new Map<string, string>());
 
-  // Mobile detection logic
   const checkMobile = () => {
     const mobile = window.innerWidth < 900;
     setIsMobile(mobile);
@@ -30,21 +24,21 @@ export function useUIState() {
     }
   };
 
-  // Handle window resize for mobile detection
+  // window resize for mobile detection
   const handleResize = () => {
     checkMobile();
   };
 
-  // Handle escape key for closing modals/dialogs
+  // escape key for closing modals/dialogs
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
-      // This can be extended by components using this hook
+      // this can be extended by components using this hook
       return { key: e.key, preventDefault: () => e.preventDefault() };
     }
     return undefined;
   };
 
-  // Initialize mobile detection
+  // init + cleanup for mobile detection
   onMount(() => {
     checkMobile();
     window.addEventListener("resize", handleResize);
@@ -56,7 +50,7 @@ export function useUIState() {
     });
   });
 
-  // Cleanup image URLs when component unmounts
+  // trash image URLs when component unmounts
   onCleanup(() => {
     const cache = imageUrlCache();
     cache.forEach((url) => {
@@ -68,20 +62,19 @@ export function useUIState() {
   });
 
   return {
-    // State
     isMobile,
     sidebarCollapsed,
     isDragOver,
     backgroundImageUrl,
     imageUrlCache,
 
-    // Setters
+    // setterz
     setIsMobile,
     setSidebarCollapsed,
     setIsDragOver,
     setBackgroundImageUrl,
 
-    // Utilities
+    // utilz
     checkMobile,
   };
 }

@@ -7,7 +7,6 @@ import { useUIState } from "../hooks/useUIState.js";
 import { useDragAndDrop } from "../hooks/useDragAndDrop.js";
 import { useImageModal } from "../hooks/useImageModal.js";
 
-// Create context type
 interface PlaylistzContextType {
   playlistManager: ReturnType<typeof usePlaylistManager>;
   songState: ReturnType<typeof useSongState>;
@@ -16,12 +15,11 @@ interface PlaylistzContextType {
   imageModal: ReturnType<typeof useImageModal>;
 }
 
-// Create context
 const PlaylistzContext = createContext<PlaylistzContextType>();
 
-// Provider component
+// provider component
 export const PlaylistzProvider: ParentComponent = (props) => {
-  // Initialize all hooks once at the top level
+  // init all hookz once at the top level
   const playlistManager = usePlaylistManager();
   const songState = useSongState();
   const uiState = useUIState();
@@ -43,7 +41,7 @@ export const PlaylistzProvider: ParentComponent = (props) => {
   );
 };
 
-// Hook to use the context
+// hook to use the context
 export function usePlaylistzContext() {
   const context = useContext(PlaylistzContext);
   if (!context) {
@@ -54,7 +52,7 @@ export function usePlaylistzContext() {
   return context;
 }
 
-// Individual hooks for convenience
+// individual hookz for convenience
 export function usePlaylistzManager() {
   return usePlaylistzContext().playlistManager;
 }

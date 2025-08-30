@@ -17,7 +17,7 @@ export interface DragInfo {
 }
 
 export function useDragAndDrop() {
-  // Drag state
+  // drag state
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [dragInfo, setDragInfo] = createSignal<DragInfo>({
     type: "unknown",
@@ -25,9 +25,9 @@ export function useDragAndDrop() {
   });
   const [error, setError] = createSignal<string | null>(null);
 
-  // Analyze drag data to determine what's being dragged
+  // what's being dragged?
   const analyzeDragData = (e: DragEvent): DragInfo => {
-    // Check if it's a song reorder operation
+    // first check if it's a song reorder operation
     const dragData = e.dataTransfer?.getData("application/json");
     if (dragData) {
       try {
@@ -36,22 +36,20 @@ export function useDragAndDrop() {
           return { type: "song-reorder", itemCount: 1 };
         }
       } catch (err) {
-        // Not JSON, continue with file analysis
+        // i guess not JSON, continue with file analysis...
       }
     }
 
-    // During dragenter/dragover, files array is often empty for security reasons
-    // Use items or types to detect if files are being dragged
+    // during dragenter/dragover, files array is often empty for ...reasonz
+    // use .items or .types to detect if files are being dragged
     const items = e.dataTransfer?.items;
     const types = e.dataTransfer?.types;
 
-    // Check if files are being dragged using types
     if (types && types.includes("Files")) {
-      // We can't know the exact count or types during drag, so assume audio files
+      // don't know the exact count or types during drag, so assume audio files
       return { type: "audio-files", itemCount: 1 };
     }
 
-    // Check using items if available
     if (items && items.length > 0) {
       const hasFiles = Array.from(items).some((item) => item.kind === "file");
       if (hasFiles) {
@@ -59,10 +57,9 @@ export function useDragAndDrop() {
       }
     }
 
-    // Fallback to checking files (available during drop event)
+    // fallback to checking files (available during drop event)
     const files = e.dataTransfer?.files;
     if (files && files.length > 0) {
-      // Check for ZIP files
       const zipFiles = Array.from(files).filter(
         (file) =>
           file.type === "application/zip" ||
@@ -73,7 +70,6 @@ export function useDragAndDrop() {
         return { type: "audio-files", itemCount: zipFiles.length };
       }
 
-      // Check for audio files
       const audioFiles = filterAudioFiles(files);
       if (audioFiles.length > 0) {
         return { type: "audio-files", itemCount: audioFiles.length };
@@ -85,7 +81,6 @@ export function useDragAndDrop() {
     return { type: "unknown", itemCount: 0 };
   };
 
-  // Handle drag enter
   const handleDragEnter = (e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -95,12 +90,11 @@ export function useDragAndDrop() {
     setIsDragOver(true);
   };
 
-  // Handle drag over
   const handleDragOver = (e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    // Update drag effect based on content
+    // update drag effect based on content
     const info = dragInfo();
     if (info.type === "audio-files" || info.type === "song-reorder") {
       e.dataTransfer!.dropEffect = "copy";
@@ -109,12 +103,11 @@ export function useDragAndDrop() {
     }
   };
 
-  // Handle drag leave
   const handleDragLeave = (e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    // Only set drag over to false if we're leaving the main container
+    // only set drag over to false if leaving the main container
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.clientX;
     const y = e.clientY;
@@ -125,7 +118,6 @@ export function useDragAndDrop() {
     }
   };
 
-  // Handle file drop with ZIP and audio file support
   const handleDrop = async (
     e: DragEvent,
     options: {
@@ -142,7 +134,7 @@ export function useDragAndDrop() {
     const info = dragInfo();
     setDragInfo({ type: "unknown", itemCount: 0 });
 
-    // Only handle file drops, ignore song reordering
+    // so only handle file drops, here; ignore song reordering
     if (info.type === "song-reorder") {
       return;
     }
@@ -153,7 +145,7 @@ export function useDragAndDrop() {
     try {
       setError(null);
 
-      // Check for ZIP files first
+      // check ZIP first
       const zipFiles = Array.from(files).filter(
         (file) =>
           file.type === "application/zip" ||
@@ -165,7 +157,6 @@ export function useDragAndDrop() {
         return;
       }
 
-      // Handle regular audio files
       const audioFiles = filterAudioFiles(files);
       if (audioFiles.length === 0) {
         handleNonAudioFiles(info);
@@ -181,7 +172,6 @@ export function useDragAndDrop() {
     }
   };
 
-  // Handle ZIP file processing
   const handleZipFiles = async (
     zipFiles: File[],
     options: {
@@ -194,7 +184,7 @@ export function useDragAndDrop() {
       const { playlist: playlistData, songs: songsData } =
         await parsePlaylistZip(zipFile);
 
-      // Check if a playlist with the same name and songs already exists
+      // check if a playlist with the same name and songs already exists
       const existingPlaylist = options.playlists.find(
         (p) =>
           p.title === playlistData.title &&
@@ -207,12 +197,11 @@ export function useDragAndDrop() {
         continue;
       }
 
-      // Create new playlist
       const newPlaylist = await createPlaylist(playlistData);
 
-      // Add songs to the playlist
+      // and add the songz
       for (const songData of songsData) {
-        // Create a File object from the audio data for compatibility
+        // create a File object from the audio data for compatibility
         const audioBlob = new Blob([songData.audioData!], {
           type: songData.mimeType,
         });
@@ -232,13 +221,12 @@ export function useDragAndDrop() {
         });
       }
 
-      // Notify about playlist creation and selection
+      // callback about playlist creation and selection
       options.onPlaylistCreated?.(newPlaylist);
       options.onPlaylistSelected?.(newPlaylist);
     }
   };
 
-  // Handle regular audio files
   const handleAudioFiles = async (
     audioFiles: File[],
     options: {
@@ -249,12 +237,12 @@ export function useDragAndDrop() {
   ) => {
     let targetPlaylist = options.selectedPlaylist;
 
-    // If no playlist is selected, create a new one
+    // if no playlist is selected, create a new one
     if (!targetPlaylist) {
       targetPlaylist = await createPlaylist({
-        title: "New Playlist",
-        description: `Created from ${audioFiles.length} dropped file${
-          audioFiles.length > 1 ? "s" : ""
+        title: "new playlist",
+        description: `created from ${audioFiles.length} dropped file${
+          audioFiles.length > 1 ? "z" : ""
         }`,
         songIds: [],
       });
@@ -262,35 +250,35 @@ export function useDragAndDrop() {
       options.onPlaylistSelected?.(targetPlaylist);
     }
 
-    // Add audio files to playlist
+    // and add the songz to the playlist
     for (const songFile of audioFiles) {
       const metadata = await extractMetadata(songFile);
       await addSongToPlaylist(targetPlaylist.id, songFile, metadata);
     }
   };
 
-  // Handle non-audio files with contextual error messages
+  // contextual error messagez
   const handleNonAudioFiles = (info: DragInfo) => {
     if (info.type === "non-audio-files") {
       setError(
-        "Only audio files and ZIP playlist files can be added. Supported formats: MP3, WAV, M4A, FLAC, OGG, ZIP"
+        "only audio filez and ZIP playlist filez can be added. supported formatz: MP3, WAV, M4A, FLAC, OGG, ZIP"
       );
     } else {
       setError(
-        "No audio files or ZIP playlist files found in the dropped item(s)"
+        "no audio filez or ZIP playlist filez found in the dropped itemz!"
       );
     }
     setTimeout(() => setError(null), 3000);
   };
 
-  // Set up global drag and drop event listeners
+  // set 'em up the global drag and drop event listenerz
   onMount(() => {
     const preventDefaults = (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
     };
 
-    // Prevent default drag behaviors on document
+    // prevent default drag behaviors on document
     document.addEventListener("dragenter", preventDefaults);
     document.addEventListener("dragover", preventDefaults);
     document.addEventListener("dragleave", preventDefaults);
@@ -304,34 +292,33 @@ export function useDragAndDrop() {
     });
   });
 
-  // Clear error after some time
+  // clear error after some time
   createEffect(() => {
     const errorMsg = error();
     if (errorMsg) {
       const timeoutId = setTimeout(() => {
         setError(null);
-      }, 5000);
+      }, 10_000);
 
       onCleanup(() => clearTimeout(timeoutId));
     }
   });
 
   return {
-    // State
     isDragOver,
     dragInfo,
     error,
 
-    // Setters
+    // setterz
     setIsDragOver,
 
-    // Event handlers
+    // actionz
     handleDragEnter,
     handleDragOver,
     handleDragLeave,
     handleDrop,
 
-    // Utilities
+    // utilz
     analyzeDragData,
   };
 }

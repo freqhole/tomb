@@ -47,7 +47,7 @@ export function PlaylistSidebar() {
 
     setIsCreating(true);
     try {
-      const newPlaylist = await createNewPlaylist("New Playlist");
+      const newPlaylist = await createNewPlaylist("new playlist");
       if (newPlaylist) {
         selectPlaylist(newPlaylist);
         // auto-collapse on mobile when playlist is selected

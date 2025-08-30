@@ -299,7 +299,7 @@ export function PlaylistCoverModal(props: PlaylistCoverModalProps) {
               <button
                 onClick={handleDownloadPlaylist}
                 disabled={isDownloading() || isLoading()}
-                class="w-full px-4 py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-medium transition-colors flex items-center justify-center gap-2"
+                class="w-full px-4 py-3 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-400 text-white font-medium transition-colors flex items-center justify-center gap-2"
               >
                 <Show
                   when={!isDownloading()}

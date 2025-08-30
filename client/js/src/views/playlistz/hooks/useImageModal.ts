@@ -3,7 +3,6 @@ import { createSignal, createEffect, onCleanup } from "solid-js";
 import type { Playlist, Song } from "../types/playlist.js";
 import { getImageUrlForContext } from "../services/imageService.js";
 
-// Interface for tracking image metadata
 export interface ImageWithMetadata {
   url: string;
   title: string;
@@ -12,19 +11,19 @@ export interface ImageWithMetadata {
 }
 
 export function useImageModal() {
-  // Modal state
+  // modal state
   const [showImageModal, setShowImageModal] = createSignal(false);
   const [modalImageIndex, setModalImageIndex] = createSignal(0);
   const [modalImages, setModalImages] = createSignal<ImageWithMetadata[]>([]);
 
-  // Generate image list from playlist and songs
+  // gen image list from playlist and songs
   const generateImageList = (
     playlist: Playlist | null,
     playlistSongs: Song[] = []
   ) => {
     const images: ImageWithMetadata[] = [];
 
-    // Add playlist cover image if available
+    // try to add playlist cover image if available
     if (playlist?.imageType) {
       const playlistImageUrl = getImageUrlForContext(playlist, "modal");
       if (playlistImageUrl) {
@@ -37,7 +36,7 @@ export function useImageModal() {
       }
     }
 
-    // Add song images
+    // collect song images
     playlistSongs.forEach((song) => {
       if (song.imageType && (song.imageData || song.thumbnailData)) {
         const songImageUrl = getImageUrlForContext(song, "modal");
@@ -55,7 +54,6 @@ export function useImageModal() {
     return images;
   };
 
-  // Open modal with images from playlist and songs
   const openImageModal = (
     playlist: Playlist | null,
     playlistSongs: Song[] = [],
@@ -69,14 +67,13 @@ export function useImageModal() {
     setShowImageModal(true);
   };
 
-  // Close modal
   const closeImageModal = () => {
     setShowImageModal(false);
     setModalImageIndex(0);
     setModalImages([]);
   };
 
-  // Navigate to next image
+  // navigate to next image
   const handleNextImage = () => {
     const images = modalImages();
     if (images.length <= 1) return;
@@ -84,7 +81,7 @@ export function useImageModal() {
     setModalImageIndex((prev) => (prev + 1) % images.length);
   };
 
-  // Navigate to previous image
+  // navigate to previous image
   const handlePrevImage = () => {
     const images = modalImages();
     if (images.length <= 1) return;
@@ -92,7 +89,7 @@ export function useImageModal() {
     setModalImageIndex((prev) => (prev - 1 + images.length) % images.length);
   };
 
-  // Navigate to specific image
+  // navigate to specific image (not used)
   const goToImage = (index: number) => {
     const images = modalImages();
     if (index >= 0 && index < images.length) {
@@ -100,37 +97,32 @@ export function useImageModal() {
     }
   };
 
-  // Get current image URL
   const getCurrentImageUrl = () => {
     const images = modalImages();
     const index = modalImageIndex();
     return images[index]?.url || null;
   };
 
-  // Get current image metadata
   const getCurrentImageMetadata = () => {
     const images = modalImages();
     const index = modalImageIndex();
     return images[index] || null;
   };
 
-  // Get current image title
   const getCurrentImageTitle = () => {
     const images = modalImages();
     const index = modalImageIndex();
     return images[index]?.title || null;
   };
 
-  // Get total image count
   const getImageCount = () => modalImages().length;
 
-  // Get current image index (1-based for display)
+  // image index 1-based for display
   const getCurrentImageNumber = () => modalImageIndex() + 1;
 
-  // Check if there are multiple images
   const hasMultipleImages = () => modalImages().length > 1;
 
-  // Keyboard navigation
+  // keyboard navigation
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!showImageModal()) return;
 
@@ -156,7 +148,7 @@ export function useImageModal() {
         goToImage(getImageCount() - 1);
         break;
       default:
-        // Check for number keys (1-9) to jump to specific images
+        // number keyz (1-9) to jump to specific images, cuz why not?!
         const num = parseInt(e.key);
         if (!isNaN(num) && num >= 1 && num <= 9) {
           const targetIndex = num - 1;
@@ -169,7 +161,7 @@ export function useImageModal() {
     }
   };
 
-  // Set up keyboard event listeners when modal is open
+  // set 'em up the keyboard event listenerz when modal is open
   createEffect(() => {
     if (showImageModal()) {
       document.addEventListener("keydown", handleKeyDown);
@@ -181,23 +173,22 @@ export function useImageModal() {
   });
 
   return {
-    // State
     showImageModal,
     modalImageIndex,
     modalImages,
 
-    // Setters
+    // setterz
     setShowImageModal,
     setModalImageIndex,
 
-    // Actions
+    // actionz
     openImageModal,
     closeImageModal,
     handleNextImage,
     handlePrevImage,
     goToImage,
 
-    // Utilities
+    // utilz
     getCurrentImageUrl,
     getCurrentImageMetadata,
     getCurrentImageTitle,

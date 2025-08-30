@@ -30,12 +30,14 @@ export function SongRow(props: SongRowProps) {
   const [isMobile, setIsMobile] = createSignal(false);
   const [isSeekBarActive, setIsSeekBarActive] = createSignal(false);
 
-  // Check if device has touch capability
+  // check if device has touch capability
+  // this is slightly different than other isMobile varz :/
+  // this could probably be in hooks/ so it's the same everywhere...
   onMount(() => {
     setIsMobile("ontouchstart" in window || navigator.maxTouchPoints > 0);
   });
 
-  // Fetch song data with reactivity to specific song updates only
+  // fetch song data with reactivity to specific song updates only
   const [song] = createResource(
     () => [props.songId, getSongSpecificTrigger(props.songId)()] as const,
     async ([songId, _trigger]) => {
@@ -52,34 +54,34 @@ export function SongRow(props: SongRowProps) {
     }
   );
 
-  // Track if this song is currently playing
+  // track if this song is currently playing
   const isCurrentlyPlaying = () => {
     const current = audioState.currentSong();
     const playing = audioState.isPlaying();
     return current?.id === props.songId && playing;
   };
 
-  // Track if this song is currently selected (should show selected UI)
+  // track if this song is currently selected (should show selected UI)
   const isCurrentlySelected = () => {
     return audioState.selectedSongId() === props.songId;
   };
 
-  // Track if this song is currently loading or being preloaded
+  // track if this song is currently loading or being preloaded
   const isCurrentlyLoading = () => {
     return audioState.loadingSongIds().has(props.songId);
   };
 
-  // Track if this song is being preloaded
+  // track if this song is being preloaded
   const isPreloading = () => {
     return audioState.preloadingSongId() === props.songId;
   };
 
-  // Track download progress
+  // track download progress
   const downloadProgress = () => {
     return getSongDownloadProgress(props.songId);
   };
 
-  // Track if this song is being cached
+  // track if this song is being cached
   const isCachingActive = () => {
     return isSongCaching(props.songId);
   };
@@ -121,13 +123,13 @@ export function SongRow(props: SongRowProps) {
 
   const handleDragOver = (e: DragEvent) => {
     e.preventDefault();
-    e.stopPropagation(); // Prevent global handler from firing
+    e.stopPropagation(); // prevent global handler from firing!
     e.dataTransfer!.dropEffect = "move";
     setDraggedOver(true);
   };
 
   const handleDragLeave = (e: DragEvent) => {
-    e.stopPropagation(); // Prevent global handler from firing
+    e.stopPropagation(); // prevent global handler from firing!
     if (e.currentTarget === e.target) {
       setDraggedOver(false);
     }
@@ -135,7 +137,7 @@ export function SongRow(props: SongRowProps) {
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
-    e.stopPropagation(); // Prevent global handler from firing
+    e.stopPropagation(); // prevent global handler from firing!
     setDraggedOver(false);
 
     const fromIndex = parseInt(e.dataTransfer!.getData("text/plain"), 10);
@@ -143,6 +145,13 @@ export function SongRow(props: SongRowProps) {
 
     if (fromIndex !== toIndex && props.onReorder) {
       props.onReorder(fromIndex, toIndex);
+    }
+  };
+
+  const handleEditSong = () => {
+    const songData = song();
+    if (songData) {
+      props.onEdit?.(songData);
     }
   };
 
@@ -189,7 +198,7 @@ export function SongRow(props: SongRowProps) {
         {(songData) => {
           const relativeTime = createRelativeTimeSignal(songData().createdAt);
 
-          // Calculate progress percentage for background fill
+          // calc progress percentage for background fill
           const getProgressPercentage = () => {
             const currentSong = audioState.currentSong();
             if (!currentSong || currentSong.id !== songData().id) return 0;
@@ -224,9 +233,13 @@ export function SongRow(props: SongRowProps) {
               onMouseLeave={() => !isMobile() && setIsHovered(false)}
               onClick={isMobile() ? handlePlayPause : undefined}
               onDblClick={isMobile() ? undefined : handlePlayPause}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                handleEditSong();
+              }}
               style={{ "-webkit-tap-highlight-color": "transparent" }}
             >
-              {/* Progress background */}
+              {/* time progress background */}
               <div
                 class="absolute inset-0 transition-all duration-200"
                 style={{
@@ -243,9 +256,9 @@ export function SongRow(props: SongRowProps) {
                 }}
               />
 
-              {/* Content overlay */}
+              {/* content overlay */}
               <div class="relative flex items-center w-full">
-                {/* song index / Album art / Play button */}
+                {/* song index / album art / play button */}
                 <div class="relative w-12 h-12 mr-4 flex-shrink-0 bg-black">
                   {/* song index */}
                   <div class="absolute inset-0 flex justify-center items-center font-mono group-hover:text-transparent">
@@ -277,7 +290,7 @@ export function SongRow(props: SongRowProps) {
                     })()}
                   </Show>
 
-                  {/* Loading overlay - show when loading or preloading */}
+                  {/* loading overlay - show when loading or preloading */}
                   <Show
                     when={
                       isCurrentlyLoading() ||
@@ -287,7 +300,7 @@ export function SongRow(props: SongRowProps) {
                   >
                     <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-1">
                       <div class="relative w-8 h-8">
-                        {/* Circular progress background */}
+                        {/* circular progress background */}
                         <Show
                           when={
                             downloadProgress() > 0 && downloadProgress() < 100
@@ -297,7 +310,7 @@ export function SongRow(props: SongRowProps) {
                             class="absolute inset-0 w-8 h-8 transform -rotate-90"
                             viewBox="0 0 32 32"
                           >
-                            {/* Background circle */}
+                            {/* background circle */}
                             <circle
                               cx="16"
                               cy="16"
@@ -306,7 +319,7 @@ export function SongRow(props: SongRowProps) {
                               stroke-width="2"
                               fill="none"
                             />
-                            {/* Progress circle */}
+                            {/* progress circle */}
                             <circle
                               cx="16"
                               cy="16"
@@ -320,7 +333,7 @@ export function SongRow(props: SongRowProps) {
                             />
                           </svg>
                         </Show>
-                        {/* Rotating loading icon */}
+                        {/* rotating loading icon */}
                         <svg
                           class={`w-4 h-4 animate-spin absolute inset-0 m-auto ${
                             isPreloading()
@@ -342,7 +355,7 @@ export function SongRow(props: SongRowProps) {
                     </div>
                   </Show>
 
-                  {/* Play/Pause overlay - only show when not loading or preloading */}
+                  {/* play/pause overlay (only shown when not loading or preloading) */}
                   <Show
                     when={
                       !isCurrentlyLoading() &&
@@ -380,7 +393,7 @@ export function SongRow(props: SongRowProps) {
                   </Show>
                 </div>
 
-                {/* Song info */}
+                {/* song info */}
                 <div class="flex-1 min-w-0 text-lg">
                   <div
                     class={`break-words ${
@@ -468,7 +481,7 @@ export function SongRow(props: SongRowProps) {
                 </div>
               </div>
 
-              {/* Duration */}
+              {/* duration */}
               <div
                 class={`text-sm font-mono mr-4 ${
                   isCurrentlyPlaying() || isCurrentlySelected()
@@ -479,10 +492,10 @@ export function SongRow(props: SongRowProps) {
                 {formatDuration(songData().duration)}
               </div>
 
-              {/* Overlay Actions */}
+              {/* overlay actions */}
               <Show when={isHovered() && !isMobile()}>
                 <div class="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1 bg-black bg-opacity-80 px-2 py-1 z-50">
-                  {/* Edit button */}
+                  {/* edit button */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -511,7 +524,7 @@ export function SongRow(props: SongRowProps) {
                     </svg>
                   </button>
 
-                  {/* Remove button */}
+                  {/* delete/remove button */}
                   <Show when={props.showRemoveButton}>
                     <button
                       onClick={(e) => {
@@ -538,7 +551,7 @@ export function SongRow(props: SongRowProps) {
                     </button>
                   </Show>
 
-                  {/* Drag handle */}
+                  {/* drag handle */}
                   <div
                     class={`p-1 text-gray-400 transition-colors cursor-grab ${
                       isDragging()
