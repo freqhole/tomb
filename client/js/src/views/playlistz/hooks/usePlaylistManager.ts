@@ -405,11 +405,25 @@ export function usePlaylistManager() {
       // manually refresh audio queue if this playlist is currently playing
       const currentPlaylist = audioState.currentPlaylist();
       if (currentPlaylist && currentPlaylist.id === playlist.id) {
-        await refreshPlaylistQueue(playlist);
+        // manually create updated playlist with new song order
+        const newSongIds = [...playlist.songIds];
+        if (oldIndex >= 0 && oldIndex < newSongIds.length) {
+          const [movedSong] = newSongIds.splice(oldIndex, 1);
+          if (movedSong) {
+            newSongIds.splice(newIndex, 0, movedSong);
+
+            const updatedPlaylist = {
+              ...playlist,
+              songIds: newSongIds,
+            };
+
+            await refreshPlaylistQueue(updatedPlaylist);
+          }
+        }
       }
     } catch (err) {
-      console.error("Error reordering songs:", err);
-      setError("Failed to reorder songs");
+      console.error("onoz! error reordering songz:", err);
+      setError("failed to reorder songz");
     }
   };
 
