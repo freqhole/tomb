@@ -15,17 +15,9 @@ export default defineConfig({
     environmentMatchGlobs: [
       // Component tests need jsdom for DOM testing
       ["tests/components/**/*.test.{ts,tsx}", "jsdom"],
-      ["src/views/playlistz/**/*.component.test.{ts,tsx}", "jsdom"],
-      ["src/views/playlistz/**/*.dom.test.{ts,tsx}", "jsdom"],
-      ["src/views/playlistz/**/ui-*.test.{ts,tsx}", "jsdom"],
-      // All playlistz service tests need jsdom for IndexedDB and browser APIs
-      ["src/views/playlistz/services/**/*.test.{ts,tsx}", "jsdom"],
-      ["src/views/playlistz/hooks/**/*.test.{ts,tsx}", "jsdom"],
-      ["src/views/playlistz/components/**/*.test.{ts,tsx}", "jsdom"],
     ],
     setupFiles: [
-      // Setup file for playlistz tests with IndexedDB and browser API mocks
-      "src/views/playlistz/test-setup.ts",
+      // Setup file for tests with IndexedDB and browser API mocks
     ],
     coverage: {
       provider: "v8",

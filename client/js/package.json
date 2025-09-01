@@ -22,7 +22,6 @@
     "test:unit": "vitest --run unit",
     "test:integration": "vitest --run integration",
     "test:coverage": "vitest --coverage --run",
-    "test:coverage:playlistz": "vitest --coverage --run src/views/playlistz/",
     "coverage:watch": "vitest --coverage",
     "test:watch": "vitest",
     "lint": "eslint 'src/**/*.{ts,tsx}' 'tests/**/*.ts'",

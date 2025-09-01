@@ -63,7 +63,6 @@ const COMPONENT_ATTRIBUTES = {
     "api-base-url": "http://localhost:8080",
     "auto-connect": "true",
   },
-  "freqhole-playlistz": {},
 };
 
 // Dynamically discover web components
@@ -79,7 +78,7 @@ function discoverWebComponents() {
     }
   });
 
-  console.log("🔍 Discovered web components:", components);
+  console.log("found these web components:", components);
   return components;
 }
 
@@ -105,7 +104,7 @@ function getElementNameFromFile(componentName) {
       .replace(/^-/, "");
   } catch (error) {
     console.warn(
-      `⚠️ Could not read ${componentName}.tsx, using fallback name. error: ${error}`
+      `could not read ${componentName}.tsx, using fallback name. error: ${error}`
     );
     return componentName
       .replace(/([A-Z])/g, "-$1")
@@ -122,6 +121,7 @@ function generateHtmlTemplate(elementName, jsCode, cssCode) {
     .join(" ");
 
   // Add basic PWA meta tags for playlistz component (manifest will be generated dynamically)
+  // #TODO: should all componentz have this?
   const isPWA = elementName === "freqhole-playlistz";
   const pwaMetaTags = isPWA
     ? `
@@ -181,21 +181,21 @@ async function buildAllComponents() {
     });
 
     if (components.length === 0) {
-      console.log(`❌ No components found matching "${filterArg}"`);
+      console.log(`no components found matching "${filterArg}"`);
       console.log(
-        `Available components:`,
+        `available components:`,
         allComponents.map(getElementNameFromFile)
       );
       process.exit(1);
     }
 
     console.log(
-      `🔍 Filtering to components matching "${filterArg}":`,
+      `filtering to components matching "${filterArg}":`,
       components.map(getElementNameFromFile)
     );
   }
 
-  console.log(`🔨 Building ${components.length} components separately...`);
+  console.log(`building ${components.length} components separately...`);
 
   // Clear dist directory first
   const distDir = path.resolve("dist");
@@ -205,7 +205,7 @@ async function buildAllComponents() {
   fs.mkdirSync(distDir, { recursive: true });
 
   for (const component of components) {
-    console.log(`📦 Building ${component}...`);
+    console.log(`building ${component}...`);
 
     try {
       await build({
@@ -245,15 +245,16 @@ async function buildAllComponents() {
                   source: html,
                 });
 
-                console.log(`✅ Generated: ${elementName}.html`);
+                console.log(`generated: ${elementName}.html`);
 
                 // Generate service worker for playlistz component
+                // #TODO: should other componentz have a sw.js?
                 console.log(
-                  `🔍 Checking if should generate SW for: ${elementName}`
+                  `Checking if should generate SW for: ${elementName}`
                 );
                 if (elementName === "freqhole-playlistz") {
                   console.log(
-                    `📦 Generating service worker for ${elementName}...`
+                    `generating service worker for ${elementName}...`
                   );
                   const swCode = getServiceWorkerCode();
                   if (swCode) {
@@ -262,12 +263,10 @@ async function buildAllComponents() {
                       fileName: "sw.js",
                       source: swCode,
                     });
-                    console.log(`✅ Generated: sw.js`);
+                    console.log(`generated: sw.js`);
                   } else {
-                    console.log(`❌ No service worker template found`);
+                    console.log(`No service worker template found`);
                   }
-                } else {
-                  console.log(`⏭️ Skipping SW generation for ${elementName}`);
                 }
 
                 // Remove JS and CSS files from output (but keep sw.js)
@@ -301,12 +300,12 @@ async function buildAllComponents() {
         },
       });
     } catch (error) {
-      console.error(`❌ Error building ${component}:`, error);
+      console.error(`error building ${component}:`, error);
       process.exit(1);
     }
   }
 
-  console.log("🎉 All components built successfully!");
+  console.log("all components built successfully!");
 }
 
 buildAllComponents();
