@@ -20,6 +20,7 @@ export interface GridColumn<T = any> {
   sortable?: boolean;
   render?: (item: T, value: any) => JSX.Element;
   getValue?: (item: T) => any;
+  renderHeader?: () => JSX.Element;
 }
 
 interface GridProps<T = any> {
@@ -379,7 +380,12 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
               }
               onClick={() => column.sortable && handleSort(column.key)}
             >
-              <span class="header-title">{column.title}</span>
+              <Show
+                when={column.renderHeader}
+                fallback={<span class="header-title">{column.title}</span>}
+              >
+                {column.renderHeader!()}
+              </Show>
               <Show when={column.sortable}>
                 <span class="sort-icon">{getSortIcon(column.key)}</span>
               </Show>

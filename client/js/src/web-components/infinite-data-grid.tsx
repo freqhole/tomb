@@ -825,31 +825,62 @@ function MediaBlobDataGrid() {
       title: "Actions",
       width: 60,
       sortable: false,
-      render: (item, value) => (
-        <div style="position: relative;">
-          <button
-            style="
-              background: #3a3a3a;
-              border: 1px solid #4a4a4a;
-              color: #e0e0e0;
-              padding: 4px 8px;
-              border-radius: 4px;
-              cursor: pointer;
-              font-size: 12px;
-            "
-            data-action-button
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              console.log("Action menu button clicked for:", item.id);
-              addLog(`⋯ Action menu toggled for: ${getDisplayFilename(item)}`);
-              toggleActionMenu(item, e);
-            }}
-          >
-            ⋯
-          </button>
-        </div>
+      renderHeader: () => (
+        <button
+          style="
+                background: #3a3a3a;
+                border: 1px solid #4a4a4a;
+                color: #e0e0e0;
+                padding: 4px 8px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 12px;
+                width: 100%;
+              "
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            toggleFilterPanel();
+          }}
+          title={`${isFilterPanelOpen() ? "Hide" : "Show"} Controls`}
+        >
+          {isFilterPanelOpen() ? "→" : "←"}
+        </button>
       ),
+      render: (item, value) => {
+        // Only show action menu button when controls panel is open
+        if (!isFilterPanelOpen()) {
+          return null;
+        }
+
+        return (
+          <div style="position: relative;">
+            <button
+              style="
+                background: #3a3a3a;
+                border: 1px solid #4a4a4a;
+                color: #e0e0e0;
+                padding: 4px 8px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 12px;
+              "
+              data-action-button
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                console.log("Action menu button clicked for:", item.id);
+                addLog(
+                  `⋯ Action menu toggled for: ${getDisplayFilename(item)}`
+                );
+                toggleActionMenu(item, e);
+              }}
+            >
+              ⋯
+            </button>
+          </div>
+        );
+      },
     },
   ];
 
@@ -1811,9 +1842,7 @@ function MediaBlobDataGrid() {
             </button>
           </Show> */}
 
-          <button class="panel-toggle-button" onClick={toggleFilterPanel}>
-            {isFilterPanelOpen() ? "← Hide Controls" : "Show Controls →"}
-          </button>
+          {/* Controls toggle moved to Actions column */}
 
           <Show when={selectedItems().size > 1}>
             <div class="bulk-actions">
@@ -1932,11 +1961,11 @@ function MediaBlobDataGrid() {
         }`}
         style={`width: ${filterPanelWidth()}px;`}
       >
-        <Show when={isFilterPanelOpen()}>
+        {/*<Show when={isFilterPanelOpen()}>
           <button class="panel-close-button" onClick={toggleFilterPanel}>
             Hide Controls →
           </button>
-        </Show>
+        </Show>*/}
         <div class="filter-section">
           <h3>🔍 Name Search</h3>
           <input
