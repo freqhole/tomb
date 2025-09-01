@@ -1784,7 +1784,7 @@ function MediaBlobDataGrid() {
       `}</style>
 
       {/* Browse Panel - Left Side */}
-      <div
+      {/* <div
         class={`browse-panel ${!isBrowsePanelOpen() ? "collapsed" : ""} ${
           isDraggingBrowse() ? "resizing" : ""
         }`}
@@ -1796,31 +1796,20 @@ function MediaBlobDataGrid() {
           </button>
         </Show>
 
-        <div class="filter-section">
-          <h3>🔍 Name Search</h3>
-          <input
-            class="filter-input"
-            type="text"
-            placeholder="Search by filename..."
-            value={filterConfig().name}
-            onInput={(e) => updateFilter("name", e.currentTarget.value)}
-          />
-        </div>
-
         <div
           class={`browse-resize-handle ${isDraggingBrowse() ? "dragging" : ""}`}
           onMouseDown={handleBrowsePanelMouseDown}
           title="Drag to resize panel"
         />
-      </div>
+      </div> */}
 
       <div class="toolbar-container">
         <div class="controls-row">
-          <Show when={!isBrowsePanelOpen()}>
+          {/* <Show when={!isBrowsePanelOpen()}>
             <button class="panel-toggle-button" onClick={toggleBrowsePanel}>
               Show Browse →
             </button>
-          </Show>
+          </Show> */}
 
           <button class="panel-toggle-button" onClick={toggleFilterPanel}>
             {isFilterPanelOpen() ? "← Hide Controls" : "Show Controls →"}
@@ -1928,6 +1917,11 @@ function MediaBlobDataGrid() {
           }
           selectedItems={selectedItems()}
           isDragSelecting={isDragSelecting()}
+          onScrollNearBottom={() => {
+            if (feed.state().hasMore && !feed.state().isLoadingMore) {
+              feed.actions.loadMore();
+            }
+          }}
         />
       </div>
 
@@ -1944,93 +1938,14 @@ function MediaBlobDataGrid() {
           </button>
         </Show>
         <div class="filter-section">
-          <h3>🔌 WebSocket Connection</h3>
+          <h3>🔍 Name Search</h3>
           <input
             class="filter-input"
             type="text"
-            placeholder="WebSocket URL"
-            value={wsUrl()}
-            onInput={(e) => updateWsUrl(e.currentTarget.value)}
-            style="margin-bottom: 8px;"
+            placeholder="Search by filename..."
+            value={filterConfig().name}
+            onInput={(e) => updateFilter("name", e.currentTarget.value)}
           />
-          <div style="margin-bottom: 8px;">
-            Status:{" "}
-            <span
-              style={getConnectionStatusStyle(feed.state().connectionStatus)}
-            >
-              {feed.state().connectionStatus}
-            </span>
-          </div>
-          <div style="margin-bottom: 8px;">
-            <button
-              class="ws-button"
-              onClick={() => {
-                feed.actions.connect();
-                addLog("🔌 Connect clicked");
-              }}
-              disabled={
-                feed.state().connectionStatus === ConnectionStatus.Connected
-              }
-            >
-              Connect
-            </button>
-            <button
-              class="ws-button danger"
-              onClick={() => {
-                feed.actions.disconnect();
-                addLog("🔌 Disconnect clicked");
-              }}
-              disabled={
-                feed.state().connectionStatus === ConnectionStatus.Disconnected
-              }
-            >
-              Disconnect
-            </button>
-          </div>
-          <div style="display: flex; gap: 8px; align-items: center; font-size: 12px;">
-            Auto-connect:
-            <button
-              class={`toggle-button ${autoConnect() ? "active" : ""}`}
-              onClick={toggleAutoConnect}
-            >
-              {autoConnect() ? "ON" : "OFF"}
-            </button>
-          </div>
-        </div>
-
-        <div class="filter-section">
-          <h3>🔄 Auto-refresh</h3>
-          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
-            <button
-              class={`toggle-button ${autoRefresh() ? "active" : ""}`}
-              onClick={toggleAutoRefresh}
-            >
-              {autoRefresh() ? "ON" : "OFF"}
-            </button>
-            <button
-              class="ws-button"
-              onClick={() => {
-                feed.actions.refresh();
-                addLog("🔄 Manual refresh");
-              }}
-            >
-              Refresh
-            </button>
-          </div>
-          <Show when={feed.state().hasPendingUpdates && !autoRefresh()}>
-            <div style="margin-bottom: 8px;">
-              <button
-                class="ws-button"
-                onClick={() => {
-                  feed.actions.applyPendingUpdates();
-                  addLog("📥 Applied pending updates");
-                }}
-                style="background: #f59e0b; border-color: #f59e0b;"
-              >
-                Apply {feed.state().pendingUpdates.length} Updates
-              </button>
-            </div>
-          </Show>
         </div>
 
         <div class="filter-section">
@@ -2214,6 +2129,96 @@ function MediaBlobDataGrid() {
           >
             Reset All
           </button>
+        </div>
+
+        <div class="filter-section">
+          <h3>🔌 WebSocket Connection</h3>
+          <input
+            class="filter-input"
+            type="text"
+            placeholder="WebSocket URL"
+            value={wsUrl()}
+            onInput={(e) => updateWsUrl(e.currentTarget.value)}
+            style="margin-bottom: 8px;"
+          />
+          <div style="margin-bottom: 8px;">
+            Status:{" "}
+            <span
+              style={getConnectionStatusStyle(feed.state().connectionStatus)}
+            >
+              {feed.state().connectionStatus}
+            </span>
+          </div>
+          <div style="margin-bottom: 8px;">
+            <button
+              class="ws-button"
+              onClick={() => {
+                feed.actions.connect();
+                addLog("🔌 Connect clicked");
+              }}
+              disabled={
+                feed.state().connectionStatus === ConnectionStatus.Connected
+              }
+            >
+              Connect
+            </button>
+            <button
+              class="ws-button danger"
+              onClick={() => {
+                feed.actions.disconnect();
+                addLog("🔌 Disconnect clicked");
+              }}
+              disabled={
+                feed.state().connectionStatus === ConnectionStatus.Disconnected
+              }
+            >
+              Disconnect
+            </button>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; font-size: 12px;">
+            Auto-connect:
+            <button
+              class={`toggle-button ${autoConnect() ? "active" : ""}`}
+              onClick={toggleAutoConnect}
+            >
+              {autoConnect() ? "ON" : "OFF"}
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-section">
+          <h3>🔄 Auto-refresh</h3>
+          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+            <button
+              class={`toggle-button ${autoRefresh() ? "active" : ""}`}
+              onClick={toggleAutoRefresh}
+            >
+              {autoRefresh() ? "ON" : "OFF"}
+            </button>
+            <button
+              class="ws-button"
+              onClick={() => {
+                feed.actions.refresh();
+                addLog("🔄 Manual refresh");
+              }}
+            >
+              Refresh
+            </button>
+          </div>
+          <Show when={feed.state().hasPendingUpdates && !autoRefresh()}>
+            <div style="margin-bottom: 8px;">
+              <button
+                class="ws-button"
+                onClick={() => {
+                  feed.actions.applyPendingUpdates();
+                  addLog("📥 Applied pending updates");
+                }}
+                style="background: #f59e0b; border-color: #f59e0b;"
+              >
+                Apply {feed.state().pendingUpdates.length} Updates
+              </button>
+            </div>
+          </Show>
         </div>
 
         <Show when={debug() && logs().length > 0}>

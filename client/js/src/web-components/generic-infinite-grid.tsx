@@ -33,6 +33,7 @@ interface GridProps<T = any> {
   onRowClick?: (item: T, index: number, event: MouseEvent) => void;
   onRowMouseDown?: (item: T, index: number, event: MouseEvent) => void;
   onContextMenu?: (item: T, index: number, event: MouseEvent) => void;
+  onScrollNearBottom?: () => void;
   selectedItems?: Set<string>;
   isDragSelecting?: boolean;
   sortField?: string;
@@ -113,7 +114,19 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
   // Event handlers
   const handleScroll = (e: Event) => {
     const target = e.target as HTMLDivElement;
-    setScrollTop(target.scrollTop);
+    const scrollTop = target.scrollTop;
+    const scrollHeight = target.scrollHeight;
+    const clientHeight = target.clientHeight;
+
+    setScrollTop(scrollTop);
+
+    // Check if we're near the bottom (within 200px)
+    if (
+      props.onScrollNearBottom &&
+      scrollTop + clientHeight >= scrollHeight - 200
+    ) {
+      props.onScrollNearBottom();
+    }
   };
 
   const handleSort = (field: string) => {
