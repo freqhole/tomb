@@ -579,22 +579,33 @@ fn convert_unified_params_to_search_query(params: UnifiedSearchParams) -> Search
     // Set filters
     let mut filters = SearchFilters::default();
 
+    // === BASIC FILTERS ===
     filters.artist = params.artist;
+    filters.artist_exact = params.artist_exact;
     filters.album = params.album;
+    filters.album_exact = params.album_exact;
     filters.album_artist = None; // Not in UnifiedSearchParams
     filters.genre = params.genre;
     filters.title_search = params.title;
+
+    // === NUMERIC RANGE FILTERS ===
     filters.year = params.year;
     filters.year_min = params.year_min;
     filters.year_max = params.year_max;
+    filters.rating = params.rating;
     filters.rating_min = params.rating_min;
     filters.rating_max = params.rating_max;
+    filters.bpm = params.bpm;
     filters.bpm_min = params.bpm_min;
     filters.bpm_max = params.bpm_max;
+    filters.duration_seconds = params.duration_seconds;
     filters.duration_min = params.duration_min.map(|d| d as i32);
     filters.duration_max = params.duration_max.map(|d| d as i32);
+    filters.track_number = params.track_number;
+    filters.disc_number = params.disc_number;
 
-    // Handle boolean filters
+    // === BOOLEAN FILTERS ===
+    filters.is_favorite = params.is_favorite;
     filters.favorites_only = params.is_favorite.or_else(|| {
         if params.favorites_only {
             Some(true)
@@ -603,18 +614,76 @@ fn convert_unified_params_to_search_query(params: UnifiedSearchParams) -> Search
         }
     });
     filters.has_thumbnail = params.has_thumbnail;
+    filters.has_lyrics = params.has_lyrics;
     filters.has_waveform = params.has_waveform;
+    filters.is_compilation = params.is_compilation;
 
+    // === ARRAY/MULTI-VALUE FILTERS ===
     filters.tags = params.tags;
-    filters.key_signature = params.key_signature;
+    filters.tags_any = params.tags_any;
+    filters.tags_exclude = params.tags_exclude;
+    filters.genres = params.genres;
+    filters.artists = params.artists;
+    filters.albums = params.albums;
 
-    // Handle date filters with proper conversion
+    // === FILE/TECHNICAL FILTERS ===
+    filters.file_format = params.file_format;
+    filters.file_formats = params.file_formats;
+    filters.bitrate_min = params.bitrate_min;
+    filters.bitrate_max = params.bitrate_max;
+    filters.sample_rate_min = params.sample_rate_min;
+    filters.sample_rate_max = params.sample_rate_max;
+    filters.file_size_min = params.file_size_min;
+    filters.file_size_max = params.file_size_max;
+
+    // === DATE FILTERS ===
     filters.created_after = params.created_after.and_then(|s| {
+        OffsetDateTime::parse(&s, &time::format_description::well_known::Rfc3339).ok()
+    });
+    filters.created_before = params.created_before.and_then(|s| {
         OffsetDateTime::parse(&s, &time::format_description::well_known::Rfc3339).ok()
     });
     filters.updated_after = params.updated_after.and_then(|s| {
         OffsetDateTime::parse(&s, &time::format_description::well_known::Rfc3339).ok()
     });
+    filters.updated_before = params.updated_before.and_then(|s| {
+        OffsetDateTime::parse(&s, &time::format_description::well_known::Rfc3339).ok()
+    });
+    filters.added_after = params.added_after.and_then(|s| {
+        OffsetDateTime::parse(&s, &time::format_description::well_known::Rfc3339).ok()
+    });
+    filters.added_before = params.added_before.and_then(|s| {
+        OffsetDateTime::parse(&s, &time::format_description::well_known::Rfc3339).ok()
+    });
+
+    // === ADVANCED ADMIN FILTERS ===
+    filters.key_signature = params.key_signature;
+    filters.key_signatures = params.key_signatures;
+    filters.mood = params.mood;
+    filters.energy_level_min = params.energy_level_min;
+    filters.energy_level_max = params.energy_level_max;
+    filters.tempo_category = params.tempo_category;
+
+    // === LIBRARY MANAGEMENT ===
+    filters.playlist_id = params.playlist_id;
+    filters.not_in_playlist = params.not_in_playlist;
+    filters.duplicate_check = params.duplicate_check;
+    filters.missing_metadata = params.missing_metadata;
+    filters.has_errors = params.has_errors;
+    filters.needs_review = params.needs_review;
+
+    // === RESPONSE OPTIONS ===
+    filters.include_deleted = params.include_deleted;
+    filters.include_hidden = params.include_hidden;
+    filters.full_metadata = params.full_metadata;
+    filters.include_file_info = params.include_file_info;
+    filters.include_statistics = params.include_statistics;
+    filters.include_related = params.include_related;
+
+    // === LEGACY FIELDS ===
+    // media_blob_id not available in UnifiedSearchParams - it's an internal field
+    filters.media_blob_id = None;
+    filters.metadata_filter = None; // Could be expanded later
 
     search_query.filters = filters;
     search_query

@@ -36,33 +36,91 @@ pub enum SearchType {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchFilters {
-    // Music-specific filters
+    // === BASIC FILTERS ===
     pub artist: Option<String>,
+    pub artist_exact: Option<bool>,
     pub album: Option<String>,
+    pub album_exact: Option<bool>,
     pub album_artist: Option<String>,
     pub genre: Option<String>,
     pub title_search: Option<String>,
+
+    // === NUMERIC RANGE FILTERS ===
     pub year: Option<i32>,
     pub year_min: Option<i32>,
     pub year_max: Option<i32>,
+    pub rating: Option<i32>,
     pub rating_min: Option<i32>,
     pub rating_max: Option<i32>,
+    pub bpm: Option<i32>,
     pub bpm_min: Option<i32>,
     pub bpm_max: Option<i32>,
+    pub duration_seconds: Option<i64>,
     pub duration_min: Option<i32>,
     pub duration_max: Option<i32>,
+    pub track_number: Option<i32>,
+    pub disc_number: Option<i32>,
+
+    // === BOOLEAN FILTERS ===
+    pub is_favorite: Option<bool>,
     pub favorites_only: Option<bool>,
     pub has_thumbnail: Option<bool>,
+    pub has_lyrics: Option<bool>,
     pub has_waveform: Option<bool>,
+    pub is_compilation: Option<bool>,
+
+    // === ARRAY/MULTI-VALUE FILTERS ===
     pub tags: Option<Vec<String>>,
-    pub key_signature: Option<String>,
-    pub media_blob_id: Option<String>,
+    pub tags_any: Option<Vec<String>>,
+    pub tags_exclude: Option<Vec<String>>,
+    pub genres: Option<Vec<String>>,
+    pub artists: Option<Vec<String>>,
+    pub albums: Option<Vec<String>>,
 
-    // Date filters
+    // === FILE/TECHNICAL FILTERS ===
+    pub file_format: Option<String>,
+    pub file_formats: Option<Vec<String>>,
+    pub bitrate_min: Option<i32>,
+    pub bitrate_max: Option<i32>,
+    pub sample_rate_min: Option<i32>,
+    pub sample_rate_max: Option<i32>,
+    pub file_size_min: Option<i64>,
+    pub file_size_max: Option<i64>,
+
+    // === DATE FILTERS ===
     pub created_after: Option<OffsetDateTime>,
+    pub created_before: Option<OffsetDateTime>,
     pub updated_after: Option<OffsetDateTime>,
+    pub updated_before: Option<OffsetDateTime>,
+    pub added_after: Option<OffsetDateTime>,
+    pub added_before: Option<OffsetDateTime>,
 
-    // JSONB metadata filter
+    // === ADVANCED ADMIN FILTERS ===
+    pub key_signature: Option<String>,
+    pub key_signatures: Option<Vec<String>>,
+    pub mood: Option<String>,
+    pub energy_level_min: Option<f32>,
+    pub energy_level_max: Option<f32>,
+    pub tempo_category: Option<String>,
+
+    // === LIBRARY MANAGEMENT ===
+    pub playlist_id: Option<String>,
+    pub not_in_playlist: Option<String>,
+    pub duplicate_check: Option<String>,
+    pub missing_metadata: Option<Vec<String>>,
+    pub has_errors: Option<bool>,
+    pub needs_review: Option<bool>,
+
+    // === RESPONSE OPTIONS ===
+    pub include_deleted: Option<bool>,
+    pub include_hidden: Option<bool>,
+    pub full_metadata: Option<bool>,
+    pub include_file_info: Option<bool>,
+    pub include_statistics: Option<bool>,
+    pub include_related: Option<bool>,
+
+    // === LEGACY FIELDS ===
+    pub media_blob_id: Option<String>,
     pub metadata_filter: Option<serde_json::Value>,
 }
 
@@ -310,28 +368,73 @@ impl SearchQuery {
 impl SearchFilters {
     /// Check if any filters are set (useful for determining if a filter-only search is valid)
     pub fn has_any_filters(&self) -> bool {
+        // Basic filters
         self.artist.is_some()
             || self.album.is_some()
             || self.album_artist.is_some()
             || self.genre.is_some()
             || self.title_search.is_some()
+            // Numeric filters
             || self.year.is_some()
             || self.year_min.is_some()
             || self.year_max.is_some()
+            || self.rating.is_some()
             || self.rating_min.is_some()
             || self.rating_max.is_some()
+            || self.bpm.is_some()
             || self.bpm_min.is_some()
             || self.bpm_max.is_some()
+            || self.duration_seconds.is_some()
             || self.duration_min.is_some()
             || self.duration_max.is_some()
+            || self.track_number.is_some()
+            || self.disc_number.is_some()
+            // Boolean filters
+            || self.is_favorite.is_some()
             || self.favorites_only.is_some()
             || self.has_thumbnail.is_some()
+            || self.has_lyrics.is_some()
             || self.has_waveform.is_some()
+            || self.is_compilation.is_some()
+            // Array filters
             || self.tags.is_some()
-            || self.key_signature.is_some()
-            || self.media_blob_id.is_some()
+            || self.tags_any.is_some()
+            || self.tags_exclude.is_some()
+            || self.genres.is_some()
+            || self.artists.is_some()
+            || self.albums.is_some()
+            // File/technical filters
+            || self.file_format.is_some()
+            || self.file_formats.is_some()
+            || self.bitrate_min.is_some()
+            || self.bitrate_max.is_some()
+            || self.sample_rate_min.is_some()
+            || self.sample_rate_max.is_some()
+            || self.file_size_min.is_some()
+            || self.file_size_max.is_some()
+            // Date filters
             || self.created_after.is_some()
+            || self.created_before.is_some()
             || self.updated_after.is_some()
+            || self.updated_before.is_some()
+            || self.added_after.is_some()
+            || self.added_before.is_some()
+            // Advanced filters
+            || self.key_signature.is_some()
+            || self.key_signatures.is_some()
+            || self.mood.is_some()
+            || self.energy_level_min.is_some()
+            || self.energy_level_max.is_some()
+            || self.tempo_category.is_some()
+            // Library management
+            || self.playlist_id.is_some()
+            || self.not_in_playlist.is_some()
+            || self.duplicate_check.is_some()
+            || self.missing_metadata.is_some()
+            || self.has_errors.is_some()
+            || self.needs_review.is_some()
+            // Legacy
+            || self.media_blob_id.is_some()
             || self.metadata_filter.is_some()
     }
 }

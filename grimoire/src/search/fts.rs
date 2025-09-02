@@ -117,33 +117,90 @@ impl SearchService {
                 track_number, disc_number, duration, genre, year, bpm,
                 key_signature, rating, is_favorite, tags, metadata,
                 created_at, updated_at, version, search_rank
-            FROM search_songs($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+            FROM search_songs(
+                $1, $2, $3,                                    -- text search
+                $4, $5, $6, $7, $8, $9, $10,                  -- basic filters
+                $11, $12, $13, $14, $15, $16, $17, $18, $19,   -- numeric filters
+                $20, $21, $22, $23, $24, $25, $26,            -- numeric filters cont.
+                $27, $28, $29, $30, $31, $32,                 -- boolean filters
+                $33, $34, $35, $36, $37, $38,                 -- array filters
+                $39, $40, $41, $42,                           -- file/technical filters
+                $43, $44, $45, $46, $47, $48,                 -- date filters
+                $49, $50, $51,                                -- advanced filters
+                $52, $53,                                     -- library management
+                $54, $55,                                     -- response options
+                $56, $57,                                     -- legacy fields
+                $58, $59, $60                                 -- pagination/ordering
+            )
             "#,
         )
+        // === TEXT SEARCH ===
         .bind(query.query.as_deref())
         .bind(search_type)
         .bind(query.structured_search.as_deref())
+        // === BASIC FILTERS ===
         .bind(query.filters.artist.as_deref())
+        .bind(query.filters.artist_exact)
         .bind(query.filters.album.as_deref())
+        .bind(query.filters.album_exact)
         .bind(query.filters.album_artist.as_deref())
         .bind(query.filters.genre.as_deref())
         .bind(query.filters.title_search.as_deref())
+        // === NUMERIC RANGE FILTERS ===
         .bind(query.filters.year)
+        .bind(query.filters.year_min)
+        .bind(query.filters.year_max)
+        .bind(query.filters.rating)
         .bind(query.filters.rating_min)
         .bind(query.filters.rating_max)
+        .bind(query.filters.bpm)
         .bind(query.filters.bpm_min)
         .bind(query.filters.bpm_max)
+        .bind(query.filters.duration_seconds)
         .bind(query.filters.duration_min)
         .bind(query.filters.duration_max)
+        .bind(query.filters.track_number)
+        .bind(query.filters.disc_number)
+        // === BOOLEAN FILTERS ===
+        .bind(query.filters.is_favorite)
         .bind(query.filters.favorites_only)
         .bind(query.filters.has_thumbnail)
+        .bind(query.filters.has_lyrics)
         .bind(query.filters.has_waveform)
+        .bind(query.filters.is_compilation)
+        // === ARRAY/MULTI-VALUE FILTERS ===
         .bind(query.filters.tags.as_deref())
+        .bind(query.filters.tags_any.as_deref())
+        .bind(query.filters.tags_exclude.as_deref())
+        .bind(query.filters.genres.as_deref())
+        .bind(query.filters.artists.as_deref())
+        .bind(query.filters.albums.as_deref())
+        // === FILE/TECHNICAL FILTERS ===
+        .bind(query.filters.file_format.as_deref())
+        .bind(query.filters.file_formats.as_deref())
+        .bind(query.filters.bitrate_min)
+        .bind(query.filters.bitrate_max)
+        // === DATE FILTERS ===
         .bind(query.filters.created_after)
+        .bind(query.filters.created_before)
         .bind(query.filters.updated_after)
-        .bind(query.filters.metadata_filter.as_ref())
+        .bind(query.filters.updated_before)
+        .bind(query.filters.added_after)
+        .bind(query.filters.added_before)
+        // === ADVANCED FILTERS ===
         .bind(query.filters.key_signature.as_deref())
+        .bind(query.filters.key_signatures.as_deref())
+        .bind(query.filters.mood.as_deref())
+        // === LIBRARY MANAGEMENT ===
+        .bind(query.filters.playlist_id.as_deref())
+        .bind(query.filters.not_in_playlist.as_deref())
+        // === RESPONSE OPTIONS ===
+        .bind(query.filters.include_deleted)
+        .bind(query.filters.include_hidden)
+        // === LEGACY FIELDS ===
         .bind(query.filters.media_blob_id.as_deref())
+        .bind(query.filters.metadata_filter.as_ref())
+        // === PAGINATION AND ORDERING ===
         .bind(limit)
         .bind(offset)
         .bind(sort_by)
