@@ -141,6 +141,10 @@ export function createAdminData<T extends { id: string }>(
       if (fetchSort.field && fetchSort.direction) {
         params.sort_field = fetchSort.field;
         params.sort_direction = fetchSort.direction;
+        console.log("useAdminData: adding sort params", {
+          sort_field: fetchSort.field,
+          sort_direction: fetchSort.direction,
+        });
       }
 
       // Make API request
@@ -233,19 +237,32 @@ export function createAdminData<T extends { id: string }>(
   /**
    * Update sort and refresh data
    */
-  const updateSort = (field: string, direction?: "asc" | "desc") => {
-    // Toggle direction if same field
-    let newDirection = direction;
-    if (!newDirection) {
-      if (sortField() === field) {
-        newDirection = sortDirection() === "asc" ? "desc" : "asc";
-      } else {
-        newDirection = "asc";
+  const updateSort = (field: string, direction?: "asc" | "desc" | null) => {
+    console.log("useAdminData: updateSort called", { field, direction });
+
+    if (direction === null) {
+      // Reset to default sort
+      console.log("useAdminData: resetting to default sort");
+      setSortField(config.defaultSort?.field || null);
+      setSortDirection(config.defaultSort?.direction || null);
+    } else {
+      // Toggle direction if same field
+      let newDirection = direction;
+      if (!newDirection) {
+        if (sortField() === field) {
+          newDirection = sortDirection() === "asc" ? "desc" : "asc";
+        } else {
+          newDirection = "asc";
+        }
       }
+
+      setSortField(field);
+      setSortDirection(newDirection);
     }
 
-    setSortField(field);
-    setSortDirection(newDirection);
+    // Reset to first page when sorting changes
+    setAllLoadedItems([]);
+    setPagination((prev) => ({ ...prev, page: 1 }));
     debouncedFetch(true); // Sort changes should be immediate
   };
 

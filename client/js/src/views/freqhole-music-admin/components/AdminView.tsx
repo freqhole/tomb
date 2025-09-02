@@ -103,6 +103,27 @@ export function AdminView(props: AdminViewProps) {
               </button>
             </Show>
             <button
+              onClick={() => {
+                const current = musicData.viewMode();
+                const modes: Array<"compact" | "standard" | "detailed"> = [
+                  "compact",
+                  "standard",
+                  "detailed",
+                ];
+                const currentIndex = modes.indexOf(current);
+                const nextIndex = (currentIndex + 1) % modes.length;
+                musicData.setViewMode(modes[nextIndex]);
+              }}
+              class="px-3 py-2 bg-gray-800 text-white hover:bg-gray-700 text-sm font-medium transition-colors"
+              title={`Current: ${musicData.viewMode()} view - Click to cycle`}
+            >
+              {musicData.viewMode() === "compact"
+                ? "⚏"
+                : musicData.viewMode() === "standard"
+                  ? "☰"
+                  : "▤"}
+            </button>
+            <button
               onClick={handleRefresh}
               disabled={musicData.loading()}
               class="px-4 py-2 bg-gray-800 text-white hover:bg-gray-700 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

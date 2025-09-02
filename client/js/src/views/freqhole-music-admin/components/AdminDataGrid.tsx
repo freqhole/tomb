@@ -212,6 +212,9 @@ export function AdminDataGrid(props: AdminDataGridProps) {
   const handleSort = (field: string, direction: "asc" | "desc" | null) => {
     if (direction) {
       props.musicData.updateSort(field, direction);
+    } else {
+      // Reset to default sort (null direction means clear sort)
+      props.musicData.updateSort(field, null); // Pass null to reset to default
     }
   };
 
@@ -221,6 +224,45 @@ export function AdminDataGrid(props: AdminDataGridProps) {
     event: MouseEvent
   ) => {
     props.musicData.handleSongClick(song, event);
+  };
+
+  // view mode cycling
+  const getViewModeIcon = () => {
+    switch (props.musicData.viewMode()) {
+      case "compact":
+        return "⚏"; // compact view icon
+      case "standard":
+        return "☰"; // standard view icon
+      case "detailed":
+        return "▤"; // detailed view icon
+      default:
+        return "☰";
+    }
+  };
+
+  const getViewModeTitle = () => {
+    switch (props.musicData.viewMode()) {
+      case "compact":
+        return "Switch to standard view";
+      case "standard":
+        return "Switch to detailed view";
+      case "detailed":
+        return "Switch to compact view";
+      default:
+        return "Switch view mode";
+    }
+  };
+
+  const handleViewModeToggle = () => {
+    const current = props.musicData.viewMode();
+    const modes: Array<"compact" | "standard" | "detailed"> = [
+      "compact",
+      "standard",
+      "detailed",
+    ];
+    const currentIndex = modes.indexOf(current);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    props.musicData.setViewMode(modes[nextIndex]);
   };
 
   const handleRowDoubleClick = (song: AdminSong) => {
