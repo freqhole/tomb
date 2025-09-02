@@ -20,7 +20,6 @@ export const musicAdminConfig: AdminDataConfig = {
   },
   responseSchema: MusicListResponseSchema,
   debounceMs: 300,
-  autoFetch: false, // Disable auto-fetch, AdminView will call fetchData manually
 };
 
 /**

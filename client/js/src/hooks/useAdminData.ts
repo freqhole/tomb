@@ -17,7 +17,6 @@ export interface AdminDataConfig {
   defaultSort?: { field: string; direction: "asc" | "desc" };
   responseSchema?: any; // Zod schema for validation
   debounceMs?: number;
-  autoFetch?: boolean; // Whether to auto-fetch on mount
 }
 
 /**
@@ -46,6 +45,7 @@ export function createAdminData<T extends { id: string }>(
 ) {
   // Core state
   const [items, setItems] = createSignal<T[]>([]);
+  const [allLoadedItems, setAllLoadedItems] = createSignal<T[]>([]); // For infinite scroll
   const [total, setTotal] = createSignal(0);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
@@ -166,11 +166,19 @@ export function createAdminData<T extends { id: string }>(
       }
 
       // Update state
-      console.log(
-        "useAdminData: updating state with items:",
-        validatedResponse.songs?.length || 0
-      );
-      setItems((validatedResponse.songs as unknown as T[]) || []);
+      const newItems = (validatedResponse.songs as unknown as T[]) || [];
+      console.log("useAdminData: updating state with items:", newItems.length);
+
+      if (fetchPagination.page > 1) {
+        // For infinite scroll, append new items to existing ones
+        setAllLoadedItems((prev) => [...prev, ...newItems]);
+        setItems(() => allLoadedItems());
+      } else {
+        // For first page, replace items
+        setAllLoadedItems(newItems);
+        setItems(newItems);
+      }
+
       setTotal(validatedResponse.total || 0);
 
       // Update pagination with response data
@@ -209,6 +217,8 @@ export function createAdminData<T extends { id: string }>(
     immediate = false
   ) => {
     setFilters((prev) => ({ ...prev, ...newFilters }));
+    // Reset accumulated items when filters change
+    setAllLoadedItems([]);
     debouncedFetch(immediate);
   };
 
@@ -245,6 +255,8 @@ export function createAdminData<T extends { id: string }>(
   const clearFilters = () => {
     setFilters({ ...config.defaultFilters });
     setPagination((prev) => ({ ...prev, page: 1 }));
+    // Reset accumulated items when clearing filters
+    setAllLoadedItems([]);
     debouncedFetch(true);
   };
 
@@ -252,6 +264,9 @@ export function createAdminData<T extends { id: string }>(
    * Refresh data with current state
    */
   const refresh = () => {
+    // Reset accumulated items when refreshing
+    setAllLoadedItems([]);
+    setPagination((prev) => ({ ...prev, page: 1 }));
     debouncedFetch(true);
   };
 
@@ -268,7 +283,8 @@ export function createAdminData<T extends { id: string }>(
   const nextPage = () => {
     const current = pagination();
     if (current.has_next) {
-      goToPage((current.page || 1) + 1);
+      // For infinite scroll, keep current page state and just fetch next page
+      updatePagination({ page: (current.page || 1) + 1 });
     }
   };
 
@@ -289,13 +305,7 @@ export function createAdminData<T extends { id: string }>(
     goToPage(1);
   };
 
-  // Auto-fetch on mount (if enabled)
-  createEffect(() => {
-    if (config.autoFetch !== false) {
-      console.log("useAdminData: auto-fetch effect triggered");
-      fetchData();
-    }
-  });
+  // Note: Auto-fetch removed - AdminView will call fetchData manually to avoid conflicts
 
   // Cleanup
   onCleanup(() => {
