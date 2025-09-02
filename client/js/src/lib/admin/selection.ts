@@ -166,8 +166,8 @@ export function createSelection<T extends { id: string }>() {
       // Toggle selection
       toggleSelection(id);
     } else {
-      // Single selection (replace current selection)
-      selectItem(id, false);
+      // Regular click - toggle item in selection (don't clear others)
+      toggleSelection(id);
     }
   };
 

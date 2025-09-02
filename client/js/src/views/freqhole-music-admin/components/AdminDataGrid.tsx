@@ -34,26 +34,6 @@ export function AdminDataGrid(props: AdminDataGridProps) {
   // grid configuration
   const columns = createMemo((): GridColumn<AdminSong>[] => [
     {
-      key: "select",
-      title: "",
-      width: 40,
-      render: (song: AdminSong) => (
-        <input
-          type="checkbox"
-          checked={props.musicData.selection.actions.isSelected(song.id)}
-          onChange={(e) => {
-            e.stopPropagation();
-            if (e.target.checked) {
-              props.musicData.selection.actions.selectItem(song.id, true);
-            } else {
-              props.musicData.selection.actions.toggleSelection(song.id);
-            }
-          }}
-          class="w-4 h-4 text-magenta-500 bg-gray-800 border-gray-600 focus:ring-magenta-500"
-        />
-      ),
-    },
-    {
       key: "thumbnail",
       title: "",
       width: 60,
