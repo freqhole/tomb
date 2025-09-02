@@ -1,1244 +1,963 @@
 /* @jsxImportSource solid-js */
 import { render } from "solid-js/web";
-import { createSignal, createEffect, Show, onMount } from "solid-js";
-import { SearchBox } from "../components/search/SearchBox.js";
-import { SearchSuggestions } from "../components/search/SearchSuggestions.js";
-import { SearchFilters } from "../components/search/SearchFilters.js";
+import { createSignal, createMemo, Show, For, onMount } from "solid-js";
+import { useUnifiedSearch } from "../hooks/search/useUnifiedSearch.js";
 import {
-  SearchProvider,
-  useSearchContext,
-} from "../components/search/SearchContext.js";
+  musicUnifiedSearchConfig,
+  musicSearchPresets,
+  getMusicFilterSummary,
+} from "../lib/music/admin/music-unified-search.js";
 import { ApiClient } from "../lib/api-client.js";
-import type { FilterOption } from "../components/search/SearchFilters.js";
-import { useMusicFilters } from "../hooks/search/music/index.js";
 
 interface SearchDemoProps {
   apiBaseUrl?: string;
   autoConnect?: boolean;
 }
 
-console.log("🔍 Search Demo loading...");
+console.log("unified search demo loading");
 
-// Create API client
-const createApiClient = (baseUrl: string) => {
-  return new ApiClient(baseUrl);
-};
-
-// Fallback filter options (used while loading or on error)
-const fallbackFilterOptions = {
-  genres: [
-    { value: "rock", label: "Rock" },
-    { value: "pop", label: "Pop" },
-    { value: "jazz", label: "Jazz" },
-    { value: "classical", label: "Classical" },
-    { value: "electronic", label: "Electronic" },
-    { value: "folk", label: "Folk" },
-    { value: "hip-hop", label: "Hip-Hop" },
-    { value: "country", label: "Country" },
-    { value: "blues", label: "Blues" },
-    { value: "r&b", label: "R&B" },
-  ],
-  artists: [
-    { value: "", label: "All Artists" },
-    { value: "beatles", label: "The Beatles" },
-    { value: "dylan", label: "Bob Dylan" },
-    { value: "stones", label: "Rolling Stones" },
-    { value: "bowie", label: "David Bowie" },
-  ],
-  types: [
-    { value: "song", label: "Song" },
-    { value: "album", label: "Album" },
-    { value: "artist", label: "Artist" },
-  ],
-};
-
-function SearchDemoContent() {
-  const context = useSearchContext();
-  const [currentQuery, setCurrentQuery] = createSignal("");
-  const [searchResults, setSearchResults] = createSignal<any[]>([]);
-  const [isSearching, setIsSearching] = createSignal(false);
-  const [searchMode, setSearchMode] = createSignal<"search" | "filters">(
-    "search"
-  );
-
-  // Initialize music filters hook for dynamic filter options
-  const musicFilters = useMusicFilters({
-    apiClient: context.apiClient,
-    autoFetch: true,
-    minCount: 1,
-    limit: 25,
-    onError: (error) => {
-      console.warn("Failed to load dynamic filters:", error);
-    },
+function SearchDemoContent(props: { apiClient: ApiClient }) {
+  // unified search hook with music configuration
+  const search = useUnifiedSearch({
+    ...musicUnifiedSearchConfig,
+    searchEndpoint: `${props.apiClient.baseUrl}/api/music/search`,
+    filterOptionsEndpoint: `${props.apiClient.baseUrl}/api/music/filter-options`,
+    suggestionsEndpoint: `${props.apiClient.baseUrl}/api/music/suggestions`,
   });
 
-  // Get current filter options (dynamic or fallback)
-  const currentFilterOptions = () => {
-    if (musicFilters.loading()) {
-      return fallbackFilterOptions;
-    }
+  // ui state
+  const [selectedView, setSelectedView] = createSignal<"grid" | "list">("grid");
+  const [showAdvancedFilters, setShowAdvancedFilters] = createSignal(false);
+  const [showDebugInfo, setShowDebugInfo] = createSignal(false);
+  const [activePreset, setActivePreset] = createSignal<string | null>(null);
 
-    if (musicFilters.error() || !musicFilters.hasFilters()) {
-      console.log(
-        "Using fallback filters due to:",
-        musicFilters.error()?.message || "no filters available"
-      );
-      return fallbackFilterOptions;
-    }
+  // computed values
+  const hasResults = createMemo(() => search.results().length > 0);
+  const filterSummary = createMemo(() => {
+    const params = search.searchParams();
+    return getMusicFilterSummary(params);
+  });
 
-    const dynamicOptions = musicFilters.filterOptions();
-    console.log("Using dynamic filters:", dynamicOptions);
-    return dynamicOptions;
-  };
-
-  // Clear localStorage for clean demo experience
+  // clear local storage for clean demo
   onMount(() => {
     try {
-      // Clear all possible localStorage keys
       localStorage.removeItem("search-state");
       localStorage.removeItem("freqhole-state");
       localStorage.removeItem("grid-state");
-      localStorage.clear(); // Clear everything for demo
-      console.log("🧹 Cleared all localStorage for demo");
+      console.log("cleared demo storage");
     } catch (error) {
-      console.log("Could not clear localStorage:", error);
+      console.warn("failed to clear storage:", error);
     }
   });
 
-  // Create a debounced search function to prevent cascading calls
-  const [searchTimeout, setSearchTimeout] = createSignal<number | null>(null);
+  // check if a preset is currently active
+  const isPresetActive = (presetId: string) => {
+    const preset = musicSearchPresets.find((p) => p.id === presetId);
+    if (!preset) return false;
 
-  const debouncedSearch = (delay: number = 300) => {
-    const currentTimeout = searchTimeout();
-    if (currentTimeout) {
-      clearTimeout(currentTimeout);
-    }
-
-    const newTimeout = setTimeout(() => {
-      handleSearch();
-    }, delay);
-
-    setSearchTimeout(newTimeout);
-  };
-
-  // Handle mode switching (without automatic search triggering)
-  createEffect(() => {
-    const mode = searchMode();
-    console.log("🔄 Search mode changed to:", mode);
-
-    // When switching to search mode, clear results if no query
-    if (mode === "search") {
-      const currentQuery = context.state.query();
-      if (!currentQuery.trim()) {
-        setSearchResults([]);
-      }
-    }
-  });
-
-  // Handle search execution
-  const handleSearch = async (query?: string) => {
-    const searchQuery = query || context.state.query();
-
-    // In filters-only mode, check if we have active filters
-    // In search mode, require a query
-    if (searchMode() === "search" && !searchQuery.trim()) return;
-
-    if (
-      searchMode() === "filters" &&
-      !context.state.hasActiveFilters() &&
-      !context.state.query().trim()
-    ) {
-      console.log("🎛️ No active filters or query, clearing results");
-      setSearchResults([]);
-      return;
-    }
-
-    setIsSearching(true);
-    console.log("🔍 Performing search:", searchQuery);
-    console.log("🔍 Search mode:", searchMode());
-    console.log("🔍 API Client:", context.apiClient);
-
-    try {
-      // Update the search state if query was passed
-      if (query) {
-        context.state.setQuery(query);
-      }
-
-      let results;
-
-      if (searchMode() === "filters") {
-        // Use the dedicated filter API for filters-only mode
-        console.log("🎛️ Using filterMusic API for filters-only search");
-        const filterOptions = context.state.getMusicSearchOptions();
-        // Remove the query from filter options since it's not needed
-        const { q, ...filterParams } = filterOptions;
-
-        console.log("🎛️ Filter params:", filterParams);
-        results = await context.apiClient.filterMusic(filterParams);
-      } else {
-        // Use regular search for query-based searches
-        console.log("🔍 Using regular search API");
-        await context.performSearch();
-        results = context.search.results();
-      }
-
-      console.log("🔍 Search completed");
-      console.log("🔍 Raw results:", results);
-
-      setSearchResults(results?.results || []);
-
-      console.log("✅ Search completed:", results);
-      console.log("🔍 Results array length:", results?.results?.length);
-      console.log("🔍 Total count from server:", results?.total_count);
-
-      // Check if we got any results
-      if (!results || !results.results || results.results.length === 0) {
-        console.log(
-          "No results found for query:",
-          searchQuery,
-          "mode:",
-          searchMode()
-        );
-      }
-    } catch (error) {
-      console.error("❌ Search failed:", error);
-      console.error("❌ Search error details:", error);
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // Handle suggestion selection
-  const handleSuggestionSelect = (suggestion: string) => {
-    console.log("🔍 Suggestion selected:", suggestion);
-    context.state.setQuery(suggestion);
-    handleSearch(suggestion);
-  };
-
-  // Handle clear/reset search
-  const handleClearSearch = () => {
-    context.clearAll();
-    setSearchResults([]);
-    setCurrentQuery("");
-    console.log("🧹 Search cleared");
-  };
-
-  // Handle clear filters only (for filters mode)
-  const handleClearFilters = () => {
-    context.state.clearFilters();
-    if (searchMode() === "filters") {
-      setSearchResults([]);
-    }
-    console.log("🧹 Filters cleared");
-  };
-
-  // Handle suggestions blur/close
-  const handleSuggestionsBlur = () => {
-    // Suggestions will close automatically via the onBlur prop
-  };
-
-  // Update currentQuery when context changes
-  createEffect(() => {
-    const contextQuery = context.state.query();
-    console.log("🔍 Context query changed:", contextQuery);
-    setCurrentQuery(contextQuery);
-  });
-
-  // Get suggestions from search results
-  const searchSuggestions = () => {
-    const results = context.search.results();
-    return results?.suggestions || [];
-  };
-
-  // Group suggestions by category
-  const groupedSuggestions = () => {
-    const suggestions = searchSuggestions();
-    if (!suggestions.length) return [];
-
-    const groups = new Map<string, any[]>();
-
-    // Group suggestions by category
-    suggestions.forEach((suggestion) => {
-      const category = suggestion.category || "general";
-      if (!groups.has(category)) {
-        groups.set(category, []);
-      }
-      groups.get(category)!.push(suggestion);
-    });
-
-    // Convert to array and sort by category priority
-    const categoryOrder = ["word", "title", "playlist", "general"];
-    return Array.from(groups.entries()).sort(([a], [b]) => {
-      const aIndex = categoryOrder.indexOf(a);
-      const bIndex = categoryOrder.indexOf(b);
-      const aOrder = aIndex === -1 ? categoryOrder.length : aIndex;
-      const bOrder = bIndex === -1 ? categoryOrder.length : bIndex;
-      return aOrder - bOrder;
+    const currentParams = search.searchParams();
+    return Object.entries(preset.params).every(([key, value]) => {
+      return currentParams[key as keyof typeof currentParams] === value;
     });
   };
 
-  // Get category display info
-  const getCategoryInfo = (category: string) => {
-    const categoryData: Record<
-      string,
-      { name: string; icon: string; description: string }
-    > = {
-      word: {
-        name: "Search Suggestions",
-        icon: "🔍",
-        description: "Try these search terms",
-      },
-      title: {
-        name: "Songs",
-        icon: "🎵",
-        description: "Songs that match your search",
-      },
-      playlist: {
-        name: "Playlists",
-        icon: "📋",
-        description: "Playlists containing your search terms",
-      },
-      general: {
-        name: "Suggestions",
-        icon: "💡",
-        description: "Other suggestions",
-      },
-    };
-    return (
-      categoryData[category] || {
-        name: category.charAt(0).toUpperCase() + category.slice(1),
-        icon: "💡",
-        description: "Related suggestions",
-      }
-    );
+  // handle preset toggle
+  const togglePreset = (presetId: string) => {
+    const preset = musicSearchPresets.find((p) => p.id === presetId);
+    if (!preset) return;
+
+    if (isPresetActive(presetId)) {
+      // clear the preset by removing its parameters
+      const newParams = { ...search.searchParams() };
+      Object.keys(preset.params).forEach((key) => {
+        delete newParams[key as keyof typeof newParams];
+      });
+      newParams.page = 1;
+      search.setSearchParams(newParams);
+      setActivePreset(null);
+    } else {
+      // apply the preset
+      search.setSearchParams({
+        ...search.searchParams(),
+        ...preset.params,
+        page: 1,
+      });
+      setActivePreset(presetId);
+    }
   };
 
-  // Handle suggestion card click
-  const handleSuggestionClick = (suggestion: string) => {
-    console.log("🔍 Suggestion clicked:", suggestion);
-    context.state.setQuery(suggestion);
-    handleSearch(suggestion);
+  // format duration for display
+  const formatDuration = (seconds: number | null) => {
+    if (!seconds) return "--:--";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // format rating for display
+  const formatRating = (rating: number | null) => {
+    if (!rating) return "unrated";
+    return "★".repeat(rating) + "☆".repeat(5 - rating);
   };
 
   return (
     <div class="search-demo">
+      {/* header */}
       <div class="search-demo__header">
-        <h1 class="search-demo__title">🔍 Search Demo</h1>
-        <p class="search-demo__description">
-          Modular search components with autocomplete, filtering, and real-time
-          results
-        </p>
-
-        <div class="search-demo__mode-toggle">
-          <label class="search-demo__mode-label">Search Mode:</label>
-          <div class="search-demo__mode-buttons">
-            <button
-              class={`search-demo__mode-button ${searchMode() === "search" ? "active" : ""}`}
-              onClick={() => setSearchMode("search")}
-              type="button"
-            >
-              🔍 Search Box
-            </button>
-            <button
-              class={`search-demo__mode-button ${searchMode() === "filters" ? "active" : ""}`}
-              onClick={() => setSearchMode("filters")}
-              type="button"
-            >
-              🎛️ Filters Only
-            </button>
-          </div>
+        <h1 class="search-demo__title">unified music search demo</h1>
+        <div class="search-demo__controls">
+          <button
+            onClick={() =>
+              setSelectedView(selectedView() === "grid" ? "list" : "grid")
+            }
+            class="search-demo__view-toggle"
+          >
+            {selectedView()}
+          </button>
+          <button
+            onClick={() => setShowDebugInfo(!showDebugInfo())}
+            class="search-demo__debug-toggle"
+          >
+            debug
+          </button>
         </div>
       </div>
 
-      <div class="search-demo__content">
-        <div class="search-demo__search-section">
-          <Show when={searchMode() === "search"}>
-            <div class="search-demo__search-container">
-              <div class="search-demo__input-group">
-                <SearchBox
-                  onSearch={handleSearch}
-                  placeholder="Search music, artists, albums..."
-                  showSearchButton={true}
-                  searchButtonText="Search"
-                  autoSearch={false}
-                  useInternalState={false}
-                  query={context.state.query()}
-                  onQueryChange={(query) => context.state.setQuery(query)}
-                />
-                <Show
-                  when={
-                    context.state.query().trim() || searchResults().length > 0
-                  }
-                >
-                  <button
-                    class="search-demo__clear-button"
-                    onClick={handleClearSearch}
-                    type="button"
-                    title="Clear search"
-                  >
-                    ✕
-                  </button>
-                </Show>
-              </div>
-
-              <SearchSuggestions
-                query={context.state.query()}
-                onSuggestionSelect={handleSuggestionSelect}
-                onBlur={handleSuggestionsBlur}
-                maxSuggestions={8}
-                showLoading={true}
-                position="bottom"
-                useInternalSuggestions={true}
-                apiClient={context.apiClient}
-                show={true}
-              />
-            </div>
+      {/* search input */}
+      <div class="search-demo__search-section">
+        <div class="search-demo__search-input">
+          <input
+            type="text"
+            value={search.searchQuery()}
+            onInput={(e) => search.setSearchQuery(e.target.value)}
+            placeholder="search music library (artist, album, song title)"
+            class="search-demo__input"
+          />
+          <Show when={search.searching()}>
+            <div class="search-demo__searching">searching...</div>
           </Show>
-
-          <div class="search-demo__stats">
-            <Show when={context.hasAnyResults()}>
-              <div class="search-demo__stats-item">
-                <span class="search-demo__stats-label">Results:</span>
-                <span class="search-demo__stats-value">
-                  {context.totalResultsCount()}
-                </span>
-              </div>
-            </Show>
-
-            <Show when={context.state.hasActiveFilters()}>
-              <div class="search-demo__stats-item">
-                <span class="search-demo__stats-label">🎛️ Filters:</span>
-                <span class="search-demo__stats-value">
-                  {context.state.getFilterCount()} active
-                </span>
-              </div>
-            </Show>
-
-            <Show when={context.search.loading() || isSearching()}>
-              <div class="search-demo__stats-item">
-                <span class="search-demo__stats-loading">🔄 Searching...</span>
-              </div>
-            </Show>
-
-            <Show when={musicFilters.loading()}>
-              <div class="search-demo__stats-item">
-                <span class="search-demo__stats-loading">
-                  🔄 Loading filters...
-                </span>
-              </div>
-            </Show>
-
-            <Show when={musicFilters.error()}>
-              <div class="search-demo__stats-item">
-                <span class="search-demo__stats-label">⚠️ Filter Error:</span>
-                <button
-                  class="search-demo__refresh-button"
-                  onClick={() => musicFilters.refreshFilters()}
-                  type="button"
-                  title="Retry loading filters"
-                >
-                  Retry
-                </button>
-              </div>
-            </Show>
-          </div>
         </div>
 
-        <div
-          class={`search-demo__main ${searchMode() === "filters" ? "search-demo__main--with-filters" : "search-demo__main--full-width"}`}
-        >
-          <Show when={searchMode() === "filters"}>
-            <div class="search-demo__filters">
-              <SearchFilters
-                filterOptions={currentFilterOptions()}
-                showCounts={true}
-                startExpanded={true}
-                showToggle={true}
-                showQueryInput={searchMode() === "filters"}
-                useInternalState={false}
-                loading={musicFilters.loading()}
-                filters={{
-                  genre: context.state.filters().genre,
-                  artist: context.state.filters().artist,
-                  year: context.state.filters().year,
-                  rating_min: context.state.filters().rating_min,
-                  rating_max: context.state.filters().rating_max,
-                  favorites_only: context.state.filters().favorites_only,
-                  sortBy:
-                    context.state.sortBy() === "relevance"
-                      ? ""
-                      : context.state.sortBy(),
-                  sortOrder:
-                    context.state.sortDirection() === "desc"
-                      ? ""
-                      : context.state.sortDirection(),
-                }}
-                onFiltersChange={(filters) => {
-                  console.log("🎛️ Filters changed:", filters);
-
-                  // Check if this is a "clear all" operation (null or empty object)
-                  const isClearAll =
-                    filters === null ||
-                    (filters && Object.keys(filters).length === 0);
-
-                  if (isClearAll) {
-                    // Clear all filters
-                    console.log("🧹 Clearing all filters");
-                    context.state.clearFilters();
-                    setSearchResults([]);
-                  } else {
-                    // Apply filters to search context (batch update)
-                    Object.keys(filters).forEach((key) => {
-                      const value = filters[key];
-                      // Handle sort parameters and query separately
-                      if (key === "sortBy") {
-                        context.state.setSortBy(
-                          value === "" ? "relevance" : value
-                        );
-                      } else if (key === "sortOrder") {
-                        context.state.setSortDirection(
-                          value === "" ? "desc" : value
-                        );
-                      } else if (key === "query") {
-                        // Handle query separately - use setQuery method
-                        context.state.setQuery(value || "");
-                      } else {
-                        // Clean up filter values - only set meaningful values
-                        if (
-                          value === null ||
-                          value === undefined ||
-                          value === ""
-                        ) {
-                          context.state.updateFilter(key, null);
-                        } else {
-                          context.state.updateFilter(key, value);
-                        }
-                      }
-                    });
-
-                    // Debounced search to prevent cascading calls
-                    if (searchMode() === "filters") {
-                      if (
-                        context.state.hasActiveFilters() ||
-                        context.state.query().trim()
-                      ) {
-                        console.log("🎛️ Debouncing filter search");
-                        debouncedSearch();
-                      } else {
-                        console.log(
-                          "🎛️ No active filters or query, clearing results"
-                        );
-                        setSearchResults([]);
-                      }
-                    } else if (context.state.query().trim()) {
-                      console.log(
-                        "🎛️ Debouncing search with query and filters"
-                      );
-                      debouncedSearch();
-                    }
-                  }
-                }}
-                quickFilters={[
-                  {
-                    key: "favorites_only",
-                    value: true,
-                    label: "Favorites Only",
-                    description: "Show only your favorite songs",
-                    category: "favorites",
-                  },
-                  {
-                    key: "rating_min",
-                    value: 4,
-                    label: "High Rated",
-                    description: "Songs rated 4+ stars",
-                    category: "rating",
-                  },
-                  {
-                    key: "rating_min",
-                    value: 3,
-                    label: "Good Rated",
-                    description: "Songs rated 3+ stars",
-                    category: "rating",
-                  },
-                  {
-                    key: "genre",
-                    value: "jazz",
-                    label: "Jazz",
-                    description: "Jazz music",
-                    category: "genre",
-                  },
-                  {
-                    key: "genre",
-                    value: "classical",
-                    label: "Classical",
-                    description: "Classical music",
-                    category: "genre",
-                  },
-                  {
-                    key: "genre",
-                    value: "rock",
-                    label: "Rock",
-                    description: "Rock music",
-                    category: "genre",
-                  },
-                  {
-                    key: "has_thumbnail",
-                    value: true,
-                    label: "Has Artwork",
-                    description: "Songs with album artwork",
-                    category: "features",
-                  },
-                  {
-                    key: "year_min",
-                    value: 2020,
-                    label: "Recent",
-                    description: "Music from 2020 onwards",
-                    category: "time",
-                  },
-                  {
-                    key: "year_max",
-                    value: 1999,
-                    label: "Vintage",
-                    description: "Music from 1999 or earlier",
-                    category: "time",
-                  },
-                  {
-                    key: "bpm_min",
-                    value: 120,
-                    label: "Upbeat",
-                    description: "Songs with 120+ BPM",
-                    category: "features",
-                  },
-                ]}
-              />
-            </div>
-          </Show>
-
-          <div class="search-demo__results">
-            <Show when={!context.search.loading() && !isSearching()}>
-              <Show when={searchResults().length > 0}>
-                <div class="search-demo__results-header">
-                  <h3>Search Results</h3>
-                  <p>Found {searchResults().length} results</p>
-                </div>
-
-                <div class="search-demo__results-grid">
-                  {searchResults().map((result, index) => (
-                    <div
-                      class="search-demo__result-card"
-                      key={result.id || index}
-                    >
-                      <h4 class="search-demo__result-title">
-                        {result.title || `Result ${index + 1}`}
-                      </h4>
-                      <p class="search-demo__result-description">
-                        {result.subtitle ||
-                          result.description ||
-                          "No description"}
-                      </p>
-                      <div class="search-demo__result-meta">
-                        <span class="search-demo__result-type">
-                          {result.result_type || "Unknown"}
-                        </span>
-                        <Show when={result.relevance_score}>
-                          <span class="search-demo__result-score">
-                            Score: {result.relevance_score?.toFixed(2)}
-                          </span>
-                        </Show>
-                      </div>
-                      <Show when={result.metadata?.artist}>
-                        <div class="search-demo__result-artist">
-                          Artist: {result.metadata.artist}
-                        </div>
-                      </Show>
-                    </div>
-                  ))}
-                </div>
-              </Show>
-
-              <Show
-                when={
-                  searchResults().length === 0 &&
-                  currentQuery() &&
-                  !isSearching()
-                }
+        {/* quick presets */}
+        <div class="search-demo__presets">
+          <span class="search-demo__presets-label">quick filters:</span>
+          <For each={musicSearchPresets.slice(0, 6)}>
+            {(preset) => (
+              <button
+                onClick={() => togglePreset(preset.id)}
+                class={`search-demo__preset ${isPresetActive(preset.id) ? "active" : ""}`}
               >
-                <div class="search-demo__no-results">
-                  <h3>No results found</h3>
-                  <p>Try adjusting your search terms or filters</p>
-                  <Show when={context.search.error()}>
-                    <p class="search-demo__error">
-                      Error: {context.search.error()?.message}
-                    </p>
-                  </Show>
+                {preset.label}
+              </button>
+            )}
+          </For>
+        </div>
 
-                  <Show when={groupedSuggestions().length > 0}>
-                    <div class="search-demo__suggestions-section">
-                      <h4>You might be interested in:</h4>
-                      <div class="search-demo__suggestions-groups">
-                        <For each={groupedSuggestions()}>
-                          {([category, suggestions]) => {
-                            const categoryInfo = getCategoryInfo(category);
-                            return (
-                              <div class="search-demo__suggestion-group">
-                                <div class="search-demo__suggestion-group-header">
-                                  <span class="search-demo__suggestion-group-icon">
-                                    {categoryInfo.icon}
-                                  </span>
-                                  <div class="search-demo__suggestion-group-title">
-                                    <h5>{categoryInfo.name}</h5>
-                                    <p>{categoryInfo.description}</p>
-                                  </div>
-                                </div>
-                                <div class="search-demo__suggestion-cards">
-                                  <For each={suggestions}>
-                                    {(suggestion) => (
-                                      <div
-                                        class="search-demo__suggestion-card"
-                                        onClick={() =>
-                                          handleSuggestionClick(suggestion.text)
-                                        }
-                                      >
-                                        <span class="search-demo__suggestion-text">
-                                          {suggestion.text}
-                                        </span>
-                                        <Show when={suggestion.frequency > 1}>
-                                          <span class="search-demo__suggestion-frequency">
-                                            {suggestion.frequency}
-                                          </span>
-                                        </Show>
-                                      </div>
-                                    )}
-                                  </For>
-                                </div>
-                              </div>
-                            );
-                          }}
-                        </For>
-                      </div>
-                    </div>
-                  </Show>
-                </div>
-              </Show>
-
-              <Show when={!currentQuery() && searchResults().length === 0}>
-                <div class="search-demo__welcome">
-                  <h3>Welcome to Search Demo</h3>
-                  <p>Enter a search query to get started</p>
-                  <ul class="search-demo__features">
-                    <li>🔍 Real-time search suggestions</li>
-                    <li>🎛️ Advanced filtering options</li>
-                    <li>📱 Responsive design</li>
-                    <li>⚡ Fast and efficient</li>
-                  </ul>
-                </div>
-              </Show>
-            </Show>
-          </div>
+        {/* advanced filters toggle */}
+        <div class="search-demo__filter-controls">
+          <button
+            onClick={() => setShowAdvancedFilters(!showAdvancedFilters())}
+            class={`search-demo__advanced-toggle ${showAdvancedFilters() ? "active" : ""}`}
+          >
+            advanced filters
+          </button>
+          <Show when={search.hasActiveFilters()}>
+            <button
+              onClick={() => search.clearFilters()}
+              class="search-demo__clear-filters"
+            >
+              clear all
+            </button>
+          </Show>
         </div>
       </div>
+
+      {/* advanced filters panel */}
+      <Show when={showAdvancedFilters()}>
+        <div class="search-demo__advanced-filters">
+          <div class="search-demo__filter-grid">
+            {/* artist filter */}
+            <div class="search-demo__filter-group">
+              <label class="search-demo__filter-label">artist</label>
+              <input
+                type="text"
+                value={search.searchParams().artist || ""}
+                onInput={(e) =>
+                  search.addFilter("artist", e.target.value || undefined)
+                }
+                placeholder="artist name"
+                class="search-demo__filter-input"
+              />
+            </div>
+
+            {/* album filter */}
+            <div class="search-demo__filter-group">
+              <label class="search-demo__filter-label">album</label>
+              <input
+                type="text"
+                value={search.searchParams().album || ""}
+                onInput={(e) =>
+                  search.addFilter("album", e.target.value || undefined)
+                }
+                placeholder="album name"
+                class="search-demo__filter-input"
+              />
+            </div>
+
+            {/* genre filter */}
+            <div class="search-demo__filter-group">
+              <label class="search-demo__filter-label">genre</label>
+              <input
+                type="text"
+                value={search.searchParams().genre || ""}
+                onInput={(e) =>
+                  search.addFilter("genre", e.target.value || undefined)
+                }
+                placeholder="genre"
+                class="search-demo__filter-input"
+              />
+            </div>
+
+            {/* year range */}
+            <div class="search-demo__filter-group">
+              <label class="search-demo__filter-label">year range</label>
+              <div class="search-demo__range-inputs">
+                <input
+                  type="number"
+                  value={search.searchParams().year_min || ""}
+                  onInput={(e) =>
+                    search.addFilter(
+                      "year_min",
+                      e.target.value ? Number(e.target.value) : undefined
+                    )
+                  }
+                  placeholder="from"
+                  min="1900"
+                  max="2030"
+                  class="search-demo__range-input"
+                />
+                <input
+                  type="number"
+                  value={search.searchParams().year_max || ""}
+                  onInput={(e) =>
+                    search.addFilter(
+                      "year_max",
+                      e.target.value ? Number(e.target.value) : undefined
+                    )
+                  }
+                  placeholder="to"
+                  min="1900"
+                  max="2030"
+                  class="search-demo__range-input"
+                />
+              </div>
+            </div>
+
+            {/* rating range */}
+            <div class="search-demo__filter-group">
+              <label class="search-demo__filter-label">rating range</label>
+              <div class="search-demo__range-inputs">
+                <input
+                  type="number"
+                  value={search.searchParams().rating_min || ""}
+                  onInput={(e) =>
+                    search.addFilter(
+                      "rating_min",
+                      e.target.value ? Number(e.target.value) : undefined
+                    )
+                  }
+                  placeholder="min"
+                  min="0"
+                  max="5"
+                  class="search-demo__range-input"
+                />
+                <input
+                  type="number"
+                  value={search.searchParams().rating_max || ""}
+                  onInput={(e) =>
+                    search.addFilter(
+                      "rating_max",
+                      e.target.value ? Number(e.target.value) : undefined
+                    )
+                  }
+                  placeholder="max"
+                  min="0"
+                  max="5"
+                  class="search-demo__range-input"
+                />
+              </div>
+            </div>
+
+            {/* boolean filters */}
+            <div class="search-demo__filter-group">
+              <label class="search-demo__filter-label">options</label>
+              <div class="search-demo__boolean-filters">
+                <label class="search-demo__checkbox">
+                  <input
+                    type="checkbox"
+                    checked={search.searchParams().is_favorite || false}
+                    onChange={(e) =>
+                      search.addFilter(
+                        "is_favorite",
+                        e.target.checked ? true : undefined
+                      )
+                    }
+                  />
+                  favorites only
+                </label>
+                <label class="search-demo__checkbox">
+                  <input
+                    type="checkbox"
+                    checked={search.searchParams().has_thumbnail === false}
+                    onChange={(e) =>
+                      search.addFilter(
+                        "has_thumbnail",
+                        e.target.checked ? false : undefined
+                      )
+                    }
+                  />
+                  no artwork
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      {/* filter summary */}
+      <Show when={search.hasActiveFilters()}>
+        <div class="search-demo__filter-summary">
+          active filters: {filterSummary()}
+        </div>
+      </Show>
+
+      {/* results header */}
+      <div class="search-demo__results-header">
+        <div class="search-demo__results-info">
+          <Show
+            when={search.loading()}
+            fallback={<span>{search.totalCount()} results found</span>}
+          >
+            <span>searching...</span>
+          </Show>
+          <Show when={search.searchMetadata().queryTimeMs > 0}>
+            <span class="search-demo__query-time">
+              ({search.searchMetadata().queryTimeMs}ms)
+            </span>
+          </Show>
+        </div>
+
+        <div class="search-demo__sort-controls">
+          <label class="search-demo__sort-label">sort by:</label>
+          <select
+            value={search.sortBy() || "created_at"}
+            onChange={(e) =>
+              search.setSorting(e.target.value, search.sortDirection())
+            }
+            class="search-demo__sort-select"
+          >
+            <option value="created_at">date added</option>
+            <option value="title">title</option>
+            <option value="artist">artist</option>
+            <option value="album">album</option>
+            <option value="year">year</option>
+            <option value="rating">rating</option>
+            <option value="duration_seconds">duration</option>
+          </select>
+          <button
+            onClick={() =>
+              search.setSorting(
+                search.sortBy() || "created_at",
+                search.sortDirection() === "asc" ? "desc" : "asc"
+              )
+            }
+            class="search-demo__sort-direction"
+          >
+            {search.sortDirection() === "asc" ? "ascending" : "descending"}
+          </button>
+        </div>
+      </div>
+
+      {/* results */}
+      <Show when={!search.loading() && hasResults()}>
+        <div
+          class={`search-demo__results search-demo__results--${selectedView()}`}
+        >
+          <For each={search.results()}>
+            {(song) => (
+              <div class="search-demo__result-item">
+                <div class="search-demo__result-thumbnail">
+                  <Show
+                    when={song.thumbnail_blob_id}
+                    fallback={
+                      <div class="search-demo__no-thumbnail">no art</div>
+                    }
+                  >
+                    <img
+                      src={`/api/media/blobs/${song.thumbnail_blob_id}`}
+                      alt="album artwork"
+                      class="search-demo__thumbnail"
+                    />
+                  </Show>
+                </div>
+                <div class="search-demo__result-content">
+                  <div class="search-demo__result-title">{song.title}</div>
+                  <div class="search-demo__result-artist">
+                    {song.artist || "unknown artist"}
+                  </div>
+                  <div class="search-demo__result-album">
+                    {song.album || "unknown album"}
+                  </div>
+                  <div class="search-demo__result-meta">
+                    <span class="search-demo__duration">
+                      {formatDuration(song.duration_seconds)}
+                    </span>
+                    <Show when={song.year}>
+                      <span class="search-demo__year">{song.year}</span>
+                    </Show>
+                    <Show when={song.genre}>
+                      <span class="search-demo__genre">{song.genre}</span>
+                    </Show>
+                    <span class="search-demo__rating">
+                      {formatRating(song.rating)}
+                    </span>
+                    <Show when={song.is_favorite}>
+                      <span class="search-demo__favorite">favorite</span>
+                    </Show>
+                  </div>
+                </div>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+
+      {/* no results */}
+      <Show
+        when={!search.loading() && !hasResults() && search.hasActiveFilters()}
+      >
+        <div class="search-demo__no-results">
+          <div class="search-demo__no-results-message">
+            no songs found matching your search criteria
+          </div>
+          <button
+            onClick={() => search.clearFilters()}
+            class="search-demo__clear-all"
+          >
+            clear all filters
+          </button>
+        </div>
+      </Show>
+
+      {/* pagination */}
+      <Show when={search.totalPages() > 1}>
+        <div class="search-demo__pagination">
+          <button
+            onClick={() => search.prevPage()}
+            disabled={!search.hasPrev()}
+            class="search-demo__page-btn"
+          >
+            previous
+          </button>
+          <span class="search-demo__page-info">
+            page {search.currentPage()} of {search.totalPages()}
+          </span>
+          <button
+            onClick={() => search.nextPage()}
+            disabled={!search.hasNext()}
+            class="search-demo__page-btn"
+          >
+            next
+          </button>
+        </div>
+      </Show>
+
+      {/* error display */}
+      <Show when={search.error()}>
+        <div class="search-demo__error">
+          error: {search.error()}
+          <button
+            onClick={() => search.refresh()}
+            class="search-demo__retry-btn"
+          >
+            retry
+          </button>
+        </div>
+      </Show>
+
+      {/* debug info */}
+      <Show when={showDebugInfo()}>
+        <div class="search-demo__debug">
+          <h3>debug information</h3>
+          <pre class="search-demo__debug-content">
+            {JSON.stringify(
+              {
+                searchParams: search.searchParams(),
+                metadata: search.searchMetadata(),
+                activeFilters: search.activeFilters(),
+                resultCount: search.results().length,
+                totalCount: search.totalCount(),
+              },
+              null,
+              2
+            )}
+          </pre>
+        </div>
+      </Show>
 
       <style>{`
-        /* Fix text colors for demo */
         .search-demo {
-          color: #333;
-        }
-
-        .search-demo h1,
-        .search-demo h2,
-        .search-demo h3,
-        .search-demo p,
-        .search-demo span,
-        .search-demo div {
-          color: #333;
-        }
-
-        .search-demo__results-item {
-          color: #333;
-        }
-
-        .search-demo__results-item h3 {
-          color: #2c3e50;
-        }
-
-        .search-demo__results-item p {
-          color: #666;
-        }
-
-        .search-demo__stats-value {
-          color: #007bff;
-        }
-
-        .search-demo__stats-loading {
-          color: #28a745;
-        }
-
-        /* Ensure search suggestions are visible */
-        .search-suggestions {
-          background: white;
-          color: #333;
-          border: 1px solid #ddd;
-          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-        }
-
-        .search-suggestions__item {
-          color: #333;
-        }
-
-        .search-suggestions__item:hover {
-          background-color: #f8f9fa;
-          color: #333;
-        }
-
-        .search-suggestions__item--selected {
-          background-color: #007bff;
-          color: white;
-        }
-
-        /* Grouped suggestions styling */
-        .search-demo__suggestions-section {
-          margin-top: 2rem;
-          padding: 1.5rem;
-          background: rgba(255, 255, 255, 0.1);
-          border-radius: 12px;
-          backdrop-filter: blur(10px);
-        }
-
-        .search-demo__suggestions-section h4 {
-          margin: 0 0 1.5rem 0;
-          font-size: 1.2rem;
-          color: #fff;
-          text-align: center;
-        }
-
-        .search-demo__suggestions-groups {
-          display: flex;
-          flex-direction: column;
-          gap: 1.5rem;
-        }
-
-        .search-demo__suggestion-group {
-          background: rgba(255, 255, 255, 0.1);
-          border-radius: 8px;
-          padding: 1rem;
-          border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .search-demo__suggestion-group-header {
-          display: flex;
-          align-items: center;
-          margin-bottom: 1rem;
-          gap: 0.75rem;
-        }
-
-        .search-demo__suggestion-group-icon {
-          font-size: 1.5rem;
-          flex-shrink: 0;
-        }
-
-        .search-demo__suggestion-group-title h5 {
-          margin: 0;
-          font-size: 1rem;
-          color: #fff;
-          font-weight: 600;
-        }
-
-        .search-demo__suggestion-group-title p {
-          margin: 0.25rem 0 0 0;
-          font-size: 0.85rem;
-          color: rgba(255, 255, 255, 0.7);
-        }
-
-        .search-demo__suggestion-cards {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.5rem;
-        }
-
-        .search-demo__suggestion-card {
-          background: rgba(255, 255, 255, 0.15);
-          border: 1px solid rgba(255, 255, 255, 0.3);
-          border-radius: 6px;
-          padding: 0.5rem 0.75rem;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          font-size: 0.9rem;
-          color: #fff;
-          backdrop-filter: blur(5px);
-        }
-
-        .search-demo__suggestion-card:hover {
-          background: rgba(255, 255, 255, 0.25);
-          border-color: rgba(255, 255, 255, 0.5);
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        }
-
-        .search-demo__suggestion-text {
-          flex: 1;
-        }
-
-        .search-demo__suggestion-frequency {
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 10px;
-          padding: 0.1rem 0.4rem;
-          font-size: 0.75rem;
-          font-weight: 500;
-          min-width: 1.5rem;
-          text-align: center;
-        }
-
-        /* Responsive design for suggestion cards */
-        @media (max-width: 768px) {
-          .search-demo__suggestions-groups {
-            gap: 1rem;
-          }
-
-          .search-demo__suggestion-group {
-            padding: 0.75rem;
-          }
-
-          .search-demo__suggestion-cards {
-            gap: 0.4rem;
-          }
-
-          .search-demo__suggestion-card {
-            padding: 0.4rem 0.6rem;
-            font-size: 0.85rem;
-          }
-        }
-
-        .search-demo {
-          min-height: 100vh;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-        }
-
-        .search-demo__header {
-          text-align: center;
-          padding: 2rem;
-          background: rgba(0, 0, 0, 0.1);
-        }
-
-        .search-demo__title {
-          font-size: 2.5rem;
-          margin: 0 0 1rem 0;
-          text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        .search-demo__description {
-          font-size: 1.1rem;
-          margin: 0 0 1.5rem 0;
-          opacity: 0.9;
-        }
-
-        .search-demo__mode-toggle {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 1rem;
-        }
-
-        .search-demo__mode-label {
-          font-size: 1rem;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.9);
-        }
-
-        .search-demo__mode-buttons {
-          display: flex;
-          gap: 0.5rem;
-        }
-
-        .search-demo__mode-button {
-          padding: 0.5rem 1rem;
-          background: rgba(255, 255, 255, 0.1);
-          border: 1px solid rgba(255, 255, 255, 0.3);
-          border-radius: 6px;
-          color: rgba(255, 255, 255, 0.8);
-          cursor: pointer;
-          font-size: 0.9rem;
-          font-weight: 500;
-          transition: all 0.2s;
-          backdrop-filter: blur(10px);
-        }
-
-        .search-demo__mode-button:hover {
-          background: rgba(255, 255, 255, 0.2);
-          border-color: rgba(255, 255, 255, 0.5);
-          color: white;
-          transform: translateY(-2px);
-        }
-
-        .search-demo__mode-button.active {
-          background: rgba(255, 255, 255, 0.3);
-          border-color: rgba(255, 255, 255, 0.6);
-          color: white;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        }
-
-        .search-demo__mode-button:active {
-          transform: translateY(0);
-        }
-
-        .search-demo__content {
           max-width: 1200px;
           margin: 0 auto;
           padding: 2rem;
+          background: #1a1a1a;
+          color: #ffffff;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          min-height: 100vh;
         }
 
-        .search-demo__search-section {
+        .search-demo__header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
           margin-bottom: 2rem;
         }
 
-        .search-demo__search-container {
-          position: relative;
-          max-width: 600px;
-          margin: 0 auto 1rem auto;
-        }
-
-        .search-demo__input-group {
-          position: relative;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .search-demo__clear-button {
-          padding: 8px 12px;
-          background: rgba(255, 255, 255, 0.2);
-          border: 1px solid rgba(255, 255, 255, 0.3);
-          border-radius: 4px;
-          color: white;
-          cursor: pointer;
-          font-size: 16px;
+        .search-demo__title {
+          font-size: 1.8rem;
           font-weight: bold;
-          transition: all 0.2s;
-          backdrop-filter: blur(10px);
+          margin: 0;
+          color: #ffffff;
         }
 
-        .search-demo__clear-button:hover {
-          background: rgba(255, 255, 255, 0.3);
-          border-color: rgba(255, 255, 255, 0.5);
-          transform: scale(1.05);
-        }
-
-        .search-demo__clear-button:active {
-          transform: scale(0.95);
-        }
-
-        .search-demo__stats {
+        .search-demo__controls {
           display: flex;
-          justify-content: center;
-          gap: 2rem;
-          margin-top: 1rem;
-        }
-
-        .search-demo__stats-item {
-          display: flex;
-          align-items: center;
           gap: 0.5rem;
+        }
+
+        .search-demo__view-toggle,
+        .search-demo__debug-toggle {
           padding: 0.5rem 1rem;
-          background: rgba(255, 255, 255, 0.1);
-          border-radius: 20px;
-          backdrop-filter: blur(10px);
+          background: #333333;
+          color: #ffffff;
+          border: none;
+          cursor: pointer;
+          font-size: 0.9rem;
+          transition: background-color 0.2s;
         }
 
-        .search-demo__stats-label {
-          font-weight: 600;
+        .search-demo__view-toggle:hover,
+        .search-demo__debug-toggle:hover {
+          background: #444444;
         }
 
-        .search-demo__stats-value {
-          background: rgba(255, 255, 255, 0.2);
-          padding: 0.25rem 0.5rem;
-          border-radius: 12px;
-          font-weight: bold;
-        }
-
-        .search-demo__stats-loading {
-          font-weight: 600;
-          animation: pulse 1.5s infinite;
-        }
-
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-
-        .search-demo__main {
-          display: grid;
-          gap: 2rem;
-          align-items: start;
-        }
-
-        .search-demo__main--with-filters {
-          grid-template-columns: 300px 1fr;
-        }
-
-        .search-demo__main--full-width {
-          grid-template-columns: 1fr;
-        }
-
-        .search-demo__filters {
-          background: rgba(255, 255, 255, 0.1);
-          color: black;
-          border-radius: 12px;
-          backdrop-filter: blur(10px);
-          border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .search-demo__results {
-          background: rgba(255, 255, 255, 0.1);
-          border-radius: 12px;
-          padding: 2rem;
-          backdrop-filter: blur(10px);
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          min-height: 400px;
-        }
-
-        .search-demo__results-header {
+        .search-demo__search-section {
           margin-bottom: 1.5rem;
         }
 
-        .search-demo__results-header h3 {
-          margin: 0 0 0.5rem 0;
-          font-size: 1.5rem;
+        .search-demo__search-input {
+          position: relative;
+          margin-bottom: 1rem;
         }
 
-        .search-demo__results-header p {
-          margin: 0;
-          opacity: 0.8;
+        .search-demo__input {
+          width: 100%;
+          padding: 1rem;
+          background: #2a2a2a;
+          color: #ffffff;
+          border: 2px solid #333333;
+          font-size: 1.1rem;
+          outline: none;
+          transition: border-color 0.2s;
         }
 
-        .search-demo__results-grid {
+        .search-demo__input:focus {
+          border-color: #ff00ff;
+        }
+
+        .search-demo__searching {
+          position: absolute;
+          right: 1rem;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #888888;
+          font-size: 0.9rem;
+        }
+
+        .search-demo__presets {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          align-items: center;
+          margin-bottom: 1rem;
+        }
+
+        .search-demo__presets-label {
+          color: #888888;
+          font-size: 0.9rem;
+          margin-right: 0.5rem;
+        }
+
+        .search-demo__preset {
+          padding: 0.25rem 0.75rem;
+          background: #333333;
+          color: #ffffff;
+          border: none;
+          cursor: pointer;
+          font-size: 0.8rem;
+          transition: background-color 0.2s;
+        }
+
+        .search-demo__preset:hover {
+          background: #444444;
+        }
+
+        .search-demo__filter-controls {
+          display: flex;
+          gap: 1rem;
+          align-items: center;
+        }
+
+        .search-demo__advanced-toggle {
+          padding: 0.5rem 1rem;
+          background: #333333;
+          color: #ffffff;
+          border: none;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        }
+
+        .search-demo__advanced-toggle.active {
+          background: #ff00ff;
+        }
+
+        .search-demo__advanced-toggle:hover {
+          background: #444444;
+        }
+
+        .search-demo__advanced-toggle.active:hover {
+          background: #ff33ff;
+        }
+
+        .search-demo__clear-filters {
+          padding: 0.5rem 1rem;
+          background: #444444;
+          color: #ffffff;
+          border: none;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        }
+
+        .search-demo__clear-filters:hover {
+          background: #555555;
+        }
+
+        .search-demo__advanced-filters {
+          background: #2a2a2a;
+          padding: 1.5rem;
+          margin-bottom: 1rem;
+          border: 1px solid #333333;
+        }
+
+        .search-demo__filter-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
           gap: 1rem;
         }
 
-        .search-demo__result-card {
-          background: rgba(255, 255, 255, 0.1);
-          border-radius: 8px;
-          padding: 1rem;
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          transition: transform 0.2s, box-shadow 0.2s;
+        .search-demo__filter-group {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
         }
 
-        .search-demo__result-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        .search-demo__filter-label {
+          color: #cccccc;
+          font-size: 0.9rem;
+          font-weight: 500;
+        }
+
+        .search-demo__filter-input,
+        .search-demo__range-input {
+          padding: 0.5rem;
+          background: #1a1a1a;
+          color: #ffffff;
+          border: 1px solid #444444;
+          outline: none;
+          transition: border-color 0.2s;
+        }
+
+        .search-demo__filter-input:focus,
+        .search-demo__range-input:focus {
+          border-color: #ff00ff;
+        }
+
+        .search-demo__range-inputs {
+          display: flex;
+          gap: 0.5rem;
+        }
+
+        .search-demo__boolean-filters {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+        }
+
+        .search-demo__checkbox {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          cursor: pointer;
+          font-size: 0.9rem;
+        }
+
+        .search-demo__filter-summary {
+          background: #2a2a2a;
+          padding: 0.75rem;
+          margin-bottom: 1rem;
+          color: #cccccc;
+          font-size: 0.9rem;
+          border-left: 3px solid #ff00ff;
+        }
+
+        .search-demo__results-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 1rem;
+          padding-bottom: 0.5rem;
+          border-bottom: 1px solid #333333;
+        }
+
+        .search-demo__results-info {
+          display: flex;
+          gap: 0.5rem;
+          align-items: center;
+        }
+
+        .search-demo__query-time {
+          color: #888888;
+          font-size: 0.8rem;
+        }
+
+        .search-demo__sort-controls {
+          display: flex;
+          gap: 0.5rem;
+          align-items: center;
+        }
+
+        .search-demo__sort-label {
+          color: #cccccc;
+          font-size: 0.9rem;
+        }
+
+        .search-demo__sort-select {
+          padding: 0.25rem 0.5rem;
+          background: #333333;
+          color: #ffffff;
+          border: 1px solid #444444;
+        }
+
+        .search-demo__sort-direction {
+          padding: 0.25rem 0.5rem;
+          background: #333333;
+          color: #ffffff;
+          border: none;
+          cursor: pointer;
+          font-size: 0.8rem;
+        }
+
+        .search-demo__results {
+          display: grid;
+          gap: 1rem;
+          margin-bottom: 2rem;
+        }
+
+        .search-demo__results--grid {
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        }
+
+        .search-demo__results--list {
+          grid-template-columns: 1fr;
+        }
+
+        .search-demo__result-item {
+          display: flex;
+          gap: 1rem;
+          background: #2a2a2a;
+          padding: 1rem;
+          border: 1px solid #333333;
+          transition: border-color 0.2s;
+        }
+
+        .search-demo__result-item:hover {
+          border-color: #444444;
+        }
+
+        .search-demo__result-thumbnail {
+          flex-shrink: 0;
+        }
+
+        .search-demo__thumbnail {
+          width: 60px;
+          height: 60px;
+          object-fit: cover;
+        }
+
+        .search-demo__no-thumbnail {
+          width: 60px;
+          height: 60px;
+          background: #333333;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.7rem;
+          color: #888888;
+        }
+
+        .search-demo__result-content {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
         }
 
         .search-demo__result-title {
-          margin: 0 0 0.5rem 0;
-          font-size: 1.1rem;
-          color: #fff;
+          font-weight: bold;
+          color: #ffffff;
         }
 
-        .search-demo__result-description {
-          margin: 0 0 1rem 0;
-          opacity: 0.8;
+        .search-demo__result-artist {
+          color: #cccccc;
           font-size: 0.9rem;
-          line-height: 1.4;
+        }
+
+        .search-demo__result-album {
+          color: #aaaaaa;
+          font-size: 0.8rem;
         }
 
         .search-demo__result-meta {
           display: flex;
-          gap: 0.5rem;
-          flex-wrap: wrap;
-        }
-
-        .search-demo__result-type,
-        .search-demo__result-score {
-          background: rgba(255, 255, 255, 0.2);
-          padding: 0.25rem 0.5rem;
-          border-radius: 12px;
-          font-size: 0.8rem;
-        }
-
-        .search-demo__result-artist {
+          gap: 0.75rem;
+          font-size: 0.7rem;
+          color: #888888;
           margin-top: 0.5rem;
-          font-size: 0.85rem;
-          opacity: 0.8;
-          font-style: italic;
         }
 
-        .search-demo__no-results,
-        .search-demo__welcome {
+        .search-demo__favorite {
+          color: #ff00ff;
+          font-weight: bold;
+        }
+
+        .search-demo__no-results {
           text-align: center;
-          padding: 3rem 2rem;
+          padding: 3rem;
+          color: #888888;
         }
 
-        .search-demo__welcome h3,
-        .search-demo__no-results h3 {
-          margin: 0 0 1rem 0;
-          font-size: 1.5rem;
+        .search-demo__no-results-message {
+          margin-bottom: 1rem;
+          font-size: 1.1rem;
         }
 
-        .search-demo__welcome p,
-        .search-demo__no-results p {
-          margin: 0 0 1.5rem 0;
-          opacity: 0.8;
+        .search-demo__clear-all {
+          padding: 0.75rem 1.5rem;
+          background: #ff00ff;
+          color: #ffffff;
+          border: none;
+          cursor: pointer;
+          font-size: 1rem;
         }
 
-        .search-demo__features {
-          list-style: none;
-          padding: 0;
-          margin: 0;
+        .search-demo__pagination {
           display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
+          justify-content: center;
+          align-items: center;
+          gap: 1rem;
+          margin: 2rem 0;
         }
 
-        .search-demo__features li {
-          padding: 0.5rem;
-          background: rgba(255, 255, 255, 0.1);
-          border-radius: 6px;
+        .search-demo__page-btn {
+          padding: 0.5rem 1rem;
+          background: #333333;
+          color: #ffffff;
+          border: none;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        }
+
+        .search-demo__page-btn:disabled {
+          background: #222222;
+          color: #666666;
+          cursor: not-allowed;
+        }
+
+        .search-demo__page-btn:not(:disabled):hover {
+          background: #444444;
+        }
+
+        .search-demo__page-info {
+          color: #cccccc;
         }
 
         .search-demo__error {
-          color: #ff6b6b;
-          background: rgba(255, 107, 107, 0.1);
-          padding: 0.5rem;
-          border-radius: 4px;
-          margin-top: 0.5rem;
-          font-size: 0.9rem;
+          background: #3a1a1a;
+          color: #ff6666;
+          padding: 1rem;
+          margin: 1rem 0;
+          border: 1px solid #ff3333;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
         }
 
-        .search-demo__refresh-button {
-          padding: 4px 8px;
-          background: rgba(255, 255, 255, 0.2);
-          border: 1px solid rgba(255, 255, 255, 0.3);
-          border-radius: 4px;
-          color: white;
+        .search-demo__retry-btn {
+          padding: 0.5rem 1rem;
+          background: #ff3333;
+          color: #ffffff;
+          border: none;
           cursor: pointer;
-          font-size: 12px;
-          transition: all 0.2s;
-          backdrop-filter: blur(10px);
         }
 
-        .search-demo__refresh-button:hover {
-          background: rgba(255, 255, 255, 0.3);
-          border-color: rgba(255, 255, 255, 0.5);
-          transform: scale(1.05);
+        .search-demo__debug {
+          margin-top: 2rem;
+          background: #1a1a1a;
+          padding: 1rem;
+          border: 1px solid #333333;
+        }
+
+        .search-demo__debug h3 {
+          margin: 0 0 1rem 0;
+          color: #cccccc;
+        }
+
+        .search-demo__debug-content {
+          background: #0a0a0a;
+          padding: 1rem;
+          color: #888888;
+          font-size: 0.8rem;
+          overflow-x: auto;
+          margin: 0;
         }
 
         @media (max-width: 768px) {
-          .search-demo__main {
-            grid-template-columns: 1fr;
-          }
-
-          .search-demo__content {
+          .search-demo {
             padding: 1rem;
           }
 
-          .search-demo__results-grid {
+          .search-demo__results--grid {
             grid-template-columns: 1fr;
+          }
+
+          .search-demo__filter-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .search-demo__results-header {
+            flex-direction: column;
+            gap: 1rem;
+            align-items: flex-start;
           }
         }
       `}</style>
@@ -1247,23 +966,12 @@ function SearchDemoContent() {
 }
 
 function SearchDemo(props: SearchDemoProps) {
-  const apiClient = createApiClient(
-    props.apiBaseUrl || "http://localhost:8080"
-  );
+  const apiClient = new ApiClient({
+    baseUrl: props.apiBaseUrl || "http://localhost:8080",
+    timeout: 30000,
+  });
 
-  return (
-    <SearchProvider
-      apiClient={apiClient}
-      searchOptions={{
-        enableSuggestions: true,
-        enableHistory: false,
-        autoSearch: false,
-        integrationMode: "standalone",
-      }}
-    >
-      <SearchDemoContent />
-    </SearchProvider>
-  );
+  return <SearchDemoContent apiClient={apiClient} />;
 }
 
 // Web Component Implementation
@@ -1271,7 +979,7 @@ class SearchDemoElement extends HTMLElement {
   private dispose?: () => void;
 
   connectedCallback() {
-    console.log("🔍 SearchDemo element connected");
+    console.log("unified search demo element connected");
 
     const apiBaseUrl =
       this.getAttribute("api-base-url") || "http://localhost:8080";
@@ -1282,14 +990,14 @@ class SearchDemoElement extends HTMLElement {
         () => <SearchDemo apiBaseUrl={apiBaseUrl} autoConnect={autoConnect} />,
         this
       );
-      console.log("✅ SearchDemo render successful");
+      console.log("unified search demo render successful");
     } catch (error) {
-      console.error("❌ SearchDemo render failed:", error);
+      console.error("unified search demo render failed:", error);
     }
   }
 
   disconnectedCallback() {
-    console.log("🔍 SearchDemo element disconnected");
+    console.log("unified search demo element disconnected");
     if (this.dispose) {
       this.dispose();
     }
@@ -1298,10 +1006,12 @@ class SearchDemoElement extends HTMLElement {
 
 // Register the custom element
 try {
-  customElements.define("search-demo", SearchDemoElement);
-  console.log("✅ search-demo element registered successfully");
+  if (!customElements.get("search-demo")) {
+    customElements.define("search-demo", SearchDemoElement);
+    console.log("unified search demo web component registered");
+  }
 } catch (error) {
-  console.error("❌ Failed to register search-demo element:", error);
+  console.error("failed to register unified search demo web component:", error);
 }
 
 export { SearchDemo, SearchDemoElement };
