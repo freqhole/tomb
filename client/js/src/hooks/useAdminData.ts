@@ -1,4 +1,4 @@
-import { createSignal, createMemo, createEffect, onCleanup } from "solid-js";
+import { createSignal, createMemo } from "solid-js";
 import type {
   AdminGridState,
   AdminMusicFilters,
@@ -173,7 +173,7 @@ export function createAdminData<T extends { id: string }>(
       const newItems = (validatedResponse.songs as unknown as T[]) || [];
       console.log("useAdminData: updating state with items:", newItems.length);
 
-      if (fetchPagination.page > 1) {
+      if (fetchPagination.page && fetchPagination.page > 1) {
         // For infinite scroll, append new items to existing ones
         setAllLoadedItems((prev) => [...prev, ...newItems]);
         setItems(() => allLoadedItems());

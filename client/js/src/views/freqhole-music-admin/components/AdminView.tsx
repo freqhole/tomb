@@ -3,6 +3,13 @@ import { createSignal, onMount, Show } from "solid-js";
 import { ApiClient } from "../../../lib/api-client.js";
 import { AdminDataGrid } from "./AdminDataGrid.js";
 import { createMusicAdminData } from "../../../hooks/music/admin/useMusicAdminData.js";
+import { AdminSearchHeader } from "../../../lib/admin/components/AdminSearchHeader.js";
+import { AdvancedFilterPanel } from "../../../lib/admin/components/AdvancedFilterPanel.js";
+import { useMusicSearch } from "../../../hooks/music/admin/useMusicSearch.js";
+import {
+  musicFilterConfigs,
+  updateMusicFilterConfigs,
+} from "../../../lib/music/admin/music-search-config.js";
 
 export interface AdminViewProps {
   apiClient: ApiClient;
@@ -24,6 +31,12 @@ export function AdminView(props: AdminViewProps) {
 
   // create music admin data hook
   const musicData = createMusicAdminData(props.apiClient);
+
+  // create music search hook
+  const musicSearch = useMusicSearch(props.apiClient, (searchOptions) => {
+    // update music data filters when search changes
+    musicData.updateFilters(searchOptions, true);
+  });
 
   // initialize data loading
   onMount(async () => {
@@ -94,14 +107,6 @@ export function AdminView(props: AdminViewProps) {
             </Show>
           </div>
           <div class="flex items-center space-x-4">
-            <Show when={musicData.isFiltered()}>
-              <button
-                onClick={() => musicData.clearFilters()}
-                class="px-3 py-1 bg-gray-700 text-gray-300 hover:bg-gray-600 text-xs font-medium transition-colors"
-              >
-                clear filters
-              </button>
-            </Show>
             <button
               onClick={() => {
                 const current = musicData.viewMode();
@@ -111,17 +116,21 @@ export function AdminView(props: AdminViewProps) {
                   "detailed",
                 ];
                 const currentIndex = modes.indexOf(current);
-                const nextIndex = (currentIndex + 1) % modes.length;
-                musicData.setViewMode(modes[nextIndex]);
+                const nextIndex =
+                  currentIndex >= 0 ? (currentIndex + 1) % modes.length : 0;
+                const nextMode = modes[nextIndex];
+                if (nextMode) {
+                  musicData.setViewMode(nextMode);
+                }
               }}
               class="px-3 py-2 bg-gray-800 text-white hover:bg-gray-700 text-sm font-medium transition-colors"
               title={`Current: ${musicData.viewMode()} view - Click to cycle`}
             >
               {musicData.viewMode() === "compact"
-                ? "⚏"
+                ? "compact"
                 : musicData.viewMode() === "standard"
-                  ? "☰"
-                  : "▤"}
+                  ? "standard"
+                  : "detailed"}
             </button>
             <button
               onClick={handleRefresh}
@@ -133,6 +142,41 @@ export function AdminView(props: AdminViewProps) {
           </div>
         </div>
       </div>
+
+      {/* search header */}
+      <Show when={initialized()}>
+        <AdminSearchHeader
+          searchQuery={musicSearch.searchQuery}
+          onSearchChange={musicSearch.setSearchQuery}
+          filters={musicSearch.filters}
+          onFiltersChange={musicSearch.updateFilters}
+          onClearFilters={musicSearch.clearFilters}
+          showAdvancedSearch={musicSearch.showAdvancedSearch}
+          onToggleAdvancedSearch={musicSearch.setShowAdvancedSearch}
+          suggestions={musicSearch.suggestions}
+          onSuggestionSelect={musicSearch.onSuggestionSelect}
+          presets={musicSearch.presets}
+          onPresetApply={musicSearch.applyPreset}
+          loading={musicData.loading}
+          resultsCount={musicData.total}
+          filterSummary={musicSearch.filterSummary}
+        />
+      </Show>
+
+      {/* advanced filter panel */}
+      <Show when={initialized()}>
+        <AdvancedFilterPanel
+          filters={musicSearch.filters}
+          onFiltersChange={musicSearch.updateFilters}
+          filterConfigs={updateMusicFilterConfigs(
+            musicFilterConfigs,
+            musicSearch.filterOptions()
+          )}
+          filterOptions={musicSearch.filterOptions}
+          visible={musicSearch.showAdvancedSearch}
+          onClose={() => musicSearch.setShowAdvancedSearch(false)}
+        />
+      </Show>
 
       {/* main content area */}
       <div class="flex-1 bg-gray-900">

@@ -74,16 +74,11 @@ export default function FreqHoleMusicAdmin(
             when={loading()}
             fallback={
               <Show when={apiClient()}>
-                {() => {
-                  console.log("freqhole music admin: rendering AdminView");
-                  return (
-                    <AdminView
-                      apiClient={apiClient()!}
-                      theme={theme()}
-                      className="h-full"
-                    />
-                  );
-                }}
+                <AdminView
+                  apiClient={apiClient()!}
+                  theme={theme()}
+                  className="h-full"
+                />
               </Show>
             }
           >
