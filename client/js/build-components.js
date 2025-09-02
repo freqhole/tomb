@@ -215,10 +215,19 @@ async function buildAllComponents() {
             typescript: true,
             jsx: "preserve",
           }),
-          tailwindcss(),
+          tailwindcss({
+            config: "./tailwind.config.js",
+          }),
           {
             name: "generate-standalone-html",
             generateBundle(_, bundle) {
+              // Debug: log all files in bundle
+              console.log(`Debug: Bundle contents for ${component}:`);
+              Object.keys(bundle).forEach((fileName) => {
+                const file = bundle[fileName];
+                console.log(`  - ${fileName} (type: ${file.type})`);
+              });
+
               const jsChunk = Object.values(bundle).find(
                 (file) => file.type === "chunk" && typeof file.code === "string"
               );
@@ -230,9 +239,23 @@ async function buildAllComponents() {
                   file.fileName.endsWith(".css")
               );
 
+              console.log(`Debug: Found JS chunk: ${!!jsChunk}`);
+              console.log(`Debug: Found CSS asset: ${!!cssAsset}`);
+              if (cssAsset) {
+                console.log(`Debug: CSS file name: ${cssAsset.fileName}`);
+                console.log(
+                  `Debug: CSS size: ${cssAsset.source?.length || 0} chars`
+                );
+              }
+
               if (jsChunk) {
                 const elementName = getElementNameFromFile(component);
                 const cssCode = cssAsset ? cssAsset.source : undefined;
+                console.log(`Debug: cssCode defined: ${!!cssCode}`);
+                console.log(`Debug: cssCode length: ${cssCode?.length || 0}`);
+                console.log(
+                  `Debug: cssCode preview: ${cssCode?.substring(0, 100)}...`
+                );
                 const html = generateHtmlTemplate(
                   elementName,
                   jsChunk.code,

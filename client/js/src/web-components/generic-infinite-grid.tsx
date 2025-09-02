@@ -58,7 +58,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
   const [containerHeight, setContainerHeight] = createSignal(
     window.innerHeight
   );
-  const [viewportHeight, setViewportHeight] = createSignal(0);
+  const [,] = createSignal(0);
 
   let scrollContainer: HTMLDivElement;
 
@@ -90,10 +90,6 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
     const rowsInViewport = Math.floor(viewportHeight / ROW_HEIGHT());
     const endRow = Math.floor(scrollTop() / ROW_HEIGHT()) + rowsInViewport;
     return Math.min(endRow, totalRows());
-  });
-
-  const actualVisibleCount = createMemo(() => {
-    return Math.max(0, actualVisibleEndRow() - actualVisibleStartRow() + 1);
   });
 
   const visibleData = createMemo(() => {
@@ -398,7 +394,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
         <div class="grid-content" style={{ height: `${totalHeight()}px` }}>
           <For each={visibleDataWithSelection()}>
             {(rowData) => {
-              const { item, actualIndex, itemId, isSelected } = rowData;
+              const { item, actualIndex, isSelected } = rowData;
 
               // Call onRowMount when the row is rendered
               if (props.onRowMount) {

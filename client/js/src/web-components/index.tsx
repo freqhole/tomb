@@ -38,6 +38,7 @@ import "./product-data-grid-demo";
 import "./search-demo";
 import "./freqhole-demo";
 import "./zune-demo";
+import "./freqhole-music-admin";
 
 // Component registration confirmation
 const REGISTERED_COMPONENTS = [
@@ -61,6 +62,7 @@ const REGISTERED_COMPONENTS = [
   "search-demo",
   "freqhole-demo",
   "zune-demo",
+  "freqhole-music-admin",
 ] as const;
 
 export { REGISTERED_COMPONENTS };
@@ -231,6 +233,16 @@ declare global {
         "api-base-url"?: string;
         "auto-connect"?: boolean;
       };
+
+      "freqhole-music-admin": {
+        "api-base-url"?: string;
+        theme?: "light" | "dark";
+        "auth-token"?: string;
+        "page-size"?: number;
+        "enable-keyboard-shortcuts"?: boolean;
+        "enable-bulk-operations"?: boolean;
+        debug?: boolean;
+      };
     }
   }
 }
@@ -288,4 +300,5 @@ console.log("🧩 Web Components Library loaded - Available components:", [
   "search-demo",
   "freqhole-demo",
   "zune-demo",
+  "freqhole-music-admin",
 ]);
