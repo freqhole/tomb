@@ -1,9 +1,9 @@
 import { z } from "zod";
 
-// UUID string pattern validation
+// uuid string pattern validation
 const UuidSchema = z.string().uuid();
 
-// Core admin song schema - extends the base song with admin-specific fields
+// core admin song schema - extends the base song with admin-specific fields
 export const AdminSongSchema = z.object({
   id: UuidSchema,
   title: z.string(),
@@ -28,7 +28,7 @@ export const AdminSongSchema = z.object({
   thumbnail_blob_id: z.string().nullable(),
   waveform_blob_id: z.string().nullable(),
   thumbnail_blob_ids: z.array(z.string()),
-  // Admin-specific fields
+  // admin-specific fields
   file_path: z.string().nullable().optional(),
   file_size: z.number().nullable().optional(),
   file_format: z.string().nullable().optional(),
@@ -38,7 +38,7 @@ export const AdminSongSchema = z.object({
 
 export type AdminSong = z.infer<typeof AdminSongSchema>;
 
-// Admin filters schema for complex filtering
+// admin filters schema for complex filtering
 export const AdminMusicFiltersSchema = z.object({
   favorites: z.boolean().optional(),
   artist: z.string().optional(),
@@ -63,7 +63,7 @@ export const AdminMusicFiltersSchema = z.object({
 
 export type AdminMusicFilters = z.infer<typeof AdminMusicFiltersSchema>;
 
-// Pagination schema
+// pagination schema
 export const AdminPaginationSchema = z.object({
   page: z.number().min(1).optional(),
   page_size: z.number().min(1).max(1000).optional(),
@@ -73,7 +73,7 @@ export const AdminPaginationSchema = z.object({
 
 export type AdminPagination = z.infer<typeof AdminPaginationSchema>;
 
-// Music list response
+// music list response
 export const MusicListResponseSchema = z.object({
   songs: z.array(AdminSongSchema),
   total: z.number(),
@@ -87,7 +87,7 @@ export const MusicListResponseSchema = z.object({
 
 export type MusicListResponse = z.infer<typeof MusicListResponseSchema>;
 
-// Bulk operation types
+// bulk operation types
 export const BulkOperationTypeSchema = z.enum([
   "update_rating",
   "toggle_favorite",
@@ -110,7 +110,7 @@ export const BulkOperationSchema = z.object({
 
 export type BulkOperation = z.infer<typeof BulkOperationSchema>;
 
-// Admin grid state for UI
+// admin grid state for UI
 export interface AdminGridState<T = AdminSong> {
   items: T[];
   total: number;
@@ -118,12 +118,16 @@ export interface AdminGridState<T = AdminSong> {
   error: string | null;
   selectedIds: Set<string>;
   filters: AdminMusicFilters;
-  pagination: AdminPagination & { total_pages?: number; has_next?: boolean; has_prev?: boolean };
+  pagination: AdminPagination & {
+    total_pages?: number;
+    has_next?: boolean;
+    has_prev?: boolean;
+  };
   sortField: string | null;
   sortDirection: "asc" | "desc" | null;
 }
 
-// Selection system types
+// selection system types
 export interface SelectionState {
   selectedIds: Set<string>;
   lastSelectedId: string | null;
@@ -140,7 +144,7 @@ export interface SelectionActions {
   getSelectedItems: (items: AdminSong[]) => AdminSong[];
 }
 
-// Event registry types
+// event registry types
 export interface EventRegistry {
   register: (
     element: HTMLElement | Document,
@@ -151,7 +155,7 @@ export interface EventRegistry {
   cleanup: () => void;
 }
 
-// Filter option for dropdowns
+// filter option for dropdowns
 export const FilterOptionSchema = z.object({
   value: z.string(),
   label: z.string(),
@@ -160,7 +164,7 @@ export const FilterOptionSchema = z.object({
 
 export type FilterOption = z.infer<typeof FilterOptionSchema>;
 
-// Advanced filter metadata
+// advanced filter metadata
 export const FilterMetadataSchema = z.object({
   genres: z.array(FilterOptionSchema),
   artists: z.array(FilterOptionSchema),
@@ -184,7 +188,7 @@ export const FilterMetadataSchema = z.object({
 
 export type FilterMetadata = z.infer<typeof FilterMetadataSchema>;
 
-// Update request schemas
+// update request schemas
 export const AdminSongUpdateSchema = z.object({
   is_favorite: z.boolean().optional(),
   rating: z.number().min(0).max(5).nullable().optional(),
@@ -210,7 +214,7 @@ export const BulkUpdateRequestSchema = z.object({
 
 export type BulkUpdateRequest = z.infer<typeof BulkUpdateRequestSchema>;
 
-// API response for bulk operations
+// api response for bulk operations
 export const BulkOperationResponseSchema = z.object({
   operation_id: z.string(),
   total_songs: z.number(),

@@ -128,7 +128,7 @@ export function createMusicAdminData(apiClient: ApiClient) {
 
       return response;
     } catch (error) {
-      console.error("Failed to update song:", error);
+      console.error("failed to update song:", error);
       throw error;
     }
   };
@@ -161,7 +161,7 @@ export function createMusicAdminData(apiClient: ApiClient) {
 
       return response;
     } catch (error) {
-      console.error("Failed to bulk update songs:", error);
+      console.error("failed to bulk update songs:", error);
       throw error;
     }
   };
@@ -172,7 +172,7 @@ export function createMusicAdminData(apiClient: ApiClient) {
   const deleteSelected = async () => {
     const selectedItems = selection.actions.getSelectedItems(adminData.items());
     if (selectedItems.length === 0) {
-      throw new Error("No songs selected");
+      throw new Error("no songs selected");
     }
 
     try {
@@ -193,7 +193,7 @@ export function createMusicAdminData(apiClient: ApiClient) {
 
       return response;
     } catch (error) {
-      console.error("Failed to delete songs:", error);
+      console.error("failed to delete songs:", error);
       throw error;
     }
   };
@@ -204,7 +204,7 @@ export function createMusicAdminData(apiClient: ApiClient) {
   const toggleFavoriteSelected = async () => {
     const selectedItems = selection.actions.getSelectedItems(adminData.items());
     if (selectedItems.length === 0) {
-      throw new Error("No songs selected");
+      throw new Error("no songs selected");
     }
 
     // Determine new favorite status (if any are not favorited, favorite all; otherwise unfavorite all)
@@ -219,7 +219,7 @@ export function createMusicAdminData(apiClient: ApiClient) {
    */
   const rateSelected = async (rating: number) => {
     if (rating < 0 || rating > 5) {
-      throw new Error("Rating must be between 0 and 5");
+      throw new Error("rating must be between 0 and 5");
     }
 
     return bulkUpdateSelected({ rating });
@@ -231,7 +231,7 @@ export function createMusicAdminData(apiClient: ApiClient) {
   const addTagsToSelected = async (tags: string[]) => {
     const selectedItems = selection.actions.getSelectedItems(adminData.items());
     if (selectedItems.length === 0) {
-      throw new Error("No songs selected");
+      throw new Error("no songs selected");
     }
 
     // For each song, merge new tags with existing ones
@@ -257,14 +257,14 @@ export function createMusicAdminData(apiClient: ApiClient) {
 
       case "delete":
         if (selection.actions.getSelectedCount() > 0) {
-          // TODO: Show confirmation dialog
+          // TODO: show confirmation dialog
           deleteSelected();
           event.preventDefault();
         }
         break;
 
       case "ctrl+f":
-        // TODO: Focus search input
+        // TODO: focus search input
         event.preventDefault();
         break;
 
@@ -331,7 +331,7 @@ export function createMusicAdminData(apiClient: ApiClient) {
    */
   const handleSongDoubleClick = (song: AdminSong) => {
     setPlayingId(song.id);
-    // TODO: Integrate with audio player
+    // TODO: integrate with audio player
   };
 
   return {

@@ -1,3 +1,4 @@
+/* @jsxImportSource solid-js */
 import { render } from "solid-js/web";
 import FreqHoleMusicAdmin from "../views/freqhole-music-admin/index";
 

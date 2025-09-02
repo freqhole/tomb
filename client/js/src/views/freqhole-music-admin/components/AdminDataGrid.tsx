@@ -20,18 +20,18 @@ export interface AdminDataGridProps {
 }
 
 /**
- * Main admin data grid component that combines:
- * - Generic infinite grid for performance
- * - Music-specific data and actions
- * - Selection system
- * - Keyboard shortcuts
- * - Event handling
+ * main admin data grid component that combines:
+ * - generic infinite grid for performance
+ * - music-specific data and actions
+ * - selection system
+ * - keyboard shortcuts
+ * - event handling
  */
 export function AdminDataGrid(props: AdminDataGridProps) {
   const eventRegistry = new ComponentEventRegistry();
   let gridContainerRef: HTMLDivElement | undefined;
 
-  // Grid configuration
+  // grid configuration
   const columns = createMemo((): GridColumn<AdminSong>[] => [
     {
       key: "select",
@@ -49,7 +49,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
               props.musicData.selection.actions.toggleSelection(song.id);
             }
           }}
-          class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+          class="w-4 h-4 text-magenta-500 bg-gray-800 border-gray-600 focus:ring-magenta-500"
         />
       ),
     },
@@ -58,96 +58,96 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "",
       width: 60,
       render: (song: AdminSong) => (
-        <div class="w-12 h-12 bg-gray-200 rounded flex items-center justify-center overflow-hidden">
+        <div class="w-12 h-12 bg-gray-800 flex items-center justify-center overflow-hidden">
           {song.thumbnail_blob_id ? (
             <img
               src={`/api/media/blobs/${song.thumbnail_blob_id}`}
-              alt="Album artwork"
+              alt="album artwork"
               class="w-full h-full object-cover"
               loading="lazy"
             />
           ) : (
-            <div class="text-gray-400 text-xs">No Art</div>
+            <div class="text-gray-500 text-xs">no art</div>
           )}
         </div>
       ),
     },
     {
       key: "title",
-      title: "Title",
+      title: "title",
       width: 250,
       sortable: true,
       getValue: (song) => song.title,
       render: (song: AdminSong) => (
         <div class="min-w-0">
-          <div class="font-medium text-gray-900 truncate">{song.title}</div>
+          <div class="font-medium text-white truncate">{song.title}</div>
           {song.artist && (
-            <div class="text-sm text-gray-500 truncate">{song.artist}</div>
+            <div class="text-sm text-gray-400 truncate">{song.artist}</div>
           )}
         </div>
       ),
     },
     {
       key: "artist",
-      title: "Artist",
+      title: "artist",
       width: 200,
       sortable: true,
       getValue: (song) => song.artist || "",
       render: (song: AdminSong) => (
-        <div class="truncate" title={song.artist || ""}>
-          {song.artist || "Unknown Artist"}
+        <div class="truncate text-gray-300" title={song.artist || ""}>
+          {song.artist || "unknown artist"}
         </div>
       ),
     },
     {
       key: "album",
-      title: "Album",
+      title: "album",
       width: 200,
       sortable: true,
       getValue: (song) => song.album || "",
       render: (song: AdminSong) => (
-        <div class="truncate" title={song.album || ""}>
-          {song.album || "Unknown Album"}
+        <div class="truncate text-gray-300" title={song.album || ""}>
+          {song.album || "unknown album"}
         </div>
       ),
     },
     {
       key: "duration",
-      title: "Duration",
+      title: "duration",
       width: 80,
       sortable: true,
       getValue: (song) => song.duration_seconds || 0,
       render: (song: AdminSong) => (
-        <div class="text-right tabular-nums">
+        <div class="text-right tabular-nums text-gray-300">
           {formatDuration(song.duration_seconds)}
         </div>
       ),
     },
     {
       key: "year",
-      title: "Year",
+      title: "year",
       width: 80,
       sortable: true,
       getValue: (song) => song.year || 0,
       render: (song: AdminSong) => (
-        <div class="text-center">{song.year || "—"}</div>
+        <div class="text-center text-gray-300">{song.year || "—"}</div>
       ),
     },
     {
       key: "genre",
-      title: "Genre",
+      title: "genre",
       width: 150,
       sortable: true,
       getValue: (song) => song.genre || "",
       render: (song: AdminSong) => (
-        <div class="truncate" title={song.genre || ""}>
-          {song.genre || "Unknown"}
+        <div class="truncate text-gray-300" title={song.genre || ""}>
+          {song.genre || "unknown"}
         </div>
       ),
     },
     {
       key: "rating",
-      title: "Rating",
+      title: "rating",
       width: 100,
       sortable: true,
       getValue: (song) => song.rating || 0,
@@ -162,7 +162,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
     },
     {
       key: "favorite",
-      title: "♥",
+      title: "fav",
       width: 50,
       sortable: true,
       getValue: (song) => song.is_favorite,
@@ -173,28 +173,28 @@ export function AdminDataGrid(props: AdminDataGridProps) {
               e.stopPropagation();
               toggleSongFavorite(song.id);
             }}
-            class={`w-6 h-6 rounded-full border-2 transition-colors ${
+            class={`w-6 h-6 border-2 transition-colors ${
               song.is_favorite
-                ? "bg-red-500 border-red-500 text-white"
-                : "bg-white border-gray-300 text-gray-400 hover:border-red-300"
+                ? "bg-magenta-500 border-magenta-500 text-white"
+                : "bg-gray-800 border-gray-600 text-gray-500 hover:border-magenta-400"
             }`}
             title={
-              song.is_favorite ? "Remove from favorites" : "Add to favorites"
+              song.is_favorite ? "remove from favorites" : "add to favorites"
             }
           >
-            ♥
+            <span class="text-xs">♡</span>
           </button>
         </div>
       ),
     },
     {
       key: "created_at",
-      title: "Added",
+      title: "added",
       width: 150,
       sortable: true,
       getValue: (song) => song.created_at,
       render: (song: AdminSong) => (
-        <div class="text-sm text-gray-500">{formatDate(song.created_at)}</div>
+        <div class="text-sm text-gray-400">{formatDate(song.created_at)}</div>
       ),
     },
     {
@@ -208,27 +208,27 @@ export function AdminDataGrid(props: AdminDataGridProps) {
               e.stopPropagation();
               props.onSongPlay?.(song);
             }}
-            class="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-            title="Play song"
+            class="px-2 py-1 text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors"
+            title="play song"
           >
-            Play
+            play
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
               props.onSongEdit?.(song);
             }}
-            class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-            title="Edit song"
+            class="px-2 py-1 text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors"
+            title="edit song"
           >
-            Edit
+            edit
           </button>
         </div>
       ),
     },
   ]);
 
-  // Event handlers
+  // event handlers
   const handleSort = (field: string, direction: "asc" | "desc" | null) => {
     if (direction) {
       props.musicData.updateSort(field, direction);
@@ -248,13 +248,13 @@ export function AdminDataGrid(props: AdminDataGridProps) {
   };
 
   const handleScrollNearBottom = () => {
-    // Load next page if available
+    // load next page if available
     if (props.musicData.hasNextPage()) {
       props.musicData.nextPage();
     }
   };
 
-  // Keyboard shortcuts
+  // keyboard shortcuts
   const keyboardHandler = createGlobalKeyboardHandler({
     "ctrl+a": (event) =>
       props.musicData.handleKeyboardShortcut("ctrl+a", event as KeyboardEvent),
@@ -288,12 +288,12 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       props.musicData.handleKeyboardShortcut("ctrl+3", event as KeyboardEvent),
   });
 
-  // Helper functions
+  // helper functions
   const updateSongRating = async (songId: string, rating: number) => {
     try {
       await props.musicData.updateSong(songId, { rating });
     } catch (error) {
-      console.error("Failed to update song rating:", error);
+      console.error("failed to update song rating:", error);
     }
   };
 
@@ -305,12 +305,12 @@ export function AdminDataGrid(props: AdminDataGridProps) {
           is_favorite: !song.is_favorite,
         });
       } catch (error) {
-        console.error("Failed to toggle song favorite:", error);
+        console.error("failed to toggle song favorite:", error);
       }
     }
   };
 
-  // Setup and cleanup
+  // setup and cleanup
   onMount(() => {
     if (gridContainerRef) {
       eventRegistry.register(
@@ -331,16 +331,16 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       class={`admin-data-grid ${props.className || ""}`}
     >
       <Show when={props.musicData.loading()}>
-        <div class="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-10">
+        <div class="absolute inset-0 bg-black bg-opacity-75 flex items-center justify-center z-10">
           <div class="flex items-center space-x-2">
-            <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-            <span class="text-gray-600">Loading songs...</span>
+            <div class="animate-spin h-6 w-6 border-b-2 border-magenta-500"></div>
+            <span class="text-gray-300">loading songs...</span>
           </div>
         </div>
       </Show>
 
       <Show when={props.musicData.error()}>
-        <div class="bg-red-50 border border-red-200 rounded-md p-4 mb-4">
+        <div class="bg-red-900 border border-red-700 p-4 mb-4">
           <div class="flex">
             <div class="text-red-400">
               <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -352,10 +352,10 @@ export function AdminDataGrid(props: AdminDataGridProps) {
               </svg>
             </div>
             <div class="ml-3">
-              <h3 class="text-sm font-medium text-red-800">
-                Error loading songs
+              <h3 class="text-sm font-medium text-red-300">
+                error loading songs
               </h3>
-              <div class="mt-2 text-sm text-red-700">
+              <div class="mt-2 text-sm text-red-400">
                 {props.musicData.error()}
               </div>
             </div>
@@ -379,9 +379,9 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         theme={props.theme}
       />
 
-      {/* Selection info bar */}
+      {/* selection info bar */}
       <Show when={props.musicData.hasSelection()}>
-        <div class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center space-x-4">
+        <div class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-magenta-600 text-white px-4 py-2 shadow-lg flex items-center space-x-4">
           <span class="text-sm">
             {props.musicData.selection.actions.getSelectedCount()} songs
             selected
@@ -389,15 +389,15 @@ export function AdminDataGrid(props: AdminDataGridProps) {
           <div class="flex items-center space-x-2">
             <button
               onClick={() => props.musicData.toggleFavoriteSelected()}
-              class="px-3 py-1 bg-blue-500 hover:bg-blue-400 rounded text-xs transition-colors"
+              class="px-3 py-1 bg-magenta-500 hover:bg-magenta-400 text-xs transition-colors"
             >
-              Toggle Favorite
+              toggle favorite
             </button>
             <button
               onClick={() => props.musicData.selection.actions.clearSelection()}
-              class="px-3 py-1 bg-red-500 hover:bg-red-400 rounded text-xs transition-colors"
+              class="px-3 py-1 bg-red-600 hover:bg-red-500 text-xs transition-colors"
             >
-              Clear Selection
+              clear selection
             </button>
           </div>
         </div>
@@ -407,7 +407,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
 }
 
 /**
- * Star rating component for inline rating
+ * star rating component for inline rating
  */
 function StarRating(props: {
   rating?: number | null;
@@ -426,10 +426,10 @@ function StarRating(props: {
             }}
             class={`w-4 h-4 transition-colors ${
               star <= rating()
-                ? "text-yellow-400"
-                : "text-gray-300 hover:text-yellow-300"
+                ? "text-magenta-400"
+                : "text-gray-600 hover:text-magenta-300"
             }`}
-            title={`Rate ${star} star${star !== 1 ? "s" : ""}`}
+            title={`rate ${star} star${star !== 1 ? "s" : ""}`}
           >
             ★
           </button>
@@ -440,7 +440,7 @@ function StarRating(props: {
 }
 
 /**
- * Format duration in seconds to MM:SS or HH:MM:SS
+ * format duration in seconds to MM:SS or HH:MM:SS
  */
 function formatDuration(seconds?: number | null): string {
   if (!seconds) return "—";
@@ -457,7 +457,7 @@ function formatDuration(seconds?: number | null): string {
 }
 
 /**
- * Format date string to readable format
+ * format date string to readable format
  */
 function formatDate(dateString: string): string {
   try {

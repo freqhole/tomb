@@ -17,6 +17,7 @@ export interface AdminDataConfig {
   defaultSort?: { field: string; direction: "asc" | "desc" };
   responseSchema?: any; // Zod schema for validation
   debounceMs?: number;
+  autoFetch?: boolean; // Whether to auto-fetch on mount
 }
 
 /**
@@ -113,6 +114,7 @@ export function createAdminData<T extends { id: string }>(
         endpoint: config.apiEndpoint,
         options,
       });
+      console.log("useAdminData: apiClient available:", !!apiClient);
       setLoading(true);
       setError(null);
 
@@ -146,11 +148,16 @@ export function createAdminData<T extends { id: string }>(
         endpoint: config.apiEndpoint,
         params,
       });
+      console.log(
+        "useAdminData: full API URL would be:",
+        `${apiClient.getBaseUrl()}${config.apiEndpoint}`
+      );
       const response = await apiClient.makeRequest<MusicListResponse>(
         "GET",
         config.apiEndpoint,
         { params }
       );
+      console.log("useAdminData: received API response:", response);
 
       // Validate response if schema provided
       let validatedResponse = response;
@@ -159,6 +166,10 @@ export function createAdminData<T extends { id: string }>(
       }
 
       // Update state
+      console.log(
+        "useAdminData: updating state with items:",
+        validatedResponse.songs?.length || 0
+      );
       setItems((validatedResponse.songs as unknown as T[]) || []);
       setTotal(validatedResponse.total || 0);
 
@@ -182,7 +193,7 @@ export function createAdminData<T extends { id: string }>(
         endpoint: config.apiEndpoint,
         error: err instanceof Error ? err.message : String(err),
       });
-      setError(err instanceof Error ? err.message : "Failed to fetch data");
+      setError(err instanceof Error ? err.message : "failed to fetch data");
       setItems([]);
       setTotal(0);
     } finally {
@@ -278,10 +289,12 @@ export function createAdminData<T extends { id: string }>(
     goToPage(1);
   };
 
-  // Auto-fetch on mount
+  // Auto-fetch on mount (if enabled)
   createEffect(() => {
-    console.log("useAdminData: auto-fetch effect triggered");
-    fetchData();
+    if (config.autoFetch !== false) {
+      console.log("useAdminData: auto-fetch effect triggered");
+      fetchData();
+    }
   });
 
   // Cleanup

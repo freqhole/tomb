@@ -20,6 +20,7 @@ export const musicAdminConfig: AdminDataConfig = {
   },
   responseSchema: MusicListResponseSchema,
   debounceMs: 300,
+  autoFetch: false, // Disable auto-fetch, AdminView will call fetchData manually
 };
 
 /**
@@ -49,7 +50,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "thumbnail_blob_id",
-    title: "Artwork",
+    title: "artwork",
     width: 60,
     sortable: false,
     filterable: false,
@@ -59,7 +60,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "title",
-    title: "Title",
+    title: "title",
     width: 250,
     sortable: true,
     filterable: true,
@@ -69,7 +70,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "artist",
-    title: "Artist",
+    title: "artist",
     width: 200,
     sortable: true,
     filterable: true,
@@ -79,7 +80,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "album",
-    title: "Album",
+    title: "album",
     width: 200,
     sortable: true,
     filterable: true,
@@ -89,7 +90,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "duration_seconds",
-    title: "Duration",
+    title: "duration",
     width: 80,
     sortable: true,
     filterable: false,
@@ -99,7 +100,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "year",
-    title: "Year",
+    title: "year",
     width: 80,
     sortable: true,
     filterable: true,
@@ -109,7 +110,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "genre",
-    title: "Genre",
+    title: "genre",
     width: 150,
     sortable: true,
     filterable: true,
@@ -119,7 +120,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "rating",
-    title: "Rating",
+    title: "rating",
     width: 100,
     sortable: true,
     filterable: true,
@@ -129,7 +130,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "is_favorite",
-    title: "Favorite",
+    title: "favorite",
     width: 80,
     sortable: true,
     filterable: true,
@@ -139,7 +140,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "tags",
-    title: "Tags",
+    title: "tags",
     width: 200,
     sortable: false,
     filterable: true,
@@ -149,7 +150,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "bpm",
-    title: "BPM",
+    title: "bpm",
     width: 80,
     sortable: true,
     filterable: false,
@@ -159,7 +160,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "key_signature",
-    title: "Key",
+    title: "key",
     width: 80,
     sortable: true,
     filterable: false,
@@ -169,7 +170,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "file_format",
-    title: "Format",
+    title: "format",
     width: 80,
     sortable: true,
     filterable: true,
@@ -179,7 +180,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "file_size",
-    title: "Size",
+    title: "size",
     width: 80,
     sortable: true,
     filterable: false,
@@ -189,7 +190,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "created_at",
-    title: "Added",
+    title: "added",
     width: 150,
     sortable: true,
     filterable: false,
@@ -199,7 +200,7 @@ export const musicGridColumns: MusicGridColumn[] = [
   },
   {
     key: "actions",
-    title: "Actions",
+    title: "actions",
     width: 120,
     sortable: false,
     filterable: false,
@@ -257,34 +258,34 @@ export const defaultColumnVisibility = {
  */
 export const musicFilterOptions = {
   sortFields: [
-    { value: "title", label: "Title" },
-    { value: "artist", label: "Artist" },
-    { value: "album", label: "Album" },
-    { value: "year", label: "Year" },
-    { value: "genre", label: "Genre" },
-    { value: "rating", label: "Rating" },
-    { value: "duration_seconds", label: "Duration" },
-    { value: "created_at", label: "Date Added" },
-    { value: "updated_at", label: "Date Modified" },
+    { value: "title", label: "title" },
+    { value: "artist", label: "artist" },
+    { value: "album", label: "album" },
+    { value: "year", label: "year" },
+    { value: "genre", label: "genre" },
+    { value: "rating", label: "rating" },
+    { value: "duration_seconds", label: "duration" },
+    { value: "created_at", label: "date added" },
+    { value: "updated_at", label: "date modified" },
   ],
 
   ratingOptions: [
-    { value: 0, label: "No Rating" },
-    { value: 1, label: "1 Star" },
-    { value: 2, label: "2 Stars" },
-    { value: 3, label: "3 Stars" },
-    { value: 4, label: "4 Stars" },
-    { value: 5, label: "5 Stars" },
+    { value: 0, label: "no rating" },
+    { value: 1, label: "1 star" },
+    { value: 2, label: "2 stars" },
+    { value: 3, label: "3 stars" },
+    { value: 4, label: "4 stars" },
+    { value: 5, label: "5 stars" },
   ],
 
   favoriteOptions: [
-    { value: true, label: "Favorites Only" },
-    { value: false, label: "Non-Favorites Only" },
+    { value: true, label: "favorites only" },
+    { value: false, label: "non-favorites only" },
   ],
 
   thumbnailOptions: [
-    { value: true, label: "Has Artwork" },
-    { value: false, label: "No Artwork" },
+    { value: true, label: "has artwork" },
+    { value: false, label: "no artwork" },
   ],
 };
 
@@ -296,45 +297,45 @@ export const musicValidationRules = {
     required: true,
     minLength: 1,
     maxLength: 500,
-    message: "Title is required and must be 1-500 characters",
+    message: "title is required and must be 1-500 characters",
   },
   artist: {
     required: false,
     maxLength: 200,
-    message: "Artist name must be 200 characters or less",
+    message: "artist name must be 200 characters or less",
   },
   album: {
     required: false,
     maxLength: 200,
-    message: "Album name must be 200 characters or less",
+    message: "album name must be 200 characters or less",
   },
   year: {
     required: false,
     min: 1900,
     max: new Date().getFullYear() + 1,
-    message: `Year must be between 1900 and ${new Date().getFullYear() + 1}`,
+    message: `year must be between 1900 and ${new Date().getFullYear() + 1}`,
   },
   rating: {
     required: false,
     min: 0,
     max: 5,
-    message: "Rating must be between 0 and 5",
+    message: "rating must be between 0 and 5",
   },
   bpm: {
     required: false,
     min: 30,
     max: 300,
-    message: "BPM must be between 30 and 300",
+    message: "bpm must be between 30 and 300",
   },
   genre: {
     required: false,
     maxLength: 100,
-    message: "Genre must be 100 characters or less",
+    message: "genre must be 100 characters or less",
   },
   key_signature: {
     required: false,
     pattern: /^[A-G][#b]?m?$/,
-    message: "Key signature must be in format like 'C', 'C#', 'Dm', etc.",
+    message: "key signature must be in format like 'C', 'C#', 'Dm', etc.",
   },
 };
 
@@ -380,27 +381,27 @@ export const musicKeyboardShortcuts = {
  * Context menu options for music items
  */
 export const musicContextMenuOptions = [
-  { id: "play", label: "Play", icon: "play", shortcut: "Space" },
-  { id: "addToQueue", label: "Add to Queue", icon: "queue" },
+  { id: "play", label: "play", icon: "play", shortcut: "Space" },
+  { id: "addToQueue", label: "add to queue", icon: "queue" },
   { separator: true },
   {
     id: "toggleFavorite",
-    label: "Toggle Favorite",
+    label: "toggle favorite",
     icon: "star",
     shortcut: "F",
   },
-  { id: "rate", label: "Rate...", icon: "star-outline" },
+  { id: "rate", label: "rate...", icon: "star-outline" },
   { separator: true },
-  { id: "edit", label: "Edit", icon: "edit", shortcut: "Enter" },
-  { id: "editTags", label: "Edit Tags", icon: "tag" },
-  { id: "viewDetails", label: "View Details", icon: "info" },
+  { id: "edit", label: "edit", icon: "edit", shortcut: "Enter" },
+  { id: "editTags", label: "edit tags", icon: "tag" },
+  { id: "viewDetails", label: "view details", icon: "info" },
   { separator: true },
-  { id: "addToPlaylist", label: "Add to Playlist", icon: "playlist" },
-  { id: "exportMetadata", label: "Export Metadata", icon: "download" },
+  { id: "addToPlaylist", label: "add to playlist", icon: "playlist" },
+  { id: "exportMetadata", label: "export metadata", icon: "download" },
   { separator: true },
   {
     id: "delete",
-    label: "Delete",
+    label: "delete",
     icon: "trash",
     shortcut: "Delete",
     dangerous: true,
@@ -411,12 +412,12 @@ export const musicContextMenuOptions = [
  * Bulk operation options
  */
 export const bulkOperationOptions = [
-  { id: "rate", label: "Set Rating", icon: "star" },
-  { id: "favorite", label: "Toggle Favorite", icon: "heart" },
-  { id: "genre", label: "Set Genre", icon: "tag" },
-  { id: "year", label: "Set Year", icon: "calendar" },
-  { id: "tags", label: "Manage Tags", icon: "tags" },
-  { id: "playlist", label: "Add to Playlist", icon: "playlist" },
-  { id: "export", label: "Export", icon: "download" },
-  { id: "delete", label: "Delete", icon: "trash", dangerous: true },
+  { id: "rate", label: "set rating", icon: "star" },
+  { id: "favorite", label: "toggle favorite", icon: "heart" },
+  { id: "genre", label: "set genre", icon: "tag" },
+  { id: "year", label: "set year", icon: "calendar" },
+  { id: "tags", label: "manage tags", icon: "tags" },
+  { id: "playlist", label: "add to playlist", icon: "playlist" },
+  { id: "export", label: "export", icon: "download" },
+  { id: "delete", label: "delete", icon: "trash", dangerous: true },
 ];
