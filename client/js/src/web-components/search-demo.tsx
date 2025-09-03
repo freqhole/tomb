@@ -7,6 +7,14 @@ import {
   musicSearchPresets,
   getMusicFilterSummary,
 } from "../lib/music/admin/music-unified-search.js";
+import {
+  FilterDropdown,
+  FilterRange,
+  FilterTags,
+  FilterToggle,
+  FilterDateRange,
+  FilterText,
+} from "../lib/components/filters/FilterComponents.js";
 import { ApiClient } from "../lib/api-client.js";
 
 interface SearchDemoProps {
@@ -175,151 +183,238 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
       {/* advanced filters panel */}
       <Show when={showAdvancedFilters()}>
         <div class="search-demo__advanced-filters">
-          <div class="search-demo__filter-grid">
-            {/* artist filter */}
-            <div class="search-demo__filter-group">
-              <label class="search-demo__filter-label">artist</label>
-              <input
-                type="text"
-                value={search.searchParams().artist || ""}
-                onInput={(e) =>
-                  search.addFilter("artist", e.target.value || undefined)
-                }
-                placeholder="artist name"
-                class="search-demo__filter-input"
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-900">
+            {/* text filters */}
+            <FilterText
+              label="artist"
+              value={search.searchParams().artist}
+              placeholder="search by artist name"
+              supportsExact={true}
+              exactMatch={search.searchParams().artist_exact}
+              onValueChange={(value) => search.addFilter("artist", value)}
+              onExactChange={(exact) => search.addFilter("artist_exact", exact)}
+            />
+
+            <FilterText
+              label="album"
+              value={search.searchParams().album}
+              placeholder="search by album name"
+              supportsExact={true}
+              exactMatch={search.searchParams().album_exact}
+              onValueChange={(value) => search.addFilter("album", value)}
+              onExactChange={(exact) => search.addFilter("album_exact", exact)}
+            />
+
+            <FilterText
+              label="genre"
+              value={search.searchParams().genre}
+              placeholder="search by genre"
+              onValueChange={(value) => search.addFilter("genre", value)}
+            />
+
+            <FilterText
+              label="title"
+              value={search.searchParams().title}
+              placeholder="search by song title"
+              onValueChange={(value) => search.addFilter("title", value)}
+            />
+
+            {/* numeric range filters */}
+            <FilterRange
+              label="year range"
+              minValue={search.searchParams().year_min}
+              maxValue={search.searchParams().year_max}
+              min={1900}
+              max={new Date().getFullYear() + 1}
+              placeholder={{ min: "from", max: "to" }}
+              onChange={(range) => {
+                search.addFilter("year_min", range.min);
+                search.addFilter("year_max", range.max);
+              }}
+            />
+
+            <FilterRange
+              label="rating range"
+              minValue={search.searchParams().rating_min}
+              maxValue={search.searchParams().rating_max}
+              min={0}
+              max={5}
+              placeholder={{ min: "min", max: "max" }}
+              onChange={(range) => {
+                search.addFilter("rating_min", range.min);
+                search.addFilter("rating_max", range.max);
+              }}
+            />
+
+            <FilterRange
+              label="duration (minutes)"
+              minValue={
+                search.searchParams().duration_min
+                  ? Math.floor(search.searchParams().duration_min! / 60)
+                  : undefined
+              }
+              maxValue={
+                search.searchParams().duration_max
+                  ? Math.floor(search.searchParams().duration_max! / 60)
+                  : undefined
+              }
+              min={0}
+              max={60}
+              placeholder={{ min: "min", max: "max" }}
+              onChange={(range) => {
+                search.addFilter(
+                  "duration_min",
+                  range.min ? range.min * 60 : undefined
+                );
+                search.addFilter(
+                  "duration_max",
+                  range.max ? range.max * 60 : undefined
+                );
+              }}
+            />
+
+            <FilterRange
+              label="bpm range"
+              minValue={search.searchParams().bpm_min}
+              maxValue={search.searchParams().bpm_max}
+              min={60}
+              max={200}
+              placeholder={{ min: "min bpm", max: "max bpm" }}
+              onChange={(range) => {
+                search.addFilter("bpm_min", range.min);
+                search.addFilter("bpm_max", range.max);
+              }}
+            />
+
+            {/* file format filter */}
+            <FilterDropdown
+              label="file format"
+              value={search.searchParams().file_format}
+              options={[
+                { value: "mp3", label: "MP3" },
+                { value: "flac", label: "FLAC" },
+                { value: "wav", label: "WAV" },
+                { value: "m4a", label: "M4A/AAC" },
+                { value: "ogg", label: "OGG Vorbis" },
+              ]}
+              placeholder="select format"
+              onSelect={(value) =>
+                search.addFilter("file_format", value as string)
+              }
+            />
+
+            {/* key signature filter */}
+            <FilterDropdown
+              label="key signature"
+              value={search.searchParams().key_signature}
+              options={[
+                { value: "C", label: "C major" },
+                { value: "C#", label: "C# major" },
+                { value: "Db", label: "Db major" },
+                { value: "D", label: "D major" },
+                { value: "D#", label: "D# major" },
+                { value: "Eb", label: "Eb major" },
+                { value: "E", label: "E major" },
+                { value: "F", label: "F major" },
+                { value: "F#", label: "F# major" },
+                { value: "Gb", label: "Gb major" },
+                { value: "G", label: "G major" },
+                { value: "G#", label: "G# major" },
+                { value: "Ab", label: "Ab major" },
+                { value: "A", label: "A major" },
+                { value: "A#", label: "A# major" },
+                { value: "Bb", label: "Bb major" },
+                { value: "B", label: "B major" },
+                { value: "Am", label: "A minor" },
+                { value: "Bm", label: "B minor" },
+                { value: "Cm", label: "C minor" },
+                { value: "Dm", label: "D minor" },
+                { value: "Em", label: "E minor" },
+                { value: "Fm", label: "F minor" },
+                { value: "Gm", label: "G minor" },
+              ]}
+              placeholder="select key"
+              onSelect={(value) =>
+                search.addFilter("key_signature", value as string)
+              }
+            />
+
+            {/* tags filter */}
+            <div class="md:col-span-2">
+              <FilterTags
+                label="tags"
+                selectedTags={search.searchParams().tags}
+                availableTags={[
+                  { value: "rock", label: "rock", count: 150 },
+                  { value: "pop", label: "pop", count: 200 },
+                  { value: "jazz", label: "jazz", count: 75 },
+                  { value: "classical", label: "classical", count: 100 },
+                  { value: "electronic", label: "electronic", count: 120 },
+                  { value: "folk", label: "folk", count: 60 },
+                  { value: "metal", label: "metal", count: 90 },
+                  { value: "blues", label: "blues", count: 45 },
+                ]}
+                placeholder="add tags"
+                onTagsChange={(tags) => search.addFilter("tags", tags)}
               />
-            </div>
-
-            {/* album filter */}
-            <div class="search-demo__filter-group">
-              <label class="search-demo__filter-label">album</label>
-              <input
-                type="text"
-                value={search.searchParams().album || ""}
-                onInput={(e) =>
-                  search.addFilter("album", e.target.value || undefined)
-                }
-                placeholder="album name"
-                class="search-demo__filter-input"
-              />
-            </div>
-
-            {/* genre filter */}
-            <div class="search-demo__filter-group">
-              <label class="search-demo__filter-label">genre</label>
-              <input
-                type="text"
-                value={search.searchParams().genre || ""}
-                onInput={(e) =>
-                  search.addFilter("genre", e.target.value || undefined)
-                }
-                placeholder="genre"
-                class="search-demo__filter-input"
-              />
-            </div>
-
-            {/* year range */}
-            <div class="search-demo__filter-group">
-              <label class="search-demo__filter-label">year range</label>
-              <div class="search-demo__range-inputs">
-                <input
-                  type="number"
-                  value={search.searchParams().year_min || ""}
-                  onInput={(e) =>
-                    search.addFilter(
-                      "year_min",
-                      e.target.value ? Number(e.target.value) : undefined
-                    )
-                  }
-                  placeholder="from"
-                  min="1900"
-                  max="2030"
-                  class="search-demo__range-input"
-                />
-                <input
-                  type="number"
-                  value={search.searchParams().year_max || ""}
-                  onInput={(e) =>
-                    search.addFilter(
-                      "year_max",
-                      e.target.value ? Number(e.target.value) : undefined
-                    )
-                  }
-                  placeholder="to"
-                  min="1900"
-                  max="2030"
-                  class="search-demo__range-input"
-                />
-              </div>
-            </div>
-
-            {/* rating range */}
-            <div class="search-demo__filter-group">
-              <label class="search-demo__filter-label">rating range</label>
-              <div class="search-demo__range-inputs">
-                <input
-                  type="number"
-                  value={search.searchParams().rating_min || ""}
-                  onInput={(e) =>
-                    search.addFilter(
-                      "rating_min",
-                      e.target.value ? Number(e.target.value) : undefined
-                    )
-                  }
-                  placeholder="min"
-                  min="0"
-                  max="5"
-                  class="search-demo__range-input"
-                />
-                <input
-                  type="number"
-                  value={search.searchParams().rating_max || ""}
-                  onInput={(e) =>
-                    search.addFilter(
-                      "rating_max",
-                      e.target.value ? Number(e.target.value) : undefined
-                    )
-                  }
-                  placeholder="max"
-                  min="0"
-                  max="5"
-                  class="search-demo__range-input"
-                />
-              </div>
             </div>
 
             {/* boolean filters */}
-            <div class="search-demo__filter-group">
-              <label class="search-demo__filter-label">options</label>
-              <div class="search-demo__boolean-filters">
-                <label class="search-demo__checkbox">
-                  <input
-                    type="checkbox"
-                    checked={search.searchParams().is_favorite || false}
-                    onChange={(e) =>
-                      search.addFilter(
-                        "is_favorite",
-                        e.target.checked ? true : undefined
-                      )
-                    }
-                  />
-                  favorites only
-                </label>
-                <label class="search-demo__checkbox">
-                  <input
-                    type="checkbox"
-                    checked={search.searchParams().has_thumbnail === false}
-                    onChange={(e) =>
-                      search.addFilter(
-                        "has_thumbnail",
-                        e.target.checked ? false : undefined
-                      )
-                    }
-                  />
-                  no artwork
-                </label>
-              </div>
+            <div class="space-y-2">
+              <h4 class="text-sm font-medium text-white mb-2">options</h4>
+              <FilterToggle
+                label="favorites only"
+                checked={search.searchParams().is_favorite}
+                onToggle={(checked) => search.addFilter("is_favorite", checked)}
+              />
+              <FilterToggle
+                label="has artwork"
+                checked={search.searchParams().has_thumbnail}
+                onToggle={(checked) =>
+                  search.addFilter("has_thumbnail", checked)
+                }
+              />
+              <FilterToggle
+                label="has lyrics"
+                checked={search.searchParams().has_lyrics}
+                onToggle={(checked) => search.addFilter("has_lyrics", checked)}
+              />
+              <FilterToggle
+                label="has waveform"
+                checked={search.searchParams().has_waveform}
+                onToggle={(checked) =>
+                  search.addFilter("has_waveform", checked)
+                }
+              />
+              <FilterToggle
+                label="compilation album"
+                checked={search.searchParams().is_compilation}
+                onToggle={(checked) =>
+                  search.addFilter("is_compilation", checked)
+                }
+              />
             </div>
+
+            {/* date filters */}
+            <FilterDateRange
+              label="date added"
+              startDate={search.searchParams().created_after}
+              endDate={search.searchParams().created_before}
+              onChange={(range) => {
+                search.addFilter("created_after", range.start);
+                search.addFilter("created_before", range.end);
+              }}
+            />
+
+            <FilterDateRange
+              label="date updated"
+              startDate={search.searchParams().updated_after}
+              endDate={search.searchParams().updated_before}
+              onChange={(range) => {
+                search.addFilter("updated_after", range.start);
+                search.addFilter("updated_before", range.end);
+              }}
+            />
           </div>
         </div>
       </Show>
