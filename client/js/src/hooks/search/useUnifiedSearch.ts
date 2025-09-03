@@ -204,6 +204,16 @@ export interface UnifiedSearchParams {
   skip_total_count?: boolean;
   explain_query?: boolean;
 
+  // null checking filters
+  rating_is_null?: boolean;
+  genre_is_null?: boolean;
+  year_is_null?: boolean;
+  bpm_is_null?: boolean;
+  key_signature_is_null?: boolean;
+  artist_is_null?: boolean;
+  album_is_null?: boolean;
+  album_artist_is_null?: boolean;
+
   // legacy compatibility
   favorites_only?: boolean;
   songs_only?: boolean;

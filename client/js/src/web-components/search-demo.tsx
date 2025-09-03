@@ -393,6 +393,13 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
                   search.addFilter("is_compilation", checked)
                 }
               />
+              <FilterToggle
+                label="include deleted songs"
+                checked={search.searchParams().include_deleted}
+                onToggle={(checked) =>
+                  search.addFilter("include_deleted", checked)
+                }
+              />
             </div>
 
             {/* date filters */}

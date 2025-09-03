@@ -1,4 +1,7 @@
-import type { UnifiedSearchConfig, UnifiedSearchParams } from "../../../hooks/search/useUnifiedSearch.js";
+import type {
+  UnifiedSearchConfig,
+  UnifiedSearchParams,
+} from "../../../hooks/search/useUnifiedSearch.js";
 
 /**
  * Music-specific configuration for unified search
@@ -32,13 +35,15 @@ export const musicSearchPresets = [
     id: "recent",
     label: "recent additions",
     params: {
-      created_after: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      created_after: new Date(
+        Date.now() - 7 * 24 * 60 * 60 * 1000
+      ).toISOString(),
     } as UnifiedSearchParams,
   },
   {
     id: "unrated",
     label: "unrated songs",
-    params: { rating: 0 } as UnifiedSearchParams,
+    params: { rating_is_null: true } as UnifiedSearchParams,
   },
   {
     id: "highly-rated",
@@ -210,21 +215,24 @@ export const musicFilterFields = [
  * Helper to get filter field configuration by key
  */
 export function getMusicFilterField(key: string) {
-  return musicFilterFields.find(field => field.key === key);
+  return musicFilterFields.find((field) => field.key === key);
 }
 
 /**
  * Helper to get sort field configuration by field name
  */
 export function getMusicSortField(field: string) {
-  return musicSortFields.find(sort => sort.field === field);
+  return musicSortFields.find((sort) => sort.field === field);
 }
 
 /**
  * Helper to build search params for a preset
  */
-export function applyMusicPreset(presetId: string, currentParams: UnifiedSearchParams): UnifiedSearchParams {
-  const preset = musicSearchPresets.find(p => p.id === presetId);
+export function applyMusicPreset(
+  presetId: string,
+  currentParams: UnifiedSearchParams
+): UnifiedSearchParams {
+  const preset = musicSearchPresets.find((p) => p.id === presetId);
   if (!preset) {
     return currentParams;
   }
@@ -239,7 +247,9 @@ export function applyMusicPreset(presetId: string, currentParams: UnifiedSearchP
 /**
  * Helper to validate music search parameters
  */
-export function validateMusicSearchParams(params: Partial<UnifiedSearchParams>): UnifiedSearchParams {
+export function validateMusicSearchParams(
+  params: Partial<UnifiedSearchParams>
+): UnifiedSearchParams {
   const validated: UnifiedSearchParams = {};
 
   // validate page and page_size
@@ -262,19 +272,35 @@ export function validateMusicSearchParams(params: Partial<UnifiedSearchParams>):
     validated.q = params.q.trim();
   }
 
-  if (params.artist && typeof params.artist === "string" && params.artist.trim().length > 0) {
+  if (
+    params.artist &&
+    typeof params.artist === "string" &&
+    params.artist.trim().length > 0
+  ) {
     validated.artist = params.artist.trim();
   }
 
-  if (params.album && typeof params.album === "string" && params.album.trim().length > 0) {
+  if (
+    params.album &&
+    typeof params.album === "string" &&
+    params.album.trim().length > 0
+  ) {
     validated.album = params.album.trim();
   }
 
-  if (params.genre && typeof params.genre === "string" && params.genre.trim().length > 0) {
+  if (
+    params.genre &&
+    typeof params.genre === "string" &&
+    params.genre.trim().length > 0
+  ) {
     validated.genre = params.genre.trim();
   }
 
-  if (params.title && typeof params.title === "string" && params.title.trim().length > 0) {
+  if (
+    params.title &&
+    typeof params.title === "string" &&
+    params.title.trim().length > 0
+  ) {
     validated.title = params.title.trim();
   }
 
@@ -355,21 +381,27 @@ export function validateMusicSearchParams(params: Partial<UnifiedSearchParams>):
 
   // validate array fields
   if (params.tags && Array.isArray(params.tags)) {
-    const validTags = params.tags.filter(tag => typeof tag === "string" && tag.trim().length > 0);
+    const validTags = params.tags.filter(
+      (tag) => typeof tag === "string" && tag.trim().length > 0
+    );
     if (validTags.length > 0) {
       validated.tags = validTags;
     }
   }
 
   if (params.tags_any && Array.isArray(params.tags_any)) {
-    const validTags = params.tags_any.filter(tag => typeof tag === "string" && tag.trim().length > 0);
+    const validTags = params.tags_any.filter(
+      (tag) => typeof tag === "string" && tag.trim().length > 0
+    );
     if (validTags.length > 0) {
       validated.tags_any = validTags;
     }
   }
 
   if (params.tags_exclude && Array.isArray(params.tags_exclude)) {
-    const validTags = params.tags_exclude.filter(tag => typeof tag === "string" && tag.trim().length > 0);
+    const validTags = params.tags_exclude.filter(
+      (tag) => typeof tag === "string" && tag.trim().length > 0
+    );
     if (validTags.length > 0) {
       validated.tags_exclude = validTags;
     }
@@ -377,7 +409,7 @@ export function validateMusicSearchParams(params: Partial<UnifiedSearchParams>):
 
   // validate sort fields
   if (params.sort_by && typeof params.sort_by === "string") {
-    const validSortFields = musicSortFields.map(field => field.field);
+    const validSortFields = musicSortFields.map((field) => field.field);
     if (validSortFields.includes(params.sort_by)) {
       validated.sort_by = params.sort_by;
     }
@@ -480,7 +512,9 @@ export function getMusicFilterSummary(params: UnifiedSearchParams): string {
   }
 
   if (params.duration_min && params.duration_max) {
-    parts.push(`duration: ${Math.floor(params.duration_min / 60)}-${Math.floor(params.duration_max / 60)} min`);
+    parts.push(
+      `duration: ${Math.floor(params.duration_min / 60)}-${Math.floor(params.duration_max / 60)} min`
+    );
   } else if (params.duration_min) {
     parts.push(`duration >= ${Math.floor(params.duration_min / 60)} min`);
   } else if (params.duration_max) {

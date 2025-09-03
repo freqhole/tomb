@@ -85,7 +85,7 @@ impl MusicRepository {
         // Convert SongQuery to SearchQuery
         let search_query = self.convert_song_query_to_search_query(query);
 
-        let results = search_service
+        let (results, _total_count) = search_service
             .search_songs(&search_query)
             .await
             .map_err(|e| MusicRepositoryError::Database(sqlx::Error::Protocol(e.to_string())))?;

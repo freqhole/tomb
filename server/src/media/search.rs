@@ -126,6 +126,16 @@ pub struct UnifiedSearchParams {
     pub skip_total_count: Option<bool>,
     pub explain_query: Option<bool>,
 
+    // === NULL CHECKING FILTERS ===
+    pub rating_is_null: Option<bool>,
+    pub genre_is_null: Option<bool>,
+    pub year_is_null: Option<bool>,
+    pub bpm_is_null: Option<bool>,
+    pub key_signature_is_null: Option<bool>,
+    pub artist_is_null: Option<bool>,
+    pub album_is_null: Option<bool>,
+    pub album_artist_is_null: Option<bool>,
+
     // === LEGACY COMPATIBILITY ===
     #[serde(default)]
     pub favorites_only: bool,
@@ -454,13 +464,14 @@ pub async fn search_music(
     // Use the existing SearchService from grimoire
     let search_service = SearchService::new(db.pool().clone());
 
-    let search_results = search_service
-        .search_songs(&search_query)
-        .await
-        .map_err(|e| {
-            eprintln!("Search service failed: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let (search_results, total_count) =
+        search_service
+            .search_songs(&search_query)
+            .await
+            .map_err(|e| {
+                eprintln!("Search service failed: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
     // Convert SongSearchResult to SongResponse
     let songs: Vec<SongResponse> = search_results
@@ -503,8 +514,7 @@ pub async fn search_music(
         })
         .collect();
 
-    // Get total count for pagination (this should ideally be part of the search service)
-    let total_count = songs.len() as u64; // Placeholder - this needs proper count implementation
+    // Use the total count from the SQL function
 
     let response = UnifiedSearchResponse {
         songs,
@@ -559,22 +569,25 @@ fn convert_unified_params_to_search_query(params: UnifiedSearchParams) -> Search
     // Set pagination
     search_query = search_query.with_pagination(params.page, params.page_size);
 
-    // Set sorting
-    let sort_by = match params.sort_by.as_deref().unwrap_or("created_at") {
-        "title" => SortBy::Title,
-        "artist" => SortBy::Artist,
-        "album" => SortBy::Album,
-        "rating" => SortBy::Rating,
-        "updated_at" => SortBy::UpdatedAt,
-        _ => SortBy::CreatedAt,
-    };
-
+    // Set sorting - use raw sort for extended fields
     let direction = match params.sort_direction.as_deref().unwrap_or("desc") {
         "asc" => SortDirection::Asc,
         _ => SortDirection::Desc,
     };
 
-    search_query = search_query.with_sort(sort_by, direction);
+    let sort_field = params.sort_by.as_deref().unwrap_or("created_at");
+    search_query = match sort_field {
+        "year" | "duration" | "duration_seconds" => {
+            // Use raw sort for fields not in SortBy enum
+            search_query.with_raw_sort(sort_field, direction)
+        }
+        "title" => search_query.with_sort(SortBy::Title, direction),
+        "artist" => search_query.with_sort(SortBy::Artist, direction),
+        "album" => search_query.with_sort(SortBy::Album, direction),
+        "rating" => search_query.with_sort(SortBy::Rating, direction),
+        "updated_at" => search_query.with_sort(SortBy::UpdatedAt, direction),
+        _ => search_query.with_sort(SortBy::CreatedAt, direction),
+    };
 
     // Set filters
     let mut filters = SearchFilters::default();
@@ -679,6 +692,16 @@ fn convert_unified_params_to_search_query(params: UnifiedSearchParams) -> Search
     filters.include_file_info = params.include_file_info;
     filters.include_statistics = params.include_statistics;
     filters.include_related = params.include_related;
+
+    // === NULL CHECKING FILTERS ===
+    filters.rating_is_null = params.rating_is_null;
+    filters.genre_is_null = params.genre_is_null;
+    filters.year_is_null = params.year_is_null;
+    filters.bpm_is_null = params.bpm_is_null;
+    filters.key_signature_is_null = params.key_signature_is_null;
+    filters.artist_is_null = params.artist_is_null;
+    filters.album_is_null = params.album_is_null;
+    filters.album_artist_is_null = params.album_artist_is_null;
 
     // === LEGACY FIELDS ===
     // media_blob_id not available in UnifiedSearchParams - it's an internal field

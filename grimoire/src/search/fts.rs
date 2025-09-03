@@ -30,6 +30,7 @@ struct SearchSongRow {
     updated_at: OffsetDateTime,
     version: i64,
     search_rank: Option<f32>,
+    total_count: i64,
 }
 
 #[derive(Debug, FromRow)]
@@ -89,25 +90,35 @@ impl SearchService {
     pub async fn search_songs(
         &self,
         query: &SearchQuery,
-    ) -> Result<Vec<SongSearchResult>, SearchError> {
+    ) -> Result<(Vec<SongSearchResult>, u64), SearchError> {
         let search_type = match query.search_type {
             SearchType::WebSearch => "websearch",
             SearchType::PlainText => "plainto",
             SearchType::Phrase => "phrase",
         };
 
-        let sort_by = match query.ordering.sort_by {
-            SortBy::Relevance => "relevance",
-            SortBy::CreatedAt => "created_at",
-            SortBy::Title => "title",
-            SortBy::Artist => "artist",
-            SortBy::Album => "album",
-            SortBy::Rating => "rating",
-            _ => "relevance",
+        let sort_by = if let Some(raw_sort) = &query.ordering.raw_sort {
+            // Use raw sort field for fields not in enum (year, duration_seconds, etc.)
+            raw_sort.as_str()
+        } else {
+            match query.ordering.sort_by {
+                SortBy::Relevance => "relevance",
+                SortBy::CreatedAt => "created_at",
+                SortBy::Title => "title",
+                SortBy::Artist => "artist",
+                SortBy::Album => "album",
+                SortBy::Rating => "rating",
+                SortBy::UpdatedAt => "updated_at",
+            }
         };
 
         let offset = ((query.pagination.page - 1) * query.pagination.page_size) as i32;
         let limit = query.pagination.page_size as i32;
+
+        let sort_direction = match query.ordering.direction {
+            SortDirection::Asc => "asc",
+            SortDirection::Desc => "desc",
+        };
 
         let rows = sqlx::query_as::<_, SearchSongRow>(
             r#"
@@ -116,21 +127,22 @@ impl SearchService {
                 thumbnail_blob_ids, title, artist, album, album_artist,
                 track_number, disc_number, duration, genre, year, bpm,
                 key_signature, rating, is_favorite, tags, metadata,
-                created_at, updated_at, version, search_rank
+                created_at, updated_at, version, search_rank, total_count
             FROM search_songs(
-                $1, $2, $3,                                    -- text search
-                $4, $5, $6, $7, $8, $9, $10,                  -- basic filters
-                $11, $12, $13, $14, $15, $16, $17, $18, $19,   -- numeric filters
-                $20, $21, $22, $23, $24,                      -- numeric filters cont.
-                $25, $26, $27, $28, $29, $30,                 -- boolean filters
-                $31, $32, $33, $34, $35, $36,                 -- array filters
-                $37, $38, $39, $40,                           -- file/technical filters
-                $41, $42, $43, $44, $45, $46,                 -- date filters
-                $47, $48, $49,                                -- advanced filters
-                $50, $51,                                     -- library management
-                $52,                                          -- response options
-                $53, $54,                                     -- legacy fields
-                $55, $56, $57                                 -- pagination/ordering
+                $1, $2, $3,                                    -- text search (3)
+                $4, $5, $6, $7, $8, $9, $10,                  -- basic filters (7)
+                $11, $12, $13, $14, $15, $16, $17, $18, $19,   -- numeric filters (9)
+                $20, $21, $22, $23, $24,                      -- numeric filters cont (5)
+                $25, $26, $27, $28, $29, $30,                 -- boolean filters (6)
+                $31, $32, $33, $34, $35, $36,                 -- array filters (6)
+                $37, $38, $39, $40,                           -- file/technical filters (4)
+                $41, $42, $43, $44, $45, $46,                 -- date filters (6)
+                $47, $48, $49,                                -- advanced filters (3)
+                $50, $51,                                     -- library management (2)
+                $52,                                          -- response options (1)
+                $53, $54,                                     -- legacy fields (2)
+                $55, $56, $57, $58, $59, $60, $61, $62,       -- null checking filters (8)
+                $63, $64, $65, $66                            -- pagination/ordering (4)
             )
             "#,
         )
@@ -199,12 +211,24 @@ impl SearchService {
         // === LEGACY FIELDS ===
         .bind(query.filters.media_blob_id.as_deref())
         .bind(query.filters.metadata_filter.as_ref())
+        // === NULL CHECKING FILTERS ===
+        .bind(query.filters.rating_is_null)
+        .bind(query.filters.genre_is_null)
+        .bind(query.filters.year_is_null)
+        .bind(query.filters.bpm_is_null)
+        .bind(query.filters.key_signature_is_null)
+        .bind(query.filters.artist_is_null)
+        .bind(query.filters.album_is_null)
+        .bind(query.filters.album_artist_is_null)
         // === PAGINATION AND ORDERING ===
         .bind(limit)
         .bind(offset)
         .bind(sort_by)
+        .bind(sort_direction)
         .fetch_all(&self.pool)
         .await?;
+
+        let total_count = rows.first().map(|row| row.total_count as u64).unwrap_or(0);
 
         let results = rows
             .into_iter()
@@ -236,7 +260,7 @@ impl SearchService {
             })
             .collect();
 
-        Ok(results)
+        Ok((results, total_count))
     }
 
     /// Unified music search (songs + playlists) using music_search function
@@ -272,7 +296,7 @@ impl SearchService {
         // If filters are present, use search_songs for better filter support
         let (results, total_count) = if query.filters.has_any_filters() {
             // Use search_songs which supports all filters
-            let songs = self.search_songs(query).await?;
+            let (songs, total_count) = self.search_songs(query).await?;
 
             // Convert songs to SearchResultItem format
             let search_results: Vec<SearchResultItem> = songs
@@ -300,8 +324,7 @@ impl SearchService {
                 })
                 .collect();
 
-            let count = search_results.len() as u64;
-            (search_results, count)
+            (search_results, total_count)
         } else {
             // Use the original music_search function for text queries without filters
             let rows = sqlx::query_as::<_, MusicSearchRow>(
@@ -500,7 +523,8 @@ impl SearchService {
             .with_domains(vec!["music".to_string()])
             .with_pagination(1, 20);
 
-        self.search_songs(&search_query).await
+        let (results, _) = self.search_songs(&search_query).await?;
+        Ok(results)
     }
 
     /// Search songs by artist
@@ -512,7 +536,8 @@ impl SearchService {
             .with_structured_search(&format!("artist:{}", artist))
             .with_domains(vec!["music".to_string()]);
 
-        self.search_songs(&search_query).await
+        let (results, _) = self.search_songs(&search_query).await?;
+        Ok(results)
     }
 
     /// Search for favorites only
@@ -528,6 +553,7 @@ impl SearchService {
             search_query = search_query.with_query(q);
         }
 
-        self.search_songs(&search_query).await
+        let (results, _) = self.search_songs(&search_query).await?;
+        Ok(results)
     }
 }

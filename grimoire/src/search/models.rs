@@ -10,7 +10,7 @@ pub struct SearchQuery {
     pub domains: Vec<String>,              // ["music", "photos", "videos", "documents"]
     pub filters: SearchFilters,
     pub pagination: PaginationOptions,
-    pub ordering: OrderingOptions,
+    pub ordering: SearchOrdering,
 }
 
 impl Default for SearchQuery {
@@ -22,7 +22,7 @@ impl Default for SearchQuery {
             domains: vec!["music".to_string()],
             filters: SearchFilters::default(),
             pagination: PaginationOptions::default(),
-            ordering: OrderingOptions::default(),
+            ordering: SearchOrdering::default(),
         }
     }
 }
@@ -119,6 +119,16 @@ pub struct SearchFilters {
     pub include_statistics: Option<bool>,
     pub include_related: Option<bool>,
 
+    // === NULL CHECKING FILTERS ===
+    pub rating_is_null: Option<bool>,
+    pub genre_is_null: Option<bool>,
+    pub year_is_null: Option<bool>,
+    pub bpm_is_null: Option<bool>,
+    pub key_signature_is_null: Option<bool>,
+    pub artist_is_null: Option<bool>,
+    pub album_is_null: Option<bool>,
+    pub album_artist_is_null: Option<bool>,
+
     // === LEGACY FIELDS ===
     pub media_blob_id: Option<String>,
     pub metadata_filter: Option<serde_json::Value>,
@@ -140,16 +150,18 @@ impl Default for PaginationOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrderingOptions {
+pub struct SearchOrdering {
     pub sort_by: SortBy,
     pub direction: SortDirection,
+    pub raw_sort: Option<String>, // Allow bypassing enum for more sort options
 }
 
-impl Default for OrderingOptions {
+impl Default for SearchOrdering {
     fn default() -> Self {
         Self {
             sort_by: SortBy::Relevance,
             direction: SortDirection::Desc,
+            raw_sort: None,
         }
     }
 }
@@ -326,7 +338,11 @@ impl SearchQuery {
     }
 
     pub fn with_sort(mut self, sort_by: SortBy, direction: SortDirection) -> Self {
-        self.ordering = OrderingOptions { sort_by, direction };
+        self.ordering = SearchOrdering {
+            sort_by,
+            direction,
+            raw_sort: None,
+        };
         self
     }
 
@@ -337,6 +353,15 @@ impl SearchQuery {
 
     pub fn with_genre_filter(mut self, genre: &str) -> Self {
         self.filters.genre = Some(genre.to_string());
+        self
+    }
+
+    pub fn with_raw_sort(mut self, sort_field: &str, direction: SortDirection) -> Self {
+        self.ordering = SearchOrdering {
+            sort_by: SortBy::CreatedAt, // Default fallback
+            direction,
+            raw_sort: Some(sort_field.to_string()),
+        };
         self
     }
 
