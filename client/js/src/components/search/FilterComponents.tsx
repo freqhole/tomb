@@ -25,13 +25,13 @@ export function FilterDropdown(props: FilterDropdownProps) {
       if (props.value.length === 0)
         return props.placeholder || "select options";
       if (props.value.length === 1) {
-        const option = props.options.find((o) => o.value === props.value[0]);
-        return option?.label || props.value[0];
+        const option = props.options.find((o) => o.value === props.value![0]);
+        return option?.label || props.value![0];
       }
       return `${props.value.length} selected`;
     }
     const option = props.options.find((o) => o.value === props.value);
-    return option?.label || props.value;
+    return option?.label || props.value || "";
   });
 
   const handleSelect = (optionValue: string) => {
@@ -140,8 +140,8 @@ export function FilterRange(props: FilterRangeProps) {
   };
 
   const formatValue = (value: number | undefined) => {
-    if (value === undefined) return "";
-    return props.formatter ? props.formatter(value) : value.toString();
+    if (value === undefined || value === null) return "";
+    return props.formatter ? props.formatter(value) : String(value);
   };
 
   return (
@@ -226,7 +226,10 @@ export function FilterTags(props: FilterTagsProps) {
       !inputValue() &&
       props.selectedTags?.length
     ) {
-      handleRemoveTag(props.selectedTags[props.selectedTags.length - 1]);
+      const lastTag = props.selectedTags[props.selectedTags.length - 1];
+      if (lastTag) {
+        handleRemoveTag(lastTag);
+      }
     }
   };
 
@@ -354,14 +357,14 @@ export function FilterDateRange(props: FilterDateRangeProps) {
         <input
           type="date"
           class="flex-1 bg-black text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-magenta-500"
-          value={props.startDate || ""}
+          value={props.startDate ?? ""}
           onInput={handleStartChange}
         />
         <span class="text-gray-400">to</span>
         <input
           type="date"
           class="flex-1 bg-black text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-magenta-500"
-          value={props.endDate || ""}
+          value={props.endDate ?? ""}
           onInput={handleEndChange}
         />
       </div>

@@ -111,27 +111,27 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
 
   // === PRESETS ===
   const presets: SearchPreset[] = [
-    { id: "favorites", label: "favorites", filters: { is_favorite: true } },
+    { id: "favorites", label: "favorites", params: { is_favorite: true } },
     {
       id: "recent",
       label: "recent",
-      filters: {
+      params: {
         created_after: new Date(
           Date.now() - 7 * 24 * 60 * 60 * 1000
         ).toISOString(),
       },
     },
-    { id: "unrated", label: "unrated", filters: { rating_is_null: true } },
-    { id: "high-rated", label: "highly rated", filters: { rating_min: 4 } },
+    { id: "unrated", label: "unrated", params: { rating_is_null: true } },
+    { id: "high-rated", label: "highly rated", params: { rating_min: 4 } },
     {
       id: "no-artwork",
       label: "no artwork",
-      filters: { has_thumbnail: false },
+      params: { has_thumbnail: false },
     },
     {
       id: "lossless",
       label: "lossless",
-      filters: { file_formats: ["flac", "wav"] },
+      params: { file_formats: ["flac", "wav"] },
     },
   ];
 
@@ -404,7 +404,7 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
 
   const applyPreset = (preset: SearchPreset) => {
     console.log("music search: applyPreset", preset.id);
-    setFiltersSignal(preset.filters as AdminMusicFilters);
+    setFiltersSignal(preset.params as AdminMusicFilters);
     setSelectedPreset(preset.id);
     setShowAdvancedSearch(false);
     setCurrentPage(1);

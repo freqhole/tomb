@@ -297,16 +297,20 @@ export interface UnifiedSearchReturn {
   // filters
   activeFilters: () => Record<string, any>;
   hasActiveFilters: () => boolean;
-  addFilter: (key: string, value: any) => void;
-  removeFilter: (key: string) => void;
-  clearFilters: () => void;
+  addFilter: (key: string, value: any, triggerSearch?: boolean) => void;
+  removeFilter: (key: string, triggerSearch?: boolean) => void;
+  clearFilters: (triggerSearch?: boolean) => void;
 
   // sorting
   sortBy: () => string | null;
   sortDirection: () => "asc" | "desc";
-  setSorting: (field: string, direction?: "asc" | "desc") => void;
+  setSorting: (
+    field: string,
+    direction?: "asc" | "desc",
+    triggerSearch?: boolean
+  ) => void;
   toggleSort: (field: string) => void;
-  clearSort: () => void;
+  clearSort: (triggerSearch?: boolean) => void;
 
   // advanced features
   searchMetadata: () => SearchMetadata;
@@ -585,15 +589,25 @@ export function useUnifiedSearch(
     return Object.keys(filters).length > 0 || searchQuery().length > 0;
   });
 
-  const addFilter = (key: string, value: any) => {
+  const addFilter = (
+    key: string,
+    value: any,
+    triggerSearch: boolean = true
+  ) => {
     updateParam(key as keyof UnifiedSearchParams, value);
+    if (triggerSearch) {
+      debouncedSearch();
+    }
   };
 
-  const removeFilter = (key: string) => {
+  const removeFilter = (key: string, triggerSearch: boolean = true) => {
     updateParam(key as keyof UnifiedSearchParams, undefined);
+    if (triggerSearch) {
+      debouncedSearch();
+    }
   };
 
-  const clearFilters = () => {
+  const clearFilters = (triggerSearch: boolean = true) => {
     const params = searchParams();
     const clearedParams: UnifiedSearchParams = {
       page: params.page || 1,
@@ -602,6 +616,9 @@ export function useUnifiedSearch(
       sort_direction: params.sort_direction,
     };
     setSearchParams(clearedParams);
+    if (triggerSearch) {
+      debouncedSearch();
+    }
   };
 
   // sorting management
@@ -610,9 +627,16 @@ export function useUnifiedSearch(
     () => searchParams().sort_direction || "asc"
   );
 
-  const setSorting = (field: string, direction: "asc" | "desc" = "asc") => {
+  const setSorting = (
+    field: string,
+    direction: "asc" | "desc" = "asc",
+    triggerSearch: boolean = true
+  ) => {
     updateParam("sort_by", field);
     updateParam("sort_direction", direction);
+    if (triggerSearch) {
+      debouncedSearch();
+    }
   };
 
   const toggleSort = (field: string) => {
@@ -628,9 +652,12 @@ export function useUnifiedSearch(
     }
   };
 
-  const clearSort = () => {
+  const clearSort = (triggerSearch: boolean = true) => {
     updateParam("sort_by", undefined);
     updateParam("sort_direction", undefined);
+    if (triggerSearch) {
+      debouncedSearch();
+    }
   };
 
   // search actions

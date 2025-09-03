@@ -85,12 +85,12 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
     if (isPresetActive(presetId)) {
       // clear the preset by removing its parameters
       Object.keys(preset.params).forEach((key) => {
-        search.removeFilter(key);
+        search.removeFilter(key); // triggerSearch defaults to true
       });
     } else {
       // apply the preset
       Object.entries(preset.params).forEach(([key, value]) => {
-        search.addFilter(key, value);
+        search.addFilter(key, value); // triggerSearch defaults to true
       });
     }
   };
@@ -370,8 +370,12 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
       <SearchAdvancedFilters
         visible={showAdvancedFilters()}
         filters={search.searchParams()}
-        onFiltersChange={(key, value) => search.addFilter(key, value)}
-        onExactChange={(key, exact) => search.addFilter(key, exact)}
+        onFiltersChange={(key, value) => {
+          search.addFilter(key, value); // triggerSearch defaults to true
+        }}
+        onExactChange={(key, exact) => {
+          search.addFilter(key, exact); // triggerSearch defaults to true
+        }}
         filterConfigs={advancedFilterConfigs}
         class="mb-6"
       />
@@ -404,9 +408,9 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
           <SearchSortControls
             sortBy={search.sortBy() || undefined}
             sortDirection={search.sortDirection() || undefined}
-            onSortChange={(field, direction) =>
-              search.setSorting(field, direction)
-            }
+            onSortChange={(field, direction) => {
+              search.setSorting(field, direction); // triggerSearch defaults to true
+            }}
             sortFields={sortFields}
             directionStyle="arrows"
           />

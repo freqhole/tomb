@@ -7,7 +7,7 @@ import {
   FilterToggle,
   FilterDateRange,
   FilterText,
-} from "../../lib/components/filters/FilterComponents.js";
+} from "./FilterComponents.js";
 
 export interface AdvancedFilterConfig {
   type: "text" | "dropdown" | "range" | "tags" | "toggle" | "date";
@@ -75,21 +75,28 @@ export function SearchAdvancedFilters(props: SearchAdvancedFiltersProps) {
         );
 
       case "range":
-        const rangeValue = Array.isArray(currentValue) ? currentValue : [null, null];
+        const rangeValue = Array.isArray(currentValue)
+          ? currentValue
+          : [undefined, undefined];
         return (
           <FilterRange
             label={config.label}
-            minValue={rangeValue[0]}
-            maxValue={rangeValue[1]}
+            minValue={rangeValue[0] ?? undefined}
+            maxValue={rangeValue[1] ?? undefined}
             min={config.min}
             max={config.max}
             placeholder={{
               min: `min ${config.label}`,
-              max: `max ${config.label}`
+              max: `max ${config.label}`,
             }}
             onChange={(range) => {
-              const newValue = [range.min, range.max].filter(v => v !== null);
-              props.onFiltersChange(config.key, newValue.length > 0 ? newValue : null);
+              const newValue = [range.min, range.max].filter(
+                (v) => v !== undefined && v !== null
+              );
+              props.onFiltersChange(
+                config.key,
+                newValue.length > 0 ? newValue : undefined
+              );
             }}
           />
         );
@@ -117,15 +124,22 @@ export function SearchAdvancedFilters(props: SearchAdvancedFiltersProps) {
         );
 
       case "date":
-        const dateValue = Array.isArray(currentValue) ? currentValue : [null, null];
+        const dateValue = Array.isArray(currentValue)
+          ? currentValue
+          : [undefined, undefined];
         return (
           <FilterDateRange
             label={config.label}
-            startDate={dateValue[0]}
-            endDate={dateValue[1]}
+            startDate={dateValue[0] ?? undefined}
+            endDate={dateValue[1] ?? undefined}
             onChange={(range) => {
-              const newValue = [range.start, range.end].filter(v => v !== null);
-              props.onFiltersChange(config.key, newValue.length > 0 ? newValue : null);
+              const newValue = [range.start, range.end].filter(
+                (v) => v !== undefined && v !== null
+              );
+              props.onFiltersChange(
+                config.key,
+                newValue.length > 0 ? newValue : undefined
+              );
             }}
           />
         );
@@ -150,9 +164,7 @@ export function SearchAdvancedFilters(props: SearchAdvancedFiltersProps) {
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <For each={props.filterConfigs}>
                 {(config) => (
-                  <div class="space-y-2">
-                    {renderFilter(config)}
-                  </div>
+                  <div class="space-y-2">{renderFilter(config)}</div>
                 )}
               </For>
             </div>

@@ -7,11 +7,7 @@ export { SearchSuggestions } from "./SearchSuggestions.js";
 export type { SearchSuggestionsProps } from "./SearchSuggestions.js";
 
 export { SearchFilters } from "./SearchFilters.js";
-export type {
-  SearchFiltersProps,
-  FilterOption,
-  FilterField,
-} from "./SearchFilters.js";
+export type { SearchFiltersProps, FilterField } from "./SearchFilters.js";
 
 export { SearchPresets } from "./SearchPresets.js";
 export type { SearchPresetsProps, SearchPreset } from "./SearchPresets.js";
@@ -49,6 +45,9 @@ export type {
   SearchProviderProps,
   SearchContextValue,
 } from "./SearchContext.js";
+
+// Filter components are available via direct import from FilterComponents.js
+// export { FilterDropdown, FilterRange, FilterTags, FilterToggle, FilterDateRange, FilterText } from "./FilterComponents.js";
 
 // Re-export search hooks for convenience
 export { useSearch } from "../../hooks/search/index.js";
