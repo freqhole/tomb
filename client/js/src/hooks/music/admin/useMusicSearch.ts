@@ -1,4 +1,4 @@
-import { createSignal, createMemo, createEffect, onCleanup } from "solid-js";
+import { createSignal, createMemo, onMount } from "solid-js";
 import type { ApiClient } from "../../../lib/api-client.js";
 import type { AdminMusicFilters } from "../../../lib/admin/admin-api.js";
 import type { SearchPreset } from "../../../lib/admin/components/AdminSearchHeader.js";
@@ -39,10 +39,6 @@ export interface MusicSearchReturn {
   filterSummary: () => string;
   /** Whether any filters are active */
   hasActiveFilters: () => boolean;
-  /** Get search options for API */
-  getSearchOptions: () => AdminMusicFilters & { q?: string };
-  /** Clear search but keep filters */
-  clearSearch: () => void;
   /** Filter options for UI components */
   filterOptions: () => any;
   /** Loading state */
@@ -65,14 +61,6 @@ export interface MusicSearchReturn {
   };
   /** Load next page */
   loadMore: () => Promise<void>;
-  /** Go to specific page */
-  goToPage: (page: number) => void;
-  /** Set page size */
-  setPageSize: (pageSize: number) => void;
-  /** Add a single filter */
-  addFilter: (key: string, value: any) => void;
-  /** Remove a single filter */
-  removeFilter: (key: string) => void;
   /** Set sort field and direction */
   setSort: (field: string, direction?: "asc" | "desc") => void;
   /** Current sort field */
@@ -88,54 +76,38 @@ export interface MusicSearchReturn {
 }
 
 /**
- * Enhanced music search hook using the backend search API
- *
- * This integrates with the complete backend search infrastructure including:
- * - 65+ search parameters
- * - Advanced filtering (null checking, ranges, arrays)
- * - Proper sorting with ASC/DESC support
- * - Pagination with total count
- * - Real-time suggestions
- * - Search presets
+ * Simple, explicit music search hook with no reactive chaos
  */
-export function useMusicSearch(
-  apiClient: ApiClient,
-  onFiltersChange?: (filters: AdminMusicFilters & { q?: string }) => void
-): MusicSearchReturn {
-  // core search state
-  const [searchQuery, setSearchQuery] = createSignal("");
-  const [filters, setFilters] = createSignal<AdminMusicFilters>({});
+export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
+  // === CORE STATE ===
+  const [searchQuery, setSearchQuerySignal] = createSignal("");
+  const [filters, setFiltersSignal] = createSignal<AdminMusicFilters>({});
   const [showAdvancedSearch, setShowAdvancedSearch] = createSignal(false);
   const [selectedPreset, setSelectedPreset] = createSignal<string | null>(null);
   const [suggestions, setSuggestions] = createSignal<string[]>([]);
 
-  // results state
+  // === RESULTS STATE ===
   const [results, setResults] = createSignal<any[]>([]);
   const [total, setTotal] = createSignal(0);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [searching, setSearching] = createSignal(false);
 
-  // pagination state
+  // === PAGINATION STATE ===
   const [currentPage, setCurrentPage] = createSignal(1);
-  const [pageSize, setCurrentPageSize] = createSignal(20);
+  const [pageSize] = createSignal(100);
 
-  // sort state
-  const [sortField, setSortField] = createSignal<string | null>(null);
+  // === SORT STATE ===
+  const [sortField, setSortField] = createSignal<string | null>("created_at");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc" | null>(
-    null
+    "desc"
   );
 
-  // filter options state
+  // === FILTER OPTIONS STATE ===
   const [filterOptions, setFilterOptions] = createSignal<any>({});
 
-  // search presets for quick filtering
+  // === PRESETS ===
   const presets: SearchPreset[] = [
-    {
-      id: "favorites",
-      label: "favorites",
-      filters: { is_favorite: true },
-    },
+    { id: "favorites", label: "favorites", filters: { is_favorite: true } },
     {
       id: "recent",
       label: "recent",
@@ -145,16 +117,8 @@ export function useMusicSearch(
         ).toISOString(),
       },
     },
-    {
-      id: "unrated",
-      label: "unrated",
-      filters: { rating_is_null: true },
-    },
-    {
-      id: "high-rated",
-      label: "highly rated",
-      filters: { rating_min: 4 },
-    },
+    { id: "unrated", label: "unrated", filters: { rating_is_null: true } },
+    { id: "high-rated", label: "highly rated", filters: { rating_min: 4 } },
     {
       id: "no-artwork",
       label: "no artwork",
@@ -167,275 +131,14 @@ export function useMusicSearch(
     },
   ];
 
-  // debounced search function
-  let searchTimeout: number | undefined;
-  const debouncedSearch = () => {
-    clearTimeout(searchTimeout);
-    searchTimeout = window.setTimeout(() => {
-      performSearch();
-    }, 300);
-  };
+  // === COMPUTED VALUES ===
+  const searchState = createMemo(() => ({
+    query: searchQuery(),
+    filters: filters(),
+    showAdvancedSearch: showAdvancedSearch(),
+    selectedPreset: selectedPreset(),
+  }));
 
-  // main search function
-  const performSearch = async () => {
-    try {
-      setLoading(true);
-      setSearching(true);
-      setError(null);
-
-      const searchParams = getSearchOptions();
-
-      // call the music search API
-      console.log(
-        "music search: making API request to /api/music/search with params:",
-        searchParams
-      );
-      const response = await apiClient
-        .makeRequest<any>("GET", "/api/music/search", { params: searchParams })
-        .catch((err) => {
-          console.error("music search API error:", err);
-          throw new Error(
-            `Request failed: ${err.message || err.statusText || err}`
-          );
-        });
-
-      console.log("music search: response received", response);
-
-      if (response && response.songs) {
-        setResults(response.songs);
-        setTotal(response.total_count || response.total || 0);
-      } else if (Array.isArray(response)) {
-        // handle direct array response
-        setResults(response);
-        setTotal(response.length);
-      } else {
-        setResults([]);
-        setTotal(0);
-      }
-    } catch (err) {
-      console.error("search error:", err);
-      setError(err instanceof Error ? err.message : "search failed");
-      setResults([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-      setSearching(false);
-    }
-  };
-
-  // load filter options
-  const loadFilterOptions = async () => {
-    try {
-      console.log("music search: loading filter options");
-      const response = await apiClient
-        .makeRequest<any>("GET", "/api/music/filter-options")
-        .catch((err) => {
-          console.error("filter options API error:", err);
-          throw new Error(
-            `Filter options request failed: ${err.message || err.statusText || err}`
-          );
-        });
-
-      console.log("music search: filter options response", response);
-      setFilterOptions(response || {});
-    } catch (err) {
-      console.warn("failed to load filter options:", err);
-      setFilterOptions({});
-    }
-  };
-
-  // load suggestions
-  const loadSuggestions = async (query: string) => {
-    if (query.length < 2) {
-      setSuggestions([]);
-      return;
-    }
-
-    try {
-      console.log("music search: loading suggestions for query", query);
-      const response = await apiClient
-        .makeRequest<any>("GET", "/api/music/suggestions", {
-          params: { q: query, limit: 8 },
-        })
-        .catch((err) => {
-          console.error("suggestions API error:", err);
-          throw new Error(
-            `Suggestions request failed: ${err.message || err.statusText || err}`
-          );
-        });
-
-      console.log("music search: suggestions response", response);
-
-      if (response && response.suggestions) {
-        setSuggestions(response.suggestions.map((s: any) => s.text || s));
-      } else if (Array.isArray(response)) {
-        setSuggestions(response);
-      } else {
-        setSuggestions([]);
-      }
-    } catch (err) {
-      console.warn("failed to load suggestions:", err);
-      setSuggestions([]);
-    }
-  };
-
-  // combined search state
-  const searchState = createMemo(
-    (): MusicSearchState => ({
-      query: searchQuery(),
-      filters: filters(),
-      showAdvancedSearch: showAdvancedSearch(),
-      selectedPreset: selectedPreset(),
-    })
-  );
-
-  // update filters helper
-  const updateFilters = (updates: Partial<AdminMusicFilters>) => {
-    setFilters((prev) => ({ ...prev, ...updates }));
-    setSelectedPreset(null); // clear preset when manually updating filters
-    setCurrentPage(1); // reset to first page when filters change
-  };
-
-  // clear all filters
-  const clearFilters = () => {
-    setFilters({});
-    setSearchQuery("");
-    setSelectedPreset(null);
-    setCurrentPage(1);
-  };
-
-  // clear search but keep filters
-  const clearSearch = () => {
-    setSearchQuery("");
-  };
-
-  // apply preset
-  const applyPreset = (preset: SearchPreset) => {
-    setFilters(preset.filters as AdminMusicFilters);
-    setSelectedPreset(preset.id);
-    setShowAdvancedSearch(false);
-    setCurrentPage(1);
-  };
-
-  // handle suggestion selection
-  const onSuggestionSelect = (suggestion: string) => {
-    setSearchQuery(suggestion);
-  };
-
-  // generate filter summary text
-  const filterSummary = createMemo(() => {
-    const activeFilters = filters();
-    const query = searchQuery();
-    const parts: string[] = [];
-
-    if (query) {
-      parts.push(`search: "${query}"`);
-    }
-
-    if (activeFilters.is_favorite) {
-      parts.push("favorites only");
-    }
-
-    if (activeFilters.artist) {
-      parts.push(`artist: ${activeFilters.artist}`);
-    }
-
-    if (activeFilters.album) {
-      parts.push(`album: ${activeFilters.album}`);
-    }
-
-    if (activeFilters.genre) {
-      parts.push(`genre: ${activeFilters.genre}`);
-    }
-
-    if (activeFilters.year) {
-      parts.push(`year: ${activeFilters.year}`);
-    }
-
-    if (activeFilters.year_min && activeFilters.year_max) {
-      parts.push(`years: ${activeFilters.year_min}-${activeFilters.year_max}`);
-    } else if (activeFilters.year_min) {
-      parts.push(`year >= ${activeFilters.year_min}`);
-    } else if (activeFilters.year_max) {
-      parts.push(`year <= ${activeFilters.year_max}`);
-    }
-
-    if (activeFilters.rating_min && activeFilters.rating_max) {
-      parts.push(
-        `rating: ${activeFilters.rating_min}-${activeFilters.rating_max} stars`
-      );
-    } else if (activeFilters.rating_min) {
-      parts.push(`rating >= ${activeFilters.rating_min} stars`);
-    } else if (activeFilters.rating_max) {
-      parts.push(`rating <= ${activeFilters.rating_max} stars`);
-    } else if (activeFilters.rating !== undefined) {
-      parts.push(`rating: ${activeFilters.rating} stars`);
-    }
-
-    if (activeFilters.file_format) {
-      parts.push(`format: ${activeFilters.file_format}`);
-    }
-
-    if (activeFilters.has_thumbnail === false) {
-      parts.push("no artwork");
-    }
-
-    if (activeFilters.tags && activeFilters.tags.length > 0) {
-      parts.push(`tags: ${activeFilters.tags.join(", ")}`);
-    }
-
-    if (activeFilters.created_after) {
-      const date = new Date(activeFilters.created_after);
-      parts.push(`added after ${date.toLocaleDateString()}`);
-    }
-
-    if (activeFilters.created_before) {
-      const date = new Date(activeFilters.created_before);
-      parts.push(`added before ${date.toLocaleDateString()}`);
-    }
-
-    return parts.join(", ");
-  });
-
-  // check if any filters are active
-  const hasActiveFilters = createMemo(() => {
-    const activeFilters = filters();
-    const query = searchQuery();
-
-    return (
-      query.length > 0 ||
-      Object.keys(activeFilters).some(
-        (key) =>
-          activeFilters[key as keyof AdminMusicFilters] !== undefined &&
-          activeFilters[key as keyof AdminMusicFilters] !== "" &&
-          activeFilters[key as keyof AdminMusicFilters] !== null &&
-          (!Array.isArray(activeFilters[key as keyof AdminMusicFilters]) ||
-            (activeFilters[key as keyof AdminMusicFilters] as any[]).length > 0)
-      )
-    );
-  });
-
-  // get search options for API calls
-  const getSearchOptions = createMemo(() => {
-    const options: AdminMusicFilters & { q?: string } = {
-      ...filters(),
-      page: currentPage(),
-      page_size: pageSize(),
-    };
-
-    if (sortField()) {
-      options.sort_by = sortField()!;
-      options.sort_direction = sortDirection() || "asc";
-    }
-
-    if (searchQuery()) {
-      options.q = searchQuery();
-    }
-
-    return options;
-  });
-
-  // pagination helpers
   const pagination = createMemo(() => {
     const totalItems = total();
     const size = pageSize();
@@ -451,92 +154,256 @@ export function useMusicSearch(
     };
   });
 
-  const loadMore = async () => {
-    const pag = pagination();
-    if (pag.hasNext) {
-      setCurrentPage(pag.page + 1);
-    }
-  };
-
-  const goToPage = (page: number) => {
-    setCurrentPage(page);
-  };
-
-  const setPageSize = (newPageSize: number) => {
-    setCurrentPageSize(newPageSize);
-    setCurrentPage(1); // reset to first page when changing page size
-  };
-
-  // filter helpers
-  const addFilter = (key: string, value: any) => {
-    updateFilters({ [key]: value });
-  };
-
-  const removeFilter = (key: string) => {
-    const newFilters = { ...filters() };
-    delete newFilters[key as keyof AdminMusicFilters];
-    setFilters(newFilters);
-  };
-
-  // sort helpers
-  // set sort field and direction
-  const setSort = (field: string, direction: "asc" | "desc" = "asc") => {
-    console.log("music search: setting sort", { field, direction });
-    setSortField(field);
-    setSortDirection(direction);
-    setCurrentPage(1); // reset to first page when sorting
-
-    // Apply sort immediately to refresh results
-    const updatedFilters = {
-      ...filters(),
-      sort_by: field,
-      sort_direction: direction,
-    };
-    setFilters(updatedFilters);
-  };
-
-  // refresh function
-  const refresh = async () => {
-    console.log("music search: refreshing search results");
-    try {
-      await performSearch();
-    } catch (error) {
-      console.error("music search refresh error:", error);
-      setError(error instanceof Error ? error.message : "search failed");
-    }
-  };
-
-  // reactive effects
-  createEffect(() => {
+  const hasActiveFilters = createMemo(() => {
+    const activeFilters = filters();
     const query = searchQuery();
-    if (query.length >= 2) {
-      loadSuggestions(query);
-    } else {
+    const excludedKeys = ["page", "page_size", "sort_by", "sort_direction"];
+
+    return (
+      query.length > 0 ||
+      Object.keys(activeFilters).some(
+        (key) =>
+          !excludedKeys.includes(key) &&
+          activeFilters[key as keyof AdminMusicFilters] !== undefined &&
+          activeFilters[key as keyof AdminMusicFilters] !== "" &&
+          activeFilters[key as keyof AdminMusicFilters] !== null &&
+          (!Array.isArray(activeFilters[key as keyof AdminMusicFilters]) ||
+            (activeFilters[key as keyof AdminMusicFilters] as any[]).length > 0)
+      )
+    );
+  });
+
+  const filterSummary = createMemo(() => {
+    const activeFilters = filters();
+    const query = searchQuery();
+    const parts: string[] = [];
+
+    if (query) parts.push(`search: "${query}"`);
+    if (activeFilters.is_favorite) parts.push("favorites only");
+    if (activeFilters.artist) parts.push(`artist: ${activeFilters.artist}`);
+    if (activeFilters.album) parts.push(`album: ${activeFilters.album}`);
+    if (activeFilters.genre) parts.push(`genre: ${activeFilters.genre}`);
+    if (activeFilters.year) parts.push(`year: ${activeFilters.year}`);
+    if (activeFilters.year_min && activeFilters.year_max) {
+      parts.push(`years: ${activeFilters.year_min}-${activeFilters.year_max}`);
+    } else if (activeFilters.year_min) {
+      parts.push(`year >= ${activeFilters.year_min}`);
+    } else if (activeFilters.year_max) {
+      parts.push(`year <= ${activeFilters.year_max}`);
+    }
+
+    return parts.join(", ");
+  });
+
+  // === CORE FUNCTIONS ===
+
+  /**
+   * Build search parameters for API call
+   */
+  const buildSearchParams = (page = currentPage()) => {
+    const params: any = {
+      ...filters(),
+      page,
+      page_size: pageSize(),
+    };
+
+    if (sortField()) {
+      params.sort_by = sortField();
+      params.sort_direction = sortDirection() || "asc";
+    }
+
+    if (searchQuery()) {
+      params.q = searchQuery();
+    }
+
+    return params;
+  };
+
+  /**
+   * Perform search API call
+   */
+  const performSearch = async (pageToLoad = 1, append = false) => {
+    console.log(
+      `music search: performSearch(page=${pageToLoad}, append=${append})`
+    );
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const params = buildSearchParams(pageToLoad);
+      console.log("music search: API request", params);
+
+      const response = await apiClient.makeRequest<any>(
+        "GET",
+        "/api/music/search",
+        { params }
+      );
+      console.log("music search: API response", response);
+
+      let newSongs: any[] = [];
+      let serverTotal = 0;
+
+      if (response?.songs) {
+        newSongs = response.songs;
+        serverTotal = response.total_count || response.total || 0;
+      } else if (Array.isArray(response)) {
+        newSongs = response;
+        serverTotal = response.length;
+      }
+
+      setTotal(serverTotal);
+
+      if (append && pageToLoad > 1) {
+        // Append for infinite scroll
+        const existing = results();
+        const combined = [...existing, ...newSongs];
+        setResults(combined);
+        console.log(
+          `music search: appended ${newSongs.length} songs, total now ${combined.length}`
+        );
+      } else {
+        // Replace for new search
+        setResults(newSongs);
+        console.log(`music search: replaced with ${newSongs.length} songs`);
+      }
+
+      setCurrentPage(pageToLoad);
+    } catch (err) {
+      console.error("music search: API error", err);
+      setError(err instanceof Error ? err.message : "search failed");
+      if (!append) {
+        setResults([]);
+        setTotal(0);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Load filter options from API
+   */
+  const loadFilterOptions = async () => {
+    try {
+      const response = await apiClient.makeRequest<any>(
+        "GET",
+        "/api/music/filter-options"
+      );
+      setFilterOptions(response || {});
+    } catch (err) {
+      console.warn("failed to load filter options:", err);
+      setFilterOptions({});
+    }
+  };
+
+  /**
+   * Load suggestions from API
+   */
+  const loadSuggestions = async (query: string) => {
+    if (query.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    try {
+      const response = await apiClient.makeRequest<any>(
+        "GET",
+        "/api/music/suggestions",
+        {
+          params: { q: query, limit: 8 },
+        }
+      );
+
+      if (response?.suggestions) {
+        setSuggestions(response.suggestions.map((s: any) => s.text || s));
+      } else if (Array.isArray(response)) {
+        setSuggestions(response);
+      } else {
+        setSuggestions([]);
+      }
+    } catch (err) {
+      console.warn("failed to load suggestions:", err);
       setSuggestions([]);
     }
-  });
+  };
 
-  // trigger search when search params change
-  createEffect(() => {
-    const searchOptions = getSearchOptions();
-    debouncedSearch();
+  // === PUBLIC API ===
 
-    // notify parent of filter changes
-    if (onFiltersChange) {
-      onFiltersChange(searchOptions);
+  const setSearchQuery = (query: string) => {
+    console.log("music search: setSearchQuery", query);
+    setSearchQuerySignal(query);
+    setCurrentPage(1);
+    loadSuggestions(query);
+    performSearch(1, false); // New search, don't append
+  };
+
+  const updateFilters = (updates: Partial<AdminMusicFilters>) => {
+    console.log("music search: updateFilters", updates);
+    setFiltersSignal((prev) => ({ ...prev, ...updates }));
+    setSelectedPreset(null);
+    setCurrentPage(1);
+    performSearch(1, false); // New search, don't append
+  };
+
+  const clearFilters = () => {
+    console.log("music search: clearFilters");
+    setFiltersSignal({});
+    setSearchQuerySignal("");
+    setSelectedPreset(null);
+    setCurrentPage(1);
+    performSearch(1, false); // New search, don't append
+  };
+
+  const applyPreset = (preset: SearchPreset) => {
+    console.log("music search: applyPreset", preset.id);
+    setFiltersSignal(preset.filters as AdminMusicFilters);
+    setSelectedPreset(preset.id);
+    setShowAdvancedSearch(false);
+    setCurrentPage(1);
+    performSearch(1, false); // New search, don't append
+  };
+
+  const onSuggestionSelect = (suggestion: string) => {
+    setSearchQuery(suggestion);
+  };
+
+  const setSort = (field: string, direction: "asc" | "desc" = "asc") => {
+    console.log("music search: setSort", { field, direction });
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1);
+    performSearch(1, false); // New search, don't append
+  };
+
+  const loadMore = async () => {
+    const pag = pagination();
+    if (!pag.hasNext || loading()) {
+      console.log("music search: loadMore skipped", {
+        hasNext: pag.hasNext,
+        loading: loading(),
+      });
+      return;
     }
+
+    const nextPage = currentPage() + 1;
+    console.log("music search: loadMore to page", nextPage);
+    await performSearch(nextPage, true); // Append results
+  };
+
+  const refresh = async () => {
+    console.log("music search: refresh");
+    setCurrentPage(1);
+    await performSearch(1, false); // New search, don't append
+  };
+
+  // === INITIALIZATION ===
+  onMount(async () => {
+    await loadFilterOptions();
+    await performSearch(1, false); // Initial load
   });
 
-  // load filter options on mount
-  createEffect(() => {
-    loadFilterOptions();
-  });
-
-  // cleanup
-  onCleanup(() => {
-    clearTimeout(searchTimeout);
-  });
-
+  // === RETURN API ===
   return {
     searchState,
     searchQuery,
@@ -552,25 +419,19 @@ export function useMusicSearch(
     applyPreset,
     filterSummary,
     hasActiveFilters,
-    getSearchOptions,
-    clearSearch,
     filterOptions,
     loading,
     results,
     total,
     error,
-    searching,
+    searching: loading, // alias
     pagination,
     loadMore,
-    goToPage,
-    setPageSize,
-    addFilter,
-    removeFilter,
     setSort,
     sortField,
     sortDirection,
     refresh,
-    searchSuggestions: suggestions,
-    totalCount: total,
+    searchSuggestions: suggestions, // alias
+    totalCount: total, // alias
   };
 }

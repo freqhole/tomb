@@ -496,7 +496,7 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
                     }
                   >
                     <img
-                      src={`/api/media/blobs/${song.thumbnail_blob_id}`}
+                      src={`/api/blobs/${song.thumbnail_blob_id}`}
                       alt="album artwork"
                       class="search-demo__thumbnail"
                     />

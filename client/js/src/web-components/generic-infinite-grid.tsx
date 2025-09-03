@@ -41,6 +41,7 @@ interface GridProps<T = any> {
   sortDirection?: "asc" | "desc" | null;
   className?: string;
   theme?: "light" | "dark";
+  loading?: boolean;
 }
 
 type SortDirection = "asc" | "desc";
@@ -502,8 +503,20 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
       </div>
 
       <div class="grid-stats">
-        Showing rows {actualVisibleStartRow()}-{actualVisibleEndRow()} of{" "}
-        {totalRows()}
+        <Show
+          when={props.loading}
+          fallback={
+            <>
+              Showing rows {actualVisibleStartRow()}-{actualVisibleEndRow()} of{" "}
+              {totalRows()}
+            </>
+          }
+        >
+          <div class="flex items-center space-x-2">
+            <div class="animate-spin h-3 w-3 border border-magenta-500 border-t-transparent"></div>
+            <span>Loading more...</span>
+          </div>
+        </Show>
       </div>
     </div>
   );

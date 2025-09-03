@@ -33,11 +33,7 @@ export function AdminView(props: AdminViewProps) {
   const musicData = createMusicAdminData(props.apiClient);
 
   // create enhanced music search hook with unified search backend
-  const musicSearch = useMusicSearch(props.apiClient, (searchParams) => {
-    console.log("admin view: search params updated", searchParams);
-    // update music data filters when search changes
-    musicData.updateFilters(searchParams, true);
-  });
+  const musicSearch = useMusicSearch(props.apiClient);
 
   // sync search results with admin data grid
   createEffect(() => {
@@ -66,13 +62,7 @@ export function AdminView(props: AdminViewProps) {
       }
     }
 
-    // Update sort information in musicData
-    if (musicSearch.sortField()) {
-      musicData.updateSort(
-        musicSearch.sortField()!,
-        musicSearch.sortDirection() || "asc"
-      );
-    }
+    // musicData sort is overridden in the grid props, so no need to sync here
   });
 
   // initialize with search system
@@ -90,8 +80,7 @@ export function AdminView(props: AdminViewProps) {
         }
       }
 
-      // the search system will handle initial data loading
-      // just trigger a refresh to start the flow
+      // Trigger initial search to load data
       await musicSearch.refresh();
     } catch (err) {
       console.error("admin view: initialization failed:", err);
@@ -116,7 +105,7 @@ export function AdminView(props: AdminViewProps) {
     // Try to construct media URL
     try {
       if (song.media_blob_id) {
-        const mediaUrl = `${props.apiClient.baseUrl}/api/media/blobs/${song.media_blob_id}`;
+        const mediaUrl = `${props.apiClient.getBaseUrl()}/api/blobs/${song.media_blob_id}`;
         console.log(`admin view: playing song from ${mediaUrl}`);
         // TODO: integrate with audio player
       } else {
@@ -275,12 +264,23 @@ export function AdminView(props: AdminViewProps) {
                     // First update the internal data model
                     musicData.updateSort(field, direction);
                     // Then update search params to trigger API request
-                    musicSearch.setSort(field, direction);
+                    musicSearch.setSort(field, direction || "asc");
                   },
                   sortField: () =>
                     musicSearch.sortField() || musicData.sortField(),
                   sortDirection: () =>
                     musicSearch.sortDirection() || musicData.sortDirection(),
+                  // Override pagination methods to use music search system
+                  hasNextPage: () => {
+                    const pag = musicSearch.pagination();
+                    return pag.hasNext;
+                  },
+                  nextPage: async () => {
+                    console.log(
+                      "admin view: loading next page via music search"
+                    );
+                    await musicSearch.loadMore();
+                  },
                 }}
                 onSongPlay={handleSongPlay}
                 onSongEdit={handleSongEdit}

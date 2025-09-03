@@ -41,7 +41,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         <div class="w-12 h-12 bg-gray-800 flex items-center justify-center overflow-hidden">
           {song.thumbnail_blob_id ? (
             <img
-              src={`/api/media/blobs/${song.thumbnail_blob_id}`}
+              src={`/api/blobs/${song.thumbnail_blob_id}`}
               alt="album artwork"
               class="w-full h-full object-cover"
               loading="lazy"
@@ -327,15 +327,6 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       ref={gridContainerRef}
       class={`admin-data-grid ${props.className || ""}`}
     >
-      <Show when={props.musicData.loading()}>
-        <div class="absolute inset-0 bg-black bg-opacity-75 flex items-center justify-center z-10">
-          <div class="flex items-center space-x-2">
-            <div class="animate-spin h-6 w-6 border-b-2 border-magenta-500"></div>
-            <span class="text-gray-300">loading songs...</span>
-          </div>
-        </div>
-      </Show>
-
       <Show
         when={
           props.musicData.error() && !props.musicData.error()?.includes("404")
@@ -376,6 +367,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         selectedItems={props.musicData.selection.selectedIds()}
         sortField={props.musicData.sortField() || undefined}
         sortDirection={props.musicData.sortDirection() || undefined}
+        loading={props.musicData.loading()}
         className="h-full"
         theme={props.theme}
       />
