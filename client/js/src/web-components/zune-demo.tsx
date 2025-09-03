@@ -5,7 +5,7 @@ import {
   SearchProvider,
   useSearchContext,
 } from "../components/search/SearchContext.js";
-import { SearchBox } from "../components/search/SearchBox.js";
+import { SearchInput } from "../components/search/SearchInput.js";
 import { ApiClient } from "../lib/api-client.js";
 
 interface ZuneDemoProps {
@@ -1081,11 +1081,10 @@ function ZuneDemoContent() {
           </nav>
 
           <div class="zune-search-container">
-            <SearchBox
+            <SearchInput
               placeholder="search music..."
-              useInternalState={false}
-              query={searchQuery()}
-              onQueryChange={(query) => {
+              value={searchQuery()}
+              onInput={(query) => {
                 setSearchQuery(query);
                 context.state.setQuery(query);
                 if (!query.trim()) {
@@ -1966,8 +1965,8 @@ function ZuneDemoContent() {
           color: #ffffff;
         }
 
-        /* Dark theme overrides for SearchBox */
-        .zune-search-box .search-box__input {
+        /* Dark theme overrides for SearchInput */
+        .zune-search-box input {
           width: 100%;
           padding: 0.75rem 1rem;
           background: rgba(255, 255, 255, 0.1);

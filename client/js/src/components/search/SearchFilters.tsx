@@ -1,7 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createSignal, For, Show, createEffect } from "solid-js";
-
-import { useSearchState } from "../../hooks/search/index.js";
+import { createSignal, For, Show } from "solid-js";
 
 export interface FilterOption {
   value: string;
@@ -9,27 +7,28 @@ export interface FilterOption {
   count?: number;
 }
 
+export interface FilterField {
+  key: string;
+  label: string;
+  type: "text" | "select" | "multi-select" | "range" | "boolean" | "date";
+  placeholder?: string;
+  options?: FilterOption[];
+  min?: number;
+  max?: number;
+  supportsExact?: boolean;
+}
+
 export interface SearchFiltersProps {
-  /** Whether to use internal search state hook */
-  useInternalState?: boolean;
-  /** External filters (when not using internal state) */
-  filters?: Record<string, any>;
-  /** External filter change handler (when not using internal state) */
-  onFiltersChange?: (filters: Record<string, any> | null) => void;
-  /** Available filter options */
-  filterOptions?: {
-    genres?: FilterOption[];
-    types?: FilterOption[];
-    [key: string]: FilterOption[] | undefined;
-  };
-  /** Quick filter suggestions */
-  quickFilters?: Array<{
-    key: string;
-    value: any;
-    label: string;
-    description?: string;
-    category: string;
-  }>;
+  /** Current filter values */
+  filters: Record<string, any>;
+  /** Update filters callback */
+  onFiltersChange: (filters: Record<string, any>) => void;
+  /** Clear all filters callback */
+  onClearFilters: () => void;
+  /** Filter field configurations */
+  filterFields: FilterField[];
+  /** Available filter options (for selects) */
+  filterOptions?: Record<string, FilterOption[]>;
   /** Whether filters are loading */
   loading?: boolean;
   /** Additional CSS classes */
@@ -40,892 +39,290 @@ export interface SearchFiltersProps {
   startExpanded?: boolean;
   /** Whether to show the expand/collapse toggle */
   showToggle?: boolean;
-  /** Whether to show the query input field */
-  showQueryInput?: boolean;
-  /** Whether to show structured search mode */
-  showStructured?: boolean;
+  /** Quick filter presets */
+  quickFilters?: Array<{
+    key: string;
+    value: any;
+    label: string;
+    description?: string;
+    category?: string;
+  }>;
 }
 
 export function SearchFilters(props: SearchFiltersProps) {
-  const useInternal = props.useInternalState !== false;
-  const searchState = useInternal ? useSearchState({}) : null;
-
   const [isExpanded, setIsExpanded] = createSignal(
     props.startExpanded !== false
   );
 
-  const [localQuery, setLocalQuery] = createSignal("");
-
-  // Sync local query with external filters
-  createEffect(() => {
-    const currentQuery = currentFilters().query || "";
-    setLocalQuery(currentQuery);
-  });
-
-  // Get current filters
-  // Parse current filters into display format
-  const currentFilters = () => {
-    if (useInternal && searchState) {
-      const filters = searchState.filters();
-      return {
-        query: searchState.query(),
-        genre: filters.genre || "",
-        year: filters.year || "",
-        rating_min: filters.rating_min || "",
-        rating_max: filters.rating_max || "",
-        favorites_only: filters.favorites_only || false,
-        types: [],
-        sortBy: searchState.sortBy(),
-        sortOrder: searchState.sortDirection(),
-      };
-    }
-    return props.filters || {};
-  };
-
-  // Handle filter change
+  // handle filter change
   const handleFilterChange = (filterKey: string, value: any) => {
-    if (useInternal && searchState) {
-      // Update internal state
-      switch (filterKey) {
-        case "query":
-          searchState.setQuery(value);
-          break;
-        case "genre":
-          searchState.updateFilter("genre", value);
-          break;
-        case "year":
-          searchState.updateFilter("year", value ? parseInt(value) : null);
-          break;
-        case "rating_min":
-          searchState.updateFilter(
-            "rating_min",
-            value ? parseInt(value) : null
-          );
-          break;
-        case "rating_max":
-          searchState.updateFilter(
-            "rating_max",
-            value ? parseInt(value) : null
-          );
-          break;
-        case "favorites_only":
-          searchState.updateFilter("favorites_only", value);
-          break;
-        case "sortBy":
-          searchState.setSortBy(value);
-          break;
-        case "sortOrder":
-          searchState.setSortDirection(value);
-          break;
-        default:
-          // For filters not directly supported, update external state
-          const newFilters = { ...currentFilters() };
-          if (value === "" || value === null || value === undefined) {
-            // For clearing, we want to set it to the default value, not delete
-            if (filterKey === "favorites_only") {
-              newFilters[filterKey] = false;
-            } else {
-              delete newFilters[filterKey];
-            }
-          } else {
-            newFilters[filterKey] = value;
-          }
-          props.onFiltersChange?.(newFilters);
-          break;
-      }
+    const newFilters = { ...props.filters };
+
+    if (value === "" || value === null || value === undefined) {
+      delete newFilters[filterKey];
     } else {
-      // Update external state
-      const newFilters = { ...currentFilters() };
-
-      if (value === "" || value === null || value === undefined) {
-        // For clearing, we want to set it to the default value, not delete
-        if (filterKey === "favorites_only") {
-          newFilters[filterKey] = false;
-        } else {
-          delete newFilters[filterKey];
-        }
-      } else {
-        newFilters[filterKey] = value;
-      }
-
-      props.onFiltersChange?.(newFilters);
+      newFilters[filterKey] = value;
     }
+
+    props.onFiltersChange(newFilters);
   };
 
-  // Handle clear all filters
-  const handleClearAll = () => {
-    if (useInternal && searchState) {
-      searchState.setQuery("");
-      searchState.clearFilters();
-      searchState.setSortBy("relevance");
-      searchState.setSortDirection("desc");
-    } else {
-      // Set to default/empty values instead of null
-      const clearedFilters = {
-        query: "",
-        genre: "",
-        artist: "",
-        year: "",
-        rating_min: "",
-        rating_max: "",
-        favorites_only: false,
-        sortBy: "",
-        sortOrder: "",
-      };
-      props.onFiltersChange?.(clearedFilters);
-    }
-  };
-
-  // Check if any filters are active
+  // check if any filters are active
   const hasActiveFilters = () => {
-    const filters = currentFilters();
-    return Object.keys(filters).some((key) => {
-      const value = filters[key];
+    return Object.keys(props.filters).some((key) => {
+      const value = props.filters[key];
       return (
         value !== undefined &&
         value !== null &&
         value !== "" &&
         value !== false &&
-        !(key === "sortBy" && value === "") &&
-        !(key === "sortOrder" && value === "") &&
         (Array.isArray(value) ? value.length > 0 : true)
       );
     });
   };
 
-  // Get active filter count
+  // get active filter count
   const activeFilterCount = () => {
-    const filters = currentFilters();
-    return Object.keys(filters).filter((key) => {
-      const value = filters[key];
+    return Object.keys(props.filters).filter((key) => {
+      const value = props.filters[key];
       return (
         value !== undefined &&
         value !== null &&
         value !== "" &&
         value !== false &&
-        !(key === "sortBy" && value === "") &&
-        !(key === "sortOrder" && value === "") &&
         (Array.isArray(value) ? value.length > 0 : true)
       );
     }).length;
   };
 
-  // Quick filter suggestions (use props or defaults)
-  const quickFilters = () =>
-    props.quickFilters || [
-      {
-        key: "favorites_only",
-        value: true,
-        label: "Favorites",
-        category: "favorites",
-      },
-      {
-        key: "rating_min",
-        value: 4,
-        label: "High Rated (4+)",
-        category: "rating",
-      },
-      {
-        key: "rating_min",
-        value: 3,
-        label: "Good Rated (3+)",
-        category: "rating",
-      },
-    ];
+  // apply quick filter
+  const applyQuickFilter = (filter: any) => {
+    const newFilters = { ...props.filters };
+    newFilters[filter.key] = filter.value;
+    props.onFiltersChange(newFilters);
+  };
 
-  // Search type options
-  const searchTypes = [
-    {
-      value: "websearch",
-      label: "Web Search",
-      description: "Natural language with operators",
-    },
-    {
-      value: "plainto",
-      label: "Plain Text",
-      description: "Simple text matching",
-    },
-    { value: "phrase", label: "Phrase", description: "Exact phrase matching" },
-  ];
+  // render filter field based on type
+  const renderFilterField = (field: FilterField) => {
+    const currentValue = props.filters[field.key] || "";
+    const options = props.filterOptions?.[field.key] || field.options || [];
 
-  // Sort options
-  const sortOptions = [
-    { value: "", label: "No Sorting" },
-    { value: "relevance", label: "Relevance" },
-    { value: "created_at", label: "Date Created" },
-    { value: "title", label: "Title" },
-    { value: "artist", label: "Artist" },
-    { value: "album", label: "Album" },
-    { value: "rating", label: "Rating" },
-  ];
+    switch (field.type) {
+      case "text":
+        return (
+          <input
+            type="text"
+            value={currentValue}
+            onInput={(e) => handleFilterChange(field.key, e.target.value)}
+            placeholder={field.placeholder || `enter ${field.label}`}
+            class="w-full px-3 py-2 bg-gray-800 border border-gray-600 text-white placeholder-gray-400 focus:border-magenta-500 focus:outline-none"
+          />
+        );
+
+      case "select":
+        return (
+          <select
+            value={currentValue}
+            onChange={(e) => handleFilterChange(field.key, e.target.value)}
+            class="w-full px-3 py-2 bg-gray-800 border border-gray-600 text-white focus:border-magenta-500 focus:outline-none"
+          >
+            <option value="">all {field.label}</option>
+            <For each={options}>
+              {(option) => (
+                <option value={option.value}>
+                  {option.label}
+                  {props.showCounts && option.count && ` (${option.count})`}
+                </option>
+              )}
+            </For>
+          </select>
+        );
+
+      case "multi-select":
+        const selectedValues = Array.isArray(currentValue) ? currentValue : [];
+        return (
+          <div class="space-y-2 max-h-32 overflow-y-auto">
+            <For each={options}>
+              {(option) => (
+                <label class="flex items-center space-x-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedValues.includes(option.value)}
+                    onChange={(e) => {
+                      const newValues = e.target.checked
+                        ? [...selectedValues, option.value]
+                        : selectedValues.filter((v) => v !== option.value);
+                      handleFilterChange(
+                        field.key,
+                        newValues.length > 0 ? newValues : null
+                      );
+                    }}
+                    class="text-magenta-500 bg-gray-800 border-gray-600"
+                  />
+                  <span class="text-white">
+                    {option.label}
+                    {props.showCounts && option.count && (
+                      <span class="text-gray-400 ml-1">({option.count})</span>
+                    )}
+                  </span>
+                </label>
+              )}
+            </For>
+          </div>
+        );
+
+      case "range":
+        const [min, max] = Array.isArray(currentValue)
+          ? currentValue
+          : [null, null];
+        return (
+          <div class="flex space-x-2">
+            <input
+              type="number"
+              value={min || ""}
+              onInput={(e) => {
+                const newMin = e.target.value ? parseInt(e.target.value) : null;
+                handleFilterChange(
+                  field.key,
+                  [newMin, max].filter((v) => v !== null)
+                );
+              }}
+              placeholder={`min ${field.label}`}
+              min={field.min}
+              max={field.max}
+              class="flex-1 px-2 py-2 bg-gray-800 border border-gray-600 text-white placeholder-gray-400 focus:border-magenta-500 focus:outline-none text-sm"
+            />
+            <input
+              type="number"
+              value={max || ""}
+              onInput={(e) => {
+                const newMax = e.target.value ? parseInt(e.target.value) : null;
+                handleFilterChange(
+                  field.key,
+                  [min, newMax].filter((v) => v !== null)
+                );
+              }}
+              placeholder={`max ${field.label}`}
+              min={field.min}
+              max={field.max}
+              class="flex-1 px-2 py-2 bg-gray-800 border border-gray-600 text-white placeholder-gray-400 focus:border-magenta-500 focus:outline-none text-sm"
+            />
+          </div>
+        );
+
+      case "boolean":
+        return (
+          <label class="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={currentValue === true}
+              onChange={(e) =>
+                handleFilterChange(field.key, e.target.checked || null)
+              }
+              class="text-magenta-500 bg-gray-800 border-gray-600"
+            />
+            <span class="text-white text-sm">{field.label}</span>
+          </label>
+        );
+
+      case "date":
+        return (
+          <input
+            type="date"
+            value={currentValue}
+            onChange={(e) => handleFilterChange(field.key, e.target.value)}
+            class="w-full px-3 py-2 bg-gray-800 border border-gray-600 text-white focus:border-magenta-500 focus:outline-none"
+          />
+        );
+
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div class={`search-filters ${props.class || ""}`}>
-      <div class="search-filters__header">
-        <h3 class="search-filters__title">
-          Filters
+    <div class={`bg-gray-900 border-b border-gray-800 ${props.class || ""}`}>
+      {/* header */}
+      <div class="px-6 py-3 flex items-center justify-between">
+        <h3 class="text-white font-medium">
+          filters
           <Show when={activeFilterCount() > 0}>
-            <span class="search-filters__count">({activeFilterCount()})</span>
+            <span class="text-magenta-400 ml-2">({activeFilterCount()})</span>
           </Show>
         </h3>
 
-        <div class="search-filters__actions">
+        <div class="flex items-center space-x-2">
           <Show when={hasActiveFilters()}>
             <button
-              class="search-filters__clear-button"
-              onClick={handleClearAll}
+              onClick={() => props.onClearFilters()}
+              class="px-3 py-1 bg-gray-700 text-gray-300 hover:bg-gray-600 text-sm transition-colors"
               type="button"
             >
-              Clear All
+              clear all
             </button>
           </Show>
 
           <Show when={props.showToggle !== false}>
             <button
-              class="search-filters__toggle-button"
               onClick={() => setIsExpanded(!isExpanded())}
+              class="px-3 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700 text-sm transition-colors"
               type="button"
               aria-expanded={isExpanded()}
             >
-              {isExpanded() ? "Collapse" : "Expand"}
+              {isExpanded() ? "collapse" : "expand"}
             </button>
           </Show>
         </div>
       </div>
 
       <Show when={props.loading}>
-        <div class="search-filters__loading">Loading filters...</div>
+        <div class="px-6 py-4 text-center">
+          <div class="animate-spin h-4 w-4 border border-magenta-500 border-t-transparent mx-auto mb-2"></div>
+          <span class="text-gray-400 text-sm">loading filters...</span>
+        </div>
       </Show>
 
       <Show when={!props.loading && (isExpanded() || hasActiveFilters())}>
-        <div class="search-filters__content">
-          {/* Mode Toggle */}
-
-          <div class="search-filters__simple">
-            {/* Query Filter */}
-            <Show when={props.showQueryInput !== false}>
-              <div class="search-filters__group">
-                <label class="search-filters__label">
-                  Search Query
-                  <input
-                    type="text"
-                    class="search-filters__input"
-                    value={localQuery()}
-                    onInput={(e) => {
-                      setLocalQuery(e.currentTarget.value);
-                    }}
-                    onBlur={(e) => {
-                      const newFilters = { ...currentFilters() };
-                      newFilters.query = e.currentTarget.value;
-                      props.onFiltersChange?.(newFilters);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        const newFilters = { ...currentFilters() };
-                        newFilters.query = e.currentTarget.value;
-                        props.onFiltersChange?.(newFilters);
-                      }
-                    }}
-                    placeholder="Enter search terms..."
-                  />
-                </label>
+        <div class="px-6 pb-4">
+          {/* quick filters */}
+          <Show when={props.quickFilters && props.quickFilters.length > 0}>
+            <div class="mb-4">
+              <div class="text-xs text-gray-400 uppercase tracking-wider mb-2">
+                quick filters
               </div>
-            </Show>
-
-            {/* Quick Filters */}
-            <div class="search-filters__group">
-              <label class="search-filters__label">Quick Filters</label>
-
-              {/* Favorites & Rating Quick Filters */}
-              <div class="search-filters__quick-category">
-                <h5 class="search-filters__category-title">
-                  Favorites & Rating
-                </h5>
-                <div class="search-filters__quick-filters">
-                  <For
-                    each={quickFilters().filter(
-                      (f) =>
-                        f.category === "favorites" || f.category === "rating"
-                    )}
-                  >
-                    {(filter) => (
-                      <button
-                        class={`search-filters__quick-filter ${
-                          currentFilters()[filter.key] === filter.value
-                            ? "active"
-                            : ""
-                        }`}
-                        onClick={() => {
-                          const newFilters = { ...currentFilters() };
-                          const currentValue = currentFilters()[filter.key];
-                          if (currentValue === filter.value) {
-                            // Toggle off - reset to default
-                            newFilters[filter.key] =
-                              filter.key === "favorites_only" ? false : "";
-                          } else {
-                            // Toggle on
-                            newFilters[filter.key] = filter.value;
-                          }
-                          props.onFiltersChange?.(newFilters);
-                        }}
-                        type="button"
-                        title={filter.description}
-                      >
-                        {filter.label}
-                      </button>
-                    )}
-                  </For>
-                </div>
-              </div>
-
-              {/* Genre Quick Filters */}
-              <div class="search-filters__quick-category">
-                <h5 class="search-filters__category-title">Genres</h5>
-                <div class="search-filters__quick-filters">
-                  <For
-                    each={quickFilters().filter((f) => f.category === "genre")}
-                  >
-                    {(filter) => (
-                      <button
-                        class={`search-filters__quick-filter ${
-                          currentFilters()[filter.key] === filter.value
-                            ? "active"
-                            : ""
-                        }`}
-                        onClick={() => {
-                          const newFilters = { ...currentFilters() };
-                          const currentValue = currentFilters()[filter.key];
-                          if (currentValue === filter.value) {
-                            // Toggle off - reset to default
-                            newFilters[filter.key] = "";
-                          } else {
-                            // Toggle on
-                            newFilters[filter.key] = filter.value;
-                          }
-                          props.onFiltersChange?.(newFilters);
-                        }}
-                        type="button"
-                        title={filter.description}
-                      >
-                        {filter.label}
-                      </button>
-                    )}
-                  </For>
-                </div>
-              </div>
-
-              {/* Time & Features Quick Filters */}
-              <div class="search-filters__quick-category">
-                <h5 class="search-filters__category-title">Time & Features</h5>
-                <div class="search-filters__quick-filters">
-                  <For
-                    each={quickFilters().filter(
-                      (f) => f.category === "time" || f.category === "features"
-                    )}
-                  >
-                    {(filter) => (
-                      <button
-                        class={`search-filters__quick-filter ${
-                          currentFilters()[filter.key] === filter.value
-                            ? "active"
-                            : ""
-                        }`}
-                        onClick={() => {
-                          const newFilters = { ...currentFilters() };
-                          const currentValue = currentFilters()[filter.key];
-                          if (currentValue === filter.value) {
-                            // Toggle off - reset to default
-                            newFilters[filter.key] = "";
-                          } else {
-                            // Toggle on
-                            newFilters[filter.key] = filter.value;
-                          }
-                          props.onFiltersChange?.(newFilters);
-                        }}
-                        type="button"
-                        title={filter.description}
-                      >
-                        {filter.label}
-                      </button>
-                    )}
-                  </For>
-                </div>
-              </div>
-            </div>
-
-            {/* Genre Filter */}
-            <Show when={props.filterOptions?.genres}>
-              <div class="search-filters__group">
-                <label class="search-filters__label">Genre</label>
-                <select
-                  class="search-filters__select"
-                  value={currentFilters().genre || ""}
-                  onChange={(e) => {
-                    const value = e.currentTarget.value;
-                    const newFilters = { ...currentFilters() };
-                    if (value === "") {
-                      newFilters.genre = "";
-                    } else {
-                      newFilters.genre = value;
-                    }
-                    props.onFiltersChange?.(newFilters);
-                  }}
-                >
-                  <option value="">All Genres</option>
-                  <For each={props.filterOptions?.genres}>
-                    {(option) => (
-                      <option value={option.value}>
-                        {option.label}
-                        <Show
-                          when={props.showCounts && option.count !== undefined}
-                        >
-                          ({option.count})
-                        </Show>
-                      </option>
-                    )}
-                  </For>
-                </select>
-              </div>
-            </Show>
-
-            {/* Manual Filters */}
-            <div class="search-filters__group">
-              <label class="search-filters__label">Manual Filters</label>
-              <div class="search-filters__manual-grid">
-                <input
-                  type="text"
-                  class="search-filters__input"
-                  value={currentFilters().genre || ""}
-                  onInput={(e) =>
-                    handleFilterChange("genre", e.currentTarget.value)
-                  }
-                  placeholder="Genre (e.g. jazz, rock)"
-                />
-                <input
-                  type="text"
-                  class="search-filters__input"
-                  value={currentFilters().year || ""}
-                  onInput={(e) => {
-                    const value = e.currentTarget.value;
-                    if (value === "" || !isNaN(Number(value))) {
-                      const newFilters = { ...currentFilters() };
-                      newFilters.year = value === "" ? "" : Number(value);
-                      props.onFiltersChange?.(newFilters);
-                    }
-                  }}
-                  placeholder="Year (e.g. 2023)"
-                />
-                <input
-                  type="text"
-                  class="search-filters__input"
-                  value={currentFilters().key_signature || ""}
-                  onInput={(e) => {
-                    const value = e.currentTarget.value;
-                    handleFilterChange("key_signature", value || null);
-                  }}
-                  placeholder="Key (e.g. C, Am)"
-                />
-                <input
-                  type="text"
-                  class="search-filters__input"
-                  value={currentFilters().bpm_min || ""}
-                  onInput={(e) => {
-                    const value = e.currentTarget.value;
-                    if (value === "" || !isNaN(Number(value))) {
-                      handleFilterChange(
-                        "bpm_min",
-                        value === "" ? null : Number(value)
-                      );
-                    }
-                  }}
-                  placeholder="Min BPM"
-                />
-              </div>
-            </div>
-
-            {/* Rating Filter */}
-            <div class="search-filters__group">
-              <label class="search-filters__label">Rating</label>
-              <div class="search-filters__range">
-                <input
-                  type="text"
-                  class="search-filters__input search-filters__input--small"
-                  value={currentFilters().rating_min || ""}
-                  onInput={(e) => {
-                    const value = e.currentTarget.value;
-                    if (
-                      value === "" ||
-                      (!isNaN(Number(value)) &&
-                        Number(value) >= 1 &&
-                        Number(value) <= 5)
-                    ) {
-                      const newFilters = { ...currentFilters() };
-                      newFilters.rating_min = value === "" ? "" : Number(value);
-                      props.onFiltersChange?.(newFilters);
-                    }
-                  }}
-                  placeholder="Min"
-                />
-                <span class="search-filters__range-separator">to</span>
-                <input
-                  type="text"
-                  class="search-filters__input search-filters__input--small"
-                  value={currentFilters().rating_max || ""}
-                  onInput={(e) => {
-                    const value = e.currentTarget.value;
-                    if (
-                      value === "" ||
-                      (!isNaN(Number(value)) &&
-                        Number(value) >= 1 &&
-                        Number(value) <= 5)
-                    ) {
-                      const newFilters = { ...currentFilters() };
-                      newFilters.rating_max = value === "" ? "" : Number(value);
-                      props.onFiltersChange?.(newFilters);
-                    }
-                  }}
-                  placeholder="Max"
-                />
-              </div>
-            </div>
-
-            {/* Favorites Filter */}
-            <div class="search-filters__group">
-              <label class="search-filters__checkbox-label">
-                <input
-                  type="checkbox"
-                  class="search-filters__checkbox"
-                  checked={currentFilters().favorites_only || false}
-                  onChange={(e) => {
-                    const newFilters = { ...currentFilters() };
-                    newFilters.favorites_only = e.currentTarget.checked;
-                    props.onFiltersChange?.(newFilters);
-                  }}
-                />
-                Show favorites only
-              </label>
-            </div>
-
-            {/* Search Type */}
-            <div class="search-filters__group">
-              <label class="search-filters__label">Search Type</label>
-              <select
-                class="search-filters__select"
-                value={currentFilters().search_type || "websearch"}
-                onChange={(e) =>
-                  handleFilterChange("search_type", e.currentTarget.value)
-                }
-              >
-                <For each={searchTypes}>
-                  {(type) => (
-                    <option value={type.value} title={type.description}>
-                      {type.label}
-                    </option>
-                  )}
-                </For>
-              </select>
-            </div>
-
-            {/* Sort Options */}
-            <div class="search-filters__group">
-              <label class="search-filters__label">Sort By</label>
-              <select
-                class="search-filters__select"
-                value={currentFilters().sortBy || ""}
-                onChange={(e) => {
-                  const newFilters = { ...currentFilters() };
-                  newFilters.sortBy = e.currentTarget.value;
-                  props.onFiltersChange?.(newFilters);
-                }}
-              >
-                <For each={sortOptions}>
-                  {(option) => (
-                    <option value={option.value}>{option.label}</option>
-                  )}
-                </For>
-              </select>
-            </div>
-
-            {/* Sort Direction */}
-            <div class="search-filters__group">
-              <label class="search-filters__label">Sort Direction</label>
-              <select
-                class="search-filters__select"
-                value={currentFilters().sortOrder || ""}
-                onChange={(e) => {
-                  const newFilters = { ...currentFilters() };
-                  newFilters.sortOrder = e.currentTarget.value;
-                  props.onFiltersChange?.(newFilters);
-                }}
-              >
-                <option value="">No Direction</option>
-                <option value="desc">Descending</option>
-                <option value="asc">Ascending</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Active Filters Display */}
-          <Show when={hasActiveFilters()}>
-            <div class="search-filters__active">
-              <label class="search-filters__label">Active Filters</label>
-              <div class="search-filters__active-list">
-                <For each={Object.entries(currentFilters())}>
-                  {([key, value]) => (
-                    <Show
-                      when={
-                        value !== undefined &&
-                        value !== null &&
-                        value !== "" &&
-                        value !== false &&
-                        !(key === "sortBy" && value === "") &&
-                        !(key === "sortOrder" && value === "") &&
-                        !(Array.isArray(value) && value.length === 0)
-                      }
+              <div class="flex flex-wrap gap-2">
+                <For each={props.quickFilters}>
+                  {(filter) => (
+                    <button
+                      onClick={() => applyQuickFilter(filter)}
+                      class="px-2 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700 text-xs transition-colors"
+                      title={filter.description}
                     >
-                      <div class="search-filters__active-chip">
-                        <span class="search-filters__active-key">{key}:</span>
-                        <span class="search-filters__active-value">
-                          {String(value)}
-                        </span>
-                        <button
-                          class="search-filters__active-remove"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            // Directly update the filters object and call onFiltersChange
-                            const newFilters = { ...currentFilters() };
-                            if (key === "favorites_only") {
-                              newFilters[key] = false;
-                            } else {
-                              newFilters[key] = "";
-                            }
-                            props.onFiltersChange?.(newFilters);
-                          }}
-                          type="button"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </Show>
+                      {filter.label}
+                    </button>
                   )}
                 </For>
               </div>
             </div>
           </Show>
+
+          {/* filter fields */}
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <For each={props.filterFields}>
+              {(field) => (
+                <div class="space-y-2">
+                  <label class="block text-sm font-medium text-gray-300">
+                    {field.label}
+                  </label>
+                  {renderFilterField(field)}
+                </div>
+              )}
+            </For>
+          </div>
         </div>
       </Show>
-
-      <style>{`
-        .search-filters {
-          padding: 16px;
-          margin-bottom: 16px;
-        }
-
-        .search-filters__header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 16px;
-        }
-
-        .search-filters__title {
-          margin: 0;
-          font-size: 16px;
-          font-weight: 600;
-        }
-
-        .search-filters__count {
-          color: #666;
-          font-weight: normal;
-          margin-left: 8px;
-        }
-
-        .search-filters__actions {
-          display: flex;
-          gap: 8px;
-        }
-
-        .search-filters__clear-button,
-        .search-filters__toggle-button {
-          padding: 6px 12px;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-          background: white;
-          cursor: pointer;
-          font-size: 12px;
-        }
-
-        .search-filters__loading {
-          text-align: center;
-          padding: 16px;
-          color: #666;
-        }
-
-        .search-filters__content {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-
-
-
-        .search-filters__group {
-          margin-bottom: 16px;
-        }
-
-        .search-filters__label {
-          display: block;
-          margin-bottom: 4px;
-          font-size: 14px;
-          font-weight: 500;
-        }
-
-        .search-filters__input,
-        .search-filters__select,
-        .search-filters__textarea {
-          width: 100%;
-          padding: 6px;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-          font-size: 14px;
-          outline: none;
-        }
-
-        .search-filters__input:focus,
-        .search-filters__select:focus,
-        .search-filters__textarea:focus {
-          border-color: #000;
-        }
-
-        .search-filters__textarea {
-          font-family: monospace;
-          resize: vertical;
-        }
-
-        .search-filters__help {
-          margin-top: 4px;
-          font-size: 12px;
-          color: #666;
-        }
-
-        .search-filters__quick-category {
-          margin-bottom: 1rem;
-        }
-
-        .search-filters__quick-category:last-child {
-          margin-bottom: 0;
-        }
-
-        .search-filters__category-title {
-          font-size: 12px;
-          font-weight: 500;
-          color: black;
-          margin: 0 0 0.5rem 0;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .search-filters__quick-filters {
-          display: flex;
-          gap: 6px;
-          flex-wrap: wrap;
-        }
-
-        .search-filters__quick-filter {
-          padding: 4px 8px;
-          border: 1px solid #ccc;
-          border-radius: 12px;
-          background: white;
-          cursor: pointer;
-          font-size: 12px;
-        }
-
-        .search-filters__quick-filter.active {
-          background: black;
-          color: white;
-          border-color: black;
-        }
-
-        .search-filters__manual-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 8px;
-        }
-
-        .search-filters__input--small {
-          width: 60px;
-          flex: 0 0 60px;
-        }
-
-        .search-filters__range {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .search-filters__range-separator {
-          color: #666;
-          font-size: 14px;
-        }
-
-        .search-filters__checkbox-label {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 14px;
-          cursor: pointer;
-        }
-
-        .search-filters__checkbox {
-          margin: 0;
-        }
-
-        .search-filters__active-list {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
-        .search-filters__active-chip {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          background: black;
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-size: 12px;
-        }
-
-        .search-filters__active-key {
-          opacity: 0.8;
-          color: white !important;
-        }
-
-        .search-filters__active-value {
-          font-weight: 500;
-          color: white !important;
-        }
-
-        .search-filters__active-remove {
-          background: rgba(255, 255, 255, 0.3);
-          border: none;
-          color: white;
-          width: 16px;
-          height: 16px;
-          border-radius: 50%;
-          cursor: pointer;
-          font-size: 12px;
-          line-height: 1;
-        }
-
-        .search-filters__active-remove:hover {
-          background: rgba(255, 255, 255, 0.5);
-        }
-
-
-      `}</style>
     </div>
   );
 }
+
+export default SearchFilters;

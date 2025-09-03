@@ -7,16 +7,21 @@ import {
   musicSearchPresets,
   getMusicFilterSummary,
 } from "../lib/music/admin/music-unified-search.js";
-import {
-  FilterDropdown,
-  FilterRange,
-  FilterTags,
-  FilterToggle,
-  FilterDateRange,
-  FilterText,
-} from "../lib/components/filters/FilterComponents.js";
+
 import { ApiClient } from "../lib/api-client.js";
-import { SearchSuggestions } from "../components/search/SearchSuggestions.js";
+import {
+  SearchBar,
+  SearchPresets,
+  SearchSummary,
+  SearchSortControls,
+  SearchAdvancedFilters,
+} from "../components/search/index.js";
+import type {
+  SearchField,
+  SortField,
+  AdvancedFilterConfig,
+} from "../components/search/index.js";
+import "../styles/common.css";
 
 interface SearchDemoProps {
   apiBaseUrl?: string;
@@ -40,7 +45,7 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
   const [selectedView, setSelectedView] = createSignal<"grid" | "list">("grid");
   const [showAdvancedFilters, setShowAdvancedFilters] = createSignal(false);
   const [showDebugInfo, setShowDebugInfo] = createSignal(false);
-  const [activePreset, setActivePreset] = createSignal<string | null>(null);
+  // ui state - removed unused activePreset
 
   // computed values
   const hasResults = createMemo(() => search.results().length > 0);
@@ -79,23 +84,192 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
 
     if (isPresetActive(presetId)) {
       // clear the preset by removing its parameters
-      const newParams = { ...search.searchParams() };
       Object.keys(preset.params).forEach((key) => {
-        delete newParams[key as keyof typeof newParams];
+        search.removeFilter(key);
       });
-      newParams.page = 1;
-      search.setSearchParams(newParams);
-      setActivePreset(null);
     } else {
       // apply the preset
-      search.setSearchParams({
-        ...search.searchParams(),
-        ...preset.params,
-        page: 1,
+      Object.entries(preset.params).forEach(([key, value]) => {
+        search.addFilter(key, value);
       });
-      setActivePreset(presetId);
     }
   };
+
+  // search field configuration
+  const searchFields: SearchField[] = [
+    { value: "all", label: "all", description: "search all fields" },
+    { value: "title", label: "title", description: "search song titles" },
+    { value: "artist", label: "artist", description: "search artist names" },
+    { value: "album", label: "album", description: "search album names" },
+    { value: "genre", label: "genre", description: "search genres" },
+  ];
+
+  // sort field configuration
+  const sortFields: SortField[] = [
+    { value: "created_at", label: "date added" },
+    { value: "title", label: "title" },
+    { value: "artist", label: "artist" },
+    { value: "album", label: "album" },
+    { value: "year", label: "year" },
+    { value: "rating", label: "rating" },
+    { value: "duration_seconds", label: "duration" },
+  ];
+
+  // advanced filter configuration
+  const advancedFilterConfigs: AdvancedFilterConfig[] = [
+    {
+      type: "text",
+      key: "artist",
+      label: "artist",
+      placeholder: "search by artist name",
+      supportsExact: true,
+    },
+    {
+      type: "text",
+      key: "album",
+      label: "album",
+      placeholder: "search by album name",
+      supportsExact: true,
+    },
+    {
+      type: "text",
+      key: "genre",
+      label: "genre",
+      placeholder: "search by genre",
+    },
+    {
+      type: "text",
+      key: "title",
+      label: "title",
+      placeholder: "search by song title",
+    },
+    {
+      type: "range",
+      key: "year",
+      label: "year range",
+      min: 1900,
+      max: new Date().getFullYear() + 1,
+    },
+    {
+      type: "range",
+      key: "rating",
+      label: "rating range",
+      min: 0,
+      max: 5,
+    },
+    {
+      type: "range",
+      key: "duration_minutes",
+      label: "duration (minutes)",
+      min: 0,
+      max: 60,
+    },
+    {
+      type: "range",
+      key: "bpm",
+      label: "bpm range",
+      min: 60,
+      max: 200,
+    },
+    {
+      type: "dropdown",
+      key: "file_format",
+      label: "file format",
+      options: [
+        { value: "mp3", label: "MP3" },
+        { value: "flac", label: "FLAC" },
+        { value: "wav", label: "WAV" },
+        { value: "m4a", label: "M4A/AAC" },
+        { value: "ogg", label: "OGG Vorbis" },
+      ],
+    },
+    {
+      type: "dropdown",
+      key: "key_signature",
+      label: "key signature",
+      options: [
+        { value: "C", label: "C major" },
+        { value: "C#", label: "C# major" },
+        { value: "Db", label: "Db major" },
+        { value: "D", label: "D major" },
+        { value: "D#", label: "D# major" },
+        { value: "Eb", label: "Eb major" },
+        { value: "E", label: "E major" },
+        { value: "F", label: "F major" },
+        { value: "F#", label: "F# major" },
+        { value: "Gb", label: "Gb major" },
+        { value: "G", label: "G major" },
+        { value: "G#", label: "G# major" },
+        { value: "Ab", label: "Ab major" },
+        { value: "A", label: "A major" },
+        { value: "A#", label: "A# major" },
+        { value: "Bb", label: "Bb major" },
+        { value: "B", label: "B major" },
+        { value: "Am", label: "A minor" },
+        { value: "Bm", label: "B minor" },
+        { value: "Cm", label: "C minor" },
+        { value: "Dm", label: "D minor" },
+        { value: "Em", label: "E minor" },
+        { value: "Fm", label: "F minor" },
+        { value: "Gm", label: "G minor" },
+      ],
+    },
+    {
+      type: "tags",
+      key: "tags",
+      label: "tags",
+      availableTags: [
+        { value: "rock", label: "rock", count: 150 },
+        { value: "pop", label: "pop", count: 200 },
+        { value: "jazz", label: "jazz", count: 75 },
+        { value: "classical", label: "classical", count: 100 },
+        { value: "electronic", label: "electronic", count: 120 },
+        { value: "folk", label: "folk", count: 60 },
+        { value: "metal", label: "metal", count: 90 },
+        { value: "blues", label: "blues", count: 45 },
+      ],
+    },
+    {
+      type: "toggle",
+      key: "is_favorite",
+      label: "favorites only",
+    },
+    {
+      type: "toggle",
+      key: "has_thumbnail",
+      label: "has artwork",
+    },
+    {
+      type: "toggle",
+      key: "has_lyrics",
+      label: "has lyrics",
+    },
+    {
+      type: "toggle",
+      key: "has_waveform",
+      label: "has waveform",
+    },
+    {
+      type: "toggle",
+      key: "is_compilation",
+      label: "compilation album",
+    },
+    {
+      type: "toggle",
+      key: "include_deleted",
+      label: "include deleted songs",
+    },
+    {
+      type: "date",
+      key: "created_date",
+      label: "date added",
+    },
+    {
+      type: "date",
+      key: "updated_date",
+      label: "date updated",
+    },
+  ];
 
   // format duration for display
   const formatDuration = (seconds: number | null) => {
@@ -112,22 +286,22 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
   };
 
   return (
-    <div class="search-demo">
+    <div class="max-w-6xl mx-auto p-8 bg-black text-white min-h-screen font-metro">
       {/* header */}
-      <div class="search-demo__header">
-        <h1 class="search-demo__title">unified music search demo</h1>
-        <div class="search-demo__controls">
+      <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-white">unified music search demo</h1>
+        <div class="flex gap-2">
           <button
             onClick={() =>
               setSelectedView(selectedView() === "grid" ? "list" : "grid")
             }
-            class="search-demo__view-toggle"
+            class="px-3 py-2 bg-gray-800 text-white hover:bg-gray-700 transition-colors text-sm"
           >
             {selectedView()}
           </button>
           <button
             onClick={() => setShowDebugInfo(!showDebugInfo())}
-            class="search-demo__debug-toggle"
+            class="px-3 py-2 bg-gray-800 text-white hover:bg-gray-700 transition-colors text-sm"
           >
             debug
           </button>
@@ -135,116 +309,56 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
       </div>
 
       {/* search input */}
-      <div class="search-demo__search-section">
-        <div class="search-demo__search-input relative">
-          <input
-            type="text"
-            value={search.searchQuery()}
-            onInput={(e) => {
-              const value = e.target.value;
-              search.setSearchQuery(value, false);
-              if (value.length >= 2) {
-                console.log("Input changed, fetching suggestions:", value);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                search.refresh();
-                console.log("search executed via Enter key");
-              }
-            }}
-            onFocus={() => console.log("Search input focused")}
-            placeholder="search music library (artist, album, song title)"
-            class="search-demo__input"
-          />
-          <Show when={search.searching()}>
-            <div class="search-demo__searching">searching...</div>
-          </Show>
-
-          {/* search suggestions */}
-          <SearchSuggestions
-            query={search.searchQuery()}
-            suggestions={search.searchSuggestions()}
-            onSuggestionSelect={(suggestion) => {
-              const suggestionText =
-                typeof suggestion === "string"
-                  ? suggestion
-                  : (suggestion as any).text ||
-                    (suggestion as any).value ||
-                    (suggestion as any).display ||
-                    String(suggestion);
-              search.setSearchQuery(suggestionText, false);
-              search.refresh();
-              console.log(
-                "search executed via suggestion selection:",
-                suggestionText
-              );
-            }}
-            show={search.searchQuery().length > 1}
-            loading={search.searching()}
-            showLoading={true}
-            class="bg-black border-gray-800 text-gray-300 shadow-lg"
-            position="bottom"
-            useInternalSuggestions={false}
-            maxSuggestions={8}
-          />
-
-          {/* search indicator */}
-          <div class="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
-            <Show
-              when={search.searching()}
-              fallback={
-                <svg
-                  class="w-4 h-4 text-gray-400"
-                  width="16"
-                  height="16"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  style={{ "min-width": "16px", "min-height": "16px" }}
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-              }
-            >
-              <div class="animate-spin h-4 w-4 border border-magenta-500 border-t-transparent"></div>
-            </Show>
-          </div>
-        </div>
+      <div>
+        <SearchBar
+          value={search.searchQuery()}
+          onInput={(value) => {
+            search.setSearchQuery(value, false);
+          }}
+          onSearch={(query) => {
+            search.refresh();
+            console.log("search executed", query);
+          }}
+          suggestions={search.searchSuggestions().map((s: any) => ({
+            text: typeof s === "string" ? s : s.text || String(s),
+            category:
+              typeof s === "object" && s.category ? s.category : "suggestion",
+          }))}
+          searchFields={searchFields}
+          placeholder="search music library (artist, album, song title)"
+          showSuggestions={true}
+          suggestionsLoading={search.searching()}
+          class="mb-4"
+        />
 
         {/* quick presets */}
-        <div class="search-demo__presets">
-          <span class="search-demo__presets-label">quick filters:</span>
-          <For each={musicSearchPresets.slice(0, 6)}>
-            {(preset) => (
-              <button
-                onClick={() => togglePreset(preset.id)}
-                class={`search-demo__preset ${isPresetActive(preset.id) ? "active" : ""}`}
-              >
-                {preset.label}
-              </button>
-            )}
-          </For>
-        </div>
+        <SearchPresets
+          presets={musicSearchPresets.slice(0, 6)}
+          currentParams={search.searchParams()}
+          onPresetToggle={(preset) => togglePreset(preset.id)}
+          isPresetActive={(preset, params) => isPresetActive(preset.id)}
+          label="quick filters:"
+          showDescriptions={true}
+          class="mb-4"
+        />
 
         {/* advanced filters toggle */}
-        <div class="search-demo__filter-controls">
+        <div class="flex items-center gap-4 mb-4">
           <button
             onClick={() => setShowAdvancedFilters(!showAdvancedFilters())}
-            class={`search-demo__advanced-toggle ${showAdvancedFilters() ? "active" : ""}`}
+            class={`px-4 py-2 text-sm transition-colors ${
+              showAdvancedFilters()
+                ? "bg-magenta-600 text-white"
+                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+            }`}
           >
             advanced filters
           </button>
+
           <Show when={search.hasActiveFilters()}>
             <button
               onClick={() => search.clearFilters()}
-              class="search-demo__clear-filters"
+              class="px-4 py-2 text-sm bg-red-600 text-white hover:bg-red-700 transition-colors"
             >
               clear all
             </button>
@@ -253,261 +367,26 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
       </div>
 
       {/* advanced filters panel */}
-      <Show when={showAdvancedFilters()}>
-        <div class="search-demo__advanced-filters">
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-900">
-            {/* text filters */}
-            <FilterText
-              label="artist"
-              value={search.searchParams().artist}
-              placeholder="search by artist name"
-              supportsExact={true}
-              exactMatch={search.searchParams().artist_exact}
-              onValueChange={(value) => search.addFilter("artist", value)}
-              onExactChange={(exact) => search.addFilter("artist_exact", exact)}
-            />
-
-            <FilterText
-              label="album"
-              value={search.searchParams().album}
-              placeholder="search by album name"
-              supportsExact={true}
-              exactMatch={search.searchParams().album_exact}
-              onValueChange={(value) => search.addFilter("album", value)}
-              onExactChange={(exact) => search.addFilter("album_exact", exact)}
-            />
-
-            <FilterText
-              label="genre"
-              value={search.searchParams().genre}
-              placeholder="search by genre"
-              onValueChange={(value) => search.addFilter("genre", value)}
-            />
-
-            <FilterText
-              label="title"
-              value={search.searchParams().title}
-              placeholder="search by song title"
-              onValueChange={(value) => search.addFilter("title", value)}
-            />
-
-            {/* numeric range filters */}
-            <FilterRange
-              label="year range"
-              minValue={search.searchParams().year_min}
-              maxValue={search.searchParams().year_max}
-              min={1900}
-              max={new Date().getFullYear() + 1}
-              placeholder={{ min: "from", max: "to" }}
-              onChange={(range) => {
-                search.addFilter("year_min", range.min);
-                search.addFilter("year_max", range.max);
-              }}
-            />
-
-            <FilterRange
-              label="rating range"
-              minValue={search.searchParams().rating_min}
-              maxValue={search.searchParams().rating_max}
-              min={0}
-              max={5}
-              placeholder={{ min: "min", max: "max" }}
-              onChange={(range) => {
-                search.addFilter("rating_min", range.min);
-                search.addFilter("rating_max", range.max);
-              }}
-            />
-
-            <FilterRange
-              label="duration (minutes)"
-              minValue={
-                search.searchParams().duration_min
-                  ? Math.floor(search.searchParams().duration_min! / 60)
-                  : undefined
-              }
-              maxValue={
-                search.searchParams().duration_max
-                  ? Math.floor(search.searchParams().duration_max! / 60)
-                  : undefined
-              }
-              min={0}
-              max={60}
-              placeholder={{ min: "min", max: "max" }}
-              onChange={(range) => {
-                search.addFilter(
-                  "duration_min",
-                  range.min ? range.min * 60 : undefined
-                );
-                search.addFilter(
-                  "duration_max",
-                  range.max ? range.max * 60 : undefined
-                );
-              }}
-            />
-
-            <FilterRange
-              label="bpm range"
-              minValue={search.searchParams().bpm_min}
-              maxValue={search.searchParams().bpm_max}
-              min={60}
-              max={200}
-              placeholder={{ min: "min bpm", max: "max bpm" }}
-              onChange={(range) => {
-                search.addFilter("bpm_min", range.min);
-                search.addFilter("bpm_max", range.max);
-              }}
-            />
-
-            {/* file format filter */}
-            <FilterDropdown
-              label="file format"
-              value={search.searchParams().file_format}
-              options={[
-                { value: "mp3", label: "MP3" },
-                { value: "flac", label: "FLAC" },
-                { value: "wav", label: "WAV" },
-                { value: "m4a", label: "M4A/AAC" },
-                { value: "ogg", label: "OGG Vorbis" },
-              ]}
-              placeholder="select format"
-              onSelect={(value) =>
-                search.addFilter("file_format", value as string)
-              }
-            />
-
-            {/* key signature filter */}
-            <FilterDropdown
-              label="key signature"
-              value={search.searchParams().key_signature}
-              options={[
-                { value: "C", label: "C major" },
-                { value: "C#", label: "C# major" },
-                { value: "Db", label: "Db major" },
-                { value: "D", label: "D major" },
-                { value: "D#", label: "D# major" },
-                { value: "Eb", label: "Eb major" },
-                { value: "E", label: "E major" },
-                { value: "F", label: "F major" },
-                { value: "F#", label: "F# major" },
-                { value: "Gb", label: "Gb major" },
-                { value: "G", label: "G major" },
-                { value: "G#", label: "G# major" },
-                { value: "Ab", label: "Ab major" },
-                { value: "A", label: "A major" },
-                { value: "A#", label: "A# major" },
-                { value: "Bb", label: "Bb major" },
-                { value: "B", label: "B major" },
-                { value: "Am", label: "A minor" },
-                { value: "Bm", label: "B minor" },
-                { value: "Cm", label: "C minor" },
-                { value: "Dm", label: "D minor" },
-                { value: "Em", label: "E minor" },
-                { value: "Fm", label: "F minor" },
-                { value: "Gm", label: "G minor" },
-              ]}
-              placeholder="select key"
-              onSelect={(value) =>
-                search.addFilter("key_signature", value as string)
-              }
-            />
-
-            {/* tags filter */}
-            <div class="md:col-span-2">
-              <FilterTags
-                label="tags"
-                selectedTags={search.searchParams().tags}
-                availableTags={[
-                  { value: "rock", label: "rock", count: 150 },
-                  { value: "pop", label: "pop", count: 200 },
-                  { value: "jazz", label: "jazz", count: 75 },
-                  { value: "classical", label: "classical", count: 100 },
-                  { value: "electronic", label: "electronic", count: 120 },
-                  { value: "folk", label: "folk", count: 60 },
-                  { value: "metal", label: "metal", count: 90 },
-                  { value: "blues", label: "blues", count: 45 },
-                ]}
-                placeholder="add tags"
-                onTagsChange={(tags) => search.addFilter("tags", tags)}
-              />
-            </div>
-
-            {/* boolean filters */}
-            <div class="space-y-2">
-              <h4 class="text-sm font-medium text-white mb-2">options</h4>
-              <FilterToggle
-                label="favorites only"
-                checked={search.searchParams().is_favorite}
-                onToggle={(checked) => search.addFilter("is_favorite", checked)}
-              />
-              <FilterToggle
-                label="has artwork"
-                checked={search.searchParams().has_thumbnail}
-                onToggle={(checked) =>
-                  search.addFilter("has_thumbnail", checked)
-                }
-              />
-              <FilterToggle
-                label="has lyrics"
-                checked={search.searchParams().has_lyrics}
-                onToggle={(checked) => search.addFilter("has_lyrics", checked)}
-              />
-              <FilterToggle
-                label="has waveform"
-                checked={search.searchParams().has_waveform}
-                onToggle={(checked) =>
-                  search.addFilter("has_waveform", checked)
-                }
-              />
-              <FilterToggle
-                label="compilation album"
-                checked={search.searchParams().is_compilation}
-                onToggle={(checked) =>
-                  search.addFilter("is_compilation", checked)
-                }
-              />
-              <FilterToggle
-                label="include deleted songs"
-                checked={search.searchParams().include_deleted}
-                onToggle={(checked) =>
-                  search.addFilter("include_deleted", checked)
-                }
-              />
-            </div>
-
-            {/* date filters */}
-            <FilterDateRange
-              label="date added"
-              startDate={search.searchParams().created_after}
-              endDate={search.searchParams().created_before}
-              onChange={(range) => {
-                search.addFilter("created_after", range.start);
-                search.addFilter("created_before", range.end);
-              }}
-            />
-
-            <FilterDateRange
-              label="date updated"
-              startDate={search.searchParams().updated_after}
-              endDate={search.searchParams().updated_before}
-              onChange={(range) => {
-                search.addFilter("updated_after", range.start);
-                search.addFilter("updated_before", range.end);
-              }}
-            />
-          </div>
-        </div>
-      </Show>
+      <SearchAdvancedFilters
+        visible={showAdvancedFilters()}
+        filters={search.searchParams()}
+        onFiltersChange={(key, value) => search.addFilter(key, value)}
+        onExactChange={(key, exact) => search.addFilter(key, exact)}
+        filterConfigs={advancedFilterConfigs}
+        class="mb-6"
+      />
 
       {/* filter summary */}
-      <Show when={search.hasActiveFilters()}>
-        <div class="search-demo__filter-summary">
-          active filters: {filterSummary()}
-        </div>
-      </Show>
+      <SearchSummary
+        filters={search.searchParams()}
+        getSummary={() => filterSummary()}
+        onClearAll={() => search.clearFilters()}
+        showClearAll={true}
+      />
 
       {/* results header */}
-      <div class="search-demo__results-header">
-        <div class="search-demo__results-info">
+      <div class="flex justify-between items-center mb-4">
+        <div class="flex items-center gap-4">
           <Show
             when={search.loading()}
             fallback={<span>{search.totalCount()} results found</span>}
@@ -521,82 +400,80 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
           </Show>
         </div>
 
-        <div class="search-demo__sort-controls">
-          <label class="search-demo__sort-label">sort by:</label>
+        <div class="flex gap-2 items-center">
+          <SearchSortControls
+            sortBy={search.sortBy() || undefined}
+            sortDirection={search.sortDirection() || undefined}
+            onSortChange={(field, direction) =>
+              search.setSorting(field, direction)
+            }
+            sortFields={sortFields}
+            directionStyle="arrows"
+          />
           <select
-            value={search.sortBy() || "created_at"}
-            onChange={(e) =>
-              search.setSorting(e.target.value, search.sortDirection())
-            }
-            class="search-demo__sort-select"
+            value={selectedView()}
+            onChange={(e) => setSelectedView(e.target.value as "grid" | "list")}
+            class="px-3 py-2 bg-gray-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-magenta-500"
           >
-            <option value="created_at">date added</option>
-            <option value="title">title</option>
-            <option value="artist">artist</option>
-            <option value="album">album</option>
-            <option value="year">year</option>
-            <option value="rating">rating</option>
-            <option value="duration_seconds">duration</option>
+            <option value="grid">grid view</option>
+            <option value="list">list view</option>
           </select>
-          <button
-            onClick={() =>
-              search.setSorting(
-                search.sortBy() || "created_at",
-                search.sortDirection() === "asc" ? "desc" : "asc"
-              )
-            }
-            class="search-demo__sort-direction"
-          >
-            {search.sortDirection() === "asc" ? "ascending" : "descending"}
-          </button>
         </div>
       </div>
 
       {/* results */}
       <Show when={!search.loading() && hasResults()}>
         <div
-          class={`search-demo__results search-demo__results--${selectedView()}`}
+          class={
+            selectedView() === "grid"
+              ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+              : "space-y-4"
+          }
         >
           <For each={search.results()}>
-            {(song) => (
-              <div class="search-demo__result-item">
-                <div class="search-demo__result-thumbnail">
+            {(song: any) => (
+              <div
+                class={`bg-gray-900 p-4 hover:bg-gray-800 transition-colors cursor-pointer ${
+                  selectedView() === "list" ? "flex items-center gap-4" : ""
+                }`}
+                onClick={() => {
+                  console.log("Song clicked:", song);
+                }}
+              >
+                <div class={selectedView() === "list" ? "flex-shrink-0" : ""}>
                   <Show
-                    when={song.thumbnail_blob_id}
+                    when={song.thumbnail_url}
                     fallback={
-                      <div class="search-demo__no-thumbnail">no art</div>
+                      <div class="w-16 h-16 bg-gray-700 flex items-center justify-center text-gray-400 text-xs">
+                        no image
+                      </div>
                     }
                   >
                     <img
-                      src={`/api/blobs/${song.thumbnail_blob_id}`}
-                      alt="album artwork"
-                      class="search-demo__thumbnail"
+                      src={song.thumbnail_url}
+                      alt={`${song.title} artwork`}
+                      class="w-16 h-16 object-cover"
                     />
                   </Show>
                 </div>
-                <div class="search-demo__result-content">
-                  <div class="search-demo__result-title">{song.title}</div>
-                  <div class="search-demo__result-artist">
+                <div class="space-y-2">
+                  <h3 class="font-semibold text-white truncate">
+                    {song.title || "untitled"}
+                  </h3>
+                  <p class="text-gray-300 text-sm truncate">
                     {song.artist || "unknown artist"}
-                  </div>
-                  <div class="search-demo__result-album">
-                    {song.album || "unknown album"}
-                  </div>
-                  <div class="search-demo__result-meta">
-                    <span class="search-demo__duration">
-                      {formatDuration(song.duration_seconds)}
-                    </span>
+                  </p>
+                  <div class="flex items-center gap-4 text-xs text-gray-500">
                     <Show when={song.year}>
-                      <span class="search-demo__year">{song.year}</span>
+                      <span class="text-gray-500">{song.year}</span>
                     </Show>
                     <Show when={song.genre}>
-                      <span class="search-demo__genre">{song.genre}</span>
+                      <span class="text-gray-500">{song.genre}</span>
                     </Show>
-                    <span class="search-demo__rating">
-                      {formatRating(song.rating)}
-                    </span>
+                    <span>{formatDuration(song.duration_seconds)}</span>
+                    <span>{formatRating(song.rating)}</span>
                     <Show when={song.is_favorite}>
-                      <span class="search-demo__favorite">favorite</span>
+                      <span class="text-magenta-400">favorite</span>
                     </Show>
                   </div>
                 </div>
@@ -607,16 +484,13 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
       </Show>
 
       {/* no results */}
-      <Show
-        when={!search.loading() && !hasResults() && search.hasActiveFilters()}
-      >
-        <div class="search-demo__no-results">
-          <div class="search-demo__no-results-message">
-            no songs found matching your search criteria
-          </div>
+      <Show when={!search.loading() && !hasResults()}>
+        <div class="text-center py-12 text-gray-400">
+          <p class="text-lg mb-4">no results found</p>
+          <p class="text-sm">try adjusting your search terms or filters</p>
           <button
             onClick={() => search.clearFilters()}
-            class="search-demo__clear-all"
+            class="mt-4 px-4 py-2 bg-gray-800 text-white hover:bg-gray-700 transition-colors"
           >
             clear all filters
           </button>
@@ -624,35 +498,25 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
       </Show>
 
       {/* pagination */}
-      <Show when={search.totalPages() > 1}>
-        <div class="search-demo__pagination">
+      <Show when={search.hasNext()}>
+        <div class="mt-8 text-center">
           <button
-            onClick={() => search.prevPage()}
-            disabled={!search.hasPrev()}
-            class="search-demo__page-btn"
+            onClick={() => search.loadMore()}
+            disabled={search.loading()}
+            class="px-6 py-2 bg-magenta-600 text-white hover:bg-magenta-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            previous
-          </button>
-          <span class="search-demo__page-info">
-            page {search.currentPage()} of {search.totalPages()}
-          </span>
-          <button
-            onClick={() => search.nextPage()}
-            disabled={!search.hasNext()}
-            class="search-demo__page-btn"
-          >
-            next
+            {search.loading() ? "loading..." : "load more"}
           </button>
         </div>
       </Show>
 
       {/* error display */}
       <Show when={search.error()}>
-        <div class="search-demo__error">
+        <div class="text-center py-12 text-red-400">
           error: {search.error()}
           <button
             onClick={() => search.refresh()}
-            class="search-demo__retry-btn"
+            class="ml-2 px-4 py-2 bg-red-600 text-white hover:bg-red-700 transition-colors"
           >
             retry
           </button>
@@ -661,531 +525,86 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
 
       {/* debug info */}
       <Show when={showDebugInfo()}>
-        <div class="search-demo__debug">
-          <h3>debug information</h3>
-          <pre class="search-demo__debug-content">
-            {JSON.stringify(
-              {
-                searchParams: search.searchParams(),
-                metadata: search.searchMetadata(),
-                activeFilters: search.activeFilters(),
-                resultCount: search.results().length,
-                totalCount: search.totalCount(),
-              },
-              null,
-              2
-            )}
+        <div class="mt-8 p-4 bg-gray-900 text-xs text-gray-300">
+          <h3 class="font-bold mb-2">debug info</h3>
+          <pre class="whitespace-pre-wrap">
+            search params: {JSON.stringify(search.searchParams(), null, 2)}
+            {"\n"}
+            metadata: {JSON.stringify(search.searchMetadata(), null, 2)}
           </pre>
         </div>
       </Show>
 
       <style>{`
-        .search-demo {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 2rem;
-          background: #1a1a1a;
-          color: #ffffff;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-          min-height: 100vh;
-        }
-
-        .search-demo__header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 2rem;
-        }
-
-        .search-demo__title {
-          font-size: 1.8rem;
-          font-weight: bold;
-          margin: 0;
-          color: #ffffff;
-        }
-
-        .search-demo__controls {
-          display: flex;
-          gap: 0.5rem;
-        }
-
-        .search-demo__view-toggle,
-        .search-demo__debug-toggle {
-          padding: 0.5rem 1rem;
-          background: #333333;
-          color: #ffffff;
-          border: none;
-          cursor: pointer;
-          font-size: 0.9rem;
-          transition: background-color 0.2s;
-        }
-
-        .search-demo__view-toggle:hover,
-        .search-demo__debug-toggle:hover {
-          background: #444444;
-        }
-
-        .search-demo__search-section {
-          margin-bottom: 1.5rem;
-        }
-
-        .search-demo__search-input {
-          position: relative;
-          margin-bottom: 1rem;
-        }
-
-        .search-demo__input {
-          width: 100%;
-          padding: 1rem;
-          background: #2a2a2a;
-          color: #ffffff;
-          border: 2px solid #333333;
-          font-size: 1.1rem;
-          outline: none;
-          transition: border-color 0.2s;
-        }
-
-        .search-demo__input:focus {
-          border-color: #ff00ff;
-        }
-
-        .search-demo__searching {
-          position: absolute;
-          right: 1rem;
-          top: 50%;
-          transform: translateY(-50%);
-          color: #888888;
-          font-size: 0.9rem;
-        }
-
-        .search-demo__presets {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.5rem;
-          align-items: center;
-          margin-bottom: 1rem;
-        }
-
-        .search-demo__presets-label {
-          color: #888888;
-          font-size: 0.9rem;
-          margin-right: 0.5rem;
-        }
-
-        .search-demo__preset {
-          padding: 0.25rem 0.75rem;
-          background: #333333;
-          color: #ffffff;
-          border: none;
-          cursor: pointer;
-          font-size: 0.8rem;
-          transition: background-color 0.2s;
-        }
-
-        .search-demo__preset:hover {
-          background: #444444;
-        }
-
-        .search-demo__filter-controls {
-          display: flex;
-          gap: 1rem;
-          align-items: center;
-        }
-
-        .search-demo__advanced-toggle {
-          padding: 0.5rem 1rem;
-          background: #333333;
-          color: #ffffff;
-          border: none;
-          cursor: pointer;
-          transition: background-color 0.2s;
-        }
-
-        .search-demo__advanced-toggle.active {
-          background: #ff00ff;
-        }
-
-        .search-demo__advanced-toggle:hover {
-          background: #444444;
-        }
-
-        .search-demo__advanced-toggle.active:hover {
-          background: #ff33ff;
-        }
-
-        .search-demo__clear-filters {
-          padding: 0.5rem 1rem;
-          background: #444444;
-          color: #ffffff;
-          border: none;
-          cursor: pointer;
-          transition: background-color 0.2s;
-        }
-
-        .search-demo__clear-filters:hover {
-          background: #555555;
-        }
-
-        .search-demo__advanced-filters {
-          background: #2a2a2a;
-          padding: 1.5rem;
-          margin-bottom: 1rem;
-          border: 1px solid #333333;
-        }
-
-        .search-demo__filter-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 1rem;
-        }
-
-        .search-demo__filter-group {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-        }
-
-        .search-demo__filter-label {
-          color: #cccccc;
-          font-size: 0.9rem;
-          font-weight: 500;
-        }
-
-        .search-demo__filter-input,
-        .search-demo__range-input {
-          padding: 0.5rem;
-          background: #1a1a1a;
-          color: #ffffff;
-          border: 1px solid #444444;
-          outline: none;
-          transition: border-color 0.2s;
-        }
-
-        .search-demo__filter-input:focus,
-        .search-demo__range-input:focus {
-          border-color: #ff00ff;
-        }
-
-        .search-demo__range-inputs {
-          display: flex;
-          gap: 0.5rem;
-        }
-
-        .search-demo__boolean-filters {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-        }
-
-        .search-demo__checkbox {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          cursor: pointer;
-          font-size: 0.9rem;
-        }
-
-        .search-demo__filter-summary {
-          background: #2a2a2a;
-          padding: 0.75rem;
-          margin-bottom: 1rem;
-          color: #cccccc;
-          font-size: 0.9rem;
-          border-left: 3px solid #ff00ff;
-        }
-
-        .search-demo__results-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 1rem;
-          padding-bottom: 0.5rem;
-          border-bottom: 1px solid #333333;
-        }
-
-        .search-demo__results-info {
-          display: flex;
-          gap: 0.5rem;
-          align-items: center;
-        }
-
         .search-demo__query-time {
-          color: #888888;
-          font-size: 0.8rem;
+          font-size: 0.75rem;
+          color: #9ca3af;
         }
 
-        .search-demo__sort-controls {
-          display: flex;
-          gap: 0.5rem;
-          align-items: center;
-        }
-
-        .search-demo__sort-label {
-          color: #cccccc;
-          font-size: 0.9rem;
-        }
-
-        .search-demo__sort-select {
-          padding: 0.25rem 0.5rem;
-          background: #333333;
-          color: #ffffff;
-          border: 1px solid #444444;
-        }
-
-        .search-demo__sort-direction {
-          padding: 0.25rem 0.5rem;
-          background: #333333;
-          color: #ffffff;
-          border: none;
-          cursor: pointer;
-          font-size: 0.8rem;
-        }
-
-        .search-demo__results {
-          display: grid;
-          gap: 1rem;
-          margin-bottom: 2rem;
-        }
-
-        .search-demo__results--grid {
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        }
-
-        .search-demo__results--list {
-          grid-template-columns: 1fr;
-        }
-
-        .search-demo__result-item {
-          display: flex;
-          gap: 1rem;
-          background: #2a2a2a;
-          padding: 1rem;
-          border: 1px solid #333333;
-          transition: border-color 0.2s;
-        }
-
-        .search-demo__result-item:hover {
-          border-color: #444444;
-        }
-
-        .search-demo__result-thumbnail {
-          flex-shrink: 0;
-        }
-
-        .search-demo__thumbnail {
-          width: 60px;
-          height: 60px;
-          object-fit: cover;
-        }
-
-        .search-demo__no-thumbnail {
-          width: 60px;
-          height: 60px;
-          background: #333333;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 0.7rem;
-          color: #888888;
-        }
-
-        .search-demo__result-content {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 0.25rem;
-        }
-
-        .search-demo__result-title {
-          font-weight: bold;
-          color: #ffffff;
-        }
-
-        .search-demo__result-artist {
-          color: #cccccc;
-          font-size: 0.9rem;
-        }
-
-        .search-demo__result-album {
-          color: #aaaaaa;
-          font-size: 0.8rem;
-        }
-
-        .search-demo__result-meta {
-          display: flex;
-          gap: 0.75rem;
-          font-size: 0.7rem;
-          color: #888888;
-          margin-top: 0.5rem;
-        }
-
-        .search-demo__favorite {
-          color: #ff00ff;
-          font-weight: bold;
-        }
-
-        .search-demo__no-results {
-          text-align: center;
-          padding: 3rem;
-          color: #888888;
-        }
-
-        .search-demo__no-results-message {
-          margin-bottom: 1rem;
-          font-size: 1.1rem;
-        }
-
-        .search-demo__clear-all {
-          padding: 0.75rem 1.5rem;
-          background: #ff00ff;
-          color: #ffffff;
-          border: none;
-          cursor: pointer;
-          font-size: 1rem;
-        }
-
-        .search-demo__pagination {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          gap: 1rem;
-          margin: 2rem 0;
-        }
-
-        .search-demo__page-btn {
-          padding: 0.5rem 1rem;
-          background: #333333;
-          color: #ffffff;
-          border: none;
-          cursor: pointer;
-          transition: background-color 0.2s;
-        }
-
-        .search-demo__page-btn:disabled {
-          background: #222222;
-          color: #666666;
-          cursor: not-allowed;
-        }
-
-        .search-demo__page-btn:not(:disabled):hover {
-          background: #444444;
-        }
-
-        .search-demo__page-info {
-          color: #cccccc;
-        }
-
-        .search-demo__error {
-          background: #3a1a1a;
-          color: #ff6666;
-          padding: 1rem;
-          margin: 1rem 0;
-          border: 1px solid #ff3333;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .search-demo__retry-btn {
-          padding: 0.5rem 1rem;
-          background: #ff3333;
-          color: #ffffff;
-          border: none;
-          cursor: pointer;
-        }
-
-        .search-demo__debug {
-          margin-top: 2rem;
-          background: #1a1a1a;
-          padding: 1rem;
-          border: 1px solid #333333;
-        }
-
-        .search-demo__debug h3 {
-          margin: 0 0 1rem 0;
-          color: #cccccc;
-        }
-
-        .search-demo__debug-content {
-          background: #0a0a0a;
-          padding: 1rem;
-          color: #888888;
-          font-size: 0.8rem;
-          overflow-x: auto;
-          margin: 0;
-        }
-
-        @media (max-width: 768px) {
-          .search-demo {
-            padding: 1rem;
-          }
-
-          .search-demo__results--grid {
-            grid-template-columns: 1fr;
-          }
-
-          .search-demo__filter-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .search-demo__results-header {
-            flex-direction: column;
-            gap: 1rem;
-            align-items: flex-start;
-          }
+        .font-metro {
+          font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont,
+            "Segoe UI", Roboto, sans-serif;
         }
       `}</style>
     </div>
   );
 }
 
-function SearchDemo(props: SearchDemoProps) {
-  const apiClient = new ApiClient({
-    baseUrl: props.apiBaseUrl || "http://localhost:8080",
-    timeout: 30000,
+export default function SearchDemo(props: SearchDemoProps = {}) {
+  const [apiClient, setApiClient] = createSignal<ApiClient | null>(null);
+  const [error, setError] = createSignal<string | null>(null);
+
+  onMount(async () => {
+    try {
+      const client = new ApiClient({
+        baseUrl: props.apiBaseUrl || window.location.origin,
+        timeout: 30000,
+      });
+
+      await client.health();
+      setApiClient(client);
+    } catch (err) {
+      console.error("Failed to initialize API client:", err);
+      setError(err instanceof Error ? err.message : "failed to initialize");
+    }
   });
 
-  return <SearchDemoContent apiClient={apiClient} />;
+  return (
+    <div class="search-demo">
+      <Show
+        when={error()}
+        fallback={
+          <Show when={apiClient()} fallback={<div>loading...</div>}>
+            <SearchDemoContent apiClient={apiClient()!} />
+          </Show>
+        }
+      >
+        <div class="error-container">
+          <h1>search demo error</h1>
+          <p>{error()}</p>
+        </div>
+      </Show>
+    </div>
+  );
 }
 
-// Web Component Implementation
-class SearchDemoElement extends HTMLElement {
+// web component setup
+export class SearchDemoElement extends HTMLElement {
   private dispose?: () => void;
 
   connectedCallback() {
-    console.log("unified search demo element connected");
-
-    const apiBaseUrl =
-      this.getAttribute("api-base-url") || "http://localhost:8080";
+    const apiBaseUrl = this.getAttribute("api-base-url") || undefined;
     const autoConnect = this.getAttribute("auto-connect") === "true";
 
-    try {
-      this.dispose = render(
-        () => <SearchDemo apiBaseUrl={apiBaseUrl} autoConnect={autoConnect} />,
-        this
-      );
-      console.log("unified search demo render successful");
-    } catch (error) {
-      console.error("unified search demo render failed:", error);
-    }
+    this.dispose = render(
+      () => <SearchDemo apiBaseUrl={apiBaseUrl} autoConnect={autoConnect} />,
+      this
+    );
   }
 
   disconnectedCallback() {
-    console.log("unified search demo element disconnected");
-    if (this.dispose) {
-      this.dispose();
-    }
+    this.dispose?.();
   }
 }
 
-// Register the custom element
-try {
-  if (!customElements.get("search-demo")) {
-    customElements.define("search-demo", SearchDemoElement);
-    console.log("unified search demo web component registered");
-  }
-} catch (error) {
-  console.error("failed to register unified search demo web component:", error);
-}
-
-export { SearchDemo, SearchDemoElement };
+customElements.define("search-demo", SearchDemoElement);

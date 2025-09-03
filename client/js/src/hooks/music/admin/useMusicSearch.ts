@@ -1,7 +1,7 @@
 import { createSignal, createMemo, onMount } from "solid-js";
 import type { ApiClient } from "../../../lib/api-client.js";
 import type { AdminMusicFilters } from "../../../lib/admin/admin-api.js";
-import type { SearchPreset } from "../../../lib/admin/components/AdminSearchHeader.js";
+import type { SearchPreset } from "../../../components/search/index.js";
 import { useStandardDelayedLoading } from "../../useDelayedLoading.js";
 
 export interface MusicSearchState {
@@ -17,7 +17,7 @@ export interface MusicSearchReturn {
   /** Search query */
   searchQuery: () => string;
   /** Update search query */
-  setSearchQuery: (query: string) => void;
+  setSearchQuery: (query: string, executeSearch?: boolean) => void;
   /** Current filters */
   filters: () => AdminMusicFilters;
   /** Update filters */

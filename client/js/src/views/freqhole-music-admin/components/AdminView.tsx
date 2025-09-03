@@ -9,7 +9,12 @@ import { useMusicSearch } from "../../../hooks/music/admin/useMusicSearch.js";
 import {
   musicFilterFields,
   musicSortFields,
+  musicSearchPresets,
 } from "../../../lib/music/admin/music-unified-search.js";
+import type {
+  SearchPreset,
+  SearchField,
+} from "../../../components/search/index.js";
 
 export interface AdminViewProps {
   apiClient: ApiClient;
@@ -122,6 +127,32 @@ export function AdminView(props: AdminViewProps) {
     // TODO: implement song editing modal/interface
   };
 
+  // search field configuration for admin
+  const adminSearchFields: SearchField[] = [
+    { value: "all", label: "all", description: "search all fields" },
+    { value: "title", label: "title", description: "search song titles" },
+    { value: "artist", label: "artist", description: "search artist names" },
+    { value: "album", label: "album", description: "search album names" },
+    { value: "genre", label: "genre", description: "search genres" },
+  ];
+
+  // handle preset application
+  const handlePresetApply = (preset: SearchPreset) => {
+    console.log("admin view: applying preset", preset.id);
+    // Apply preset filters to the search
+    const currentParams = musicSearch.filters();
+    const newParams = { ...currentParams, ...preset.params };
+    musicSearch.updateFilters(newParams);
+  };
+
+  // check if preset is active
+  const isPresetActive = (preset: SearchPreset) => {
+    const currentFilters = musicSearch.filters();
+    return Object.entries(preset.params).every(([key, value]) => {
+      return (currentFilters as any)[key] === value;
+    });
+  };
+
   return (
     <div class={`admin-view h-full flex flex-col ${props.className || ""}`}>
       {/* header */}
@@ -185,8 +216,7 @@ export function AdminView(props: AdminViewProps) {
         <AdminSearchHeader
           searchQuery={musicSearch.searchQuery}
           onSearchChange={(query) => {
-            musicSearch.setSearchQuery(query);
-            musicSearch.refresh();
+            musicSearch.setSearchQuery(query, true);
             console.log("admin view: search executed from header", query);
           }}
           filters={musicSearch.filters}
@@ -194,20 +224,28 @@ export function AdminView(props: AdminViewProps) {
           onClearFilters={musicSearch.clearFilters}
           showAdvancedSearch={musicSearch.showAdvancedSearch}
           onToggleAdvancedSearch={musicSearch.setShowAdvancedSearch}
-          suggestions={musicSearch.suggestions}
+          suggestions={() => {
+            const suggestions = musicSearch.suggestions();
+            return suggestions.map((s: any) => ({
+              text: typeof s === "string" ? s : s.text || String(s),
+              category:
+                typeof s === "object" && s.category ? s.category : "suggestion",
+            }));
+          }}
           onSuggestionSelect={(suggestion) => {
-            musicSearch.setSearchQuery(suggestion);
-            musicSearch.refresh();
+            musicSearch.onSuggestionSelect(suggestion);
             console.log(
               "admin view: search executed from suggestion",
               suggestion
             );
           }}
-          presets={musicSearch.presets}
-          onPresetApply={musicSearch.applyPreset}
+          presets={musicSearchPresets.slice(0, 6)}
+          onPresetApply={handlePresetApply}
+          isPresetActive={isPresetActive}
           loading={musicSearch.loading}
           resultsCount={musicSearch.totalCount}
           filterSummary={musicSearch.filterSummary}
+          searchFields={adminSearchFields}
         />
       </Show>
 

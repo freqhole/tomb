@@ -448,7 +448,7 @@ export function useUnifiedSearch(
   // text search management
   const searchQuery = createMemo(() => searchParams().q || "");
 
-  const setSearchQuery = (query: string) => {
+  const setSearchQuery = (query: string, triggerSearch: boolean = false) => {
     updateParam("q", query || undefined);
 
     // Fetch suggestions if autoSuggestions is enabled
@@ -461,8 +461,11 @@ export function useUnifiedSearch(
       setSuggestions([]);
     }
 
-    // Don't automatically trigger search or set searching state
-    // This will be handled by explicit search actions
+    // Only trigger search if explicitly requested
+    if (triggerSearch) {
+      debouncedSearch();
+    }
+    // Otherwise don't automatically trigger search or set searching state
   };
 
   // Debounced suggestion fetching
@@ -485,79 +488,29 @@ export function useUnifiedSearch(
     setSuggestionsError(null);
 
     try {
-      // Try multiple fields for better suggestions
-      const fields = ["title", "artist", "album", "genre"];
-      const allSuggestions: any[] = [];
+      const suggestionsUrl = `${config.suggestionsEndpoint}?field=title&partial=${encodeURIComponent(query)}&page_size=15`;
 
-      // Try each field one by one
-      for (const field of fields) {
-        try {
-          const suggestionsUrl = `${config.suggestionsEndpoint}?field=${field}&partial=${encodeURIComponent(query)}`;
-          console.log(`Loading suggestions from ${suggestionsUrl}`);
-
-          const response = await fetch(suggestionsUrl);
-          if (!response.ok) {
-            console.warn(
-              `Failed to fetch suggestions for field ${field}: ${response.statusText}`
-            );
-            continue;
-          }
-
-          const data = await response.json();
-          console.log(`Suggestions API response for ${field}:`, data);
-
-          // Add suggestions from this field
-          if (data.suggestions && Array.isArray(data.suggestions)) {
-            allSuggestions.push(...data.suggestions);
-          }
-        } catch (fieldError) {
-          console.warn(`Error fetching ${field} suggestions:`, fieldError);
-        }
+      const response = await fetch(suggestionsUrl);
+      if (!response.ok) {
+        throw new Error(`suggestions api error: ${response.statusText}`);
       }
 
-      // Use the combined results from all fields
-      const data = { suggestions: allSuggestions };
+      const data = await response.json();
 
-      // Process suggestions based on format
       if (data.suggestions && Array.isArray(data.suggestions)) {
-        // Deduplicate suggestions by value
-        const uniqueSuggestions = Array.from(
-          new Map(
-            data.suggestions.map((suggestion: any) => {
-              const value =
-                typeof suggestion === "object" && suggestion !== null
-                  ? suggestion.value || suggestion.query || String(suggestion)
-                  : String(suggestion);
-              return [value, suggestion];
-            })
-          ).values()
-        );
-
-        const processedSuggestions = uniqueSuggestions.map(
-          (suggestion: any) => {
-            // Handle object suggestions (server format)
-            if (typeof suggestion === "object" && suggestion !== null) {
-              return {
-                text:
-                  suggestion.value || suggestion.query || String(suggestion),
-                category: suggestion.suggestion_type || "general",
-              };
-            }
-            // Handle string suggestions
-            return {
-              text: String(suggestion),
-              category: "general",
-            };
-          }
+        const processedSuggestions = data.suggestions.map(
+          (suggestion: any) => ({
+            text: suggestion.value || suggestion.query || String(suggestion),
+            category: suggestion.suggestion_type || "title",
+            highlight: suggestion.highlight,
+          })
         );
 
         setSuggestions(processedSuggestions);
-        console.log("Processed suggestions:", processedSuggestions.length);
       } else {
         setSuggestions([]);
       }
     } catch (error) {
-      console.error("Error fetching suggestions:", error);
       setSuggestionsError(
         error instanceof Error ? error : new Error(String(error))
       );

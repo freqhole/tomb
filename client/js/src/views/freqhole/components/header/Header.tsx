@@ -1,5 +1,5 @@
 import { Show, createSignal } from "solid-js";
-import { SearchBox } from "../../../../components/search/SearchBox";
+import { SearchInput } from "../../../../components/search/SearchInput";
 import { useAuth } from "../../../../hooks/auth";
 import { UserMenu } from "../auth/UserMenu";
 import { FreqholeIcon, CloseIcon, SearchIcon } from "../icons";
@@ -80,11 +80,10 @@ export const Header = (props: HeaderProps) => {
         {/* Desktop Search */}
         <div class="hidden lg:flex flex-1 max-w-96 ml-12 relative items-center gap-2 bg-black rounded-lg p-1">
           <div class="flex-1">
-            <SearchBox
+            <SearchInput
               placeholder="search music..."
-              useInternalState={false}
-              query={props.searchQuery}
-              onQueryChange={(query) => {
+              value={props.searchQuery}
+              onInput={(query) => {
                 props.onSearchQueryChange(query);
                 props.searchContext.state.setQuery(query);
                 if (!query.trim()) {
@@ -99,7 +98,6 @@ export const Header = (props: HeaderProps) => {
                 props.onViewChange("music");
                 props.onSearch(suggestion);
               }}
-              onClear={props.onClearSearch}
               showSuggestions={true}
               maxSuggestions={6}
               autoSearch={false}
@@ -147,11 +145,10 @@ export const Header = (props: HeaderProps) => {
           >
             <div class="flex items-center gap-2">
               <div class="flex-1">
-                <SearchBox
+                <SearchInput
                   placeholder="search music..."
-                  useInternalState={false}
-                  query={props.searchQuery}
-                  onQueryChange={(query) => {
+                  value={props.searchQuery}
+                  onInput={(query) => {
                     props.onSearchQueryChange(query);
                     props.searchContext.state.setQuery(query);
                     if (!query.trim()) {
@@ -166,10 +163,6 @@ export const Header = (props: HeaderProps) => {
                   onSuggestionSelect={(suggestion) => {
                     props.onViewChange("music");
                     props.onSearch(suggestion);
-                    setShowMobileSearch(false);
-                  }}
-                  onClear={() => {
-                    props.onClearSearch();
                     setShowMobileSearch(false);
                   }}
                   showSuggestions={true}

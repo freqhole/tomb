@@ -8,88 +8,54 @@ import {
   onCleanup,
 } from "solid-js";
 
-import { useSearchSuggestions } from "../../hooks/search/index.js";
-
 export interface SearchSuggestionsProps {
   /** Current search query */
   query: string;
   /** Callback when a suggestion is selected */
   onSuggestionSelect?: (suggestion: string) => void;
-  /** Whether to use internal suggestions hook */
-  useInternalSuggestions?: boolean;
-  /** External suggestions (when not using internal hook) */
+  /** External suggestions array */
   suggestions?: any[];
   /** Whether suggestions are loading */
   loading?: boolean;
   /** Whether to show the suggestions dropdown */
   show?: boolean;
-  /** Maximum number of suggestions to display */
-  maxSuggestions?: number;
   /** Additional CSS classes */
   class?: string;
-  /** Debounce delay for fetching suggestions */
-  debounceMs?: number;
   /** Position relative to parent */
   position?: "bottom" | "top";
   /** Whether to show loading indicator */
   showLoading?: boolean;
-  /** API client for fetching suggestions (required when using internal hook) */
-  apiClient?: any;
-  /** Callback when suggestions should be hidden (e.g., on blur, submit) */
+  /** Callback when suggestions should be hidden */
   onBlur?: () => void;
 }
 
 export function SearchSuggestions(props: SearchSuggestionsProps) {
-  const useInternal = props.useInternalSuggestions !== false;
-
-  // Use internal suggestions hook or external suggestions
-  const suggestionsHook =
-    useInternal && props.apiClient
-      ? useSearchSuggestions({
-          apiClient: props.apiClient,
-          query: () => props.query,
-          debounceMs: props.debounceMs || 300,
-          enabled: props.show !== false,
-        })
-      : null;
-
   const [selectedIndex, setSelectedIndex] = createSignal(-1);
   const [dropdownRef, setDropdownRef] = createSignal<HTMLDivElement>();
   const [isVisible, setIsVisible] = createSignal(true);
 
-  // Get current suggestions
-  const currentSuggestions = () => {
-    if (useInternal && suggestionsHook) {
-      return suggestionsHook.suggestions();
-    }
-    console.log("using external suggestions:", props.suggestions);
-    // Ensure we always return an array even if props.suggestions is undefined
-    const suggestions = Array.isArray(props.suggestions)
-      ? props.suggestions
-      : [];
+  // normalize suggestions to consistent format
+  const normalizedSuggestions = () => {
+    if (!Array.isArray(props.suggestions)) return [];
 
-    // Process suggestions to ensure they have the expected format
-    return suggestions.map((suggestion: any) => {
-      // If it's already a string, create a simple suggestion object
+    return props.suggestions.map((suggestion: any) => {
       if (typeof suggestion === "string") {
         return { text: suggestion, category: "general" };
       }
 
-      // Handle server-style suggestion format
       if (typeof suggestion === "object" && suggestion !== null) {
-        // If it already has a text property, use it directly
-        if (suggestion.text) {
-          return suggestion;
-        }
+        const text =
+          suggestion.text ||
+          suggestion.value ||
+          suggestion.query ||
+          suggestion.display ||
+          String(suggestion);
 
-        // Map server format to component format
         return {
-          text: suggestion.value || suggestion.query || String(suggestion),
+          text: text,
           category:
             suggestion.suggestion_type || suggestion.category || "general",
           highlight: suggestion.highlight,
-          value: suggestion.value,
-          display: suggestion.display,
         };
       }
 
@@ -97,64 +63,29 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     });
   };
 
-  // Get current loading state
-  const isLoading = () => {
-    if (useInternal && suggestionsHook) {
-      return suggestionsHook.loading();
-    }
-    return props.loading || false;
-  };
-
-  // Filter and limit suggestions
-  const filteredSuggestions = () => {
-    const query = props.query.toLowerCase().trim();
-    if (!query) return [];
-
-    // Get current suggestions (from props or hook)
-    const suggestions = currentSuggestions();
-
-    // If query is too short or no suggestions available, return empty array
-    if (!props.query.trim() || suggestions.length === 0) {
-      return [];
-    }
-
-    console.log("filtering suggestions:", suggestions);
-
-    const filtered = suggestions
-      .filter((suggestion) => {
-        const text =
-          suggestion.text ||
-          suggestion.value ||
-          suggestion.display ||
-          String(suggestion);
-        return (
-          text.toLowerCase().includes(query) && text.toLowerCase() !== query
-        );
-      })
-      .slice(0, props.maxSuggestions || 10);
-
-    return filtered;
-  };
-
-  // Group suggestions by category
+  // group suggestions by category
   const groupedSuggestions = () => {
-    const suggestions = filteredSuggestions();
+    const suggestions = normalizedSuggestions();
     const groups = new Map<string, any[]>();
 
-    // Group suggestions by category
-    suggestions.forEach((suggestion) => {
-      const category =
-        typeof suggestion === "string"
-          ? "general"
-          : suggestion.category || "general";
+    suggestions.forEach((suggestion: any) => {
+      const category = suggestion.category || "general";
       if (!groups.has(category)) {
         groups.set(category, []);
       }
       groups.get(category)!.push(suggestion);
     });
 
-    // Convert to array and sort by category priority
-    const categoryOrder = ["word", "title", "playlist", "general"];
+    // sort by category priority
+    const categoryOrder = [
+      "word",
+      "title",
+      "artist",
+      "album",
+      "genre",
+      "playlist",
+      "general",
+    ];
     return Array.from(groups.entries()).sort(([a], [b]) => {
       const aIndex = categoryOrder.indexOf(a);
       const bIndex = categoryOrder.indexOf(b);
@@ -164,80 +95,85 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     });
   };
 
-  // Get category display name
+  // get category display name
   const getCategoryDisplayName = (category: string) => {
     const categoryNames: Record<string, string> = {
-      word: "Search suggestions",
-      title: "Songs",
-      playlist: "Playlists",
-      general: "Suggestions",
+      word: "search suggestions",
+      title: "songs",
+      artist: "artists",
+      album: "albums",
+      genre: "genres",
+      playlist: "playlists",
+      general: "suggestions",
     };
-    return (
-      categoryNames[category] ||
-      category.charAt(0).toUpperCase() + category.slice(1)
-    );
+    return categoryNames[category] || category;
   };
 
-  // Check if dropdown should be visible
+  // simple visibility logic
   const shouldShowDropdown = () => {
-    // Simple conditions for visibility
-    const hasQuery = props.query.trim().length >= 1;
-    const hasSuggestions = filteredSuggestions().length > 0;
-    const isLoadingVisible = isLoading() && props.showLoading;
+    const hasQuery = props.query.trim().length >= 2;
+    const hasSuggestions = normalizedSuggestions().length > 0;
+    const isLoading = props.loading && props.showLoading;
 
-    // Force showing when explicitly requested
-    if (props.show === true && hasQuery && isVisible() && isLoadingVisible) {
+    // show when explicitly requested
+    if (props.show === true && hasQuery && isVisible()) {
       return true;
     }
 
-    // Show dropdown when we have suggestions or we're loading and allowed to show loading
-    const shouldShow =
-      props.show !== false &&
-      hasQuery &&
-      isVisible() &&
-      (hasSuggestions || isLoadingVisible);
+    // show when loading
+    if (hasQuery && isVisible() && isLoading) {
+      return true;
+    }
 
-    console.log("search suggestions visibility check:", {
-      propsShow: props.show,
-      hasQuery,
-      isVisible: isVisible(),
-      hasSuggestions,
-      isLoadingVisible,
-      filteredCount: filteredSuggestions().length,
-      rawSuggestions: currentSuggestions().length,
-      shouldShow,
-    });
-
-    return shouldShow;
+    // show when we have suggestions
+    return props.show !== false && hasQuery && isVisible() && hasSuggestions;
   };
 
-  // Get flattened suggestions for keyboard navigation
+  // flatten suggestions for keyboard navigation
   const flattenedSuggestions = () => {
     return groupedSuggestions().reduce((acc, [_, suggestions]) => {
       return acc.concat(suggestions);
     }, [] as any[]);
   };
 
-  // Handle suggestion click
+  // handle suggestion click
   const handleSuggestionClick = (suggestion: any) => {
-    // Get the text value from the suggestion object or use the string directly
-    const suggestionText =
-      typeof suggestion === "object"
-        ? suggestion.text ||
-          suggestion.value ||
-          suggestion.display ||
-          String(suggestion)
-        : suggestion;
-
-    console.log("Suggestion clicked:", suggestionText);
-    props.onSuggestionSelect?.(suggestionText);
+    props.onSuggestionSelect?.(suggestion.text);
     setSelectedIndex(-1);
     setIsVisible(false);
     props.onBlur?.();
   };
 
-  // Handle keyboard navigation
+  // render highlighted text without dangerouslySetInnerHTML
+  const renderHighlightedText = (suggestion: any) => {
+    if (!suggestion.highlight) {
+      return suggestion.text;
+    }
+
+    // simple highlight rendering - look for <mark> tags and replace with spans
+    const parts = suggestion.highlight.split(/(<mark>.*?<\/mark>)/g);
+
+    return (
+      <span>
+        <For each={parts}>
+          {(part) => {
+            if (part.startsWith("<mark>") && part.endsWith("</mark>")) {
+              const content = part.slice(6, -7); // remove <mark></mark>
+              return (
+                <span class="text-magenta-300 font-medium">{content}</span>
+              );
+            }
+            return part;
+          }}
+        </For>
+      </span>
+    );
+  };
+
+  // keyboard navigation
   const handleKeyDown = (e: KeyboardEvent) => {
+    if (!shouldShowDropdown()) return;
+
     const suggestions = flattenedSuggestions();
 
     switch (e.key) {
@@ -264,12 +200,9 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
         if (selectedIndex() >= 0 && selectedIndex() < suggestions.length) {
           const selected = suggestions[selectedIndex()];
           if (selected) {
-            const text =
-              typeof selected === "string" ? selected : selected.text;
-            handleSuggestionClick(text);
+            handleSuggestionClick(selected);
           }
         } else {
-          // Close dropdown if Enter pressed without selection
           setIsVisible(false);
           props.onBlur?.();
         }
@@ -283,7 +216,16 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     }
   };
 
-  // Reset selection when suggestions change
+  // handle clicks outside
+  const handleClickOutside = (e: MouseEvent) => {
+    const dropdown = dropdownRef();
+    if (dropdown && !dropdown.contains(e.target as Node)) {
+      setIsVisible(false);
+      props.onBlur?.();
+    }
+  };
+
+  // reset selection when suggestions change
   createEffect(() => {
     const suggestions = flattenedSuggestions();
     if (suggestions.length === 0) {
@@ -293,26 +235,13 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     }
   });
 
-  // Show dropdown when query changes (reset visibility)
+  // show dropdown when query changes
   createEffect(() => {
     const query = props.query.trim();
-    if (query) {
-      setIsVisible(true);
-    } else {
-      setIsVisible(false);
-    }
+    setIsVisible(query.length >= 2);
   });
 
-  // Handle clicks outside the dropdown
-  const handleClickOutside = (e: MouseEvent) => {
-    const dropdown = dropdownRef();
-    if (dropdown && !dropdown.contains(e.target as Node)) {
-      setIsVisible(false);
-      props.onBlur?.();
-    }
-  };
-
-  // Add event listeners
+  // event listeners
   onMount(() => {
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("mousedown", handleClickOutside);
@@ -323,87 +252,59 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     document.removeEventListener("mousedown", handleClickOutside);
   });
 
-  // For debugging
-  console.log("search suggestions render:", {
-    query: props.query,
-    suggestions: currentSuggestions().length,
-    filtered: filteredSuggestions(),
-    show: props.show,
-    loading: isLoading(),
-    shouldShow: shouldShowDropdown(),
-  });
-
   return (
     <Show when={shouldShowDropdown()}>
       <div
         ref={setDropdownRef}
-        class={`absolute left-0 right-0 bg-gray-900 border border-gray-800 max-h-60 overflow-y-auto z-50 shadow-lg ${
-          props.position === "top" ? "bottom-full mb-1" : "top-full mt-0"
+        class={`absolute left-0 right-0 bg-black max-h-80 overflow-y-auto z-50 border border-gray-700 ${
+          props.position === "top" ? "bottom-full mb-1" : "top-full mt-1"
         } ${props.class || ""}`}
         role="listbox"
         aria-label="search suggestions"
         style={{
-          "min-height": isLoading() ? "40px" : "auto",
-          "border-top": "none",
-          "margin-top": "1px",
+          "box-shadow": "0 8px 32px rgba(0, 0, 0, 0.9)",
         }}
       >
-        <Show when={isLoading() && props.showLoading}>
-          <div class="p-3 text-center text-gray-400 text-sm">
+        <Show when={props.loading && props.showLoading}>
+          <div class="p-4 text-center text-gray-400">
             <div class="flex items-center justify-center">
-              <div class="animate-spin h-4 w-4 border-2 border-magenta-500 border-t-transparent mr-2"></div>
-              <span>loading suggestions</span>
+              <div class="animate-spin h-4 w-4 border border-magenta-400 border-t-transparent mr-2"></div>
+              <span>loading suggestions...</span>
             </div>
           </div>
         </Show>
 
-        <Show when={!isLoading() && filteredSuggestions().length > 0}>
+        <Show when={!props.loading && normalizedSuggestions().length > 0}>
           <For each={groupedSuggestions()}>
             {([category, suggestions]) => {
-              // Calculate the starting index for this group
               const flatSuggestions = flattenedSuggestions();
               const groupStartIndex = flatSuggestions.findIndex((s) =>
                 suggestions.includes(s)
               );
 
               return (
-                <div class="border-b border-gray-800 last:border-0">
-                  <div class="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-black">
+                <div class="last:border-0">
+                  <div class="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider bg-gray-950 border-b border-gray-800">
                     {getCategoryDisplayName(category)}
                   </div>
                   <For each={suggestions}>
                     {(suggestion, localIndex) => {
                       const globalIndex = groupStartIndex + localIndex();
-                      const text =
-                        typeof suggestion === "object"
-                          ? suggestion.text ||
-                            suggestion.value ||
-                            suggestion.display ||
-                            String(suggestion)
-                          : suggestion;
+                      const isSelected = globalIndex === selectedIndex();
+
                       return (
                         <div
-                          class={`px-4 py-2 cursor-pointer text-sm hover:bg-gray-800 ${
-                            globalIndex === selectedIndex()
-                              ? "bg-gray-800 text-magenta-300"
-                              : "text-white"
+                          class={`px-4 py-3 cursor-pointer text-sm transition-all duration-150 border-0 ${
+                            isSelected
+                              ? "bg-magenta-700 text-white shadow-md"
+                              : "text-gray-100 hover:bg-gray-800 hover:text-white hover:shadow-sm"
                           }`}
                           onClick={() => handleSuggestionClick(suggestion)}
                           role="option"
-                          aria-selected={globalIndex === selectedIndex()}
-                          data-suggestion={text}
+                          aria-selected={isSelected}
+                          data-suggestion={suggestion.text}
                         >
-                          {typeof suggestion === "object" &&
-                          (suggestion as any).highlight ? (
-                            <span
-                              // @ts-ignore - Known usage for highlight rendering
-                              dangerouslySetInnerHTML={{
-                                __html: (suggestion as any).highlight,
-                              }}
-                            />
-                          ) : (
-                            text
-                          )}
+                          {renderHighlightedText(suggestion)}
                         </div>
                       );
                     }}
@@ -412,6 +313,18 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
               );
             }}
           </For>
+        </Show>
+
+        <Show
+          when={
+            !props.loading &&
+            normalizedSuggestions().length === 0 &&
+            props.query.length >= 2
+          }
+        >
+          <div class="px-4 py-3 text-sm text-gray-500 text-center">
+            no suggestions found
+          </div>
         </Show>
       </div>
     </Show>
