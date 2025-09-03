@@ -1,6 +1,7 @@
 /* @jsxImportSource solid-js */
 import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
 import { ComponentEventRegistry } from "../event-registry.js";
+import { SearchSuggestions } from "../../../components/search/SearchSuggestions.js";
 
 export interface SearchPreset {
   id: string;
@@ -54,19 +55,20 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
   const eventRegistry = new ComponentEventRegistry();
   const [searchFocused, setSearchFocused] = createSignal(false);
   const [showSuggestions, setShowSuggestions] = createSignal(false);
-  const [selectedSuggestionIndex, setSelectedSuggestionIndex] =
-    createSignal(-1);
+  const [inputValue, setInputValue] = createSignal(props.searchQuery());
 
   let searchInputRef: HTMLInputElement | undefined;
-  let suggestionsRef: HTMLDivElement | undefined;
 
-  // debounced search handler
-  let searchTimeout: number | undefined;
+  // handle input value changes without immediate search
   const handleSearchInput = (value: string) => {
-    clearTimeout(searchTimeout);
-    searchTimeout = window.setTimeout(() => {
-      props.onSearchChange(value);
-    }, 300);
+    setInputValue(value);
+    setShowSuggestions(true);
+  };
+
+  // handle search execution
+  const executeSearch = () => {
+    props.onSearchChange(inputValue());
+    setShowSuggestions(false);
   };
 
   // setup search input events
@@ -75,7 +77,15 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
 
     eventRegistry.register(searchInputRef, "focus", () => {
       setSearchFocused(true);
-      if (props.suggestions && props.suggestions().length > 0) {
+      if (
+        inputValue().length > 1 &&
+        props.suggestions &&
+        props.suggestions().length > 0
+      ) {
+        console.log(
+          "AdminSearchHeader: showing suggestions on focus, count:",
+          props.suggestions().length
+        );
         setShowSuggestions(true);
       }
     });
@@ -84,68 +94,30 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
       // delay hiding suggestions to allow clicks
       setTimeout(() => {
         setSearchFocused(false);
-        setShowSuggestions(false);
-        setSelectedSuggestionIndex(-1);
       }, 150);
     });
 
     eventRegistry.register(searchInputRef, "keydown", (event: Event) => {
       const keyEvent = event as KeyboardEvent;
-      const suggestions = props.suggestions?.() || [];
 
-      switch (keyEvent.key) {
-        case "Enter":
+      // Handle various keyboard events
+      if (keyEvent.key === "Enter") {
+        // Execute search on Enter
+        keyEvent.preventDefault();
+        executeSearch();
+      } else if (keyEvent.key === "Escape") {
+        if (showSuggestions()) {
           keyEvent.preventDefault();
-          if (selectedSuggestionIndex() >= 0 && suggestions.length > 0) {
-            const suggestion = suggestions[selectedSuggestionIndex()];
-            if (suggestion) {
-              props.onSuggestionSelect?.(suggestion);
-              setShowSuggestions(false);
-            }
-          }
-          break;
-
-        case "Escape":
+          setShowSuggestions(false);
+        } else if (props.showAdvancedSearch()) {
           keyEvent.preventDefault();
-          if (props.showAdvancedSearch()) {
-            props.onToggleAdvancedSearch(false);
-          } else if (showSuggestions()) {
-            setShowSuggestions(false);
-          } else {
-            props.onSearchChange("");
-            searchInputRef?.blur();
-          }
-          break;
-
-        case "ArrowDown":
-          if (suggestions.length > 0) {
-            keyEvent.preventDefault();
-            setShowSuggestions(true);
-            setSelectedSuggestionIndex((prev) =>
-              prev < suggestions.length - 1 ? prev + 1 : prev
-            );
-          }
-          break;
-
-        case "ArrowUp":
-          if (suggestions.length > 0) {
-            keyEvent.preventDefault();
-            setShowSuggestions(true);
-            setSelectedSuggestionIndex((prev) => (prev > 0 ? prev - 1 : -1));
-          }
-          break;
-
-        default:
-          // show suggestions on typing
-          if (keyEvent.key.length === 1) {
-            setTimeout(() => {
-              if (props.suggestions && props.suggestions().length > 0) {
-                setShowSuggestions(true);
-                setSelectedSuggestionIndex(-1);
-              }
-            }, 100);
-          }
-          break;
+          props.onToggleAdvancedSearch(false);
+        } else {
+          keyEvent.preventDefault();
+          setInputValue("");
+          props.onSearchChange("");
+          searchInputRef?.blur();
+        }
       }
     });
   };
@@ -168,11 +140,9 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
     // ComponentEventRegistry will handle cleanup on component unmount
   };
 
-  // handle suggestion click
-  const handleSuggestionClick = (suggestion: string) => {
-    props.onSuggestionSelect?.(suggestion);
-    setShowSuggestions(false);
-    searchInputRef?.focus();
+  // Execute search when explicit searching is needed
+  const handleSearchButtonClick = () => {
+    executeSearch();
   };
 
   // handle preset application
@@ -189,12 +159,24 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
     }
   });
 
+  // Track suggestions and query changes
   createEffect(() => {
     const suggestions = props.suggestions?.() || [];
+    console.log(
+      "AdminSearchHeader: suggestions changed, count:",
+      suggestions.length
+    );
+
     if (suggestions.length === 0) {
       setShowSuggestions(false);
-      setSelectedSuggestionIndex(-1);
+    } else if (inputValue().length > 1) {
+      setShowSuggestions(true);
     }
+  });
+
+  // Keep input value in sync with external search query
+  createEffect(() => {
+    setInputValue(props.searchQuery());
   });
 
   // mount/cleanup
@@ -202,8 +184,8 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
     setupSearchEvents();
   });
 
+  // cleanup on unmount
   onCleanup(() => {
-    clearTimeout(searchTimeout);
     eventRegistry.cleanup();
   });
 
@@ -230,7 +212,7 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
               <input
                 ref={searchInputRef}
                 type="text"
-                value={props.searchQuery()}
+                value={inputValue()}
                 onInput={(e) => handleSearchInput(e.target.value)}
                 placeholder="search music library..."
                 class="w-full bg-gray-900 text-white px-4 py-2 border border-gray-700 focus:border-magenta-500 focus:outline-none"
@@ -238,7 +220,12 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
               />
 
               {/* search icon or loading spinner */}
-              <div class="absolute right-3 top-1/2 transform -translate-y-1/2">
+              <button
+                onClick={handleSearchButtonClick}
+                class="absolute right-3 top-1/2 transform -translate-y-1/2 bg-transparent border-none cursor-pointer p-0"
+                title="search"
+                aria-label="search"
+              >
                 <Show
                   when={props.loading?.()}
                   fallback={
@@ -259,33 +246,30 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
                 >
                   <div class="animate-spin h-4 w-4 border border-magenta-500 border-t-transparent"></div>
                 </Show>
-              </div>
+              </button>
             </div>
 
             {/* search suggestions */}
-            <Show
-              when={
+            <SearchSuggestions
+              query={inputValue()}
+              suggestions={props.suggestions?.() || []}
+              onSuggestionSelect={(suggestion) => {
+                setInputValue(suggestion);
+                executeSearch(); // Execute search with the selected suggestion
+                props.onSuggestionSelect?.(suggestion);
+                setShowSuggestions(false);
+              }}
+              show={
                 showSuggestions() &&
                 props.suggestions &&
                 props.suggestions().length > 0
               }
-            >
-              <div
-                ref={suggestionsRef}
-                class="absolute top-full left-0 right-0 bg-gray-800 border border-gray-700 border-t-0 z-50 max-h-60 overflow-y-auto"
-              >
-                {props.suggestions!().map((suggestion, index) => (
-                  <div
-                    class={`px-4 py-2 cursor-pointer hover:bg-gray-700 ${
-                      selectedSuggestionIndex() === index ? "bg-gray-700" : ""
-                    }`}
-                    onClick={() => handleSuggestionClick(suggestion)}
-                  >
-                    <div class="text-white text-sm">{suggestion}</div>
-                  </div>
-                ))}
-              </div>
-            </Show>
+              loading={props.loading?.()}
+              showLoading={true}
+              onBlur={() => setShowSuggestions(false)}
+              class="bg-black border-gray-700 text-gray-300"
+              position="bottom"
+            />
           </div>
 
           {/* advanced search toggle */}

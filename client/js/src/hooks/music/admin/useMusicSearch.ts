@@ -309,8 +309,11 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   const loadSuggestions = async (query: string) => {
     if (query.length < 2) {
       setSuggestions([]);
+      console.log("music search: skipping suggestions for short query");
       return;
     }
+
+    console.log(`music search: loading suggestions for "${query}"`);
 
     try {
       const response = await apiClient.makeRequest<any>(
@@ -321,27 +324,65 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
         }
       );
 
+      console.log("music search: suggestions API response:", response);
+
       if (response?.suggestions) {
-        setSuggestions(response.suggestions.map((s: any) => s.text || s));
+        // Format 1: { suggestions: [ { text: "suggestion" } ] }
+        const mappedSuggestions = response.suggestions.map(
+          (s: any) => s.text || s
+        );
+        console.log("music search: parsed suggestions:", mappedSuggestions);
+        setSuggestions(mappedSuggestions);
       } else if (Array.isArray(response)) {
+        // Format 2: [ "suggestion1", "suggestion2" ]
+        console.log("music search: array suggestions:", response);
         setSuggestions(response);
+      } else if (typeof response === "object" && response !== null) {
+        // Format 3: { results: [ "suggestion1", "suggestion2" ] }
+        const possibleArrayKeys = ["results", "items", "data", "values"];
+        for (const key of possibleArrayKeys) {
+          if (Array.isArray(response[key])) {
+            console.log(
+              `music search: found suggestions in response.${key}:`,
+              response[key]
+            );
+            setSuggestions(response[key]);
+            return;
+          }
+        }
+        console.log("music search: no valid suggestions in response object");
+        setSuggestions([]);
       } else {
+        console.log("music search: no valid suggestions in response");
         setSuggestions([]);
       }
     } catch (err) {
-      console.warn("failed to load suggestions:", err);
+      console.warn("music search: failed to load suggestions:", err);
       setSuggestions([]);
     }
   };
 
   // === PUBLIC API ===
 
-  const setSearchQuery = (query: string) => {
+  const setSearchQuery = (query: string, executeSearch: boolean = false) => {
     console.log("music search: setSearchQuery", query);
     setSearchQuerySignal(query);
     setCurrentPage(1);
-    loadSuggestions(query);
-    performSearch(1, false); // New search, don't append
+
+    // Always load suggestions for display in the flyout, but only if query is long enough
+    if (query.length >= 2) {
+      loadSuggestions(query);
+      setTimeout(() => {
+        console.log("music search: suggestions after timeout:", suggestions());
+      }, 500);
+    } else {
+      setSuggestions([]);
+    }
+
+    // Only perform search if explicitly requested
+    if (executeSearch) {
+      performSearch(1, false); // New search, don't append
+    }
   };
 
   const updateFilters = (updates: Partial<AdminMusicFilters>) => {
@@ -371,7 +412,7 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   };
 
   const onSuggestionSelect = (suggestion: string) => {
-    setSearchQuery(suggestion);
+    setSearchQuery(suggestion, true); // Execute search when selecting a suggestion
   };
 
   const setSort = (field: string, direction: "asc" | "desc" = "asc") => {
@@ -437,7 +478,7 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     sortField,
     sortDirection,
     refresh,
-    searchSuggestions: suggestions, // alias
+    searchSuggestions: suggestions, // alias for compatibility
     totalCount: total, // alias
   };
 }

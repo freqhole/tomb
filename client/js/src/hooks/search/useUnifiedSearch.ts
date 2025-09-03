@@ -6,6 +6,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { z } from "zod";
+import type { SearchSuggestion } from "../../lib/search/types.js";
 
 // Response schemas for validation
 const UnifiedSearchResponseSchema = z.object({
@@ -222,12 +223,25 @@ export interface UnifiedSearchParams {
 export interface UnifiedSearchConfig {
   domain: string;
   searchEndpoint: string;
-  filterOptionsEndpoint: string;
-  suggestionsEndpoint: string;
-  defaultParams: UnifiedSearchParams;
-  debounceMs: number;
-  defaultPageSize: number;
+  filterOptionsEndpoint?: string;
+  suggestionsEndpoint?: string;
+  defaultParams?: UnifiedSearchParams;
+  debounceMs?: number;
+  defaultPageSize?: number;
+  executeInitialSearch?: boolean;
+  autoSearch?: boolean; // Whether to automatically search on parameter changes
+  autoSuggestions?: boolean; // Whether to automatically fetch suggestions on query change
 }
+
+// Default configuration values
+const DEFAULT_CONFIG = {
+  debounceMs: 300,
+  defaultPageSize: 20,
+  executeInitialSearch: true,
+  autoSearch: false,
+  autoSuggestions: true,
+  defaultParams: {} as UnifiedSearchParams,
+};
 
 export interface SearchMetadata {
   queryTimeMs: number;
@@ -265,6 +279,8 @@ export interface UnifiedSearchReturn {
   loading: () => boolean;
   loadingMore: () => boolean;
   searching: () => boolean;
+  loadingSuggestions: () => boolean;
+  suggestionsError: () => Error | null;
   error: () => string | null;
 
   // search actions
@@ -275,8 +291,8 @@ export interface UnifiedSearchReturn {
 
   // text search
   searchQuery: () => string;
-  setSearchQuery: (query: string) => void;
-  searchSuggestions: () => string[];
+  setSearchQuery: (query: string, triggerSearch?: boolean) => void;
+  searchSuggestions: () => SearchSuggestion[];
 
   // filters
   activeFilters: () => Record<string, any>;
@@ -338,13 +354,19 @@ export function useUnifiedSearch(
 ): UnifiedSearchReturn {
   // core state
   const [searchParams, setSearchParams] = createSignal<UnifiedSearchParams>(
-    config.defaultParams
+    config.defaultParams ?? DEFAULT_CONFIG.defaultParams
   );
   const [results, setResults] = createSignal<Song[]>([]);
   const [totalCount, setTotalCount] = createSignal(0);
   const [loading, setLoading] = createSignal(false);
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [searching, setSearching] = createSignal(false);
+  const [suggestions, setSuggestions] = createSignal<SearchSuggestion[]>([]);
+  // Expose loading states for UI components
+  const [loadingSuggestions, setLoadingSuggestions] = createSignal(false);
+  const [suggestionsError, setSuggestionsError] = createSignal<Error | null>(
+    null
+  );
   const [error, setError] = createSignal<string | null>(null);
   const [searchMetadata, setSearchMetadata] = createSignal<SearchMetadata>({
     queryTimeMs: 0,
@@ -356,7 +378,7 @@ export function useUnifiedSearch(
   // debounced search function
   const debouncedSearch = debounce(async () => {
     await performSearch();
-  }, config.debounceMs);
+  }, config.debounceMs ?? DEFAULT_CONFIG.debounceMs);
 
   // core search function
   const performSearch = async () => {
@@ -401,11 +423,13 @@ export function useUnifiedSearch(
     }
   };
 
-  // reactive search triggering
+  // Conditionally enable automatic reactive search triggering
   createEffect(() => {
-    const params = searchParams();
-    if (shouldTriggerSearch(params)) {
-      debouncedSearch();
+    if (config.autoSearch ?? DEFAULT_CONFIG.autoSearch) {
+      const params = searchParams();
+      if (shouldTriggerSearch(params)) {
+        debouncedSearch();
+      }
     }
   });
 
@@ -416,7 +440,9 @@ export function useUnifiedSearch(
 
   // clear all parameters
   const clearParams = () => {
-    setSearchParams(config.defaultParams);
+    setSearchParams({
+      ...(config.defaultParams ?? DEFAULT_CONFIG.defaultParams),
+    });
   };
 
   // text search management
@@ -424,18 +450,138 @@ export function useUnifiedSearch(
 
   const setSearchQuery = (query: string) => {
     updateParam("q", query || undefined);
-    setSearching(true);
+
+    // Fetch suggestions if autoSuggestions is enabled
+    if (
+      (config.autoSuggestions ?? DEFAULT_CONFIG.autoSuggestions) &&
+      query.trim().length >= 2
+    ) {
+      fetchSuggestions(query);
+    } else if (query.trim().length < 2) {
+      setSuggestions([]);
+    }
+
+    // Don't automatically trigger search or set searching state
+    // This will be handled by explicit search actions
+  };
+
+  // Debounced suggestion fetching
+  let suggestionTimeout: number | undefined;
+  const fetchSuggestions = (query: string) => {
+    clearTimeout(suggestionTimeout);
+    suggestionTimeout = window.setTimeout(() => {
+      loadSuggestionsFromApi(query);
+    }, config.debounceMs ?? DEFAULT_CONFIG.debounceMs);
+  };
+
+  // Fetch suggestions from API
+  const loadSuggestionsFromApi = async (query: string) => {
+    if (!query || query.length < 2 || !config.suggestionsEndpoint) {
+      setSuggestions([]);
+      return;
+    }
+
+    setLoadingSuggestions(true);
+    setSuggestionsError(null);
+
+    try {
+      // Try multiple fields for better suggestions
+      const fields = ["title", "artist", "album", "genre"];
+      const allSuggestions: any[] = [];
+
+      // Try each field one by one
+      for (const field of fields) {
+        try {
+          const suggestionsUrl = `${config.suggestionsEndpoint}?field=${field}&partial=${encodeURIComponent(query)}`;
+          console.log(`Loading suggestions from ${suggestionsUrl}`);
+
+          const response = await fetch(suggestionsUrl);
+          if (!response.ok) {
+            console.warn(
+              `Failed to fetch suggestions for field ${field}: ${response.statusText}`
+            );
+            continue;
+          }
+
+          const data = await response.json();
+          console.log(`Suggestions API response for ${field}:`, data);
+
+          // Add suggestions from this field
+          if (data.suggestions && Array.isArray(data.suggestions)) {
+            allSuggestions.push(...data.suggestions);
+          }
+        } catch (fieldError) {
+          console.warn(`Error fetching ${field} suggestions:`, fieldError);
+        }
+      }
+
+      // Use the combined results from all fields
+      const data = { suggestions: allSuggestions };
+
+      // Process suggestions based on format
+      if (data.suggestions && Array.isArray(data.suggestions)) {
+        // Deduplicate suggestions by value
+        const uniqueSuggestions = Array.from(
+          new Map(
+            data.suggestions.map((suggestion: any) => {
+              const value =
+                typeof suggestion === "object" && suggestion !== null
+                  ? suggestion.value || suggestion.query || String(suggestion)
+                  : String(suggestion);
+              return [value, suggestion];
+            })
+          ).values()
+        );
+
+        const processedSuggestions = uniqueSuggestions.map(
+          (suggestion: any) => {
+            // Handle object suggestions (server format)
+            if (typeof suggestion === "object" && suggestion !== null) {
+              return {
+                text:
+                  suggestion.value || suggestion.query || String(suggestion),
+                category: suggestion.suggestion_type || "general",
+              };
+            }
+            // Handle string suggestions
+            return {
+              text: String(suggestion),
+              category: "general",
+            };
+          }
+        );
+
+        setSuggestions(processedSuggestions);
+        console.log("Processed suggestions:", processedSuggestions.length);
+      } else {
+        setSuggestions([]);
+      }
+    } catch (error) {
+      console.error("Error fetching suggestions:", error);
+      setSuggestionsError(
+        error instanceof Error ? error : new Error(String(error))
+      );
+      setSuggestions([]);
+    } finally {
+      setLoadingSuggestions(false);
+    }
   };
 
   // pagination management
   const currentPage = createMemo(() => searchParams().page || 1);
   const totalPages = createMemo(() => {
     const total = totalCount();
-    const pageSize = searchParams().page_size || config.defaultPageSize;
+    const pageSize =
+      searchParams().page_size ||
+      config.defaultPageSize ||
+      DEFAULT_CONFIG.defaultPageSize;
     return total === 0 ? 0 : Math.ceil(total / pageSize);
   });
   const pageSize = createMemo(
-    () => searchParams().page_size || config.defaultPageSize
+    () =>
+      searchParams().page_size ||
+      config.defaultPageSize ||
+      DEFAULT_CONFIG.defaultPageSize
   );
   const hasNext = createMemo(() => currentPage() < totalPages());
   const hasPrev = createMemo(() => currentPage() > 1);
@@ -496,9 +642,9 @@ export function useUnifiedSearch(
 
   const clearFilters = () => {
     const params = searchParams();
-    const clearedParams = {
-      page: params.page,
-      page_size: params.page_size,
+    const clearedParams: UnifiedSearchParams = {
+      page: params.page || 1,
+      page_size: params.page_size || DEFAULT_CONFIG.defaultPageSize,
       sort_by: params.sort_by,
       sort_direction: params.sort_direction,
     };
@@ -627,17 +773,31 @@ export function useUnifiedSearch(
       }
     });
 
-    setSearchParams((prev) => ({ ...prev, ...urlParams }));
+    setSearchParams((prev) => ({
+      ...prev,
+      ...(urlParams as UnifiedSearchParams),
+    }));
   };
 
-  // initialize from url on mount
+  // initialize from url on mount and perform initial search if configured
   onMount(() => {
     loadFromUrl();
+    if (config.executeInitialSearch ?? DEFAULT_CONFIG.executeInitialSearch) {
+      performSearch();
+    }
+    // Fetch initial suggestions if there's a query
+    const query = searchQuery();
+    if (query && query.length >= 2) {
+      fetchSuggestions(query);
+    }
   });
 
   // cleanup
   onCleanup(() => {
     // cleanup any pending debounced calls
+    if (suggestionTimeout) {
+      clearTimeout(suggestionTimeout);
+    }
   });
 
   return {
@@ -655,8 +815,8 @@ export function useUnifiedSearch(
 
     // pagination
     currentPage,
+    pageSize: () => pageSize() || DEFAULT_CONFIG.defaultPageSize,
     totalPages,
-    pageSize,
     hasNext,
     hasPrev,
     nextPage,
@@ -667,6 +827,8 @@ export function useUnifiedSearch(
     loading,
     loadingMore,
     searching,
+    loadingSuggestions,
+    suggestionsError,
     error,
 
     // search actions
@@ -677,8 +839,13 @@ export function useUnifiedSearch(
 
     // text search
     searchQuery,
-    setSearchQuery,
-    searchSuggestions: () => [], // TODO: implement suggestions
+    setSearchQuery: (query: string, triggerSearch: boolean = false) => {
+      setSearchQuery(query);
+      if (triggerSearch || (config.autoSearch ?? DEFAULT_CONFIG.autoSearch)) {
+        debouncedSearch();
+      }
+    },
+    searchSuggestions: () => suggestions(),
 
     // filters
     activeFilters,

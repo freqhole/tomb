@@ -90,17 +90,56 @@ export function useSearchSuggestions(
 
     try {
       const options: SuggestionsOptions = {
-        q: trimmed,
+        // The server expects 'field' and 'partial' parameters
+        field: "title", // Default field to search in
+        partial: trimmed,
         limit: maxSuggestions(),
       };
+
+      console.log("Fetching suggestions for:", {
+        field: options.field,
+        partial: trimmed,
+        limit: options.limit,
+      });
 
       const result = await props.apiClient.getMusicSuggestions(
         trimmed,
         options
       );
-      setSuggestions(result.suggestions);
+
+      console.log("Suggestion API response:", result);
+
+      // Handle different response formats
+      if (result.suggestions && Array.isArray(result.suggestions)) {
+        // Format each suggestion as a SearchSuggestion
+        const processedSuggestions = result.suggestions.map((suggestion) => {
+          // If suggestion is already a SearchSuggestion object
+          if (typeof suggestion === "object" && suggestion !== null) {
+            if (suggestion.value) {
+              return {
+                text: suggestion.value,
+                category: suggestion.suggestion_type || "general",
+              };
+            } else if (suggestion.query) {
+              return {
+                text: suggestion.query,
+                category: suggestion.suggestion_type || "general",
+              };
+            }
+          }
+          // If suggestion is a plain string
+          return { text: String(suggestion), category: "general" };
+        });
+
+        setSuggestions(processedSuggestions);
+        console.log("Processed suggestions:", processedSuggestions);
+      } else {
+        setSuggestions([]);
+        console.warn("No suggestions found in API response");
+      }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
+      console.error("Suggestion API error:", error);
       setError(error);
       setSuggestions([]);
 

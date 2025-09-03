@@ -184,14 +184,25 @@ export function AdminView(props: AdminViewProps) {
       <Show when={initialized()}>
         <AdminSearchHeader
           searchQuery={musicSearch.searchQuery}
-          onSearchChange={musicSearch.setSearchQuery}
+          onSearchChange={(query) => {
+            musicSearch.setSearchQuery(query);
+            musicSearch.refresh();
+            console.log("admin view: search executed from header", query);
+          }}
           filters={musicSearch.filters}
           onFiltersChange={musicSearch.updateFilters}
           onClearFilters={musicSearch.clearFilters}
           showAdvancedSearch={musicSearch.showAdvancedSearch}
           onToggleAdvancedSearch={musicSearch.setShowAdvancedSearch}
           suggestions={musicSearch.suggestions}
-          onSuggestionSelect={musicSearch.onSuggestionSelect}
+          onSuggestionSelect={(suggestion) => {
+            musicSearch.setSearchQuery(suggestion);
+            musicSearch.refresh();
+            console.log(
+              "admin view: search executed from suggestion",
+              suggestion
+            );
+          }}
           presets={musicSearch.presets}
           onPresetApply={musicSearch.applyPreset}
           loading={musicSearch.loading}

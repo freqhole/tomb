@@ -1,8 +1,5 @@
 import { z } from "zod";
-import {
-  createPartialArraySchema,
-  DEFAULT_ZOD_CONFIG,
-} from "./validation.js";
+import { createPartialArraySchema, DEFAULT_ZOD_CONFIG } from "./validation.js";
 
 // Search domains for multi-domain support
 export const SearchDomainSchema = z.enum([
@@ -56,8 +53,12 @@ export const SongsSearchOptionsSchema = MusicSearchOptionsSchema;
 
 // Suggestions options
 export const SuggestionsOptionsSchema = z.object({
-  q: z.string().min(1, "Query is required"),
+  q: z.string().min(1, "Query is required").optional(),
   limit: z.number().min(1).max(50).nullish(),
+  field: z.string().default("title"), // Field to search in (artist, album, etc.)
+  partial: z.string().min(1, "Partial query is required").optional(), // The server expects this parameter
+  page: z.number().min(1).nullish(),
+  page_size: z.number().min(1).max(50).nullish(),
 });
 
 // Individual search result item schema
@@ -78,8 +79,17 @@ export const SearchResultItemSchema = z.object({
 // Search suggestion schema
 export const SearchSuggestionSchema = z.object({
   text: z.string(),
-  category: z.string(),
-  frequency: z.number(),
+  category: z.string().optional(),
+  frequency: z.number().optional(),
+  // Server fields
+  value: z.string().optional(),
+  display: z.string().optional(),
+  highlight: z.string().optional(),
+  count: z.number().optional(),
+  suggestion_type: z.string().optional(),
+  confidence: z.number().optional(),
+  // Used for type compatibility
+  query: z.string().optional(),
 });
 
 // Song search result schema (for songs-only endpoint)
@@ -145,7 +155,14 @@ export const SongsSearchResultSchema = z.object({
 // Suggestions response schema with graceful collection parsing
 export const SuggestionsResultSchema = z.object({
   suggestions: SearchSuggestionsSchema,
-  count: z.number(),
+  query_time_ms: z.number().optional(),
+  total_count: z.number().optional(),
+  count: z.number().optional(),
+  page: z.number().optional(),
+  page_size: z.number().optional(),
+  total_pages: z.number().optional(),
+  has_next: z.boolean().optional(),
+  has_prev: z.boolean().optional(),
 });
 
 // Inferred types from schemas

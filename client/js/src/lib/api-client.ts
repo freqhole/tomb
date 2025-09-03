@@ -488,14 +488,19 @@ export class ApiClient {
 
   async getMusicSuggestions(
     query: string,
-    options: Omit<SuggestionsOptions, "q"> = {}
+    options: Partial<SuggestionsOptions> = {}
   ): Promise<SuggestionsResult> {
-    const params = { q: query, ...options };
+    // Server expects field and partial parameters
+    const params = {
+      ...options,
+      field: options.field || "title",
+      partial: query,
+    };
 
     try {
       const response = await this.makeRequest<unknown>(
         "GET",
-        "/api/music/search/suggestions",
+        "/api/music/suggestions",
         { params }
       );
 
@@ -510,7 +515,7 @@ export class ApiClient {
           `Music suggestions failed: ${error.message}`,
           error.status,
           error.responseText,
-          "/api/music/search/suggestions"
+          `/api/music/suggestions`
         );
       }
       throw error;

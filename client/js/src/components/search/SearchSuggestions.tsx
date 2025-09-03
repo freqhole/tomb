@@ -18,7 +18,7 @@ export interface SearchSuggestionsProps {
   /** Whether to use internal suggestions hook */
   useInternalSuggestions?: boolean;
   /** External suggestions (when not using internal hook) */
-  suggestions?: string[];
+  suggestions?: any[];
   /** Whether suggestions are loading */
   loading?: boolean;
   /** Whether to show the suggestions dropdown */
@@ -62,7 +62,39 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     if (useInternal && suggestionsHook) {
       return suggestionsHook.suggestions();
     }
-    return props.suggestions || [];
+    console.log("using external suggestions:", props.suggestions);
+    // Ensure we always return an array even if props.suggestions is undefined
+    const suggestions = Array.isArray(props.suggestions)
+      ? props.suggestions
+      : [];
+
+    // Process suggestions to ensure they have the expected format
+    return suggestions.map((suggestion: any) => {
+      // If it's already a string, create a simple suggestion object
+      if (typeof suggestion === "string") {
+        return { text: suggestion, category: "general" };
+      }
+
+      // Handle server-style suggestion format
+      if (typeof suggestion === "object" && suggestion !== null) {
+        // If it already has a text property, use it directly
+        if (suggestion.text) {
+          return suggestion;
+        }
+
+        // Map server format to component format
+        return {
+          text: suggestion.value || suggestion.query || String(suggestion),
+          category:
+            suggestion.suggestion_type || suggestion.category || "general",
+          highlight: suggestion.highlight,
+          value: suggestion.value,
+          display: suggestion.display,
+        };
+      }
+
+      return { text: String(suggestion), category: "general" };
+    });
   };
 
   // Get current loading state
@@ -78,10 +110,23 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     const query = props.query.toLowerCase().trim();
     if (!query) return [];
 
-    const filtered = currentSuggestions()
+    // Get current suggestions (from props or hook)
+    const suggestions = currentSuggestions();
+
+    // If query is too short or no suggestions available, return empty array
+    if (!props.query.trim() || suggestions.length === 0) {
+      return [];
+    }
+
+    console.log("filtering suggestions:", suggestions);
+
+    const filtered = suggestions
       .filter((suggestion) => {
         const text =
-          typeof suggestion === "string" ? suggestion : suggestion.text;
+          suggestion.text ||
+          suggestion.value ||
+          suggestion.display ||
+          String(suggestion);
         return (
           text.toLowerCase().includes(query) && text.toLowerCase() !== query
         );
@@ -135,12 +180,35 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
 
   // Check if dropdown should be visible
   const shouldShowDropdown = () => {
-    if (props.show === false) return false;
-    if (!props.query.trim()) return false;
-    if (!isVisible()) return false;
-    return (
-      filteredSuggestions().length > 0 || (isLoading() && props.showLoading)
-    );
+    // Simple conditions for visibility
+    const hasQuery = props.query.trim().length >= 1;
+    const hasSuggestions = filteredSuggestions().length > 0;
+    const isLoadingVisible = isLoading() && props.showLoading;
+
+    // Force showing when explicitly requested
+    if (props.show === true && hasQuery && isVisible() && isLoadingVisible) {
+      return true;
+    }
+
+    // Show dropdown when we have suggestions or we're loading and allowed to show loading
+    const shouldShow =
+      props.show !== false &&
+      hasQuery &&
+      isVisible() &&
+      (hasSuggestions || isLoadingVisible);
+
+    console.log("search suggestions visibility check:", {
+      propsShow: props.show,
+      hasQuery,
+      isVisible: isVisible(),
+      hasSuggestions,
+      isLoadingVisible,
+      filteredCount: filteredSuggestions().length,
+      rawSuggestions: currentSuggestions().length,
+      shouldShow,
+    });
+
+    return shouldShow;
   };
 
   // Get flattened suggestions for keyboard navigation
@@ -151,8 +219,18 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
   };
 
   // Handle suggestion click
-  const handleSuggestionClick = (suggestion: string) => {
-    props.onSuggestionSelect?.(suggestion);
+  const handleSuggestionClick = (suggestion: any) => {
+    // Get the text value from the suggestion object or use the string directly
+    const suggestionText =
+      typeof suggestion === "object"
+        ? suggestion.text ||
+          suggestion.value ||
+          suggestion.display ||
+          String(suggestion)
+        : suggestion;
+
+    console.log("Suggestion clicked:", suggestionText);
+    props.onSuggestionSelect?.(suggestionText);
     setSelectedIndex(-1);
     setIsVisible(false);
     props.onBlur?.();
@@ -245,16 +323,38 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     document.removeEventListener("mousedown", handleClickOutside);
   });
 
+  // For debugging
+  console.log("search suggestions render:", {
+    query: props.query,
+    suggestions: currentSuggestions().length,
+    filtered: filteredSuggestions(),
+    show: props.show,
+    loading: isLoading(),
+    shouldShow: shouldShowDropdown(),
+  });
+
   return (
     <Show when={shouldShowDropdown()}>
       <div
         ref={setDropdownRef}
-        class={`search-suggestions ${props.class || ""} search-suggestions--${props.position || "bottom"}`}
+        class={`absolute left-0 right-0 bg-gray-900 border border-gray-800 max-h-60 overflow-y-auto z-50 shadow-lg ${
+          props.position === "top" ? "bottom-full mb-1" : "top-full mt-0"
+        } ${props.class || ""}`}
         role="listbox"
-        aria-label="Search suggestions"
+        aria-label="search suggestions"
+        style={{
+          "min-height": isLoading() ? "40px" : "auto",
+          "border-top": "none",
+          "margin-top": "1px",
+        }}
       >
         <Show when={isLoading() && props.showLoading}>
-          <div class="search-suggestions__loading">Loading suggestions...</div>
+          <div class="p-3 text-center text-gray-400 text-sm">
+            <div class="flex items-center justify-center">
+              <div class="animate-spin h-4 w-4 border-2 border-magenta-500 border-t-transparent mr-2"></div>
+              <span>loading suggestions</span>
+            </div>
+          </div>
         </Show>
 
         <Show when={!isLoading() && filteredSuggestions().length > 0}>
@@ -267,30 +367,43 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
               );
 
               return (
-                <div class="search-suggestions__group">
-                  <div class="search-suggestions__group-header">
+                <div class="border-b border-gray-800 last:border-0">
+                  <div class="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-black">
                     {getCategoryDisplayName(category)}
                   </div>
                   <For each={suggestions}>
                     {(suggestion, localIndex) => {
                       const globalIndex = groupStartIndex + localIndex();
                       const text =
-                        typeof suggestion === "string"
-                          ? suggestion
-                          : suggestion.text;
+                        typeof suggestion === "object"
+                          ? suggestion.text ||
+                            suggestion.value ||
+                            suggestion.display ||
+                            String(suggestion)
+                          : suggestion;
                       return (
                         <div
-                          class={`search-suggestions__item ${
+                          class={`px-4 py-2 cursor-pointer text-sm hover:bg-gray-800 ${
                             globalIndex === selectedIndex()
-                              ? "search-suggestions__item--selected"
-                              : ""
+                              ? "bg-gray-800 text-magenta-300"
+                              : "text-white"
                           }`}
-                          onClick={() => handleSuggestionClick(text)}
+                          onClick={() => handleSuggestionClick(suggestion)}
                           role="option"
                           aria-selected={globalIndex === selectedIndex()}
                           data-suggestion={text}
                         >
-                          <span class="search-suggestions__text">{text}</span>
+                          {typeof suggestion === "object" &&
+                          (suggestion as any).highlight ? (
+                            <span
+                              // @ts-ignore - Known usage for highlight rendering
+                              dangerouslySetInnerHTML={{
+                                __html: (suggestion as any).highlight,
+                              }}
+                            />
+                          ) : (
+                            text
+                          )}
                         </div>
                       );
                     }}
@@ -300,105 +413,6 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
             }}
           </For>
         </Show>
-
-        <style>{`
-          .search-suggestions {
-            position: absolute;
-            left: 0;
-            right: 0;
-            background: white;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            max-height: 200px;
-            overflow-y: auto;
-            z-index: 1000;
-          }
-
-          .search-suggestions--bottom {
-            top: 100%;
-            margin-top: 4px;
-          }
-
-          .search-suggestions--top {
-            bottom: 100%;
-            margin-bottom: 4px;
-          }
-
-          .search-suggestions__loading {
-            padding: 12px 16px;
-            text-align: center;
-            color: #666;
-            font-size: 14px;
-          }
-
-          .search-suggestions__item {
-            padding: 8px 12px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            border-bottom: 1px solid #f0f0f0;
-          }
-
-          .search-suggestions__item:last-child {
-            border-bottom: none;
-          }
-
-          .search-suggestions__item:hover,
-          .search-suggestions__item--selected {
-            background-color: #f8f9fa;
-          }
-
-          .search-suggestions__item--selected {
-            background-color: #007bff;
-            color: white;
-          }
-
-          .search-suggestions__text {
-            font-size: 14px;
-            line-height: 1.2;
-          }
-
-          .search-suggestions__group {
-            border-bottom: 1px solid #e9ecef;
-          }
-
-          .search-suggestions__group:last-child {
-            border-bottom: none;
-          }
-
-          .search-suggestions__group-header {
-            padding: 8px 12px 4px 12px;
-            font-size: 12px;
-            font-weight: 600;
-            color: #6c757d;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            background-color: #f8f9fa;
-            border-bottom: 1px solid #f0f0f0;
-          }
-
-          .search-suggestions__group .search-suggestions__item {
-            padding-left: 20px;
-          }
-
-          /* Scrollbar styling */
-          .search-suggestions::-webkit-scrollbar {
-            width: 4px;
-          }
-
-          .search-suggestions::-webkit-scrollbar-track {
-            background: #f1f1f1;
-          }
-
-          .search-suggestions::-webkit-scrollbar-thumb {
-            background: #c1c1c1;
-            border-radius: 2px;
-          }
-
-          .search-suggestions::-webkit-scrollbar-thumb:hover {
-            background: #a8a8a8;
-          }
-        `}</style>
       </div>
     </Show>
   );

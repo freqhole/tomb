@@ -16,6 +16,7 @@ import {
   FilterText,
 } from "../lib/components/filters/FilterComponents.js";
 import { ApiClient } from "../lib/api-client.js";
+import { SearchSuggestions } from "../components/search/SearchSuggestions.js";
 
 interface SearchDemoProps {
   apiBaseUrl?: string;
@@ -28,9 +29,11 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
   // unified search hook with music configuration
   const search = useUnifiedSearch({
     ...musicUnifiedSearchConfig,
-    searchEndpoint: `${props.apiClient.baseUrl}/api/music/search`,
-    filterOptionsEndpoint: `${props.apiClient.baseUrl}/api/music/filter-options`,
-    suggestionsEndpoint: `${props.apiClient.baseUrl}/api/music/suggestions`,
+    searchEndpoint: `${props.apiClient.getBaseUrl()}/api/music/search`,
+    filterOptionsEndpoint: `${props.apiClient.getBaseUrl()}/api/music/filter-options`,
+    suggestionsEndpoint: `${props.apiClient.getBaseUrl()}/api/music/suggestions`,
+    autoSearch: false,
+    executeInitialSearch: true,
   });
 
   // ui state
@@ -133,17 +136,86 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
 
       {/* search input */}
       <div class="search-demo__search-section">
-        <div class="search-demo__search-input">
+        <div class="search-demo__search-input relative">
           <input
             type="text"
             value={search.searchQuery()}
-            onInput={(e) => search.setSearchQuery(e.target.value)}
+            onInput={(e) => {
+              const value = e.target.value;
+              search.setSearchQuery(value, false);
+              if (value.length >= 2) {
+                console.log("Input changed, fetching suggestions:", value);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                search.refresh();
+                console.log("search executed via Enter key");
+              }
+            }}
+            onFocus={() => console.log("Search input focused")}
             placeholder="search music library (artist, album, song title)"
             class="search-demo__input"
           />
           <Show when={search.searching()}>
             <div class="search-demo__searching">searching...</div>
           </Show>
+
+          {/* search suggestions */}
+          <SearchSuggestions
+            query={search.searchQuery()}
+            suggestions={search.searchSuggestions()}
+            onSuggestionSelect={(suggestion) => {
+              const suggestionText =
+                typeof suggestion === "string"
+                  ? suggestion
+                  : (suggestion as any).text ||
+                    (suggestion as any).value ||
+                    (suggestion as any).display ||
+                    String(suggestion);
+              search.setSearchQuery(suggestionText, false);
+              search.refresh();
+              console.log(
+                "search executed via suggestion selection:",
+                suggestionText
+              );
+            }}
+            show={search.searchQuery().length > 1}
+            loading={search.searching()}
+            showLoading={true}
+            class="bg-black border-gray-800 text-gray-300 shadow-lg"
+            position="bottom"
+            useInternalSuggestions={false}
+            maxSuggestions={8}
+          />
+
+          {/* search indicator */}
+          <div class="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+            <Show
+              when={search.searching()}
+              fallback={
+                <svg
+                  class="w-4 h-4 text-gray-400"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  style={{ "min-width": "16px", "min-height": "16px" }}
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+              }
+            >
+              <div class="animate-spin h-4 w-4 border border-magenta-500 border-t-transparent"></div>
+            </Show>
+          </div>
         </div>
 
         {/* quick presets */}
