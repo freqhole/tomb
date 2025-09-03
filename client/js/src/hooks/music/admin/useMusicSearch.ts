@@ -186,11 +186,20 @@ export function useMusicSearch(
       const searchParams = getSearchOptions();
 
       // call the music search API
-      const response = await apiClient.makeRequest<any>(
-        "GET",
-        "/api/music/search",
-        { params: searchParams }
+      console.log(
+        "music search: making API request to /api/music/search with params:",
+        searchParams
       );
+      const response = await apiClient
+        .makeRequest<any>("GET", "/api/music/search", { params: searchParams })
+        .catch((err) => {
+          console.error("music search API error:", err);
+          throw new Error(
+            `Request failed: ${err.message || err.statusText || err}`
+          );
+        });
+
+      console.log("music search: response received", response);
 
       if (response && response.songs) {
         setResults(response.songs);
@@ -217,10 +226,17 @@ export function useMusicSearch(
   // load filter options
   const loadFilterOptions = async () => {
     try {
-      const response = await apiClient.makeRequest<any>(
-        "GET",
-        "/api/music/filter-options"
-      );
+      console.log("music search: loading filter options");
+      const response = await apiClient
+        .makeRequest<any>("GET", "/api/music/filter-options")
+        .catch((err) => {
+          console.error("filter options API error:", err);
+          throw new Error(
+            `Filter options request failed: ${err.message || err.statusText || err}`
+          );
+        });
+
+      console.log("music search: filter options response", response);
       setFilterOptions(response || {});
     } catch (err) {
       console.warn("failed to load filter options:", err);
@@ -236,11 +252,19 @@ export function useMusicSearch(
     }
 
     try {
-      const response = await apiClient.makeRequest<any>(
-        "GET",
-        "/api/music/suggestions",
-        { params: { q: query, limit: 8 } }
-      );
+      console.log("music search: loading suggestions for query", query);
+      const response = await apiClient
+        .makeRequest<any>("GET", "/api/music/suggestions", {
+          params: { q: query, limit: 8 },
+        })
+        .catch((err) => {
+          console.error("suggestions API error:", err);
+          throw new Error(
+            `Suggestions request failed: ${err.message || err.statusText || err}`
+          );
+        });
+
+      console.log("music search: suggestions response", response);
 
       if (response && response.suggestions) {
         setSuggestions(response.suggestions.map((s: any) => s.text || s));
@@ -455,15 +479,31 @@ export function useMusicSearch(
   };
 
   // sort helpers
+  // set sort field and direction
   const setSort = (field: string, direction: "asc" | "desc" = "asc") => {
+    console.log("music search: setting sort", { field, direction });
     setSortField(field);
     setSortDirection(direction);
     setCurrentPage(1); // reset to first page when sorting
+
+    // Apply sort immediately to refresh results
+    const updatedFilters = {
+      ...filters(),
+      sort_by: field,
+      sort_direction: direction,
+    };
+    setFilters(updatedFilters);
   };
 
   // refresh function
   const refresh = async () => {
-    await performSearch();
+    console.log("music search: refreshing search results");
+    try {
+      await performSearch();
+    } catch (error) {
+      console.error("music search refresh error:", error);
+      setError(error instanceof Error ? error.message : "search failed");
+    }
   };
 
   // reactive effects

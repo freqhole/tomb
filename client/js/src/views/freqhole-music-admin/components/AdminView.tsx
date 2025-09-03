@@ -6,7 +6,10 @@ import { createMusicAdminData } from "../../../hooks/music/admin/useMusicAdminDa
 import { AdminSearchHeader } from "../../../lib/admin/components/AdminSearchHeader.js";
 import { AdvancedFilterPanel } from "../../../lib/admin/components/AdvancedFilterPanel.js";
 import { useMusicSearch } from "../../../hooks/music/admin/useMusicSearch.js";
-import { musicFilterFields } from "../../../lib/music/admin/music-unified-search.js";
+import {
+  musicFilterFields,
+  musicSortFields,
+} from "../../../lib/music/admin/music-unified-search.js";
 
 export interface AdminViewProps {
   apiClient: ApiClient;
@@ -50,6 +53,8 @@ export function AdminView(props: AdminViewProps) {
       console.log("admin view: syncing search results", {
         results: results.length,
         total,
+        sortField: musicSearch.sortField(),
+        sortDirection: musicSearch.sortDirection(),
       });
 
       // the search system provides the results directly
@@ -60,12 +65,30 @@ export function AdminView(props: AdminViewProps) {
         console.log("admin view: initialization complete via search");
       }
     }
+
+    // Update sort information in musicData
+    if (musicSearch.sortField()) {
+      musicData.updateSort(
+        musicSearch.sortField()!,
+        musicSearch.sortDirection() || "asc"
+      );
+    }
   });
 
   // initialize with search system
   onMount(async () => {
     try {
       console.log("admin view: initializing with enhanced search system");
+
+      // Set default sort if not already set
+      if (!musicSearch.sortField()) {
+        const defaultSort = musicSortFields.find(
+          (s) => s.field === "created_at"
+        );
+        if (defaultSort) {
+          musicSearch.setSort(defaultSort.field, defaultSort.defaultDirection);
+        }
+      }
 
       // the search system will handle initial data loading
       // just trigger a refresh to start the flow
@@ -89,7 +112,19 @@ export function AdminView(props: AdminViewProps) {
   // handle song play
   const handleSongPlay = (song: any) => {
     console.log("admin view: play song requested", song.id);
-    // TODO: integrate with audio player
+
+    // Try to construct media URL
+    try {
+      if (song.media_blob_id) {
+        const mediaUrl = `${props.apiClient.baseUrl}/api/media/blobs/${song.media_blob_id}`;
+        console.log(`admin view: playing song from ${mediaUrl}`);
+        // TODO: integrate with audio player
+      } else {
+        console.warn("admin view: cannot play - no media blob ID");
+      }
+    } catch (err) {
+      console.error("admin view: failed to construct media URL", err);
+    }
   };
 
   // handle song edit
@@ -231,6 +266,21 @@ export function AdminView(props: AdminViewProps) {
                   total: () => musicSearch.totalCount(),
                   loading: () =>
                     musicSearch.loading() || musicSearch.searching(),
+                  updateSort: (field, direction) => {
+                    console.log(
+                      "admin data grid: update sort",
+                      field,
+                      direction
+                    );
+                    // First update the internal data model
+                    musicData.updateSort(field, direction);
+                    // Then update search params to trigger API request
+                    musicSearch.setSort(field, direction);
+                  },
+                  sortField: () =>
+                    musicSearch.sortField() || musicData.sortField(),
+                  sortDirection: () =>
+                    musicSearch.sortDirection() || musicData.sortDirection(),
                 }}
                 onSongPlay={handleSongPlay}
                 onSongEdit={handleSongEdit}
@@ -242,17 +292,22 @@ export function AdminView(props: AdminViewProps) {
         >
           <div class="h-full flex items-center justify-center">
             <div class="text-center p-8">
-              <div class="text-red-400 text-4xl mb-4">⚠</div>
+              <div class="text-red-400 text-4xl mb-4">!</div>
               <h2 class="text-xl font-bold text-red-300 mb-2">
                 failed to load music library
               </h2>
               <p class="text-red-400 mb-4">{initError()}</p>
-              <button
-                onClick={handleRefresh}
-                class="px-4 py-2 bg-red-600 text-white hover:bg-red-700 transition-colors"
-              >
-                try again
-              </button>
+              <div class="space-y-4">
+                <button
+                  onClick={handleRefresh}
+                  class="px-4 py-2 bg-red-600 text-white hover:bg-red-700 transition-colors"
+                >
+                  try again
+                </button>
+                <div class="text-sm text-gray-400">
+                  <p>api endpoint issues? check server logs for details</p>
+                </div>
+              </div>
             </div>
           </div>
         </Show>

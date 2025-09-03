@@ -57,7 +57,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "title",
       width: 250,
       sortable: true,
-      getValue: (song) => song.title,
+      getValue: (song) => song.title || "",
       render: (song: AdminSong) => (
         <div class="min-w-0">
           <div class="font-medium text-white truncate">{song.title}</div>
@@ -72,7 +72,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "artist",
       width: 200,
       sortable: true,
-      getValue: (song) => song.artist || "",
+      getValue: (song) => song.artist || "zzz", // Use "zzz" to sort unknown artists last
       render: (song: AdminSong) => (
         <div class="truncate text-gray-300" title={song.artist || ""}>
           {song.artist || "unknown artist"}
@@ -84,7 +84,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "album",
       width: 200,
       sortable: true,
-      getValue: (song) => song.album || "",
+      getValue: (song) => song.album || "zzz", // Use "zzz" to sort unknown albums last
       render: (song: AdminSong) => (
         <div class="truncate text-gray-300" title={song.album || ""}>
           {song.album || "unknown album"}
@@ -96,7 +96,8 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "duration",
       width: 80,
       sortable: true,
-      getValue: (song) => song.duration_seconds || 0,
+      getValue: (song) =>
+        isSortable(song.duration_seconds) ? song.duration_seconds : -1,
       render: (song: AdminSong) => (
         <div class="text-right tabular-nums text-gray-300">
           {formatDuration(song.duration_seconds)}
@@ -108,7 +109,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "year",
       width: 80,
       sortable: true,
-      getValue: (song) => song.year || 0,
+      getValue: (song) => (isSortable(song.year) ? song.year : -1), // Use -1 to sort unknown years first
       render: (song: AdminSong) => (
         <div class="text-center text-gray-300">{song.year || "—"}</div>
       ),
@@ -118,7 +119,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "genre",
       width: 150,
       sortable: true,
-      getValue: (song) => song.genre || "",
+      getValue: (song) => song.genre || "zzz", // Use "zzz" to sort unknown genres last
       render: (song: AdminSong) => (
         <div class="truncate text-gray-300" title={song.genre || ""}>
           {song.genre || "unknown"}
@@ -130,7 +131,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "rating",
       width: 100,
       sortable: true,
-      getValue: (song) => song.rating || 0,
+      getValue: (song) => (isSortable(song.rating) ? song.rating : -1), // Use -1 to sort unrated first
       render: (song: AdminSong) => (
         <div class="flex items-center justify-center">
           <StarRating
@@ -145,7 +146,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "fav",
       width: 50,
       sortable: true,
-      getValue: (song) => song.is_favorite,
+      getValue: (song) => (song.is_favorite === true ? 1 : 0), // True sorts after false
       render: (song: AdminSong) => (
         <div class="flex items-center justify-center">
           <button
@@ -172,7 +173,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "added",
       width: 150,
       sortable: true,
-      getValue: (song) => song.created_at,
+      getValue: (song) => song.created_at || "", // Handle null dates
       render: (song: AdminSong) => (
         <div class="text-sm text-gray-400">{formatDate(song.created_at)}</div>
       ),
@@ -210,11 +211,22 @@ export function AdminDataGrid(props: AdminDataGridProps) {
 
   // event handlers
   const handleSort = (field: string, direction: "asc" | "desc" | null) => {
+    console.log("admin data grid: handleSort called", { field, direction });
+
     if (direction) {
+      // Update sort in musicData and trigger API search
       props.musicData.updateSort(field, direction);
     } else {
-      // Reset to default sort (null direction means clear sort)
-      props.musicData.updateSort(field, null); // Pass null to reset to default
+      // Reset to default sort (created_at desc)
+      props.musicData.updateSort("created_at", "desc");
+    }
+
+    // Scroll back to top when sorting changes
+    if (gridContainerRef) {
+      const gridElement = gridContainerRef.querySelector(".grid-container");
+      if (gridElement) {
+        gridElement.scrollTop = 0;
+      }
     }
   };
 
@@ -324,7 +336,11 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         </div>
       </Show>
 
-      <Show when={props.musicData.error()}>
+      <Show
+        when={
+          props.musicData.error() && !props.musicData.error()?.includes("404")
+        }
+      >
         <div class="bg-red-900 border border-red-700 p-4 mb-4">
           <div class="flex">
             <div class="text-red-400">
@@ -455,4 +471,11 @@ function formatDate(dateString: string): string {
   } catch {
     return "—";
   }
+}
+
+/**
+ * helper to determine if value is sortable
+ */
+function isSortable(value: any): boolean {
+  return value !== null && value !== undefined;
 }

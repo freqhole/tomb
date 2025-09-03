@@ -337,7 +337,19 @@ export class ApiClient {
     if (options.params) {
       Object.entries(options.params).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
-          requestUrl.searchParams.append(key, String(value));
+          // Handle arrays specially
+          if (Array.isArray(value)) {
+            // If array has items, append each one with the same key
+            if (value.length > 0) {
+              value.forEach((item) => {
+                if (item !== undefined && item !== null) {
+                  requestUrl.searchParams.append(key, String(item));
+                }
+              });
+            }
+          } else {
+            requestUrl.searchParams.append(key, String(value));
+          }
         }
       });
     }
@@ -360,6 +372,12 @@ export class ApiClient {
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error(`API request failed: ${method} ${requestUrl.toString()}`, {
+        status: response.status,
+        statusText: response.statusText,
+        errorText: errorText.substring(0, 500), // Trim long error messages
+        headers: Object.fromEntries(response.headers.entries()),
+      });
       throw new ApiError(
         `Request failed: ${response.status} ${response.statusText}`,
         response.status,
@@ -391,7 +409,12 @@ export class ApiClient {
       return JSON.parse(text);
     } catch (error) {
       // If JSON parsing fails but we have text, it might not be JSON
-      console.warn("Failed to parse response as JSON:", text);
+      console.warn("Failed to parse response as JSON:", {
+        url: requestUrl.toString(),
+        method,
+        text: text.substring(0, 500), // Trim long responses
+        error,
+      });
       return text as T;
     }
   }

@@ -132,22 +132,30 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
     const currentField = props.sortField;
     const currentDirection = props.sortDirection;
 
+    console.log("generic-infinite-grid: handleSort", {
+      field,
+      currentField,
+      currentDirection,
+    });
+
     let newDirection: SortDirection | null;
 
     if (currentField !== field) {
       // First click on a new field - start with ascending
       newDirection = "asc";
     } else {
-      // Cycle through: asc -> desc -> default (null)
+      // Cycle through: asc -> desc -> asc (two-state toggle)
       if (currentDirection === "asc") {
         newDirection = "desc";
-      } else if (currentDirection === "desc") {
-        newDirection = null; // Reset to default/no sort
       } else {
         newDirection = "asc";
       }
     }
 
+    console.log("generic-infinite-grid: calling onSort with", {
+      field,
+      newDirection,
+    });
     props.onSort(field, newDirection);
   };
 
@@ -164,8 +172,15 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
   });
 
   const getSortIcon = (field: string) => {
-    if (props.sortField !== field || !props.sortDirection) return "↕";
+    if (props.sortField !== field) return "⋮⋮";
+    if (!props.sortDirection) return "⋮⋮";
     return props.sortDirection === "asc" ? "↑" : "↓";
+  };
+
+  const getSortClass = (field: string) => {
+    if (props.sortField !== field) return "";
+    if (!props.sortDirection) return "";
+    return props.sortDirection === "asc" ? "sort-asc" : "sort-desc";
   };
 
   const renderCell = (column: GridColumn<T>, item: T) => {
@@ -228,6 +243,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
           transition: background-color 0.2s;
           min-width: 0;
           height: 100%;
+          position: relative;
         }
 
         .light .header-cell {
@@ -244,6 +260,38 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
 
         .header-cell:last-child {
           border-right: none;
+        }
+
+        .header-cell.sort-asc .sort-indicator,
+        .header-cell.sort-desc .sort-indicator {
+          color: #ff00ff;
+          font-weight: bold;
+        }
+
+        .header-cell.sort-asc,
+        .header-cell.sort-desc {
+          background: #2d2d2d;
+        }
+
+        .header-cell.sort-asc .sort-indicator:after {
+          content: " ↑";
+          color: #ff00ff;
+          margin-left: 4px;
+        }
+
+        .header-cell.sort-desc .sort-indicator:after {
+          content: " ↓";
+          color: #ff00ff;
+          margin-left: 4px;
+        }
+
+        .sort-icon {
+          display: none;
+        }
+
+        .light .header-cell.sort-asc,
+        .light .header-cell.sort-desc {
+          background: #e2e8f0;
         }
 
         .header-cell.not-sortable {
@@ -272,6 +320,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
           flex: 1;
           overflow: auto;
           position: relative;
+          scroll-behavior: smooth;
         }
 
         .grid-content {
@@ -364,7 +413,9 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
         <For each={props.columns}>
           {(column) => (
             <div
-              class={`header-cell ${!column.sortable ? "not-sortable" : ""}`}
+              class={`header-cell ${!column.sortable ? "not-sortable" : ""} ${
+                column.sortable ? getSortClass(column.key) : ""
+              }`}
               style={
                 column.width
                   ? {
@@ -378,7 +429,12 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
             >
               <Show
                 when={column.renderHeader}
-                fallback={<span class="header-title">{column.title}</span>}
+                fallback={
+                  <span class="header-title">
+                    {column.title}
+                    <span class="sort-indicator"></span>
+                  </span>
+                }
               >
                 {column.renderHeader!()}
               </Show>
