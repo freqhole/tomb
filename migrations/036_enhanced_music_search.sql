@@ -1,12 +1,12 @@
--- Enhanced music search with comprehensive filter support
--- This migration creates an enhanced search_songs function with proper parameter binding
+-- Enhanced music search with comprehensive filtering, sorting, and NULL checking
+-- This migration consolidates all music search improvements into a single comprehensive function
 
--- Drop the existing function to replace it
+-- Drop the existing function
 DROP FUNCTION IF EXISTS search_songs(
-    TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, BOOLEAN, BOOLEAN, BOOLEAN, TEXT[], TIMESTAMPTZ, TIMESTAMPTZ, JSONB, TEXT, TEXT, INTEGER, INTEGER, TEXT
+    TEXT, TEXT, TEXT, TEXT, BOOLEAN, TEXT, BOOLEAN, TEXT, TEXT, TEXT, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, BIGINT, INTEGER, INTEGER, INTEGER, INTEGER, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, TEXT[], TEXT[], TEXT[], TEXT[], TEXT[], TEXT[], TEXT, TEXT[], INTEGER, INTEGER, TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, TEXT, TEXT[], TEXT, TEXT, TEXT, BOOLEAN, TEXT, JSONB, INTEGER, INTEGER, TEXT, TEXT
 );
 
--- Enhanced search_songs function with comprehensive filter support
+-- Enhanced search_songs function with NULL checking support
 CREATE OR REPLACE FUNCTION search_songs(
     -- === TEXT SEARCH ===
     p_search_query TEXT DEFAULT NULL,
@@ -79,16 +79,26 @@ CREATE OR REPLACE FUNCTION search_songs(
 
     -- === RESPONSE OPTIONS ===
     p_include_deleted BOOLEAN DEFAULT FALSE,
-    p_include_hidden BOOLEAN DEFAULT FALSE,
 
     -- === LEGACY FIELDS ===
     p_media_blob_id TEXT DEFAULT NULL,
     p_metadata_filter JSONB DEFAULT NULL,
 
+    -- === NULL CHECKING FILTERS ===
+    p_rating_is_null BOOLEAN DEFAULT NULL,
+    p_genre_is_null BOOLEAN DEFAULT NULL,
+    p_year_is_null BOOLEAN DEFAULT NULL,
+    p_bpm_is_null BOOLEAN DEFAULT NULL,
+    p_key_signature_is_null BOOLEAN DEFAULT NULL,
+    p_artist_is_null BOOLEAN DEFAULT NULL,
+    p_album_is_null BOOLEAN DEFAULT NULL,
+    p_album_artist_is_null BOOLEAN DEFAULT NULL,
+
     -- === PAGINATION AND ORDERING ===
     p_limit INTEGER DEFAULT 100,
     p_offset INTEGER DEFAULT 0,
-    p_order_by TEXT DEFAULT 'created_at'
+    p_order_by TEXT DEFAULT 'created_at',
+    p_sort_direction TEXT DEFAULT 'desc'
 ) RETURNS TABLE(
     id UUID,
     media_blob_id VARCHAR(16),
@@ -113,9 +123,15 @@ CREATE OR REPLACE FUNCTION search_songs(
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ,
     version BIGINT,
-    search_rank REAL
+    search_rank REAL,
+    total_count BIGINT
 ) AS $$
+DECLARE
+    is_asc BOOLEAN;
 BEGIN
+    -- Determine if ascending order
+    is_asc := LOWER(p_sort_direction) = 'asc';
+
     RETURN QUERY
     WITH base_query AS (
         SELECT
@@ -156,15 +172,13 @@ BEGIN
                                     plainto_tsquery('english', p_search_query))
                     END
                 ELSE 0.0
-            END AS search_rank
+            END AS search_rank,
+            COUNT(*) OVER() AS total_count
         FROM songs s
         LEFT JOIN playlist_songs ps ON (p_playlist_id IS NOT NULL AND s.id = ps.song_id AND ps.playlist_id = p_playlist_id::UUID)
         WHERE
             -- Soft deletion
             (p_include_deleted OR s.deleted_at IS NULL) AND
-
-            -- Hidden songs
-            (p_include_hidden OR NOT COALESCE(s.is_hidden, FALSE)) AND
 
             -- === TEXT SEARCH ===
             (p_search_query IS NULL OR trim(p_search_query) = '' OR
@@ -218,12 +232,14 @@ BEGIN
                 (p_has_thumbnail AND s.thumbnail_blob_id IS NOT NULL) OR
                 (NOT p_has_thumbnail AND s.thumbnail_blob_id IS NULL)) AND
             (p_has_lyrics IS NULL OR
-                (p_has_lyrics AND s.lyrics IS NOT NULL AND s.lyrics != '') OR
-                (NOT p_has_lyrics AND (s.lyrics IS NULL OR s.lyrics = ''))) AND
+                (p_has_lyrics AND s.metadata->>'lyrics' IS NOT NULL AND s.metadata->>'lyrics' != '') OR
+                (NOT p_has_lyrics AND (s.metadata->>'lyrics' IS NULL OR s.metadata->>'lyrics' = ''))) AND
             (p_has_waveform IS NULL OR
                 (p_has_waveform AND s.waveform_blob_id IS NOT NULL) OR
                 (NOT p_has_waveform AND s.waveform_blob_id IS NULL)) AND
-            (p_is_compilation IS NULL OR s.is_compilation = p_is_compilation) AND
+            (p_is_compilation IS NULL OR
+                (p_is_compilation AND (s.metadata->>'is_compilation')::BOOLEAN = TRUE) OR
+                (NOT p_is_compilation AND COALESCE((s.metadata->>'is_compilation')::BOOLEAN, FALSE) = FALSE)) AND
 
             -- === ARRAY FILTERS ===
             (p_tags IS NULL OR array_length(p_tags, 1) = 0 OR s.tags @> p_tags) AND
@@ -234,8 +250,8 @@ BEGIN
             (p_albums IS NULL OR array_length(p_albums, 1) = 0 OR s.album = ANY(p_albums)) AND
 
             -- === FILE/TECHNICAL FILTERS ===
-            (p_file_format IS NULL OR s.metadata->>'file_format' = p_file_format) AND
-            (p_file_formats IS NULL OR array_length(p_file_formats, 1) = 0 OR s.metadata->>'file_format' = ANY(p_file_formats)) AND
+            (p_file_format IS NULL OR s.metadata->>'file_format' = p_file_format OR s.metadata->>'codec' = p_file_format) AND
+            (p_file_formats IS NULL OR array_length(p_file_formats, 1) = 0 OR s.metadata->>'file_format' = ANY(p_file_formats) OR s.metadata->>'codec' = ANY(p_file_formats)) AND
             (p_bitrate_min IS NULL OR (s.metadata->>'bitrate')::INTEGER >= p_bitrate_min) AND
             (p_bitrate_max IS NULL OR (s.metadata->>'bitrate')::INTEGER <= p_bitrate_max) AND
 
@@ -251,6 +267,32 @@ BEGIN
             (p_key_signature IS NULL OR s.key_signature = p_key_signature) AND
             (p_key_signatures IS NULL OR array_length(p_key_signatures, 1) = 0 OR s.key_signature = ANY(p_key_signatures)) AND
             (p_mood IS NULL OR s.metadata->>'mood' = p_mood) AND
+
+            -- === NULL CHECKING FILTERS ===
+            (p_rating_is_null IS NULL OR
+                (p_rating_is_null AND s.rating IS NULL) OR
+                (NOT p_rating_is_null AND s.rating IS NOT NULL)) AND
+            (p_genre_is_null IS NULL OR
+                (p_genre_is_null AND s.genre IS NULL) OR
+                (NOT p_genre_is_null AND s.genre IS NOT NULL)) AND
+            (p_year_is_null IS NULL OR
+                (p_year_is_null AND s.year IS NULL) OR
+                (NOT p_year_is_null AND s.year IS NOT NULL)) AND
+            (p_bpm_is_null IS NULL OR
+                (p_bpm_is_null AND s.bpm IS NULL) OR
+                (NOT p_bpm_is_null AND s.bpm IS NOT NULL)) AND
+            (p_key_signature_is_null IS NULL OR
+                (p_key_signature_is_null AND s.key_signature IS NULL) OR
+                (NOT p_key_signature_is_null AND s.key_signature IS NOT NULL)) AND
+            (p_artist_is_null IS NULL OR
+                (p_artist_is_null AND s.artist IS NULL) OR
+                (NOT p_artist_is_null AND s.artist IS NOT NULL)) AND
+            (p_album_is_null IS NULL OR
+                (p_album_is_null AND s.album IS NULL) OR
+                (NOT p_album_is_null AND s.album IS NOT NULL)) AND
+            (p_album_artist_is_null IS NULL OR
+                (p_album_artist_is_null AND s.album_artist IS NULL) OR
+                (NOT p_album_artist_is_null AND s.album_artist IS NOT NULL)) AND
 
             -- === LIBRARY MANAGEMENT ===
             (p_playlist_id IS NULL OR ps.song_id IS NOT NULL) AND
@@ -287,39 +329,92 @@ BEGIN
         bq.created_at,
         bq.updated_at,
         bq.version,
-        bq.search_rank
+        bq.search_rank,
+        bq.total_count
     FROM base_query bq
     ORDER BY
-        CASE p_order_by
-            WHEN 'relevance' THEN
-                CASE WHEN p_search_query IS NOT NULL AND trim(p_search_query) != ''
-                    THEN -bq.search_rank
-                    ELSE EXTRACT(EPOCH FROM bq.created_at) * -1
-                END
-            WHEN 'title' THEN 0
-            WHEN 'artist' THEN 0
-            WHEN 'album' THEN 0
-            WHEN 'year' THEN COALESCE(bq.year, 0) * -1
-            WHEN 'rating' THEN COALESCE(bq.rating, 0) * -1
-            WHEN 'created_at' THEN EXTRACT(EPOCH FROM bq.created_at) * -1
-            WHEN 'updated_at' THEN EXTRACT(EPOCH FROM bq.updated_at) * -1
-            ELSE EXTRACT(EPOCH FROM bq.created_at) * -1
-        END,
-        CASE p_order_by
-            WHEN 'title' THEN bq.title
-            WHEN 'artist' THEN bq.artist
-            WHEN 'album' THEN bq.album
+        CASE
+            WHEN p_order_by = 'title' AND is_asc THEN bq.title
             ELSE NULL
         END ASC NULLS LAST,
-        CASE p_order_by
-            WHEN 'artist' THEN bq.album
+        CASE
+            WHEN p_order_by = 'title' AND NOT is_asc THEN bq.title
+            ELSE NULL
+        END DESC NULLS LAST,
+
+        CASE
+            WHEN p_order_by = 'artist' AND is_asc THEN bq.artist
             ELSE NULL
         END ASC NULLS LAST,
-        CASE p_order_by
-            WHEN 'artist' THEN bq.track_number
-            WHEN 'album' THEN bq.track_number
+        CASE
+            WHEN p_order_by = 'artist' AND NOT is_asc THEN bq.artist
+            ELSE NULL
+        END DESC NULLS LAST,
+
+        CASE
+            WHEN p_order_by = 'album' AND is_asc THEN bq.album
             ELSE NULL
         END ASC NULLS LAST,
+        CASE
+            WHEN p_order_by = 'album' AND NOT is_asc THEN bq.album
+            ELSE NULL
+        END DESC NULLS LAST,
+
+        CASE
+            WHEN p_order_by = 'year' AND is_asc THEN bq.year
+            ELSE NULL
+        END ASC NULLS LAST,
+        CASE
+            WHEN p_order_by = 'year' AND NOT is_asc THEN bq.year
+            ELSE NULL
+        END DESC NULLS LAST,
+
+        CASE
+            WHEN p_order_by = 'rating' AND is_asc THEN bq.rating
+            ELSE NULL
+        END ASC NULLS LAST,
+        CASE
+            WHEN p_order_by = 'rating' AND NOT is_asc THEN bq.rating
+            ELSE NULL
+        END DESC NULLS LAST,
+
+        CASE
+            WHEN p_order_by IN ('duration', 'duration_seconds') AND is_asc THEN EXTRACT(EPOCH FROM bq.duration)
+            ELSE NULL
+        END ASC NULLS LAST,
+        CASE
+            WHEN p_order_by IN ('duration', 'duration_seconds') AND NOT is_asc THEN EXTRACT(EPOCH FROM bq.duration)
+            ELSE NULL
+        END DESC NULLS LAST,
+
+        CASE
+            WHEN p_order_by = 'created_at' AND is_asc THEN bq.created_at
+            ELSE NULL
+        END ASC,
+        CASE
+            WHEN p_order_by = 'created_at' AND NOT is_asc THEN bq.created_at
+            ELSE NULL
+        END DESC,
+
+        CASE
+            WHEN p_order_by = 'updated_at' AND is_asc THEN bq.updated_at
+            ELSE NULL
+        END ASC NULLS LAST,
+        CASE
+            WHEN p_order_by = 'updated_at' AND NOT is_asc THEN bq.updated_at
+            ELSE NULL
+        END DESC NULLS LAST,
+
+        CASE
+            WHEN p_order_by = 'relevance' AND is_asc THEN bq.search_rank
+            ELSE NULL
+        END ASC NULLS LAST,
+        CASE
+            WHEN p_order_by = 'relevance' AND NOT is_asc THEN bq.search_rank
+            ELSE NULL
+        END DESC NULLS LAST,
+
+        -- Default fallback sort
         bq.created_at DESC
     LIMIT COALESCE(p_limit, 100)
     OFFSET COALESCE(p_offset, 0);
@@ -327,4 +422,4 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Add comment for documentation
-COMMENT ON FUNCTION search_songs IS 'Enhanced song search with comprehensive filter support including text search, numeric ranges, boolean filters, arrays, file metadata, dates, and library management features';
+COMMENT ON FUNCTION search_songs IS 'Comprehensive music search function with total count, proper sort direction support, and explicit NULL checking filters - consolidated version';
