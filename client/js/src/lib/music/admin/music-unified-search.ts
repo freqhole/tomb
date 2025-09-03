@@ -448,6 +448,39 @@ export function validateMusicSearchParams(
     }
   }
 
+  // validate null checking fields
+  if (params.rating_is_null !== undefined) {
+    validated.rating_is_null = Boolean(params.rating_is_null);
+  }
+
+  if (params.genre_is_null !== undefined) {
+    validated.genre_is_null = Boolean(params.genre_is_null);
+  }
+
+  if (params.year_is_null !== undefined) {
+    validated.year_is_null = Boolean(params.year_is_null);
+  }
+
+  if (params.bpm_is_null !== undefined) {
+    validated.bpm_is_null = Boolean(params.bpm_is_null);
+  }
+
+  if (params.key_signature_is_null !== undefined) {
+    validated.key_signature_is_null = Boolean(params.key_signature_is_null);
+  }
+
+  if (params.artist_is_null !== undefined) {
+    validated.artist_is_null = Boolean(params.artist_is_null);
+  }
+
+  if (params.album_is_null !== undefined) {
+    validated.album_is_null = Boolean(params.album_is_null);
+  }
+
+  if (params.album_artist_is_null !== undefined) {
+    validated.album_artist_is_null = Boolean(params.album_artist_is_null);
+  }
+
   return validated;
 }
 
@@ -495,6 +528,10 @@ export function getMusicFilterSummary(params: UnifiedSearchParams): string {
 
   if (params.is_favorite) {
     parts.push("favorites only");
+  }
+
+  if (params.rating_is_null) {
+    parts.push("unrated songs");
   }
 
   if (params.has_thumbnail === false) {
