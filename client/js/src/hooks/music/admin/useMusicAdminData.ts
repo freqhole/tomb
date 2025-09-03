@@ -1,12 +1,10 @@
 import { ApiClient } from "../../../lib/api-client.js";
 import { createAdminData } from "../../useAdminData.js";
 import { musicAdminConfig } from "../../../lib/music/admin/music-admin-config.js";
-import type {
-  AdminSong,
-  AdminMusicFilters,
-} from "../../../lib/admin/admin-api.js";
+import type { AdminSong } from "../../../lib/admin/admin-api.js";
 import { createSelection } from "../../../lib/admin/selection.js";
 import { createSignal, createMemo } from "solid-js";
+import type { UnifiedSearchParams } from "../../search/useUnifiedSearch.js";
 
 /**
  * Music-specific admin data hook
@@ -40,11 +38,11 @@ export function createMusicAdminData(apiClient: ApiClient) {
   }));
 
   /**
-   * Search songs by text
+   * Search songs by text (legacy method - use search system directly for new code)
    */
   const searchSongs = (term: string) => {
     setSearchTerm(term);
-    adminData.updateFilters({ title_search: term }, true);
+    adminData.updateFilters({ q: term }, true);
   };
 
   /**
@@ -53,7 +51,7 @@ export function createMusicAdminData(apiClient: ApiClient) {
   const clearSearch = () => {
     setSearchTerm("");
     const currentFilters = adminData.filters();
-    const { title_search, ...filtersWithoutSearch } = currentFilters;
+    const { q, title_search, ...filtersWithoutSearch } = currentFilters;
     adminData.updateFilters(filtersWithoutSearch, true);
   };
 
@@ -61,7 +59,7 @@ export function createMusicAdminData(apiClient: ApiClient) {
    * Filter by favorites
    */
   const filterFavorites = (favoritesOnly: boolean) => {
-    adminData.updateFilters({ favorites: favoritesOnly });
+    adminData.updateFilters({ is_favorite: favoritesOnly });
   };
 
   /**
@@ -103,9 +101,9 @@ export function createMusicAdminData(apiClient: ApiClient) {
   };
 
   /**
-   * Apply complex filters
+   * Apply complex filters with unified search parameters
    */
-  const applyAdvancedFilters = (filters: Partial<AdminMusicFilters>) => {
+  const applyAdvancedFilters = (filters: Partial<UnifiedSearchParams>) => {
     adminData.updateFilters(filters, true);
   };
 
@@ -380,9 +378,27 @@ export function createMusicAdminData(apiClient: ApiClient) {
     hasSelection: createMemo(() => selection.actions.getSelectedCount() > 0),
     isFiltered: createMemo(() => {
       const filters = adminData.filters();
-      return Object.keys(filters).some(
-        (key) => filters[key as keyof AdminMusicFilters] !== undefined
-      );
+      // check if any non-default filters are active
+      const defaultParams = {
+        page: 1,
+        page_size: 20,
+        sort_by: "created_at",
+        sort_direction: "desc",
+        songs_only: true,
+      };
+
+      return Object.entries(filters).some(([key, value]) => {
+        if (key in defaultParams) {
+          return false; // ignore default parameters
+        }
+
+        return (
+          value !== undefined &&
+          value !== null &&
+          value !== "" &&
+          (!Array.isArray(value) || value.length > 0)
+        );
+      });
     }),
   };
 }

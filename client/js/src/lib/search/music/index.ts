@@ -1,10 +1,10 @@
 //! Music search module exports
 
 // Filter types and schemas
-export * from './filter-types';
+export * from "./filter-types";
 
 // Filter API client
-export * from './filter-client';
+export * from "./filter-client";
 
 // Re-export commonly used types for convenience
 export type {
@@ -17,7 +17,7 @@ export type {
   RatingRange,
   FilterSummary,
   DefaultFilterOptions,
-} from './filter-types';
+} from "./filter-types";
 
 // Re-export main client class
 export {
@@ -25,4 +25,4 @@ export {
   MusicFilterApiError,
   createMusicFilterClient,
   createDefaultMusicFilterClient,
-} from './filter-client';
+} from "./filter-client";

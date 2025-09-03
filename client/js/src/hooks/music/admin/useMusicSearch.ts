@@ -1,7 +1,6 @@
-import { createSignal, createMemo, createEffect } from "solid-js";
+import { createSignal, createMemo, createEffect, onCleanup } from "solid-js";
 import type { ApiClient } from "../../../lib/api-client.js";
 import type { AdminMusicFilters } from "../../../lib/admin/admin-api.js";
-import { useMusicFilters } from "../../search/music/useMusicFilters.js";
 import type { SearchPreset } from "../../../lib/admin/components/AdminSearchHeader.js";
 
 export interface MusicSearchState {
@@ -48,10 +47,56 @@ export interface MusicSearchReturn {
   filterOptions: () => any;
   /** Loading state */
   loading: () => boolean;
+  /** Search results */
+  results: () => any[];
+  /** Total results count */
+  total: () => number;
+  /** Search error */
+  error: () => string | null;
+  /** Whether currently searching */
+  searching: () => boolean;
+  /** Pagination info */
+  pagination: () => {
+    page: number;
+    pageSize: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+  /** Load next page */
+  loadMore: () => Promise<void>;
+  /** Go to specific page */
+  goToPage: (page: number) => void;
+  /** Set page size */
+  setPageSize: (pageSize: number) => void;
+  /** Add a single filter */
+  addFilter: (key: string, value: any) => void;
+  /** Remove a single filter */
+  removeFilter: (key: string) => void;
+  /** Set sort field and direction */
+  setSort: (field: string, direction?: "asc" | "desc") => void;
+  /** Current sort field */
+  sortField: () => string | null;
+  /** Current sort direction */
+  sortDirection: () => "asc" | "desc" | null;
+  /** Refresh search results */
+  refresh: () => Promise<void>;
+  /** Search suggestions from API */
+  searchSuggestions: () => string[];
+  /** Total count */
+  totalCount: () => number;
 }
 
 /**
- * Music-specific search logic that bridges existing music hooks to admin interface
+ * Enhanced music search hook using the backend search API
+ *
+ * This integrates with the complete backend search infrastructure including:
+ * - 65+ search parameters
+ * - Advanced filtering (null checking, ranges, arrays)
+ * - Proper sorting with ASC/DESC support
+ * - Pagination with total count
+ * - Real-time suggestions
+ * - Search presets
  */
 export function useMusicSearch(
   apiClient: ApiClient,
@@ -64,13 +109,25 @@ export function useMusicSearch(
   const [selectedPreset, setSelectedPreset] = createSignal<string | null>(null);
   const [suggestions, setSuggestions] = createSignal<string[]>([]);
 
-  // integrate with existing music filters hook
-  const musicFilters = useMusicFilters({
-    apiClient,
-    autoFetch: true,
-    minCount: 1,
-    limit: 100,
-  });
+  // results state
+  const [results, setResults] = createSignal<any[]>([]);
+  const [total, setTotal] = createSignal(0);
+  const [loading, setLoading] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  const [searching, setSearching] = createSignal(false);
+
+  // pagination state
+  const [currentPage, setCurrentPage] = createSignal(1);
+  const [pageSize, setCurrentPageSize] = createSignal(20);
+
+  // sort state
+  const [sortField, setSortField] = createSignal<string | null>(null);
+  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc" | null>(
+    null
+  );
+
+  // filter options state
+  const [filterOptions, setFilterOptions] = createSignal<any>({});
 
   // search presets for quick filtering
   const presets: SearchPreset[] = [
@@ -91,7 +148,7 @@ export function useMusicSearch(
     {
       id: "unrated",
       label: "unrated",
-      filters: { rating: 0 },
+      filters: { rating_is_null: true },
     },
     {
       id: "high-rated",
@@ -106,9 +163,97 @@ export function useMusicSearch(
     {
       id: "lossless",
       label: "lossless",
-      filters: { format: "flac" },
+      filters: { file_formats: ["flac", "wav"] },
     },
   ];
+
+  // debounced search function
+  let searchTimeout: number | undefined;
+  const debouncedSearch = () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = window.setTimeout(() => {
+      performSearch();
+    }, 300);
+  };
+
+  // main search function
+  const performSearch = async () => {
+    try {
+      setLoading(true);
+      setSearching(true);
+      setError(null);
+
+      const searchParams = getSearchOptions();
+
+      // call the music search API
+      const response = await apiClient.makeRequest<any>(
+        "GET",
+        "/api/music/search",
+        { params: searchParams }
+      );
+
+      if (response && response.songs) {
+        setResults(response.songs);
+        setTotal(response.total_count || response.total || 0);
+      } else if (Array.isArray(response)) {
+        // handle direct array response
+        setResults(response);
+        setTotal(response.length);
+      } else {
+        setResults([]);
+        setTotal(0);
+      }
+    } catch (err) {
+      console.error("search error:", err);
+      setError(err instanceof Error ? err.message : "search failed");
+      setResults([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+      setSearching(false);
+    }
+  };
+
+  // load filter options
+  const loadFilterOptions = async () => {
+    try {
+      const response = await apiClient.makeRequest<any>(
+        "GET",
+        "/api/music/filter-options"
+      );
+      setFilterOptions(response || {});
+    } catch (err) {
+      console.warn("failed to load filter options:", err);
+      setFilterOptions({});
+    }
+  };
+
+  // load suggestions
+  const loadSuggestions = async (query: string) => {
+    if (query.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    try {
+      const response = await apiClient.makeRequest<any>(
+        "GET",
+        "/api/music/suggestions",
+        { params: { q: query, limit: 8 } }
+      );
+
+      if (response && response.suggestions) {
+        setSuggestions(response.suggestions.map((s: any) => s.text || s));
+      } else if (Array.isArray(response)) {
+        setSuggestions(response);
+      } else {
+        setSuggestions([]);
+      }
+    } catch (err) {
+      console.warn("failed to load suggestions:", err);
+      setSuggestions([]);
+    }
+  };
 
   // combined search state
   const searchState = createMemo(
@@ -124,6 +269,7 @@ export function useMusicSearch(
   const updateFilters = (updates: Partial<AdminMusicFilters>) => {
     setFilters((prev) => ({ ...prev, ...updates }));
     setSelectedPreset(null); // clear preset when manually updating filters
+    setCurrentPage(1); // reset to first page when filters change
   };
 
   // clear all filters
@@ -131,6 +277,7 @@ export function useMusicSearch(
     setFilters({});
     setSearchQuery("");
     setSelectedPreset(null);
+    setCurrentPage(1);
   };
 
   // clear search but keep filters
@@ -143,6 +290,7 @@ export function useMusicSearch(
     setFilters(preset.filters as AdminMusicFilters);
     setSelectedPreset(preset.id);
     setShowAdvancedSearch(false);
+    setCurrentPage(1);
   };
 
   // handle suggestion selection
@@ -200,8 +348,8 @@ export function useMusicSearch(
       parts.push(`rating: ${activeFilters.rating} stars`);
     }
 
-    if (activeFilters.format) {
-      parts.push(`format: ${activeFilters.format}`);
+    if (activeFilters.file_format) {
+      parts.push(`format: ${activeFilters.file_format}`);
     }
 
     if (activeFilters.has_thumbnail === false) {
@@ -236,14 +384,25 @@ export function useMusicSearch(
         (key) =>
           activeFilters[key as keyof AdminMusicFilters] !== undefined &&
           activeFilters[key as keyof AdminMusicFilters] !== "" &&
-          activeFilters[key as keyof AdminMusicFilters] !== null
+          activeFilters[key as keyof AdminMusicFilters] !== null &&
+          (!Array.isArray(activeFilters[key as keyof AdminMusicFilters]) ||
+            (activeFilters[key as keyof AdminMusicFilters] as any[]).length > 0)
       )
     );
   });
 
   // get search options for API calls
   const getSearchOptions = createMemo(() => {
-    const options: AdminMusicFilters & { q?: string } = { ...filters() };
+    const options: AdminMusicFilters & { q?: string } = {
+      ...filters(),
+      page: currentPage(),
+      page_size: pageSize(),
+    };
+
+    if (sortField()) {
+      options.sort_by = sortField()!;
+      options.sort_direction = sortDirection() || "asc";
+    }
 
     if (searchQuery()) {
       options.q = searchQuery();
@@ -252,46 +411,90 @@ export function useMusicSearch(
     return options;
   });
 
-  // generate search suggestions based on current query and available filter data
-  createEffect(() => {
-    const query = searchQuery().toLowerCase();
-    if (query.length < 2) {
-      setSuggestions([]);
-      return;
-    }
+  // pagination helpers
+  const pagination = createMemo(() => {
+    const totalItems = total();
+    const size = pageSize();
+    const page = currentPage();
+    const totalPages = Math.ceil(totalItems / size);
 
-    const filterData = musicFilters.filterData();
-    if (!filterData) {
-      setSuggestions([]);
-      return;
-    }
-
-    const newSuggestions: string[] = [];
-
-    // suggest artists
-    filterData.artists
-      ?.filter((artist) => artist.value.toLowerCase().includes(query))
-      ?.slice(0, 3)
-      ?.forEach((artist) => newSuggestions.push(artist.value));
-
-    // suggest from artists (albums not available in AllFiltersResponse)
-    // could add album suggestions if API is extended
-
-    // suggest genres
-    filterData.genres
-      ?.filter((genre) => genre.value.toLowerCase().includes(query))
-      ?.slice(0, 2)
-      ?.forEach((genre) => newSuggestions.push(genre.value));
-
-    setSuggestions(newSuggestions.slice(0, 8)); // limit to 8 suggestions
+    return {
+      page,
+      pageSize: size,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    };
   });
 
-  // notify parent of filter changes
+  const loadMore = async () => {
+    const pag = pagination();
+    if (pag.hasNext) {
+      setCurrentPage(pag.page + 1);
+    }
+  };
+
+  const goToPage = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const setPageSize = (newPageSize: number) => {
+    setCurrentPageSize(newPageSize);
+    setCurrentPage(1); // reset to first page when changing page size
+  };
+
+  // filter helpers
+  const addFilter = (key: string, value: any) => {
+    updateFilters({ [key]: value });
+  };
+
+  const removeFilter = (key: string) => {
+    const newFilters = { ...filters() };
+    delete newFilters[key as keyof AdminMusicFilters];
+    setFilters(newFilters);
+  };
+
+  // sort helpers
+  const setSort = (field: string, direction: "asc" | "desc" = "asc") => {
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1); // reset to first page when sorting
+  };
+
+  // refresh function
+  const refresh = async () => {
+    await performSearch();
+  };
+
+  // reactive effects
+  createEffect(() => {
+    const query = searchQuery();
+    if (query.length >= 2) {
+      loadSuggestions(query);
+    } else {
+      setSuggestions([]);
+    }
+  });
+
+  // trigger search when search params change
   createEffect(() => {
     const searchOptions = getSearchOptions();
+    debouncedSearch();
+
+    // notify parent of filter changes
     if (onFiltersChange) {
       onFiltersChange(searchOptions);
     }
+  });
+
+  // load filter options on mount
+  createEffect(() => {
+    loadFilterOptions();
+  });
+
+  // cleanup
+  onCleanup(() => {
+    clearTimeout(searchTimeout);
   });
 
   return {
@@ -311,7 +514,23 @@ export function useMusicSearch(
     hasActiveFilters,
     getSearchOptions,
     clearSearch,
-    filterOptions: musicFilters.filterOptions,
-    loading: musicFilters.loading,
+    filterOptions,
+    loading,
+    results,
+    total,
+    error,
+    searching,
+    pagination,
+    loadMore,
+    goToPage,
+    setPageSize,
+    addFilter,
+    removeFilter,
+    setSort,
+    sortField,
+    sortDirection,
+    refresh,
+    searchSuggestions: suggestions,
+    totalCount: total,
   };
 }

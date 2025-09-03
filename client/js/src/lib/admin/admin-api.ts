@@ -38,30 +38,88 @@ export const AdminSongSchema = z.object({
 
 export type AdminSong = z.infer<typeof AdminSongSchema>;
 
-// admin filters schema for complex filtering
+// admin filters schema for complex filtering - enhanced with unified search parameters
 export const AdminMusicFiltersSchema = z.object({
+  // text search
+  q: z.string().optional(),
+  search_type: z.enum(["websearch", "plainto", "phrase", "fuzzy"]).optional(),
+
+  // legacy fields
   favorites: z.boolean().optional(),
   is_favorite: z.boolean().optional(),
+  title_search: z.string().optional(),
+
+  // basic filters
   artist: z.string().optional(),
+  artist_exact: z.boolean().optional(),
   album: z.string().optional(),
+  album_exact: z.boolean().optional(),
   genre: z.string().optional(),
+  title: z.string().optional(),
+
+  // numeric range filters
   year: z.number().optional(),
   year_min: z.number().optional(),
   year_max: z.number().optional(),
   rating: z.number().optional(),
   rating_min: z.number().optional(),
   rating_max: z.number().optional(),
-  title_search: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  has_thumbnail: z.boolean().optional(),
-  file_format: z.string().optional(),
-  format: z.string().optional(),
+  bpm: z.number().optional(),
+  bpm_min: z.number().optional(),
+  bpm_max: z.number().optional(),
+  duration_seconds: z.number().optional(),
   duration_min: z.number().optional(),
   duration_max: z.number().optional(),
+
+  // boolean filters
+  has_thumbnail: z.boolean().optional(),
+  has_lyrics: z.boolean().optional(),
+  has_waveform: z.boolean().optional(),
+
+  // array filters
+  tags: z.array(z.string()).optional(),
+  tags_any: z.array(z.string()).optional(),
+  tags_exclude: z.array(z.string()).optional(),
+  file_formats: z.array(z.string()).optional(),
+
+  // file/technical filters
+  file_format: z.string().optional(),
+  format: z.string().optional(),
+  bitrate_min: z.number().optional(),
+  bitrate_max: z.number().optional(),
+  sample_rate_min: z.number().optional(),
+  sample_rate_max: z.number().optional(),
+
+  // date filters
   created_after: z.string().optional(),
   created_before: z.string().optional(),
+  updated_after: z.string().optional(),
+  updated_before: z.string().optional(),
+
+  // advanced metadata filters
+  key_signature: z.string().optional(),
+
+  // null checking filters
+  rating_is_null: z.boolean().optional(),
+  genre_is_null: z.boolean().optional(),
+  year_is_null: z.boolean().optional(),
+  bpm_is_null: z.boolean().optional(),
+  key_signature_is_null: z.boolean().optional(),
+  artist_is_null: z.boolean().optional(),
+  album_is_null: z.boolean().optional(),
+  album_artist_is_null: z.boolean().optional(),
+
+  // pagination and sorting
+  page: z.number().optional(),
+  page_size: z.number().optional(),
+  sort_by: z.string().optional(),
   sort_field: z.string().optional(),
   sort_direction: z.enum(["asc", "desc"]).optional(),
+
+  // response options
+  include_deleted: z.boolean().optional(),
+  include_hidden: z.boolean().optional(),
+  songs_only: z.boolean().optional(),
 });
 
 export type AdminMusicFilters = z.infer<typeof AdminMusicFiltersSchema>;

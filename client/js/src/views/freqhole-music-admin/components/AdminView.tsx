@@ -1,15 +1,12 @@
 /* @jsxImportSource solid-js */
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, onMount, Show, createEffect } from "solid-js";
 import { ApiClient } from "../../../lib/api-client.js";
 import { AdminDataGrid } from "./AdminDataGrid.js";
 import { createMusicAdminData } from "../../../hooks/music/admin/useMusicAdminData.js";
 import { AdminSearchHeader } from "../../../lib/admin/components/AdminSearchHeader.js";
 import { AdvancedFilterPanel } from "../../../lib/admin/components/AdvancedFilterPanel.js";
 import { useMusicSearch } from "../../../hooks/music/admin/useMusicSearch.js";
-import {
-  musicFilterConfigs,
-  updateMusicFilterConfigs,
-} from "../../../lib/music/admin/music-search-config.js";
+import { musicFilterFields } from "../../../lib/music/admin/music-unified-search.js";
 
 export interface AdminViewProps {
   apiClient: ApiClient;
@@ -32,45 +29,58 @@ export function AdminView(props: AdminViewProps) {
   // create music admin data hook
   const musicData = createMusicAdminData(props.apiClient);
 
-  // create music search hook
-  const musicSearch = useMusicSearch(props.apiClient, (searchOptions) => {
+  // create enhanced music search hook with unified search backend
+  const musicSearch = useMusicSearch(props.apiClient, (searchParams) => {
+    console.log("admin view: search params updated", searchParams);
     // update music data filters when search changes
-    musicData.updateFilters(searchOptions, true);
+    musicData.updateFilters(searchParams, true);
   });
 
-  // initialize data loading
+  // sync search results with admin data grid
+  createEffect(() => {
+    const results = musicSearch.results();
+    const total = musicSearch.totalCount();
+    const error = musicSearch.error();
+
+    if (error) {
+      console.error("admin view: search error", error);
+      setInitError(error);
+    } else if (results.length > 0 || total >= 0) {
+      // update admin data with search results
+      console.log("admin view: syncing search results", {
+        results: results.length,
+        total,
+      });
+
+      // the search system provides the results directly
+      // the admin data grid will use these results
+
+      if (!initialized()) {
+        setInitialized(true);
+        console.log("admin view: initialization complete via search");
+      }
+    }
+  });
+
+  // initialize with search system
   onMount(async () => {
     try {
-      console.log("admin view: loading initial data");
-      console.log("admin view: musicData available:", !!musicData);
-      console.log(
-        "admin view: musicData.fetchData function:",
-        typeof musicData.fetchData
-      );
+      console.log("admin view: initializing with enhanced search system");
 
-      // trigger initial data load
-      console.log("admin view: calling fetchData()");
-      await musicData.fetchData();
-
-      console.log("admin view: fetchData completed, checking state");
-      console.log("admin view: items count:", musicData.items().length);
-      console.log("admin view: total:", musicData.total());
-      console.log("admin view: loading state:", musicData.loading());
-      console.log("admin view: error state:", musicData.error());
-
-      setInitialized(true);
-      console.log("admin view: initialization complete");
+      // the search system will handle initial data loading
+      // just trigger a refresh to start the flow
+      await musicSearch.refresh();
     } catch (err) {
       console.error("admin view: initialization failed:", err);
       setInitError(err instanceof Error ? err.message : "failed to load data");
     }
   });
 
-  // handle refresh
+  // handle refresh using search system
   const handleRefresh = async () => {
     try {
-      console.log("admin view: refreshing data");
-      await musicData.refresh();
+      console.log("admin view: refreshing data via search system");
+      await musicSearch.refresh();
     } catch (err) {
       console.error("admin view: refresh failed:", err);
     }
@@ -97,11 +107,17 @@ export function AdminView(props: AdminViewProps) {
             <h1 class="text-2xl font-bold text-white">music library admin</h1>
             <Show when={initialized()}>
               <p class="text-sm text-gray-300 mt-1">
-                {musicData.total()} songs total
+                {musicSearch.totalCount()} songs total
+                <Show when={musicSearch.searching()}>
+                  <span class="text-yellow-400 ml-2">• searching...</span>
+                </Show>
                 <Show when={musicData.hasSelection()}>
                   <span class="text-magenta-400 ml-2">
                     • {musicData.selection.actions.getSelectedCount()} selected
                   </span>
+                </Show>
+                <Show when={musicSearch.hasActiveFilters()}>
+                  <span class="text-blue-400 ml-2">• filtered</span>
                 </Show>
               </p>
             </Show>
@@ -134,16 +150,16 @@ export function AdminView(props: AdminViewProps) {
             </button>
             <button
               onClick={handleRefresh}
-              disabled={musicData.loading()}
+              disabled={musicSearch.searching()}
               class="px-4 py-2 bg-gray-800 text-white hover:bg-gray-700 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              refresh
+              {musicSearch.searching() ? "searching..." : "refresh"}
             </button>
           </div>
         </div>
       </div>
 
-      {/* search header */}
+      {/* enhanced search header with full backend integration */}
       <Show when={initialized()}>
         <AdminSearchHeader
           searchQuery={musicSearch.searchQuery}
@@ -157,21 +173,30 @@ export function AdminView(props: AdminViewProps) {
           onSuggestionSelect={musicSearch.onSuggestionSelect}
           presets={musicSearch.presets}
           onPresetApply={musicSearch.applyPreset}
-          loading={musicData.loading}
-          resultsCount={musicData.total}
+          loading={musicSearch.searching}
+          resultsCount={musicSearch.totalCount}
           filterSummary={musicSearch.filterSummary}
         />
       </Show>
 
-      {/* advanced filter panel */}
+      {/* enhanced advanced filter panel with unified search fields */}
       <Show when={initialized()}>
         <AdvancedFilterPanel
           filters={musicSearch.filters}
           onFiltersChange={musicSearch.updateFilters}
-          filterConfigs={updateMusicFilterConfigs(
-            musicFilterConfigs,
-            musicSearch.filterOptions()
-          )}
+          filterConfigs={musicFilterFields.slice(0, 10).map((field) => ({
+            key: field.key as any,
+            label: field.label,
+            type: field.type as any,
+            placeholder: field.placeholder || `enter ${field.label}`,
+            options:
+              field.key === "genre" || field.key === "tags"
+                ? musicSearch.filterOptions()?.[field.key] || []
+                : field.options || [],
+            min: field.min,
+            max: field.max,
+            supportsExact: field.supportsExact,
+          }))}
           filterOptions={musicSearch.filterOptions}
           visible={musicSearch.showAdvancedSearch}
           onClose={() => musicSearch.setShowAdvancedSearch(false)}
@@ -189,16 +214,24 @@ export function AdminView(props: AdminViewProps) {
                 <div class="h-full flex items-center justify-center">
                   <div class="text-center">
                     <div class="animate-spin h-12 w-12 border-2 border-magenta-500 border-t-transparent mx-auto mb-4"></div>
-                    <p class="text-white">loading music library...</p>
+                    <p class="text-white">
+                      initializing enhanced music search...
+                    </p>
                     <p class="text-gray-400 text-sm mt-2">
-                      connecting to music API...
+                      connecting to unified search backend...
                     </p>
                   </div>
                 </div>
               }
             >
               <AdminDataGrid
-                musicData={musicData}
+                musicData={{
+                  ...musicData,
+                  items: () => musicSearch.results(),
+                  total: () => musicSearch.totalCount(),
+                  loading: () =>
+                    musicSearch.loading() || musicSearch.searching(),
+                }}
                 onSongPlay={handleSongPlay}
                 onSongEdit={handleSongEdit}
                 theme={props.theme}
