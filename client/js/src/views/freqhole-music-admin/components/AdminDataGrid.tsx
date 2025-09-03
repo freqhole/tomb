@@ -368,6 +368,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         sortField={props.musicData.sortField() || undefined}
         sortDirection={props.musicData.sortDirection() || undefined}
         loading={props.musicData.loading()}
+        serverTotal={props.musicData.total()}
         className="h-full"
         theme={props.theme}
       />

@@ -42,6 +42,7 @@ interface GridProps<T = any> {
   className?: string;
   theme?: "light" | "dark";
   loading?: boolean;
+  serverTotal?: number;
 }
 
 type SortDirection = "asc" | "desc";
@@ -508,7 +509,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
           fallback={
             <>
               Showing rows {actualVisibleStartRow()}-{actualVisibleEndRow()} of{" "}
-              {totalRows()}
+              {props.serverTotal || totalRows()}
             </>
           }
         >

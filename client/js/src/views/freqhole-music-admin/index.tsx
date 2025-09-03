@@ -1,6 +1,7 @@
 import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { AdminView } from "./components/AdminView.js";
 import { ApiClient } from "../../lib/api-client.js";
+import { useStandardDelayedLoading } from "../../hooks/useDelayedLoading.js";
 import "./styles.css";
 
 console.log("freqhole music admin view loading");
@@ -24,7 +25,15 @@ export default function FreqHoleMusicAdmin(
 ) {
   const [apiClient, setApiClient] = createSignal<ApiClient | null>(null);
   const [error, setError] = createSignal<string | null>(null);
-  const [loading, setLoading] = createSignal(true);
+  const [initState, setInitState] = createSignal<
+    "loading" | "success" | "error"
+  >("loading");
+
+  // === DELAYED LOADING STATE ===
+  const delayedLoading = useStandardDelayedLoading();
+
+  // Start loading immediately on component creation
+  delayedLoading.startLoading();
 
   // configuration
   const apiBaseUrl = () => props.apiBaseUrl || window.location.origin;
@@ -84,13 +93,15 @@ export default function FreqHoleMusicAdmin(
       }
 
       setApiClient(client);
-      setLoading(false);
+      setInitState("success");
+      delayedLoading.stopLoading();
 
       console.log("freqhole music admin: initialization complete");
     } catch (err) {
       console.error("freqhole music admin: failed to initialize:", err);
       setError(err instanceof Error ? err.message : "failed to initialize");
-      setLoading(false);
+      setInitState("error");
+      delayedLoading.stopLoading();
     }
   });
 
@@ -100,45 +111,20 @@ export default function FreqHoleMusicAdmin(
     }
   });
 
-  // Error handling helper
-  const formatErrorMessage = (err: unknown): string => {
-    if (err instanceof Error) {
-      return err.message;
-    } else if (typeof err === "string") {
-      return err;
-    } else if (err && typeof err === "object" && "statusText" in err) {
-      return `API Error: ${(err as any).statusText || "Unknown"}`;
-    } else {
-      return "unknown error occurred";
-    }
-  };
-
   // main component - use Show for reactive rendering
   return (
     <div
       class={`freqhole-music-admin h-full ${theme() === "dark" ? "dark" : ""}`}
     >
       <Show
-        when={error()}
+        when={initState() === "error"}
         fallback={
           <Show
-            when={loading()}
+            when={initState() === "loading" && delayedLoading.showLoading()}
             fallback={
               <Show
-                when={apiClient()}
-                fallback={
-                  <div class="freqhole-music-admin-error h-full flex items-center justify-center bg-red-900">
-                    <div class="text-center p-8">
-                      <div class="text-red-400 text-6xl mb-4">!</div>
-                      <h2 class="text-xl font-bold text-red-300 mb-2">
-                        api client initialization failed
-                      </h2>
-                      <p class="text-red-400 mb-4">
-                        could not create api client
-                      </p>
-                    </div>
-                  </div>
-                }
+                when={initState() === "success" && apiClient()}
+                fallback={null}
               >
                 <AdminView
                   apiClient={apiClient()!}

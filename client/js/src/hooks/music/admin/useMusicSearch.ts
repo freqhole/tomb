@@ -2,6 +2,7 @@ import { createSignal, createMemo, onMount } from "solid-js";
 import type { ApiClient } from "../../../lib/api-client.js";
 import type { AdminMusicFilters } from "../../../lib/admin/admin-api.js";
 import type { SearchPreset } from "../../../lib/admin/components/AdminSearchHeader.js";
+import { useStandardDelayedLoading } from "../../useDelayedLoading.js";
 
 export interface MusicSearchState {
   query: string;
@@ -91,6 +92,9 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   const [total, setTotal] = createSignal(0);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+
+  // === DELAYED LOADING STATE ===
+  const delayedLoading = useStandardDelayedLoading();
 
   // === PAGINATION STATE ===
   const [currentPage, setCurrentPage] = createSignal(1);
@@ -229,6 +233,7 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
 
     try {
       setLoading(true);
+      delayedLoading.startLoading();
       setError(null);
 
       const params = buildSearchParams(pageToLoad);
@@ -278,6 +283,7 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
       }
     } finally {
       setLoading(false);
+      delayedLoading.stopLoading();
     }
   };
 
@@ -420,11 +426,11 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     filterSummary,
     hasActiveFilters,
     filterOptions,
-    loading,
+    loading: delayedLoading.showLoading,
     results,
     total,
     error,
-    searching: loading, // alias
+    searching: delayedLoading.showLoading, // alias
     pagination,
     loadMore,
     setSort,

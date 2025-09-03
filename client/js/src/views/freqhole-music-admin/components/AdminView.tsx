@@ -132,9 +132,6 @@ export function AdminView(props: AdminViewProps) {
             <Show when={initialized()}>
               <p class="text-sm text-gray-300 mt-1">
                 {musicSearch.totalCount()} songs total
-                <Show when={musicSearch.searching()}>
-                  <span class="text-yellow-400 ml-2">• searching...</span>
-                </Show>
                 <Show when={musicData.hasSelection()}>
                   <span class="text-magenta-400 ml-2">
                     • {musicData.selection.actions.getSelectedCount()} selected
@@ -174,10 +171,10 @@ export function AdminView(props: AdminViewProps) {
             </button>
             <button
               onClick={handleRefresh}
-              disabled={musicSearch.searching()}
+              disabled={musicSearch.loading()}
               class="px-4 py-2 bg-gray-800 text-white hover:bg-gray-700 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {musicSearch.searching() ? "searching..." : "refresh"}
+              refresh
             </button>
           </div>
         </div>
@@ -197,7 +194,7 @@ export function AdminView(props: AdminViewProps) {
           onSuggestionSelect={musicSearch.onSuggestionSelect}
           presets={musicSearch.presets}
           onPresetApply={musicSearch.applyPreset}
-          loading={musicSearch.searching}
+          loading={musicSearch.loading}
           resultsCount={musicSearch.totalCount}
           filterSummary={musicSearch.filterSummary}
         />
@@ -253,8 +250,7 @@ export function AdminView(props: AdminViewProps) {
                   ...musicData,
                   items: () => musicSearch.results(),
                   total: () => musicSearch.totalCount(),
-                  loading: () =>
-                    musicSearch.loading() || musicSearch.searching(),
+                  loading: () => musicSearch.loading(),
                   updateSort: (field, direction) => {
                     console.log(
                       "admin data grid: update sort",
