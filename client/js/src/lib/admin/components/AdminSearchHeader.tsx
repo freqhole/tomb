@@ -112,6 +112,7 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
               onSearch={executeSearch}
               placeholder="search music library..."
               showSuggestions={true}
+              showFieldSelector={false}
               suggestions={props.suggestions?.()}
               onFetchSuggestions={props.onFetchSuggestions}
               onSuggestionSelect={props.onSuggestionSelect}

@@ -356,7 +356,7 @@ export function SearchInput(props: SearchInputProps) {
   });
 
   return (
-    <div class={`relative w-full mb-4 ${props.class || ""}`}>
+    <div class={`relative w-full ${props.class || ""}`}>
       <div class="flex items-center">
         <input
           ref={setInputRef}
@@ -368,7 +368,7 @@ export function SearchInput(props: SearchInputProps) {
           onBlur={handleBlur}
           placeholder={props.placeholder || "search..."}
           disabled={props.disabled}
-          class={`flex-1 px-4 py-3 bg-gray-800 text-white placeholder-gray-400 outline-none transition-all duration-200 focus:bg-gray-700 disabled:bg-gray-900 disabled:text-gray-500 disabled:cursor-not-allowed ${
+          class={`flex-1 h-12 px-4 py-3 bg-gray-800 text-white placeholder-gray-400 outline-none transition-all duration-200 focus:bg-gray-700 disabled:bg-gray-900 disabled:text-gray-500 disabled:cursor-not-allowed ${
             props.class?.includes("border-0")
               ? "border-0"
               : "border border-gray-600 focus:border-magenta-500"

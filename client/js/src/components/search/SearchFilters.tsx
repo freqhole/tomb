@@ -95,10 +95,26 @@ export function SearchFilters(props: SearchFiltersProps) {
     }).length;
   };
 
-  // apply quick filter
+  // apply quick filter (toggle on/off)
   const applyQuickFilter = (filter: any) => {
     const newFilters = { ...props.filters };
-    newFilters[filter.key] = filter.value;
+
+    // Check if this filter is already active with the same value
+    const currentValue = props.filters[filter.key];
+    const isActive =
+      currentValue === filter.value ||
+      (Array.isArray(currentValue) &&
+        Array.isArray(filter.value) &&
+        JSON.stringify(currentValue) === JSON.stringify(filter.value));
+
+    if (isActive) {
+      // Toggle off - remove the filter
+      delete newFilters[filter.key];
+    } else {
+      // Toggle on - set the filter
+      newFilters[filter.key] = filter.value;
+    }
+
     props.onFiltersChange(newFilters);
   };
 
@@ -292,15 +308,30 @@ export function SearchFilters(props: SearchFiltersProps) {
               </div>
               <div class="flex flex-wrap gap-2">
                 <For each={props.quickFilters}>
-                  {(filter) => (
-                    <button
-                      onClick={() => applyQuickFilter(filter)}
-                      class="px-2 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700 text-xs transition-colors"
-                      title={filter.description}
-                    >
-                      {filter.label}
-                    </button>
-                  )}
+                  {(filter) => {
+                    // Check if this filter is currently active
+                    const currentValue = props.filters[filter.key];
+                    const isActive =
+                      currentValue === filter.value ||
+                      (Array.isArray(currentValue) &&
+                        Array.isArray(filter.value) &&
+                        JSON.stringify(currentValue) ===
+                          JSON.stringify(filter.value));
+
+                    return (
+                      <button
+                        onClick={() => applyQuickFilter(filter)}
+                        class={`px-2 py-1 text-xs transition-colors ${
+                          isActive
+                            ? "bg-magenta-600 text-white hover:bg-magenta-700"
+                            : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                        }`}
+                        title={filter.description}
+                      >
+                        {filter.label}
+                      </button>
+                    );
+                  }}
                 </For>
               </div>
             </div>

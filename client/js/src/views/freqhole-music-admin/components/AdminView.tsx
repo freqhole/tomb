@@ -139,19 +139,54 @@ export function AdminView(props: AdminViewProps) {
   // handle preset toggle
   const handlePresetApply = (preset: SearchPreset) => {
     console.log("admin view: toggling preset", preset.id);
+    const currentParams = musicSearch.filters();
+    const isActive = isPresetActive(preset);
 
-    if (isPresetActive(preset)) {
-      // clear the preset by removing its parameters
+    console.log("admin view: preset debug", {
+      presetId: preset.id,
+      presetParams: preset.params,
+      currentParams: currentParams,
+      currentParamsType: typeof currentParams,
+      currentParamsKeys: Object.keys(currentParams),
+      isActive: isActive,
+    });
+
+    // Try the same approach as search-demo
+    if (isActive) {
+      console.log("admin view: clearing preset");
+      // Check if we're clearing all filters
       const currentParams = musicSearch.filters();
-      const newParams = { ...currentParams };
-      Object.keys(preset.params).forEach((key) => {
-        delete (newParams as any)[key];
-      });
-      musicSearch.updateFilters(newParams);
+      const currentKeys = Object.keys(currentParams);
+      const presetKeys = Object.keys(preset.params);
+
+      // If preset keys are the only active filters, clear everything
+      const onlyPresetKeysActive =
+        presetKeys.every((key) => currentKeys.includes(key)) &&
+        currentKeys.every((key) => presetKeys.includes(key));
+
+      if (onlyPresetKeysActive) {
+        console.log("admin view: clearing all filters");
+        musicSearch.clearFilters();
+      } else {
+        console.log("admin view: removing specific preset keys");
+        // Create new params with preset keys explicitly removed
+        const newParams = { ...currentParams };
+        Object.keys(preset.params).forEach((key) => {
+          console.log(`admin view: removing filter key: ${key}`);
+          delete (newParams as any)[key];
+        });
+        console.log("admin view: clearing preset, new params:", newParams);
+        // Set filters directly to the new object
+        musicSearch.clearFilters();
+        if (Object.keys(newParams).length > 0) {
+          musicSearch.updateFilters(newParams);
+        }
+      }
     } else {
-      // apply the preset
-      const currentParams = musicSearch.filters();
+      console.log("admin view: applying preset using bulk update");
+      // Apply the preset
       const newParams = { ...currentParams, ...preset.params };
+      console.log("admin view: applying preset, new params:", newParams);
       musicSearch.updateFilters(newParams);
     }
   };
@@ -159,9 +194,31 @@ export function AdminView(props: AdminViewProps) {
   // check if preset is active
   const isPresetActive = (preset: SearchPreset) => {
     const currentFilters = musicSearch.filters();
-    return Object.entries(preset.params).every(([key, value]) => {
-      return (currentFilters as any)[key] === value;
+    console.log("admin view: isPresetActive check", {
+      presetId: preset.id,
+      currentFilters: currentFilters,
+      currentFiltersStringified: JSON.stringify(currentFilters),
+      presetParams: preset.params,
+      presetParamsStringified: JSON.stringify(preset.params),
     });
+
+    const result = Object.entries(preset.params).every(([key, value]) => {
+      const currentValue = (currentFilters as any)[key];
+      const matches = currentValue === value;
+      console.log("admin view: checking preset param", {
+        key,
+        presetValue: value,
+        presetValueType: typeof value,
+        currentValue: currentValue,
+        currentValueType: typeof currentValue,
+        matches: matches,
+        strictEquality: currentValue === value,
+        looseEquality: currentValue == value,
+      });
+      return matches;
+    });
+    console.log("admin view: preset active check result:", result);
+    return result;
   };
 
   return (

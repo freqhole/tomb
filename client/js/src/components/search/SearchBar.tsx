@@ -27,7 +27,7 @@ const defaultSearchFields: SearchField[] = [
 
 export function SearchBar(props: SearchBarProps) {
   const searchFields = () => props.searchFields || defaultSearchFields;
-  const showFieldSelector = () => props.showFieldSelector !== false;
+  const showFieldSelector = () => !!props.showFieldSelector;
 
   return (
     <div class={`search-bar ${props.class || ""}`}>

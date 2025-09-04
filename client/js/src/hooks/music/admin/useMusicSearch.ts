@@ -347,7 +347,7 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
         "GET",
         "/api/music/suggestions",
         {
-          params: { field: currentField, partial: query, page_size: 8 },
+          params: { field: "all", partial: query, page_size: 8 },
         }
       );
 
