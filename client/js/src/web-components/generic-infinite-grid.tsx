@@ -59,20 +59,15 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
 
   // State
   const [scrollTop, setScrollTop] = createSignal(0);
-  const [containerHeight, setContainerHeight] = createSignal(
-    window.innerHeight
-  );
-  const [,] = createSignal(0);
 
   let scrollContainer: HTMLDivElement;
 
   // Virtual scrolling calculations
-  const visibleRows = createMemo(() => {
-    const height = containerHeight() - HEADER_HEIGHT();
-    return Math.ceil(height / ROW_HEIGHT());
-  });
-
+  // Much simpler virtual scrolling
   const totalRows = createMemo(() => props.data.length);
+  const fixedContainerHeight = 600; // Fixed container height
+  const visibleRowCount =
+    Math.ceil(fixedContainerHeight / ROW_HEIGHT()) + BUFFER_SIZE;
 
   const startIndex = createMemo(() => {
     const index = Math.floor(scrollTop() / ROW_HEIGHT());
@@ -80,27 +75,13 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
   });
 
   const endIndex = createMemo(() => {
-    const index = startIndex() + visibleRows() + BUFFER_SIZE * 2;
-    return Math.min(totalRows(), index);
-  });
-
-  // Calculate actual visible range (what user sees on screen)
-  const actualVisibleStartRow = createMemo(() => {
-    return Math.floor(scrollTop() / ROW_HEIGHT()) + 1; // +1 for 1-based indexing
-  });
-
-  const actualVisibleEndRow = createMemo(() => {
-    const viewportHeight = containerHeight() - HEADER_HEIGHT();
-    const rowsInViewport = Math.floor(viewportHeight / ROW_HEIGHT());
-    const endRow = Math.floor(scrollTop() / ROW_HEIGHT()) + rowsInViewport;
-    return Math.min(endRow, totalRows());
+    return Math.min(totalRows(), startIndex() + visibleRowCount);
   });
 
   const visibleData = createMemo(() => {
     return props.data.slice(startIndex(), endIndex());
   });
 
-  // Combined memo for visible data with selection state to force reactivity
   const visibleDataWithSelection = createMemo(() => {
     return visibleData().map((item, index) => {
       const actualIndex = startIndex() + index;
@@ -110,7 +91,21 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
     });
   });
 
-  const totalHeight = createMemo(() => totalRows() * ROW_HEIGHT());
+  // Simple stats calculation
+  const actualVisibleStartRow = createMemo(() => {
+    return Math.floor(scrollTop() / ROW_HEIGHT()) + 1;
+  });
+
+  const actualVisibleEndRow = createMemo(() => {
+    const maxRow = Math.floor(
+      (scrollTop() + fixedContainerHeight) / ROW_HEIGHT()
+    );
+    return Math.min(maxRow, totalRows());
+  });
+
+  const totalContentHeight = createMemo(() => {
+    return totalRows() * ROW_HEIGHT();
+  });
 
   // Event handlers
   const handleScroll = (e: Event) => {
@@ -331,7 +326,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
         }
 
         .grid-viewport {
-          flex: 1;
+          height: 600px;
           overflow: auto;
           position: relative;
           scroll-behavior: smooth;
@@ -339,7 +334,6 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
 
         .grid-content {
           position: relative;
-          padding-bottom: 4rem;
         }
 
         .grid-row {
@@ -462,7 +456,10 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
       </div>
 
       <div class="grid-viewport" ref={scrollContainer!} onScroll={handleScroll}>
-        <div class="grid-content" style={{ height: `${totalHeight()}px` }}>
+        <div
+          class="grid-content"
+          style={{ height: `${totalContentHeight()}px` }}
+        >
           <For each={visibleDataWithSelection()}>
             {(rowData) => {
               const { item, actualIndex, isSelected } = rowData;
