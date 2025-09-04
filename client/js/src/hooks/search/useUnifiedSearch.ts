@@ -294,6 +294,12 @@ export interface UnifiedSearchReturn {
   setSearchQuery: (query: string, triggerSearch?: boolean) => void;
   searchSuggestions: () => SearchSuggestion[];
 
+  // search field
+  searchField: () => string | null;
+  setSearchField: (field: string, triggerSearch?: boolean) => void;
+  searchFields: () => string[];
+  setSearchFields: (fields: string[], triggerSearch?: boolean) => void;
+
   // filters
   activeFilters: () => Record<string, any>;
   hasActiveFilters: () => boolean;
@@ -492,7 +498,11 @@ export function useUnifiedSearch(
     setSuggestionsError(null);
 
     try {
-      const suggestionsUrl = `${config.suggestionsEndpoint}?field=title&partial=${encodeURIComponent(query)}&page_size=15`;
+      // Use the currently selected search field for suggestions
+      const currentFields = searchParams().search_fields || ["all"];
+      const suggestionsField =
+        currentFields.length === 1 ? currentFields[0] : "all";
+      const suggestionsUrl = `${config.suggestionsEndpoint}?field=${suggestionsField}&partial=${encodeURIComponent(query)}&page_size=15`;
 
       const response = await fetch(suggestionsUrl);
       if (!response.ok) {
@@ -655,6 +665,28 @@ export function useUnifiedSearch(
   const clearSort = (triggerSearch: boolean = true) => {
     updateParam("sort_by", undefined);
     updateParam("sort_direction", undefined);
+    if (triggerSearch) {
+      debouncedSearch();
+    }
+  };
+
+  // search field management
+  const searchField = createMemo(() => {
+    const fields = searchParams().search_fields;
+    return fields && fields.length === 1 ? fields[0] : null;
+  }) as () => string | null;
+
+  const searchFields = createMemo(() => searchParams().search_fields || []);
+
+  const setSearchField = (field: string, triggerSearch: boolean = true) => {
+    updateParam("search_fields", [field]);
+    if (triggerSearch) {
+      debouncedSearch();
+    }
+  };
+
+  const setSearchFields = (fields: string[], triggerSearch: boolean = true) => {
+    updateParam("search_fields", fields);
     if (triggerSearch) {
       debouncedSearch();
     }
@@ -840,6 +872,12 @@ export function useUnifiedSearch(
     setSorting,
     toggleSort,
     clearSort,
+
+    // search field
+    searchField,
+    setSearchField,
+    searchFields,
+    setSearchFields,
 
     // advanced features
     searchMetadata,

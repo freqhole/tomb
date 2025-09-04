@@ -136,13 +136,24 @@ export function AdminView(props: AdminViewProps) {
     { value: "genre", label: "genre", description: "search genres" },
   ];
 
-  // handle preset application
+  // handle preset toggle
   const handlePresetApply = (preset: SearchPreset) => {
-    console.log("admin view: applying preset", preset.id);
-    // Apply preset filters to the search
-    const currentParams = musicSearch.filters();
-    const newParams = { ...currentParams, ...preset.params };
-    musicSearch.updateFilters(newParams);
+    console.log("admin view: toggling preset", preset.id);
+
+    if (isPresetActive(preset)) {
+      // clear the preset by removing its parameters
+      const currentParams = musicSearch.filters();
+      const newParams = { ...currentParams };
+      Object.keys(preset.params).forEach((key) => {
+        delete (newParams as any)[key];
+      });
+      musicSearch.updateFilters(newParams);
+    } else {
+      // apply the preset
+      const currentParams = musicSearch.filters();
+      const newParams = { ...currentParams, ...preset.params };
+      musicSearch.updateFilters(newParams);
+    }
   };
 
   // check if preset is active
@@ -216,8 +227,19 @@ export function AdminView(props: AdminViewProps) {
         <AdminSearchHeader
           searchQuery={musicSearch.searchQuery}
           onSearchChange={(query) => {
-            musicSearch.setSearchQuery(query, true);
-            console.log("admin view: search executed from header", query);
+            musicSearch.setSearchQuery(query, false);
+            console.log("admin view: search input changed", query);
+          }}
+          onSearchExecute={(query) => {
+            // Handle enter key and search button clicks
+            if (query.trim() === "") {
+              // Clear search when empty query is executed
+              musicSearch.setSearchQuery("", true);
+            } else {
+              // Execute search with current query
+              musicSearch.setSearchQuery(query, true);
+            }
+            console.log("admin view: search executed", query);
           }}
           filters={musicSearch.filters}
           onFiltersChange={musicSearch.updateFilters}
@@ -246,6 +268,15 @@ export function AdminView(props: AdminViewProps) {
           resultsCount={musicSearch.totalCount}
           filterSummary={musicSearch.filterSummary}
           searchFields={adminSearchFields}
+          searchField={musicSearch.searchField() || undefined}
+          onSearchFieldChange={(field) => {
+            musicSearch.setSearchField(field);
+            // Re-run search with new field if there's a query
+            if (musicSearch.searchQuery().trim()) {
+              musicSearch.setSearchQuery(musicSearch.searchQuery(), true);
+            }
+            console.log("admin view: search field changed to", field);
+          }}
         />
       </Show>
 
@@ -329,6 +360,7 @@ export function AdminView(props: AdminViewProps) {
                 }}
                 onSongPlay={handleSongPlay}
                 onSongEdit={handleSongEdit}
+                apiClient={props.apiClient}
                 theme={props.theme}
                 className="h-full"
               />

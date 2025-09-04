@@ -6,6 +6,7 @@ import {
 } from "../../../web-components/generic-infinite-grid.js";
 import type { AdminSong } from "../../../lib/admin/admin-api.js";
 import type { MusicAdminData } from "../../../hooks/music/admin/useMusicAdminData.js";
+import type { ApiClient } from "../../../lib/api-client.js";
 import {
   ComponentEventRegistry,
   createGlobalKeyboardHandler,
@@ -15,6 +16,7 @@ export interface AdminDataGridProps {
   musicData: MusicAdminData;
   onSongPlay?: (song: AdminSong) => void;
   onSongEdit?: (song: AdminSong) => void;
+  apiClient?: ApiClient;
   className?: string;
   theme?: "light" | "dark";
 }
@@ -41,7 +43,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         <div class="w-12 h-12 bg-gray-800 flex items-center justify-center overflow-hidden">
           {song.thumbnail_blob_id ? (
             <img
-              src={`/api/blobs/${song.thumbnail_blob_id}`}
+              src={`${props.apiClient?.getBaseUrl() || ""}/api/blobs/${song.thumbnail_blob_id}`}
               alt="album artwork"
               class="w-full h-full object-cover"
               loading="lazy"

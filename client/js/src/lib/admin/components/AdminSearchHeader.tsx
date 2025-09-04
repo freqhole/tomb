@@ -17,6 +17,8 @@ export interface AdminSearchHeaderProps {
   searchQuery: () => string;
   /** Update search query */
   onSearchChange: (query: string) => void;
+  /** Execute search with current query */
+  onSearchExecute?: (query: string) => void;
   /** Current filter state */
   filters: () => Record<string, any>;
   /** Update filters */
@@ -68,7 +70,11 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
 
   // handle search execution
   const executeSearch = (query: string) => {
-    props.onSearchChange(query);
+    if (props.onSearchExecute) {
+      props.onSearchExecute(query);
+    } else {
+      props.onSearchChange(query);
+    }
   };
 
   // handle preset application

@@ -39,6 +39,10 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
     suggestionsEndpoint: `${props.apiClient.getBaseUrl()}/api/music/suggestions`,
     autoSearch: false,
     executeInitialSearch: true,
+    defaultParams: {
+      ...musicUnifiedSearchConfig.defaultParams,
+      search_fields: ["all"],
+    },
   });
 
   // ui state
@@ -322,6 +326,11 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
           onSuggestionSelect={(suggestion) => {
             search.setSearchQuery(suggestion, true);
             console.log("search executed from suggestion", suggestion);
+          }}
+          searchField={search.searchField() || undefined}
+          onSearchFieldChange={(field) => {
+            search.setSearchField(field, false);
+            console.log("search field changed to", field);
           }}
           suggestions={search.searchSuggestions().map((s: any) => ({
             text: typeof s === "string" ? s : s.text || String(s),

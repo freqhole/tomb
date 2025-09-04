@@ -79,11 +79,12 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
     // sort by category priority
     const categoryOrder = [
       "word",
-      "title",
       "artist",
       "album",
+      "title",
       "genre",
       "playlist",
+      "all",
       "general",
     ];
     return Array.from(groups.entries()).sort(([a], [b]) => {
@@ -105,6 +106,7 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
       genre: "genres",
       playlist: "playlists",
       general: "suggestions",
+      all: "mixed results",
     };
     return categoryNames[category] || category;
   };
@@ -304,7 +306,18 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
                           aria-selected={isSelected}
                           data-suggestion={suggestion.text}
                         >
-                          {renderHighlightedText(suggestion)}
+                          <div class="flex items-center justify-between">
+                            <span class="flex-1">
+                              {renderHighlightedText(suggestion)}
+                            </span>
+                            <Show
+                              when={suggestion.count && suggestion.count > 1}
+                            >
+                              <span class="text-xs text-gray-400 ml-2">
+                                ({suggestion.count})
+                              </span>
+                            </Show>
+                          </div>
                         </div>
                       );
                     }}

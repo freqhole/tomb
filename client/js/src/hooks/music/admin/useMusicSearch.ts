@@ -9,6 +9,7 @@ export interface MusicSearchState {
   filters: AdminMusicFilters;
   showAdvancedSearch: boolean;
   selectedPreset: string | null;
+  searchField: string | null;
 }
 
 export interface MusicSearchReturn {
@@ -40,6 +41,10 @@ export interface MusicSearchReturn {
   filterSummary: () => string;
   /** Whether any filters are active */
   hasActiveFilters: () => boolean;
+  /** Current search field */
+  searchField: () => string | null;
+  /** Set search field */
+  setSearchField: (field: string) => void;
   /** Filter options for UI components */
   filterOptions: () => any;
   /** Loading state */
@@ -86,6 +91,9 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   const [showAdvancedSearch, setShowAdvancedSearch] = createSignal(false);
   const [selectedPreset, setSelectedPreset] = createSignal<string | null>(null);
   const [suggestions, setSuggestions] = createSignal<string[]>([]);
+  const [searchField, setSearchFieldSignal] = createSignal<string | null>(
+    "all"
+  );
 
   // === RESULTS STATE ===
   const [results, setResults] = createSignal<any[]>([]);
@@ -141,6 +149,7 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     filters: filters(),
     showAdvancedSearch: showAdvancedSearch(),
     selectedPreset: selectedPreset(),
+    searchField: searchField(),
   }));
 
   const pagination = createMemo(() => {
@@ -218,6 +227,12 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
 
     if (searchQuery()) {
       params.q = searchQuery();
+
+      // Add search fields if specified
+      const currentField = searchField();
+      if (currentField && currentField !== "all") {
+        params.search_fields = [currentField];
+      }
     }
 
     return params;
@@ -316,11 +331,13 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     console.log(`music search: loading suggestions for "${query}"`);
 
     try {
+      // Use current search field for suggestions
+      const currentField = searchField() || "all";
       const response = await apiClient.makeRequest<any>(
         "GET",
         "/api/music/suggestions",
         {
-          params: { q: query, limit: 8 },
+          params: { field: currentField, partial: query, page_size: 8 },
         }
       );
 
@@ -444,6 +461,17 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     await performSearch(1, false); // New search, don't append
   };
 
+  const setSearchField = (field: string) => {
+    console.log("music search: setSearchField", field);
+    setSearchFieldSignal(field);
+    // Reload suggestions if there's a current query
+    const query = searchQuery();
+    if (query.length >= 2) {
+      loadSuggestions(query);
+    }
+    // Don't automatically trigger search - let the UI decide
+  };
+
   // === INITIALIZATION ===
   onMount(async () => {
     await loadFilterOptions();
@@ -480,5 +508,7 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     refresh,
     searchSuggestions: suggestions, // alias for compatibility
     totalCount: total, // alias
+    searchField,
+    setSearchField,
   };
 }

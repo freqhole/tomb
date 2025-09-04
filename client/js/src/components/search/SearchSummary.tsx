@@ -78,7 +78,7 @@ export function SearchSummary(props: SearchSummaryProps) {
       <div class={`search-summary ${props.class || ""}`}>
         {/* summary text */}
         <Show when={!props.showFilterChips}>
-          <div class="mb-4 px-4 py-2 bg-gray-900 text-gray-300 text-sm border border-gray-700">
+          <div class="mb-4 px-4 py-2 bg-gray-900 text-gray-300 text-sm">
             {props.label || "active filters"}: {summaryText()}
             <Show when={props.showClearAll && props.onClearAll}>
               <button

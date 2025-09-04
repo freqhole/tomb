@@ -553,9 +553,45 @@ pub async fn search_music(
 fn convert_unified_params_to_search_query(params: UnifiedSearchParams) -> SearchQuery {
     let mut search_query = SearchQuery::new();
 
-    // Set text search
+    // Set text search with field-specific handling
     if let Some(query) = params.q {
-        search_query = search_query.with_query(&query);
+        // Handle field-specific search
+        if let Some(ref search_fields) = params.search_fields {
+            if search_fields.len() == 1 {
+                match search_fields[0].as_str() {
+                    "title" => {
+                        // For title search, use structured search or title filter
+                        search_query.filters.title_search = Some(query.clone());
+                        search_query = search_query.with_query(&query);
+                    }
+                    "artist" => {
+                        // For artist search, use artist filter
+                        search_query.filters.artist = Some(query.clone());
+                        search_query = search_query.with_query(&query);
+                    }
+                    "album" => {
+                        // For album search, use album filter
+                        search_query.filters.album = Some(query.clone());
+                        search_query = search_query.with_query(&query);
+                    }
+                    "genre" => {
+                        // For genre search, use genre filter
+                        search_query.filters.genre = Some(query.clone());
+                        search_query = search_query.with_query(&query);
+                    }
+                    "all" | _ => {
+                        // For "all" or unrecognized fields, search all fields
+                        search_query = search_query.with_query(&query);
+                    }
+                }
+            } else {
+                // Multiple fields specified, use general search
+                search_query = search_query.with_query(&query);
+            }
+        } else {
+            // No fields specified, use general search
+            search_query = search_query.with_query(&query);
+        }
     }
 
     // Set search type
@@ -1081,6 +1117,101 @@ pub async fn get_suggestions(
     let limit = params.page_size as i64;
 
     let suggestions = match field {
+        "all" => {
+            // For "all" field, return mixed suggestions from different categories
+            let mut all_suggestions = Vec::new();
+
+            // Get top artists
+            let artists = sqlx::query_as::<_, (String, i64)>(
+                "SELECT s.artist, COUNT(*) as song_count
+                 FROM songs s
+                 WHERE s.artist IS NOT NULL
+                   AND LOWER(s.artist) LIKE '%' || $1 || '%'
+                   AND s.deleted_at IS NULL
+                 GROUP BY s.artist
+                 ORDER BY song_count DESC, s.artist ASC
+                 LIMIT 3",
+            )
+            .bind(&partial)
+            .fetch_all(db.pool())
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            for (value, count) in artists {
+                all_suggestions.push(Suggestion {
+                    value: value.clone(),
+                    display: format!("{} (artist)", value),
+                    highlight: highlight_match(&value, &partial),
+                    count: count as u32,
+                    suggestion_type: "artist".to_string(),
+                    confidence: calculate_confidence(&value, &partial),
+                });
+            }
+
+            // Get top albums
+            let albums = sqlx::query_as::<_, (String, i64)>(
+                "SELECT s.album, COUNT(*) as song_count
+                 FROM songs s
+                 WHERE s.album IS NOT NULL
+                   AND LOWER(s.album) LIKE '%' || $1 || '%'
+                   AND s.deleted_at IS NULL
+                 GROUP BY s.album
+                 ORDER BY song_count DESC, s.album ASC
+                 LIMIT 3",
+            )
+            .bind(&partial)
+            .fetch_all(db.pool())
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            for (value, count) in albums {
+                all_suggestions.push(Suggestion {
+                    value: value.clone(),
+                    display: format!("{} (album)", value),
+                    highlight: highlight_match(&value, &partial),
+                    count: count as u32,
+                    suggestion_type: "album".to_string(),
+                    confidence: calculate_confidence(&value, &partial),
+                });
+            }
+
+            // Get top song titles
+            let titles = sqlx::query_as::<_, (String, String, String)>(
+                "SELECT s.title,
+                        COALESCE(s.artist, 'unknown artist') as artist,
+                        s.id::text
+                 FROM songs s
+                 WHERE s.title IS NOT NULL
+                   AND LOWER(s.title) LIKE '%' || $1 || '%'
+                   AND s.deleted_at IS NULL
+                 ORDER BY s.title ASC
+                 LIMIT 3",
+            )
+            .bind(&partial)
+            .fetch_all(db.pool())
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            for (title, artist, _id) in titles {
+                all_suggestions.push(Suggestion {
+                    value: title.clone(),
+                    display: format!("{} - {} (song)", title, artist),
+                    highlight: highlight_match(&title, &partial),
+                    count: 1,
+                    suggestion_type: "title".to_string(),
+                    confidence: calculate_confidence(&title, &partial),
+                });
+            }
+
+            // Sort by confidence and limit total results
+            all_suggestions.sort_by(|a, b| {
+                b.confidence
+                    .partial_cmp(&a.confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            all_suggestions.truncate(limit as usize);
+            all_suggestions
+        }
         "artist" => {
             let query = sqlx::query_as::<_, (String, i64)>(
                 "SELECT s.artist, COUNT(*) as song_count
