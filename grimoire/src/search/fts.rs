@@ -244,7 +244,11 @@ impl SearchService {
                 album_artist: row.album_artist,
                 track_number: row.track_number,
                 disc_number: row.disc_number,
-                duration: row.duration.map(|_| time::Duration::ZERO),
+                duration: row.duration.map(|pg_interval| {
+                    // Convert PostgreSQL interval to time::Duration
+                    // PgInterval stores microseconds, convert to Duration
+                    time::Duration::microseconds(pg_interval.microseconds)
+                }),
                 genre: row.genre,
                 year: row.year,
                 bpm: row.bpm,
@@ -491,7 +495,11 @@ impl SearchService {
                 album_artist: row.album_artist,
                 track_number: row.track_number,
                 disc_number: row.disc_number,
-                duration: row.duration.map(|_| time::Duration::ZERO),
+                duration: row.duration.map(|pg_interval| {
+                    // Convert PostgreSQL interval to time::Duration
+                    // PgInterval stores microseconds, convert to Duration
+                    time::Duration::microseconds(pg_interval.microseconds)
+                }),
                 genre: row.genre,
                 year: row.year,
                 bpm: row.bpm,

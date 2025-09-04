@@ -105,7 +105,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
     return visibleData().map((item, index) => {
       const actualIndex = startIndex() + index;
       const itemId = (item as any).id;
-      const isSelected = props.selectedItems?.has(itemId) || false;
+      const isSelected = props.selectedRowIds?.has(itemId) || false;
       return { item, actualIndex, itemId, isSelected };
     });
   });
@@ -214,7 +214,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
       <style>{`
         .generic-infinite-grid {
           height: 100vh;
-          background: #1a1a1a;
+          background: #171717;
           color: #e0e0e0;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
           display: flex;
@@ -229,8 +229,8 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
 
         .grid-header {
           height: ${HEADER_HEIGHT()}px;
-          background: #2a2a2a;
-          border-bottom: 2px solid #3a3a3a;
+          background: rgba(0, 0, 0, 0.9);
+          border-bottom: none;
           display: flex;
           align-items: center;
           position: sticky;
@@ -253,7 +253,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          border-right: 1px solid #3a3a3a;
+          border-right: none;
           transition: background-color 0.2s;
           min-width: 0;
           height: 100%;
@@ -265,7 +265,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
         }
 
         .header-cell:hover {
-          background: #3a3a3a;
+          background: rgba(0, 0, 0, 0.7);
         }
 
         .light .header-cell:hover {
@@ -284,7 +284,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
 
         .header-cell.sort-asc,
         .header-cell.sort-desc {
-          background: #2d2d2d;
+          background: rgba(0, 0, 0, 0.8);
         }
 
         .header-cell.sort-asc .sort-indicator:after {
@@ -346,8 +346,8 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
           height: ${ROW_HEIGHT()}px;
           display: flex;
           align-items: center;
-          border-bottom: 1px solid #2a2a2a;
-          background: #1a1a1a;
+          border-bottom: none;
+          background: rgba(0, 0, 0, 0.9);
           will-change: transform;
         }
 
@@ -357,7 +357,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
         }
 
         .grid-row:hover {
-          background: #252525;
+          background: rgba(0, 0, 0, 0.7);
         }
 
         .light .grid-row:hover {
@@ -365,31 +365,31 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
         }
 
         .grid-row.selected {
-          background: rgba(255, 0, 255, 0.15) !important;
-          box-shadow: inset 0 0 0 2px rgba(255, 0, 255, 0.4) !important;
+          background: rgba(217, 70, 239, 0.3) !important;
+          box-shadow: inset 0 0 0 2px rgb(217, 70, 239) !important;
           transition: all 0.15s ease !important;
         }
 
         .grid-row.selected:hover {
-          background: rgba(255, 0, 255, 0.25) !important;
-          box-shadow: inset 0 0 0 2px rgba(255, 0, 255, 0.6) !important;
+          background: rgba(217, 70, 239, 0.4) !important;
+          box-shadow: inset 0 0 0 2px rgb(217, 70, 239) !important;
         }
 
         .light .grid-row.selected {
-          background: rgba(255, 0, 255, 0.1) !important;
-          box-shadow: inset 0 0 0 2px rgba(255, 0, 255, 0.3) !important;
+          background: rgba(217, 70, 239, 0.1) !important;
+          box-shadow: inset 0 0 0 2px rgba(217, 70, 239, 0.6) !important;
         }
 
         .light .grid-row.selected:hover {
-          background: rgba(255, 0, 255, 0.2) !important;
-          box-shadow: inset 0 0 0 2px rgba(255, 0, 255, 0.4) !important;
+          background: rgba(217, 70, 239, 0.2) !important;
+          box-shadow: inset 0 0 0 2px rgb(217, 70, 239) !important;
         }
 
         .grid-cell {
           flex: 1;
           padding: 0 12px;
           font-size: 14px;
-          border-right: 1px solid #2a2a2a;
+          border-right: none;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;

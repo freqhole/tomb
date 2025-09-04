@@ -462,7 +462,8 @@ function StarRating(props: {
  * format duration in seconds to MM:SS or HH:MM:SS
  */
 function formatDuration(seconds?: number | null): string {
-  if (!seconds) return "—";
+  if (seconds === null || seconds === undefined) return "—";
+  if (seconds === 0) return "0:00";
 
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -479,14 +480,37 @@ function formatDuration(seconds?: number | null): string {
  * format date string to readable format
  */
 function formatDate(dateString: string): string {
+  if (!dateString) return "—";
+
   try {
-    const date = new Date(dateString);
+    // Parse server format: '2025-07-07 0:57:04.743983 +00:00:00'
+    // Extract date and time parts manually
+    const parts = dateString.split(" ");
+    if (parts.length < 2) return "—";
+
+    const datePart = parts[0]; // '2025-07-07'
+    const timePart = parts[1]; // '0:57:04.743983'
+
+    // Parse date parts
+    const [year, month, day] = datePart.split("-").map(Number);
+
+    // Parse time parts and fix hour padding
+    const timeComponents = timePart.split(":");
+    const hour = parseInt(timeComponents[0]);
+    const minute = parseInt(timeComponents[1]);
+    const second = parseFloat(timeComponents[2]);
+
+    // Create date object
+    const date = new Date(year, month - 1, day, hour, minute, second);
+
+    if (isNaN(date.getTime())) return "—";
+
     return date.toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
     });
-  } catch {
+  } catch (error) {
     return "—";
   }
 }

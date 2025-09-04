@@ -26,14 +26,27 @@
   --color-primary-800: #86198f;
   --color-primary-900: #701a75;
 
-  /* Dark theme grays */
-  --color-dark-100: #1a1a1a;
-  --color-dark-200: #2a2a2a;
-  --color-dark-300: #3a3a3a;
-  --color-dark-400: #4a4a4a;
-  --color-dark-500: #5a5a5a;
-  --color-dark-600: #6a6a6a;
-  --color-dark-700: #7a7a7a;
+  /* Pure neutral grays */
+  --color-gray-50: #fafafa;
+  --color-gray-100: #f5f5f5;
+  --color-gray-200: #e5e5e5;
+  --color-gray-300: #d4d4d4;
+  --color-gray-400: #a3a3a3;
+  --color-gray-500: #737373;
+  --color-gray-600: #525252;
+  --color-gray-700: #404040;
+  --color-gray-800: #262626;
+  --color-gray-900: #171717;
+  --color-gray-950: #0a0a0a;
+
+  /* Dark theme grays - pure neutral */
+  --color-dark-100: #171717;
+  --color-dark-200: #262626;
+  --color-dark-300: #404040;
+  --color-dark-400: #525252;
+  --color-dark-500: #737373;
+  --color-dark-600: #a3a3a3;
+  --color-dark-700: #d4d4d4;
   --color-dark-800: #0a0a0a;
   --color-dark-900: #000000;
 
@@ -50,7 +63,11 @@
   body {
     background-color: black;
     color: white;
-    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-family:
+      "Segoe UI",
+      system-ui,
+      -apple-system,
+      sans-serif;
     margin: 0;
     padding: 0;
   }
@@ -70,11 +87,11 @@
   }
 
   ::-webkit-scrollbar-track {
-    background-color: #2a2a2a;
+    background-color: #262626;
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: #4a4a4a;
+    background-color: #525252;
   }
 
   ::-webkit-scrollbar-thumb:hover {
@@ -84,7 +101,7 @@
   /* Firefox scrollbar styling */
   * {
     scrollbar-width: thin;
-    scrollbar-color: #4a4a4a #2a2a2a;
+    scrollbar-color: #525252 #262626;
   }
 }
 
@@ -101,7 +118,7 @@
   .glass {
     backdrop-filter: blur(16px) saturate(180%);
     -webkit-backdrop-filter: blur(16px) saturate(180%);
-    background-color: rgba(26, 26, 26, 0.8);
+    background-color: rgba(23, 23, 23, 0.8);
     border: 1px solid rgba(255, 255, 255, 0.125);
   }
 
@@ -116,7 +133,7 @@
 
 /* Loading states */
 .loading-shimmer {
-  background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
+  background: linear-gradient(90deg, #171717 25%, #262626 50%, #171717 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
