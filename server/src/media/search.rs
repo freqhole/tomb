@@ -14,10 +14,65 @@ use grimoire::search::{
     SearchFilters, SearchQuery, SearchService, SearchType, SortBy, SortDirection,
 };
 use grimoire::DatabaseConnection;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use uuid::Uuid;
+
+/// Custom deserializer for search_fields that handles both single strings and arrays
+fn deserialize_search_fields<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{Error, Visitor};
+    use std::fmt;
+
+    struct SearchFieldsVisitor;
+
+    impl<'de> Visitor<'de> for SearchFieldsVisitor {
+        type Value = Option<Vec<String>>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a string, array of strings, or nothing")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            // Single string parameter -> convert to single-item array
+            Ok(Some(vec![value.to_string()]))
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            // Multiple parameters with same name -> array
+            let mut vec = Vec::new();
+            while let Some(element) = seq.next_element::<String>()? {
+                vec.push(element);
+            }
+            Ok(Some(vec))
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(None)
+        }
+    }
+
+    deserializer.deserialize_any(SearchFieldsVisitor)
+}
 
 /// Unified search parameters handling all query types
 #[derive(Debug, Deserialize, Clone)]
@@ -26,6 +81,7 @@ pub struct UnifiedSearchParams {
     pub q: Option<String>,
     #[serde(default = "default_search_type")]
     pub search_type: String,
+    #[serde(deserialize_with = "deserialize_search_fields", default)]
     pub search_fields: Option<Vec<String>>,
 
     // === PAGINATION ===

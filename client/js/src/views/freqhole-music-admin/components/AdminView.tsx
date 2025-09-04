@@ -247,12 +247,12 @@ export function AdminView(props: AdminViewProps) {
           showAdvancedSearch={musicSearch.showAdvancedSearch}
           onToggleAdvancedSearch={musicSearch.setShowAdvancedSearch}
           suggestions={() => {
-            const suggestions = musicSearch.suggestions();
-            return suggestions.map((s: any) => ({
-              text: typeof s === "string" ? s : s.text || String(s),
-              category:
-                typeof s === "object" && s.category ? s.category : "suggestion",
-            }));
+            const rawSuggestions = musicSearch.suggestions();
+            if (!Array.isArray(rawSuggestions)) {
+              return [];
+            }
+            // Return array of strings directly - SearchInput will normalize them
+            return rawSuggestions.filter((s) => s).map((s) => String(s));
           }}
           onSuggestionSelect={(suggestion) => {
             musicSearch.onSuggestionSelect(suggestion);

@@ -63,8 +63,72 @@ export function SearchInput(props: SearchInputProps) {
   // get current value
   const currentValue = () => props.value ?? internalValue();
 
-  // get current suggestions
-  const currentSuggestions = () => props.suggestions ?? internalSuggestions();
+  // get current suggestions - normalize external suggestions to prevent [object Object] rendering
+  const currentSuggestions = () => {
+    const external = props.suggestions;
+    console.log(
+      "SearchInput: currentSuggestions() called, external:",
+      external
+    );
+
+    if (external && Array.isArray(external)) {
+      console.log(
+        "SearchInput: processing external array of length:",
+        external.length
+      );
+      const result = external.map((suggestion: any, index: number) => {
+        console.log(
+          `SearchInput: processing suggestion[${index}]:`,
+          suggestion,
+          typeof suggestion
+        );
+
+        // handle both string arrays and object arrays
+        if (typeof suggestion === "string") {
+          const normalized = {
+            text: suggestion,
+            category: "suggestion",
+          };
+          console.log(
+            `SearchInput: string suggestion[${index}] normalized:`,
+            normalized
+          );
+          return normalized;
+        } else if (suggestion && typeof suggestion === "object") {
+          const normalized = {
+            text:
+              suggestion.text ||
+              suggestion.value ||
+              suggestion.query ||
+              String(suggestion),
+            category: suggestion.category || "suggestion",
+            highlight: suggestion.highlight,
+          };
+          console.log(
+            `SearchInput: object suggestion[${index}] normalized:`,
+            normalized
+          );
+          return normalized;
+        } else {
+          const normalized = {
+            text: String(suggestion || ""),
+            category: "suggestion",
+          };
+          console.log(
+            `SearchInput: fallback suggestion[${index}] normalized:`,
+            normalized
+          );
+          return normalized;
+        }
+      });
+      console.log("SearchInput: final normalized result:", result);
+      return result;
+    }
+
+    const internal = internalSuggestions();
+    console.log("SearchInput: using internal suggestions:", internal);
+    return internal;
+  };
 
   // handle input change
   const handleInputChange: JSX.EventHandler<HTMLInputElement, InputEvent> = (
@@ -226,13 +290,16 @@ export function SearchInput(props: SearchInputProps) {
 
   // handle suggestion selection
   const handleSuggestionSelect = (suggestion: string) => {
-    setInternalValue(suggestion);
-    props.onInput?.(suggestion);
+    const suggestionText =
+      typeof suggestion === "string" ? suggestion : String(suggestion || "");
+
+    setInternalValue(suggestionText);
+    props.onInput?.(suggestionText);
     setShowDropdown(false);
     setSelectedIndex(-1);
     setSuppressSuggestions(true);
-    setPreviousQuery(suggestion);
-    props.onSuggestionSelect?.(suggestion);
+    setPreviousQuery(suggestionText);
+    props.onSuggestionSelect?.(suggestionText);
     inputRef()?.blur();
 
     // reset suppression after a delay to allow for new searches
@@ -332,9 +399,16 @@ export function SearchInput(props: SearchInputProps) {
                     ? "bg-magenta-500 bg-opacity-20"
                     : "hover:bg-gray-800"
                 }`}
-                onClick={() => handleSuggestionSelect(suggestion.text)}
+                onClick={() => {
+                  console.log("SearchInput: clicked suggestion:", suggestion);
+                  handleSuggestionSelect(suggestion.text);
+                }}
               >
-                <span class="text-white text-sm">{suggestion.text}</span>
+                <span class="text-white text-sm">
+                  {typeof suggestion.text === "string"
+                    ? suggestion.text
+                    : `[DEBUG: ${typeof suggestion.text}] ${JSON.stringify(suggestion)}`}
+                </span>
                 {suggestion.category && (
                   <span class="text-gray-400 text-xs bg-gray-600 px-2 py-1">
                     {suggestion.category}

@@ -228,13 +228,14 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     if (searchQuery()) {
       params.q = searchQuery();
 
-      // Add search fields if specified
+      // Add search fields as array - API client will handle multiple parameters
       const currentField = searchField();
       if (currentField && currentField !== "all") {
         params.search_fields = [currentField];
       }
     }
 
+    console.log("music search: buildSearchParams result:", params);
     return params;
   };
 
@@ -252,7 +253,16 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
       setError(null);
 
       const params = buildSearchParams(pageToLoad);
-      console.log("music search: API request", params);
+      console.log("music search: API request params:", params);
+      console.log("music search: search_fields value:", params.search_fields);
+      console.log(
+        "music search: search_fields type:",
+        typeof params.search_fields
+      );
+      console.log(
+        "music search: search_fields is array:",
+        Array.isArray(params.search_fields)
+      );
 
       const response = await apiClient.makeRequest<any>(
         "GET",
@@ -341,38 +351,134 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
         }
       );
 
-      console.log("music search: suggestions API response:", response);
+      console.log("music search: RAW API response:", response);
+      console.log("music search: response type:", typeof response);
+      console.log(
+        "music search: response constructor:",
+        response?.constructor?.name
+      );
+      console.log("music search: response is array:", Array.isArray(response));
+      if (response && typeof response === "object") {
+        console.log("music search: response keys:", Object.keys(response));
+        console.log("music search: response values:", Object.values(response));
+      }
 
       if (response?.suggestions) {
         // Format 1: { suggestions: [ { text: "suggestion" } ] }
-        const mappedSuggestions = response.suggestions.map(
-          (s: any) => s.text || s
+        console.log(
+          "music search: processing response.suggestions:",
+          response.suggestions
         );
-        console.log("music search: parsed suggestions:", mappedSuggestions);
+        const mappedSuggestions = response.suggestions.map(
+          (s: any, index: number) => {
+            console.log(`music search: raw suggestion[${index}]:`, s, typeof s);
+            let text;
+            if (typeof s === "string") {
+              text = s;
+            } else if (s && typeof s === "object") {
+              text = s.text || s.value || s.query || JSON.stringify(s);
+            } else {
+              text = String(s || "");
+            }
+            console.log(`music search: suggestion[${index}] mapped to:`, text);
+            return text;
+          }
+        );
+        console.log(
+          "music search: final mapped suggestions:",
+          mappedSuggestions
+        );
         setSuggestions(mappedSuggestions);
       } else if (Array.isArray(response)) {
         // Format 2: [ "suggestion1", "suggestion2" ]
-        console.log("music search: array suggestions:", response);
-        setSuggestions(response);
+        console.log(
+          "music search: processing direct array response:",
+          response
+        );
+        const stringifiedSuggestions = response.map((s: any, index: number) => {
+          console.log(`music search: array item[${index}]:`, s, typeof s);
+          let text;
+          if (typeof s === "string") {
+            text = s;
+          } else if (s && typeof s === "object") {
+            text = s.text || s.value || s.query || JSON.stringify(s);
+          } else {
+            text = String(s || "");
+          }
+          console.log(`music search: array item[${index}] mapped to:`, text);
+          return text;
+        });
+        console.log(
+          "music search: final array suggestions:",
+          stringifiedSuggestions
+        );
+        setSuggestions(stringifiedSuggestions);
       } else if (typeof response === "object" && response !== null) {
         // Format 3: { results: [ "suggestion1", "suggestion2" ] }
         const possibleArrayKeys = ["results", "items", "data", "values"];
+        console.log(
+          "music search: searching for array in object keys:",
+          possibleArrayKeys
+        );
         for (const key of possibleArrayKeys) {
           if (Array.isArray(response[key])) {
             console.log(
-              `music search: found suggestions in response.${key}:`,
+              `music search: found array in response.${key}:`,
               response[key]
             );
-            setSuggestions(response[key]);
+            const stringifiedSuggestions = response[key].map(
+              (s: any, index: number) => {
+                console.log(
+                  `music search: nested item[${index}]:`,
+                  s,
+                  typeof s
+                );
+                let text;
+                if (typeof s === "string") {
+                  text = s;
+                } else if (s && typeof s === "object") {
+                  text = s.text || s.value || s.query || JSON.stringify(s);
+                } else {
+                  text = String(s || "");
+                }
+                console.log(
+                  `music search: nested item[${index}] mapped to:`,
+                  text
+                );
+                return text;
+              }
+            );
+            console.log(
+              "music search: final nested suggestions:",
+              stringifiedSuggestions
+            );
+            setSuggestions(stringifiedSuggestions);
             return;
           }
         }
-        console.log("music search: no valid suggestions in response object");
+        console.log("music search: no valid array found in response object");
         setSuggestions([]);
       } else {
-        console.log("music search: no valid suggestions in response");
+        console.log(
+          "music search: unrecognized response format, setting empty"
+        );
         setSuggestions([]);
       }
+
+      // Log final suggestions state with delay
+      setTimeout(() => {
+        const finalSuggestions = suggestions();
+        console.log("music search: FINAL suggestions state:", finalSuggestions);
+        console.log(
+          "music search: suggestions are array:",
+          Array.isArray(finalSuggestions)
+        );
+        if (Array.isArray(finalSuggestions)) {
+          finalSuggestions.forEach((s, i) => {
+            console.log(`music search: final suggestion[${i}]:`, s, typeof s);
+          });
+        }
+      }, 100);
     } catch (err) {
       console.warn("music search: failed to load suggestions:", err);
       setSuggestions([]);
