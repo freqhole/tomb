@@ -121,9 +121,8 @@ export function createMusicAdminData(apiClient: ApiClient) {
         }
       );
 
-      // Refresh the data to get updated song
-      adminData.refresh();
-
+      // No refresh needed - the UI will update optimistically
+      // and the next search will include the updated data
       return response;
     } catch (error) {
       console.error("failed to update song:", error);

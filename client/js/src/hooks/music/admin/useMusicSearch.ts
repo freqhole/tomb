@@ -73,7 +73,7 @@ export interface MusicSearchReturn {
   /** Load next page */
   loadMore: () => Promise<void>;
   /** Set sort field and direction */
-  setSort: (field: string, direction?: "asc" | "desc") => void;
+  setSort: (field: string | null, direction?: "asc" | "desc" | null) => void;
   /** Current sort field */
   sortField: () => string | null;
   /** Current sort direction */
@@ -116,10 +116,18 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   const [pageSize] = createSignal(100);
 
   // === SORT STATE ===
-  const [sortField, setSortField] = createSignal<string | null>("created_at");
+  // What the server is actually sorting by (from sort_applied in response)
+  const [sortField, setSortField] = createSignal<string | null>(null);
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc" | null>(
-    "desc"
+    null
   );
+  // What the user explicitly requested (for UI cycling logic)
+  const [userRequestedField, setUserRequestedField] = createSignal<
+    string | null
+  >(null);
+  const [userRequestedDirection, setUserRequestedDirection] = createSignal<
+    "asc" | "desc" | null
+  >(null);
 
   // === FILTER OPTIONS STATE ===
   const [filterOptions, setFilterOptions] = createSignal<any>({});
@@ -213,9 +221,9 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
       page_size: pageSize(),
     };
 
-    if (sortField()) {
+    if (sortField() && sortDirection()) {
       params.sort_by = sortField();
-      params.sort_direction = sortDirection() || "asc";
+      params.sort_direction = sortDirection();
     }
 
     if (searchQuery()) {
@@ -273,6 +281,20 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
       } else if (Array.isArray(response)) {
         newSongs = response;
         serverTotal = response.length;
+      }
+
+      // Extract actual sort from server response
+      if (response?.sort_applied) {
+        const actualSortField = response.sort_applied.primary_field;
+        const actualSortDirection = response.sort_applied.primary_direction;
+
+        setSortField(actualSortField);
+        setSortDirection(actualSortDirection as "asc" | "desc");
+
+        console.log("music search: server sort applied", {
+          field: actualSortField,
+          direction: actualSortDirection,
+        });
       }
 
       setTotal(serverTotal);
@@ -424,6 +446,8 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     setFiltersSignal({});
     setSearchQuerySignal("");
     setSelectedPreset(null);
+    setSortField(null);
+    setSortDirection(null);
     setCurrentPage(1);
     performSearch(1, false); // New search, don't append
   };
@@ -441,10 +465,28 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     setSearchQuery(suggestion, true); // Execute search when selecting a suggestion
   };
 
-  const setSort = (field: string, direction: "asc" | "desc" = "asc") => {
+  const setSort = (
+    field: string | null,
+    direction: "asc" | "desc" | null = "asc"
+  ) => {
     console.log("music search: setSort", { field, direction });
-    setSortField(field);
-    setSortDirection(direction);
+
+    // Always track what the user requested for cycling logic
+    setUserRequestedField(field);
+    setUserRequestedDirection(direction);
+
+    if (
+      (field === null && direction === null) ||
+      (field !== null && direction === null)
+    ) {
+      // Reset to server default - clear client sort state and let server apply its default
+      setSortField(null);
+      setSortDirection(null);
+    } else if (field && direction) {
+      setSortField(field);
+      setSortDirection(direction);
+    }
+
     setCurrentPage(1);
     performSearch(1, false); // New search, don't append
   };
@@ -512,8 +554,10 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     pagination,
     loadMore,
     setSort,
-    sortField,
-    sortDirection,
+    sortField: () => userRequestedField(), // Use user-requested for UI cycling
+    sortDirection: () => userRequestedDirection(), // Use user-requested for UI cycling
+    actualSortField: sortField, // Server's actual sort for debugging
+    actualSortDirection: sortDirection, // Server's actual sort for debugging
     refresh,
     searchSuggestions: () => suggestions().map((s) => s.text), // alias for compatibility
     totalCount: total, // alias

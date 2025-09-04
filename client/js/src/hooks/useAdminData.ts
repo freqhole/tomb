@@ -241,10 +241,10 @@ export function createAdminData<T extends { id: string }>(
     console.log("useAdminData: updateSort called", { field, direction });
 
     if (direction === null) {
-      // Reset to default sort
-      console.log("useAdminData: resetting to default sort");
-      setSortField(config.defaultSort?.field || null);
-      setSortDirection(config.defaultSort?.direction || null);
+      // Reset to server default - clear client sort state completely
+      console.log("useAdminData: resetting to server default (null sort)");
+      setSortField(null);
+      setSortDirection(null);
     } else {
       // Toggle direction if same field
       let newDirection = direction;

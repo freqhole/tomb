@@ -8,7 +8,6 @@ import { AdvancedFilterPanel } from "../../../lib/admin/components/AdvancedFilte
 import { useMusicSearch } from "../../../hooks/music/admin/useMusicSearch.js";
 import {
   musicFilterFields,
-  musicSortFields,
   musicSearchPresets,
 } from "../../../lib/music/admin/music-unified-search.js";
 import type {
@@ -75,15 +74,7 @@ export function AdminView(props: AdminViewProps) {
     try {
       console.log("admin view: initializing with enhanced search system");
 
-      // Set default sort if not already set
-      if (!musicSearch.sortField()) {
-        const defaultSort = musicSortFields.find(
-          (s) => s.field === "created_at"
-        );
-        if (defaultSort) {
-          musicSearch.setSort(defaultSort.field, defaultSort.defaultDirection);
-        }
-      }
+      // No default sort - start with no columns sorted
 
       // Trigger initial search to load data
       await musicSearch.refresh();
@@ -92,16 +83,6 @@ export function AdminView(props: AdminViewProps) {
       setInitError(err instanceof Error ? err.message : "failed to load data");
     }
   });
-
-  // handle refresh using search system
-  const handleRefresh = async () => {
-    try {
-      console.log("admin view: refreshing data via search system");
-      await musicSearch.refresh();
-    } catch (err) {
-      console.error("admin view: refresh failed:", err);
-    }
-  };
 
   // handle song play
   const handleSongPlay = (song: any) => {
@@ -223,221 +204,181 @@ export function AdminView(props: AdminViewProps) {
 
   return (
     <div class={`admin-view h-full flex flex-col ${props.className || ""}`}>
-      {/* header */}
-      <div class="bg-black px-6 py-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <h1 class="text-2xl font-bold text-white">music library admin</h1>
-            <Show when={initialized()}>
-              <p class="text-sm text-gray-300 mt-1">
-                {musicSearch.totalCount()} songs total
-                <Show when={musicData.hasSelection()}>
-                  <span class="text-magenta-400 ml-2">
-                    • {musicData.selection.actions.getSelectedCount()} selected
-                  </span>
-                </Show>
-                <Show when={musicSearch.hasActiveFilters()}>
-                  <span class="text-blue-400 ml-2">• filtered</span>
-                </Show>
-              </p>
-            </Show>
-          </div>
-          <div class="flex items-center space-x-4">
-            <button
-              onClick={() => {
-                const current = musicData.viewMode();
-                const modes: Array<"compact" | "standard" | "detailed"> = [
-                  "compact",
-                  "standard",
-                  "detailed",
-                ];
-                const currentIndex = modes.indexOf(current);
-                const nextIndex =
-                  currentIndex >= 0 ? (currentIndex + 1) % modes.length : 0;
-                const nextMode = modes[nextIndex];
-                if (nextMode) {
-                  musicData.setViewMode(nextMode);
-                }
-              }}
-              class="px-3 py-2 bg-gray-800 text-white hover:bg-gray-700 text-sm font-medium transition-colors"
-              title={`Current: ${musicData.viewMode()} view - Click to cycle`}
-            >
-              {musicData.viewMode() === "compact"
-                ? "compact"
-                : musicData.viewMode() === "standard"
-                  ? "standard"
-                  : "detailed"}
-            </button>
-            <button
-              onClick={handleRefresh}
-              disabled={musicSearch.loading()}
-              class="px-4 py-2 bg-gray-800 text-white hover:bg-gray-700 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              refresh
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* enhanced search header with full backend integration */}
+      {/* sticky search header */}
       <Show when={initialized()}>
-        <AdminSearchHeader
-          searchQuery={musicSearch.searchQuery}
-          onSearchChange={(query) => {
-            musicSearch.setSearchQuery(query, false);
-            console.log("admin view: search input changed", query);
-          }}
-          onSearchExecute={(query) => {
-            // Handle enter key and search button clicks
-            if (query.trim() === "") {
-              // Clear search when empty query is executed
-              musicSearch.setSearchQuery("", true);
-            } else {
-              // Execute search with current query
-              musicSearch.setSearchQuery(query, true);
-            }
-            console.log("admin view: search executed", query);
-          }}
-          filters={musicSearch.filters}
-          onFiltersChange={musicSearch.updateFilters}
-          onClearFilters={musicSearch.clearFilters}
-          showAdvancedSearch={musicSearch.showAdvancedSearch}
-          onToggleAdvancedSearch={musicSearch.setShowAdvancedSearch}
-          suggestions={musicSearch.suggestions}
-          onSuggestionSelect={(suggestion) => {
-            musicSearch.onSuggestionSelect(suggestion);
-            console.log(
-              "admin view: search executed from suggestion",
-              suggestion
-            );
-          }}
-          presets={musicSearchPresets.slice(0, 6)}
-          onPresetApply={handlePresetApply}
-          isPresetActive={isPresetActive}
-          loading={musicSearch.loading}
-          resultsCount={musicSearch.totalCount}
-          filterSummary={musicSearch.filterSummary}
-          searchFields={adminSearchFields}
-          searchField={musicSearch.searchField() || undefined}
-          onSearchFieldChange={(field) => {
-            musicSearch.setSearchField(field);
-            // Re-run search with new field if there's a query
-            if (musicSearch.searchQuery().trim()) {
-              musicSearch.setSearchQuery(musicSearch.searchQuery(), true);
-            }
-            console.log("admin view: search field changed to", field);
-          }}
-        />
-      </Show>
-
-      {/* enhanced advanced filter panel with unified search fields */}
-      <Show when={initialized()}>
-        <AdvancedFilterPanel
-          filters={musicSearch.filters}
-          onFiltersChange={musicSearch.updateFilters}
-          filterConfigs={musicFilterFields.slice(0, 10).map((field) => ({
-            key: field.key as any,
-            label: field.label,
-            type: field.type as any,
-            placeholder: field.placeholder || `enter ${field.label}`,
-            options:
-              field.key === "genre" || field.key === "tags"
-                ? musicSearch.filterOptions()?.[field.key] || []
-                : field.options || [],
-            min: field.min,
-            max: field.max,
-            supportsExact: field.supportsExact,
-          }))}
-          filterOptions={musicSearch.filterOptions}
-          visible={musicSearch.showAdvancedSearch}
-          onClose={() => musicSearch.setShowAdvancedSearch(false)}
-        />
-      </Show>
-
-      {/* main content area */}
-      <div class="flex-1 bg-gray-900">
-        <Show
-          when={initError()}
-          fallback={
-            <Show
-              when={initialized()}
-              fallback={
-                <div class="h-full flex items-center justify-center">
-                  <div class="text-center">
-                    <div class="animate-spin h-12 w-12 border-2 border-magenta-500 border-t-transparent mx-auto mb-4"></div>
-                    <p class="text-white">
-                      initializing enhanced music search...
-                    </p>
-                    <p class="text-gray-400 text-sm mt-2">
-                      connecting to unified search backend...
-                    </p>
-                  </div>
-                </div>
+        <div class="sticky top-0 z-20 bg-black">
+          <AdminSearchHeader
+            searchQuery={musicSearch.searchQuery}
+            onSearchChange={(query) => {
+              musicSearch.setSearchQuery(query, false);
+              console.log("admin view: search input changed", query);
+            }}
+            onSearchExecute={(query) => {
+              // Handle enter key and search button clicks
+              if (query.trim() === "") {
+                // Clear search when empty query is executed
+                musicSearch.setSearchQuery("", true);
+              } else {
+                // Execute search with current query
+                musicSearch.setSearchQuery(query, true);
               }
-            >
-              <AdminDataGrid
-                musicData={{
-                  ...musicData,
-                  items: () => musicSearch.results(),
-                  total: () => musicSearch.totalCount(),
-                  loading: () => musicSearch.loading(),
-                  updateSort: (field, direction) => {
-                    console.log(
-                      "admin data grid: update sort",
-                      field,
-                      direction
-                    );
-                    // First update the internal data model
-                    musicData.updateSort(field, direction);
-                    // Then update search params to trigger API request
-                    musicSearch.setSort(field, direction || "asc");
-                  },
-                  sortField: () =>
-                    musicSearch.sortField() || musicData.sortField(),
-                  sortDirection: () =>
-                    musicSearch.sortDirection() || musicData.sortDirection(),
-                  // Override pagination methods to use music search system
-                  hasNextPage: () => {
-                    const pag = musicSearch.pagination();
-                    return pag.hasNext;
-                  },
-                  nextPage: async () => {
-                    console.log(
-                      "admin view: loading next page via music search"
-                    );
-                    await musicSearch.loadMore();
-                  },
-                }}
-                onSongPlay={handleSongPlay}
-                onSongEdit={handleSongEdit}
-                apiClient={props.apiClient}
-                theme={props.theme}
-                className="h-full"
-              />
-            </Show>
-          }
-        >
-          <div class="h-full flex items-center justify-center">
-            <div class="text-center p-8">
-              <div class="text-red-400 text-4xl mb-4">!</div>
-              <h2 class="text-xl font-bold text-red-300 mb-2">
-                failed to load music library
-              </h2>
-              <p class="text-red-400 mb-4">{initError()}</p>
-              <div class="space-y-4">
-                <button
-                  onClick={handleRefresh}
-                  class="px-4 py-2 bg-red-600 text-white hover:bg-red-700 transition-colors"
-                >
-                  try again
-                </button>
-                <div class="text-sm text-gray-400">
-                  <p>api endpoint issues? check server logs for details</p>
+              console.log("admin view: search executed", query);
+            }}
+            filters={musicSearch.filters}
+            onFiltersChange={musicSearch.updateFilters}
+            onClearFilters={musicSearch.clearFilters}
+            showAdvancedSearch={musicSearch.showAdvancedSearch}
+            onToggleAdvancedSearch={musicSearch.setShowAdvancedSearch}
+            suggestions={musicSearch.suggestions}
+            onSuggestionSelect={(suggestion) => {
+              musicSearch.onSuggestionSelect(suggestion);
+              console.log(
+                "admin view: search executed from suggestion",
+                suggestion
+              );
+            }}
+            presets={musicSearchPresets.slice(0, 6)}
+            onPresetApply={handlePresetApply}
+            isPresetActive={isPresetActive}
+            loading={musicSearch.loading}
+            resultsCount={musicSearch.totalCount}
+            filterSummary={musicSearch.filterSummary}
+            searchFields={adminSearchFields}
+            searchField={musicSearch.searchField() || undefined}
+            onSearchFieldChange={(field) => {
+              musicSearch.setSearchField(field);
+              // Re-run search with new field if there's a query
+              if (musicSearch.searchQuery().trim()) {
+                musicSearch.setSearchQuery(musicSearch.searchQuery(), true);
+              }
+              console.log("admin view: search field changed to", field);
+            }}
+            // Add view mode button
+            viewMode={musicData.viewMode()}
+            onViewModeChange={(mode) => musicData.setViewMode(mode)}
+          />
+        </div>
+      </Show>
+
+      {/* scrollable content area with separate sections */}
+      <div class="flex-1 bg-gray-900 flex flex-col">
+        {/* enhanced advanced filter panel - outside scroll container */}
+        <Show when={initialized()}>
+          <AdvancedFilterPanel
+            filters={musicSearch.filters}
+            onFiltersChange={musicSearch.updateFilters}
+            filterConfigs={musicFilterFields.slice(0, 10).map((field) => ({
+              key: field.key as any,
+              label: field.label,
+              type: field.type as any,
+              placeholder: field.placeholder || `enter ${field.label}`,
+              options:
+                field.key === "genre" || field.key === "tags"
+                  ? musicSearch.filterOptions()?.[field.key] || []
+                  : field.options || [],
+              min: field.min,
+              max: field.max,
+              supportsExact: field.supportsExact,
+            }))}
+            filterOptions={musicSearch.filterOptions}
+            visible={musicSearch.showAdvancedSearch}
+            onClose={() => musicSearch.setShowAdvancedSearch(false)}
+          />
+        </Show>
+
+        {/* main grid content - let the grid handle its own scrolling */}
+        <div class="flex-1 min-h-0">
+          <Show
+            when={initError()}
+            fallback={
+              <Show
+                when={initialized()}
+                fallback={
+                  <div class="h-full flex items-center justify-center">
+                    <div class="text-center">
+                      <div class="animate-spin h-12 w-12 border-2 border-magenta-500 border-t-transparent mx-auto mb-4"></div>
+                      <p class="text-white">
+                        initializing enhanced music search...
+                      </p>
+                      <p class="text-gray-400 text-sm mt-2">
+                        connecting to unified search backend...
+                      </p>
+                    </div>
+                  </div>
+                }
+              >
+                <AdminDataGrid
+                  musicData={{
+                    ...musicData,
+                    items: () => musicSearch.results(),
+                    total: () => musicSearch.totalCount(),
+                    loading: () => musicSearch.loading(),
+                    updateSort: (field, direction) => {
+                      console.log(
+                        "admin data grid: update sort",
+                        field,
+                        direction
+                      );
+                      console.log(
+                        "AdminView: current sort state before update:",
+                        {
+                          musicSearchField: musicSearch.sortField(),
+                          musicSearchDirection: musicSearch.sortDirection(),
+                          musicDataField: musicData.sortField(),
+                          musicDataDirection: musicData.sortDirection(),
+                        }
+                      );
+                      // Only use musicSearch for sort updates to avoid duplicate API calls
+                      // musicData.updateSort would trigger its own API request
+                      musicSearch.setSort(field, direction);
+                    },
+                    sortField: () => musicSearch.sortField(),
+                    sortDirection: () => musicSearch.sortDirection(),
+                    // Override pagination methods to use music search system
+                    hasNextPage: () => {
+                      const pag = musicSearch.pagination();
+                      return pag.hasNext;
+                    },
+                    nextPage: async () => {
+                      console.log(
+                        "admin view: loading next page via music search"
+                      );
+                      await musicSearch.loadMore();
+                    },
+                    // Override refresh to use musicSearch
+                    refresh: () => musicSearch.refresh(),
+                  }}
+                  onSongPlay={handleSongPlay}
+                  onSongEdit={handleSongEdit}
+                  apiClient={props.apiClient}
+                  theme={props.theme}
+                  className="h-full"
+                />
+              </Show>
+            }
+          >
+            <div class="h-full flex items-center justify-center">
+              <div class="text-center p-8">
+                <div class="text-red-400 text-4xl mb-4">!</div>
+                <h2 class="text-xl font-bold text-red-300 mb-2">
+                  failed to load music library
+                </h2>
+                <p class="text-red-400 mb-4">{initError()}</p>
+                <div class="space-y-4">
+                  <button
+                    onClick={() => window.location.reload()}
+                    class="px-4 py-2 bg-red-600 text-white hover:bg-red-700 transition-colors"
+                  >
+                    try again
+                  </button>
+                  <div class="text-sm text-gray-400">
+                    <p>api endpoint issues? check server logs for details</p>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </Show>
+          </Show>
+        </div>
       </div>
     </div>
   );

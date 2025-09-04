@@ -35,10 +35,12 @@ interface GridProps<T = any> {
   onRowMouseDown?: (item: T, index: number, event: MouseEvent) => void;
   onContextMenu?: (item: T, index: number, event: MouseEvent) => void;
   onScrollNearBottom?: () => void;
-  selectedItems?: Set<string>;
+  selectedRowIds?: Set<string>;
+  getRowId?: (item: T) => string;
   isDragSelecting?: boolean;
   sortField?: string;
   sortDirection?: "asc" | "desc" | null;
+
   className?: string;
   theme?: "light" | "dark";
   loading?: boolean;
@@ -134,10 +136,12 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
     const currentField = props.sortField;
     const currentDirection = props.sortDirection;
 
-    console.log("generic-infinite-grid: handleSort", {
-      field,
-      currentField,
-      currentDirection,
+    console.log("SORT DEBUG: handleSort called", {
+      clickedField: field,
+      currentField: currentField,
+      currentDirection: currentDirection,
+      fieldsMatch: currentField === field,
+      directionType: typeof currentDirection,
     });
 
     let newDirection: SortDirection | null;
@@ -145,20 +149,26 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
     if (currentField !== field) {
       // First click on a new field - start with ascending
       newDirection = "asc";
+      console.log("SORT DEBUG: Different field, setting to asc");
     } else {
-      // Cycle through: asc -> desc -> null (no sort) -> asc
+      // Simple cycling: asc -> desc -> null -> asc
+      console.log("SORT DEBUG: Same field, cycling from:", currentDirection);
       if (currentDirection === "asc") {
         newDirection = "desc";
+        console.log("SORT DEBUG: asc -> desc");
       } else if (currentDirection === "desc") {
         newDirection = null;
+        console.log("SORT DEBUG: desc -> null");
       } else {
         newDirection = "asc";
+        console.log("SORT DEBUG: null/other -> asc");
       }
     }
 
-    console.log("generic-infinite-grid: calling onSort with", {
-      field,
-      newDirection,
+    console.log("SORT DEBUG: About to call onSort with", {
+      field: field,
+      newDirection: newDirection,
+      willSendNull: newDirection === null,
     });
     props.onSort(field, newDirection);
   };
@@ -225,7 +235,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
           align-items: center;
           position: sticky;
           top: 0;
-          z-index: 5;
+          z-index: 50;
         }
 
         .light .grid-header {
@@ -329,6 +339,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
 
         .grid-content {
           position: relative;
+          padding-bottom: 4rem;
         }
 
         .grid-row {

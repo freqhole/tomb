@@ -1,5 +1,12 @@
 /* @jsxImportSource solid-js */
-import { createMemo, onMount, onCleanup, For, Show } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  onMount,
+  onCleanup,
+  For,
+  Show,
+} from "solid-js";
 import {
   GenericInfiniteGrid,
   GridColumn,
@@ -215,13 +222,9 @@ export function AdminDataGrid(props: AdminDataGridProps) {
   const handleSort = (field: string, direction: "asc" | "desc" | null) => {
     console.log("admin data grid: handleSort called", { field, direction });
 
-    if (direction) {
-      // Update sort in musicData and trigger API search
-      props.musicData.updateSort(field, direction);
-    } else {
-      // Reset to default sort (created_at desc)
-      props.musicData.updateSort("created_at", "desc");
-    }
+    // Always pass the direction through to useAdminData, even if null
+    // useAdminData will handle the null case and reset to default sort
+    props.musicData.updateSort(field, direction);
 
     // Scroll back to top when sorting changes
     if (gridContainerRef) {
@@ -291,6 +294,10 @@ export function AdminDataGrid(props: AdminDataGridProps) {
   const updateSongRating = async (songId: string, rating: number) => {
     try {
       await props.musicData.updateSong(songId, { rating });
+      // Use the refresh function that's passed from AdminView (musicSearch.refresh)
+      if (props.musicData.refresh) {
+        await props.musicData.refresh();
+      }
     } catch (error) {
       console.error("failed to update song rating:", error);
     }
@@ -303,6 +310,10 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         await props.musicData.updateSong(songId, {
           is_favorite: !song.is_favorite,
         });
+        // Use the refresh function that's passed from AdminView (musicSearch.refresh)
+        if (props.musicData.refresh) {
+          await props.musicData.refresh();
+        }
       } catch (error) {
         console.error("failed to toggle song favorite:", error);
       }
@@ -366,7 +377,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         onRowClick={handleRowClick}
         onRowDoubleClick={handleRowDoubleClick}
         onScrollNearBottom={handleScrollNearBottom}
-        selectedItems={props.musicData.selection.selectedIds()}
+        selectedRowIds={props.musicData.selection.selectedIds()}
         sortField={props.musicData.sortField() || undefined}
         sortDirection={props.musicData.sortDirection() || undefined}
         loading={props.musicData.loading()}
@@ -409,10 +420,25 @@ function StarRating(props: {
   rating?: number | null;
   onRate: (rating: number) => void;
 }) {
+  const [hoveredRating, setHoveredRating] = createSignal<number | null>(null);
   const rating = () => props.rating || 0;
 
+  const getStarClass = (star: number) => {
+    const hovered = hoveredRating();
+    const activeRating = hovered !== null ? hovered : rating();
+
+    return `w-4 h-4 transition-colors ${
+      star <= activeRating
+        ? "text-magenta-400"
+        : "text-gray-600 hover:text-magenta-300"
+    }`;
+  };
+
   return (
-    <div class="flex items-center space-x-1">
+    <div
+      class="flex items-center space-x-1"
+      onMouseLeave={() => setHoveredRating(null)}
+    >
       <For each={[1, 2, 3, 4, 5]}>
         {(star) => (
           <button
@@ -420,11 +446,8 @@ function StarRating(props: {
               e.stopPropagation();
               props.onRate(star);
             }}
-            class={`w-4 h-4 transition-colors ${
-              star <= rating()
-                ? "text-magenta-400"
-                : "text-gray-600 hover:text-magenta-300"
-            }`}
+            onMouseEnter={() => setHoveredRating(star)}
+            class={getStarClass(star)}
             title={`rate ${star} star${star !== 1 ? "s" : ""}`}
           >
             ★

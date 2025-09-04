@@ -49,6 +49,10 @@ export interface AdminSearchHeaderProps {
   resultsCount?: () => number;
   /** Active filters summary */
   filterSummary?: () => string;
+  /** Current view mode */
+  viewMode?: "compact" | "standard" | "detailed";
+  /** Callback when view mode changes */
+  onViewModeChange?: (mode: "compact" | "standard" | "detailed") => void;
   /** CSS class */
   className?: string;
 }
@@ -120,14 +124,42 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
             />
           </div>
 
+          {/* view mode toggle button */}
+          <Show when={props.viewMode && props.onViewModeChange}>
+            <button
+              onClick={() => {
+                const current = props.viewMode!;
+                const modes: Array<"compact" | "standard" | "detailed"> = [
+                  "compact",
+                  "standard",
+                  "detailed",
+                ];
+                const currentIndex = modes.indexOf(current);
+                const nextIndex = (currentIndex + 1) % modes.length;
+                const nextMode = modes[nextIndex];
+                if (nextMode) {
+                  props.onViewModeChange!(nextMode);
+                }
+              }}
+              class="h-12 px-3 bg-gray-800 text-white hover:bg-gray-700 text-sm font-medium transition-colors border border-gray-600"
+              title={`Current: ${props.viewMode} view - Click to cycle`}
+            >
+              {props.viewMode === "compact"
+                ? "⊟"
+                : props.viewMode === "standard"
+                  ? "☰"
+                  : "⊞"}
+            </button>
+          </Show>
+
           {/* advanced search toggle */}
           <button
             onClick={() =>
               props.onToggleAdvancedSearch(!props.showAdvancedSearch())
             }
-            class={`px-4 py-2 text-sm font-medium transition-colors ${
+            class={`h-12 px-4 text-sm font-medium transition-colors border border-gray-600 ${
               props.showAdvancedSearch()
-                ? "bg-magenta-600 text-white"
+                ? "bg-magenta-600 text-white border-magenta-600"
                 : "bg-gray-800 text-gray-300 hover:bg-gray-700"
             }`}
             title="toggle advanced search"
@@ -139,7 +171,7 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
           <Show when={hasActiveFilters()}>
             <button
               onClick={() => props.onClearFilters()}
-              class="px-3 py-2 bg-gray-700 text-gray-300 hover:bg-gray-600 text-sm font-medium transition-colors"
+              class="h-12 px-3 bg-gray-700 text-gray-300 hover:bg-gray-600 text-sm font-medium transition-colors border border-gray-600"
               title="clear all filters"
             >
               clear filters
