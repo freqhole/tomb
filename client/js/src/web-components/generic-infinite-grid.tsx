@@ -65,9 +65,10 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
   // Virtual scrolling calculations
   // Much simpler virtual scrolling
   const totalRows = createMemo(() => props.data.length);
-  const fixedContainerHeight = 600; // Fixed container height
+  // Use a reasonable default for virtual scrolling calculations
+  const estimatedContainerHeight = 500;
   const visibleRowCount =
-    Math.ceil(fixedContainerHeight / ROW_HEIGHT()) + BUFFER_SIZE;
+    Math.ceil(estimatedContainerHeight / ROW_HEIGHT()) + BUFFER_SIZE;
 
   const startIndex = createMemo(() => {
     const index = Math.floor(scrollTop() / ROW_HEIGHT());
@@ -97,9 +98,12 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
   });
 
   const actualVisibleEndRow = createMemo(() => {
-    const maxRow = Math.floor(
-      (scrollTop() + fixedContainerHeight) / ROW_HEIGHT()
-    );
+    // Use actual container height from the DOM element
+    const containerEl = scrollContainer;
+    const actualHeight = containerEl
+      ? containerEl.clientHeight
+      : estimatedContainerHeight;
+    const maxRow = Math.floor((scrollTop() + actualHeight) / ROW_HEIGHT());
     return Math.min(maxRow, totalRows());
   });
 
@@ -208,7 +212,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
     <div class={`generic-infinite-grid ${props.className || ""}`}>
       <style>{`
         .generic-infinite-grid {
-          height: 100vh;
+          height: 100%;
           background: #171717;
           color: #e0e0e0;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -326,7 +330,7 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
         }
 
         .grid-viewport {
-          height: 600px;
+          flex: 1;
           overflow: auto;
           position: relative;
           scroll-behavior: smooth;
