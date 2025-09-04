@@ -66,7 +66,8 @@ components/infinite-data-grid/
 │   ├── useGridLayout.ts             # layout and sizing logic (~80 lines)
 │   ├── useInfiniteLoading.ts        # infinite scroll detection (~80 lines)
 │   ├── useRowSelection.ts           # selection logic with keyboard support (~100 lines)
-│   └── useKeyboardNavigation.ts     # keyboard and focus management (~80 lines)
+│   ├── useKeyboardNavigation.ts     # keyboard and focus management (~80 lines)
+│   └── useEventPropagation.ts       # event delegation patterns (~60 lines)
 ├── styles/
 │   └── grid-styles.ts               # tailwind class utilities (~50 lines)
 └── utils/
@@ -275,6 +276,57 @@ export function useKeyboardNavigation(props: {
   return { handleKeyDown };
 }
 
+// event propagation patterns
+export function useEventPropagation(props: {
+  containerRef: () => HTMLDivElement | undefined;
+  isEditMode: () => boolean;
+  onGlobalKeyDown?: (event: KeyboardEvent) => void;
+}) {
+  // global keyboard handler at container level
+  const handleContainerKeyDown = (event: KeyboardEvent) => {
+    // if any input/textarea is focused, let browser handle it
+    const activeElement = document.activeElement;
+    if (
+      activeElement?.tagName === "INPUT" ||
+      activeElement?.tagName === "TEXTAREA" ||
+      activeElement?.hasAttribute("contenteditable")
+    ) {
+      return; // browser handles input events naturally
+    }
+
+    // if in edit mode, let edit component handle keys
+    if (props.isEditMode()) {
+      return;
+    }
+
+    // only handle grid-level shortcuts when not editing
+    props.onGlobalKeyDown?.(event);
+  };
+
+  // attach event listener to container
+  createEffect(() => {
+    const container = props.containerRef();
+    if (!container) return;
+
+    container.addEventListener("keydown", handleContainerKeyDown);
+
+    onCleanup(() => {
+      container.removeEventListener("keydown", handleContainerKeyDown);
+    });
+  });
+
+  return {
+    // helper to stop propagation for cell-level events
+    stopPropagation: (event: Event) => {
+      event.stopPropagation();
+    },
+    // helper to prevent default browser behavior
+    preventDefault: (event: Event) => {
+      event.preventDefault();
+    },
+  };
+}
+
 // infinite loading detection hook
 export function useInfiniteLoading(props: {
   scrollTop: () => number;
@@ -386,6 +438,17 @@ export interface InfiniteGridProps<T = any> {
   onSort?: (field: string, direction: SortDirection | null) => void;
   onRowClick?: (item: T, index: number, event: MouseEvent) => void;
   onRowDoubleClick?: (item: T, index: number) => void;
+  onContextMenu?: (
+    item: T,
+    index: number,
+    event: MouseEvent,
+    cellContext?: {
+      column: GridColumn<T>;
+      value: any;
+      canEdit: boolean;
+      cellActions?: string[];
+    },
+  ) => void;
   onSelectionChange?: (selectedIds: Set<string>) => void;
   onLoadMore?: () => void;
   onScrollNearBottom?: () => void;
@@ -494,7 +557,20 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
           style={`height: ${virtualization.totalContentHeight()}px; position: relative;`}
         >
           <For each={visibleItems()}>
-            {(item, index) => renderRow(item.data, item.index)}
+            {(item, index) => (
+              <VirtualizedRow
+                item={item.data}
+                index={item.index}
+                columns={props.columns}
+                rowHeight={props.virtualization?.rowHeight || 50}
+                isSelected={grid.isSelected(grid.getItemId(item.data))}
+                onClick={props.onRowClick}
+                onDoubleClick={props.onRowDoubleClick}
+                onContextMenu={props.onContextMenu}
+                renderCell={props.renderCell}
+                class="bg-black bg-opacity-90 hover:bg-opacity-70"
+              />
+            )}
           </For>
         </div>
       </div>
@@ -658,11 +734,65 @@ export interface VirtualizedRowProps<T> {
   isSelected: boolean;
   onClick?: (item: T, index: number, event: MouseEvent) => void;
   onDoubleClick?: (item: T, index: number) => void;
+  onContextMenu?: (
+    item: T,
+    index: number,
+    event: MouseEvent,
+    cellContext?: {
+      column: GridColumn<T>;
+      value: any;
+      canEdit: boolean;
+      cellActions?: string[];
+    },
+  ) => void;
   renderCell?: (item: T, column: GridColumn<T>, value: any) => JSX.Element;
   class?: string;
 }
 
 export function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
+  // handle context menu with cell context
+  const handleContextMenu = (event: MouseEvent, column?: GridColumn<T>) => {
+    if (!props.onContextMenu) return;
+
+    let cellContext;
+    if (column) {
+      const value = (props.item as any)[column.key];
+      cellContext = {
+        column,
+        value,
+        canEdit: column.editable || false,
+        cellActions: getCellActions(column.key, value),
+      };
+    }
+
+    props.onContextMenu(props.item, props.index, event, cellContext);
+  };
+
+  // get cell-specific actions based on column type
+  const getCellActions = (columnKey: string, value: any): string[] => {
+    const actions: string[] = [];
+
+    switch (columnKey) {
+      case "thumbnail":
+        actions.push("view artwork", "upload artwork");
+        break;
+      case "title":
+        actions.push("edit title", "search lyrics");
+        break;
+      case "artist":
+        actions.push("edit artist", "view artist page");
+        break;
+      case "rating":
+        actions.push("rate 1", "rate 2", "rate 3", "rate 4", "rate 5");
+        break;
+      case "is_favorite":
+        actions.push(value ? "remove favorite" : "add favorite");
+        break;
+    }
+
+    return actions;
+  };
+
   // default cell renderer
   const renderCell = (column: GridColumn<T>) => {
     const value = (props.item as any)[column.key];
@@ -677,10 +807,12 @@ export function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
       return column.render(props.item, props.index);
     }
 
-    // default text rendering
+    // default text rendering with cell-specific context menu
     return (
       <div
         class={`${column.cellClassName || ""} px-3 py-2 text-sm overflow-hidden text-ellipsis whitespace-nowrap`}
+        onContextMenu={(e) => handleContextMenu(e, column)}
+        onClick={(e) => e.stopPropagation()} // prevent row click when clicking cell
       >
         {value?.toString() || ""}
       </div>
@@ -700,6 +832,7 @@ export function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
       }}
       onClick={(e) => props.onClick?.(props.item, props.index, e)}
       onDblClick={() => props.onDoubleClick?.(props.item, props.index)}
+      onContextMenu={(e) => handleContextMenu(e)}
     >
       <For each={props.columns}>
         {(column) => (
@@ -723,7 +856,64 @@ export function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
 }
 ```
 
-#### Step 6: GridStatusBar Implementation
+#### Step 6: Event Propagation Patterns
+
+**Core Philosophy:**
+
+- use standard browser event propagation
+- leverage event.stopPropagation() and event.preventDefault() strategically
+- let focused inputs handle their own events naturally
+- grid-level shortcuts only work when not editing
+
+**Example Event Flow:**
+
+```tsx
+// EditableCell.tsx
+export function EditableCell(props: EditableCellProps) {
+  return (
+    <input
+      class="bg-black text-white px-2 py-1"
+      value={props.value}
+      onKeyDown={(e) => {
+        // cell editing takes precedence - no stopPropagation needed
+        // browser naturally focuses input, grid shortcuts won't fire
+        if (e.key === "Enter") {
+          props.onSave(e.currentTarget.value);
+        } else if (e.key === "Escape") {
+          props.onCancel();
+        }
+        // ctrl+a naturally selects text in input
+      }}
+      onBlur={() => props.onCancel()}
+      autofocus
+    />
+  );
+}
+
+// Grid container handles global shortcuts
+<div
+  class="h-full flex flex-col"
+  tabIndex={0}
+  onKeyDown={(e) => {
+    // only handle when no input is focused
+    if (document.activeElement?.tagName === "INPUT") return;
+
+    if (e.key === "a" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      selectAllRows();
+    }
+  }}
+>
+```
+
+**Key Patterns:**
+
+- **Natural Focus**: browser manages focus automatically
+- **Input Priority**: focused inputs get events first
+- **Strategic stopPropagation**: only use for cell clicks to prevent row selection
+- **Grid-level Check**: check document.activeElement before handling shortcuts
+
+#### Step 7: GridStatusBar Implementation
 
 **`GridStatusBar.tsx`:**
 
@@ -856,6 +1046,7 @@ const cellClasses =
 8. **Cell Editing**: double-click cells to edit values inline
 9. **Keyboard Navigation**: arrow keys, enter, escape work correctly
 10. **Row Selection**: shift-click ranges, ctrl-click toggle, focus indicators
+11. **Event Propagation**: editing cells properly isolates keyboard events
 
 #### Performance Requirements
 
@@ -873,6 +1064,7 @@ const cellClasses =
 3. **Context Menu Support**: right-click actions on rows and cells
 4. **Cell Edit Mode**: double-click to edit cell values inline
 5. **Focus Management**: proper focus indicators and tab order
+6. **Event Delegation**: proper event propagation for editing vs grid shortcuts
 
 #### Possible Extensions (Not in Initial Scope)
 
