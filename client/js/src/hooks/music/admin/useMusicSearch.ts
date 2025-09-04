@@ -3,6 +3,7 @@ import type { ApiClient } from "../../../lib/api-client.js";
 import type { AdminMusicFilters } from "../../../lib/admin/admin-api.js";
 import type { SearchPreset } from "../../../components/search/index.js";
 import { useStandardDelayedLoading } from "../../useDelayedLoading.js";
+import { getMusicFilterSummary } from "../../../lib/music/admin/music-unified-search.js";
 
 export interface MusicSearchState {
   query: string;
@@ -30,7 +31,11 @@ export interface MusicSearchReturn {
   /** Toggle advanced search */
   setShowAdvancedSearch: (show: boolean) => void;
   /** Search suggestions */
-  suggestions: () => string[];
+  suggestions: () => Array<{
+    text: string;
+    category: string;
+    highlight?: string;
+  }>;
   /** Handle suggestion selection */
   onSuggestionSelect: (suggestion: string) => void;
   /** Search presets */
@@ -90,7 +95,9 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   const [filters, setFiltersSignal] = createSignal<AdminMusicFilters>({});
   const [showAdvancedSearch, setShowAdvancedSearch] = createSignal(false);
   const [selectedPreset, setSelectedPreset] = createSignal<string | null>(null);
-  const [suggestions, setSuggestions] = createSignal<string[]>([]);
+  const [suggestions, setSuggestions] = createSignal<
+    Array<{ text: string; category: string; highlight?: string }>
+  >([]);
   const [searchField, setSearchFieldSignal] = createSignal<string | null>(
     "all"
   );
@@ -187,25 +194,11 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   });
 
   const filterSummary = createMemo(() => {
-    const activeFilters = filters();
-    const query = searchQuery();
-    const parts: string[] = [];
-
-    if (query) parts.push(`search: "${query}"`);
-    if (activeFilters.is_favorite) parts.push("favorites only");
-    if (activeFilters.artist) parts.push(`artist: ${activeFilters.artist}`);
-    if (activeFilters.album) parts.push(`album: ${activeFilters.album}`);
-    if (activeFilters.genre) parts.push(`genre: ${activeFilters.genre}`);
-    if (activeFilters.year) parts.push(`year: ${activeFilters.year}`);
-    if (activeFilters.year_min && activeFilters.year_max) {
-      parts.push(`years: ${activeFilters.year_min}-${activeFilters.year_max}`);
-    } else if (activeFilters.year_min) {
-      parts.push(`year >= ${activeFilters.year_min}`);
-    } else if (activeFilters.year_max) {
-      parts.push(`year <= ${activeFilters.year_max}`);
-    }
-
-    return parts.join(", ");
+    const params = {
+      q: searchQuery(),
+      ...filters(),
+    };
+    return getMusicFilterSummary(params);
   });
 
   // === CORE FUNCTIONS ===
@@ -341,8 +334,6 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     console.log(`music search: loading suggestions for "${query}"`);
 
     try {
-      // Use current search field for suggestions
-      const currentField = searchField() || "all";
       const response = await apiClient.makeRequest<any>(
         "GET",
         "/api/music/suggestions",
@@ -363,105 +354,17 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
         console.log("music search: response values:", Object.values(response));
       }
 
-      if (response?.suggestions) {
-        // Format 1: { suggestions: [ { text: "suggestion" } ] }
-        console.log(
-          "music search: processing response.suggestions:",
-          response.suggestions
+      if (response?.suggestions && Array.isArray(response.suggestions)) {
+        // Process suggestions like useUnifiedSearch does
+        const processedSuggestions = response.suggestions.map(
+          (suggestion: any) => ({
+            text: suggestion.value || suggestion.query || String(suggestion),
+            category: suggestion.suggestion_type || "suggestion",
+            highlight: suggestion.highlight,
+          })
         );
-        const mappedSuggestions = response.suggestions.map(
-          (s: any, index: number) => {
-            console.log(`music search: raw suggestion[${index}]:`, s, typeof s);
-            let text;
-            if (typeof s === "string") {
-              text = s;
-            } else if (s && typeof s === "object") {
-              text = s.text || s.value || s.query || JSON.stringify(s);
-            } else {
-              text = String(s || "");
-            }
-            console.log(`music search: suggestion[${index}] mapped to:`, text);
-            return text;
-          }
-        );
-        console.log(
-          "music search: final mapped suggestions:",
-          mappedSuggestions
-        );
-        setSuggestions(mappedSuggestions);
-      } else if (Array.isArray(response)) {
-        // Format 2: [ "suggestion1", "suggestion2" ]
-        console.log(
-          "music search: processing direct array response:",
-          response
-        );
-        const stringifiedSuggestions = response.map((s: any, index: number) => {
-          console.log(`music search: array item[${index}]:`, s, typeof s);
-          let text;
-          if (typeof s === "string") {
-            text = s;
-          } else if (s && typeof s === "object") {
-            text = s.text || s.value || s.query || JSON.stringify(s);
-          } else {
-            text = String(s || "");
-          }
-          console.log(`music search: array item[${index}] mapped to:`, text);
-          return text;
-        });
-        console.log(
-          "music search: final array suggestions:",
-          stringifiedSuggestions
-        );
-        setSuggestions(stringifiedSuggestions);
-      } else if (typeof response === "object" && response !== null) {
-        // Format 3: { results: [ "suggestion1", "suggestion2" ] }
-        const possibleArrayKeys = ["results", "items", "data", "values"];
-        console.log(
-          "music search: searching for array in object keys:",
-          possibleArrayKeys
-        );
-        for (const key of possibleArrayKeys) {
-          if (Array.isArray(response[key])) {
-            console.log(
-              `music search: found array in response.${key}:`,
-              response[key]
-            );
-            const stringifiedSuggestions = response[key].map(
-              (s: any, index: number) => {
-                console.log(
-                  `music search: nested item[${index}]:`,
-                  s,
-                  typeof s
-                );
-                let text;
-                if (typeof s === "string") {
-                  text = s;
-                } else if (s && typeof s === "object") {
-                  text = s.text || s.value || s.query || JSON.stringify(s);
-                } else {
-                  text = String(s || "");
-                }
-                console.log(
-                  `music search: nested item[${index}] mapped to:`,
-                  text
-                );
-                return text;
-              }
-            );
-            console.log(
-              "music search: final nested suggestions:",
-              stringifiedSuggestions
-            );
-            setSuggestions(stringifiedSuggestions);
-            return;
-          }
-        }
-        console.log("music search: no valid array found in response object");
-        setSuggestions([]);
+        setSuggestions(processedSuggestions);
       } else {
-        console.log(
-          "music search: unrecognized response format, setting empty"
-        );
         setSuggestions([]);
       }
 
@@ -612,7 +515,7 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     sortField,
     sortDirection,
     refresh,
-    searchSuggestions: suggestions, // alias for compatibility
+    searchSuggestions: () => suggestions().map((s) => s.text), // alias for compatibility
     totalCount: total, // alias
     searchField,
     setSearchField,

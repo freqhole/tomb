@@ -183,7 +183,7 @@ export function createAdminData<T extends { id: string }>(
         setItems(newItems);
       }
 
-      setTotal(validatedResponse.total || 0);
+      setTotal(validatedResponse.total_count || 0);
 
       // Update pagination with response data
       setPagination({

@@ -6,7 +6,7 @@ import { MusicListResponseSchema } from "../../admin/admin-api.js";
  * Music-specific admin configuration
  */
 export const musicAdminConfig: AdminDataConfig = {
-  apiEndpoint: "/api/music/filter",
+  apiEndpoint: "/api/music/search",
   defaultFilters: {
     // No filters by default - show all songs
     songs_only: true, // Filter to songs only (exclude playlists)

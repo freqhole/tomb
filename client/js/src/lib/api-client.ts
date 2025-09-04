@@ -559,7 +559,7 @@ export class ApiClient {
     try {
       const response = await this.makeRequest<unknown>(
         "GET",
-        "/api/music/filter",
+        "/api/music/search",
         { params }
       );
 
@@ -574,7 +574,7 @@ export class ApiClient {
           `Music filter failed: ${error.message}`,
           error.status,
           error.responseText,
-          "/api/music/filter"
+          "/api/music/search"
         );
       }
       throw error;

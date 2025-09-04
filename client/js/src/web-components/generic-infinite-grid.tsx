@@ -45,7 +45,7 @@ interface GridProps<T = any> {
   serverTotal?: number;
 }
 
-type SortDirection = "asc" | "desc";
+type SortDirection = "asc" | "desc" | null;
 
 function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
   console.log("📦 GenericInfiniteGrid component created");
@@ -146,9 +146,11 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
       // First click on a new field - start with ascending
       newDirection = "asc";
     } else {
-      // Cycle through: asc -> desc -> asc (two-state toggle)
+      // Cycle through: asc -> desc -> null (no sort) -> asc
       if (currentDirection === "asc") {
         newDirection = "desc";
+      } else if (currentDirection === "desc") {
+        newDirection = null;
       } else {
         newDirection = "asc";
       }
@@ -175,13 +177,13 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
 
   const getSortIcon = (field: string) => {
     if (props.sortField !== field) return "⋮⋮";
-    if (!props.sortDirection) return "⋮⋮";
+    if (!props.sortDirection) return "○";
     return props.sortDirection === "asc" ? "↑" : "↓";
   };
 
   const getSortClass = (field: string) => {
     if (props.sortField !== field) return "";
-    if (!props.sortDirection) return "";
+    if (!props.sortDirection) return "sort-none";
     return props.sortDirection === "asc" ? "sort-asc" : "sort-desc";
   };
 

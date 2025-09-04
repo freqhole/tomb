@@ -137,7 +137,7 @@ export type AdminPagination = z.infer<typeof AdminPaginationSchema>;
 // music list response
 export const MusicListResponseSchema = z.object({
   songs: z.array(AdminSongSchema),
-  total: z.number(),
+  total_count: z.number(),
   page: z.number().optional(),
   page_size: z.number().optional(),
   total_pages: z.number().optional(),

@@ -1,11 +1,7 @@
 /* @jsxImportSource solid-js */
 import { onCleanup, Show } from "solid-js";
 import { ComponentEventRegistry } from "../event-registry.js";
-import {
-  SearchBar,
-  SearchPresets,
-  SearchSummary,
-} from "../../../components/search/index.js";
+import { SearchBar, SearchPresets } from "../../../components/search/index.js";
 import type {
   SearchSuggestion,
   SearchPreset,
@@ -165,18 +161,41 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
           </div>
         </Show>
 
-        {/* filter summary and results count */}
+        {/* active filters, results count, and reset - all in one line */}
         <Show when={props.filterSummary?.() || props.resultsCount?.()}>
-          <div class="flex items-center justify-between mt-3 text-sm">
-            <Show when={props.filterSummary?.()}>
-              <SearchSummary
-                filters={props.filters()}
-                getSummary={props.filterSummary}
-                class="flex-1"
-              />
+          <div class="flex items-center space-x-4 mt-3 text-sm">
+            <Show
+              when={
+                props.filterSummary?.() && props.filterSummary!().trim() !== ""
+              }
+            >
+              <span class="text-gray-300">
+                active filters: {props.filterSummary!()}
+              </span>
             </Show>
             <Show when={props.resultsCount?.() !== undefined}>
-              <div class="text-gray-400">{props.resultsCount!()} results</div>
+              <span class="text-gray-400">{props.resultsCount!()} results</span>
+            </Show>
+            <Show
+              when={
+                props.resultsCount!() > 0 ||
+                props.searchQuery().trim() !== "" ||
+                Object.keys(props.filters()).length > 0
+              }
+            >
+              <button
+                onClick={() => {
+                  props.onSearchChange("");
+                  props.onClearFilters();
+                  // Execute search with empty query to refresh results
+                  if (props.onSearchExecute) {
+                    props.onSearchExecute("");
+                  }
+                }}
+                class="text-xs text-magenta-400 hover:text-magenta-300 underline transition-colors"
+              >
+                reset
+              </button>
             </Show>
           </div>
         </Show>

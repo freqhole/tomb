@@ -254,6 +254,13 @@ export function SearchInput(props: SearchInputProps) {
             setInternalValue(query);
             props.onInput?.(query);
             handleSearchClick();
+          } else {
+            // if input is blank, clear the search
+            setInternalValue("");
+            props.onInput?.("");
+            props.onSearch?.("");
+            setShowDropdown(false);
+            inputRef()?.blur();
           }
         }
         break;
@@ -322,6 +329,21 @@ export function SearchInput(props: SearchInputProps) {
     setTimeout(() => {
       setShowDropdown(false);
       setSelectedIndex(-1);
+
+      // trigger search if input value differs from current value and isn't empty
+      const inputValue = inputRef()?.value?.trim() || "";
+      const currentVal = currentValue().trim();
+
+      if (
+        inputValue &&
+        inputValue !== currentVal &&
+        inputValue !== previousQuery()
+      ) {
+        setInternalValue(inputValue);
+        props.onInput?.(inputValue);
+        props.onSearch?.(inputValue);
+        setPreviousQuery(inputValue);
+      }
     }, 150);
   };
 
