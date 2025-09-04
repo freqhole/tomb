@@ -319,6 +319,10 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
             search.refresh();
             console.log("search executed", query);
           }}
+          onSuggestionSelect={(suggestion) => {
+            search.setSearchQuery(suggestion, true);
+            console.log("search executed from suggestion", suggestion);
+          }}
           suggestions={search.searchSuggestions().map((s: any) => ({
             text: typeof s === "string" ? s : s.text || String(s),
             category:

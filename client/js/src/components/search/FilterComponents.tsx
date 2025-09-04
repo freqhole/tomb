@@ -1,4 +1,11 @@
-import { For, Show, createSignal, createMemo } from "solid-js";
+import {
+  For,
+  Show,
+  createSignal,
+  createMemo,
+  createEffect,
+  onCleanup,
+} from "solid-js";
 
 export interface FilterOption {
   value: string;
@@ -384,10 +391,55 @@ export interface FilterTextProps {
 }
 
 export function FilterText(props: FilterTextProps) {
+  const [localValue, setLocalValue] = createSignal(props.value || "");
+  const [debounceTimeout, setDebounceTimeout] = createSignal<
+    number | undefined
+  >();
+
+  // Update local value when props.value changes
+  createEffect(() => {
+    setLocalValue(props.value || "");
+  });
+
+  // Cleanup timeout on unmount
+  onCleanup(() => {
+    const timeout = debounceTimeout();
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  });
+
   const handleValueChange = (e: Event) => {
     const target = e.target as HTMLInputElement;
-    const value = target.value.trim();
-    props.onValueChange(value || undefined);
+    const value = target.value;
+    setLocalValue(value);
+
+    // Clear existing timeout
+    const existingTimeout = debounceTimeout();
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
+    // Set new debounced timeout
+    const newTimeout = window.setTimeout(() => {
+      const trimmedValue = value.trim();
+      props.onValueChange(trimmedValue || undefined);
+    }, 500);
+
+    setDebounceTimeout(newTimeout);
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      // Clear timeout and immediately trigger change
+      const timeout = debounceTimeout();
+      if (timeout) {
+        clearTimeout(timeout);
+        setDebounceTimeout(undefined);
+      }
+      const trimmedValue = localValue().trim();
+      props.onValueChange(trimmedValue || undefined);
+    }
   };
 
   const handleExactChange = (e: Event) => {
@@ -404,8 +456,9 @@ export function FilterText(props: FilterTextProps) {
         <input
           type="text"
           class="w-full bg-black text-white px-3 py-2 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-magenta-500"
-          value={props.value || ""}
+          value={localValue()}
           onInput={handleValueChange}
+          onKeyDown={handleKeyDown}
           placeholder={props.placeholder}
         />
         <Show when={props.supportsExact}>

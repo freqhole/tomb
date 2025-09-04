@@ -25,7 +25,7 @@ export function SearchFieldSelector(props: SearchFieldSelectorProps) {
       value={props.value || "all"}
       onChange={(e) => props.onChange?.(e.target.value)}
       disabled={props.disabled}
-      class={`bg-gray-900 text-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-magenta-500 border-0 border-r border-gray-700 ${props.class || ""}`}
+      class={`bg-gray-800 text-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-magenta-500 border border-gray-600 border-r-0 ${props.class || ""}`}
     >
       {props.fields.map((field) => (
         <option value={field.value} title={field.description}>

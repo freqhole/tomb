@@ -31,7 +31,7 @@ export function SearchBar(props: SearchBarProps) {
 
   return (
     <div class={`search-bar ${props.class || ""}`}>
-      <div class="flex bg-black text-white border border-gray-600">
+      <div class="flex items-stretch bg-black text-white border border-gray-600">
         {/* field selector */}
         {showFieldSelector() && (
           <SearchFieldSelector
@@ -61,7 +61,7 @@ export function SearchBar(props: SearchBarProps) {
             maxSuggestions={props.maxSuggestions}
             onClear={props.onClear}
             suggestionsLoading={props.suggestionsLoading}
-            class="mb-0 flex-1"
+            class="mb-0 flex-1 border-0"
           />
         </div>
       </div>

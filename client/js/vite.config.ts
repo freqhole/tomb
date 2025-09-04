@@ -4,9 +4,9 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [solid(), tailwindcss()],
-  root: "src/views/freqhole",
+  root: "src/views/freqhole-music-admin",
   build: {
-    outDir: "../../../dist/freqhole", // no idea why this needs so many ../
+    outDir: "../../../dist/freqhole-music-admin", // no idea why this needs so many ../
     emptyOutDir: false,
   },
   server: {
