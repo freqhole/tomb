@@ -4,10 +4,23 @@ import type { JSX } from "solid-js";
 export interface GridColumn<T = any> {
   key: string;
   title: string | JSX.Element;
-  width?: number;
+  width?: number | string; // support both px and %
+  minWidth?: number;
+  maxWidth?: number;
   sortable?: boolean;
-  render?: (item: T, index: number) => any;
+  resizable?: boolean;
+  editable?: boolean; // double-click to edit
+  render?: (item: T, index: number) => JSX.Element;
+  renderHeader?: () => JSX.Element;
+  renderEditCell?: (
+    item: T,
+    value: any,
+    onSave: (newValue: any) => void,
+    onCancel: () => void
+  ) => JSX.Element;
   className?: string;
+  headerClassName?: string;
+  cellClassName?: string;
 }
 
 export type SortDirection = "asc" | "desc";
@@ -17,78 +30,115 @@ export interface SortConfig {
   direction: SortDirection;
 }
 
-export interface GridTheme {
-  name: string;
-  colors: {
-    background: string;
-    text: string;
-    border: string;
-    header: string;
-    hover: string;
-    selected: string;
-  };
-}
-
-export interface GridState {
-  sortConfig: SortConfig;
-  selectedItems: Set<string>;
-  isDragSelecting: boolean;
-}
-
-export interface GridProps<T = any> {
-  data: T[];
-  columns: GridColumn<T>[];
+export interface VirtualizationOptions {
+  enabled?: boolean;
+  threshold?: number;
+  bufferSize?: number;
   rowHeight?: number;
   headerHeight?: number;
-  virtualizeThreshold?: number;
-  onSort?: (field: string, direction: SortDirection) => void;
-  onRowClick?: (item: T, index: number, event: MouseEvent) => void;
-  onRowDoubleClick?: (item: T, index: number, event: MouseEvent) => void;
-  onRowMouseDown?: (item: T, index: number, event: MouseEvent) => void;
-  onRowMount?: (item: T) => void;
-  onContextMenu?: (item: T, index: number, event: MouseEvent) => void;
-  onDragSelection?: (selectedIds: Set<string>) => void;
-  sortField?: string;
-  sortDirection?: SortDirection;
-  defaultSort?: { field: string; direction: SortDirection };
-  selectedItems?: Set<string>;
-  isDragSelecting?: boolean;
-  getItemId?: (item: T) => string;
+}
+
+export interface GridLayoutOptions {
+  stickyHeader?: boolean;
+  showRowNumbers?: boolean;
+  showStatusBar?: boolean;
+  allowColumnResize?: boolean;
+  allowRowSelection?: boolean;
+}
+
+export interface InfiniteGridProps<T = any> {
+  data: T[];
+  columns: GridColumn<T>[];
+
+  // Layout
   className?: string;
-  showPaginationStatus?: boolean;
+  virtualization?: VirtualizationOptions;
+  layout?: GridLayoutOptions;
+
+  // Events
+  onSort?: (field: string, direction: SortDirection | null) => void;
+  onRowClick?: (item: T, index: number, event: MouseEvent) => void;
+  onRowDoubleClick?: (item: T, index: number) => void;
+  onContextMenu?: (
+    item: T,
+    index: number,
+    event: MouseEvent,
+    cellContext?: {
+      column: GridColumn<T>;
+      value: any;
+      canEdit: boolean;
+      cellActions?: string[];
+    }
+  ) => void;
+  onSelectionChange?: (selectedIds: Set<string>) => void;
   onLoadMore?: () => void;
+  onScrollNearBottom?: () => void;
+
+  // State
+  sortField?: string;
+  sortDirection?: SortDirection | null;
+  selectedRowIds?: Set<string>;
+  loading?: boolean;
   hasMore?: boolean;
-  isLoadingMore?: boolean;
-  focusedIndex?: number;
-  showFocusIndicator?: boolean;
+  serverTotal?: number;
+
+  // Song-focused rendering (specific to music domain)
+  songRowRenderer?: "default" | "compact" | "detailed" | "album-header";
+  enableCellEditing?: boolean;
+  onCellEdit?: (item: T, field: string, newValue: any) => Promise<void>;
+
+  // Generic fallback for non-song data
+  renderRow?: (
+    item: T,
+    index: number,
+    defaultRender: () => JSX.Element
+  ) => JSX.Element;
+
+  // Accessibility
+  getRowId?: (item: T) => string;
+  getRowLabel?: (item: T) => string;
 }
 
 export interface VirtualizedRowProps<T = any> {
   item: T;
   index: number;
-  style: string;
   columns: GridColumn<T>[];
-  isSelected: boolean;
-  onRowClick?: (item: T, index: number, event: MouseEvent) => void;
-  onRowDoubleClick?: (item: T, index: number, event: MouseEvent) => void;
-  onRowMouseDown?: (item: T, index: number, event: MouseEvent) => void;
-  onRowMount?: (item: T) => void;
-  onContextMenu?: (item: T, index: number, event: MouseEvent) => void;
   rowHeight: number;
-  focusedIndex?: number;
-  showFocusIndicator?: boolean;
+  isSelected: boolean;
+  isFocused?: boolean;
+  onClick?: (item: T, index: number, event: MouseEvent) => void;
+  onDoubleClick?: (item: T, index: number) => void;
+  onContextMenu?: (
+    item: T,
+    index: number,
+    event: MouseEvent,
+    cellContext?: {
+      column: GridColumn<T>;
+      value: any;
+      canEdit: boolean;
+      cellActions?: string[];
+    }
+  ) => void;
+  editingCell?: { rowIndex: number; columnKey: string } | null;
+  onCellEdit?: (item: T, field: string, newValue: any) => Promise<void>;
+  onEditStart?: (rowIndex: number, columnKey: string) => void;
+  onEditCancel?: () => void;
+  renderCell?: (item: T, column: GridColumn<T>, value: any) => JSX.Element;
+  class?: string;
 }
 
-const DARK_THEME: GridTheme = {
-  name: "dark",
-  colors: {
-    background: "#000000",
-    text: "#ffffff",
-    border: "#3a3a3a",
-    header: "#1a1a1a",
-    hover: "#2a2a2a",
-    selected: "#ff00ff",
-  },
-};
-
-export { DARK_THEME };
+// Enhanced dark theme with tailwind classes
+export const DARK_THEME = {
+  background: "bg-black",
+  text: "text-white",
+  textSecondary: "text-gray-400",
+  textMuted: "text-gray-600",
+  accent: "text-magenta-500",
+  accentBg: "bg-magenta-500",
+  transparent90: "bg-black bg-opacity-90",
+  transparent70: "bg-black bg-opacity-70",
+  hover: "hover:bg-black hover:bg-opacity-70",
+  selected: "bg-magenta-500 bg-opacity-30",
+  selectedBorder: "shadow-[inset_0_0_0_2px_rgb(217,70,239)]",
+  focus: "shadow-[inset_0_0_0_1px_white]",
+} as const;

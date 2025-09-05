@@ -8,9 +8,9 @@ import {
   Show,
 } from "solid-js";
 import {
-  GenericInfiniteGrid,
+  InfiniteGrid,
   GridColumn,
-} from "../../../web-components/generic-infinite-grid.js";
+} from "../../../components/infinite-data-grid";
 import type { AdminSong } from "../../../lib/admin/admin-api.js";
 import type { MusicAdminData } from "../../../hooks/music/admin/useMusicAdminData.js";
 import type { ApiClient } from "../../../lib/api-client.js";
@@ -66,7 +66,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "title",
       width: 250,
       sortable: true,
-      getValue: (song) => song.title || "",
+
       render: (song: AdminSong) => (
         <div class="min-w-0">
           <div class="font-medium text-white truncate">{song.title}</div>
@@ -81,7 +81,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "artist",
       width: 200,
       sortable: true,
-      getValue: (song) => song.artist || "zzz", // Use "zzz" to sort unknown artists last
+
       render: (song: AdminSong) => (
         <div class="truncate text-gray-300" title={song.artist || ""}>
           {song.artist || "unknown artist"}
@@ -93,7 +93,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "album",
       width: 200,
       sortable: true,
-      getValue: (song) => song.album || "zzz", // Use "zzz" to sort unknown albums last
+
       render: (song: AdminSong) => (
         <div class="truncate text-gray-300" title={song.album || ""}>
           {song.album || "unknown album"}
@@ -105,8 +105,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "duration",
       width: 80,
       sortable: true,
-      getValue: (song) =>
-        isSortable(song.duration_seconds) ? song.duration_seconds : -1,
+
       render: (song: AdminSong) => (
         <div class="text-right tabular-nums text-gray-300">
           {formatDuration(song.duration_seconds)}
@@ -118,7 +117,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "year",
       width: 80,
       sortable: true,
-      getValue: (song) => (isSortable(song.year) ? song.year : -1), // Use -1 to sort unknown years first
+
       render: (song: AdminSong) => (
         <div class="text-center text-gray-300">{song.year || "—"}</div>
       ),
@@ -128,7 +127,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "genre",
       width: 150,
       sortable: true,
-      getValue: (song) => song.genre || "zzz", // Use "zzz" to sort unknown genres last
+
       render: (song: AdminSong) => (
         <div class="truncate text-gray-300" title={song.genre || ""}>
           {song.genre || "unknown"}
@@ -140,7 +139,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "rating",
       width: 100,
       sortable: true,
-      getValue: (song) => (isSortable(song.rating) ? song.rating : -1), // Use -1 to sort unrated first
+
       render: (song: AdminSong) => (
         <div class="flex items-center justify-center">
           <StarRating
@@ -155,7 +154,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "fav",
       width: 50,
       sortable: true,
-      getValue: (song) => (song.is_favorite === true ? 1 : 0), // True sorts after false
+
       render: (song: AdminSong) => (
         <div class="flex items-center justify-center">
           <button
@@ -182,7 +181,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       title: "added",
       width: 150,
       sortable: true,
-      getValue: (song) => song.created_at || "", // Handle null dates
+
       render: (song: AdminSong) => (
         <div class="text-sm text-gray-400">{formatDate(song.created_at)}</div>
       ),
@@ -368,11 +367,18 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         </div>
       </Show>
 
-      <GenericInfiniteGrid
+      <InfiniteGrid<AdminSong>
         data={props.musicData.items()}
         columns={columns()}
-        rowHeight={64}
-        headerHeight={40}
+        virtualization={{
+          rowHeight: 48,
+          headerHeight: 40,
+        }}
+        layout={{
+          stickyHeader: true,
+          showStatusBar: true,
+          allowRowSelection: true,
+        }}
         onSort={handleSort}
         onRowClick={handleRowClick}
         onRowDoubleClick={handleRowDoubleClick}
@@ -382,8 +388,9 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         sortDirection={props.musicData.sortDirection() || undefined}
         loading={props.musicData.loading()}
         serverTotal={props.musicData.total()}
+        hasMore={props.musicData.hasNextPage()}
+        getRowId={(song) => song.id}
         className="h-full"
-        theme={props.theme}
       />
 
       {/* selection info bar */}
@@ -488,20 +495,34 @@ function formatDate(dateString: string): string {
     const parts = dateString.split(" ");
     if (parts.length < 2) return "—";
 
-    const datePart = parts[0]; // '2025-07-07'
-    const timePart = parts[1]; // '0:57:04.743983'
+    const datePart = parts[0];
+    const timePart = parts[1];
+
+    if (!datePart || !timePart) return "—";
 
     // Parse date parts
-    const [year, month, day] = datePart.split("-").map(Number);
+    const dateComponents = datePart.split("-");
+    if (dateComponents.length !== 3) return "—";
+
+    const [year, month, day] = dateComponents.map(Number);
 
     // Parse time parts and fix hour padding
     const timeComponents = timePart.split(":");
-    const hour = parseInt(timeComponents[0]);
-    const minute = parseInt(timeComponents[1]);
-    const second = parseFloat(timeComponents[2]);
+    if (timeComponents.length < 3) return "—";
+
+    const hour = parseInt(timeComponents[0] || "0");
+    const minute = parseInt(timeComponents[1] || "0");
+    const second = parseFloat(timeComponents[2] || "0");
 
     // Create date object
-    const date = new Date(year, month - 1, day, hour, minute, second);
+    const date = new Date(
+      year || 0,
+      (month || 1) - 1,
+      day || 0,
+      hour,
+      minute,
+      second
+    );
 
     if (isNaN(date.getTime())) return "—";
 
@@ -513,11 +534,4 @@ function formatDate(dateString: string): string {
   } catch (error) {
     return "—";
   }
-}
-
-/**
- * helper to determine if value is sortable
- */
-function isSortable(value: any): boolean {
-  return value !== null && value !== undefined;
 }
