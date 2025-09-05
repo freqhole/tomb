@@ -1,15 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    // Normal paths from project root
-    "./src/**/*.{js,jsx,ts,tsx}",
-    // From Vite root, scan current directory and all components
-    "./**/*.{js,jsx,ts,tsx}",
-    "./components/**/*.{js,jsx,ts,tsx}",
-    "../../components/**/*.{js,jsx,ts,tsx}",
-    "../../lib/**/*.{js,jsx,ts,tsx}",
-    "../../hooks/**/*.{js,jsx,ts,tsx}",
-  ],
+  content: ["./src/**/*.{js,jsx,ts,tsx}"],
 
   theme: {
     extend: {

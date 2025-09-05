@@ -27,8 +27,7 @@
     "lint": "eslint 'src/**/*.{ts,tsx}' 'tests/**/*.ts'",
     "lint:fix": "eslint 'src/**/*.{ts,tsx}' 'tests/**/*.ts' --fix",
     "format": "prettier --write 'src/**/*.{ts,tsx}' 'tests/**/*.ts'",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.web-components.json",
-    "typecheck:web-components": "tsc --noEmit --project tsconfig.web-components.json",
+    "type-check": "tsc --noEmit",
     "clean": "rm -rf dist coverage",
     "prepublishOnly": "npm run test && npm run lint"
   },

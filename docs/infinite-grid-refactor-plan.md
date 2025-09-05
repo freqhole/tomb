@@ -1090,6 +1090,52 @@ const cellClasses =
 6. **Type Safe**: comprehensive typescript coverage
 7. **Accessible**: proper keyboard and screen reader support
 
+## TAILWIND CONFIGURATION BUG - CRITICAL ISSUE
+
+### Problem Description
+
+There is a critical bug where Tailwind CSS styles are inconsistent between the Vite dev server and the static web-component build. This causes major issues:
+
+**Vite Dev Server Issues:**
+
+- Basic Tailwind classes like `bg-red-500`, `border-yellow-400` don't work (fall back to browser defaults)
+- Rows show white borders instead of styled borders
+- Extra spacing between rows
+- Overall styling appears broken
+
+**Static Web-Component Build:**
+
+- Tailwind classes work correctly
+- Proper styling and spacing
+- Rows render correctly on initial load
+
+### Root Cause
+
+The issue stems from Vite's `root: "src/views/freqhole-music-admin"` configuration conflicting with Tailwind's content detection paths. When Vite runs from a subdirectory, the Tailwind content paths in `tailwind.config.js` become incorrect relative to the new working directory.
+
+### Attempted Solutions (ALL FAILED)
+
+1. **Added relative paths to tailwind.config.js:** `"../../**/*.{js,jsx,ts,tsx}"`
+2. **Added explicit component paths:** `"../../components/**/*.{js,jsx,ts,tsx}"`
+3. **Created separate tailwind.config.js** in the Vite root directory
+4. **Updated Vite config** to use explicit Tailwind config path
+5. **Added current directory patterns:** `"./**/*.{js,jsx,ts,tsx}"`
+
+None of these approaches resolved the issue. The Tailwind content detection is fundamentally broken when Vite uses a subdirectory as root.
+
+### Other Issues Discovered and Fixed
+
+- **Body overflow:hidden** in `styles.css` was preventing scrolling (FIXED)
+- **Sorting reactivity bug** in useInfiniteGrid hook prevented rows from rendering on initial load (FIXED by moving sort logic directly into component)
+
+### Current Status
+
+- Initial row rendering: ✅ FIXED (both environments)
+- Scrolling: ✅ FIXED (both environments)
+- Tailwind styling: ❌ BROKEN (Vite dev server only)
+
+The Tailwind bug is blocking development workflow as the dev server doesn't show proper styling.
+
 ## Implementation Timeline
 
 - **Phase 1**: architecture design and planning (complete)

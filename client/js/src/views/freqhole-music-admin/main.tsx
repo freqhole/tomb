@@ -20,20 +20,25 @@ const getApiBaseUrl = () => {
 const root = document.getElementById("root");
 
 if (!root) {
-  throw new Error("Root element not found. Make sure there's a div with id='root' in your HTML.");
+  throw new Error(
+    "Root element not found. Make sure there's a div with id='root' in your HTML."
+  );
 }
 
 // Clear loading state
 root.innerHTML = "";
 
 // Render the FreqHole Music Admin app
-render(() => (
-  <FreqHoleMusicAdmin
-    apiBaseUrl={getApiBaseUrl()}
-    theme="dark"
-    debug={import.meta.env.DEV}
-  />
-), root);
+render(
+  () => (
+    <FreqHoleMusicAdmin
+      apiBaseUrl={getApiBaseUrl()}
+      theme="dark"
+      debug={import.meta.env.DEV}
+    />
+  ),
+  root
+);
 
 console.log("FreqHole Music Admin initialized with:", {
   apiBaseUrl: getApiBaseUrl(),

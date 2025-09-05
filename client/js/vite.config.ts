@@ -4,15 +4,15 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 export default defineConfig({
-  plugins: [
-    solid(),
-    tailwindcss({
-      config: path.resolve("./tailwind.config.js"),
-    }),
-  ],
-  root: "src/views/freqhole-music-admin",
+  plugins: [solid(), tailwindcss()],
   build: {
-    outDir: "../../../dist/freqhole-music-admin", // no idea why this needs so many ../
+    rollupOptions: {
+      input: path.resolve(
+        __dirname,
+        "src/views/freqhole-music-admin/index.html"
+      ),
+    },
+    outDir: "dist/freqhole-music-admin",
     emptyOutDir: false,
   },
   server: {
