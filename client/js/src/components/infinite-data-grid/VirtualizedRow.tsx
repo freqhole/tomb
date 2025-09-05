@@ -118,7 +118,7 @@ export function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
     // default text rendering with cell-specific context menu
     return (
       <div
-        class={getCellClasses(column)}
+        class={getCellClasses(column, false, props.isSelected)}
         onContextMenu={(e) => handleContextMenu(e, column)}
         onDblClick={() => {
           if (column.editable) {

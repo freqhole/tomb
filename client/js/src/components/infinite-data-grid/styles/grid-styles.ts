@@ -16,7 +16,7 @@ export const GRID_STYLES = {
   // Row classes
   row: "flex items-center transition-colors border-b border-gray-900",
   rowDefault: "bg-black bg-opacity-90 hover:bg-opacity-70",
-  rowSelected: "bg-magenta-500 bg-opacity-30",
+  rowSelected: "bg-magenta-500 bg-opacity-30 [&_*]:!text-white",
   rowSelectedBorder: "shadow-[inset_0_0_0_2px_rgb(217,70,239)]",
   rowFocused: "",
   rowHover: "hover:bg-black hover:bg-opacity-70",
@@ -83,13 +83,17 @@ export const getRowClasses = (
 // Cell class combinations
 export const getCellClasses = (
   column: { editable?: boolean; className?: string; cellClassName?: string },
-  isHeader: boolean = false
+  isHeader: boolean = false,
+  isSelected: boolean = false
 ) => {
   const base = GRID_STYLES.cell;
   const states: string[] = [];
 
   if (isHeader) {
     states.push(GRID_STYLES.cellHeader);
+  } else if (isSelected) {
+    // Override text color to white for selected rows
+    states.push("text-white");
   } else {
     states.push(GRID_STYLES.cellText);
   }

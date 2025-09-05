@@ -162,16 +162,16 @@ export function AdminDataGrid(props: AdminDataGridProps) {
               e.stopPropagation();
               toggleSongFavorite(song.id);
             }}
-            class={`w-6 h-6 border-2 transition-colors ${
+            class={`p-2 transition-colors hover:scale-110 ${
               song.is_favorite
-                ? "bg-magenta-500 border-magenta-500 text-white"
-                : "bg-gray-800 border-gray-600 text-gray-500 hover:border-magenta-400"
+                ? "text-magenta-400"
+                : "text-gray-500 hover:text-magenta-400"
             }`}
             title={
               song.is_favorite ? "remove from favorites" : "add to favorites"
             }
           >
-            <span class="text-xs">♡</span>
+            <span class="text-base">{song.is_favorite ? "♥" : "♡"}</span>
           </button>
         </div>
       ),
