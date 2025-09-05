@@ -13,9 +13,20 @@ export interface GridStatusBarProps {
 }
 
 export function GridStatusBar(props: GridStatusBarProps) {
+  // Debug logging
+  console.log("GridStatusBar props:", {
+    totalItems: props.totalItems,
+    visibleItems: props.visibleItems,
+    startRow: props.startRow,
+    endRow: props.endRow,
+    selectedCount: props.selectedCount,
+  });
+
   // Use visibleItems as the count when no explicit range is provided
-  const startRow = props.visibleItems > 0 ? props.startRow || 1 : 0;
-  const endRow = props.endRow || props.visibleItems;
+  const startRow = props.visibleItems > 0 ? (props.startRow ?? 1) : 0;
+  const endRow = props.endRow ?? props.visibleItems;
+
+  console.log("GridStatusBar calculated:", { startRow, endRow });
 
   return (
     <div class={`${GRID_STYLES.statusBar} ${props.class || ""}`}>

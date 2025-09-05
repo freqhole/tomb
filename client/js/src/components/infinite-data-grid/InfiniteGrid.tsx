@@ -120,11 +120,11 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       propsData: props.data.slice(0, 3), // show first 3 items
     });
 
-    if (totalItems === 0) {
-      return { start: 0, end: 0 };
-    }
+    const result =
+      totalItems === 0 ? { start: 0, end: 0 } : { start: 1, end: totalItems };
 
-    return { start: 1, end: totalItems };
+    console.log("loadedRange result:", result);
+    return result;
   });
 
   // handle sorting
@@ -265,16 +265,34 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       {/* floating status bar */}
       <Show when={props.layout?.showStatusBar}>
         <div class="fixed bottom-4 right-4 z-20">
-          <GridStatusBar
-            totalItems={props.serverTotal || props.data.length}
-            visibleItems={props.data.length}
-            selectedCount={selection.selectedIds().size}
-            loading={props.loading}
-            hasMore={props.hasMore}
-            startRow={loadedRange().start}
-            endRow={loadedRange().end}
-            class="bg-black bg-opacity-90 border border-gray-700 px-3 py-2 text-xs backdrop-blur-sm"
-          />
+          {(() => {
+            const range = loadedRange();
+            const statusBarProps = {
+              totalItems: props.serverTotal || props.data.length,
+              visibleItems: props.data.length,
+              selectedCount: selection.selectedIds().size,
+              loading: props.loading,
+              hasMore: props.hasMore,
+              startRow: range.start,
+              endRow: range.end,
+            };
+            console.log(
+              "InfiniteGrid passing to GridStatusBar:",
+              statusBarProps
+            );
+            return (
+              <GridStatusBar
+                totalItems={statusBarProps.totalItems}
+                visibleItems={statusBarProps.visibleItems}
+                selectedCount={statusBarProps.selectedCount}
+                loading={statusBarProps.loading}
+                hasMore={statusBarProps.hasMore}
+                startRow={statusBarProps.startRow}
+                endRow={statusBarProps.endRow}
+                class="bg-black bg-opacity-90 border border-gray-700 px-3 py-2 text-xs backdrop-blur-sm"
+              />
+            );
+          })()}
         </div>
       </Show>
     </div>
