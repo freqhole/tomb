@@ -1,4 +1,4 @@
-import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
+import { createSignal, createMemo, For, Show } from "solid-js";
 import type { InfiniteGridProps, GridColumn } from "./types";
 import { GRID_STYLES, getRowClasses } from "./styles/grid-styles";
 import { useGridLayout } from "./hooks/useGridLayout";
@@ -73,14 +73,11 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     scrollTop: layout.scrollTop,
   });
 
-  // infinite loading detection
-  useInfiniteLoading({
-    scrollTop: layout.scrollTop,
-    containerHeight: layout.containerHeight,
-    totalContentHeight: virtualization.totalContentHeight,
-    onScrollNearBottom: props.onScrollNearBottom,
-    threshold: props.virtualization?.threshold || 200,
-  });
+  // simplified infinite loading
+  const infiniteLoading = useInfiniteLoading(
+    props.onScrollNearBottom,
+    props.virtualization?.threshold || 200
+  );
 
   // keyboard navigation
   useKeyboardNavigation({
@@ -113,34 +110,16 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     },
   });
 
-  // get visible items - simplified
+  // simplified visible items - just render what we have like the old grid
   const visibleItems = createMemo(() => {
     const data = sortedData();
-    const range = virtualization.visibleRange();
-    const items: Array<{ data: T; index: number }> = [];
 
     if (data.length === 0) {
-      return items;
+      return [];
     }
 
-    // if container height is 0 (initial load), render first 20 items
-    if (layout.containerHeight() <= 0) {
-      return data
-        .slice(0, 20)
-        .map((itemData, index) => ({ data: itemData, index }));
-    }
-
-    // normal virtualization
-    for (let i = range.start; i < range.end; i++) {
-      if (i >= 0 && i < data.length) {
-        const itemData = data[i];
-        if (itemData) {
-          items.push({ data: itemData, index: i });
-        }
-      }
-    }
-
-    return items;
+    // simple approach: just render all available data with proper indices
+    return data.map((itemData, index) => ({ data: itemData, index }));
   });
 
   // handle sorting
@@ -262,7 +241,10 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       <div
         ref={layout.containerRef}
         class={GRID_STYLES.scrollContainer}
-        onScroll={layout.handleScroll}
+        onScroll={(e) => {
+          layout.handleScroll(e);
+          infiniteLoading.handleScroll(e);
+        }}
         style={{
           "scrollbar-width": "thin",
           "scrollbar-color": "#4a4a4a #1a1a1a",
@@ -270,7 +252,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       >
         <div
           class={GRID_STYLES.contentContainer}
-          style={`height: ${virtualization.totalContentHeight()}px; position: relative;`}
+          style={`min-height: ${props.data.length * (props.virtualization?.rowHeight || 40)}px;`}
         >
           <For each={visibleItems()}>
             {(item) => renderRow(item.data, item.index)}

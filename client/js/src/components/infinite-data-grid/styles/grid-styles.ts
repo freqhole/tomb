@@ -14,7 +14,7 @@ export const GRID_STYLES = {
   sortIndicator: "ml-2 text-magenta-400",
 
   // Row classes
-  row: "absolute inset-x-0 flex items-center transition-colors",
+  row: "flex items-center transition-colors border-b border-gray-800",
   rowDefault: "bg-black bg-opacity-90 hover:bg-opacity-70",
   rowSelected: "bg-magenta-500 bg-opacity-30",
   rowSelectedBorder: "shadow-[inset_0_0_0_2px_rgb(217,70,239)]",

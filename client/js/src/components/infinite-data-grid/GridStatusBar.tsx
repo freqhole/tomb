@@ -8,6 +8,8 @@ export interface GridStatusBarProps {
   loading?: boolean;
   hasMore?: boolean;
   class?: string;
+  startRow?: number;
+  endRow?: number;
 }
 
 export function GridStatusBar(props: GridStatusBarProps) {
@@ -15,7 +17,9 @@ export function GridStatusBar(props: GridStatusBarProps) {
     <div class={`${GRID_STYLES.statusBar} ${props.class || ""}`}>
       <div class="flex items-center space-x-4">
         <span class={GRID_STYLES.statusText}>
-          showing {props.visibleItems} of {props.totalItems} items
+          {props.visibleItems > 0
+            ? `showing 1-${props.visibleItems} of ${props.totalItems} songs`
+            : "loading..."}
         </span>
 
         <Show when={props.selectedCount > 0}>

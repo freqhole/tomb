@@ -137,7 +137,6 @@ export function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
       class={props.class || ""}
       style={{
         height: `${props.rowHeight}px`,
-        transform: `translateY(${props.index * props.rowHeight}px)`,
       }}
       onClick={(e) => props.onClick?.(props.item, props.index, e)}
       onDblClick={() => props.onDoubleClick?.(props.item, props.index)}

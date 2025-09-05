@@ -20,9 +20,13 @@ export function useVirtualization(config: VirtualizationConfig) {
   });
 
   const endIndex = createMemo(() => {
-    // For infinite loading to work properly, render all available items
-    // Instead of virtualizing, show everything we have
-    return config.totalItems();
+    if (config.containerHeight() <= 0) return Math.min(20, config.totalItems());
+
+    const visibleCount = Math.ceil(config.containerHeight() / config.rowHeight);
+    return Math.min(
+      config.totalItems(),
+      startIndex() + visibleCount + (config.bufferSize || 5) * 2
+    );
   });
 
   const visibleRange = createMemo(() => ({
@@ -41,11 +45,13 @@ export function useVirtualization(config: VirtualizationConfig) {
     const range = visibleRange();
     const items: Array<{ data: any; index: number }> = [];
 
-    for (let i = 0; i < config.totalItems(); i++) {
-      items.push({
-        data: null, // will be populated by parent component
-        index: i,
-      });
+    for (let i = range.start; i < range.end; i++) {
+      if (i >= 0 && i < config.totalItems()) {
+        items.push({
+          data: null, // will be populated by parent component
+          index: i,
+        });
+      }
     }
 
     return items;
