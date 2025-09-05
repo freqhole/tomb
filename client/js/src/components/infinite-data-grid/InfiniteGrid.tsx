@@ -2,7 +2,7 @@ import { createSignal, createMemo, For, Show } from "solid-js";
 import type { InfiniteGridProps, GridColumn } from "./types";
 import { GRID_STYLES, getRowClasses } from "./styles/grid-styles";
 import { useGridLayout } from "./hooks/useGridLayout";
-import { useVirtualization } from "./hooks/useVirtualization";
+
 import { useRowSelection } from "./hooks/useRowSelection";
 import { useKeyboardNavigation } from "./hooks/useKeyboardNavigation";
 import { useEventPropagation } from "./hooks/useEventPropagation";
@@ -64,16 +64,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     onSelectionChange: props.onSelectionChange,
   });
 
-  // virtualization - simplified to handle initial load better
-  const virtualization = useVirtualization({
-    containerHeight: layout.containerHeight,
-    rowHeight: props.virtualization?.rowHeight || 40,
-    totalItems: () => props.data.length,
-    bufferSize: props.virtualization?.bufferSize || 5,
-    scrollTop: layout.scrollTop,
-  });
-
-  // simplified infinite loading
+  // infinite loading
   const infiniteLoading = useInfiniteLoading(props.onScrollNearBottom);
 
   // keyboard navigation
@@ -107,7 +98,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     },
   });
 
-  // simplified visible items - just render what we have like the old grid
+  // render all loaded items
   const visibleItems = createMemo(() => {
     const data = sortedData();
 
@@ -115,8 +106,25 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       return [];
     }
 
-    // simple approach: just render all available data with proper indices
+    // render all available data with proper indices
     return data.map((itemData, index) => ({ data: itemData, index }));
+  });
+
+  // simple loaded range - just show what's loaded
+  const loadedRange = createMemo(() => {
+    const totalItems = props.data.length;
+
+    console.log("loadedRange debug:", {
+      totalItems,
+      propsDataLength: props.data.length,
+      propsData: props.data.slice(0, 3), // show first 3 items
+    });
+
+    if (totalItems === 0) {
+      return { start: 0, end: 0 };
+    }
+
+    return { start: 1, end: totalItems };
   });
 
   // handle sorting
@@ -254,15 +262,20 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
         </div>
       </div>
 
+      {/* floating status bar */}
       <Show when={props.layout?.showStatusBar}>
-        <GridStatusBar
-          totalItems={props.serverTotal || props.data.length}
-          visibleItems={props.data.length}
-          selectedCount={selection.selectedIds().size}
-          loading={props.loading}
-          hasMore={props.hasMore}
-          class={GRID_STYLES.statusBar}
-        />
+        <div class="fixed bottom-4 right-4 z-20">
+          <GridStatusBar
+            totalItems={props.serverTotal || props.data.length}
+            visibleItems={props.data.length}
+            selectedCount={selection.selectedIds().size}
+            loading={props.loading}
+            hasMore={props.hasMore}
+            startRow={loadedRange().start}
+            endRow={loadedRange().end}
+            class="bg-black bg-opacity-90 border border-gray-700 px-3 py-2 text-xs backdrop-blur-sm"
+          />
+        </div>
       </Show>
     </div>
   );

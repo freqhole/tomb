@@ -13,12 +13,16 @@ export interface GridStatusBarProps {
 }
 
 export function GridStatusBar(props: GridStatusBarProps) {
+  // Use visibleItems as the count when no explicit range is provided
+  const startRow = props.visibleItems > 0 ? props.startRow || 1 : 0;
+  const endRow = props.endRow || props.visibleItems;
+
   return (
     <div class={`${GRID_STYLES.statusBar} ${props.class || ""}`}>
       <div class="flex items-center space-x-4">
         <span class={GRID_STYLES.statusText}>
           {props.visibleItems > 0
-            ? `showing 1-${props.visibleItems} of ${props.totalItems} songs`
+            ? `showing ${startRow}-${endRow} of ${props.totalItems} songs`
             : "loading..."}
         </span>
 
@@ -29,22 +33,12 @@ export function GridStatusBar(props: GridStatusBarProps) {
         </Show>
       </div>
 
-      <div class="flex items-center space-x-2">
-        <Show when={props.loading}>
-          <div class="flex items-center space-x-2">
-            <div class={GRID_STYLES.loadingSpinner}></div>
-            <span class={GRID_STYLES.loadingText}>loading more...</span>
-          </div>
-        </Show>
-
-        <Show when={!props.loading && props.hasMore}>
-          <span class={GRID_STYLES.statusMuted}>scroll for more</span>
-        </Show>
-
-        <Show when={!props.loading && !props.hasMore}>
-          <span class={GRID_STYLES.statusMuted}>end of list</span>
-        </Show>
-      </div>
+      <Show when={props.loading}>
+        <div class="flex items-center space-x-2">
+          <div class={GRID_STYLES.loadingSpinner}></div>
+          <span class={GRID_STYLES.loadingText}>loading...</span>
+        </div>
+      </Show>
     </div>
   );
 }

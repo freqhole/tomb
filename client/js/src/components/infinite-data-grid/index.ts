@@ -17,7 +17,6 @@ export type {
 
 // Hooks for custom implementations
 export { useInfiniteGrid } from "./hooks/useInfiniteGrid";
-export { useVirtualization } from "./hooks/useVirtualization";
 export { useGridLayout } from "./hooks/useGridLayout";
 export { useRowSelection } from "./hooks/useRowSelection";
 export { useKeyboardNavigation } from "./hooks/useKeyboardNavigation";

@@ -219,8 +219,6 @@ export function AdminDataGrid(props: AdminDataGridProps) {
 
   // event handlers
   const handleSort = (field: string, direction: "asc" | "desc" | null) => {
-    console.log("admin data grid: handleSort called", { field, direction });
-
     // Always pass the direction through to useAdminData, even if null
     // useAdminData will handle the null case and reset to default sort
     props.musicData.updateSort(field, direction);

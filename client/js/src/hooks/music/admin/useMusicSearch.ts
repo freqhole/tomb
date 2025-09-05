@@ -236,7 +236,6 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
       }
     }
 
-    console.log("music search: buildSearchParams result:", params);
     return params;
   };
 
@@ -244,33 +243,18 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
    * Perform search API call
    */
   const performSearch = async (pageToLoad = 1, append = false) => {
-    console.log(
-      `music search: performSearch(page=${pageToLoad}, append=${append})`
-    );
-
     try {
       setLoading(true);
       delayedLoading.startLoading();
       setError(null);
 
       const params = buildSearchParams(pageToLoad);
-      console.log("music search: API request params:", params);
-      console.log("music search: search_fields value:", params.search_fields);
-      console.log(
-        "music search: search_fields type:",
-        typeof params.search_fields
-      );
-      console.log(
-        "music search: search_fields is array:",
-        Array.isArray(params.search_fields)
-      );
 
       const response = await apiClient.makeRequest<any>(
         "GET",
         "/api/music/search",
         { params }
       );
-      console.log("music search: API response", response);
 
       let newSongs: any[] = [];
       let serverTotal = 0;
@@ -290,11 +274,6 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
 
         setSortField(actualSortField);
         setSortDirection(actualSortDirection as "asc" | "desc");
-
-        console.log("music search: server sort applied", {
-          field: actualSortField,
-          direction: actualSortDirection,
-        });
       }
 
       setTotal(serverTotal);
@@ -304,13 +283,9 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
         const existing = results();
         const combined = [...existing, ...newSongs];
         setResults(combined);
-        console.log(
-          `music search: appended ${newSongs.length} songs, total now ${combined.length}`
-        );
       } else {
         // Replace for new search
         setResults(newSongs);
-        console.log(`music search: replaced with ${newSongs.length} songs`);
       }
 
       setCurrentPage(pageToLoad);
@@ -349,11 +324,8 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   const loadSuggestions = async (query: string) => {
     if (query.length < 2) {
       setSuggestions([]);
-      console.log("music search: skipping suggestions for short query");
       return;
     }
-
-    console.log(`music search: loading suggestions for "${query}"`);
 
     try {
       const response = await apiClient.makeRequest<any>(
@@ -363,18 +335,6 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
           params: { field: "all", partial: query, page_size: 8 },
         }
       );
-
-      console.log("music search: RAW API response:", response);
-      console.log("music search: response type:", typeof response);
-      console.log(
-        "music search: response constructor:",
-        response?.constructor?.name
-      );
-      console.log("music search: response is array:", Array.isArray(response));
-      if (response && typeof response === "object") {
-        console.log("music search: response keys:", Object.keys(response));
-        console.log("music search: response values:", Object.values(response));
-      }
 
       if (response?.suggestions && Array.isArray(response.suggestions)) {
         // Process suggestions like useUnifiedSearch does
@@ -391,19 +351,6 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
       }
 
       // Log final suggestions state with delay
-      setTimeout(() => {
-        const finalSuggestions = suggestions();
-        console.log("music search: FINAL suggestions state:", finalSuggestions);
-        console.log(
-          "music search: suggestions are array:",
-          Array.isArray(finalSuggestions)
-        );
-        if (Array.isArray(finalSuggestions)) {
-          finalSuggestions.forEach((s, i) => {
-            console.log(`music search: final suggestion[${i}]:`, s, typeof s);
-          });
-        }
-      }, 100);
     } catch (err) {
       console.warn("music search: failed to load suggestions:", err);
       setSuggestions([]);
@@ -413,16 +360,12 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   // === PUBLIC API ===
 
   const setSearchQuery = (query: string, executeSearch: boolean = false) => {
-    console.log("music search: setSearchQuery", query);
     setSearchQuerySignal(query);
     setCurrentPage(1);
 
     // Always load suggestions for display in the flyout, but only if query is long enough
     if (query.length >= 2) {
       loadSuggestions(query);
-      setTimeout(() => {
-        console.log("music search: suggestions after timeout:", suggestions());
-      }, 500);
     } else {
       setSuggestions([]);
     }
@@ -434,7 +377,6 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   };
 
   const updateFilters = (updates: Partial<AdminMusicFilters>) => {
-    console.log("music search: updateFilters", updates);
     setFiltersSignal((prev) => ({ ...prev, ...updates }));
     setSelectedPreset(null);
     setCurrentPage(1);
@@ -442,7 +384,6 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   };
 
   const clearFilters = () => {
-    console.log("music search: clearFilters");
     setFiltersSignal({});
     setSearchQuerySignal("");
     setSelectedPreset(null);
@@ -453,7 +394,6 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   };
 
   const applyPreset = (preset: SearchPreset) => {
-    console.log("music search: applyPreset", preset.id);
     setFiltersSignal(preset.params as AdminMusicFilters);
     setSelectedPreset(preset.id);
     setShowAdvancedSearch(false);
@@ -469,8 +409,6 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     field: string | null,
     direction: "asc" | "desc" | null = "asc"
   ) => {
-    console.log("music search: setSort", { field, direction });
-
     // Always track what the user requested for cycling logic
     setUserRequestedField(field);
     setUserRequestedDirection(direction);
@@ -494,26 +432,19 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
   const loadMore = async () => {
     const pag = pagination();
     if (!pag.hasNext || loading()) {
-      console.log("music search: loadMore skipped", {
-        hasNext: pag.hasNext,
-        loading: loading(),
-      });
       return;
     }
 
     const nextPage = currentPage() + 1;
-    console.log("music search: loadMore to page", nextPage);
     await performSearch(nextPage, true); // Append results
   };
 
   const refresh = async () => {
-    console.log("music search: refresh");
     setCurrentPage(1);
     await performSearch(1, false); // New search, don't append
   };
 
   const setSearchField = (field: string) => {
-    console.log("music search: setSearchField", field);
     setSearchFieldSignal(field);
     // Reload suggestions if there's a current query
     const query = searchQuery();

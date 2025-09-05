@@ -29,8 +29,7 @@ export const GRID_STYLES = {
   cellMuted: "text-gray-400",
 
   // Status bar classes
-  statusBar:
-    "sticky bottom-0 z-10 flex items-center justify-between px-3 py-2 text-xs bg-black bg-opacity-90 border-t border-gray-700",
+  statusBar: "flex items-center justify-between text-xs",
   statusText: "text-gray-400",
   statusHighlight: "text-magenta-400",
   statusMuted: "text-gray-600",

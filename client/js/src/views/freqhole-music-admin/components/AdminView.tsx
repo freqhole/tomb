@@ -25,11 +25,6 @@ export interface AdminViewProps {
  * main admin view component that coordinates the music admin interface
  */
 export function AdminView(props: AdminViewProps) {
-  console.log("admin view: starting initialization", {
-    apiClient: !!props.apiClient,
-    theme: props.theme,
-  });
-
   const [initialized, setInitialized] = createSignal(false);
   const [initError, setInitError] = createSignal<string | null>(null);
 
@@ -49,20 +44,11 @@ export function AdminView(props: AdminViewProps) {
       console.error("admin view: search error", error);
       setInitError(error);
     } else if (results.length > 0 || total >= 0) {
-      // update admin data with search results
-      console.log("admin view: syncing search results", {
-        results: results.length,
-        total,
-        sortField: musicSearch.sortField(),
-        sortDirection: musicSearch.sortDirection(),
-      });
-
       // the search system provides the results directly
       // the admin data grid will use these results
 
       if (!initialized()) {
         setInitialized(true);
-        console.log("admin view: initialization complete via search");
       }
     }
 
@@ -72,10 +58,6 @@ export function AdminView(props: AdminViewProps) {
   // initialize with search system
   onMount(async () => {
     try {
-      console.log("admin view: initializing with enhanced search system");
-
-      // No default sort - start with no columns sorted
-
       // Trigger initial search to load data
       await musicSearch.refresh();
     } catch (err) {
@@ -86,16 +68,11 @@ export function AdminView(props: AdminViewProps) {
 
   // handle song play
   const handleSongPlay = (song: any) => {
-    console.log("admin view: play song requested", song.id);
-
     // Try to construct media URL
     try {
       if (song.media_blob_id) {
         const mediaUrl = `${props.apiClient.getBaseUrl()}/api/blobs/${song.media_blob_id}`;
-        console.log(`admin view: playing song from ${mediaUrl}`);
         // TODO: integrate with audio player
-      } else {
-        console.warn("admin view: cannot play - no media blob ID");
       }
     } catch (err) {
       console.error("admin view: failed to construct media URL", err);
@@ -104,7 +81,6 @@ export function AdminView(props: AdminViewProps) {
 
   // handle song edit
   const handleSongEdit = (song: any) => {
-    console.log("admin view: edit song requested", song.id);
     // TODO: implement song editing modal/interface
   };
 
@@ -119,22 +95,11 @@ export function AdminView(props: AdminViewProps) {
 
   // handle preset toggle
   const handlePresetApply = (preset: SearchPreset) => {
-    console.log("admin view: toggling preset", preset.id);
     const currentParams = musicSearch.filters();
     const isActive = isPresetActive(preset);
 
-    console.log("admin view: preset debug", {
-      presetId: preset.id,
-      presetParams: preset.params,
-      currentParams: currentParams,
-      currentParamsType: typeof currentParams,
-      currentParamsKeys: Object.keys(currentParams),
-      isActive: isActive,
-    });
-
     // Try the same approach as search-demo
     if (isActive) {
-      console.log("admin view: clearing preset");
       // Check if we're clearing all filters
       const currentParams = musicSearch.filters();
       const currentKeys = Object.keys(currentParams);
@@ -146,17 +111,13 @@ export function AdminView(props: AdminViewProps) {
         currentKeys.every((key) => presetKeys.includes(key));
 
       if (onlyPresetKeysActive) {
-        console.log("admin view: clearing all filters");
         musicSearch.clearFilters();
       } else {
-        console.log("admin view: removing specific preset keys");
         // Create new params with preset keys explicitly removed
         const newParams = { ...currentParams };
         Object.keys(preset.params).forEach((key) => {
-          console.log(`admin view: removing filter key: ${key}`);
           delete (newParams as any)[key];
         });
-        console.log("admin view: clearing preset, new params:", newParams);
         // Set filters directly to the new object
         musicSearch.clearFilters();
         if (Object.keys(newParams).length > 0) {
@@ -164,10 +125,8 @@ export function AdminView(props: AdminViewProps) {
         }
       }
     } else {
-      console.log("admin view: applying preset using bulk update");
       // Apply the preset
       const newParams = { ...currentParams, ...preset.params };
-      console.log("admin view: applying preset, new params:", newParams);
       musicSearch.updateFilters(newParams);
     }
   };
@@ -175,30 +134,12 @@ export function AdminView(props: AdminViewProps) {
   // check if preset is active
   const isPresetActive = (preset: SearchPreset) => {
     const currentFilters = musicSearch.filters();
-    console.log("admin view: isPresetActive check", {
-      presetId: preset.id,
-      currentFilters: currentFilters,
-      currentFiltersStringified: JSON.stringify(currentFilters),
-      presetParams: preset.params,
-      presetParamsStringified: JSON.stringify(preset.params),
-    });
 
     const result = Object.entries(preset.params).every(([key, value]) => {
       const currentValue = (currentFilters as any)[key];
       const matches = currentValue === value;
-      console.log("admin view: checking preset param", {
-        key,
-        presetValue: value,
-        presetValueType: typeof value,
-        currentValue: currentValue,
-        currentValueType: typeof currentValue,
-        matches: matches,
-        strictEquality: currentValue === value,
-        looseEquality: currentValue == value,
-      });
       return matches;
     });
-    console.log("admin view: preset active check result:", result);
     return result;
   };
 
@@ -213,7 +154,6 @@ export function AdminView(props: AdminViewProps) {
             searchQuery={musicSearch.searchQuery}
             onSearchChange={(query) => {
               musicSearch.setSearchQuery(query, false);
-              console.log("admin view: search input changed", query);
             }}
             onSearchExecute={(query) => {
               // Handle enter key and search button clicks
@@ -224,7 +164,6 @@ export function AdminView(props: AdminViewProps) {
                 // Execute search with current query
                 musicSearch.setSearchQuery(query, true);
               }
-              console.log("admin view: search executed", query);
             }}
             filters={musicSearch.filters}
             onFiltersChange={musicSearch.updateFilters}
@@ -234,10 +173,6 @@ export function AdminView(props: AdminViewProps) {
             suggestions={musicSearch.suggestions}
             onSuggestionSelect={(suggestion) => {
               musicSearch.onSuggestionSelect(suggestion);
-              console.log(
-                "admin view: search executed from suggestion",
-                suggestion
-              );
             }}
             presets={musicSearchPresets.slice(0, 6)}
             onPresetApply={handlePresetApply}
@@ -253,7 +188,6 @@ export function AdminView(props: AdminViewProps) {
               if (musicSearch.searchQuery().trim()) {
                 musicSearch.setSearchQuery(musicSearch.searchQuery(), true);
               }
-              console.log("admin view: search field changed to", field);
             }}
             // Add view mode button
             viewMode={musicData.viewMode()}
@@ -316,20 +250,6 @@ export function AdminView(props: AdminViewProps) {
                     total: () => musicSearch.totalCount(),
                     loading: () => musicSearch.loading(),
                     updateSort: (field, direction) => {
-                      console.log(
-                        "admin data grid: update sort",
-                        field,
-                        direction
-                      );
-                      console.log(
-                        "AdminView: current sort state before update:",
-                        {
-                          musicSearchField: musicSearch.sortField(),
-                          musicSearchDirection: musicSearch.sortDirection(),
-                          musicDataField: musicData.sortField(),
-                          musicDataDirection: musicData.sortDirection(),
-                        }
-                      );
                       // Only use musicSearch for sort updates to avoid duplicate API calls
                       // musicData.updateSort would trigger its own API request
                       musicSearch.setSort(field, direction);
@@ -342,9 +262,6 @@ export function AdminView(props: AdminViewProps) {
                       return pag.hasNext;
                     },
                     nextPage: async () => {
-                      console.log(
-                        "admin view: loading next page via music search"
-                      );
                       await musicSearch.loadMore();
                     },
                     // Override refresh to use musicSearch
