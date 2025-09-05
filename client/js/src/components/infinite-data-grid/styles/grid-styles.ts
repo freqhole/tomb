@@ -6,7 +6,7 @@ export const GRID_STYLES = {
   contentContainer: "relative",
 
   // Header classes
-  header: "flex-shrink-0 bg-black bg-opacity-90 sticky top-0 z-10",
+  header: "flex-shrink-0 bg-black bg-opacity-90 sticky top-0 z-40",
   headerRow: "flex items-center border-b border-gray-700",
   headerCell:
     "px-3 py-3 text-sm font-medium text-gray-300 overflow-hidden text-ellipsis whitespace-nowrap",
@@ -18,7 +18,7 @@ export const GRID_STYLES = {
   rowDefault: "bg-black bg-opacity-90 hover:bg-opacity-70",
   rowSelected: "bg-magenta-500 bg-opacity-30",
   rowSelectedBorder: "shadow-[inset_0_0_0_2px_rgb(217,70,239)]",
-  rowFocused: "shadow-[inset_0_0_0_1px_white]",
+  rowFocused: "",
   rowHover: "hover:bg-black hover:bg-opacity-70",
 
   // Cell classes
@@ -30,7 +30,7 @@ export const GRID_STYLES = {
 
   // Status bar classes
   statusBar:
-    "flex-shrink-0 flex items-center justify-between px-3 py-2 text-xs bg-black bg-opacity-90 border-t border-gray-700",
+    "sticky bottom-0 z-10 flex items-center justify-between px-3 py-2 text-xs bg-black bg-opacity-90 border-t border-gray-700",
   statusText: "text-gray-400",
   statusHighlight: "text-magenta-400",
   statusMuted: "text-gray-600",

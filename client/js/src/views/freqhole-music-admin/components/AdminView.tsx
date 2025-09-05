@@ -206,7 +206,7 @@ export function AdminView(props: AdminViewProps) {
     <div class={`admin-view h-full flex flex-col ${props.className || ""}`}>
       {/* sticky search header */}
       <Show when={initialized()}>
-        <div class="sticky top-0 z-20 bg-black">
+        <div class="sticky top-0 z-50 bg-black">
           <AdminSearchHeader
             searchQuery={musicSearch.searchQuery}
             onSearchChange={(query) => {

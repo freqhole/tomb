@@ -1,4 +1,4 @@
-import { createSignal, createMemo, For, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
 import type { InfiniteGridProps, GridColumn } from "./types";
 import { GRID_STYLES, getRowClasses } from "./styles/grid-styles";
 import { useGridLayout } from "./hooks/useGridLayout";
@@ -66,11 +66,11 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
 
   // virtualization - simplified to handle initial load better
   const virtualization = useVirtualization({
-    containerHeight: layout.containerHeight(),
-    rowHeight: props.virtualization?.rowHeight || 50,
-    totalItems: props.data.length,
+    containerHeight: layout.containerHeight,
+    rowHeight: props.virtualization?.rowHeight || 40,
+    totalItems: () => props.data.length,
     bufferSize: props.virtualization?.bufferSize || 5,
-    scrollTop: layout.scrollTop(),
+    scrollTop: layout.scrollTop,
   });
 
   // infinite loading detection
@@ -245,10 +245,6 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       class={`${GRID_STYLES.container} ${props.className || ""}`}
       tabIndex={0}
     >
-      {/* Tailwind test - should be visible in both environments */}
-      <div class="bg-red-500 text-white p-4 text-lg font-bold border-2 border-yellow-400">
-        TAILWIND TEST: bg-red-500 text-white p-4 border-yellow-400
-      </div>
       <Show when={props.layout?.stickyHeader !== false}>
         <GridHeader
           columns={props.columns}
