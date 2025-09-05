@@ -35,9 +35,10 @@ export function useVirtualization(config: VirtualizationConfig) {
     end: endIndex(),
   }));
 
-  const totalContentHeight = createMemo(
-    () => config.totalItems * config.rowHeight
-  );
+  const totalContentHeight = createMemo(() => {
+    const height = config.totalItems * config.rowHeight;
+    return height;
+  });
 
   const visibleItems = createMemo(() => {
     const range = visibleRange();

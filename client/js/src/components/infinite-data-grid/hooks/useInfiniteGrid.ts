@@ -126,11 +126,7 @@ export function useInfiniteGrid<T = any>(props: {
     const currentData = props.data;
     const config = sortConfig();
 
-    console.log("sorted data memo - input data length:", currentData.length);
-    console.log("sorted data memo - sort config:", config);
-
     if (currentData.length === 0) {
-      console.log("sorted data memo - no data, returning empty array");
       return [];
     }
 
@@ -149,7 +145,6 @@ export function useInfiniteGrid<T = any>(props: {
       return config.direction === "desc" ? comparison * -1 : comparison;
     });
 
-    console.log("sorted data memo - result length:", result.length);
     return result;
   });
 

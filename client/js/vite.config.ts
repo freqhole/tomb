@@ -1,9 +1,15 @@
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
+import path from "path";
 
 export default defineConfig({
-  plugins: [solid(), tailwindcss()],
+  plugins: [
+    solid(),
+    tailwindcss({
+      config: path.resolve("./tailwind.config.js"),
+    }),
+  ],
   root: "src/views/freqhole-music-admin",
   build: {
     outDir: "../../../dist/freqhole-music-admin", // no idea why this needs so many ../

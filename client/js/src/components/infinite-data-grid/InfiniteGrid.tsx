@@ -33,8 +33,6 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     const data = [...props.data];
     const config = sortConfig();
 
-    console.log("sortedData memo - data length:", data.length, "sort:", config);
-
     if (data.length === 0) return [];
 
     return data.sort((a, b) => {
@@ -121,16 +119,12 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     const range = virtualization.visibleRange();
     const items: Array<{ data: T; index: number }> = [];
 
-    console.log("visible items memo - data length:", data.length);
-
     if (data.length === 0) {
-      console.log("no data, returning empty array");
       return items;
     }
 
     // if container height is 0 (initial load), render first 20 items
     if (layout.containerHeight() <= 0) {
-      console.log("container height is 0, rendering first 20 items");
       return data
         .slice(0, 20)
         .map((itemData, index) => ({ data: itemData, index }));
@@ -146,7 +140,6 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       }
     }
 
-    console.log("returning", items.length, "virtualized items");
     return items;
   });
 
@@ -252,6 +245,10 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       class={`${GRID_STYLES.container} ${props.className || ""}`}
       tabIndex={0}
     >
+      {/* Tailwind test - should be visible in both environments */}
+      <div class="bg-red-500 text-white p-4 text-lg font-bold border-2 border-yellow-400">
+        TAILWIND TEST: bg-red-500 text-white p-4 border-yellow-400
+      </div>
       <Show when={props.layout?.stickyHeader !== false}>
         <GridHeader
           columns={props.columns}
@@ -277,7 +274,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       >
         <div
           class={GRID_STYLES.contentContainer}
-          style={`height: ${virtualization.totalContentHeight()}px`}
+          style={`height: ${virtualization.totalContentHeight()}px; position: relative;`}
         >
           <For each={visibleItems()}>
             {(item) => renderRow(item.data, item.index)}

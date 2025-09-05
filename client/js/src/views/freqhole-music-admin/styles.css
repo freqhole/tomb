@@ -3,7 +3,7 @@
 /* FreqHole Music Admin specific styles */
 @layer base {
   body {
-    overflow: hidden;
+    /* overflow: hidden; -- removed to allow scrolling */
   }
 }
 

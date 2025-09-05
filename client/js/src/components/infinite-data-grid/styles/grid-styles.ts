@@ -2,7 +2,7 @@
 export const GRID_STYLES = {
   // Base container classes
   container: "h-full flex flex-col bg-black text-white",
-  scrollContainer: "flex-1 overflow-auto",
+  scrollContainer: "flex-1 overflow-auto min-h-0",
   contentContainer: "relative",
 
   // Header classes
@@ -22,7 +22,7 @@ export const GRID_STYLES = {
   rowHover: "hover:bg-black hover:bg-opacity-70",
 
   // Cell classes
-  cell: "px-3 py-1 text-sm overflow-hidden text-ellipsis whitespace-nowrap",
+  cell: "px-3 py-0 text-sm overflow-hidden text-ellipsis whitespace-nowrap",
   cellEditable: "cursor-pointer",
   cellHeader: "font-medium text-gray-300",
   cellText: "text-white",

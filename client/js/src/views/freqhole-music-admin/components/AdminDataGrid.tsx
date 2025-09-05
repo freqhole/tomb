@@ -371,7 +371,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         data={props.musicData.items()}
         columns={columns()}
         virtualization={{
-          rowHeight: 48,
+          rowHeight: 40,
           headerHeight: 40,
         }}
         layout={{

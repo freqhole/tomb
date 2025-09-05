@@ -1,14 +1,10 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
-    // Normal paths from project root
-    "./src/**/*.{js,jsx,ts,tsx}",
-    // From Vite root, scan current directory and all components
+    // Current directory (src/views/freqhole-music-admin)
     "./**/*.{js,jsx,ts,tsx}",
-    "./components/**/*.{js,jsx,ts,tsx}",
-    "../../components/**/*.{js,jsx,ts,tsx}",
-    "../../lib/**/*.{js,jsx,ts,tsx}",
-    "../../hooks/**/*.{js,jsx,ts,tsx}",
+    // Go up to src and scan everything
+    "../../**/*.{js,jsx,ts,tsx}",
   ],
 
   theme: {
