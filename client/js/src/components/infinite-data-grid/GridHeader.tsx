@@ -59,7 +59,8 @@ export function GridHeader<T>(props: GridHeaderProps<T>) {
 
   return (
     <div class={`${GRID_STYLES.headerRow} ${props.class || ""}`} role="row">
-      <Show when={props.onSelectAll}>
+      {/*#TODO deal with when={props.onSelectAll} not working */}
+      <Show when={false}>
         <div class="flex-shrink-0 px-3 py-3 flex items-center justify-center">
           <input
             type="checkbox"

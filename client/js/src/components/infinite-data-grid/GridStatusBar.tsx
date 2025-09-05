@@ -13,28 +13,23 @@ export interface GridStatusBarProps {
 }
 
 export function GridStatusBar(props: GridStatusBarProps) {
-  // Debug logging
-  console.log("GridStatusBar props:", {
-    totalItems: props.totalItems,
-    visibleItems: props.visibleItems,
-    startRow: props.startRow,
-    endRow: props.endRow,
-    selectedCount: props.selectedCount,
-  });
+  // calculate display values with proper edge case handling
+  const hasItems = props.totalItems > 0;
+  const isLoading = props.loading && props.totalItems === 0;
 
-  // Use visibleItems as the count when no explicit range is provided
-  const startRow = props.visibleItems > 0 ? (props.startRow ?? 1) : 0;
-  const endRow = props.endRow ?? props.visibleItems;
-
-  console.log("GridStatusBar calculated:", { startRow, endRow });
+  // for visible range display
+  const startRow = hasItems ? (props.startRow ?? 1) : 0;
+  const endRow = hasItems ? (props.endRow ?? props.totalItems) : 0;
 
   return (
     <div class={`${GRID_STYLES.statusBar} ${props.class || ""}`}>
       <div class="flex items-center space-x-4">
         <span class={GRID_STYLES.statusText}>
-          {props.visibleItems > 0
-            ? `showing ${startRow}-${endRow} of ${props.totalItems} songs`
-            : "loading..."}
+          {isLoading
+            ? "loading..."
+            : hasItems
+              ? `showing ${startRow}-${endRow} of ${props.totalItems} songs`
+              : "no songs found"}
         </span>
 
         <Show when={props.selectedCount > 0}>

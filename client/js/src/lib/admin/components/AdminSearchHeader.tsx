@@ -98,9 +98,7 @@ export function AdminSearchHeader(props: AdminSearchHeaderProps) {
   };
 
   return (
-    <div
-      class={`admin-search-header bg-black border-b border-gray-800 ${props.className || ""}`}
-    >
+    <div class={`admin-search-header bg-black ${props.className || ""}`}>
       {/* main search bar */}
       <div class="px-6 py-4">
         <div class="flex items-center space-x-4">

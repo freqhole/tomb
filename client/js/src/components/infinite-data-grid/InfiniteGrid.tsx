@@ -110,20 +110,28 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     return data.map((itemData, index) => ({ data: itemData, index }));
   });
 
-  // simple loaded range - just show what's loaded
-  const loadedRange = createMemo(() => {
+  // calculate visible range based on scroll position
+  const visibleRange = createMemo(() => {
     const totalItems = props.data.length;
+    const scrollTop = layout.scrollTop();
+    const containerHeight = layout.containerHeight();
+    const rowHeight = props.virtualization?.rowHeight || 50;
 
-    console.log("loadedRange debug:", {
-      totalItems,
-      propsDataLength: props.data.length,
-      propsData: props.data.slice(0, 3), // show first 3 items
-    });
+    if (totalItems === 0 || containerHeight === 0) {
+      return { start: 0, end: 0 };
+    }
 
-    const result =
-      totalItems === 0 ? { start: 0, end: 0 } : { start: 1, end: totalItems };
+    // calculate which rows are actually visible
+    const startIndex = Math.floor(scrollTop / rowHeight);
+    const visibleRowCount = Math.ceil(containerHeight / rowHeight);
+    const endIndex = Math.min(startIndex + visibleRowCount, totalItems);
 
-    console.log("loadedRange result:", result);
+    // convert to 1-based display numbers
+    const result = {
+      start: Math.max(1, startIndex + 1),
+      end: Math.max(1, endIndex),
+    };
+
     return result;
   });
 
@@ -266,7 +274,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       <Show when={props.layout?.showStatusBar}>
         <div class="fixed bottom-4 right-4 z-20">
           {(() => {
-            const range = loadedRange();
+            const range = visibleRange();
             const statusBarProps = {
               totalItems: props.serverTotal || props.data.length,
               visibleItems: props.data.length,
@@ -276,10 +284,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
               startRow: range.start,
               endRow: range.end,
             };
-            console.log(
-              "InfiniteGrid passing to GridStatusBar:",
-              statusBarProps
-            );
+
             return (
               <GridStatusBar
                 totalItems={statusBarProps.totalItems}

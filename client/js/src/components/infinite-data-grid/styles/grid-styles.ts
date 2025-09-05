@@ -7,14 +7,14 @@ export const GRID_STYLES = {
 
   // Header classes
   header: "flex-shrink-0 bg-black bg-opacity-90 sticky top-0 z-40",
-  headerRow: "flex items-center border-b border-gray-700",
+  headerRow: "flex items-center border-b border-gray-900",
   headerCell:
     "px-3 py-3 text-sm font-medium text-gray-300 overflow-hidden text-ellipsis whitespace-nowrap",
   sortableHeader: "cursor-pointer hover:bg-gray-800 hover:bg-opacity-50",
   sortIndicator: "ml-2 text-magenta-400",
 
   // Row classes
-  row: "flex items-center transition-colors border-b border-gray-800",
+  row: "flex items-center transition-colors border-b border-gray-900",
   rowDefault: "bg-black bg-opacity-90 hover:bg-opacity-70",
   rowSelected: "bg-magenta-500 bg-opacity-30",
   rowSelectedBorder: "shadow-[inset_0_0_0_2px_rgb(217,70,239)]",

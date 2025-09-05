@@ -257,7 +257,7 @@ export function SearchFilters(props: SearchFiltersProps) {
   };
 
   return (
-    <div class={`bg-gray-900 border-b border-gray-800 ${props.class || ""}`}>
+    <div class={`bg-gray-900 border-b border-gray-900 ${props.class || ""}`}>
       {/* header */}
       <div class="px-6 py-3 flex items-center justify-between">
         <h3 class="text-white font-medium">
