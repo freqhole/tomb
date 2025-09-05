@@ -120,22 +120,37 @@ export function useInfiniteGrid<T = any>(props: {
   // Default ID getter
   const getItemId = props.getItemId || ((item: any) => item.id || String(item));
 
-  // Computed values
+  // computed values - track both data and sort config changes
   const sortedData = createMemo(() => {
+    // explicitly access reactive values to ensure tracking
+    const currentData = props.data;
     const config = sortConfig();
-    const data = [...props.data];
 
-    // Show sorting indicator for large datasets
+    console.log("sorted data memo - input data length:", currentData.length);
+    console.log("sorted data memo - sort config:", config);
+
+    if (currentData.length === 0) {
+      console.log("sorted data memo - no data, returning empty array");
+      return [];
+    }
+
+    // create copy for sorting
+    const data = [...currentData];
+
+    // show sorting indicator for large datasets
     if (data.length > 1000) {
       setIsSorting(true);
-      // Use setTimeout to allow UI to update before heavy computation
+      // use setTimeout to allow UI to update before heavy computation
       setTimeout(() => setIsSorting(false), 100);
     }
 
-    return data.sort((a, b) => {
+    const result = data.sort((a, b) => {
       const comparison = compareValues(a, b, config.field);
       return config.direction === "desc" ? comparison * -1 : comparison;
     });
+
+    console.log("sorted data memo - result length:", result.length);
+    return result;
   });
 
   // Actions

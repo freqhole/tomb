@@ -7,7 +7,7 @@ import { useRowSelection } from "./hooks/useRowSelection";
 import { useKeyboardNavigation } from "./hooks/useKeyboardNavigation";
 import { useEventPropagation } from "./hooks/useEventPropagation";
 import { useInfiniteLoading } from "./hooks/useInfiniteLoading";
-import { useInfiniteGrid } from "./hooks/useInfiniteGrid";
+
 import { VirtualizedRow } from "./VirtualizedRow";
 import { GridHeader } from "./GridHeader";
 import { GridStatusBar } from "./GridStatusBar";
@@ -20,16 +20,40 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     columnKey: string;
   } | null>(null);
 
-  // core grid logic
-  const grid = useInfiniteGrid({
-    data: props.data,
-    getItemId: props.getRowId || ((item: any) => item.id || String(item)),
-    initialSort: props.sortField
-      ? {
-          field: props.sortField,
-          direction: props.sortDirection || "asc",
-        }
-      : undefined,
+  // core grid state - simplified to fix reactivity
+  const [sortConfig, setSortConfig] = createSignal({
+    field: props.sortField || "created_at",
+    direction: props.sortDirection || "desc",
+  });
+
+  const getItemId = props.getRowId || ((item: any) => item.id || String(item));
+
+  // simple sort logic directly in component
+  const sortedData = createMemo(() => {
+    const data = [...props.data];
+    const config = sortConfig();
+
+    console.log("sortedData memo - data length:", data.length, "sort:", config);
+
+    if (data.length === 0) return [];
+
+    return data.sort((a, b) => {
+      const aValue = (a as any)[config.field];
+      const bValue = (b as any)[config.field];
+
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return 1;
+      if (bValue == null) return -1;
+
+      let comparison = 0;
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        comparison = aValue.localeCompare(bValue);
+      } else {
+        comparison = aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+      }
+
+      return config.direction === "desc" ? comparison * -1 : comparison;
+    });
   });
 
   // layout management
@@ -38,7 +62,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
   // row selection with keyboard support
   const selection = useRowSelection({
     data: props.data,
-    getItemId: grid.getItemId,
+    getItemId: getItemId,
     onSelectionChange: props.onSelectionChange,
   });
 
@@ -91,40 +115,33 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     },
   });
 
-  // get visible items - force re-render when data changes
+  // get visible items - simplified
   const visibleItems = createMemo(() => {
-    const sortedData = grid.sortedData();
+    const data = sortedData();
     const range = virtualization.visibleRange();
     const items: Array<{ data: T; index: number }> = [];
 
-    console.log(
-      "visible items memo firing - data length:",
-      props.data.length,
-      "sorted length:",
-      sortedData.length
-    );
+    console.log("visible items memo - data length:", data.length);
 
-    // if no data yet, return empty array
-    if (sortedData.length === 0) {
-      console.log("no data yet, returning empty array");
+    if (data.length === 0) {
+      console.log("no data, returning empty array");
       return items;
     }
 
     // if container height is 0 (initial load), render first 20 items
     if (layout.containerHeight() <= 0) {
       console.log("container height is 0, rendering first 20 items");
-      return sortedData.slice(0, 20).map((data, index) => ({ data, index }));
+      return data
+        .slice(0, 20)
+        .map((itemData, index) => ({ data: itemData, index }));
     }
 
     // normal virtualization
     for (let i = range.start; i < range.end; i++) {
-      if (i >= 0 && i < sortedData.length) {
-        const itemData = sortedData[i];
+      if (i >= 0 && i < data.length) {
+        const itemData = data[i];
         if (itemData) {
-          items.push({
-            data: itemData,
-            index: i,
-          });
+          items.push({ data: itemData, index: i });
         }
       }
     }
@@ -132,6 +149,24 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     console.log("returning", items.length, "virtualized items");
     return items;
   });
+
+  // handle sorting
+  const handleSort = (field: string) => {
+    const current = sortConfig();
+
+    if (current.field === field) {
+      // cycle through: asc -> desc -> null (reset to default)
+      if (current.direction === "asc") {
+        setSortConfig({ field, direction: "desc" });
+      } else if (current.direction === "desc") {
+        setSortConfig({ field, direction: "asc" });
+      }
+    } else {
+      setSortConfig({ field, direction: "asc" });
+    }
+
+    props.onSort?.(field, sortConfig().direction);
+  };
 
   // handle row clicks with selection logic
   const handleRowClick = (item: T, index: number, event: MouseEvent) => {
@@ -191,7 +226,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
         index={index}
         columns={props.columns}
         rowHeight={props.virtualization?.rowHeight || 50}
-        isSelected={selection.isSelected(grid.getItemId(item))}
+        isSelected={selection.isSelected(getItemId(item))}
         isFocused={selection.focusedIndex() === index}
         onClick={handleRowClick}
         onDoubleClick={handleRowDoubleClick}
@@ -201,7 +236,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
         onEditStart={handleEditStart}
         onEditCancel={handleEditCancel}
         class={getRowClasses(
-          selection.isSelected(grid.getItemId(item)),
+          selection.isSelected(getItemId(item)),
           selection.focusedIndex() === index
         )}
       />
@@ -220,12 +255,9 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       <Show when={props.layout?.stickyHeader !== false}>
         <GridHeader
           columns={props.columns}
-          sortField={grid.sortConfig().field}
-          sortDirection={grid.sortConfig().direction}
-          onSort={(field: string) => {
-            grid.handleSort(field);
-            props.onSort?.(field, grid.sortConfig().direction);
-          }}
+          sortField={sortConfig().field}
+          sortDirection={sortConfig().direction}
+          onSort={handleSort}
           selectedCount={selection.selectedIds().size}
           totalCount={props.data.length}
           onSelectAll={selection.selectAll}
