@@ -381,7 +381,13 @@ export function AdminDataGrid(props: AdminDataGridProps) {
         onRowClick={handleRowClick}
         onRowDoubleClick={handleRowDoubleClick}
         onScrollNearBottom={handleScrollNearBottom}
-        selectedRowIds={props.musicData.selection.selectedIds()}
+        onSelectionChange={(selectedIds, lastSelectedId) => {
+          // Directly set the selection state to preserve lastSelectedId
+          props.musicData.selection.actions.setSelection(
+            selectedIds,
+            lastSelectedId
+          );
+        }}
         sortField={props.musicData.sortField() || undefined}
         sortDirection={props.musicData.sortDirection() || undefined}
         loading={props.musicData.loading()}

@@ -23,6 +23,7 @@ export interface SelectionActions<T = AdminSong> {
   getSelectedItems: (items: T[]) => T[];
   getSelectedCount: () => number;
   setSelectMode: (mode: "single" | "multi" | "range") => void;
+  setSelection: (selectedIds: Set<string>, lastSelectedId?: string) => void;
 }
 
 /**
@@ -151,6 +152,16 @@ export function createSelection<T extends { id: string }>() {
   };
 
   /**
+   * Directly set the selection state
+   */
+  const setSelection = (selectedIds: Set<string>, lastSelectedId?: string) => {
+    setSelectedIds(new Set(selectedIds));
+    if (lastSelectedId !== undefined) {
+      setLastSelectedId(lastSelectedId);
+    }
+  };
+
+  /**
    * Handle click events with proper modifier key support
    */
   const handleItemClick = (id: string, event: MouseEvent, items: T[]) => {
@@ -249,6 +260,7 @@ export function createSelection<T extends { id: string }>() {
     getSelectedItems,
     getSelectedCount,
     setSelectMode,
+    setSelection,
   };
 
   return {

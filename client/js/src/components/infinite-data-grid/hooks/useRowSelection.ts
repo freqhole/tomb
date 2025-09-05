@@ -3,7 +3,10 @@ import { createSignal } from "solid-js";
 export function useRowSelection<T>(props: {
   data: T[];
   getItemId: (item: T) => string;
-  onSelectionChange?: (selectedIds: Set<string>) => void;
+  onSelectionChange?: (
+    selectedIds: Set<string>,
+    lastSelectedId?: string
+  ) => void;
 }) {
   const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = createSignal<number>(-1);
@@ -38,7 +41,7 @@ export function useRowSelection<T>(props: {
     setSelectedIds(current);
     setLastSelectedIndex(index);
     setFocusedIndex(index);
-    props.onSelectionChange?.(current);
+    props.onSelectionChange?.(current, itemId);
   };
 
   const selectAll = () => {
@@ -46,13 +49,17 @@ export function useRowSelection<T>(props: {
       props.data.map((item) => props.getItemId(item))
     );
     setSelectedIds(() => allIds);
-    props.onSelectionChange?.(allIds);
+    const lastId =
+      props.data.length > 0
+        ? props.getItemId(props.data[props.data.length - 1]!)
+        : undefined;
+    props.onSelectionChange?.(allIds, lastId);
   };
 
   const clearSelection = () => {
     setSelectedIds(() => new Set<string>());
     setLastSelectedIndex(-1);
-    props.onSelectionChange?.(new Set<string>());
+    props.onSelectionChange?.(new Set<string>(), undefined);
   };
 
   const selectRange = (startIndex: number, endIndex: number) => {
@@ -68,7 +75,11 @@ export function useRowSelection<T>(props: {
     }
 
     setSelectedIds(current);
-    props.onSelectionChange?.(current);
+    const lastId =
+      endIndex < props.data.length
+        ? props.getItemId(props.data[endIndex]!)
+        : undefined;
+    props.onSelectionChange?.(current, lastId);
   };
 
   return {

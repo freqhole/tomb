@@ -70,7 +70,10 @@ export interface InfiniteGridProps<T = any> {
       cellActions?: string[];
     }
   ) => void;
-  onSelectionChange?: (selectedIds: Set<string>) => void;
+  onSelectionChange?: (
+    selectedIds: Set<string>,
+    lastSelectedId?: string
+  ) => void;
   onLoadMore?: () => void;
   onScrollNearBottom?: () => void;
 
