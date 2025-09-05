@@ -74,10 +74,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
   });
 
   // simplified infinite loading
-  const infiniteLoading = useInfiniteLoading(
-    props.onScrollNearBottom,
-    props.virtualization?.threshold || 200
-  );
+  const infiniteLoading = useInfiniteLoading(props.onScrollNearBottom);
 
   // keyboard navigation
   useKeyboardNavigation({
@@ -250,10 +247,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
           "scrollbar-color": "#4a4a4a #1a1a1a",
         }}
       >
-        <div
-          class={GRID_STYLES.contentContainer}
-          style={`min-height: ${props.data.length * (props.virtualization?.rowHeight || 40)}px;`}
-        >
+        <div class={GRID_STYLES.contentContainer}>
           <For each={visibleItems()}>
             {(item) => renderRow(item.data, item.index)}
           </For>

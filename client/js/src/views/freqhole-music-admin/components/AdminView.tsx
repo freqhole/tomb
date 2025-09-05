@@ -203,7 +203,9 @@ export function AdminView(props: AdminViewProps) {
   };
 
   return (
-    <div class={`admin-view h-full flex flex-col ${props.className || ""}`}>
+    <div
+      class={`admin-view h-screen flex flex-col overflow-hidden ${props.className || ""}`}
+    >
       {/* sticky search header */}
       <Show when={initialized()}>
         <div class="sticky top-0 z-50 bg-black">
@@ -261,7 +263,7 @@ export function AdminView(props: AdminViewProps) {
       </Show>
 
       {/* scrollable content area with separate sections */}
-      <div class="flex-1 bg-gray-900 flex flex-col">
+      <div class="flex-1 bg-gray-900 flex flex-col min-h-0">
         {/* enhanced advanced filter panel - outside scroll container */}
         <Show when={initialized()}>
           <AdvancedFilterPanel
@@ -287,7 +289,7 @@ export function AdminView(props: AdminViewProps) {
         </Show>
 
         {/* main grid content - let the grid handle its own scrolling */}
-        <div class="flex-1 min-h-0">
+        <div class="flex-1 min-h-0 overflow-hidden">
           <Show
             when={initError()}
             fallback={
