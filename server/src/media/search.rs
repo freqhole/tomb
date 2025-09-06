@@ -508,7 +508,7 @@ fn default_suggestions_page_size() -> u32 {
 
 /// Main unified search endpoint
 pub async fn search_music(
-    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<AuthenticatedUser>,
     Extension(db): Extension<DatabaseConnection>,
     Query(params): Query<UnifiedSearchParams>,
 ) -> Result<Json<UnifiedSearchResponse>, StatusCode> {
@@ -520,14 +520,13 @@ pub async fn search_music(
     // Use the existing SearchService from grimoire
     let search_service = SearchService::new(db.pool().clone());
 
-    let (search_results, total_count) =
-        search_service
-            .search_songs(&search_query)
-            .await
-            .map_err(|e| {
-                eprintln!("Search service failed: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    let (search_results, total_count) = search_service
+        .search_songs(Some(user.user().id), &search_query)
+        .await
+        .map_err(|e| {
+            eprintln!("Search service failed: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Convert SongSearchResult to SongResponse
     let songs: Vec<SongResponse> = search_results

@@ -5,35 +5,6 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[derive(Debug, FromRow)]
-struct SearchSongRow {
-    id: Uuid,
-    media_blob_id: String,
-    thumbnail_blob_id: Option<String>,
-    waveform_blob_id: Option<String>,
-    thumbnail_blob_ids: Option<Vec<String>>,
-    title: String,
-    artist: Option<String>,
-    album: Option<String>,
-    album_artist: Option<String>,
-    track_number: Option<i32>,
-    disc_number: Option<i32>,
-    duration: Option<sqlx::postgres::types::PgInterval>,
-    genre: Option<String>,
-    year: Option<i32>,
-    bpm: Option<i32>,
-    key_signature: Option<String>,
-    rating: Option<i32>,
-    is_favorite: Option<bool>,
-    tags: Option<Vec<String>>,
-    metadata: Option<serde_json::Value>,
-    created_at: OffsetDateTime,
-    updated_at: OffsetDateTime,
-    version: i64,
-    search_rank: Option<f32>,
-    total_count: i64,
-}
-
-#[derive(Debug, FromRow)]
 struct MusicSearchRow {
     result_type: String,
     id: Uuid,
@@ -86,17 +57,90 @@ impl SearchService {
         }
     }
 
-    /// Search only songs using the enhanced search_songs function
-    pub async fn search_songs(
-        &self,
+    /// Helper function to build search_songs JSON parameters
+    fn build_search_params(
+        user_id: Option<uuid::Uuid>,
         query: &SearchQuery,
-    ) -> Result<(Vec<SongSearchResult>, u64), SearchError> {
-        let search_type = match query.search_type {
+        sort_by: &str,
+        sort_direction: &str,
+        limit: i32,
+        offset: i32,
+    ) -> serde_json::Value {
+        let search_type_str = match query.search_type {
             SearchType::WebSearch => "websearch",
             SearchType::PlainText => "plainto",
             SearchType::Phrase => "phrase",
         };
 
+        serde_json::json!({
+            "user_id": user_id,
+            "search_query": query.query,
+            "search_type": search_type_str,
+            "structured_search": query.structured_search,
+            "artist": query.filters.artist,
+            "artist_exact": query.filters.artist_exact.unwrap_or(false),
+            "album": query.filters.album,
+            "album_exact": query.filters.album_exact.unwrap_or(false),
+            "album_artist": query.filters.album_artist,
+            "genre": query.filters.genre,
+            "title_search": query.filters.title_search,
+            "year": query.filters.year,
+            "year_min": query.filters.year_min,
+            "year_max": query.filters.year_max,
+            "rating": query.filters.rating,
+            "rating_min": query.filters.rating_min,
+            "rating_max": query.filters.rating_max,
+            "bpm": query.filters.bpm,
+            "bpm_min": query.filters.bpm_min,
+            "bpm_max": query.filters.bpm_max,
+            "duration_seconds": query.filters.duration_seconds,
+            "duration_min": query.filters.duration_min,
+            "duration_max": query.filters.duration_max,
+            "track_number": query.filters.track_number,
+            "disc_number": query.filters.disc_number,
+            "is_favorite": query.filters.is_favorite,
+            "favorites_only": query.filters.favorites_only.unwrap_or(false),
+            "has_thumbnail": query.filters.has_thumbnail,
+            "has_lyrics": query.filters.has_lyrics,
+            "has_waveform": query.filters.has_waveform,
+            "is_compilation": query.filters.is_compilation,
+            "tags": query.filters.tags,
+            "tags_any": query.filters.tags_any,
+            "tags_exclude": query.filters.tags_exclude,
+            "genres": query.filters.genres,
+            "artists": query.filters.artists,
+            "albums": query.filters.albums,
+            "file_format": query.filters.file_format,
+            "file_formats": query.filters.file_formats,
+            "bitrate_min": query.filters.bitrate_min,
+            "bitrate_max": query.filters.bitrate_max,
+            "created_after": query.filters.created_after,
+            "created_before": query.filters.created_before,
+            "updated_after": query.filters.updated_after,
+            "updated_before": query.filters.updated_before,
+            "added_after": query.filters.added_after,
+            "added_before": query.filters.added_before,
+            "key_signature": query.filters.key_signature,
+            "key_signatures": query.filters.key_signatures,
+            "mood": query.filters.mood,
+            "playlist_id": query.filters.playlist_id,
+            "not_in_playlist": query.filters.not_in_playlist,
+            "include_deleted": query.filters.include_deleted.unwrap_or(false),
+            "media_blob_id": query.filters.media_blob_id,
+            "metadata_filter": query.filters.metadata_filter,
+            "limit": limit,
+            "offset": offset,
+            "order_by": sort_by,
+            "sort_direction": sort_direction
+        })
+    }
+
+    /// Search only songs using the enhanced search_songs function
+    pub async fn search_songs(
+        &self,
+        user_id: Option<uuid::Uuid>,
+        query: &SearchQuery,
+    ) -> Result<(Vec<SongSearchResult>, u64), SearchError> {
         let sort_by = if let Some(raw_sort) = &query.ordering.raw_sort {
             // Use raw sort field for fields not in enum (year, duration_seconds, etc.)
             raw_sort.as_str()
@@ -120,7 +164,10 @@ impl SearchService {
             SortDirection::Desc => "desc",
         };
 
-        let rows = sqlx::query_as::<_, SearchSongRow>(
+        let params =
+            Self::build_search_params(user_id, query, sort_by, sort_direction, limit, offset);
+
+        let rows = sqlx::query!(
             r#"
             SELECT
                 id, media_blob_id, thumbnail_blob_id, waveform_blob_id,
@@ -128,142 +175,27 @@ impl SearchService {
                 track_number, disc_number, duration, genre, year, bpm,
                 key_signature, rating, is_favorite, tags, metadata,
                 created_at, updated_at, version, search_rank, total_count
-            FROM search_songs(
-                $1,  -- user_id
-                $2,  -- p_search_query
-                $3,  -- p_search_type
-                $4,  -- p_structured_search
-                $5,  -- p_artist
-                $6,  -- p_artist_exact
-                $7,  -- p_album
-                $8,  -- p_album_exact
-                $9,  -- p_album_artist
-                $10, -- p_genre
-                $11, -- p_title_search
-                $12, -- p_year
-                $13, -- p_year_min
-                $14, -- p_year_max
-                $15, -- p_rating
-                $16, -- p_rating_min
-                $17, -- p_rating_max
-                $18, -- p_bpm
-                $19, -- p_bpm_min
-                $20, -- p_bpm_max
-                $21, -- p_duration_seconds
-                $22, -- p_duration_min
-                $23, -- p_duration_max
-                $24, -- p_track_number
-                $25, -- p_disc_number
-                $26, -- p_is_favorite
-                $27, -- p_favorites_only
-                $28, -- p_has_thumbnail
-                $29, -- p_has_lyrics
-                $30, -- p_has_waveform
-                $31, -- p_is_compilation
-                $32, -- p_tags
-                $33, -- p_tags_any
-                $34, -- p_tags_exclude
-                $35, -- p_genres
-                $36, -- p_artists
-                $37, -- p_albums
-                $38, -- p_file_format
-                $39, -- p_file_formats
-                $40, -- p_bitrate_min
-                $41, -- p_bitrate_max
-                $42, -- p_created_after
-                $43, -- p_created_before
-                $44, -- p_updated_after
-                $45, -- p_updated_before
-                $46, -- p_added_after
-                $47, -- p_added_before
-                $48, -- p_key_signature
-                $49, -- p_key_signatures
-                $50, -- p_mood
-                $51, -- p_playlist_id
-                $52, -- p_not_in_playlist
-                $53, -- p_include_deleted
-                $54, -- p_media_blob_id
-                $55, -- p_metadata_filter
-                $56, -- p_limit
-                $57, -- p_offset
-                $58, -- p_order_by
-                $59  -- p_sort_direction
-            )
+            FROM search_songs($1)
             "#,
+            params
         )
-        .bind(None::<uuid::Uuid>) // user_id
-        .bind(query.query.as_deref()) // search_query
-        .bind(search_type) // search_type
-        .bind(query.structured_search.as_deref()) // structured_search
-        .bind(query.filters.artist.as_deref()) // artist
-        .bind(query.filters.artist_exact) // artist_exact
-        .bind(query.filters.album.as_deref()) // album
-        .bind(query.filters.album_exact) // album_exact
-        .bind(query.filters.album_artist.as_deref()) // album_artist
-        .bind(query.filters.genre.as_deref()) // genre
-        .bind(query.filters.title_search.as_deref()) // title_search
-        .bind(query.filters.year) // year
-        .bind(query.filters.year_min) // year_min
-        .bind(query.filters.year_max) // year_max
-        .bind(query.filters.rating) // rating
-        .bind(query.filters.rating_min) // rating_min
-        .bind(query.filters.rating_max) // rating_max
-        .bind(query.filters.bpm) // bpm
-        .bind(query.filters.bpm_min) // bpm_min
-        .bind(query.filters.bpm_max) // bpm_max
-        .bind(query.filters.duration_seconds) // duration_seconds
-        .bind(query.filters.duration_min) // duration_min
-        .bind(query.filters.duration_max) // duration_max
-        .bind(query.filters.track_number) // track_number
-        .bind(query.filters.disc_number) // disc_number
-        .bind(query.filters.is_favorite) // is_favorite
-        .bind(query.filters.favorites_only) // favorites_only
-        .bind(query.filters.has_thumbnail) // has_thumbnail
-        .bind(query.filters.has_lyrics) // has_lyrics
-        .bind(query.filters.has_waveform) // has_waveform
-        .bind(query.filters.is_compilation) // is_compilation
-        .bind(query.filters.tags.as_deref()) // tags
-        .bind(query.filters.tags_any.as_deref()) // tags_any
-        .bind(query.filters.tags_exclude.as_deref()) // tags_exclude
-        .bind(query.filters.genres.as_deref()) // genres
-        .bind(query.filters.artists.as_deref()) // artists
-        .bind(query.filters.albums.as_deref()) // albums
-        .bind(query.filters.file_format.as_deref()) // file_format
-        .bind(query.filters.file_formats.as_deref()) // file_formats
-        .bind(query.filters.bitrate_min) // bitrate_min
-        .bind(query.filters.bitrate_max) // bitrate_max
-        .bind(query.filters.created_after) // created_after
-        .bind(query.filters.created_before) // created_before
-        .bind(query.filters.updated_after) // updated_after
-        .bind(query.filters.updated_before) // updated_before
-        .bind(query.filters.added_after) // added_after
-        .bind(query.filters.added_before) // added_before
-        .bind(query.filters.key_signature.as_deref()) // key_signature
-        .bind(query.filters.key_signatures.as_deref()) // key_signatures
-        .bind(query.filters.mood.as_deref()) // mood
-        .bind(query.filters.playlist_id.as_deref()) // playlist_id
-        .bind(query.filters.not_in_playlist.as_deref()) // not_in_playlist
-        .bind(query.filters.include_deleted.unwrap_or(false)) // include_deleted
-        .bind(query.filters.media_blob_id.as_deref()) // media_blob_id
-        .bind(query.filters.metadata_filter.as_ref()) // metadata_filter
-        .bind(limit) // limit
-        .bind(offset) // offset
-        .bind(sort_by) // order_by
-        .bind(sort_direction) // sort_direction
         .fetch_all(&self.pool)
         .await?;
 
-        let total_count = rows.first().map(|row| row.total_count as u64).unwrap_or(0);
+        let total_count = rows
+            .first()
+            .map(|row| row.total_count.unwrap_or(0) as u64)
+            .unwrap_or(0);
 
         let results = rows
             .into_iter()
             .map(|row| SongSearchResult {
-                id: row.id,
-                media_blob_id: row.media_blob_id,
+                id: row.id.unwrap(),
+                media_blob_id: row.media_blob_id.unwrap(),
                 thumbnail_blob_id: row.thumbnail_blob_id,
                 waveform_blob_id: row.waveform_blob_id,
                 thumbnail_blob_ids: row.thumbnail_blob_ids,
-                title: row.title,
+                title: row.title.unwrap(),
                 artist: row.artist,
                 album: row.album,
                 album_artist: row.album_artist,
@@ -282,9 +214,9 @@ impl SearchService {
                 is_favorite: row.is_favorite.unwrap_or(false),
                 tags: row.tags.unwrap_or_default(),
                 metadata: row.metadata,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
-                version: row.version,
+                created_at: row.created_at.unwrap(),
+                updated_at: row.updated_at.unwrap(),
+                version: row.version.unwrap(),
                 search_rank: row.search_rank.unwrap_or(0.0),
             })
             .collect();
@@ -325,7 +257,7 @@ impl SearchService {
         // If filters are present, use search_songs for better filter support
         let (results, total_count) = if query.filters.has_any_filters() {
             // Use search_songs which supports all filters
-            let (songs, total_count) = self.search_songs(query).await?;
+            let (songs, total_count) = self.search_songs(None, query).await?;
 
             // Convert songs to SearchResultItem format
             let search_results: Vec<SearchResultItem> = songs
@@ -487,22 +419,23 @@ impl SearchService {
         limit: u32,
         offset: u32,
     ) -> Result<Vec<SongSearchResult>, SearchError> {
-        let rows = sqlx::query_as::<_, SearchSongRow>(
+        let rows = sqlx::query!(
             r#"
             SELECT
                 id, media_blob_id, thumbnail_blob_id, waveform_blob_id,
                 thumbnail_blob_ids, title, artist, album, album_artist,
                 track_number, disc_number, duration, genre, year, bpm,
                 key_signature, rating, is_favorite, tags, metadata,
-                created_at, updated_at, version, 0.0 as search_rank
+                created_at, updated_at, version, 0.0 as search_rank,
+                0 as total_count
             FROM songs
             WHERE deleted_at IS NULL
             ORDER BY created_at DESC
             LIMIT $1 OFFSET $2
             "#,
+            limit as i32,
+            offset as i32
         )
-        .bind(limit as i32)
-        .bind(offset as i32)
         .fetch_all(&self.pool)
         .await?;
 
@@ -536,7 +469,10 @@ impl SearchService {
                 created_at: row.created_at,
                 updated_at: row.updated_at,
                 version: row.version,
-                search_rank: row.search_rank.unwrap_or(0.0),
+                search_rank: row
+                    .search_rank
+                    .map(|bd| bd.to_string().parse::<f32>().unwrap_or(0.0))
+                    .unwrap_or(0.0),
             })
             .collect();
 
@@ -556,7 +492,7 @@ impl SearchService {
             .with_domains(vec!["music".to_string()])
             .with_pagination(1, 20);
 
-        let (results, _) = self.search_songs(&search_query).await?;
+        let (results, _) = self.search_songs(None, &search_query).await?;
         Ok(results)
     }
 
@@ -569,7 +505,7 @@ impl SearchService {
             .with_structured_search(&format!("artist:{}", artist))
             .with_domains(vec!["music".to_string()]);
 
-        let (results, _) = self.search_songs(&search_query).await?;
+        let (results, _) = self.search_songs(None, &search_query).await?;
         Ok(results)
     }
 
@@ -586,7 +522,7 @@ impl SearchService {
             search_query = search_query.with_query(q);
         }
 
-        let (results, _) = self.search_songs(&search_query).await?;
+        let (results, _) = self.search_songs(None, &search_query).await?;
         Ok(results)
     }
 }

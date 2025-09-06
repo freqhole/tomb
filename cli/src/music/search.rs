@@ -50,7 +50,7 @@ pub async fn handle_search(
 
     if songs_only {
         // Search only songs
-        let (results, total_count) = search_service.search_songs(&search_query).await?;
+        let (results, total_count) = search_service.search_songs(None, &search_query).await?;
 
         if results.is_empty() {
             println!("😔 No songs found matching your search.");

@@ -80,14 +80,18 @@ impl MusicRepository {
     /// Query songs with filtering and pagination
     #[allow(unused_variables)] // Variables used for dynamic SQL building
     /// Search songs using the new FTS system
-    pub async fn search_songs(&self, query: SongQuery) -> Result<Vec<SongSearchResult>> {
+    pub async fn search_songs(
+        &self,
+        user_id: Option<uuid::Uuid>,
+        query: SongQuery,
+    ) -> Result<Vec<SongSearchResult>> {
         let search_service = SearchService::new(self.pool.clone());
 
         // Convert SongQuery to SearchQuery
         let search_query = self.convert_song_query_to_search_query(query);
 
         let (results, _total_count) = search_service
-            .search_songs(&search_query)
+            .search_songs(user_id, &search_query)
             .await
             .map_err(|e| MusicRepositoryError::Database(sqlx::Error::Protocol(e.to_string())))?;
 

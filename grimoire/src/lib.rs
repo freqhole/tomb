@@ -7,6 +7,8 @@
 //! The grimoire contains all the magical spells (business logic) needed to
 //! power the application! 🧙‍♀️✨
 
+#![recursion_limit = "512"]
+
 pub mod analytics;
 pub mod auth;
 pub mod config;
