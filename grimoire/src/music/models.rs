@@ -1051,3 +1051,221 @@ impl RecentSongWithThumbnail {
         }
     }
 }
+
+// user preference models for per-user favorites and ratings
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct UserSongPreference {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub song_id: Uuid,
+    pub is_favorite: bool,
+    pub rating: Option<i32>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct UserPhotoPreference {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub photo_id: Uuid,
+    pub is_favorite: bool,
+    pub rating: Option<i32>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct UserVideoPreference {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub video_id: Uuid,
+    pub is_favorite: bool,
+    pub rating: Option<i32>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
+// request models for updating user preferences
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UpdateUserPreferenceRequest {
+    pub is_favorite: Option<bool>,
+    pub rating: Option<i32>,
+}
+
+impl UpdateUserPreferenceRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(rating) = self.rating {
+            if !(1..=5).contains(&rating) {
+                return Err("rating must be between 1 and 5".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BulkUpdatePreferencesRequest {
+    pub song_ids: Vec<Uuid>,
+    pub updates: UpdateUserPreferenceRequest,
+}
+
+impl BulkUpdatePreferencesRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.song_ids.is_empty() {
+            return Err("song_ids cannot be empty".to_string());
+        }
+        self.updates.validate()
+    }
+}
+
+// song models with user context
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct SongWithUserPreferences {
+    pub id: Uuid,
+    pub media_blob_id: String,
+    pub thumbnail_blob_id: Option<String>,
+    pub waveform_blob_id: Option<String>,
+    pub thumbnail_blob_ids: Option<Vec<String>>,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<i32>,
+    pub disc_number: Option<i32>,
+    #[serde(skip)]
+    pub duration: Option<PgInterval>,
+    pub genre: Option<String>,
+    pub year: Option<i32>,
+    pub bpm: Option<i32>,
+    pub key_signature: Option<String>,
+    pub rating: Option<i32>, // legacy rating for backward compatibility
+    pub is_favorite: bool,   // legacy favorite for backward compatibility
+    pub tags: Vec<String>,
+    pub metadata: serde_json::Value,
+    pub deleted_at: Option<OffsetDateTime>,
+    pub deleted_by: Option<Uuid>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+    pub version: i64,
+    // user-specific preference data
+    pub user_is_favorite: bool,
+    pub user_rating: Option<i32>,
+    pub preference_updated_at: Option<OffsetDateTime>,
+}
+
+impl SongWithUserPreferences {
+    /// get a formatted display title for the song
+    pub fn display_title(&self) -> String {
+        match &self.artist {
+            Some(artist) => format!("{} - {}", artist, self.title),
+            None => self.title.clone(),
+        }
+    }
+
+    /// get a detailed display title including album info
+    pub fn detailed_display_title(&self) -> String {
+        match (&self.artist, &self.album) {
+            (Some(artist), Some(album)) => format!("{} - {} ({})", artist, self.title, album),
+            (Some(artist), None) => format!("{} - {}", artist, self.title),
+            (None, Some(album)) => format!("{} ({})", self.title, album),
+            (None, None) => self.title.clone(),
+        }
+    }
+
+    /// get formatted duration as mm:ss string
+    pub fn formatted_duration(&self) -> Option<String> {
+        self.duration.map(|d| {
+            let seconds = d.microseconds / 1_000_000;
+            format!("{}:{:02}", seconds / 60, seconds % 60)
+        })
+    }
+
+    /// check if the song is deleted (soft delete)
+    pub fn is_deleted(&self) -> bool {
+        self.deleted_at.is_some()
+    }
+
+    /// convert to regular song struct (without user preferences)
+    pub fn to_song(&self) -> Song {
+        Song {
+            id: self.id,
+            media_blob_id: self.media_blob_id.clone(),
+            thumbnail_blob_id: self.thumbnail_blob_id.clone(),
+            waveform_blob_id: self.waveform_blob_id.clone(),
+            thumbnail_blob_ids: self.thumbnail_blob_ids.clone(),
+            title: self.title.clone(),
+            artist: self.artist.clone(),
+            album: self.album.clone(),
+            album_artist: self.album_artist.clone(),
+            track_number: self.track_number,
+            disc_number: self.disc_number,
+            duration: self.duration,
+            genre: self.genre.clone(),
+            year: self.year,
+            bpm: self.bpm,
+            key_signature: self.key_signature.clone(),
+            rating: self.rating,
+            is_favorite: self.is_favorite,
+            tags: self.tags.clone(),
+            metadata: self.metadata.clone(),
+            deleted_at: self.deleted_at,
+            deleted_by: self.deleted_by,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            version: self.version,
+        }
+    }
+}
+
+// simplified struct that matches get_songs_with_user_preferences database function
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct SongWithUserPrefs {
+    pub id: Uuid,
+    pub media_blob_id: String,
+    pub thumbnail_blob_id: Option<String>,
+    pub waveform_blob_id: Option<String>,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<i32>,
+    pub disc_number: Option<i32>,
+    #[serde(skip)]
+    pub duration: Option<PgInterval>,
+    pub genre: Option<String>,
+    pub year: Option<i32>,
+    pub bpm: Option<i32>,
+    pub key_signature: Option<String>,
+    pub tags: Vec<String>,
+    pub metadata: serde_json::Value,
+    pub deleted_at: Option<OffsetDateTime>,
+    pub deleted_by: Option<Uuid>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+    pub version: i64,
+    pub user_is_favorite: bool,
+    pub user_rating: Option<i32>,
+    pub preference_updated_at: Option<OffsetDateTime>,
+}
+
+impl SongWithUserPrefs {
+    /// get a formatted display title for the song
+    pub fn display_title(&self) -> String {
+        match &self.artist {
+            Some(artist) => format!("{} - {}", artist, self.title),
+            None => self.title.clone(),
+        }
+    }
+
+    /// get formatted duration as mm:ss string
+    pub fn formatted_duration(&self) -> Option<String> {
+        self.duration.map(|d| {
+            let seconds = d.microseconds / 1_000_000;
+            format!("{}:{:02}", seconds / 60, seconds % 60)
+        })
+    }
+}

@@ -4,10 +4,11 @@
 //! including CRUD operations and queries with proper error handling.
 
 use crate::music::models::{
-    AlbumSummary, AlbumTrack, ArtistAlbum, CreatePlaylist, CreateSong, MusicDatabaseStats,
-    Playlist, PlaylistComplete, PlaylistQuery, PlaylistSong, PlaylistSongDetail,
-    PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount, RecentSongWithThumbnail, Song,
-    SongQuery, SongWithMedia, UpdatePlaylist,
+    AlbumSummary, AlbumTrack, ArtistAlbum, BulkUpdatePreferencesRequest, CreatePlaylist,
+    CreateSong, MusicDatabaseStats, Playlist, PlaylistComplete, PlaylistQuery, PlaylistSong,
+    PlaylistSongDetail, PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount,
+    RecentSongWithThumbnail, Song, SongQuery, SongWithMedia, SongWithUserPrefs, UpdatePlaylist,
+    UpdateUserPreferenceRequest, UserSongPreference,
 };
 use crate::search::{SearchQuery, SearchService, SongSearchResult, SortBy, SortDirection};
 use sqlx::{PgPool, Row};
@@ -259,6 +260,76 @@ impl MusicRepository {
         .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    // User preference operations
+
+    /// Update user song preferences (favorite status and/or rating)
+    pub async fn update_user_song_preference(
+        &self,
+        user_id: Uuid,
+        song_id: Uuid,
+        request: UpdateUserPreferenceRequest,
+    ) -> Result<UserSongPreference> {
+        request
+            .validate()
+            .map_err(MusicRepositoryError::Validation)?;
+
+        let preference = sqlx::query_as::<_, UserSongPreference>(
+            "SELECT * FROM upsert_user_song_preference($1, $2, $3, $4)",
+        )
+        .bind(user_id)
+        .bind(song_id)
+        .bind(request.is_favorite)
+        .bind(request.rating)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(preference)
+    }
+
+    /// Bulk update user song preferences for multiple songs
+    pub async fn bulk_update_user_preferences(
+        &self,
+        user_id: Uuid,
+        request: BulkUpdatePreferencesRequest,
+    ) -> Result<Vec<UserSongPreference>> {
+        request
+            .validate()
+            .map_err(MusicRepositoryError::Validation)?;
+
+        let mut preferences = Vec::new();
+
+        for song_id in request.song_ids {
+            let preference = self
+                .update_user_song_preference(user_id, song_id, request.updates.clone())
+                .await?;
+            preferences.push(preference);
+        }
+
+        Ok(preferences)
+    }
+
+    /// Search songs with user preferences included
+    pub async fn search_songs_with_user_context(
+        &self,
+        user_id: Option<Uuid>,
+        query: SongQuery,
+    ) -> Result<Vec<SongWithUserPrefs>> {
+        // for now, use the helper function we created in the database
+        let songs = sqlx::query_as::<_, SongWithUserPrefs>(
+            "SELECT * FROM get_songs_with_user_preferences($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(user_id)
+        .bind(query.limit.unwrap_or(50) as i32)
+        .bind(query.offset.unwrap_or(0) as i32)
+        .bind(query.order_by.unwrap_or_else(|| "created_at".to_string()))
+        .bind(query.order_direction.unwrap_or_else(|| "desc".to_string()))
+        .bind(query.favorites_only.unwrap_or(false))
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(songs)
     }
 
     // Playlist operations

@@ -17,6 +17,10 @@ import {
   UpdatePlaylistRequestSchema,
   AddSongsToPlaylistRequestSchema,
   RemoveSongsFromPlaylistRequestSchema,
+  UpdateUserPreferenceRequestSchema,
+  BulkUpdateUserPreferencesRequestSchema,
+  UserPreferenceResponseSchema,
+  BulkUserPreferenceResponseSchema,
 } from "./schemas/index.js";
 import type {
   Song,
@@ -27,6 +31,10 @@ import type {
   UpdatePlaylistRequest,
   AddSongsToPlaylistRequest,
   RemoveSongsFromPlaylistRequest,
+  UpdateUserPreferenceRequest,
+  BulkUpdateUserPreferencesRequest,
+  UserPreferenceResponse,
+  BulkUserPreferenceResponse,
 } from "./schemas/index.js";
 
 /**
@@ -574,5 +582,120 @@ export const musicApiMethods = {
       "/api/media/playlists/summaries",
       "getPlaylistSummaries"
     );
+  },
+
+  // User preference API methods
+  async updateSongPreferences(
+    this: ApiClient,
+    songId: string,
+    request: UpdateUserPreferenceRequest
+  ): Promise<UserPreferenceResponse> {
+    return musicApiUtils.withErrorHandling(
+      async () => {
+        // validate request
+        const validatedRequest = musicValidation.validateResponse(
+          UpdateUserPreferenceRequestSchema,
+          request,
+          "update user preference request"
+        );
+
+        const response = await this.makeRequest<unknown>(
+          "PUT",
+          `/api/media/songs/${songId}/preferences`,
+          {
+            data: validatedRequest,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+
+        return musicValidation.validateResponse(
+          UserPreferenceResponseSchema,
+          response,
+          "user preference response"
+        );
+      },
+      `/api/media/songs/${songId}/preferences`,
+      "updateSongPreferences",
+      { songId },
+      request
+    );
+  },
+
+  async bulkUpdateUserPreferences(
+    this: ApiClient,
+    request: BulkUpdateUserPreferencesRequest
+  ): Promise<BulkUserPreferenceResponse> {
+    return musicApiUtils.withErrorHandling(
+      async () => {
+        // validate request
+        const validatedRequest = musicValidation.validateResponse(
+          BulkUpdateUserPreferencesRequestSchema,
+          request,
+          "bulk update user preferences request"
+        );
+
+        const response = await this.makeRequest<unknown>(
+          "PUT",
+          "/api/media/songs/preferences/bulk",
+          {
+            data: validatedRequest,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+
+        return musicValidation.validateResponse(
+          BulkUserPreferenceResponseSchema,
+          response,
+          "bulk user preference response"
+        );
+      },
+      "/api/media/songs/preferences/bulk",
+      "bulkUpdateUserPreferences",
+      { songCount: request.song_ids.length },
+      request
+    );
+  },
+
+  // convenience methods for common preference operations
+  async toggleSongFavorite(
+    this: ApiClient,
+    songId: string,
+    isFavorite: boolean
+  ): Promise<UserPreferenceResponse> {
+    return this.updateSongPreferences(songId, {
+      is_favorite: isFavorite,
+    });
+  },
+
+  async rateSong(
+    this: ApiClient,
+    songId: string,
+    rating: number | null
+  ): Promise<UserPreferenceResponse> {
+    return this.updateSongPreferences(songId, {
+      rating: rating || undefined,
+    });
+  },
+
+  async bulkToggleFavorite(
+    this: ApiClient,
+    songIds: string[],
+    isFavorite: boolean
+  ): Promise<BulkUserPreferenceResponse> {
+    return this.bulkUpdateUserPreferences({
+      song_ids: songIds,
+      updates: { is_favorite: isFavorite },
+    });
+  },
+
+  async bulkRateSongs(
+    this: ApiClient,
+    songIds: string[],
+    rating: number | null
+  ): Promise<BulkUserPreferenceResponse> {
+    return this.bulkUpdateUserPreferences({
+      song_ids: songIds,
+      updates: { rating: rating || undefined },
+    });
   },
 };

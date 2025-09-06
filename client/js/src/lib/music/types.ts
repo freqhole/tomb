@@ -23,4 +23,10 @@ export type {
   ReorderPlaylistRequest,
   CreatePlaylistFromAlbumRequest,
   PlaylistSummaryResponse,
+  // User preference types
+  UpdateUserPreferenceRequest,
+  BulkUpdateUserPreferencesRequest,
+  UserPreferenceResponse,
+  BulkUserPreferenceResponse,
+  SongWithUserPreferences,
 } from "./schemas/index.js";

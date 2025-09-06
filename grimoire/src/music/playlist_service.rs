@@ -5,9 +5,10 @@
 //! business rules enforcement.
 
 use crate::music::models::{
-    AlbumSummary, AlbumTrack, ArtistAlbum, CreatePlaylist, Playlist, PlaylistComplete,
-    PlaylistQuery, PlaylistSongDetail, PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount,
-    Song, SongQuery, UpdatePlaylist,
+    AlbumSummary, AlbumTrack, ArtistAlbum, BulkUpdatePreferencesRequest, CreatePlaylist, Playlist,
+    PlaylistComplete, PlaylistQuery, PlaylistSongDetail, PlaylistSongWithMedia, PlaylistSummary,
+    PlaylistWithCount, Song, SongQuery, UpdatePlaylist, UpdateUserPreferenceRequest,
+    UserSongPreference,
 };
 use crate::music::repository::{MusicRepository, MusicRepositoryError};
 use uuid::Uuid;
@@ -98,6 +99,62 @@ impl PlaylistService {
 
         self.repository
             .update_song_rating(id, rating)
+            .await
+            .map_err(PlaylistServiceError::Repository)
+    }
+
+    /// Set a user's song favorite status
+    pub async fn set_user_song_favorite(
+        &self,
+        user_id: Uuid,
+        song_id: Uuid,
+        is_favorite: bool,
+    ) -> Result<UserSongPreference> {
+        let request = UpdateUserPreferenceRequest {
+            is_favorite: Some(is_favorite),
+            rating: None,
+        };
+
+        self.repository
+            .update_user_song_preference(user_id, song_id, request)
+            .await
+            .map_err(PlaylistServiceError::Repository)
+    }
+
+    /// Rate a song for a specific user
+    pub async fn rate_user_song(
+        &self,
+        user_id: Uuid,
+        song_id: Uuid,
+        rating: Option<i32>,
+    ) -> Result<UserSongPreference> {
+        if let Some(r) = rating {
+            if !(1..=5).contains(&r) {
+                return Err(PlaylistServiceError::Validation(
+                    "rating must be between 1 and 5".to_string(),
+                ));
+            }
+        }
+
+        let request = UpdateUserPreferenceRequest {
+            is_favorite: None,
+            rating,
+        };
+
+        self.repository
+            .update_user_song_preference(user_id, song_id, request)
+            .await
+            .map_err(PlaylistServiceError::Repository)
+    }
+
+    /// Bulk update user preferences for multiple songs
+    pub async fn bulk_update_user_preferences(
+        &self,
+        user_id: Uuid,
+        request: BulkUpdatePreferencesRequest,
+    ) -> Result<Vec<UserSongPreference>> {
+        self.repository
+            .bulk_update_user_preferences(user_id, request)
             .await
             .map_err(PlaylistServiceError::Repository)
     }

@@ -129,102 +129,127 @@ impl SearchService {
                 key_signature, rating, is_favorite, tags, metadata,
                 created_at, updated_at, version, search_rank, total_count
             FROM search_songs(
-                $1, $2, $3,                                    -- text search (3)
-                $4, $5, $6, $7, $8, $9, $10,                  -- basic filters (7)
-                $11, $12, $13, $14, $15, $16, $17, $18, $19,   -- numeric filters (9)
-                $20, $21, $22, $23, $24,                      -- numeric filters cont (5)
-                $25, $26, $27, $28, $29, $30,                 -- boolean filters (6)
-                $31, $32, $33, $34, $35, $36,                 -- array filters (6)
-                $37, $38, $39, $40,                           -- file/technical filters (4)
-                $41, $42, $43, $44, $45, $46,                 -- date filters (6)
-                $47, $48, $49,                                -- advanced filters (3)
-                $50, $51,                                     -- library management (2)
-                $52,                                          -- response options (1)
-                $53, $54,                                     -- legacy fields (2)
-                $55, $56, $57, $58, $59, $60, $61, $62,       -- null checking filters (8)
-                $63, $64, $65, $66                            -- pagination/ordering (4)
+                $1,  -- user_id
+                $2,  -- p_search_query
+                $3,  -- p_search_type
+                $4,  -- p_structured_search
+                $5,  -- p_artist
+                $6,  -- p_artist_exact
+                $7,  -- p_album
+                $8,  -- p_album_exact
+                $9,  -- p_album_artist
+                $10, -- p_genre
+                $11, -- p_title_search
+                $12, -- p_year
+                $13, -- p_year_min
+                $14, -- p_year_max
+                $15, -- p_rating
+                $16, -- p_rating_min
+                $17, -- p_rating_max
+                $18, -- p_bpm
+                $19, -- p_bpm_min
+                $20, -- p_bpm_max
+                $21, -- p_duration_seconds
+                $22, -- p_duration_min
+                $23, -- p_duration_max
+                $24, -- p_track_number
+                $25, -- p_disc_number
+                $26, -- p_is_favorite
+                $27, -- p_favorites_only
+                $28, -- p_has_thumbnail
+                $29, -- p_has_lyrics
+                $30, -- p_has_waveform
+                $31, -- p_is_compilation
+                $32, -- p_tags
+                $33, -- p_tags_any
+                $34, -- p_tags_exclude
+                $35, -- p_genres
+                $36, -- p_artists
+                $37, -- p_albums
+                $38, -- p_file_format
+                $39, -- p_file_formats
+                $40, -- p_bitrate_min
+                $41, -- p_bitrate_max
+                $42, -- p_created_after
+                $43, -- p_created_before
+                $44, -- p_updated_after
+                $45, -- p_updated_before
+                $46, -- p_added_after
+                $47, -- p_added_before
+                $48, -- p_key_signature
+                $49, -- p_key_signatures
+                $50, -- p_mood
+                $51, -- p_playlist_id
+                $52, -- p_not_in_playlist
+                $53, -- p_include_deleted
+                $54, -- p_media_blob_id
+                $55, -- p_metadata_filter
+                $56, -- p_limit
+                $57, -- p_offset
+                $58, -- p_order_by
+                $59  -- p_sort_direction
             )
             "#,
         )
-        // === TEXT SEARCH ===
-        .bind(query.query.as_deref())
-        .bind(search_type)
-        .bind(query.structured_search.as_deref())
-        // === BASIC FILTERS ===
-        .bind(query.filters.artist.as_deref())
-        .bind(query.filters.artist_exact)
-        .bind(query.filters.album.as_deref())
-        .bind(query.filters.album_exact)
-        .bind(query.filters.album_artist.as_deref())
-        .bind(query.filters.genre.as_deref())
-        .bind(query.filters.title_search.as_deref())
-        // === NUMERIC RANGE FILTERS ===
-        .bind(query.filters.year)
-        .bind(query.filters.year_min)
-        .bind(query.filters.year_max)
-        .bind(query.filters.rating)
-        .bind(query.filters.rating_min)
-        .bind(query.filters.rating_max)
-        .bind(query.filters.bpm)
-        .bind(query.filters.bpm_min)
-        .bind(query.filters.bpm_max)
-        .bind(query.filters.duration_seconds)
-        .bind(query.filters.duration_min)
-        .bind(query.filters.duration_max)
-        .bind(query.filters.track_number)
-        .bind(query.filters.disc_number)
-        // === BOOLEAN FILTERS ===
-        .bind(query.filters.is_favorite)
-        .bind(query.filters.favorites_only)
-        .bind(query.filters.has_thumbnail)
-        .bind(query.filters.has_lyrics)
-        .bind(query.filters.has_waveform)
-        .bind(query.filters.is_compilation)
-        // === ARRAY/MULTI-VALUE FILTERS ===
-        .bind(query.filters.tags.as_deref())
-        .bind(query.filters.tags_any.as_deref())
-        .bind(query.filters.tags_exclude.as_deref())
-        .bind(query.filters.genres.as_deref())
-        .bind(query.filters.artists.as_deref())
-        .bind(query.filters.albums.as_deref())
-        // === FILE/TECHNICAL FILTERS ===
-        .bind(query.filters.file_format.as_deref())
-        .bind(query.filters.file_formats.as_deref())
-        .bind(query.filters.bitrate_min)
-        .bind(query.filters.bitrate_max)
-        // === DATE FILTERS ===
-        .bind(query.filters.created_after)
-        .bind(query.filters.created_before)
-        .bind(query.filters.updated_after)
-        .bind(query.filters.updated_before)
-        .bind(query.filters.added_after)
-        .bind(query.filters.added_before)
-        // === ADVANCED FILTERS ===
-        .bind(query.filters.key_signature.as_deref())
-        .bind(query.filters.key_signatures.as_deref())
-        .bind(query.filters.mood.as_deref())
-        // === LIBRARY MANAGEMENT ===
-        .bind(query.filters.playlist_id.as_deref())
-        .bind(query.filters.not_in_playlist.as_deref())
-        // === RESPONSE OPTIONS ===
-        .bind(query.filters.include_deleted.unwrap_or(false))
-        // === LEGACY FIELDS ===
-        .bind(query.filters.media_blob_id.as_deref())
-        .bind(query.filters.metadata_filter.as_ref())
-        // === NULL CHECKING FILTERS ===
-        .bind(query.filters.rating_is_null)
-        .bind(query.filters.genre_is_null)
-        .bind(query.filters.year_is_null)
-        .bind(query.filters.bpm_is_null)
-        .bind(query.filters.key_signature_is_null)
-        .bind(query.filters.artist_is_null)
-        .bind(query.filters.album_is_null)
-        .bind(query.filters.album_artist_is_null)
-        // === PAGINATION AND ORDERING ===
-        .bind(limit)
-        .bind(offset)
-        .bind(sort_by)
-        .bind(sort_direction)
+        .bind(None::<uuid::Uuid>) // user_id
+        .bind(query.query.as_deref()) // search_query
+        .bind(search_type) // search_type
+        .bind(query.structured_search.as_deref()) // structured_search
+        .bind(query.filters.artist.as_deref()) // artist
+        .bind(query.filters.artist_exact) // artist_exact
+        .bind(query.filters.album.as_deref()) // album
+        .bind(query.filters.album_exact) // album_exact
+        .bind(query.filters.album_artist.as_deref()) // album_artist
+        .bind(query.filters.genre.as_deref()) // genre
+        .bind(query.filters.title_search.as_deref()) // title_search
+        .bind(query.filters.year) // year
+        .bind(query.filters.year_min) // year_min
+        .bind(query.filters.year_max) // year_max
+        .bind(query.filters.rating) // rating
+        .bind(query.filters.rating_min) // rating_min
+        .bind(query.filters.rating_max) // rating_max
+        .bind(query.filters.bpm) // bpm
+        .bind(query.filters.bpm_min) // bpm_min
+        .bind(query.filters.bpm_max) // bpm_max
+        .bind(query.filters.duration_seconds) // duration_seconds
+        .bind(query.filters.duration_min) // duration_min
+        .bind(query.filters.duration_max) // duration_max
+        .bind(query.filters.track_number) // track_number
+        .bind(query.filters.disc_number) // disc_number
+        .bind(query.filters.is_favorite) // is_favorite
+        .bind(query.filters.favorites_only) // favorites_only
+        .bind(query.filters.has_thumbnail) // has_thumbnail
+        .bind(query.filters.has_lyrics) // has_lyrics
+        .bind(query.filters.has_waveform) // has_waveform
+        .bind(query.filters.is_compilation) // is_compilation
+        .bind(query.filters.tags.as_deref()) // tags
+        .bind(query.filters.tags_any.as_deref()) // tags_any
+        .bind(query.filters.tags_exclude.as_deref()) // tags_exclude
+        .bind(query.filters.genres.as_deref()) // genres
+        .bind(query.filters.artists.as_deref()) // artists
+        .bind(query.filters.albums.as_deref()) // albums
+        .bind(query.filters.file_format.as_deref()) // file_format
+        .bind(query.filters.file_formats.as_deref()) // file_formats
+        .bind(query.filters.bitrate_min) // bitrate_min
+        .bind(query.filters.bitrate_max) // bitrate_max
+        .bind(query.filters.created_after) // created_after
+        .bind(query.filters.created_before) // created_before
+        .bind(query.filters.updated_after) // updated_after
+        .bind(query.filters.updated_before) // updated_before
+        .bind(query.filters.added_after) // added_after
+        .bind(query.filters.added_before) // added_before
+        .bind(query.filters.key_signature.as_deref()) // key_signature
+        .bind(query.filters.key_signatures.as_deref()) // key_signatures
+        .bind(query.filters.mood.as_deref()) // mood
+        .bind(query.filters.playlist_id.as_deref()) // playlist_id
+        .bind(query.filters.not_in_playlist.as_deref()) // not_in_playlist
+        .bind(query.filters.include_deleted.unwrap_or(false)) // include_deleted
+        .bind(query.filters.media_blob_id.as_deref()) // media_blob_id
+        .bind(query.filters.metadata_filter.as_ref()) // metadata_filter
+        .bind(limit) // limit
+        .bind(offset) // offset
+        .bind(sort_by) // order_by
+        .bind(sort_direction) // sort_direction
         .fetch_all(&self.pool)
         .await?;
 

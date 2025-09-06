@@ -668,6 +668,31 @@ export class ApiClient {
   async getPlaylistSummaries() {
     return musicApiMethods.getPlaylistSummaries.call(this);
   }
+
+  // User preference methods
+  async updateSongPreferences(songId: string, request: any) {
+    return musicApiMethods.updateSongPreferences.call(this, songId, request);
+  }
+
+  async bulkUpdateUserPreferences(request: any) {
+    return musicApiMethods.bulkUpdateUserPreferences.call(this, request);
+  }
+
+  async toggleSongFavorite(songId: string, isFavorite: boolean) {
+    return musicApiMethods.toggleSongFavorite.call(this, songId, isFavorite);
+  }
+
+  async rateSong(songId: string, rating: number | null) {
+    return musicApiMethods.rateSong.call(this, songId, rating);
+  }
+
+  async bulkToggleFavorite(songIds: string[], isFavorite: boolean) {
+    return musicApiMethods.bulkToggleFavorite.call(this, songIds, isFavorite);
+  }
+
+  async bulkRateSongs(songIds: string[], rating: number | null) {
+    return musicApiMethods.bulkRateSongs.call(this, songIds, rating);
+  }
 }
 
 // Default client instance

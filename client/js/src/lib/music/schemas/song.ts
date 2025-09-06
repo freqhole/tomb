@@ -89,3 +89,77 @@ export const SongUpdateResponseSchema = z.object({
 });
 
 export type SongUpdateResponse = z.infer<typeof SongUpdateResponseSchema>;
+
+// User preference schemas
+export const UpdateUserPreferenceRequestSchema = z.object({
+  is_favorite: z.boolean().optional(),
+  rating: z.number().min(1).max(5).optional(),
+});
+
+export type UpdateUserPreferenceRequest = z.infer<
+  typeof UpdateUserPreferenceRequestSchema
+>;
+
+export const BulkUpdateUserPreferencesRequestSchema = z.object({
+  song_ids: z.array(UuidSchema),
+  updates: UpdateUserPreferenceRequestSchema,
+});
+
+export type BulkUpdateUserPreferencesRequest = z.infer<
+  typeof BulkUpdateUserPreferencesRequestSchema
+>;
+
+export const UserPreferenceResponseSchema = z.object({
+  user_id: UuidSchema,
+  song_id: UuidSchema,
+  is_favorite: z.boolean(),
+  rating: z.number().min(1).max(5).nullable(),
+  updated_at: z.string(),
+});
+
+export type UserPreferenceResponse = z.infer<
+  typeof UserPreferenceResponseSchema
+>;
+
+export const BulkUserPreferenceResponseSchema = z.object({
+  message: z.string(),
+  updated_preferences: z.array(UserPreferenceResponseSchema),
+});
+
+export type BulkUserPreferenceResponse = z.infer<
+  typeof BulkUserPreferenceResponseSchema
+>;
+
+// Song with user preferences (for user-aware queries)
+export const SongWithUserPreferencesSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  artist: z.string().nullable(),
+  album: z.string().nullable(),
+  album_artist: z.string().nullable(),
+  track_number: z.number().nullable(),
+  disc_number: z.number().nullable(),
+  duration_seconds: z.number().nullable(),
+  genre: z.string().nullable(),
+  year: z.number().nullable(),
+  bpm: z.number().nullable(),
+  key_signature: z.string().nullable(),
+  rating: z.number().nullable(), // legacy rating for backward compatibility
+  is_favorite: z.boolean(), // legacy favorite for backward compatibility
+  tags: z.array(z.string()),
+  display_title: z.string(),
+  detailed_display_title: z.string(),
+  created_at: z.string(),
+  media_blob_id: z.string(),
+  thumbnail_blob_id: z.string().nullable(),
+  waveform_blob_id: z.string().nullable(),
+  thumbnail_blob_ids: z.array(z.string()),
+  // user-specific preference data
+  user_is_favorite: z.boolean(),
+  user_rating: z.number().min(1).max(5).nullable(),
+  preference_updated_at: z.string().nullable(),
+});
+
+export type SongWithUserPreferences = z.infer<
+  typeof SongWithUserPreferencesSchema
+>;

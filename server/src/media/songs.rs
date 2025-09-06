@@ -10,6 +10,10 @@ use axum::{
     Router,
 };
 use grimoire::config::AppConfig;
+use grimoire::music::models::{
+    BulkUpdatePreferencesRequest,
+    UpdateUserPreferenceRequest as GrimoireUpdateUserPreferenceRequest, UserSongPreference,
+};
 use grimoire::music::{
     AlbumSummary, AlbumTrack, CreatePlaylist, MusicRepository, Playlist, PlaylistQuery,
     PlaylistService, PlaylistSummary, PlaylistWithCount, Song, SongQuery, UpdatePlaylist,
@@ -575,6 +579,65 @@ pub struct UpdateSongRequest {
     pub rating: Option<i32>,
 }
 
+// user preference request types
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserPreferenceRequest {
+    pub is_favorite: Option<bool>,
+    pub rating: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkUpdateUserPreferencesRequest {
+    pub song_ids: Vec<Uuid>,
+    pub updates: UpdateUserPreferenceRequest,
+}
+
+// user preference response types
+#[derive(Debug, Serialize)]
+pub struct UserPreferenceResponse {
+    pub user_id: Uuid,
+    pub song_id: Uuid,
+    pub is_favorite: bool,
+    pub rating: Option<i32>,
+    pub updated_at: String,
+}
+
+impl From<UserSongPreference> for UserPreferenceResponse {
+    fn from(pref: UserSongPreference) -> Self {
+        Self {
+            user_id: pref.user_id,
+            song_id: pref.song_id,
+            is_favorite: pref.is_favorite,
+            rating: pref.rating,
+            updated_at: pref.updated_at.format(&Rfc3339).unwrap_or_default(),
+        }
+    }
+}
+
+impl From<UpdateUserPreferenceRequest> for GrimoireUpdateUserPreferenceRequest {
+    fn from(req: UpdateUserPreferenceRequest) -> Self {
+        Self {
+            is_favorite: req.is_favorite,
+            rating: req.rating,
+        }
+    }
+}
+
+impl From<BulkUpdateUserPreferencesRequest> for BulkUpdatePreferencesRequest {
+    fn from(req: BulkUpdateUserPreferencesRequest) -> Self {
+        Self {
+            song_ids: req.song_ids,
+            updates: req.updates.into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct BulkUserPreferenceResponse {
+    pub message: String,
+    pub updated_preferences: Vec<UserPreferenceResponse>,
+}
+
 /// Song update response
 #[derive(Debug, Serialize)]
 pub struct SongUpdateResponse {
@@ -711,6 +774,64 @@ pub async fn update_song(
     Ok(Json(SongUpdateResponse {
         message,
         song: SongResponse::from(song),
+    }))
+}
+
+/// Update user song preferences (favorite status, rating)
+pub async fn update_song_preferences(
+    Extension(db): Extension<DatabaseConnection>,
+    Path(song_id): Path<Uuid>,
+    Json(req): Json<UpdateUserPreferenceRequest>,
+) -> Result<Json<UserPreferenceResponse>, WebauthnError> {
+    // todo: get user_id from authentication middleware
+    let user_id = Uuid::parse_str("8ca96ab4-417c-42e7-95a4-52c18db45ae3")
+        .map_err(|_| WebauthnError::BadRequest)?;
+
+    let repository = MusicRepository::new(db.pool().clone());
+    let service = PlaylistService::new(repository);
+
+    let preference = service
+        .set_user_song_favorite(user_id, song_id, req.is_favorite.unwrap_or(false))
+        .await
+        .map_err(|_| WebauthnError::DatabaseError)?;
+
+    if let Some(rating) = req.rating {
+        let preference = service
+            .rate_user_song(user_id, song_id, Some(rating))
+            .await
+            .map_err(|_| WebauthnError::BadRequest)?;
+
+        return Ok(Json(UserPreferenceResponse::from(preference)));
+    }
+
+    Ok(Json(UserPreferenceResponse::from(preference)))
+}
+
+/// Bulk update user preferences for multiple songs
+pub async fn bulk_update_user_preferences(
+    Extension(db): Extension<DatabaseConnection>,
+    Json(req): Json<BulkUpdateUserPreferencesRequest>,
+) -> Result<Json<BulkUserPreferenceResponse>, WebauthnError> {
+    // todo: get user_id from authentication middleware
+    let user_id = Uuid::parse_str("8ca96ab4-417c-42e7-95a4-52c18db45ae3")
+        .map_err(|_| WebauthnError::BadRequest)?;
+
+    let repository = MusicRepository::new(db.pool().clone());
+    let service = PlaylistService::new(repository);
+
+    let preferences = service
+        .bulk_update_user_preferences(user_id, req.into())
+        .await
+        .map_err(|_| WebauthnError::DatabaseError)?;
+
+    let updated_preferences = preferences
+        .into_iter()
+        .map(UserPreferenceResponse::from)
+        .collect();
+
+    Ok(Json(BulkUserPreferenceResponse {
+        message: "preferences updated successfully".to_string(),
+        updated_preferences,
     }))
 }
 
@@ -1496,6 +1617,9 @@ pub fn create_routes() -> Router {
         .route("/songs", get(list_songs))
         .route("/songs/{song_id}", get(get_song))
         .route("/songs/{song_id}", put(update_song))
+        // User preference routes
+        .route("/songs/{song_id}/preferences", put(update_song_preferences))
+        .route("/songs/preferences/bulk", put(bulk_update_user_preferences))
         // Artist routes
         .route("/artists", get(list_artists))
         .route("/artists/{artist}/songs", get(get_artist_songs))
