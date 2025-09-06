@@ -1,10 +1,19 @@
-import { For, Show, createEffect, createSignal } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createSignal,
+  onMount,
+  onCleanup,
+} from "solid-js";
 import { apiClient } from "../../../../../../lib/api-client";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useStore } from "../../../../store";
 import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
+import { createUserPreferences } from "../../../../services/userPreferences";
+import { StarRating, FavoriteHeart } from "../../../ui";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
 
@@ -20,6 +29,7 @@ export function DesktopSongsView(
   const [] = useStore();
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
+  const userPreferences = createUserPreferences();
 
   // Selection state
   const selection = useSelection({
@@ -91,6 +101,38 @@ export function DesktopSongsView(
     }
   });
 
+  // Keyboard shortcuts for preferences
+  const handleKeyDown = (e: KeyboardEvent) => {
+    // Only handle shortcuts if not typing in an input
+    if (
+      e.target instanceof HTMLInputElement ||
+      e.target instanceof HTMLTextAreaElement
+    ) {
+      return;
+    }
+
+    const selectedSongs = selection.getSelectedSongs(songs());
+    if (selectedSongs.length === 0) return;
+
+    const handled = userPreferences.handleKeyboardShortcut(
+      e.key,
+      selectedSongs
+    );
+    if (handled) {
+      e.preventDefault();
+      // Reload songs to reflect changes
+      setTimeout(() => reloadSongs(), 500);
+    }
+  };
+
+  onMount(() => {
+    document.addEventListener("keydown", handleKeyDown);
+  });
+
+  onCleanup(() => {
+    document.removeEventListener("keydown", handleKeyDown);
+  });
+
   return (
     <div
       class={`flex flex-col h-full bg-black text-white overflow-hidden ${props.class || ""}`}
@@ -144,10 +186,11 @@ export function DesktopSongsView(
             {/* Sticky Table Header */}
             <div class="sticky top-0 bg-black/95 backdrop-blur-sm px-6 py-3 text-xs text-gray-400 uppercase tracking-wider grid grid-cols-12 gap-4 z-10">
               <div class="col-span-1 text-center">#</div>
-              <div class="col-span-5">title</div>
+              <div class="col-span-4">title</div>
               <div class="col-span-2">artist</div>
               <div class="col-span-2">album</div>
               <div class="col-span-1">year</div>
+              <div class="col-span-1">rating</div>
               <div class="col-span-1 text-right">duration</div>
             </div>
 
@@ -245,7 +288,7 @@ export function DesktopSongsView(
                   </div>
 
                   {/* Title */}
-                  <div class="col-span-5">
+                  <div class="col-span-4">
                     <div class="flex items-center space-x-3">
                       {/* Album Art Placeholder */}
                       <div class="w-10 h-10 bg-fuchsia-800/30 rounded flex-shrink-0 flex items-center justify-center">
@@ -267,18 +310,22 @@ export function DesktopSongsView(
                           </div>
                         )}
                       </div>
-                      {/* Favorite indicator */}
-                      <Show when={song.is_favorite}>
-                        <div class="text-magenta-500">
-                          <svg
-                            class="w-4 h-4"
-                            fill="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                          </svg>
-                        </div>
-                      </Show>
+                      {/* Favorite Heart - Interactive */}
+                      <FavoriteHeart
+                        isFavorite={
+                          (song as any).user_is_favorite ?? song.is_favorite
+                        }
+                        onToggle={async (isFavorite) => {
+                          await userPreferences.toggleSongFavorite(
+                            song.id,
+                            !isFavorite
+                          );
+                          // Reload to reflect changes
+                          setTimeout(() => reloadSongs(), 300);
+                        }}
+                        size="sm"
+                        class="opacity-0 group-hover:opacity-100 transition-opacity"
+                      />
                       {/* Add to Queue Button */}
                       <button
                         class="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-magenta-400 hover:bg-magenta-600/30 rounded transition-all"
@@ -323,6 +370,25 @@ export function DesktopSongsView(
                   <div class="col-span-1">
                     <div class="text-gray-400 text-sm">
                       {songInteractions.formatYear(song.year)}
+                    </div>
+                  </div>
+
+                  {/* Rating */}
+                  <div class="col-span-1">
+                    <div class="flex justify-center">
+                      <StarRating
+                        rating={(song as any).user_rating ?? song.rating}
+                        onRatingChange={async (rating) => {
+                          await userPreferences.rateSong(
+                            song.id,
+                            rating || null
+                          );
+                          // Reload to reflect changes
+                          setTimeout(() => reloadSongs(), 300);
+                        }}
+                        size="sm"
+                        class="opacity-0 group-hover:opacity-100 transition-opacity"
+                      />
                     </div>
                   </div>
 
@@ -383,6 +449,38 @@ export function DesktopSongsView(
               }}
             >
               Add to Playlist
+            </button>
+
+            <button
+              class="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm transition-colors"
+              onClick={async () => {
+                const selectedSongs = selection.getSelectedSongs(songs());
+                const songIds = selectedSongs.map((song) => song.id);
+                const anyNotFavorited = selectedSongs.some(
+                  (song) => !(song as any).user_is_favorite && !song.is_favorite
+                );
+                await userPreferences.bulkToggleFavorite(
+                  songIds,
+                  anyNotFavorited
+                );
+                setTimeout(() => reloadSongs(), 500);
+              }}
+              title="Press 'f' to toggle favorites"
+            >
+              ♥ Favorite
+            </button>
+
+            <button
+              class="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm transition-colors"
+              onClick={async () => {
+                const selectedSongs = selection.getSelectedSongs(songs());
+                const songIds = selectedSongs.map((song) => song.id);
+                await userPreferences.bulkRateSongs(songIds, 5);
+                setTimeout(() => reloadSongs(), 500);
+              }}
+              title="Press '1-5' to rate songs"
+            >
+              ⭐ Rate 5
             </button>
 
             <button

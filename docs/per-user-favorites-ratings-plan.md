@@ -297,34 +297,252 @@ The per-user favorites and ratings system is now **fully functional**!
 - **User context throughout**: CLI, API, and UI all support user-specific data
 - **Backward compatibility**: Global view when no user specified
 
-## 🚀 WHAT'S LEFT (OPTIONAL ENHANCEMENTS)
+## 🚨 CRITICAL ISSUES DISCOVERED - IMMEDIATE ACTION REQUIRED
 
-The system is production-ready, but these remain as optional improvements:
+### **ISSUE: User Preferences Not Working in Freqhole View**
 
-### phase 6.3: extended testing (OPTIONAL)
+During implementation testing, discovered that user favorites and ratings are **not displaying or updating correctly** in the freqhole view (`client/js/src/views/freqhole/`). Investigation revealed several critical backend issues.
 
-- **Multi-user testing**: Verify data isolation between users
-- **Performance testing**: Validate with realistic data loads
-- **Edge case testing**: Bulk operations, concurrent updates
-- **User workflow testing**: End-to-end preference workflows
+### phase 6.3: CRITICAL FIXES NEEDED (HIGH PRIORITY)
 
-### phase 6.4: polish and optimization (OPTIONAL)
+**Root Cause Analysis:**
 
-- **Legacy cleanup**: Remove unused code paths if any
-- **Performance optimization**: Query performance analysis
-- **Documentation**: Update API docs for preference endpoints
-- **Monitoring**: Add logging/metrics for preference operations
+1. **Missing Authentication Integration**: All handlers in `server/src/media/songs.rs` lack `Extension<AuthenticatedUser>` despite auth middleware being applied
+2. **Hardcoded User IDs**: Preference endpoints use hardcoded UUIDs instead of authenticated user
+3. **Wrong Repository Methods**: Using legacy `query_songs()` instead of user-aware `search_songs_with_user_context()`
+4. **Type Mismatches**: Frontend expects `user_is_favorite`/`user_rating` but receives legacy `is_favorite`/`rating`
 
-### phase 6.5: future enhancements (OPTIONAL)
+**Authentication Middleware Status:**
 
-- **User interface improvements**: Better UX for preference management
-- **Advanced features**: Playlist preferences, listening history
+- ✅ Auth middleware (`require_authentication`) IS properly applied to all `/api/` routes
+- ✅ Cookie-based auth working correctly
+- ✅ `credentials: "include"` configured in fetch requests
+- ❌ Individual song handlers NOT using provided `AuthenticatedUser` extension
+
+### phase 6.4: authentication integration fixes (CRITICAL)
+
+**Current State Analysis:**
+
+```
+/api/media/* routes:
+- Auth middleware: ✅ Applied via protected_routes layer
+- songs.rs handlers: ❌ Missing Extension<AuthenticatedUser>
+- filters.rs handlers: ✅ Using Extension<AuthenticatedUser>
+- search.rs handlers: ✅ Using Extension<AuthenticatedUser>
+- playlists.rs handlers: ✅ Using Extension<AuthenticatedUser>
+```
+
+**Hardcoded User IDs Found:**
+
+```rust
+// In update_song_preferences and bulk_update_user_preferences:
+let user_id = Uuid::parse_str("8ca96ab4-417c-42e7-95a4-52c18db45ae3")
+    .map_err(|_| WebauthnError::BadRequest)?;
+```
+
+**Available Infrastructure (Already Built):**
+
+✅ Database functions: `get_songs_with_user_preferences($1, $2, $3, $4, $5, $6)`
+✅ Repository method: `search_songs_with_user_context(user_id, query)`
+✅ Model types: `SongWithUserPrefs` (includes user_is_favorite, user_rating)
+✅ Frontend components: `StarRating`, `FavoriteHeart` (implemented)
+✅ API client methods: All preference methods implemented
+
+### step 6.3.1: fix hardcoded user ids (IMMEDIATE - 30 minutes)
+
+**Files to modify:**
+
+- `server/src/media/songs.rs` lines 785-795 and 814-824
+
+**Required changes:**
+
+```rust
+// BEFORE:
+pub async fn update_song_preferences(
+    Extension(db): Extension<DatabaseConnection>,
+    Path(song_id): Path<Uuid>,
+    Json(req): Json<UpdateUserPreferenceRequest>,
+) -> Result<Json<UserPreferenceResponse>, WebauthnError> {
+    // todo: get user_id from authentication middleware
+    let user_id = Uuid::parse_str("8ca96ab4-417c-42e7-95a4-52c18db45ae3")
+        .map_err(|_| WebauthnError::BadRequest)?;
+
+// AFTER:
+pub async fn update_song_preferences(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(song_id): Path<Uuid>,
+    Json(req): Json<UpdateUserPreferenceRequest>,
+) -> Result<Json<UserPreferenceResponse>, WebauthnError> {
+    let user_id = user.user().id;
+```
+
+### step 6.3.2: update list_songs to use user context (PRIORITY - 1 hour)
+
+**File to modify:**
+
+- `server/src/media/songs.rs` lines 675-685
+
+**Required changes:**
+
+```rust
+// BEFORE:
+pub async fn list_songs(
+    Extension(db): Extension<DatabaseConnection>,
+    Query(params): Query<SongQueryParams>,
+) -> Result<Json<SongListResponse>, WebauthnError> {
+    let repository = MusicRepository::new(db.pool().clone());
+    let service = PlaylistService::new(repository);
+    let songs = service.query_songs(query).await
+
+// AFTER:
+pub async fn list_songs(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(params): Query<SongQueryParams>,
+) -> Result<Json<SongListResponse>, WebauthnError> {
+    let repository = MusicRepository::new(db.pool().clone());
+    let songs = repository.search_songs_with_user_context(Some(user.user().id), query).await
+```
+
+**Response type update needed:**
+
+- Change from `Vec<SongResponse>` to `Vec<SongWithUserPrefsResponse>`
+- Add new response type that includes `user_is_favorite` and `user_rating` fields
+
+### step 6.3.3: update frontend type handling (PRIORITY - 30 minutes)
+
+**Files to modify:**
+
+- `client/js/src/views/freqhole/components/content/views/songs/DesktopSongsView.tsx`
+- Remove `(song as any)` type assertions
+- Update to expect proper user preference fields
+
+**Current workaround in DesktopSongsView.tsx:**
+
+```typescript
+// TEMPORARY WORKAROUND (lines 315, 380, 460):
+isFavorite={(song as any).user_is_favorite ?? song.is_favorite}
+rating={(song as any).user_rating ?? song.rating}
+```
+
+**Should become:**
+
+```typescript
+// AFTER BACKEND FIXED:
+isFavorite={song.user_is_favorite}
+rating={song.user_rating}
+```
+
+### phase 6.5: immediate implementation plan (CRITICAL)
+
+### phase 6.5: new feature enhancements (PRIORITIZED)
+
+- **🎯 Playlist favorites**: Allow users to favorite entire playlists
+- **🎯 Playlist ownership**: Users can own and manage their own playlists
+- **🎯 Album favorites**: Allow users to favorite entire albums (all songs in album)
+- **🎯 Freqhole UI implementation**: Implement ratings/favorites in client/js/src/views/freqhole
+- **Advanced features**: Listening history, preference analytics
 - **Analytics**: User preference insights and trends
 - **Import/export**: User preference backup/restore
 
+### phase 6.6: extended playlist and album support (NEW PRIORITY)
+
+#### step 6.6.1: playlist favorites and ownership
+
+- **Database schema**: Create `user_playlist_preferences` and `playlist_ownership` tables
+- **Backend API**: Add playlist preference endpoints similar to song preferences
+- **Frontend UI**: Add heart icons and ownership indicators to playlist views
+- **Bulk operations**: Favorite all songs in a playlist, transfer ownership
+
+#### step 6.6.2: album favorites support
+
+- **Database integration**: Leverage existing album metadata from songs table
+- **Backend logic**: Bulk favorite/unfavorite all songs in an album
+- **Frontend UI**: Album-level favorite toggles in album views
+- **Smart detection**: Auto-detect when all songs in album are favorited
+
+### step 6.3.4: additional song handlers needing auth (MEDIUM PRIORITY)
+
+**Handlers missing Extension<AuthenticatedUser>:**
+
+- `get_song` (if individual song views need user preferences)
+- `get_artist_songs` (for artist view with user preferences)
+- `get_album_tracks` (for album view with user preferences)
+- `get_playlist_songs` (for playlist view with user preferences)
+
+**Implementation pattern for each:**
+
+```rust
+// Add Extension<AuthenticatedUser> parameter
+// Use repository.search_songs_with_user_context(Some(user.user().id), query)
+// Return user-aware response types
+```
+
+### step 6.3.5: test and verify (CRITICAL)
+
+**Testing checklist:**
+
+- [ ] Freqhole loads songs with correct user_is_favorite/user_rating values
+- [ ] Clicking heart icon toggles user favorites (not global)
+- [ ] Star rating updates user preferences (not global)
+- [ ] Keyboard shortcuts (f, 1-5) work correctly
+- [ ] Bulk operations update user preferences
+- [ ] Different users see different preference states
+- [ ] No more hardcoded user IDs in logs
+
+#### step 6.6.3: freqhole ui implementation (COMPLETED)
+
+- **Reference implementation**: Use client/js/src/views/freqhole-music-admin as working example
+- **Star rating component**: Port StarRating component to freqhole view
+- **Heart favorites**: Add favorite toggles to song lists in freqhole
+- **Context menus**: Extend existing context menus with rating options
+- **Keyboard shortcuts**: Add 'f' for favorite, '1-5' for rating in freqhole
+- **Bulk operations**: Multi-song rating/favorite operations
+
 ## detailed implementation specifications
 
-### database schema details
+### new database schema requirements
+
+#### playlist preferences and ownership tables
+
+```sql
+-- user preferences for playlists
+CREATE TABLE user_playlist_preferences (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    playlist_id UUID NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    is_favorite BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, playlist_id)
+);
+
+-- playlist ownership
+CREATE TABLE playlist_ownership (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    playlist_id UUID NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(playlist_id) -- one owner per playlist
+);
+
+-- indexes for performance
+CREATE INDEX idx_user_playlist_preferences_user_id ON user_playlist_preferences(user_id);
+CREATE INDEX idx_user_playlist_preferences_playlist_id ON user_playlist_preferences(playlist_id);
+CREATE INDEX idx_playlist_ownership_owner ON playlist_ownership(owner_user_id);
+CREATE INDEX idx_playlist_ownership_playlist ON playlist_ownership(playlist_id);
+```
+
+#### album favorites (no new tables needed)
+
+Album favorites will be implemented as bulk operations on existing `user_song_preferences` table:
+
+- Identify all songs in an album using `songs.album` field
+- Bulk favorite/unfavorite all songs in that album
+- UI shows album as "favorited" when all songs are favorited
+
+### original database schema details
 
 ```sql
 -- comprehensive user preferences schema
@@ -480,7 +698,52 @@ interface UpdateUserPreferenceRequest {
 }
 ```
 
-### component updates
+### new ui component requirements
+
+#### freqhole view enhancements
+
+Based on the working implementation in `client/js/src/views/freqhole-music-admin`:
+
+```typescript
+// port these components to freqhole view
+function StarRating({ rating, onRatingChange, disabled }: StarRatingProps) {
+  // interactive star rating 1-5
+}
+
+function FavoriteHeart({ isFavorite, onToggle, disabled }: FavoriteHeartProps) {
+  // heart icon toggle for favorites
+}
+
+function SongListWithPreferences({ songs, onPreferenceChange }: SongListProps) {
+  // song list with inline rating/favorite controls
+}
+
+// keyboard shortcuts in freqhole
+const handleKeyPress = (e: KeyboardEvent) => {
+  if (e.key === "f") toggleFavorite(selectedSong);
+  if (["1", "2", "3", "4", "5"].includes(e.key))
+    setRating(selectedSong, Number(e.key));
+};
+```
+
+#### playlist and album components
+
+```typescript
+function PlaylistCard({
+  playlist,
+  userPrefs,
+  ownership,
+  onPreferenceChange,
+}: PlaylistCardProps) {
+  // playlist display with favorite heart and ownership indicator
+}
+
+function AlbumView({ album, songs, onBulkFavorite }: AlbumViewProps) {
+  // album view with "favorite all" toggle
+}
+```
+
+### original component updates
 
 minimal changes to existing components by maintaining interface:
 
@@ -1174,6 +1437,544 @@ pub struct AuthenticatedUser {
 - **Extended testing**: 2-3 days (multi-user, performance)
 - **Polish and optimization**: 1-2 days (cleanup, docs)
 - **Future enhancements**: Ongoing (as needed)
+
+## implementation priorities and timeline
+
+### immediate priorities (phase 6.4-6.6)
+
+1. **✅ Legacy cleanup** (1-2 days)
+   - Remove unused code paths from migration
+   - Clean up dead imports and functions
+   - Update documentation
+
+2. **🎯 Freqhole UI implementation** (3-5 days)
+   - Port StarRating and FavoriteHeart components from freqhole-music-admin
+   - Add preference controls to song lists in freqhole view
+   - Implement keyboard shortcuts (f for favorite, 1-5 for rating)
+   - Add context menu options for bulk operations
+
+3. **🎯 Playlist favorites** (2-3 days)
+   - Create user_playlist_preferences table
+   - Add playlist preference API endpoints
+   - Implement playlist heart icons in UI
+   - Bulk favorite songs in playlist option
+
+4. **🎯 Album favorites** (2-3 days)
+   - Implement album-level favorite detection logic
+   - Add "favorite album" toggle to album views
+   - Bulk favorite/unfavorite all songs in album
+   - Smart UI indicating album favorite status
+
+5. **🎯 Playlist ownership** (3-4 days)
+   - Create playlist_ownership table
+   - Add ownership API endpoints and permissions
+   - Implement playlist ownership UI indicators
+   - Transfer ownership functionality
+
+### reference implementation
+
+Use `client/js/src/views/freqhole-music-admin` as the working reference for:
+
+- StarRating component implementation
+- FavoriteHeart component pattern
+- Keyboard shortcut handling
+- Bulk preference operations
+- API integration patterns
+
+## CRITICAL BUG FIX IMPLEMENTATION CONTEXT
+
+### Current State Summary (as of investigation)
+
+**Working Components:**
+
+- ✅ Database schema and functions (user_song_preferences table, get_songs_with_user_preferences function)
+- ✅ Repository layer (search_songs_with_user_context method)
+- ✅ Models (SongWithUserPrefs with user_is_favorite, user_rating fields)
+- ✅ Authentication middleware (properly applied to all /api/ routes)
+- ✅ Frontend UI components (StarRating, FavoriteHeart implemented)
+- ✅ API client methods (all preference endpoints implemented)
+
+**Broken Components:**
+
+- ❌ Songs API handlers (missing Extension<AuthenticatedUser>)
+- ❌ Preference endpoints (hardcoded user IDs)
+- ❌ Response types (returning Song instead of SongWithUserPrefs)
+- ❌ Frontend type expectations (using any assertions as workaround)
+
+### Files Requiring Changes
+
+**Backend (Critical):**
+
+1. `server/src/media/songs.rs` - Add auth to all handlers, fix hardcoded user IDs
+2. `server/src/media/songs.rs` - Update list_songs to use user-aware repository method
+3. `server/src/media/songs.rs` - Create SongWithUserPrefsResponse type
+
+**Frontend (Minor):**
+
+1. `client/js/src/views/freqhole/components/content/views/songs/DesktopSongsView.tsx` - Remove type assertions
+2. `client/js/src/lib/music/schemas/song.ts` - Ensure SongWithUserPreferences is used
+
+### Key Implementation Details
+
+**Authentication Pattern (from working examples):**
+
+```rust
+// From server/src/media/filters.rs (working example):
+pub async fn get_genre_filters(
+    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(db): Extension<DatabaseConnection>,
+    Query(params): Query<FilterParams>,
+) -> Result<Json<GenreFiltersResponse>, StatusCode>
+
+// Access user ID:
+let user_id = user.user().id;
+```
+
+**Repository Pattern (available method):**
+
+```rust
+// From grimoire/src/music/repository/mod.rs:
+pub async fn search_songs_with_user_context(
+    &self,
+    user_id: Option<Uuid>,
+    query: SongQuery,
+) -> Result<Vec<SongWithUserPrefs>>
+```
+
+**Database Function (already exists):**
+
+```sql
+-- Function: get_songs_with_user_preferences($1, $2, $3, $4, $5, $6)
+-- Returns songs with user_is_favorite, user_rating, preference_updated_at
+```
+
+### Error Patterns to Avoid
+
+1. **Don't add new database functions** - use existing `get_songs_with_user_preferences`
+2. **Don't create new API endpoints** - fix existing ones
+3. **Don't modify frontend types heavily** - backend should return correct types
+4. **Don't add search endpoint complexity** - keep using simple songs endpoint with user context
+
+### Success Criteria
+
+1. Freqhole view shows correct per-user favorites and ratings
+2. User interactions update user preferences (not global song data)
+3. No hardcoded user IDs anywhere in backend
+4. Different authenticated users see different preference states
+5. All existing functionality preserved
+
+## detailed implementation guidance for new requirements
+
+### 1. legacy cleanup implementation
+
+#### identify and remove unused code paths
+
+```bash
+# search for old preference patterns that may be unused
+grep -r "is_favorite.*songs\." --include="*.rs" --include="*.ts" --include="*.sql"
+grep -r "rating.*songs\." --include="*.rs" --include="*.ts" --include="*.sql"
+
+# look for dead imports related to old preference system
+grep -r "SongPreference" --include="*.rs" --include="*.ts" | grep -v "UserSongPreference"
+```
+
+#### cleanup checklist
+
+- [ ] Remove any direct song.is_favorite/song.rating column references
+- [ ] Clean up unused preference-related functions in grimoire
+- [ ] Remove deprecated API endpoints if any exist
+- [ ] Update any remaining documentation references
+- [ ] Remove unused imports and type definitions
+
+### 2. freqhole ui implementation strategy
+
+#### reference files to study
+
+Key files in `client/js/src/views/freqhole-music-admin` to port:
+
+- StarRating component patterns
+- FavoriteHeart component patterns
+- Keyboard event handling
+- API integration patterns
+- Bulk operation UI patterns
+
+#### specific implementation steps
+
+```typescript
+// 1. Port StarRating component to freqhole
+// From: client/js/src/views/freqhole-music-admin/components/StarRating.tsx
+// To: client/js/src/views/freqhole/components/StarRating.tsx
+
+// 2. Add preference controls to song lists
+// Update: client/js/src/views/freqhole/components/SongList.tsx
+const SongRow = ({ song, onPreferenceChange }: SongRowProps) => {
+  return (
+    <div class="song-row">
+      <span>{song.title}</span>
+      <FavoriteHeart
+        isFavorite={song.user_is_favorite}
+        onToggle={(fav) => onPreferenceChange(song.id, { is_favorite: fav })}
+      />
+      <StarRating
+        rating={song.user_rating}
+        onRatingChange={(rating) => onPreferenceChange(song.id, { rating })}
+      />
+    </div>
+  );
+};
+
+// 3. Add keyboard shortcuts to freqhole view
+// Update: client/js/src/views/freqhole/FreqholeView.tsx
+const handleKeyPress = (e: KeyboardEvent) => {
+  const selectedSong = getSelectedSong();
+  if (!selectedSong) return;
+
+  if (e.key === "f") {
+    toggleFavorite(selectedSong.id);
+  }
+  if (["1", "2", "3", "4", "5"].includes(e.key)) {
+    setRating(selectedSong.id, Number(e.key));
+  }
+};
+
+// 4. Port API integration patterns
+// Use the same preference API calls as freqhole-music-admin
+const updateSongPreferences = async (songId: string, prefs: UpdateUserPreferenceRequest) => {
+  await fetch(`/api/media/songs/${songId}/preferences`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(prefs)
+  });
+};
+```
+
+### 3. playlist favorites implementation
+
+#### database migration
+
+```sql
+-- Add to migrations/
+CREATE TABLE user_playlist_preferences (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    playlist_id UUID NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    is_favorite BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, playlist_id)
+);
+
+CREATE INDEX idx_user_playlist_preferences_user_id ON user_playlist_preferences(user_id);
+CREATE INDEX idx_user_playlist_preferences_playlist_id ON user_playlist_preferences(playlist_id);
+```
+
+#### backend implementation
+
+```rust
+// Add to grimoire/src/music/models.rs
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct UserPlaylistPreference {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub playlist_id: Uuid,
+    pub is_favorite: bool,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
+// Add to grimoire/src/music/repository/mod.rs
+impl MusicRepository {
+    pub async fn update_user_playlist_preference(
+        &self,
+        user_id: Uuid,
+        playlist_id: Uuid,
+        is_favorite: bool,
+    ) -> Result<UserPlaylistPreference, sqlx::Error> {
+        sqlx::query_as!(
+            UserPlaylistPreference,
+            r#"
+            INSERT INTO user_playlist_preferences (user_id, playlist_id, is_favorite)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id, playlist_id)
+            DO UPDATE SET is_favorite = $3, updated_at = NOW()
+            RETURNING *
+            "#,
+            user_id,
+            playlist_id,
+            is_favorite
+        )
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    pub async fn get_user_playlist_preferences(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<UserPlaylistPreference>, sqlx::Error> {
+        sqlx::query_as!(
+            UserPlaylistPreference,
+            "SELECT * FROM user_playlist_preferences WHERE user_id = $1",
+            user_id
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
+}
+```
+
+### 4. album favorites implementation
+
+#### backend logic (no new tables needed)
+
+```rust
+// Add to grimoire/src/music/repository/mod.rs
+impl MusicRepository {
+    pub async fn bulk_favorite_album(
+        &self,
+        user_id: Uuid,
+        album: String,
+        is_favorite: bool,
+    ) -> Result<Vec<UserSongPreference>, sqlx::Error> {
+        // Get all songs in the album
+        let song_ids = sqlx::query_scalar!(
+            "SELECT id FROM songs WHERE album = $1",
+            album
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        // Bulk update preferences for all songs
+        let mut preferences = Vec::new();
+        for song_id in song_ids {
+            let pref = self.update_user_song_preference(
+                user_id,
+                song_id,
+                Some(is_favorite),
+                None, // keep existing rating
+            ).await?;
+            preferences.push(pref);
+        }
+
+        Ok(preferences)
+    }
+
+    pub async fn get_album_favorite_status(
+        &self,
+        user_id: Uuid,
+        album: String,
+    ) -> Result<AlbumFavoriteStatus, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            SELECT
+                COUNT(s.id) as total_songs,
+                COUNT(CASE WHEN usp.is_favorite = true THEN 1 END) as favorited_songs
+            FROM songs s
+            LEFT JOIN user_song_preferences usp ON s.id = usp.song_id AND usp.user_id = $1
+            WHERE s.album = $2
+            "#,
+            user_id,
+            album
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(AlbumFavoriteStatus {
+            total_songs: result.total_songs.unwrap_or(0) as u32,
+            favorited_songs: result.favorited_songs.unwrap_or(0) as u32,
+            is_fully_favorited: result.total_songs == result.favorited_songs,
+        })
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AlbumFavoriteStatus {
+    pub total_songs: u32,
+    pub favorited_songs: u32,
+    pub is_fully_favorited: bool,
+}
+```
+
+### 5. playlist ownership implementation
+
+#### database migration
+
+```sql
+-- Add to migrations/
+CREATE TABLE playlist_ownership (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    playlist_id UUID NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(playlist_id) -- one owner per playlist
+);
+
+CREATE INDEX idx_playlist_ownership_owner ON playlist_ownership(owner_user_id);
+CREATE INDEX idx_playlist_ownership_playlist ON playlist_ownership(playlist_id);
+```
+
+#### backend implementation
+
+```rust
+// Add to grimoire/src/music/models.rs
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct PlaylistOwnership {
+    pub id: Uuid,
+    pub playlist_id: Uuid,
+    pub owner_user_id: Uuid,
+    pub created_at: OffsetDateTime,
+}
+
+// Add to grimoire/src/music/repository/mod.rs
+impl MusicRepository {
+    pub async fn set_playlist_owner(
+        &self,
+        playlist_id: Uuid,
+        owner_user_id: Uuid,
+    ) -> Result<PlaylistOwnership, sqlx::Error> {
+        sqlx::query_as!(
+            PlaylistOwnership,
+            r#"
+            INSERT INTO playlist_ownership (playlist_id, owner_user_id)
+            VALUES ($1, $2)
+            ON CONFLICT (playlist_id)
+            DO UPDATE SET owner_user_id = $2
+            RETURNING *
+            "#,
+            playlist_id,
+            owner_user_id
+        )
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    pub async fn get_user_owned_playlists(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<Playlist>, sqlx::Error> {
+        sqlx::query_as!(
+            Playlist,
+            r#"
+            SELECT p.*
+            FROM playlists p
+            JOIN playlist_ownership po ON p.id = po.playlist_id
+            WHERE po.owner_user_id = $1
+            ORDER BY p.created_at DESC
+            "#,
+            user_id
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    pub async fn transfer_playlist_ownership(
+        &self,
+        playlist_id: Uuid,
+        from_user_id: Uuid,
+        to_user_id: Uuid,
+    ) -> Result<PlaylistOwnership, sqlx::Error> {
+        // Verify current ownership
+        let current_owner = sqlx::query_scalar!(
+            "SELECT owner_user_id FROM playlist_ownership WHERE playlist_id = $1",
+            playlist_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match current_owner {
+            Some(owner) if owner == from_user_id => {
+                self.set_playlist_owner(playlist_id, to_user_id).await
+            }
+            Some(_) => Err(sqlx::Error::RowNotFound), // Not the owner
+            None => Err(sqlx::Error::RowNotFound), // No ownership record
+        }
+    }
+}
+```
+
+### frontend integration patterns
+
+#### api endpoint additions
+
+```rust
+// Add to server/src/media/playlists.rs
+pub async fn update_playlist_preferences(
+    State(app_state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(playlist_id): Path<Uuid>,
+    Json(request): Json<UpdateUserPlaylistPreferenceRequest>,
+) -> Result<Json<UserPlaylistPreference>, StatusCode> {
+    let preference = app_state
+        .music_repository
+        .update_user_playlist_preference(user.id, playlist_id, request.is_favorite)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(preference))
+}
+
+pub async fn bulk_favorite_album(
+    State(app_state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(request): Json<BulkFavoriteAlbumRequest>,
+) -> Result<Json<Vec<UserSongPreference>>, StatusCode> {
+    let preferences = app_state
+        .music_repository
+        .bulk_favorite_album(user.id, request.album, request.is_favorite)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(preferences))
+}
+```
+
+### testing strategy for new features
+
+#### unit tests
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_playlist_favorites() {
+        // Test playlist preference creation and updates
+    }
+
+    #[tokio::test]
+    async fn test_album_bulk_favorites() {
+        // Test bulk album favoriting
+    }
+
+    #[tokio::test]
+    async fn test_playlist_ownership() {
+        // Test ownership assignment and transfer
+    }
+}
+```
+
+#### integration tests
+
+```typescript
+// Add to client/js/tests/
+describe("Freqhole Preferences", () => {
+  test("can favorite songs via keyboard shortcut", async () => {
+    // Test 'f' key functionality
+  });
+
+  test("can rate songs via number keys", async () => {
+    // Test '1-5' key functionality
+  });
+
+  test("can favorite entire albums", async () => {
+    // Test album-level favorite toggle
+  });
+
+  test("can favorite playlists", async () => {
+    // Test playlist favorite functionality
+  });
+});
+```
 
 ## success criteria
 

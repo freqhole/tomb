@@ -4,11 +4,13 @@
 //! including CRUD operations and queries with proper error handling.
 
 use crate::music::models::{
-    AlbumSummary, AlbumTrack, ArtistAlbum, BulkUpdatePreferencesRequest, CreatePlaylist,
-    CreateSong, MusicDatabaseStats, Playlist, PlaylistComplete, PlaylistQuery, PlaylistSong,
-    PlaylistSongDetail, PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount,
-    RecentSongWithThumbnail, Song, SongQuery, SongWithMedia, SongWithUserPrefs, UpdatePlaylist,
-    UpdateUserPreferenceRequest, UserSongPreference,
+    AlbumFavoriteStatus, AlbumSummary, AlbumTrack, ArtistAlbum, BulkFavoriteAlbumRequest,
+    BulkUpdatePreferencesRequest, CreatePlaylist, CreateSong, MusicDatabaseStats, Playlist,
+    PlaylistComplete, PlaylistOwnership, PlaylistQuery, PlaylistSong, PlaylistSongDetail,
+    PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount, PlaylistWithUserContext,
+    RecentSongWithThumbnail, Song, SongQuery, SongWithMedia, SongWithUserPrefs,
+    TransferPlaylistOwnershipRequest, UpdatePlaylist, UpdateUserPlaylistPreferenceRequest,
+    UpdateUserPreferenceRequest, UserPlaylistPreference, UserSongPreference,
 };
 use crate::search::{SearchQuery, SearchService, SongSearchResult, SortBy, SortDirection};
 use sqlx::{PgPool, Row};
@@ -349,6 +351,196 @@ impl MusicRepository {
         .ok_or(MusicRepositoryError::PlaylistNotFound(id))?;
 
         Ok(playlist)
+    }
+
+    // Playlist preference operations
+
+    /// Update user playlist preference
+    pub async fn update_user_playlist_preference(
+        &self,
+        user_id: Uuid,
+        playlist_id: Uuid,
+        request: UpdateUserPlaylistPreferenceRequest,
+    ) -> Result<UserPlaylistPreference> {
+        request
+            .validate()
+            .map_err(MusicRepositoryError::Validation)?;
+
+        let preference = sqlx::query_as::<_, UserPlaylistPreference>(
+            "SELECT * FROM upsert_user_playlist_preference($1, $2, $3)",
+        )
+        .bind(user_id)
+        .bind(playlist_id)
+        .bind(request.is_favorite)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(preference)
+    }
+
+    /// Get user playlist preferences
+    pub async fn get_user_playlist_preferences(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<UserPlaylistPreference>> {
+        let preferences = sqlx::query_as::<_, UserPlaylistPreference>(
+            "SELECT * FROM user_playlist_preferences WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(preferences)
+    }
+
+    /// Get playlists with user context (preferences and ownership)
+    pub async fn get_playlists_with_user_context(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<PlaylistWithUserContext>> {
+        let playlists = sqlx::query_as::<_, PlaylistWithUserContext>(
+            "SELECT * FROM get_playlists_with_user_context($1)",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(playlists)
+    }
+
+    // Playlist ownership operations
+
+    /// Set playlist owner
+    pub async fn set_playlist_owner(
+        &self,
+        playlist_id: Uuid,
+        owner_user_id: Uuid,
+    ) -> Result<PlaylistOwnership> {
+        let ownership =
+            sqlx::query_as::<_, PlaylistOwnership>("SELECT * FROM set_playlist_owner($1, $2)")
+                .bind(playlist_id)
+                .bind(owner_user_id)
+                .fetch_one(&self.pool)
+                .await?;
+
+        Ok(ownership)
+    }
+
+    /// Get user owned playlists
+    pub async fn get_user_owned_playlists(&self, user_id: Uuid) -> Result<Vec<Playlist>> {
+        let playlists = sqlx::query_as::<_, Playlist>("SELECT * FROM get_user_owned_playlists($1)")
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(playlists)
+    }
+
+    /// Transfer playlist ownership
+    pub async fn transfer_playlist_ownership(
+        &self,
+        playlist_id: Uuid,
+        request: TransferPlaylistOwnershipRequest,
+    ) -> Result<PlaylistOwnership> {
+        request
+            .validate()
+            .map_err(MusicRepositoryError::Validation)?;
+
+        let ownership = sqlx::query_as::<_, PlaylistOwnership>(
+            "SELECT * FROM transfer_playlist_ownership($1, $2, $3)",
+        )
+        .bind(playlist_id)
+        .bind(request.from_user_id)
+        .bind(request.to_user_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(ownership)
+    }
+
+    // Album favorite operations
+
+    /// Bulk favorite all songs in an album
+    pub async fn bulk_favorite_album(
+        &self,
+        user_id: Uuid,
+        request: BulkFavoriteAlbumRequest,
+    ) -> Result<Vec<UserSongPreference>> {
+        request
+            .validate()
+            .map_err(MusicRepositoryError::Validation)?;
+
+        // Get all songs in the album
+        let song_ids = sqlx::query_scalar!(
+            "SELECT id FROM songs WHERE album = $1 AND deleted_at IS NULL",
+            request.album
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        // Bulk update preferences for all songs
+        let mut preferences = Vec::new();
+        for song_id in song_ids {
+            let pref_request = UpdateUserPreferenceRequest {
+                is_favorite: Some(request.is_favorite),
+                rating: None, // keep existing rating
+            };
+            let pref = self
+                .update_user_song_preference(user_id, song_id, pref_request)
+                .await?;
+            preferences.push(pref);
+        }
+
+        Ok(preferences)
+    }
+
+    /// Get album favorite status for a user
+    pub async fn get_album_favorite_status(
+        &self,
+        user_id: Uuid,
+        album: String,
+    ) -> Result<AlbumFavoriteStatus> {
+        let result = sqlx::query!(
+            r#"
+            SELECT
+                COUNT(s.id) as total_songs,
+                COUNT(CASE WHEN usp.is_favorite = true THEN 1 END) as favorited_songs
+            FROM songs s
+            LEFT JOIN user_song_preferences usp ON s.id = usp.song_id AND usp.user_id = $1
+            WHERE s.album = $2 AND s.deleted_at IS NULL
+            "#,
+            user_id,
+            album
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(AlbumFavoriteStatus {
+            album,
+            total_songs: result.total_songs.unwrap_or(0) as u32,
+            favorited_songs: result.favorited_songs.unwrap_or(0) as u32,
+            is_fully_favorited: result.total_songs == result.favorited_songs
+                && result.total_songs.unwrap_or(0) > 0,
+        })
+    }
+
+    /// Bulk favorite all songs in a playlist
+    pub async fn bulk_favorite_playlist_songs(
+        &self,
+        user_id: Uuid,
+        playlist_id: Uuid,
+        is_favorite: bool,
+    ) -> Result<Vec<UserSongPreference>> {
+        let preferences = sqlx::query_as::<_, UserSongPreference>(
+            "SELECT * FROM bulk_favorite_playlist_songs($1, $2, $3)",
+        )
+        .bind(user_id)
+        .bind(playlist_id)
+        .bind(is_favorite)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(preferences)
     }
 
     /// Find playlists by title (exact or partial match)

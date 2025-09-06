@@ -1095,6 +1095,101 @@ pub struct UpdateUserPreferenceRequest {
     pub rating: Option<i32>,
 }
 
+// playlist preference models
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct UserPlaylistPreference {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub playlist_id: Uuid,
+    pub is_favorite: bool,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UpdateUserPlaylistPreferenceRequest {
+    pub is_favorite: bool,
+}
+
+impl UpdateUserPlaylistPreferenceRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        // no additional validation needed for playlist preferences
+        Ok(())
+    }
+}
+
+// playlist ownership models
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct PlaylistOwnership {
+    pub id: Uuid,
+    pub playlist_id: Uuid,
+    pub owner_user_id: Uuid,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TransferPlaylistOwnershipRequest {
+    pub from_user_id: Uuid,
+    pub to_user_id: Uuid,
+}
+
+impl TransferPlaylistOwnershipRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.from_user_id == self.to_user_id {
+            return Err("cannot transfer ownership to the same user".to_string());
+        }
+        Ok(())
+    }
+}
+
+// album favorites request models
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BulkFavoriteAlbumRequest {
+    pub album: String,
+    pub is_favorite: bool,
+}
+
+impl BulkFavoriteAlbumRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.album.trim().is_empty() {
+            return Err("album name cannot be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AlbumFavoriteStatus {
+    pub album: String,
+    pub total_songs: u32,
+    pub favorited_songs: u32,
+    pub is_fully_favorited: bool,
+}
+
+// enhanced playlist model with user context
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PlaylistWithUserContext {
+    pub id: Uuid,
+    pub title: String,
+    pub description: Option<String>,
+    pub song_count: i64,
+    pub total_duration: Option<PgInterval>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+    pub version: i64,
+    // user preference data
+    pub user_is_favorite: bool,
+    pub preference_updated_at: Option<OffsetDateTime>,
+    // ownership data
+    pub is_owned_by_user: bool,
+    pub owner_user_id: Option<Uuid>,
+    pub ownership_created_at: Option<OffsetDateTime>,
+}
+
 impl UpdateUserPreferenceRequest {
     pub fn validate(&self) -> Result<(), String> {
         if let Some(rating) = self.rating {

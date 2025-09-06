@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ApiClient } from "../api-client.js";
 import { musicValidation } from "./validation.js";
 import { musicApiUtils } from "./error-handling.js";
@@ -21,6 +22,9 @@ import {
   BulkUpdateUserPreferencesRequestSchema,
   UserPreferenceResponseSchema,
   BulkUserPreferenceResponseSchema,
+  PlaylistPreferenceResponseSchema,
+  PlaylistWithUserContextResponseSchema,
+  AlbumFavoriteStatusResponseSchema,
 } from "./schemas/index.js";
 import type {
   Song,
@@ -35,6 +39,9 @@ import type {
   BulkUpdateUserPreferencesRequest,
   UserPreferenceResponse,
   BulkUserPreferenceResponse,
+  PlaylistPreferenceResponse,
+  PlaylistWithUserContextResponse,
+  AlbumFavoriteStatusResponse,
 } from "./schemas/index.js";
 
 /**
@@ -697,5 +704,138 @@ export const musicApiMethods = {
       song_ids: songIds,
       updates: { rating: rating || undefined },
     });
+  },
+
+  // playlist preference methods
+  async updatePlaylistPreference(
+    this: ApiClient,
+    playlistId: string,
+    isFavorite: boolean
+  ): Promise<PlaylistPreferenceResponse> {
+    return musicApiUtils.withErrorHandling(
+      async () => {
+        const response = await this.makeRequest<unknown>(
+          "PATCH",
+          `/api/media/playlists/${playlistId}/preferences`,
+          {
+            data: { is_favorite: isFavorite },
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+
+        return musicValidation.validateResponse(
+          PlaylistPreferenceResponseSchema,
+          response,
+          "playlist preference response"
+        );
+      },
+      `/api/media/playlists/${playlistId}/preferences`,
+      "updatePlaylistPreference",
+      { playlistId },
+      { is_favorite: isFavorite }
+    );
+  },
+
+  async getPlaylistsWithUserContext(
+    this: ApiClient
+  ): Promise<PlaylistWithUserContextResponse[]> {
+    return musicApiUtils.withErrorHandling(
+      async () => {
+        const response = await this.makeRequest<unknown>(
+          "GET",
+          "/api/media/playlists/user-context"
+        );
+
+        return musicValidation.validateResponse(
+          z.array(PlaylistWithUserContextResponseSchema),
+          response,
+          "playlists with user context response"
+        );
+      },
+      "/api/media/playlists/user-context",
+      "getPlaylistsWithUserContext"
+    );
+  },
+
+  // album preference methods
+  async bulkFavoriteAlbum(
+    this: ApiClient,
+    album: string,
+    isFavorite: boolean
+  ): Promise<BulkUserPreferenceResponse> {
+    return musicApiUtils.withErrorHandling(
+      async () => {
+        const response = await this.makeRequest<unknown>(
+          "POST",
+          "/api/media/albums/favorite",
+          {
+            data: { album, is_favorite: isFavorite },
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+
+        return musicValidation.validateResponse(
+          BulkUserPreferenceResponseSchema,
+          response,
+          "bulk album favorite response"
+        );
+      },
+      "/api/media/albums/favorite",
+      "bulkFavoriteAlbum",
+      { album },
+      { album, is_favorite: isFavorite }
+    );
+  },
+
+  async getAlbumFavoriteStatus(
+    this: ApiClient,
+    album: string
+  ): Promise<AlbumFavoriteStatusResponse> {
+    return musicApiUtils.withErrorHandling(
+      async () => {
+        const response = await this.makeRequest<unknown>(
+          "GET",
+          `/api/media/albums/${encodeURIComponent(album)}/favorite-status`
+        );
+
+        return musicValidation.validateResponse(
+          AlbumFavoriteStatusResponseSchema,
+          response,
+          "album favorite status response"
+        );
+      },
+      `/api/media/albums/${encodeURIComponent(album)}/favorite-status`,
+      "getAlbumFavoriteStatus",
+      { album }
+    );
+  },
+
+  async bulkFavoritePlaylistSongs(
+    this: ApiClient,
+    playlistId: string,
+    isFavorite: boolean
+  ): Promise<BulkUserPreferenceResponse> {
+    return musicApiUtils.withErrorHandling(
+      async () => {
+        const response = await this.makeRequest<unknown>(
+          "POST",
+          `/api/media/playlists/${playlistId}/favorite-songs`,
+          {
+            data: { is_favorite: isFavorite },
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+
+        return musicValidation.validateResponse(
+          BulkUserPreferenceResponseSchema,
+          response,
+          "bulk playlist songs favorite response"
+        );
+      },
+      `/api/media/playlists/${playlistId}/favorite-songs`,
+      "bulkFavoritePlaylistSongs",
+      { playlistId },
+      { is_favorite: isFavorite }
+    );
   },
 };

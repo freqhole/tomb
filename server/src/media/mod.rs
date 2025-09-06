@@ -10,6 +10,7 @@
 
 pub mod filters;
 pub mod models;
+pub mod playlists;
 pub mod repository;
 pub mod search;
 pub mod songs;
@@ -101,6 +102,7 @@ impl<'a> MediaService<'a> {
 pub fn build_media_routes() -> axum::Router {
     axum::Router::new()
         .nest("/api/media", songs::create_routes())
+        .merge(playlists::create_routes())
         .nest("/api/music", search::create_search_routes())
         .nest("/api/music", filters::create_filter_routes())
 }

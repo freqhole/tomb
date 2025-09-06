@@ -112,3 +112,47 @@ export const PlaylistSummaryResponseSchema = z.object({
 export type PlaylistSummaryResponse = z.infer<
   typeof PlaylistSummaryResponseSchema
 >;
+
+// Playlist preference schemas
+export const PlaylistPreferenceResponseSchema = z.object({
+  user_id: UuidSchema,
+  playlist_id: UuidSchema,
+  is_favorite: z.boolean(),
+  updated_at: z.string(),
+});
+
+export type PlaylistPreferenceResponse = z.infer<
+  typeof PlaylistPreferenceResponseSchema
+>;
+
+// Playlist with user context response
+export const PlaylistWithUserContextResponseSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  description: z.string().nullable(),
+  song_count: z.number(),
+  total_duration_seconds: z.number().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  user_is_favorite: z.boolean(),
+  preference_updated_at: z.string().nullable(),
+  is_owned_by_user: z.boolean(),
+  owner_user_id: UuidSchema.nullable(),
+  ownership_created_at: z.string().nullable(),
+});
+
+export type PlaylistWithUserContextResponse = z.infer<
+  typeof PlaylistWithUserContextResponseSchema
+>;
+
+// Album favorite status response
+export const AlbumFavoriteStatusResponseSchema = z.object({
+  album: z.string(),
+  total_songs: z.number(),
+  favorited_songs: z.number(),
+  is_fully_favorited: z.boolean(),
+});
+
+export type AlbumFavoriteStatusResponse = z.infer<
+  typeof AlbumFavoriteStatusResponseSchema
+>;
