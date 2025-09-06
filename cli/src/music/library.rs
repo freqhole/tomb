@@ -52,8 +52,24 @@ pub async fn handle_songs(
     album: Option<String>,
     limit: i64,
     offset: Option<i64>,
+    user_id: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("🎵 Songs:");
+    // parse user id if provided
+    let parsed_user_id = if let Some(user_id_str) = user_id {
+        match Uuid::parse_str(&user_id_str) {
+            Ok(id) => {
+                println!("🎵 Songs (for user: {}):", user_id_str);
+                Some(id)
+            }
+            Err(_) => {
+                eprintln!("❌ Invalid user ID format: {}", user_id_str);
+                return Err("Invalid user ID".into());
+            }
+        }
+    } else {
+        println!("🎵 Songs (global view):");
+        None
+    };
     println!("=========");
 
     let repository = MusicRepository::new(service.db().pool().clone());
@@ -67,7 +83,8 @@ pub async fn handle_songs(
         ..Default::default()
     };
 
-    let songs = repository.query_songs(query).await?;
+    // use search_songs method which supports user context
+    let songs = repository.search_songs(parsed_user_id, query).await?;
 
     if songs.is_empty() {
         println!("No songs found.");

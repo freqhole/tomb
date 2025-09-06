@@ -487,8 +487,6 @@ export function useMusicSearch(apiClient: ApiClient): MusicSearchReturn {
     setSort,
     sortField: () => userRequestedField(), // Use user-requested for UI cycling
     sortDirection: () => userRequestedDirection(), // Use user-requested for UI cycling
-    actualSortField: sortField, // Server's actual sort for debugging
-    actualSortDirection: sortDirection, // Server's actual sort for debugging
     refresh,
     searchSuggestions: () => suggestions().map((s) => s.text), // alias for compatibility
     totalCount: total, // alias

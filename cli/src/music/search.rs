@@ -14,8 +14,27 @@ pub async fn handle_search(
     verbose: bool,
     songs_only: bool,
     page: u32,
+    user_id: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔍 Searching for: \"{}\"", query);
+    // parse user id if provided
+    let parsed_user_id = if let Some(user_id_str) = user_id {
+        match uuid::Uuid::parse_str(&user_id_str) {
+            Ok(id) => {
+                println!(
+                    "🔍 Searching for: \"{}\" (for user: {})",
+                    query, user_id_str
+                );
+                Some(id)
+            }
+            Err(_) => {
+                eprintln!("❌ Invalid user ID format: {}", user_id_str);
+                return Err("Invalid user ID".into());
+            }
+        }
+    } else {
+        println!("🔍 Searching for: \"{}\" (global view)", query);
+        None
+    };
 
     // Parse search type
     let search_type_enum = match search_type.as_str() {
@@ -50,7 +69,9 @@ pub async fn handle_search(
 
     if songs_only {
         // Search only songs
-        let (results, total_count) = search_service.search_songs(None, &search_query).await?;
+        let (results, total_count) = search_service
+            .search_songs(parsed_user_id, &search_query)
+            .await?;
 
         if results.is_empty() {
             println!("😔 No songs found matching your search.");

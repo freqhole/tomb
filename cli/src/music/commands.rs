@@ -86,13 +86,17 @@ pub enum MusicCommands {
         #[arg(long)]
         album: Option<String>,
 
-        /// Limit number of results
+        /// Number of songs to show
         #[arg(long, short, default_value = "50")]
         limit: i64,
 
         /// Offset for pagination
         #[arg(long, short)]
         offset: Option<i64>,
+
+        /// User ID to show preferences for (if not specified, shows global data)
+        #[arg(long)]
+        user_id: Option<String>,
     },
 
     /// List all playlists
@@ -167,6 +171,10 @@ pub enum MusicCommands {
         /// Show detailed song information
         #[arg(long, short)]
         verbose: bool,
+
+        /// User ID to show preferences for (if not specified, shows global data)
+        #[arg(long)]
+        user_id: Option<String>,
     },
 
     /// Delete a playlist
@@ -341,33 +349,38 @@ pub enum MusicCommands {
     },
 
     /// Search for songs and playlists
+    /// Search music
     Search {
-        /// Search query
+        /// Search query (what to search for)
         query: String,
 
-        /// Use structured search (e.g., "artist:jazz" or "genre:rock")
+        /// Use structured search (key:value format for advanced filtering)
         #[arg(long)]
         structured: bool,
 
-        /// Search type: websearch, plainto, or phrase
-        #[arg(long, short, default_value = "websearch")]
+        /// Search type (websearch, plainto, phrase)
+        #[arg(long, default_value = "websearch")]
         search_type: String,
 
-        /// Maximum number of results
-        #[arg(long, short, default_value = "20")]
+        /// Number of results to show
+        #[arg(long, short, default_value = "10")]
         limit: u32,
 
-        /// Show detailed results
+        /// Show detailed information
         #[arg(long, short)]
         verbose: bool,
 
-        /// Search only songs (exclude playlists)
+        /// Search only songs (not playlists)
         #[arg(long)]
         songs_only: bool,
 
         /// Page number for pagination
         #[arg(long, default_value = "1")]
         page: u32,
+
+        /// User ID to show preferences for (if not specified, shows global data)
+        #[arg(long)]
+        user_id: Option<String>,
     },
 
     /// Get search suggestions for autocomplete

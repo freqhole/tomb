@@ -67,6 +67,7 @@ impl MusicCommands {
                 album,
                 limit,
                 offset,
+                user_id,
             } => {
                 library::handle_songs(
                     &service,
@@ -75,6 +76,7 @@ impl MusicCommands {
                     album.clone(),
                     *limit,
                     *offset,
+                    user_id.clone(),
                 )
                 .await
             }
@@ -118,8 +120,18 @@ impl MusicCommands {
                 playlist::handle_remove_from_playlist(&service, playlist.clone(), songs.clone())
                     .await
             }
-            Self::ShowPlaylist { playlist, verbose } => {
-                playlist::handle_show_playlist(&service, playlist.clone(), *verbose).await
+            Self::ShowPlaylist {
+                playlist,
+                verbose,
+                user_id,
+            } => {
+                playlist::handle_show_playlist(
+                    &service,
+                    playlist.clone(),
+                    *verbose,
+                    user_id.clone(),
+                )
+                .await
             }
             Self::DeletePlaylist { playlist, force } => {
                 playlist::handle_delete_playlist(&service, playlist.clone(), *force).await
@@ -191,6 +203,7 @@ impl MusicCommands {
                 verbose,
                 songs_only,
                 page,
+                user_id,
             } => {
                 search::handle_search(
                     &service,
@@ -201,6 +214,7 @@ impl MusicCommands {
                     *verbose,
                     *songs_only,
                     *page,
+                    user_id.clone(),
                 )
                 .await
             }

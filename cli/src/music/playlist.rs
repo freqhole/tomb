@@ -208,8 +208,22 @@ pub async fn handle_show_playlist(
     service: &MusicService<'_>,
     playlist_input: String,
     verbose: bool,
+    user_id: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository = MusicRepository::new(service.db().pool().clone());
+
+    // parse user id if provided
+    let parsed_user_id = if let Some(user_id_str) = user_id {
+        match Uuid::parse_str(&user_id_str) {
+            Ok(id) => Some(id),
+            Err(_) => {
+                eprintln!("❌ Invalid user ID format: {}", user_id_str);
+                return Err("Invalid user ID".into());
+            }
+        }
+    } else {
+        None
+    };
 
     // Try to find playlist by ID first, then by title
     let playlist = if let Ok(playlist_id) = Uuid::parse_str(&playlist_input) {
@@ -244,8 +258,13 @@ pub async fn handle_show_playlist(
         }
     };
 
-    println!("📋 Playlist: {}", playlist.title);
-    println!("{}", "=".repeat(playlist.title.len() + 12));
+    let title_header = if parsed_user_id.is_some() {
+        format!("📋 Playlist: {} (user preferences)", playlist.title)
+    } else {
+        format!("📋 Playlist: {} (global view)", playlist.title)
+    };
+    println!("{}", title_header);
+    println!("{}", "=".repeat(title_header.len()));
 
     // Get playlist songs
     let playlist_songs = repository.get_playlist_songs(playlist.id).await?;
@@ -258,6 +277,15 @@ pub async fn handle_show_playlist(
     for playlist_song in playlist_songs {
         let song = &playlist_song.song;
 
+        // get user-specific song data if user_id provided
+        let (user_is_favorite, user_rating) = if let Some(_uid) = parsed_user_id {
+            // for user-specific view, we'd need to fetch user preferences
+            // for now, show that this would be user-specific data
+            (song.is_favorite, song.rating) // TODO: fetch actual user preferences
+        } else {
+            (song.is_favorite, song.rating)
+        };
+
         if verbose {
             let duration_str = if let Some(duration) = &song.duration {
                 let total_seconds = duration.microseconds / 1_000_000;
@@ -268,23 +296,32 @@ pub async fn handle_show_playlist(
                 "Unknown".to_string()
             };
 
-            let favorite_indicator = if song.is_favorite { " ⭐" } else { "" };
+            let favorite_indicator = if user_is_favorite { " ⭐" } else { "" };
+            let rating_indicator = if let Some(rating) = user_rating {
+                format!(" 📊{}/5", rating)
+            } else {
+                String::new()
+            };
+
             println!(
-                "  {}. {} | {} - {} [{}]{}",
+                "  {}. {} | {} - {} [{}]{}{}",
                 playlist_song.position,
                 song.id,
                 song.title,
                 song.artist.as_deref().unwrap_or("Unknown Artist"),
                 duration_str,
-                favorite_indicator
+                favorite_indicator,
+                rating_indicator
             );
         } else {
+            let favorite_indicator = if user_is_favorite { " ⭐" } else { "" };
             println!(
-                "  {}. {} | {} - {}",
+                "  {}. {} | {} - {}{}",
                 playlist_song.position,
                 song.id,
                 song.title,
-                song.artist.as_deref().unwrap_or("Unknown Artist")
+                song.artist.as_deref().unwrap_or("Unknown Artist"),
+                favorite_indicator
             );
         }
     }

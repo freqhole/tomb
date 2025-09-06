@@ -101,7 +101,7 @@ export function AdminDataGrid(props: AdminDataGridProps) {
       ),
     },
     {
-      key: "duration",
+      key: "duration_seconds",
       title: "duration",
       width: 80,
       sortable: true,
@@ -290,7 +290,12 @@ export function AdminDataGrid(props: AdminDataGridProps) {
   // helper functions
   const updateSongRating = async (songId: string, rating: number) => {
     try {
-      await props.musicData.updateSong(songId, { rating });
+      if (props.apiClient) {
+        await props.apiClient.rateSong(songId, rating);
+      } else {
+        console.error("api client not available for rating update");
+        return;
+      }
       // Use the refresh function that's passed from AdminView (musicSearch.refresh)
       if (props.musicData.refresh) {
         await props.musicData.refresh();
@@ -304,9 +309,12 @@ export function AdminDataGrid(props: AdminDataGridProps) {
     const song = props.musicData.items().find((s) => s.id === songId);
     if (song) {
       try {
-        await props.musicData.updateSong(songId, {
-          is_favorite: !song.is_favorite,
-        });
+        if (props.apiClient) {
+          await props.apiClient.toggleSongFavorite(songId, !song.is_favorite);
+        } else {
+          console.error("api client not available for favorite toggle");
+          return;
+        }
         // Use the refresh function that's passed from AdminView (musicSearch.refresh)
         if (props.musicData.refresh) {
           await props.musicData.refresh();

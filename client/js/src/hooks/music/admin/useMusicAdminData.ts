@@ -208,7 +208,21 @@ export function createMusicAdminData(apiClient: ApiClient) {
     const anyNotFavorited = selectedItems.some((song) => !song.is_favorite);
     const newFavoriteStatus = anyNotFavorited;
 
-    return bulkUpdateSelected({ is_favorite: newFavoriteStatus });
+    try {
+      const response = await apiClient.bulkToggleFavorite(
+        selectedItems.map((song) => song.id),
+        newFavoriteStatus
+      );
+
+      // Refresh data and clear selection
+      adminData.refresh();
+      selection.actions.clearSelection();
+
+      return response;
+    } catch (error) {
+      console.error("failed to bulk toggle favorites:", error);
+      throw error;
+    }
   };
 
   /**
@@ -219,7 +233,26 @@ export function createMusicAdminData(apiClient: ApiClient) {
       throw new Error("rating must be between 0 and 5");
     }
 
-    return bulkUpdateSelected({ rating });
+    const selectedItems = selection.actions.getSelectedItems(adminData.items());
+    if (selectedItems.length === 0) {
+      throw new Error("no songs selected");
+    }
+
+    try {
+      const response = await apiClient.bulkRateSongs(
+        selectedItems.map((song) => song.id),
+        rating === 0 ? null : rating
+      );
+
+      // Refresh data and clear selection
+      adminData.refresh();
+      selection.actions.clearSelection();
+
+      return response;
+    } catch (error) {
+      console.error("failed to bulk rate songs:", error);
+      throw error;
+    }
   };
 
   /**

@@ -71,8 +71,10 @@ export function AdminView(props: AdminViewProps) {
     // Try to construct media URL
     try {
       if (song.media_blob_id) {
-        const mediaUrl = `${props.apiClient.getBaseUrl()}/api/blobs/${song.media_blob_id}`;
         // TODO: integrate with audio player
+        console.log(
+          `Media URL: ${props.apiClient.getBaseUrl()}/api/blobs/${song.media_blob_id}`
+        );
       }
     } catch (err) {
       console.error("admin view: failed to construct media URL", err);
@@ -80,7 +82,7 @@ export function AdminView(props: AdminViewProps) {
   };
 
   // handle song edit
-  const handleSongEdit = (song: any) => {
+  const handleSongEdit = (_song: any) => {
     // TODO: implement song editing modal/interface
   };
 
