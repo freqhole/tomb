@@ -28,5 +28,4 @@ export type {
   BulkUpdateUserPreferencesRequest,
   UserPreferenceResponse,
   BulkUserPreferenceResponse,
-  SongWithUserPreferences,
 } from "./schemas/index.js";

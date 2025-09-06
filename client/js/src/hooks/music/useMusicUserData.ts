@@ -2,7 +2,6 @@ import { ApiClient } from "../../lib/api-client.js";
 import { createSignal, createMemo } from "solid-js";
 import type {
   Song,
-  SongWithUserPreferences,
   UpdateUserPreferenceRequest,
   BulkUpdateUserPreferencesRequest,
   UserPreferenceResponse,
@@ -32,9 +31,7 @@ export function createMusicUserData(apiClient: ApiClient) {
   const [maxRating, setMaxRating] = createSignal<number | null>(null);
 
   // Songs with user context
-  const [songsWithUserPrefs, setSongsWithUserPrefs] = createSignal<
-    SongWithUserPreferences[]
-  >([]);
+  const [songsWithUserPrefs, setSongsWithUserPrefs] = createSignal<Song[]>([]);
 
   /**
    * Get user preference for a specific song
@@ -181,14 +178,14 @@ export function createMusicUserData(apiClient: ApiClient) {
   /**
    * Get user's favorite songs
    */
-  const getFavoriteSongs = (): SongWithUserPreferences[] => {
+  const getFavoriteSongs = (): Song[] => {
     return songsWithUserPrefs().filter((song) => song.user_is_favorite);
   };
 
   /**
    * Get user's highly rated songs (4+ stars)
    */
-  const getHighlyRatedSongs = (): SongWithUserPreferences[] => {
+  const getHighlyRatedSongs = (): Song[] => {
     return songsWithUserPrefs().filter(
       (song) => song.user_rating !== null && song.user_rating >= 4
     );
@@ -197,7 +194,7 @@ export function createMusicUserData(apiClient: ApiClient) {
   /**
    * Get songs filtered by user preferences
    */
-  const getFilteredSongs = (): SongWithUserPreferences[] => {
+  const getFilteredSongs = (): Song[] => {
     let filtered = songsWithUserPrefs();
 
     if (showFavoritesOnly()) {
@@ -270,7 +267,7 @@ export function createMusicUserData(apiClient: ApiClient) {
   /**
    * Convenience method to convert regular song to song with user preferences
    */
-  const enrichSongWithUserPrefs = (song: Song): SongWithUserPreferences => {
+  const enrichSongWithUserPrefs = (song: Song): Song => {
     const pref = getUserPreference(song.id);
     return {
       ...song,

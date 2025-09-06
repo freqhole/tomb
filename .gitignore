@@ -20,3 +20,4 @@ node_modules/
 /generated/
 assets/config/wordlist.txt
 assets/private/uploads/
+logs.txt

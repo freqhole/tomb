@@ -1,5 +1,5 @@
 import { createMemo, createEffect } from "solid-js";
-import { InfiniteDataGrid } from "../../../components/infinite-data-grid";
+import { InfiniteGrid } from "../../../components/infinite-data-grid";
 import type { GridColumn } from "../../../components/infinite-data-grid/types";
 import type { MediaBlob } from "../../../lib/websocket-types";
 import { useFreqholeAppContext } from "../context/FreqholeStateContext";
@@ -186,8 +186,10 @@ export function FreqholeDataGrid(props: FreqholeDataGridProps) {
     }
   };
 
-  const handleSort = (field: string, direction: "asc" | "desc") => {
-    state.handleSort(field, direction);
+  const handleSort = (field: string, direction: "asc" | "desc" | null) => {
+    if (direction) {
+      state.handleSort(field, direction);
+    }
   };
 
   // Define columns for the grid
@@ -403,33 +405,31 @@ export function FreqholeDataGrid(props: FreqholeDataGridProps) {
   });
 
   return (
-    <InfiniteDataGrid
+    <InfiniteGrid
       data={data.sortedData() as any}
       columns={visibleColumns()}
       onSort={handleSort}
       sortField={state.sortConfig().field}
       sortDirection={state.sortConfig().direction as "asc" | "desc"}
-      defaultSort={{ field: "created_at", direction: "desc" }}
-      rowHeight={viewModes.getRowHeight()}
-      headerHeight={60}
-      getItemId={(item) => item.id}
-      selectedItems={selection.selectedItems()}
+      virtualization={{
+        enabled: true,
+        rowHeight: viewModes.getRowHeight(),
+        headerHeight: 60,
+      }}
+      getRowId={(item: any) => item.id}
+      selectedRowIds={selection.selectedItems()}
       onRowClick={handleRowClick}
       onRowDoubleClick={handleRowDoubleClick}
-      onRowMouseDown={selection.handleRowMouseDown}
       onContextMenu={(item, index, event) =>
         handleRowContextMenu(item as MediaBlob, index, event)
       }
-      onDragSelection={(selectedIds) => {
+      onSelectionChange={(selectedIds: Set<string>) => {
         selection.setSelectedItems(selectedIds);
         addLog(`📦 Selected ${selectedIds.size} items via drag`);
       }}
-      showPaginationStatus={true}
       onLoadMore={() => feed.actions.loadMore()}
       hasMore={feed.state().hasMore}
-      isLoadingMore={feed.state().isLoadingMore}
-      focusedIndex={keyboardNav.focusedIndex()}
-      showFocusIndicator={true}
+      loading={feed.state().isLoadingMore}
     />
   );
 }

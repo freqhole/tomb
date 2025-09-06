@@ -92,8 +92,8 @@ export function SearchResultsView(
       year: song.year || null,
       bpm: song.bpm || null,
       key_signature: song.key_signature || null,
-      rating: song.rating || null,
-      is_favorite: song.is_favorite || false,
+      user_rating: (song as any).user_rating || null,
+      user_is_favorite: (song as any).user_is_favorite || false,
       tags: song.tags || [],
       display_title: song.title,
       detailed_display_title: song.title,
@@ -102,6 +102,7 @@ export function SearchResultsView(
       thumbnail_blob_id: song.thumbnail_blob_id || null,
       waveform_blob_id: song.waveform_blob_id || null,
       thumbnail_blob_ids: [],
+      preference_updated_at: null,
     };
   };
 
@@ -127,8 +128,10 @@ export function SearchResultsView(
         year: null,
         bpm: null,
         key_signature: null,
-        rating: null,
-        is_favorite: false,
+
+        user_is_favorite: false,
+        user_rating: null,
+        preference_updated_at: null,
         tags: [],
         display_title: result.title,
         detailed_display_title: result.title,

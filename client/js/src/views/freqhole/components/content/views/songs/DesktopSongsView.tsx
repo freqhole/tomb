@@ -94,6 +94,15 @@ export function DesktopSongsView(
     infiniteScroll.actions.reset();
   };
 
+  // Update individual song in local state
+  const updateSongInState = (songId: string, updates: Partial<Song>) => {
+    const currentItems = songs();
+    const updatedItems = currentItems.map((song) =>
+      song.id === songId ? { ...song, ...updates } : song
+    );
+    infiniteScroll.actions.setItems(updatedItems);
+  };
+
   // Listen for data reload events
   events.on("data:reload", (data) => {
     if (data.type === "songs") {
@@ -120,8 +129,8 @@ export function DesktopSongsView(
     );
     if (handled) {
       e.preventDefault();
-      // Reload songs to reflect changes
-      setTimeout(() => reloadSongs(), 500);
+      // Force reload for keyboard shortcuts since they affect multiple items
+      reloadSongs();
     }
   };
 
@@ -312,19 +321,50 @@ export function DesktopSongsView(
                       </div>
                       {/* Favorite Heart - Interactive */}
                       <FavoriteHeart
-                        isFavorite={
-                          (song as any).user_is_favorite ?? song.is_favorite
-                        }
+                        isFavorite={song.user_is_favorite}
                         onToggle={async (isFavorite) => {
-                          await userPreferences.toggleSongFavorite(
-                            song.id,
-                            !isFavorite
+                          console.log(
+                            `🎵 Favorite toggle: ${song.display_title} from ${isFavorite} to ${!isFavorite}`
                           );
-                          // Reload to reflect changes
-                          setTimeout(() => reloadSongs(), 300);
+
+                          // Optimistically update local state
+                          updateSongInState(song.id, {
+                            user_is_favorite: isFavorite,
+                          });
+                          console.log(
+                            `🎵 Optimistically updated favorite state for ${song.id}`
+                          );
+
+                          try {
+                            const result =
+                              await userPreferences.toggleSongFavorite(
+                                song.id,
+                                !isFavorite
+                              );
+                            console.log(
+                              `🎵 API response for favorite ${song.id}:`,
+                              result
+                            );
+                          } catch (error) {
+                            // Revert on error
+                            console.error(
+                              `🎵 API error for favorite ${song.id}:`,
+                              error
+                            );
+                            updateSongInState(song.id, {
+                              user_is_favorite: !isFavorite,
+                            });
+                            console.log(
+                              `🎵 Reverted favorite for ${song.id} to ${!isFavorite}`
+                            );
+                          }
                         }}
                         size="sm"
-                        class="opacity-0 group-hover:opacity-100 transition-opacity"
+                        class={
+                          song.user_is_favorite
+                            ? "opacity-100"
+                            : "opacity-0 group-hover:opacity-100 transition-opacity"
+                        }
                       />
                       {/* Add to Queue Button */}
                       <button
@@ -377,14 +417,43 @@ export function DesktopSongsView(
                   <div class="col-span-1">
                     <div class="flex justify-center">
                       <StarRating
-                        rating={(song as any).user_rating ?? song.rating}
+                        rating={song.user_rating}
                         onRatingChange={async (rating) => {
-                          await userPreferences.rateSong(
-                            song.id,
-                            rating || null
+                          const previousRating = song.user_rating;
+                          console.log(
+                            `🎵 Rating change: ${song.display_title} from ${previousRating} to ${rating}`
                           );
-                          // Reload to reflect changes
-                          setTimeout(() => reloadSongs(), 300);
+
+                          // Optimistically update local state
+                          updateSongInState(song.id, {
+                            user_rating: rating || null,
+                          });
+                          console.log(
+                            `🎵 Optimistically updated local state for ${song.id}`
+                          );
+
+                          try {
+                            const result = await userPreferences.rateSong(
+                              song.id,
+                              rating || null
+                            );
+                            console.log(
+                              `🎵 API response for rating ${song.id}:`,
+                              result
+                            );
+                          } catch (error) {
+                            // Revert on error
+                            console.error(
+                              `🎵 API error for rating ${song.id}:`,
+                              error
+                            );
+                            updateSongInState(song.id, {
+                              user_rating: previousRating,
+                            });
+                            console.log(
+                              `🎵 Reverted rating for ${song.id} to ${previousRating}`
+                            );
+                          }
                         }}
                         size="sm"
                         class="opacity-0 group-hover:opacity-100 transition-opacity"
@@ -457,13 +526,13 @@ export function DesktopSongsView(
                 const selectedSongs = selection.getSelectedSongs(songs());
                 const songIds = selectedSongs.map((song) => song.id);
                 const anyNotFavorited = selectedSongs.some(
-                  (song) => !(song as any).user_is_favorite && !song.is_favorite
+                  (song) => !song.user_is_favorite
                 );
                 await userPreferences.bulkToggleFavorite(
                   songIds,
                   anyNotFavorited
                 );
-                setTimeout(() => reloadSongs(), 500);
+                reloadSongs();
               }}
               title="Press 'f' to toggle favorites"
             >
@@ -476,7 +545,7 @@ export function DesktopSongsView(
                 const selectedSongs = selection.getSelectedSongs(songs());
                 const songIds = selectedSongs.map((song) => song.id);
                 await userPreferences.bulkRateSongs(songIds, 5);
-                setTimeout(() => reloadSongs(), 500);
+                reloadSongs();
               }}
               title="Press '1-5' to rate songs"
             >

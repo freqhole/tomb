@@ -222,7 +222,9 @@ class MusicSearchBuilder extends SearchBuilder {
 
   async getSuggestions(limit?: number): Promise<SuggestionsResult> {
     const query = this.getQuery();
-    const options: Omit<SuggestionsOptions, "q"> = {};
+    const options: Omit<SuggestionsOptions, "q"> = {
+      field: "title",
+    };
 
     if (limit !== undefined) {
       options.limit = limit;

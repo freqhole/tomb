@@ -161,7 +161,7 @@ export function MobileSongList(props: MobileSongListProps) {
                   </div>
 
                   {/* Favorite indicator */}
-                  <Show when={song.is_favorite}>
+                  <Show when={song.user_is_favorite}>
                     <div class="text-magenta-500">
                       <svg
                         class="w-4 h-4"

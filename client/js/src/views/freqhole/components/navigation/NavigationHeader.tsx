@@ -3,7 +3,7 @@ import { createSignal, Show } from "solid-js";
 import { storeActions } from "../../store";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { SearchSuggestions } from "../../../../components/search/SearchSuggestions";
-import { apiClient } from "../../../../lib/api-client";
+
 import { FreqholeIcon } from "../icons";
 import { AuthModal } from "../auth/AuthModal";
 
@@ -115,10 +115,7 @@ export function NavigationHeader() {
               <SearchSuggestions
                 query={query()}
                 onSuggestionSelect={handleSuggestionSelect}
-                useInternalSuggestions={true}
-                apiClient={apiClient}
                 show={shouldShowSuggestions()}
-                maxSuggestions={8}
                 showLoading={true}
                 class="freqhole-suggestions"
                 onBlur={() => setShowSuggestions(false)}

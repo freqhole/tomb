@@ -74,7 +74,7 @@ export function useSongInteractions() {
     try {
       console.log(`❤️ Toggling favorite for: ${song.display_title}`);
 
-      const newFavoriteStatus = !song.is_favorite;
+      const newFavoriteStatus = !song.user_is_favorite;
 
       // Optimistically update the UI
       // Note: In a real app, you'd want to update the song in your local state
@@ -182,8 +182,10 @@ export function useSongInteractions() {
       },
       { type: "separator" } as SeparatorAction,
       {
-        label: song.is_favorite ? "remove from favorites" : "add to favorites",
-        icon: song.is_favorite ? "heart-filled" : "heart",
+        label: song.user_is_favorite
+          ? "remove from favorites"
+          : "add to favorites",
+        icon: song.user_is_favorite ? "heart-filled" : "heart",
         action: () => toggleFavorite(song),
       },
       {
@@ -356,7 +358,7 @@ export function useSongInteractions() {
         icon: "heart",
         action: () => {
           songs.forEach((song) => {
-            if (!song.is_favorite) {
+            if (!song.user_is_favorite) {
               toggleFavorite(song);
             }
           });
@@ -367,7 +369,7 @@ export function useSongInteractions() {
         icon: "heart-filled",
         action: () => {
           songs.forEach((song) => {
-            if (song.is_favorite) {
+            if (song.user_is_favorite) {
               toggleFavorite(song);
             }
           });

@@ -2,6 +2,7 @@
 //!
 //! This module provides REST API endpoints for managing songs and playlists.
 
+use crate::auth::AuthenticatedUser;
 use axum::{
     extract::{DefaultBodyLimit, Extension, Multipart, Path, Query},
     http::StatusCode,
@@ -10,6 +11,7 @@ use axum::{
     Router,
 };
 use grimoire::config::AppConfig;
+use grimoire::music::models::SongWithUserPrefs;
 use grimoire::music::models::{
     BulkUpdatePreferencesRequest,
     UpdateUserPreferenceRequest as GrimoireUpdateUserPreferenceRequest, UserSongPreference,
@@ -56,8 +58,8 @@ pub struct SongResponse {
     pub year: Option<i32>,
     pub bpm: Option<i32>,
     pub key_signature: Option<String>,
-    pub rating: Option<i32>,
-    pub is_favorite: bool,
+    pub user_rating: Option<i32>,
+    pub user_is_favorite: bool,
     pub tags: Vec<String>,
     pub display_title: String,
     pub detailed_display_title: String,
@@ -66,6 +68,47 @@ pub struct SongResponse {
     pub thumbnail_blob_id: Option<String>,
     pub waveform_blob_id: Option<String>,
     pub thumbnail_blob_ids: Vec<String>,
+    pub preference_updated_at: Option<String>,
+}
+
+impl From<SongWithUserPrefs> for SongResponse {
+    fn from(song: SongWithUserPrefs) -> Self {
+        let duration_seconds = song.duration.map(|d| d.microseconds / 1_000_000);
+        let display_title = song.display_title();
+        let detailed_display_title = format!(
+            "{} - {}",
+            song.artist.as_deref().unwrap_or("unknown artist"),
+            song.title
+        );
+
+        Self {
+            id: song.id,
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
+            album_artist: song.album_artist,
+            track_number: song.track_number,
+            disc_number: song.disc_number,
+            duration_seconds,
+            genre: song.genre,
+            year: song.year,
+            bpm: song.bpm,
+            key_signature: song.key_signature,
+            user_rating: song.user_rating,
+            user_is_favorite: song.user_is_favorite,
+            tags: song.tags,
+            display_title,
+            detailed_display_title,
+            created_at: song.created_at.format(&Rfc3339).unwrap_or_default(),
+            media_blob_id: song.media_blob_id,
+            thumbnail_blob_id: song.thumbnail_blob_id.clone(),
+            waveform_blob_id: song.waveform_blob_id,
+            thumbnail_blob_ids: song.thumbnail_blob_id.map_or(Vec::new(), |id| vec![id]),
+            preference_updated_at: song
+                .preference_updated_at
+                .map(|dt| dt.format(&Rfc3339).unwrap_or_default()),
+        }
+    }
 }
 
 impl From<Song> for SongResponse {
@@ -87,8 +130,8 @@ impl From<Song> for SongResponse {
             year: song.year,
             bpm: song.bpm,
             key_signature: song.key_signature,
-            rating: song.rating,
-            is_favorite: song.is_favorite,
+            user_rating: None,
+            user_is_favorite: false,
             tags: song.tags,
             display_title,
             detailed_display_title,
@@ -100,6 +143,7 @@ impl From<Song> for SongResponse {
             thumbnail_blob_id: song.thumbnail_blob_id,
             waveform_blob_id: song.waveform_blob_id,
             thumbnail_blob_ids: song.thumbnail_blob_ids.unwrap_or_default(),
+            preference_updated_at: None,
         }
     }
 }
@@ -674,11 +718,11 @@ pub struct ArtistsListResponse {
 /// List songs
 pub async fn list_songs(
     Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
     Query(params): Query<SongQueryParams>,
 ) -> Result<Json<SongListResponse>, WebauthnError> {
     let repository = MusicRepository::new(db.pool().clone());
     let repository2 = MusicRepository::new(db.pool().clone());
-    let service = PlaylistService::new(repository);
 
     // Get total count for pagination metadata
     let total_count = repository2
@@ -687,8 +731,8 @@ pub async fn list_songs(
         .map_err(|_| WebauthnError::DatabaseError)?;
 
     let query = SongQuery::from(params.clone());
-    let songs = service
-        .query_songs(query)
+    let songs = repository
+        .search_songs_with_user_context(Some(user.user().id), query)
         .await
         .map_err(|_| WebauthnError::DatabaseError)?;
 
@@ -780,12 +824,11 @@ pub async fn update_song(
 /// Update user song preferences (favorite status, rating)
 pub async fn update_song_preferences(
     Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
     Path(song_id): Path<Uuid>,
     Json(req): Json<UpdateUserPreferenceRequest>,
 ) -> Result<Json<UserPreferenceResponse>, WebauthnError> {
-    // todo: get user_id from authentication middleware
-    let user_id = Uuid::parse_str("8ca96ab4-417c-42e7-95a4-52c18db45ae3")
-        .map_err(|_| WebauthnError::BadRequest)?;
+    let user_id = user.user().id;
 
     let repository = MusicRepository::new(db.pool().clone());
     let service = PlaylistService::new(repository);
@@ -810,11 +853,10 @@ pub async fn update_song_preferences(
 /// Bulk update user preferences for multiple songs
 pub async fn bulk_update_user_preferences(
     Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<BulkUpdateUserPreferencesRequest>,
 ) -> Result<Json<BulkUserPreferenceResponse>, WebauthnError> {
-    // todo: get user_id from authentication middleware
-    let user_id = Uuid::parse_str("8ca96ab4-417c-42e7-95a4-52c18db45ae3")
-        .map_err(|_| WebauthnError::BadRequest)?;
+    let user_id = user.user().id;
 
     let repository = MusicRepository::new(db.pool().clone());
     let service = PlaylistService::new(repository);
