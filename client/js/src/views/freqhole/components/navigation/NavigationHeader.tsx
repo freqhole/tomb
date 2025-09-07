@@ -1,7 +1,8 @@
 import { useNavigate, useSearchParams } from "@solidjs/router";
-import { createSignal, Show } from "solid-js";
+import { createSignal, Show, createEffect } from "solid-js";
 import { storeActions } from "../../store";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
+import { useSearchContext } from "../../context/SearchContext";
 import { SearchSuggestions } from "../../../../components/search/SearchSuggestions";
 
 import { FreqholeIcon } from "../icons";
@@ -12,36 +13,41 @@ export function NavigationHeader() {
   const [searchParams] = useSearchParams();
 
   const events = useGlobalEvents();
-  const [query, setQuery] = createSignal((searchParams.q as string) || "");
+  const search = useSearchContext();
+  const [inputValue, setInputValue] = createSignal("");
   const [showSuggestions, setShowSuggestions] = createSignal(false);
   const [inputFocused, setInputFocused] = createSignal(false);
 
   const [authOpen, setAuthOpen] = createSignal(false);
 
+  // Sync input value with search context (one-way: context -> input)
+  createEffect(() => {
+    const searchQuery = search.searchQuery();
+    if (searchQuery !== inputValue()) {
+      setInputValue(searchQuery);
+    }
+  });
+
+  // No URL initialization here - handled by SearchResultsView to avoid conflicts
+
   const handleSearch = (searchQuery: string) => {
-    setQuery(searchQuery);
     storeActions.setSearchQuery(searchQuery);
 
     if (searchQuery.trim()) {
+      search.setSearchQuery(searchQuery, true);
       navigate(`/search?q=${encodeURIComponent(searchQuery)}`);
       events.emit("search:query", { query: searchQuery });
     } else {
+      search.clear();
       storeActions.clearSearch();
       events.emit("search:clear", {});
       navigate("/songs");
     }
   };
 
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter") {
-      const target = e.target as HTMLInputElement;
-      handleSearch(target.value);
-      setShowSuggestions(false);
-    }
-  };
-
   const handleSuggestionSelect = (suggestion: string) => {
-    setQuery(suggestion);
+    setInputValue(suggestion);
+    search.onSuggestionSelect(suggestion);
     handleSearch(suggestion);
     setShowSuggestions(false);
   };
@@ -49,6 +55,10 @@ export function NavigationHeader() {
   const handleInputFocus = () => {
     setInputFocused(true);
     setShowSuggestions(true);
+    // Trigger suggestion loading if we have enough characters
+    if (inputValue().length >= 2) {
+      search.setSearchQuery(inputValue(), false);
+    }
   };
 
   const handleInputBlur = () => {
@@ -56,11 +66,31 @@ export function NavigationHeader() {
     setTimeout(() => {
       setInputFocused(false);
       setShowSuggestions(false);
-    }, 200);
+    }, 300);
   };
 
   const shouldShowSuggestions = () => {
-    return showSuggestions() && inputFocused() && query().trim().length > 0;
+    return (
+      showSuggestions() && inputFocused() && inputValue().trim().length > 0
+    );
+  };
+
+  const handleInputChange = (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    const value = target.value;
+
+    // Update local state immediately for responsive typing
+    setInputValue(value);
+
+    // Update search context for suggestions (debounced by the search hook)
+    search.setSearchQuery(value, false);
+  };
+
+  const handleInputKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleSearch(inputValue());
+      setShowSuggestions(false);
+    }
   };
 
   return (
@@ -81,16 +111,16 @@ export function NavigationHeader() {
         <input
           type="text"
           placeholder="search music..."
-          value={query()}
-          onInput={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
+          value={inputValue()}
+          onInput={handleInputChange}
+          onKeyDown={handleInputKeyDown}
           onFocus={handleInputFocus}
           onBlur={handleInputBlur}
           class="w-full px-3 py-2 md:py-2 bg-gray-800 text-white rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-magenta-500 focus:bg-gray-700 hover:bg-gray-700 transition-all duration-200"
         />
 
         <button
-          onClick={() => handleSearch(query())}
+          onClick={() => handleSearch(search.searchQuery())}
           class="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-400 hover:text-magenta-400 transition-colors duration-200"
         >
           <svg
@@ -113,10 +143,11 @@ export function NavigationHeader() {
           <div class="absolute top-full left-0 right-0 mt-1 z-50">
             <div class="bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-64 overflow-y-auto">
               <SearchSuggestions
-                query={query()}
+                query={inputValue()}
+                suggestions={search.suggestions()}
                 onSuggestionSelect={handleSuggestionSelect}
                 show={shouldShowSuggestions()}
-                showLoading={true}
+                showLoading={search.loading()}
                 class="freqhole-suggestions"
                 onBlur={() => setShowSuggestions(false)}
               />

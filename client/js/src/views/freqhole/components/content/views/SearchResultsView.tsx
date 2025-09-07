@@ -1,492 +1,442 @@
-import {
-  For,
-  Show,
-  createSignal,
-  createResource,
-  createEffect,
-} from "solid-js";
-import { useNavigate } from "@solidjs/router";
-import { useStore } from "../../../store";
-import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
+import { For, Show, createEffect, createSignal } from "solid-js";
+import { useNavigate, useSearchParams } from "@solidjs/router";
+import { useSearchContext } from "../../../context/SearchContext";
 import { useSongInteractions } from "../../../services/songInteractions";
-import { apiClient } from "../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
-import type {
-  SearchResultItem,
-  SongSearchResult,
-} from "../../../../../lib/search/types";
-import type { Song } from "../../../../../lib/music/schemas";
+import type { Song } from "../../../../../lib/music/schemas/song";
 
 interface SearchResultsViewProps {
   class?: string;
 }
 
-type ResultFilter = "all" | "songs" | "artists" | "albums";
+type ResultTab = "all" | "songs" | "artists" | "albums" | "playlists";
 
 export function SearchResultsView(
   props: RouteSectionProps<unknown> & SearchResultsViewProps = {} as any
 ) {
-  const [store] = useStore();
-  const events = useGlobalEvents();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const songInteractions = useSongInteractions();
+  const search = useSearchContext();
 
-  const [activeFilter, setActiveFilter] = createSignal<ResultFilter>("all");
-  const [currentQuery, setCurrentQuery] = createSignal("");
-
-  // Track the search query from the store
+  // Initialize search from URL parameters - run once on mount only
+  let hasRun = false;
   createEffect(() => {
-    if (store.search.query !== currentQuery()) {
-      setCurrentQuery(store.search.query);
+    const urlQuery = searchParams.q as string;
+
+    if (urlQuery && !hasRun) {
+      hasRun = true;
+      search.setSearchQuery(urlQuery, true);
     }
   });
 
-  // Search all content types
-  const [searchResource] = createResource(
-    () => currentQuery(),
-    async (query: string) => {
-      if (!query || query.trim().length === 0) return null;
-
-      try {
-        const response = await apiClient.searchMusic(query, {
-          page_size: 50,
-        });
-        return response;
-      } catch (error) {
-        console.error("❌ Search failed:", error);
-        return null;
-      }
-    }
-  );
-
-  // Search songs specifically for better song results
-  const [songsResource] = createResource(
-    () => currentQuery(),
-    async (query: string) => {
-      if (!query || query.trim().length === 0) return null;
-
-      try {
-        const response = await apiClient.searchSongs(query, {
-          page_size: 50,
-        });
-        return response;
-      } catch (error) {
-        console.error("❌ Song search failed:", error);
-        return null;
-      }
-    }
-  );
-
-  const convertToSong = (song: Song | SongSearchResult): Song => {
-    // Convert SongSearchResult to Song format if needed
-    return {
-      id: song.id,
-      title: song.title,
-      artist: song.artist || null,
-      album: song.album || null,
-      album_artist: song.album_artist || null,
-      track_number: song.track_number || null,
-      disc_number: song.disc_number || null,
-      duration_seconds: null, // Not available in search result
-      genre: song.genre || null,
-      year: song.year || null,
-      bpm: song.bpm || null,
-      key_signature: song.key_signature || null,
-      user_rating: (song as any).user_rating || null,
-      user_is_favorite: (song as any).user_is_favorite || false,
-      tags: song.tags || [],
-      display_title: song.title,
-      detailed_display_title: song.title,
-      created_at: song.created_at,
-      media_blob_id: song.media_blob_id,
-      thumbnail_blob_id: song.thumbnail_blob_id || null,
-      waveform_blob_id: song.waveform_blob_id || null,
-      thumbnail_blob_ids: [],
-      preference_updated_at: null,
-    };
+  const formatDuration = (seconds: number | null) => {
+    if (!seconds) return "—";
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
   };
 
-  const handleSongDoubleClick = (song: Song | SongSearchResult) => {
-    const normalizedSong = convertToSong(song);
-    songInteractions.playSong(normalizedSong, true);
+  const handleTabChange = (tab: ResultTab) => {
+    search.setActiveTab(tab);
   };
 
-  const handleGenericResultClick = (result: SearchResultItem) => {
-    // Handle different result types
-    if (result.result_type === "song") {
-      // Try to convert to song format and play
-      const song: Song = {
-        id: result.id,
-        title: result.title,
-        artist: result.subtitle || null,
-        album: null,
-        album_artist: null,
-        track_number: null,
-        disc_number: null,
-        duration_seconds: null,
-        genre: null,
-        year: null,
-        bpm: null,
-        key_signature: null,
+  const handleSongClick = (song: Song) => {
+    songInteractions.handleDoubleClick(song);
+  };
 
-        user_is_favorite: false,
-        user_rating: null,
-        preference_updated_at: null,
-        tags: [],
-        display_title: result.title,
-        detailed_display_title: result.title,
-        created_at: result.created_at.toISOString(),
-        media_blob_id: result.media_blob_id || "",
-        thumbnail_blob_id: result.thumbnail_blob_id || null,
-        waveform_blob_id: null,
-        thumbnail_blob_ids: [],
-      };
-      events.emit("song:play", { song, replaceQueue: false });
-    } else if (result.result_type === "artist") {
-      // Navigate to artist detail route
-      const encodedArtist = encodeURIComponent(result.title);
+  const handleArtistClick = (artist: any) => {
+    if (artist.name) {
+      const encodedArtist = encodeURIComponent(artist.name);
       navigate(`/artist/${encodedArtist}`);
-    } else if (result.result_type === "album") {
-      // Navigate to album detail route
-      const encodedAlbum = encodeURIComponent(result.title);
+    }
+  };
+
+  const handleAlbumClick = (album: any) => {
+    if (album.album) {
+      const encodedAlbum = encodeURIComponent(album.album);
       navigate(`/album/${encodedAlbum}`);
     }
   };
 
-  const getFilteredResults = () => {
-    const searchResults = searchResource();
-    const songResults = songsResource();
-
-    if (!searchResults && !songResults) return [];
-
-    // TODO: The server search API currently only returns songs and playlists,
-    // not separate artist/album entities. This is a temporary workaround that
-    // extracts artists and albums from song results. The server API should be
-    // enhanced to return proper artist and album search results.
-    // Extract unique artists and albums from song results
-    const songs = songResults?.songs || [];
-    const uniqueArtists = new Map();
-    const uniqueAlbums = new Map();
-
-    songs.forEach((song) => {
-      if (song.artist && !uniqueArtists.has(song.artist)) {
-        uniqueArtists.set(song.artist, {
-          id: `artist-${song.artist}`,
-          result_type: "artist",
-          title: song.artist,
-          subtitle: "Artist",
-          description: null,
-          thumbnail_blob_id: song.thumbnail_blob_id,
-          media_blob_id: null,
-          relevance_score: 0.8,
-          metadata: {},
-          created_at: new Date(song.created_at),
-          updated_at: new Date(song.updated_at || song.created_at),
-        });
-      }
-
-      if (song.album && !uniqueAlbums.has(`${song.album}-${song.artist}`)) {
-        uniqueAlbums.set(`${song.album}-${song.artist}`, {
-          id: `album-${song.album}-${song.artist}`,
-          result_type: "album",
-          title: song.album,
-          subtitle: song.artist,
-          description: "Album",
-          thumbnail_blob_id: song.thumbnail_blob_id,
-          media_blob_id: null,
-          relevance_score: 0.7,
-          metadata: {},
-          created_at: new Date(song.created_at),
-          updated_at: new Date(song.updated_at || song.created_at),
-        });
-      }
-    });
-
-    const extractedArtists = Array.from(uniqueArtists.values());
-    const extractedAlbums = Array.from(uniqueAlbums.values());
-
-    switch (activeFilter()) {
+  const getTabCount = (tab: ResultTab) => {
+    switch (tab) {
+      case "all":
+        return search.totalCount();
       case "songs":
-        return songs;
+        return search.songs().length;
       case "artists":
-        return extractedArtists;
+        return search.artists().length;
       case "albums":
-        return extractedAlbums;
+        return search.albums().length;
+      // case "playlists":
+      //   return search.playlists().length;
       default:
-        // Combine all results
-        const allResults = [...(searchResults?.results || [])];
-        // Add songs from song search
-        const songSearchResults = songs.map((song) => ({
-          id: song.id,
-          result_type: "song",
-          title: song.title,
-          subtitle: song.artist,
-          description: song.album,
-          thumbnail_blob_id: song.thumbnail_blob_id,
-          media_blob_id: song.media_blob_id,
-          relevance_score: song.search_rank || 0,
-          metadata: {},
-          created_at: new Date(song.created_at),
-          updated_at: new Date(song.updated_at || song.created_at),
-        }));
-        return [
-          ...allResults,
-          ...songSearchResults,
-          ...extractedArtists,
-          ...extractedAlbums,
-        ];
+        return 0;
     }
   };
 
-  const getResultCounts = () => {
-    const songResults = songsResource();
-
-    const songs = songResults?.songs?.length || 0;
-
-    // Extract unique artists and albums from song results
-    const songsData = songResults?.songs || [];
-    const uniqueArtists = new Set();
-    const uniqueAlbums = new Set();
-
-    songsData.forEach((song) => {
-      if (song.artist) uniqueArtists.add(song.artist);
-      if (song.album) uniqueAlbums.add(`${song.album}-${song.artist}`);
-    });
-
-    const artists = uniqueArtists.size;
-    const albums = uniqueAlbums.size;
-    const total = songs + artists + albums;
-
-    return { total, songs, artists, albums };
-  };
-
-  const getImageUrl = (item: any) => {
-    if (item.thumbnail_blob_id) {
-      return `${apiClient.getBaseUrl()}/api/blobs/${item.thumbnail_blob_id}`;
-    }
-    return null;
-  };
-
-  const formatResultType = (type: string) => {
-    return type.charAt(0).toUpperCase() + type.slice(1);
+  const getTabDisplayCount = (tab: ResultTab) => {
+    const count = getTabCount(tab);
+    return count > 0 ? ` (${count})` : "";
   };
 
   return (
-    <div class={`h-full bg-black text-white ${props.class || ""}`}>
-      <Show when={currentQuery()} fallback={<div class="flex-1"></div>}>
-        <div class="h-full flex flex-col">
-          {/* Header */}
-          <div class="flex-shrink-0 p-6">
-            <h1 class="text-2xl font-semibold text-white mb-2">
-              search results for "{currentQuery()}"
-            </h1>
-
-            <Show
-              when={!searchResource.loading && !songsResource.loading}
-              fallback={<p class="text-gray-300 text-sm">searching...</p>}
-            >
-              <p class="text-gray-300 text-sm mb-4">
-                {getResultCounts().total} results found
-              </p>
-            </Show>
-
-            {/* Filter Tabs */}
-            <div class="flex space-x-1 bg-magenta-950/30 rounded-lg p-1">
-              <button
-                class={`px-4 py-2 rounded text-sm font-medium transition-all ${
-                  activeFilter() === "all"
-                    ? "bg-magenta-600 text-black"
-                    : "text-magenta-300 hover:text-white hover:bg-magenta-600/30"
-                }`}
-                onClick={() => setActiveFilter("all")}
-              >
-                all ({getResultCounts().total})
-              </button>
-              <button
-                class={`px-4 py-2 rounded text-sm font-medium transition-all ${
-                  activeFilter() === "songs"
-                    ? "bg-magenta-600 text-black"
-                    : "text-magenta-300 hover:text-white hover:bg-magenta-600/30"
-                }`}
-                onClick={() => setActiveFilter("songs")}
-              >
-                songs ({getResultCounts().songs})
-              </button>
-              <button
-                class={`px-4 py-2 rounded text-sm font-medium transition-all ${
-                  activeFilter() === "artists"
-                    ? "bg-magenta-600 text-black"
-                    : "text-magenta-300 hover:text-white hover:bg-magenta-600/30"
-                }`}
-                onClick={() => setActiveFilter("artists")}
-              >
-                artists ({getResultCounts().artists})
-              </button>
-              <button
-                class={`px-4 py-2 rounded text-sm font-medium transition-all ${
-                  activeFilter() === "albums"
-                    ? "bg-magenta-600 text-black"
-                    : "text-magenta-300 hover:text-white hover:bg-magenta-600/30"
-                }`}
-                onClick={() => setActiveFilter("albums")}
-              >
-                albums ({getResultCounts().albums})
-              </button>
+    <div
+      class={`flex flex-col h-full bg-black text-white w-full max-w-full ${
+        props.class || ""
+      }`}
+    >
+      {/* Search Header */}
+      <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm p-6 border-b border-magenta-800/30">
+        <Show
+          when={search.searchQuery()}
+          fallback={
+            <div class="text-center py-8">
+              <div class="text-gray-400 text-lg">
+                Enter a search query to begin
+              </div>
             </div>
+          }
+        >
+          <div class="mb-4">
+            <h1 class="text-2xl font-bold text-white mb-2">
+              search results for "{search.searchQuery()}"
+            </h1>
+            <Show when={search.totalCount() > 0}>
+              <div class="text-magenta-400">
+                {search.totalCount()} results found
+              </div>
+            </Show>
           </div>
 
-          {/* Results */}
-          <div class="flex-1 overflow-y-auto p-6">
-            <Show
-              when={!searchResource.loading && !songsResource.loading}
-              fallback={
-                <div class="space-y-4">
-                  <For each={Array.from({ length: 10 })}>
-                    {() => (
-                      <div class="animate-pulse">
-                        <div class="h-16 bg-magenta-800/30 rounded-lg"></div>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              }
+          {/* Tab Navigation */}
+          <div class="flex gap-1 overflow-x-auto scrollbar-none">
+            <For
+              each={[
+                { id: "all" as const, label: "all" },
+                { id: "songs" as const, label: "songs" },
+                { id: "artists" as const, label: "artists" },
+                { id: "albums" as const, label: "albums" },
+                // { id: "playlists" as const, label: "playlists" }, // Commented out until server API supports it
+              ]}
             >
-              <Show
-                when={getFilteredResults().length > 0}
-                fallback={
-                  <div class="text-center py-12">
-                    <div class="text-white text-xl mb-2">no results found</div>
-                    <div class="text-gray-400">
-                      try a different search term or check your spelling
+              {(tab) => (
+                <button
+                  class={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+                    search.activeTab() === tab.id
+                      ? "bg-magenta-600 text-white"
+                      : "bg-magenta-950/30 text-magenta-300 hover:bg-magenta-600/30 hover:text-white"
+                  }`}
+                  onClick={() => handleTabChange(tab.id)}
+                >
+                  {tab.label}
+                  {getTabDisplayCount(tab.id)}
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
+
+      {/* Search Results Content */}
+      <div class="flex-1 overflow-y-auto p-6">
+        <Show when={search.loading()}>
+          <div class="text-center py-8">
+            <div class="animate-spin h-8 w-8 border-2 border-magenta-500 border-t-transparent mx-auto mb-4"></div>
+            <div class="text-magenta-400">searching...</div>
+          </div>
+        </Show>
+
+        <Show when={search.error()}>
+          <div class="text-center py-8">
+            <div class="text-red-400 text-lg mb-2">search error</div>
+            <div class="text-gray-400">{search.error()}</div>
+          </div>
+        </Show>
+
+        <Show
+          when={!search.loading() && !search.error() && search.searchQuery()}
+        >
+          <Show
+            when={search.hasResults()}
+            fallback={
+              <div class="text-center py-8">
+                <div class="text-gray-400 text-lg">no results found</div>
+                <div class="text-gray-500 mt-2">
+                  try adjusting your search terms or filters
+                </div>
+              </div>
+            }
+          >
+            {/* All Tab - Show everything */}
+            <Show when={search.activeTab() === "all"}>
+              <div class="space-y-8">
+                {/* Artists Section - Show first with highest ranking */}
+                <Show when={search.artists().length > 0}>
+                  <div>
+                    <h2 class="text-xl font-semibold text-white mb-4">
+                      artists ({search.artists().length})
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <For each={search.artists().slice(0, 6)}>
+                        {(artist) => (
+                          <div
+                            class="p-4 bg-magenta-950/30 rounded-lg hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                            onClick={() => handleArtistClick(artist)}
+                          >
+                            <div class="text-white font-medium truncate">
+                              {artist.name}
+                            </div>
+                            <div class="text-magenta-400 text-sm">
+                              {artist.song_count || 0} songs
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                    <Show when={search.artists().length > 6}>
+                      <button
+                        class="w-full py-2 mt-4 text-magenta-400 hover:text-magenta-300 transition-colors"
+                        onClick={() => handleTabChange("artists")}
+                      >
+                        view all {search.artists().length} artists →
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
+
+                {/* Albums Section - Show second with highest ranking */}
+                <Show when={search.albums().length > 0}>
+                  <div>
+                    <h2 class="text-xl font-semibold text-white mb-4">
+                      albums ({search.albums().length})
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <For each={search.albums().slice(0, 6)}>
+                        {(album) => (
+                          <div
+                            class="p-4 bg-magenta-950/30 rounded-lg hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                            onClick={() => handleAlbumClick(album)}
+                          >
+                            <div class="text-white font-medium truncate">
+                              {album.album}
+                            </div>
+                            <div class="text-magenta-400 text-sm">
+                              {album.artist} • {album.track_count || 0} tracks
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                    <Show when={search.albums().length > 6}>
+                      <button
+                        class="w-full py-2 mt-4 text-magenta-400 hover:text-magenta-300 transition-colors"
+                        onClick={() => handleTabChange("albums")}
+                      >
+                        view all {search.albums().length} albums →
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
+
+                {/* Songs Section - Show third */}
+                <Show when={search.songs().length > 0}>
+                  <div>
+                    <h2 class="text-xl font-semibold text-white mb-4">
+                      songs ({search.songs().length})
+                    </h2>
+                    <div class="space-y-1">
+                      <For each={search.songs().slice(0, 10)}>
+                        {(song) => (
+                          <div
+                            class="p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                            onClick={() => handleSongClick(song)}
+                          >
+                            <div class="flex items-center justify-between">
+                              <div class="min-w-0 flex-1">
+                                <div class="text-white font-medium truncate">
+                                  {song.title}
+                                </div>
+                                <div class="text-magenta-400 text-sm truncate">
+                                  {song.artist} • {song.album}
+                                </div>
+                              </div>
+                              <div class="text-gray-400 text-sm">
+                                {formatDuration(song.duration_seconds)}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                      <Show when={search.songs().length > 10}>
+                        <button
+                          class="w-full py-2 text-magenta-400 hover:text-magenta-300 transition-colors"
+                          onClick={() => handleTabChange("songs")}
+                        >
+                          view all {search.songs().length} songs →
+                        </button>
+                      </Show>
                     </div>
                   </div>
-                }
-              >
-                <div class="space-y-3">
-                  <For each={getFilteredResults()}>
-                    {(result: any) => (
-                      <div
-                        class="flex items-center p-4 bg-magenta-950/30 rounded-lg hover:bg-magenta-600/20 transition-colors cursor-pointer group"
-                        onClick={() => {
-                          // Only handle click for non-songs (navigate to artists/albums)
-                          if (
-                            activeFilter() !== "songs" &&
-                            result.result_type !== "song"
-                          ) {
-                            handleGenericResultClick(result);
-                          }
-                        }}
-                        onDblClick={() => {
-                          // Only handle double-click for songs
-                          if (
-                            activeFilter() === "songs" ||
-                            result.result_type === "song"
-                          ) {
-                            handleSongDoubleClick(result);
-                          }
-                        }}
-                      >
-                        {/* Thumbnail */}
-                        <div class="w-12 h-12 bg-magenta-800/30 rounded flex-shrink-0 overflow-hidden mr-4">
-                          <Show
-                            when={getImageUrl(result)}
-                            fallback={
-                              <div class="w-full h-full flex items-center justify-center">
-                                <svg
-                                  class="w-6 h-6 text-magenta-400"
-                                  fill="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-                                </svg>
-                              </div>
-                            }
-                          >
-                            <img
-                              src={getImageUrl(result)!}
-                              alt={result.title}
-                              class="w-full h-full object-cover"
-                              loading="lazy"
-                            />
-                          </Show>
-                        </div>
+                </Show>
 
-                        {/* Content */}
-                        <div class="flex-1 min-w-0">
-                          <div class="flex items-center space-x-2 mb-1">
-                            <div class="text-white font-medium truncate group-hover:text-magenta-300 transition-colors">
-                              {result.title}
+                {/* Playlists Section */}
+                {/* Playlists Section - Commented out until server API supports it */}
+                {/* <Show when={search.playlists().length > 0}>
+                  <div>
+                    <h2 class="text-xl font-semibold text-white mb-4">
+                      playlists ({search.playlists().length})
+                    </h2>
+                    <div class="space-y-2">
+                      <For each={search.playlists().slice(0, 5)}>
+                        {(playlist) => (
+                          <div
+                            class="p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                            onClick={() => handlePlaylistClick(playlist)}
+                          >
+                            <div class="text-white font-medium truncate">
+                              {playlist.title}
                             </div>
-                            <span class="px-2 py-0.5 bg-magenta-600/30 rounded text-xs text-magenta-300 flex-shrink-0">
-                              {formatResultType(result.result_type || "song")}
-                            </span>
+                            <div class="text-magenta-400 text-sm">
+                              {playlist.song_count || 0} songs
+                            </div>
                           </div>
-                          <div class="text-gray-300 text-sm truncate">
-                            {result.subtitle || result.artist}
-                            {result.description || result.album ? (
-                              <span class="ml-2">
-                                • {result.description || result.album}
-                              </span>
-                            ) : null}
+                        )}
+                      </For>
+                    </div>
+                    <Show when={search.playlists().length > 5}>
+                      <button
+                        class="w-full py-2 mt-4 text-magenta-400 hover:text-magenta-300 transition-colors"
+                        onClick={() => handleTabChange("playlists")}
+                      >
+                        view all {search.playlists().length} playlists →
+                      </button>
+                    </Show>
+                  </div>
+                </Show> */}
+              </div>
+            </Show>
+
+            {/* Songs Tab */}
+            <Show when={search.activeTab() === "songs"}>
+              <div class="space-y-1">
+                <For each={search.songs()}>
+                  {(song) => (
+                    <div
+                      class="p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                      onClick={() => handleSongClick(song)}
+                      onContextMenu={(e) =>
+                        songInteractions.handleRightClick(e, song)
+                      }
+                    >
+                      <div class="flex items-center justify-between">
+                        <div class="min-w-0 flex-1">
+                          <div class="text-white font-medium truncate">
+                            {song.title}
+                          </div>
+                          <div class="text-magenta-400 text-sm truncate">
+                            {song.artist} • {song.album}
                           </div>
                         </div>
-
-                        {/* Actions */}
-                        <div class="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity ml-4">
-                          <Show
-                            when={
-                              activeFilter() === "songs" ||
-                              result.result_type === "song"
-                            }
-                          >
-                            <button
-                              class="p-2 rounded-full hover:bg-magenta-600/30 transition-colors"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const normalizedSong = convertToSong(result);
-                                songInteractions.playSong(
-                                  normalizedSong,
-                                  false
-                                );
-                              }}
-                              title="Play song"
-                            >
-                              <svg
-                                class="w-4 h-4 text-magenta-400"
-                                fill="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path d="M8 5v14l11-7z" />
-                              </svg>
-                            </button>
-                            <button
-                              class="p-2 rounded-full hover:bg-magenta-600/30 transition-colors"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const normalizedSong = convertToSong(result);
-                                songInteractions.queueSong(normalizedSong);
-                              }}
-                              title="Add to queue"
-                            >
-                              <svg
-                                class="w-4 h-4 text-magenta-400"
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                              >
-                                <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
-                              </svg>
-                            </button>
-                          </Show>
+                        <div class="text-gray-400 text-sm">
+                          {formatDuration(song.duration_seconds)}
                         </div>
                       </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
+                    </div>
+                  )}
+                </For>
+              </div>
             </Show>
-          </div>
-        </div>
-      </Show>
+
+            {/* Artists Tab */}
+            <Show when={search.activeTab() === "artists"}>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <For each={search.artists()}>
+                  {(artist) => (
+                    <div
+                      class="p-4 bg-magenta-950/30 rounded-lg hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                      onClick={() => handleArtistClick(artist)}
+                    >
+                      <div class="text-white font-medium truncate">
+                        {artist.name}
+                      </div>
+                      <div class="text-magenta-400 text-sm">
+                        {artist.song_count || 0} songs
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+
+            {/* Albums Tab */}
+            <Show when={search.activeTab() === "albums"}>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <For each={search.albums()}>
+                  {(album) => (
+                    <div
+                      class="p-4 bg-magenta-950/30 rounded-lg hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                      onClick={() => handleAlbumClick(album)}
+                    >
+                      <div class="text-white font-medium truncate">
+                        {album.album}
+                      </div>
+                      <div class="text-magenta-400 text-sm">
+                        {album.artist} • {album.track_count || 0} tracks
+                      </div>
+                      <Show when={album.year}>
+                        <div class="text-gray-400 text-xs mt-1">
+                          {album.year}
+                        </div>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+
+            {/* Playlists Tab - Commented out until server API supports it */}
+            {/* <Show when={search.activeTab() === "playlists"}>
+              <div class="space-y-2">
+                <For each={search.playlists()}>
+                  {(playlist) => (
+                    <div
+                      class="p-4 bg-magenta-950/30 rounded-lg hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                      onClick={() => handlePlaylistClick(playlist)}
+                    >
+                      <div class="text-white font-medium truncate">
+                        {playlist.title}
+                      </div>
+                      <div class="text-magenta-400 text-sm">
+                        {playlist.song_count || 0} songs
+                      </div>
+                      <Show when={playlist.description}>
+                        <div class="text-gray-400 text-sm mt-1 truncate">
+                          {playlist.description}
+                        </div>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show> */}
+
+            {/* Load More Button */}
+            <Show when={search.pagination().hasNext}>
+              <div class="text-center py-4">
+                <button
+                  class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => search.loadMore()}
+                  disabled={search.loading()}
+                >
+                  {search.loading() ? "loading..." : "load more"}
+                </button>
+              </div>
+            </Show>
+          </Show>
+        </Show>
+      </div>
     </div>
   );
 }

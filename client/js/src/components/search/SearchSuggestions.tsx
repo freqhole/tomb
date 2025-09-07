@@ -148,12 +148,25 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
 
   // render highlighted text without dangerouslySetInnerHTML
   const renderHighlightedText = (suggestion: any) => {
-    if (!suggestion.highlight) {
+    const textToRender = suggestion.highlight || suggestion.text;
+
+    if (!textToRender) {
       return suggestion.text;
     }
 
-    // simple highlight rendering - look for <mark> tags and replace with spans
-    const parts = suggestion.highlight.split(/(<mark>.*?<\/mark>)/g);
+    // handle both <mark> tags and ** patterns for highlighting
+    let parts: string[] = [];
+
+    if (textToRender.includes("<mark>")) {
+      // handle <mark> tags
+      parts = textToRender.split(/(<mark>.*?<\/mark>)/g);
+    } else if (textToRender.includes("**")) {
+      // handle ** patterns like **highlighted text**
+      parts = textToRender.split(/(\*\*.*?\*\*)/g);
+    } else {
+      // no highlighting patterns found
+      return textToRender;
+    }
 
     return (
       <span>
@@ -161,6 +174,11 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
           {(part) => {
             if (part.startsWith("<mark>") && part.endsWith("</mark>")) {
               const content = part.slice(6, -7); // remove <mark></mark>
+              return (
+                <span class="text-magenta-300 font-medium">{content}</span>
+              );
+            } else if (part.startsWith("**") && part.endsWith("**")) {
+              const content = part.slice(2, -2); // remove **
               return (
                 <span class="text-magenta-300 font-medium">{content}</span>
               );
