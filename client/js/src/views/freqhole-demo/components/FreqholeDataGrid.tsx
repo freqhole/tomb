@@ -89,33 +89,33 @@ export function FreqholeDataGrid(props: FreqholeDataGridProps) {
   //     }
   //   },
   // });
-    onDelete: (items) => {
-      state.setConfirmDialog({
-        isOpen: true,
-        title: "Delete Files",
-        message: `Delete ${items.length} selected file${items.length !== 1 ? "s" : ""}?`,
-        items: items,
-        onConfirm: () => {
-          addLog(`🗑️ Deleted ${items.length} items via keyboard`);
-          selection.clearSelection();
-          state.setConfirmDialog(null);
-        },
-      });
-    },
-    isTextInputFocused: () => {
-      const target = document.activeElement as HTMLElement;
-      return (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable ||
-          target.getAttribute("contenteditable") === "true")
-      );
-    },
-    getSelectedItems: () => selection.selectedItems(),
-    getAllItems: () => data.sortedData(),
-    onLog: addLog,
-  });
+  //   onDelete: (items) => {
+  //     state.setConfirmDialog({
+  //       isOpen: true,
+  //       title: "Delete Files",
+  //       message: `Delete ${items.length} selected file${items.length !== 1 ? "s" : ""}?`,
+  //       items: items,
+  //       onConfirm: () => {
+  //         addLog(`🗑️ Deleted ${items.length} items via keyboard`);
+  //         selection.clearSelection();
+  //         state.setConfirmDialog(null);
+  //       },
+  //     });
+  //   },
+  //   isTextInputFocused: () => {
+  //     const target = document.activeElement as HTMLElement;
+  //     return (
+  //       target &&
+  //       (target.tagName === "INPUT" ||
+  //         target.tagName === "TEXTAREA" ||
+  //         target.isContentEditable ||
+  //         target.getAttribute("contenteditable") === "true")
+  //     );
+  //   },
+  //   getSelectedItems: () => selection.selectedItems(),
+  //   getAllItems: () => data.sortedData(),
+  //   onLog: addLog,
+  // });
 
   // Track thumbnail requests to avoid duplicates
   const [thumbnailRequests, setThumbnailRequests] = createSignal<Set<string>>(

@@ -30,6 +30,7 @@ const uint8ArrayToBase64 = (uint8Array: Uint8Array): string => {
 export interface AuthState {
   isAuthenticated: boolean;
   currentUser: string | null;
+  role: string | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -53,6 +54,7 @@ export interface UseAuthOptions {
 const [authStore, setAuthStore] = createStore({
   isAuthenticated: false,
   currentUser: null as string | null,
+  role: null as string | null,
   isLoading: false,
   error: null as string | null,
 });
@@ -94,6 +96,7 @@ export const useAuth = (options: UseAuthOptions = {}) => {
       const status = await apiClient().authStatus();
       setAuthStore("isAuthenticated", status.authenticated);
       setAuthStore("currentUser", status.username || null);
+      setAuthStore("role", status.role || null);
       return status.authenticated;
     } catch (err) {
       setAuthStore("isAuthenticated", false);
@@ -109,6 +112,7 @@ export const useAuth = (options: UseAuthOptions = {}) => {
       const status = await apiClient().authStatus();
       setAuthStore("isAuthenticated", status.authenticated);
       setAuthStore("currentUser", status.username || null);
+      setAuthStore("role", status.role || null);
       return status.authenticated;
     } catch (err) {
       setAuthStore("isAuthenticated", false);
@@ -307,6 +311,9 @@ export const useAuth = (options: UseAuthOptions = {}) => {
     },
     get currentUser() {
       return authStore.currentUser;
+    },
+    get role() {
+      return authStore.role;
     },
     get isLoading() {
       return authStore.isLoading;

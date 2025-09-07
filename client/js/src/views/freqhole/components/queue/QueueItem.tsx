@@ -1,3 +1,5 @@
+import { storeActions } from "../../store";
+
 interface QueueItemProps {
   song: any;
   index: number;
@@ -6,6 +8,11 @@ interface QueueItemProps {
 }
 
 export function QueueItem(props: QueueItemProps) {
+  // Detect if we're on mobile
+  const isMobile = () => {
+    return window.innerWidth <= 768 || "ontouchstart" in window;
+  };
+
   const formatDuration = (seconds: number | undefined) => {
     if (!seconds) return "--:--";
     const mins = Math.floor(seconds / 60);
@@ -13,13 +20,37 @@ export function QueueItem(props: QueueItemProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const handleAdvanceToSong = () => {
+    if (!props.isCurrentlyPlaying) {
+      storeActions.setCurrentIndex(props.index);
+      storeActions.playSong(props.song);
+    }
+  };
+
   return (
     <div
-      class={`flex items-center p-3 rounded-lg group transition-all duration-200 border border-transparent ${
+      class={`flex items-center p-3 rounded-lg group transition-all duration-200 border border-transparent cursor-pointer ${
         props.isCurrentlyPlaying
           ? "bg-magenta-600/30 text-white"
           : "hover:bg-magenta-600/20 text-white"
       }`}
+      onClick={() => {
+        if (isMobile()) {
+          handleAdvanceToSong();
+        }
+      }}
+      onDblClick={() => {
+        if (!isMobile()) {
+          handleAdvanceToSong();
+        }
+      }}
+      title={
+        props.isCurrentlyPlaying
+          ? "currently playing"
+          : isMobile()
+            ? "tap to play"
+            : "double-click to play"
+      }
     >
       <div class="flex items-center gap-3 flex-1 min-w-0">
         <div class="w-6 text-center text-xs text-gray-400">

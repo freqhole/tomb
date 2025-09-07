@@ -20,6 +20,8 @@ export const AuthModal = (props: AuthModalProps) => {
       props.onClose();
       setUsername("");
       setInviteCode("");
+      // Reload page after successful sign in
+      window.location.reload();
     },
     onAuthError: (error) => {
       // Error is handled by the hook's error state
@@ -61,7 +63,7 @@ export const AuthModal = (props: AuthModalProps) => {
       isOpen={props.isOpen}
       onClose={props.onClose}
       size="sm"
-      title={mode() === "login" ? "Sign In" : "Create Account"}
+      title={mode() === "login" ? "sign in" : "create account"}
     >
       <div class="space-y-6">
         {/* Error Message */}
@@ -79,7 +81,7 @@ export const AuthModal = (props: AuthModalProps) => {
               for="username"
               class="block text-sm font-medium text-gray-300 mb-2"
             >
-              Username
+              username
             </label>
             <input
               id="username"
@@ -88,7 +90,7 @@ export const AuthModal = (props: AuthModalProps) => {
               onInput={(e) => setUsername(e.currentTarget.value)}
               onKeyDown={handleKeyDown}
               disabled={auth.isLoading}
-              placeholder="Enter your username"
+              placeholder="enter your username"
               class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-fuchsia-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               required
             />
@@ -101,7 +103,7 @@ export const AuthModal = (props: AuthModalProps) => {
                 for="inviteCode"
                 class="block text-sm font-medium text-gray-300 mb-2"
               >
-                Invite Code
+                invite code
               </label>
               <input
                 id="inviteCode"
@@ -110,7 +112,7 @@ export const AuthModal = (props: AuthModalProps) => {
                 onInput={(e) => setInviteCode(e.currentTarget.value)}
                 onKeyDown={handleKeyDown}
                 disabled={auth.isLoading}
-                placeholder="Enter your invite code"
+                placeholder="enter your invite code"
                 class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-fuchsia-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 required
               />
@@ -132,11 +134,11 @@ export const AuthModal = (props: AuthModalProps) => {
             </Show>
             {auth.isLoading
               ? mode() === "login"
-                ? "Signing in..."
-                : "Creating account..."
+                ? "signing in..."
+                : "creating account..."
               : mode() === "login"
-                ? "Sign In"
-                : "Create Account"}
+                ? "sign in"
+                : "create account"}
           </button>
         </form>
 
@@ -144,14 +146,14 @@ export const AuthModal = (props: AuthModalProps) => {
         <div class="text-center border-t border-gray-700 pt-4">
           <p class="text-gray-400 text-sm">
             {mode() === "login"
-              ? "Don't have an account?"
-              : "Already have an account?"}{" "}
+              ? "don't have an account?"
+              : "already have an account?"}{" "}
             <button
               onClick={switchMode}
               disabled={auth.isLoading}
               class="text-fuchsia-400 hover:text-fuchsia-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {mode() === "login" ? "Create one" : "Sign in"}
+              {mode() === "login" ? "create one" : "sign in"}
             </button>
           </p>
         </div>
@@ -163,13 +165,13 @@ export const AuthModal = (props: AuthModalProps) => {
               when={mode() === "login"}
               fallback={
                 <>
-                  FREQHOLE uses passwordless authentication. You'll use your
+                  freqhole uses passwordless authentication. you'll use your
                   device's built-in security (fingerprint, face recognition, or
                   security key) to create and access your account.
                 </>
               }
             >
-              Use your device's built-in security (fingerprint, face
+              use your device's built-in security (fingerprint, face
               recognition, or security key) to sign in securely.
             </Show>
           </p>

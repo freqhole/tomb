@@ -536,15 +536,15 @@ export function DesktopSongsView(
                 selection.clearSelection();
               }}
             >
-              Add to Queue
+              queue
             </button>
 
-            <button
+            {/*<button
               class="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm transition-colors"
               onClick={() => console.log("Add to playlist clicked")}
             >
               Add to Playlist
-            </button>
+            </button>*/}
 
             <BulkEditControls
               selectedSongs={selection.getSelectedSongs(songs())}
@@ -578,7 +578,7 @@ export function DesktopSongsView(
               class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors"
               onClick={() => selection.clearSelection()}
             >
-              Clear
+              clear
             </button>
           </div>
         </div>

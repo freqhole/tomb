@@ -69,7 +69,10 @@ export function BulkEditControls(props: BulkEditControlsProps) {
   return (
     <div class={`flex items-center gap-4 ${props.class || ""}`}>
       {/* Bulk Favorite Toggle */}
-      <div class="cursor-pointer" title="Toggle favorites for selected songs">
+      <div
+        class="cursor-pointer bg-gray-300 rounded hover:bg-gray-200"
+        title="Toggle favorites for selected songs"
+      >
         <FavoriteHeart
           isFavorite={allFavorited()}
           onToggle={handleBulkFavorite}
