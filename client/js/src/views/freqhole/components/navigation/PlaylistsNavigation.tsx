@@ -6,6 +6,7 @@ import {
   createSignal,
 } from "solid-js";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
+import { useSongInteractions } from "../../services/songInteractions";
 import { apiClient } from "../../../../lib/api-client";
 import { formatCompactRelativeDate } from "../../utils/dateUtils";
 import type { Playlist } from "../../../../lib/music/schemas";
@@ -17,7 +18,12 @@ interface PlaylistsNavigationProps {
 
 export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
   const events = useGlobalEvents();
+  const songInteractions = useSongInteractions();
   const [refreshPlaylists, setRefreshPlaylists] = createSignal(0);
+  const [hoveredPlaylist, setHoveredPlaylist] = createSignal<string | null>(
+    null
+  );
+  const [hoveredImage, setHoveredImage] = createSignal<string | null>(null);
 
   // Listen for playlist operation events to refresh the navigation list
   createEffect(() => {
@@ -85,6 +91,33 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
     events.emit("playlist:selected", { playlist });
   };
 
+  const handlePlaylistDoubleClick = async (playlist: Playlist) => {
+    try {
+      // Fetch playlist songs and start playing
+      const songs = await apiClient.getPlaylistSongs(playlist.id);
+
+      if (songs.length > 0 && songs[0]) {
+        console.log(
+          `🎵 Playing playlist: ${playlist.title} with ${songs.length} songs`
+        );
+        // Play first song and queue the rest
+        songInteractions.playSong(songs[0], true); // Replace queue
+        songs.slice(1).forEach((song) => {
+          if (song) {
+            songInteractions.queueSong(song);
+          }
+        });
+      }
+    } catch (error) {
+      console.error("❌ Failed to play playlist:", error);
+    }
+  };
+
+  const handleImageClick = async (e: Event, playlist: Playlist) => {
+    e.stopPropagation(); // Prevent navigation
+    await handlePlaylistDoubleClick(playlist);
+  };
+
   const formatSongCount = (count: number) => {
     if (count === 0) return "empty";
     if (count === 1) return "1 song";
@@ -135,35 +168,78 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
             <For each={playlistsResource()!}>
               {(playlist) => (
                 <button
-                  class={`w-full text-left p-2 rounded-lg text-sm transition-all duration-200 ${
+                  class={`w-full text-left p-2 rounded-lg text-sm transition-all duration-200 group ${
                     props.currentPath === `/playlist/${playlist.id}`
                       ? "bg-magenta-600/30 text-white"
                       : "text-white hover:bg-magenta-600/20"
                   }`}
                   onClick={() => handlePlaylistClick(playlist)}
-                  title={playlist.title} // Show full title on hover
+                  onDblClick={() => handlePlaylistDoubleClick(playlist)}
+                  onMouseEnter={() => setHoveredPlaylist(playlist.id)}
+                  onMouseLeave={() => setHoveredPlaylist(null)}
+                  title={playlist.title}
                 >
                   <div class="flex items-center space-x-2">
-                    <Show
-                      when={playlist.thumbnail_blob_id}
-                      fallback={
-                        <div class="w-8 h-8 bg-magenta-600/20 rounded flex items-center justify-center flex-shrink-0">
-                          <svg
-                            class="w-4 h-4 text-magenta-400"
-                            fill="currentColor"
-                            viewBox="0 0 24 24"
+                    <div class="relative w-8 h-8 flex-shrink-0">
+                      <Show
+                        when={playlist.thumbnail_blob_id}
+                        fallback={
+                          <div
+                            class="relative w-8 h-8 bg-magenta-600/20 rounded flex items-center justify-center cursor-pointer hover:bg-magenta-600/40 transition-all"
+                            onClick={(e) => handleImageClick(e, playlist)}
+                            onMouseEnter={() => setHoveredImage(playlist.id)}
+                            onMouseLeave={() => setHoveredImage(null)}
                           >
-                            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-                          </svg>
+                            <svg
+                              class={`w-4 h-4 text-magenta-400 transition-opacity ${
+                                hoveredImage() === playlist.id
+                                  ? "opacity-0"
+                                  : "opacity-100"
+                              }`}
+                              fill="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                            </svg>
+                            <Show when={hoveredImage() === playlist.id}>
+                              <div class="absolute inset-0 bg-black/50 rounded flex items-center justify-center">
+                                <svg
+                                  class="w-7 h-7 text-white"
+                                  fill="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path d="M8 5v14l11-7z" />
+                                </svg>
+                              </div>
+                            </Show>
+                          </div>
+                        }
+                      >
+                        <div
+                          class="relative w-8 h-8 rounded overflow-hidden cursor-pointer hover:brightness-75 transition-all"
+                          onClick={(e) => handleImageClick(e, playlist)}
+                          onMouseEnter={() => setHoveredImage(playlist.id)}
+                          onMouseLeave={() => setHoveredImage(null)}
+                        >
+                          <img
+                            src={`${import.meta.env.VITE_API_BASE_URL || "http://localhost:8080"}/api/blobs/${playlist.thumbnail_blob_id}`}
+                            alt={playlist.title}
+                            class="w-full h-full object-cover"
+                          />
+                          <Show when={hoveredImage() === playlist.id}>
+                            <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
+                              <svg
+                                class="w-7 h-7 text-white"
+                                fill="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path d="M8 5v14l11-7z" />
+                              </svg>
+                            </div>
+                          </Show>
                         </div>
-                      }
-                    >
-                      <img
-                        src={`${import.meta.env.VITE_API_BASE_URL || "http://localhost:8080"}/api/blobs/${playlist.thumbnail_blob_id}`}
-                        alt={playlist.title}
-                        class="w-8 h-8 object-cover rounded flex-shrink-0"
-                      />
-                    </Show>
+                      </Show>
+                    </div>
                     <div class="flex-1 min-w-0">
                       <div class="truncate font-medium">
                         {truncateTitle(playlist.title)}
