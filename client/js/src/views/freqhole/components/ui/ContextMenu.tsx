@@ -124,37 +124,74 @@ export function ContextMenu(props: ContextMenuProps) {
         }}
       >
         {/* Custom content (like text input for playlist naming) */}
-        <Show when={props.children}>
-          <div class="p-2 border-b border-dark-300">{props.children}</div>
+        <Show when={!!props.children}>
+          <div class="p-2">
+            {props.children}
+            <div class="border-b border-dark-300 mt-2"></div>
+          </div>
         </Show>
 
         {/* Menu actions */}
         <div class="py-1">
-          {props.actions.map((action, _index) => (
-            <Show
-              when={action.type === "separator"}
-              fallback={
-                <button
-                  class={`w-full px-4 py-3 text-left border border-transparent transition-all duration-200 flex items-center space-x-3 ${
-                    action.disabled
-                      ? "text-gray-500 cursor-not-allowed"
-                      : action.destructive
-                        ? "text-red-400 hover:bg-red-900 hover:border-red-600"
-                        : "text-white hover:bg-primary-500 hover:border-primary-300 metro-button-hover"
-                  }`}
-                  onClick={() => handleAction(action)}
-                  disabled={action.disabled}
-                >
-                  <Show when={action.icon}>
-                    <span class="flex-shrink-0">{action.icon}</span>
-                  </Show>
-                  <span class="text-sm font-medium">{action.label}</span>
-                </button>
+          {(() => {
+            // Filter out separators at the beginning and end, and consecutive separators
+            const actions = props.actions;
+            let filteredActions: typeof actions = [];
+
+            for (let i = 0; i < actions.length; i++) {
+              const action = actions[i];
+
+              if (action?.type === "separator") {
+                // Only add separator if:
+                // 1. There are already items in filteredActions (not at beginning)
+                // 2. The last item in filteredActions is not a separator (no consecutive separators)
+                if (
+                  filteredActions.length > 0 &&
+                  filteredActions[filteredActions.length - 1]?.type !==
+                    "separator"
+                ) {
+                  filteredActions.push(action);
+                }
+              } else {
+                // Add non-separator actions
+                filteredActions.push(action);
               }
-            >
-              <div class="border-t border-dark-300 my-1"></div>
-            </Show>
-          ))}
+            }
+
+            // Remove any trailing separator
+            while (
+              filteredActions.length > 0 &&
+              filteredActions[filteredActions.length - 1]?.type === "separator"
+            ) {
+              filteredActions.pop();
+            }
+
+            return filteredActions.map((action, _index) => (
+              <Show
+                when={action.type === "separator"}
+                fallback={
+                  <button
+                    class={`w-full px-4 py-3 text-left border border-transparent transition-all duration-200 flex items-center space-x-3 ${
+                      action.disabled
+                        ? "text-gray-500 cursor-not-allowed"
+                        : action.destructive
+                          ? "text-red-400 hover:bg-red-900 hover:border-red-600"
+                          : "text-white hover:bg-primary-500 hover:border-primary-300 metro-button-hover"
+                    }`}
+                    onClick={() => handleAction(action)}
+                    disabled={action.disabled}
+                  >
+                    <Show when={action.icon}>
+                      <span class="flex-shrink-0">{action.icon}</span>
+                    </Show>
+                    <span class="text-sm font-medium">{action.label}</span>
+                  </button>
+                }
+              >
+                <div class="border-t border-dark-300 my-1"></div>
+              </Show>
+            ));
+          })()}
         </div>
       </div>
     </Show>

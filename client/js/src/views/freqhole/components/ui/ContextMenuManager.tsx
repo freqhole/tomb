@@ -174,21 +174,32 @@ export function ContextMenuManager() {
   };
 
   return (
-    <ContextMenu
-      x={contextMenu.position().x}
-      y={contextMenu.position().y}
-      isOpen={contextMenu.isOpen()}
-      onClose={handleClose}
-      actions={playlistSelector()?.show ? [] : convertActions(actions())}
+    <Show
+      when={playlistSelector()?.show}
+      fallback={
+        <ContextMenu
+          x={contextMenu.position().x}
+          y={contextMenu.position().y}
+          isOpen={contextMenu.isOpen()}
+          onClose={handleClose}
+          actions={convertActions(actions())}
+        />
+      }
     >
-      <Show when={playlistSelector()?.show}>
+      <ContextMenu
+        x={contextMenu.position().x}
+        y={contextMenu.position().y}
+        isOpen={contextMenu.isOpen()}
+        onClose={handleClose}
+        actions={[]}
+      >
         <PlaylistSelectorMenu
           songs={playlistSelector()!.songs}
           onClose={handleClose}
           onPlaylistSelected={handlePlaylistSelected}
           onNewPlaylistCreated={handleNewPlaylistCreated}
         />
-      </Show>
-    </ContextMenu>
+      </ContextMenu>
+    </Show>
   );
 }

@@ -82,22 +82,24 @@ export function StarRating(props: StarRatingProps) {
       class={`flex items-center space-x-1 group ${props.class || ""}`}
       onMouseLeave={handleMouseLeave}
     >
-      {/* Clear rating button on the left */}
-      <Show when={rating() > 0 && !readonly() && !disabled()}>
-        <button
-          type="button"
-          class="text-gray-500 hover:text-red-400 transition-colors opacity-70 hover:opacity-100 mr-1"
-          onClick={(e) => {
-            e.stopPropagation();
-            props.onRatingChange?.(0);
-          }}
-          title="clear rating"
-        >
-          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-          </svg>
-        </button>
-      </Show>
+      {/* Clear rating button on the left - always reserve space */}
+      <div class="w-3 mr-1 flex justify-center">
+        <Show when={rating() > 0 && !readonly() && !disabled()}>
+          <button
+            type="button"
+            class="text-gray-500 hover:text-red-400 transition-all opacity-0 group-hover:opacity-70 hover:!opacity-100"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onRatingChange?.(0);
+            }}
+            title="clear rating"
+          >
+            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+            </svg>
+          </button>
+        </Show>
+      </div>
 
       {/* Star rating buttons */}
       <For each={[1, 2, 3, 4, 5]}>
