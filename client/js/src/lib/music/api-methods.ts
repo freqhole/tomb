@@ -320,8 +320,8 @@ export const musicApiMethods = {
           year: track.year,
           bpm: null,
           key_signature: null,
-          rating: track.rating,
-          is_favorite: track.is_favorite,
+          user_rating: track.rating,
+          user_is_favorite: track.is_favorite,
           tags: [],
           display_title: track.track_display,
           detailed_display_title: track.track_display,
@@ -330,6 +330,7 @@ export const musicApiMethods = {
           thumbnail_blob_id: track.thumbnail_id,
           waveform_blob_id: track.waveform_id,
           thumbnail_blob_ids: [],
+          preference_updated_at: null,
         }));
 
         return musicValidation.parseCollection(

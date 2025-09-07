@@ -147,19 +147,9 @@ export function SearchResultsView(
       const encodedArtist = encodeURIComponent(result.title);
       navigate(`/artist/${encodedArtist}`);
     } else if (result.result_type === "album") {
-      // Navigate to album view and potentially pre-select the album
-      navigate("/albums");
-      const albumName = result.title;
-      setTimeout(() => {
-        // Emit album selection if we have enough info
-        events.emit("album:selected", {
-          album: {
-            album: albumName,
-            title: albumName,
-            artist: result.subtitle,
-          },
-        });
-      }, 100);
+      // Navigate to album detail route
+      const encodedAlbum = encodeURIComponent(result.title);
+      navigate(`/album/${encodedAlbum}`);
     }
   };
 
