@@ -5,6 +5,7 @@ import { ArtistSplitView } from "../components/content/views/ArtistSplitView";
 import { AlbumGridView } from "../components/content/views/AlbumGridView";
 import { PlaylistDetailView } from "../components/content/views/PlaylistDetailView";
 import { SearchResultsView } from "../components/content/views/SearchResultsView";
+import { ArtistDetailView } from "../components/content/views/ArtistDetailView";
 
 export const routes = (
   <Route path="/" component={ThreeColumnLayout}>
@@ -15,10 +16,7 @@ export const routes = (
       component={() => <div class="p-4 text-white">song detail view</div>}
     />
     <Route path="/artists" component={ArtistSplitView} />
-    <Route
-      path="/artist/:id"
-      component={() => <div class="p-4 text-white">artist detail view</div>}
-    />
+    <Route path="/artist/:id" component={ArtistDetailView} />
     <Route path="/albums" component={AlbumGridView} />
     <Route
       path="/album/:id"

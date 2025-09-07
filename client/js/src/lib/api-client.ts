@@ -683,7 +683,11 @@ export class ApiClient {
   }
 
   async rateSong(songId: string, rating: number | null) {
-    return musicApiMethods.rateSong.call(this, songId, rating);
+    return musicApiMethods.rateSong.call(
+      this,
+      songId,
+      rating === null ? 0 : rating
+    );
   }
 
   async bulkToggleFavorite(songIds: string[], isFavorite: boolean) {
@@ -691,7 +695,11 @@ export class ApiClient {
   }
 
   async bulkRateSongs(songIds: string[], rating: number | null) {
-    return musicApiMethods.bulkRateSongs.call(this, songIds, rating);
+    return musicApiMethods.bulkRateSongs.call(
+      this,
+      songIds,
+      rating === null ? 0 : rating
+    );
   }
 
   // Playlist preference methods

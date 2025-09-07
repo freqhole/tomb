@@ -143,16 +143,9 @@ export function SearchResultsView(
       };
       events.emit("song:play", { song, replaceQueue: false });
     } else if (result.result_type === "artist") {
-      // Navigate to artist view and pre-select the artist
-      navigate("/artists");
-      // Try to find and select the artist by name
-      const artistName = result.title;
-      setTimeout(() => {
-        // Emit artist selection to pre-select it in the view
-        events.emit("artist:selected", {
-          artist: { artist: artistName, name: artistName },
-        });
-      }, 100);
+      // Navigate to artist detail route
+      const encodedArtist = encodeURIComponent(result.title);
+      navigate(`/artist/${encodedArtist}`);
     } else if (result.result_type === "album") {
       // Navigate to album view and potentially pre-select the album
       navigate("/albums");

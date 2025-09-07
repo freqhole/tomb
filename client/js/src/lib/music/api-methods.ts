@@ -7,7 +7,6 @@ import {
   SongListResponseSchema,
   ArtistSummarySchema,
   ArtistsListResponseSchema,
-  ArtistSongsResponseSchema,
   AlbumSchema,
   AlbumListResponseSchema,
   AlbumTracksResponseSchema,
@@ -178,7 +177,7 @@ export const musicApiMethods = {
           );
 
           const validatedResponse = musicValidation.validateResponse(
-            ArtistSongsResponseSchema,
+            SongListResponseSchema,
             response,
             "Artist Songs"
           );
@@ -189,14 +188,14 @@ export const musicApiMethods = {
             "Artist Songs"
           ) as Song[];
 
-          // Create fake pagination metadata since artist songs might not be paginated yet
+          // Use actual pagination metadata from the server response
           const pagination = {
-            total: songs.length,
-            page: 1,
-            page_size: songs.length,
-            total_pages: 1,
-            has_next: false,
-            has_prev: false,
+            total: validatedResponse.total,
+            page: validatedResponse.page || 1,
+            page_size: validatedResponse.page_size || songs.length,
+            total_pages: validatedResponse.total_pages || 1,
+            has_next: validatedResponse.has_next,
+            has_prev: validatedResponse.has_prev,
           };
 
           return { items: songs, pagination };
