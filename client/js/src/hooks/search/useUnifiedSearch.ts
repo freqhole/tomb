@@ -709,10 +709,27 @@ export function useUnifiedSearch(
     if (hasNext() && !loadingMore()) {
       setLoadingMore(true);
       try {
+        const currentResults = results();
         nextPage();
-        // the reactive effect will trigger the search
-        // when results come back, we'll need to append them
-        // for now, just let pagination handle it
+
+        // Perform search for next page
+        const params = searchParams();
+        const url = buildSearchUrl(config.searchEndpoint, params);
+
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`search failed: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const validated = UnifiedSearchResponseSchema.parse(data);
+
+        // Append new results to existing ones
+        setResults([...currentResults, ...validated.songs]);
+        setTotalCount(validated.total_count);
+      } catch (err) {
+        console.error("load more error:", err);
+        setError(err instanceof Error ? err.message : "load more failed");
       } finally {
         setLoadingMore(false);
       }
