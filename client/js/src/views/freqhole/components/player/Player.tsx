@@ -19,6 +19,8 @@ import {
 import { usePlayer, useQueue, useLayout, storeActions } from "../../store";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { apiClient } from "../../../../lib/api-client";
+import { SongFavoriteHeart } from "../ui";
+import { useSongState } from "../../services/songState";
 
 // Media Session API helper
 const updateMediaSession = (song: any, isPlaying: boolean) => {
@@ -57,6 +59,7 @@ export const Player = () => {
   const [queue] = useQueue();
   const [layout] = useLayout();
   const events = useGlobalEvents();
+  const songState = useSongState();
 
   // Audio element and state
   const [audioElement, setAudioElement] = createSignal<HTMLAudioElement | null>(
@@ -77,6 +80,13 @@ export const Player = () => {
   const currentTime = () => player.currentTime;
   const duration = () => player.duration;
   const queueOpen = () => layout.queueOpen;
+
+  // Get current song with synced state
+  const getCurrentSong = () => {
+    const song = currentSong();
+    if (!song) return null;
+    return songState.getUpdatedSong(song);
+  };
 
   // Helper functions
   const formatTime = (seconds: number): string => {
@@ -405,12 +415,19 @@ export const Player = () => {
                 />
               </Show>
             </div>
+            <div class="flex-shrink-0">
+              <SongFavoriteHeart
+                song={getCurrentSong()}
+                size="md"
+                class="opacity-80 hover:opacity-100"
+              />
+            </div>
             <div class="flex-1 min-w-0">
               <h4 class="text-white font-medium text-base truncate m-0">
-                {currentSong()?.title}
+                {getCurrentSong()?.title}
               </h4>
               <p class="text-gray-300 font-light text-sm truncate m-0">
-                {currentSong()?.artist || "Unknown Artist"}
+                {getCurrentSong()?.artist || "Unknown Artist"}
               </p>
             </div>
           </div>
@@ -560,12 +577,19 @@ export const Player = () => {
                   />
                 </Show>
               </div>
+              <div class="flex-shrink-0">
+                <SongFavoriteHeart
+                  song={getCurrentSong()}
+                  size="sm"
+                  class="opacity-80 hover:opacity-100"
+                />
+              </div>
               <div class="flex-1 min-w-0">
                 <h4 class="text-white font-medium text-sm truncate m-0">
-                  {currentSong()?.title}
+                  {getCurrentSong()?.title}
                 </h4>
                 <p class="text-gray-300 font-light text-xs truncate m-0">
-                  {currentSong()?.artist || "Unknown Artist"}
+                  {getCurrentSong()?.artist || "Unknown Artist"}
                 </p>
               </div>
             </div>

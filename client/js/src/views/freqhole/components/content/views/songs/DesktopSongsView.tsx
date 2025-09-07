@@ -13,7 +13,8 @@ import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
 import { createUserPreferences } from "../../../../services/userPreferences";
-import { StarRating, FavoriteHeart } from "../../../ui";
+import { StarRating, SongFavoriteHeart } from "../../../ui";
+import { useSongState } from "../../../../services/songState";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
 import { useSorting, getSortIndicator } from "../../../../hooks/useSorting";
@@ -28,6 +29,7 @@ export function DesktopSongsView(
   props: RouteSectionProps<unknown> & DesktopSongsViewProps = {} as any
 ) {
   const [] = useStore();
+  const songState = useSongState();
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
   const userPreferences = createUserPreferences();
@@ -83,6 +85,9 @@ export function DesktopSongsView(
       console.log(`🎵 First song user_rating:`, response.songs[0]?.user_rating);
     }
 
+    // Sync songs with global state service
+    songState.setSongList(response.songs);
+
     return {
       items: response.songs,
       pagination: response.pagination,
@@ -123,6 +128,8 @@ export function DesktopSongsView(
       song.id === songId ? { ...song, ...updates } : song
     );
     infiniteScroll.actions.setItems(updatedItems);
+    // Also update global state
+    songState.updateSong(songId, updates);
   };
 
   // Listen for data reload events
@@ -367,65 +374,19 @@ export function DesktopSongsView(
                   <div class="flex items-center gap-2">
                     {/* Always show favorite heart on far left */}
                     <Show when={!selection.isSelected(song.id)}>
-                      <FavoriteHeart
-                        isFavorite={song.user_is_favorite}
-                        onToggle={async (isFavorite) => {
-                          console.log(
-                            `🎵 FAVORITE HEART CLICKED! ${song.display_title} - isFavorite param:`,
-                            isFavorite
-                          );
-                          console.log(
-                            `🎵 Current song.user_is_favorite:`,
-                            song.user_is_favorite
-                          );
-
-                          // Optimistically update local state
-                          updateSongInState(song.id, {
-                            user_is_favorite: isFavorite,
-                          });
-                          console.log(
-                            `🎵 Optimistically updated favorite state for ${song.id} to:`,
-                            isFavorite
-                          );
-
-                          try {
-                            const result =
-                              await userPreferences.toggleSongFavorite(
-                                song.id,
-                                !isFavorite
-                              );
-                            console.log(
-                              `🎵 API response for favorite ${song.id}:`,
-                              result
-                            );
-
-                            // Update with actual API response data
-                            if (result) {
-                              updateSongInState(song.id, {
-                                user_is_favorite: result.is_favorite,
-                                preference_updated_at: result.updated_at,
-                              });
-                            }
-                          } catch (error) {
-                            // Revert on error
-                            console.error(
-                              `🎵 API error for favorite ${song.id}:`,
-                              error
-                            );
-                            updateSongInState(song.id, {
-                              user_is_favorite: !isFavorite,
-                            });
-                            console.log(
-                              `🎵 Reverted favorite for ${song.id} to ${!isFavorite}`
-                            );
-                          }
-                        }}
+                      <SongFavoriteHeart
+                        song={songState.getUpdatedSong(song)}
                         size="sm"
                         class={
-                          song.user_is_favorite
+                          songState.isFavorite(song.id)
                             ? "opacity-100"
                             : "opacity-0 group-hover:opacity-100 transition-opacity"
                         }
+                        onToggle={(songId, isFavorite) => {
+                          updateSongInState(songId, {
+                            user_is_favorite: isFavorite,
+                          });
+                        }}
                       />
                     </Show>
 

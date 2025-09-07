@@ -10,6 +10,7 @@ export interface FreqholeEvents {
   "song:queue": { song: any };
   "song:favorite": { song: any };
   "song:unfavorite": { song: any };
+  "song:rating-updated": { songId: string; rating: number | null };
 
   // Queue events
   "queue:add": { song: any };
