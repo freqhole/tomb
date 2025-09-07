@@ -74,7 +74,7 @@ export function FreqholeDataGrid(props: FreqholeDataGridProps) {
   });
 
   // Keyboard navigation
-  const keyboardNav = useKeyboardNavigation({
+  const _keyboardNav = useKeyboardNavigation({
     onPreview: (item) => state.setPopupPreview({ item, isOpen: true }),
     onToggleSelection: (item) => selection.toggleSelection(item.id),
     onSelectAll: (items) => selection.selectAll(items),

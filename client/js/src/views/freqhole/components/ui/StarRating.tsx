@@ -74,7 +74,7 @@ export function StarRating(props: StarRatingProps) {
 
   return (
     <div
-      class={`flex items-center space-x-1 ${props.class || ""}`}
+      class={`flex items-center space-x-1 group ${props.class || ""}`}
       onMouseLeave={handleMouseLeave}
     >
       <For each={[1, 2, 3, 4, 5]}>
@@ -94,11 +94,7 @@ export function StarRating(props: StarRatingProps) {
                 : `rate ${star} star${star !== 1 ? "s" : ""}`
             }
           >
-            <svg
-              fill="currentColor"
-              viewBox="0 0 24 24"
-              class="w-full h-full"
-            >
+            <svg fill="currentColor" viewBox="0 0 24 24" class="w-full h-full">
               <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
             </svg>
           </button>
@@ -108,7 +104,7 @@ export function StarRating(props: StarRatingProps) {
       <Show when={rating() > 0 && !readonly()}>
         <button
           type="button"
-          class="ml-2 text-gray-500 hover:text-red-400 text-sm transition-colors"
+          class="ml-2 text-gray-500 hover:text-red-400 text-sm transition-colors opacity-0 group-hover:opacity-100"
           onClick={(e) => {
             e.stopPropagation();
             if (!disabled()) {

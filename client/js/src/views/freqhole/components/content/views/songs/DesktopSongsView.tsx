@@ -71,6 +71,16 @@ export function DesktopSongsView(
 
     console.log(`🎵 Loaded ${response.songs.length} songs`, response);
 
+    // Debug: Log the structure of the first song to see what fields are available
+    if (response.songs.length > 0) {
+      console.log(`🎵 First song structure:`, response.songs[0]);
+      console.log(
+        `🎵 First song user_is_favorite:`,
+        response.songs[0]?.user_is_favorite
+      );
+      console.log(`🎵 First song user_rating:`, response.songs[0]?.user_rating);
+    }
+
     return {
       items: response.songs,
       pagination: response.pagination,
@@ -193,21 +203,24 @@ export function DesktopSongsView(
         >
           <div class="min-w-full">
             {/* Sticky Table Header */}
-            <div class="sticky top-0 bg-black/95 backdrop-blur-sm px-6 py-3 text-xs text-gray-400 uppercase tracking-wider grid grid-cols-12 gap-4 z-10">
-              <div class="col-span-1 text-center">#</div>
-              <div class="col-span-4">title</div>
-              <div class="col-span-2">artist</div>
-              <div class="col-span-2">album</div>
-              <div class="col-span-1">year</div>
-              <div class="col-span-1">rating</div>
-              <div class="col-span-1 text-right">duration</div>
+            <div class="sticky top-0 bg-black/95 backdrop-blur-sm px-6 py-3 text-xs text-gray-400 uppercase tracking-wider grid grid-cols-[auto_1fr_1fr_1fr_auto_auto_auto] gap-4 z-10">
+              <div class="flex items-center gap-2">
+                <div class="w-4"></div>
+                <div class="flex-1 text-right pl-2">#</div>
+              </div>
+              <div class="pl-2">title</div>
+              <div class="pr-2">artist</div>
+              <div class="pr-2">album</div>
+              <div class="text-center">year</div>
+              <div class="text-center">rating</div>
+              <div class="text-center">time</div>
             </div>
 
             {/* Table Body */}
             <For each={songs()}>
               {(song, index) => (
                 <div
-                  class={`px-6 py-3 hover:bg-magenta-600/20 transition-colors cursor-pointer grid grid-cols-12 gap-4 items-center group border border-transparent ${
+                  class={`px-6 py-3 hover:bg-magenta-600/20 transition-colors cursor-pointer grid grid-cols-[auto_1fr_1fr_1fr_auto_auto_auto] gap-4 items-center group border border-transparent min-w-0 ${
                     selection.isSelected(song.id)
                       ? "bg-magenta-600/30 border-magenta-400/50"
                       : ""
@@ -258,73 +271,20 @@ export function DesktopSongsView(
                     }
                   }}
                 >
-                  {/* Selection Checkbox / Track Number / Play Button */}
-                  <div class="col-span-1 text-center">
-                    {/* Selection indicator */}
-                    <Show when={selection.isSelected(song.id)}>
-                      <div class="text-magenta-400 text-sm">
-                        <svg
-                          class="w-4 h-4 mx-auto"
-                          fill="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                        </svg>
-                      </div>
-                    </Show>
-
-                    {/* Track number (when not selected) */}
+                  {/* Favorite Heart / Selection Checkbox / Track Number / Play Button */}
+                  <div class="flex items-center gap-2">
+                    {/* Always show favorite heart on far left */}
                     <Show when={!selection.isSelected(song.id)}>
-                      <div class="group-hover:hidden text-gray-400 text-sm">
-                        {index() + 1}
-                      </div>
-                      <button
-                        class="hidden group-hover:block text-gray-400 hover:text-magenta-400 transition-colors"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          songInteractions.playSong(song);
-                        }}
-                      >
-                        <svg
-                          class="w-4 h-4 mx-auto"
-                          fill="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
-                      </button>
-                    </Show>
-                  </div>
-
-                  {/* Title */}
-                  <div class="col-span-4">
-                    <div class="flex items-center space-x-3">
-                      {/* Album Art Placeholder */}
-                      <div class="w-10 h-10 bg-fuchsia-800/30 rounded flex-shrink-0 flex items-center justify-center">
-                        <svg
-                          class="w-5 h-5 text-fuchsiamagenta-400"
-                          fill="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-                        </svg>
-                      </div>
-                      <div class="min-w-0 flex-1">
-                        <div class="text-white font-medium truncate">
-                          {song.display_title}
-                        </div>
-                        {song.detailed_display_title !== song.display_title && (
-                          <div class="text-gray-400 text-sm truncate">
-                            {song.detailed_display_title}
-                          </div>
-                        )}
-                      </div>
-                      {/* Favorite Heart - Interactive */}
                       <FavoriteHeart
                         isFavorite={song.user_is_favorite}
                         onToggle={async (isFavorite) => {
                           console.log(
-                            `🎵 Favorite toggle: ${song.display_title} from ${isFavorite} to ${!isFavorite}`
+                            `🎵 FAVORITE HEART CLICKED! ${song.display_title} - isFavorite param:`,
+                            isFavorite
+                          );
+                          console.log(
+                            `🎵 Current song.user_is_favorite:`,
+                            song.user_is_favorite
                           );
 
                           // Optimistically update local state
@@ -332,7 +292,8 @@ export function DesktopSongsView(
                             user_is_favorite: isFavorite,
                           });
                           console.log(
-                            `🎵 Optimistically updated favorite state for ${song.id}`
+                            `🎵 Optimistically updated favorite state for ${song.id} to:`,
+                            isFavorite
                           );
 
                           try {
@@ -345,6 +306,14 @@ export function DesktopSongsView(
                               `🎵 API response for favorite ${song.id}:`,
                               result
                             );
+
+                            // Update with actual API response data
+                            if (result) {
+                              updateSongInState(song.id, {
+                                user_is_favorite: result.is_favorite,
+                                preference_updated_at: result.updated_at,
+                              });
+                            }
                           } catch (error) {
                             // Revert on error
                             console.error(
@@ -366,55 +335,91 @@ export function DesktopSongsView(
                             : "opacity-0 group-hover:opacity-100 transition-opacity"
                         }
                       />
-                      {/* Add to Queue Button */}
-                      <button
-                        class="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-magenta-400 hover:bg-magenta-600/30 rounded transition-all"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          songInteractions.queueSong(song);
-                        }}
-                        title="Add to queue"
-                      >
-                        <svg
-                          class="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                          />
-                        </svg>
-                      </button>
+                    </Show>
+
+                    {/* Right side: selection indicator or track number/play */}
+                    <div class="flex-1 text-right">
+                      {/* Selection indicator */}
+                      <Show when={selection.isSelected(song.id)}>
+                        <div class="text-magenta-400 text-sm inline-flex justify-end">
+                          <svg
+                            class="w-4 h-4"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                          </svg>
+                        </div>
+                      </Show>
+
+                      {/* Track number and play button (when not selected) */}
+                      <Show when={!selection.isSelected(song.id)}>
+                        <div class="relative inline-flex items-center justify-center w-8 h-8">
+                          <div class="group-hover:invisible text-gray-400 text-sm absolute">
+                            {index() + 1}
+                          </div>
+                          <button
+                            class="invisible group-hover:visible text-gray-400 hover:text-magenta-400 transition-colors w-full h-full flex items-center justify-center rounded-full hover:bg-magenta-600/20"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              songInteractions.playSong(song);
+                            }}
+                          >
+                            <svg
+                              class="w-5 h-5"
+                              fill="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path d="M8 5v14l11-7z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+
+                  {/* Title */}
+                  <div class="min-w-0">
+                    <div
+                      class="text-white font-medium truncate"
+                      title={song.title}
+                    >
+                      {song.title}
                     </div>
                   </div>
 
                   {/* Artist */}
-                  <div class="col-span-2">
-                    <div class="text-gray-300 text-sm truncate">
-                      {song.artist || "unknown artist"}
+                  <div class="min-w-0">
+                    <div
+                      class="text-gray-300 text-sm truncate"
+                      title={song.artist || ""}
+                    >
+                      {song.artist || ""}
                     </div>
                   </div>
 
                   {/* Album */}
-                  <div class="col-span-2">
-                    <div class="text-gray-300 text-sm truncate">
-                      {song.album || "unknown album"}
+                  <div class="min-w-0">
+                    <div
+                      class="text-gray-300 text-sm truncate"
+                      title={song.album || ""}
+                    >
+                      {song.album || ""}
                     </div>
                   </div>
 
                   {/* Year */}
-                  <div class="col-span-1">
-                    <div class="text-gray-400 text-sm">
-                      {songInteractions.formatYear(song.year)}
+                  <div class="min-w-0">
+                    <div
+                      class="text-gray-300 text-sm truncate text-center"
+                      title={song.year ? song.year.toString() : ""}
+                    >
+                      {song.year || ""}
                     </div>
                   </div>
 
                   {/* Rating */}
-                  <div class="col-span-1">
+                  <div>
                     <div class="flex justify-center">
                       <StarRating
                         rating={song.user_rating}
@@ -423,13 +428,18 @@ export function DesktopSongsView(
                           console.log(
                             `🎵 Rating change: ${song.display_title} from ${previousRating} to ${rating}`
                           );
+                          console.log(
+                            `🎵 Current song.user_rating:`,
+                            song.user_rating
+                          );
 
                           // Optimistically update local state
                           updateSongInState(song.id, {
                             user_rating: rating || null,
                           });
                           console.log(
-                            `🎵 Optimistically updated local state for ${song.id}`
+                            `🎵 Optimistically updated rating for ${song.id} to:`,
+                            rating || null
                           );
 
                           try {
@@ -441,6 +451,15 @@ export function DesktopSongsView(
                               `🎵 API response for rating ${song.id}:`,
                               result
                             );
+
+                            // Update with actual API response data
+                            if (result) {
+                              updateSongInState(song.id, {
+                                user_rating: result.rating,
+                                user_is_favorite: result.is_favorite,
+                                preference_updated_at: result.updated_at,
+                              });
+                            }
                           } catch (error) {
                             // Revert on error
                             console.error(
@@ -456,14 +475,18 @@ export function DesktopSongsView(
                           }
                         }}
                         size="sm"
-                        class="opacity-0 group-hover:opacity-100 transition-opacity"
+                        class={
+                          song.user_rating
+                            ? "opacity-100"
+                            : "opacity-0 group-hover:opacity-100 transition-opacity"
+                        }
                       />
                     </div>
                   </div>
 
                   {/* Duration */}
-                  <div class="col-span-1 text-right">
-                    <div class="text-gray-400 text-sm">
+                  <div>
+                    <div class="text-gray-400 text-sm text-center">
                       {songInteractions.formatDuration(song.duration_seconds)}
                     </div>
                   </div>
