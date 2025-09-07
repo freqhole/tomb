@@ -13,7 +13,11 @@ import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
 import { createUserPreferences } from "../../../../services/userPreferences";
-import { StarRating, SongFavoriteHeart } from "../../../ui";
+import {
+  SongStarRating,
+  SongFavoriteHeart,
+  BulkEditControls,
+} from "../../../ui";
 import { useSongState } from "../../../../services/songState";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
@@ -474,65 +478,14 @@ export function DesktopSongsView(
                   {/* Rating */}
                   <div>
                     <div class="flex justify-center">
-                      <StarRating
-                        rating={song.user_rating}
-                        onRatingChange={async (rating) => {
-                          const previousRating = song.user_rating;
-                          console.log(
-                            `🎵 Rating change: ${song.display_title} from ${previousRating} to ${rating}`
-                          );
-                          console.log(
-                            `🎵 Current song.user_rating:`,
-                            song.user_rating
-                          );
-
-                          // Optimistically update local state
-                          updateSongInState(song.id, {
-                            user_rating: rating || null,
-                          });
-                          console.log(
-                            `🎵 Optimistically updated rating for ${song.id} to:`,
-                            rating || null
-                          );
-
-                          try {
-                            const result = await userPreferences.rateSong(
-                              song.id,
-                              rating || null
-                            );
-                            console.log(
-                              `🎵 API response for rating ${song.id}:`,
-                              result
-                            );
-
-                            // Update with actual API response data
-                            if (result) {
-                              updateSongInState(song.id, {
-                                user_rating: result.rating,
-                                user_is_favorite: result.is_favorite,
-                                preference_updated_at: result.updated_at,
-                              });
-                            }
-                          } catch (error) {
-                            // Revert on error
-                            console.error(
-                              `🎵 API error for rating ${song.id}:`,
-                              error
-                            );
-                            updateSongInState(song.id, {
-                              user_rating: previousRating,
-                            });
-                            console.log(
-                              `🎵 Reverted rating for ${song.id} to ${previousRating}`
-                            );
-                          }
-                        }}
+                      <SongStarRating
+                        song={songState.getUpdatedSong(song)}
                         size="sm"
-                        class={
-                          song.user_rating
-                            ? "opacity-100"
-                            : "opacity-0 group-hover:opacity-100 transition-opacity"
-                        }
+                        onRate={(songId, rating) => {
+                          updateSongInState(songId, {
+                            user_rating: rating,
+                          });
+                        }}
                       />
                     </div>
                   </div>
@@ -587,46 +540,39 @@ export function DesktopSongsView(
             </button>
 
             <button
-              class="px-3 py-1 bg-magenta-700 hover:bg-magenta-800 rounded text-sm transition-colors"
-              onClick={(e) => {
-                const selectedSongs = selection.getSelectedSongs(songs());
-                songInteractions.handlePlaylistSelectorClick(e, selectedSongs);
-              }}
+              class="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm transition-colors"
+              onClick={() => console.log("Add to playlist clicked")}
             >
               Add to Playlist
             </button>
 
-            <button
-              class="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm transition-colors"
-              onClick={async () => {
+            <BulkEditControls
+              selectedSongs={selection.getSelectedSongs(songs())}
+              onBulkFavorite={async (isFavorite) => {
                 const selectedSongs = selection.getSelectedSongs(songs());
                 const songIds = selectedSongs.map((song) => song.id);
-                const anyNotFavorited = selectedSongs.some(
-                  (song) => !song.user_is_favorite
-                );
-                await userPreferences.bulkToggleFavorite(
-                  songIds,
-                  anyNotFavorited
-                );
+                await userPreferences.bulkToggleFavorite(songIds, isFavorite);
+                // Update global state for each song
+                selectedSongs.forEach((song) => {
+                  songState.updateSong(song.id, {
+                    user_is_favorite: isFavorite,
+                  });
+                });
                 reloadSongs();
               }}
-              title="Press 'f' to toggle favorites"
-            >
-              ♥ Favorite
-            </button>
-
-            <button
-              class="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm transition-colors"
-              onClick={async () => {
+              onBulkRate={async (rating) => {
                 const selectedSongs = selection.getSelectedSongs(songs());
                 const songIds = selectedSongs.map((song) => song.id);
-                await userPreferences.bulkRateSongs(songIds, 5);
+                // Convert 0 to null for the API
+                const apiRating = rating === 0 ? null : rating;
+                await userPreferences.bulkRateSongs(songIds, apiRating);
+                // Update global state for each song
+                selectedSongs.forEach((song) => {
+                  songState.updateRating(song.id, rating);
+                });
                 reloadSongs();
               }}
-              title="Press '1-5' to rate songs"
-            >
-              ⭐ Rate 5
-            </button>
+            />
 
             <button
               class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors"

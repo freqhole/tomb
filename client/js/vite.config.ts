@@ -7,12 +7,9 @@ export default defineConfig({
   plugins: [solid(), tailwindcss()],
   build: {
     rollupOptions: {
-      input: path.resolve(
-        __dirname,
-        "src/views/freqhole-music-admin/index.html"
-      ),
+      input: path.resolve(__dirname, "src/views/freqhole/index.html"),
     },
-    outDir: "dist/freqhole-music-admin",
+    outDir: "dist/freqhole",
     emptyOutDir: false,
   },
   server: {

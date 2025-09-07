@@ -12,6 +12,7 @@ export interface SongFavoriteHeartProps {
   class?: string;
   onToggle?: (songId: string, isFavorite: boolean) => void;
   disabled?: boolean;
+  readonly?: boolean;
 }
 
 /**
@@ -74,6 +75,7 @@ export function SongFavoriteHeart(props: SongFavoriteHeartProps) {
       isFavorite={isFavorite()}
       onToggle={handleToggle}
       disabled={props.disabled || isUpdating()}
+      readonly={props.readonly}
       size={props.size}
       class={props.class}
     />

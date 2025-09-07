@@ -84,7 +84,7 @@ export function createSongStateService() {
 
   events.on(
     "song:rating-updated",
-    ({ songId, rating }: { songId: string; rating: number | null }) => {
+    ({ songId, rating }: { songId: string; rating: number }) => {
       updateSong(songId, { user_rating: rating });
     }
   );
@@ -113,9 +113,14 @@ export function createSongStateService() {
       return song?.user_is_favorite || false;
     },
 
-    getRating: (songId: string): number | null => {
+    getRating: (songId: string): number => {
       const song = getSong(songId);
-      return song?.user_rating || null;
+      return song?.user_rating || 0;
+    },
+
+    // Update rating for a song
+    updateRating: (songId: string, rating: number) => {
+      updateSong(songId, { user_rating: rating });
     },
 
     // Get updated song with current state

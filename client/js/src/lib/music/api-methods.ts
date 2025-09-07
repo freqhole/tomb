@@ -679,11 +679,14 @@ export const musicApiMethods = {
   async rateSong(
     this: ApiClient,
     songId: string,
-    rating: number | null
+    rating: number
   ): Promise<UserPreferenceResponse> {
-    return this.updateSongPreferences(songId, {
-      rating: rating || undefined,
-    });
+    const request =
+      rating === 0
+        ? {} // Don't include rating field at all when clearing
+        : { rating };
+
+    return this.updateSongPreferences(songId, request);
   },
 
   async bulkToggleFavorite(

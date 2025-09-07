@@ -422,6 +422,13 @@ export const Player = () => {
                 class="opacity-80 hover:opacity-100"
               />
             </div>
+            {/*<div class="flex-shrink-0">
+              <SongStarRating
+                song={getCurrentSong()}
+                size="sm"
+                class="opacity-80 hover:opacity-100"
+              />
+            </div>*/}
             <div class="flex-1 min-w-0">
               <h4 class="text-white font-medium text-base truncate m-0">
                 {getCurrentSong()?.title}
@@ -584,6 +591,13 @@ export const Player = () => {
                   class="opacity-80 hover:opacity-100"
                 />
               </div>
+              {/*<div class="flex-shrink-0">
+                <SongStarRating
+                  song={getCurrentSong()}
+                  size="sm"
+                  class="opacity-80 hover:opacity-100"
+                />
+              </div>*/}
               <div class="flex-1 min-w-0">
                 <h4 class="text-white font-medium text-sm truncate m-0">
                   {getCurrentSong()?.title}
