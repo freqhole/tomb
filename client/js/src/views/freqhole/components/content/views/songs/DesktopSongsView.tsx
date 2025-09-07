@@ -16,6 +16,7 @@ import { createUserPreferences } from "../../../../services/userPreferences";
 import { StarRating, FavoriteHeart } from "../../../ui";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
+import { useSorting, getSortIndicator } from "../../../../hooks/useSorting";
 
 import type { RouteSectionProps } from "@solidjs/router";
 
@@ -67,6 +68,7 @@ export function DesktopSongsView(
     const response = await apiClient.getSongs({
       page,
       page_size: 50,
+      ...sorting.getSortParams(),
     });
 
     console.log(`🎵 Loaded ${response.songs.length} songs`, response);
@@ -88,6 +90,9 @@ export function DesktopSongsView(
   };
 
   // Use infinite scroll hook
+  // Sorting state
+  const sorting = useSorting();
+
   const infiniteScroll = useInfiniteScroll(fetchSongs, {
     threshold: 200,
     enabled: true,
@@ -103,6 +108,12 @@ export function DesktopSongsView(
   // Reload functionality
   const reloadSongs = () => {
     infiniteScroll.actions.reset();
+  };
+
+  // Handle sort changes
+  const handleSort = (field: string) => {
+    sorting.toggleSort(field);
+    reloadSongs(); // Reload with new sort order
   };
 
   // Update individual song in local state
@@ -209,12 +220,92 @@ export function DesktopSongsView(
                 <div class="w-4"></div>
                 <div class="flex-1 text-right pl-2">#</div>
               </div>
-              <div class="pl-2">title</div>
-              <div class="pr-2">artist</div>
-              <div class="pr-2">album</div>
-              <div class="text-center">year</div>
-              <div class="text-center">rating</div>
-              <div class="text-center">time</div>
+              <button
+                class="pl-2 hover:text-white transition-colors text-left flex items-center gap-1"
+                onClick={() => handleSort("title")}
+              >
+                title
+                <Show when={getSortIndicator("title", sorting.sortConfig())}>
+                  <span class="text-magenta-400">
+                    {getSortIndicator("title", sorting.sortConfig()) === "asc"
+                      ? "↑"
+                      : "↓"}
+                  </span>
+                </Show>
+              </button>
+              <button
+                class="pr-2 hover:text-white transition-colors text-left flex items-center gap-1"
+                onClick={() => handleSort("artist")}
+              >
+                artist
+                <Show when={getSortIndicator("artist", sorting.sortConfig())}>
+                  <span class="text-magenta-400">
+                    {getSortIndicator("artist", sorting.sortConfig()) === "asc"
+                      ? "↑"
+                      : "↓"}
+                  </span>
+                </Show>
+              </button>
+              <button
+                class="pr-2 hover:text-white transition-colors text-left flex items-center gap-1"
+                onClick={() => handleSort("album")}
+              >
+                album
+                <Show when={getSortIndicator("album", sorting.sortConfig())}>
+                  <span class="text-magenta-400">
+                    {getSortIndicator("album", sorting.sortConfig()) === "asc"
+                      ? "↑"
+                      : "↓"}
+                  </span>
+                </Show>
+              </button>
+              <button
+                class="text-center hover:text-white transition-colors flex items-center justify-center gap-1"
+                onClick={() => handleSort("year")}
+              >
+                year
+                <Show when={getSortIndicator("year", sorting.sortConfig())}>
+                  <span class="text-magenta-400">
+                    {getSortIndicator("year", sorting.sortConfig()) === "asc"
+                      ? "↑"
+                      : "↓"}
+                  </span>
+                </Show>
+              </button>
+              <button
+                class="text-center hover:text-white transition-colors flex items-center justify-center gap-1"
+                onClick={() => handleSort("rating")}
+              >
+                rating
+                <Show when={getSortIndicator("rating", sorting.sortConfig())}>
+                  <span class="text-magenta-400">
+                    {getSortIndicator("rating", sorting.sortConfig()) === "asc"
+                      ? "↑"
+                      : "↓"}
+                  </span>
+                </Show>
+              </button>
+              <button
+                class="text-center hover:text-white transition-colors flex items-center justify-center gap-1"
+                onClick={() => handleSort("duration_seconds")}
+              >
+                time
+                <Show
+                  when={getSortIndicator(
+                    "duration_seconds",
+                    sorting.sortConfig()
+                  )}
+                >
+                  <span class="text-magenta-400">
+                    {getSortIndicator(
+                      "duration_seconds",
+                      sorting.sortConfig()
+                    ) === "asc"
+                      ? "↑"
+                      : "↓"}
+                  </span>
+                </Show>
+              </button>
             </div>
 
             {/* Table Body */}

@@ -73,23 +73,22 @@ export function FreqholeDataGrid(props: FreqholeDataGridProps) {
     }
   });
 
-  // Keyboard navigation
-  const _keyboardNav = useKeyboardNavigation({
-    onPreview: (item) => state.setPopupPreview({ item, isOpen: true }),
-    onToggleSelection: (item) => selection.toggleSelection(item.id),
-    onSelectAll: (items) => selection.selectAll(items),
-    onClearSelection: () => selection.clearSelection(),
-    onEscape: () => {
-      if (state.popupPreview()?.isOpen) {
-        state.setPopupPreview(null);
-      } else if (state.actionMenu()?.isOpen) {
-        state.setActionMenu(null);
-      } else if (state.bulkActionMenu()?.isOpen) {
-        state.setBulkActionMenu(null);
-      } else {
-        selection.clearSelection();
-      }
-    },
+  // TODO: Implement keyboard navigation functionality
+  // const _keyboardNav = useKeyboardNavigation({
+  //   onPreview: (item) => state.setPopupPreview({ item, isOpen: true }),
+  //   onToggleSelection: (item) => selection.toggleSelection(item.id),
+  //   onSelectAll: (items) => selection.selectAll(items),
+  //   onClearSelection: () => selection.clearSelection(),
+  //   onEscape: () => {
+  //     if (state.popupPreview()?.isOpen) {
+  //       state.setPopupPreview(null);
+  //     } else if (state.actionMenu()?.isOpen) {
+  //       state.setActionMenu(null);
+  //     } else {
+  //       selection.clearSelection();
+  //     }
+  //   },
+  // });
     onDelete: (items) => {
       state.setConfirmDialog({
         isOpen: true,

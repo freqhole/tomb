@@ -1329,8 +1329,7 @@ pub struct SongWithUserPrefs {
     pub album_artist: Option<String>,
     pub track_number: Option<i32>,
     pub disc_number: Option<i32>,
-    #[serde(skip)]
-    pub duration: Option<PgInterval>,
+    pub duration_seconds: Option<i64>,
     pub genre: Option<String>,
     pub year: Option<i32>,
     pub bpm: Option<i32>,
@@ -1342,8 +1341,8 @@ pub struct SongWithUserPrefs {
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
     pub version: i64,
-    pub user_is_favorite: bool,
-    pub user_rating: Option<i32>,
+    pub is_favorite: bool,
+    pub rating: Option<i32>,
     pub preference_updated_at: Option<OffsetDateTime>,
 }
 
@@ -1358,9 +1357,7 @@ impl SongWithUserPrefs {
 
     /// get formatted duration as mm:ss string
     pub fn formatted_duration(&self) -> Option<String> {
-        self.duration.map(|d| {
-            let seconds = d.microseconds / 1_000_000;
-            format!("{}:{:02}", seconds / 60, seconds % 60)
-        })
+        self.duration_seconds
+            .map(|seconds| format!("{}:{:02}", seconds / 60, seconds % 60))
     }
 }

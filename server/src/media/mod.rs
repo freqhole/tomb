@@ -14,6 +14,7 @@ pub mod playlists;
 pub mod repository;
 pub mod search;
 pub mod songs;
+pub mod sorting;
 
 // Re-export commonly used types
 use crate::error::WebauthnError;

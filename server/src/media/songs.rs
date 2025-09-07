@@ -73,7 +73,6 @@ pub struct SongResponse {
 
 impl From<SongWithUserPrefs> for SongResponse {
     fn from(song: SongWithUserPrefs) -> Self {
-        let duration_seconds = song.duration.map(|d| d.microseconds / 1_000_000);
         let display_title = song.display_title();
         let detailed_display_title = format!(
             "{} - {}",
@@ -89,13 +88,13 @@ impl From<SongWithUserPrefs> for SongResponse {
             album_artist: song.album_artist,
             track_number: song.track_number,
             disc_number: song.disc_number,
-            duration_seconds,
+            duration_seconds: song.duration_seconds,
             genre: song.genre,
             year: song.year,
             bpm: song.bpm,
             key_signature: song.key_signature,
-            user_rating: song.user_rating,
-            user_is_favorite: song.user_is_favorite,
+            user_rating: song.rating,
+            user_is_favorite: song.is_favorite,
             tags: song.tags,
             display_title,
             detailed_display_title,
@@ -216,6 +215,8 @@ pub struct SongQueryParams {
     pub page: Option<i32>,
     pub page_size: Option<i32>,
     pub media_blob_id: Option<String>,
+    pub sort_by: Option<String>,
+    pub sort_direction: Option<String>,
 }
 
 // Pagination utilities
@@ -307,8 +308,22 @@ pub fn resolve_playlist_pagination_params(
 
 impl From<SongQueryParams> for SongQuery {
     fn from(params: SongQueryParams) -> Self {
+        use crate::media::sorting::{
+            normalize_sort_direction, validate_sort_field, DEFAULT_SORT_DIRECTION,
+            DEFAULT_SORT_FIELD,
+        };
+
         // Resolve pagination parameters (page/page_size take precedence over offset/limit)
         let (resolved_offset, resolved_limit) = resolve_pagination_params(&params);
+
+        // Handle sorting with defaults
+        let sort_field = params.sort_by.as_deref().unwrap_or(DEFAULT_SORT_FIELD);
+        let sort_direction = normalize_sort_direction(
+            params
+                .sort_direction
+                .as_deref()
+                .unwrap_or(DEFAULT_SORT_DIRECTION),
+        );
 
         Self {
             // Basic filters
@@ -354,9 +369,9 @@ impl From<SongQueryParams> for SongQuery {
             limit: resolved_limit,
             offset: resolved_offset,
 
-            // Ordering
-            order_by: None,
-            order_direction: None,
+            // Ordering - use shared sorting logic
+            order_by: validate_sort_field(sort_field).map(|s| s.to_string()),
+            order_direction: Some(sort_direction.to_string()),
         }
     }
 }
@@ -718,9 +733,13 @@ pub struct ArtistsListResponse {
 /// List songs
 pub async fn list_songs(
     Extension(db): Extension<DatabaseConnection>,
-    Extension(user): Extension<AuthenticatedUser>,
+    user: Option<Extension<AuthenticatedUser>>,
     Query(params): Query<SongQueryParams>,
 ) -> Result<Json<SongListResponse>, WebauthnError> {
+    use crate::media::sorting::{
+        normalize_sort_direction, validate_sort_field, DEFAULT_SORT_DIRECTION, DEFAULT_SORT_FIELD,
+    };
+
     let repository = MusicRepository::new(db.pool().clone());
     let repository2 = MusicRepository::new(db.pool().clone());
 
@@ -730,9 +749,25 @@ pub async fn list_songs(
         .await
         .map_err(|_| WebauthnError::DatabaseError)?;
 
-    let query = SongQuery::from(params.clone());
+    let mut query = SongQuery::from(params.clone());
+
+    // Handle raw sorting for fields that don't have enum variants
+    let sort_field = params.sort_by.as_deref().unwrap_or(DEFAULT_SORT_FIELD);
+    let sort_direction = normalize_sort_direction(
+        params
+            .sort_direction
+            .as_deref()
+            .unwrap_or(DEFAULT_SORT_DIRECTION),
+    );
+
+    // Validate and apply sorting - all supported fields use string-based ordering
+    if let Some(valid_field) = validate_sort_field(sort_field) {
+        query.order_by = Some(valid_field.to_string());
+        query.order_direction = Some(sort_direction.to_string());
+    }
+
     let songs = repository
-        .search_songs_with_user_context(Some(user.user().id), query)
+        .search_songs_with_user_context(user.map(|u| u.user().id), query)
         .await
         .map_err(|_| WebauthnError::DatabaseError)?;
 

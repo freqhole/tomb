@@ -57,6 +57,8 @@ export const musicApiMethods = {
       offset?: number;
       page?: number;
       page_size?: number;
+      sort_by?: string;
+      sort_direction?: string;
     }
   ): Promise<{ songs: Song[]; pagination: any }> {
     return musicApiUtils

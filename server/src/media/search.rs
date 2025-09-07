@@ -660,24 +660,42 @@ fn convert_unified_params_to_search_query(params: UnifiedSearchParams) -> Search
     // Set pagination
     search_query = search_query.with_pagination(params.page, params.page_size);
 
-    // Set sorting - use raw sort for extended fields
-    let direction = match params.sort_direction.as_deref().unwrap_or("desc") {
+    // Set sorting - use shared sorting utilities and convert to enums for SearchQuery
+    use crate::media::sorting::{
+        normalize_sort_direction, validate_sort_field, DEFAULT_SORT_DIRECTION, DEFAULT_SORT_FIELD,
+    };
+
+    let sort_field = params.sort_by.as_deref().unwrap_or(DEFAULT_SORT_FIELD);
+    let direction_str = normalize_sort_direction(
+        params
+            .sort_direction
+            .as_deref()
+            .unwrap_or(DEFAULT_SORT_DIRECTION),
+    );
+
+    // Convert string direction to enum
+    let direction = match direction_str {
         "asc" => SortDirection::Asc,
         _ => SortDirection::Desc,
     };
 
-    let sort_field = params.sort_by.as_deref().unwrap_or("created_at");
-    search_query = match sort_field {
-        "year" | "duration" | "duration_seconds" => {
-            // Use raw sort for fields not in SortBy enum
-            search_query.with_raw_sort(sort_field, direction)
+    // Convert field to appropriate sorting method
+    search_query = if let Some(_valid_field) = validate_sort_field(sort_field) {
+        match sort_field {
+            "year" | "duration" | "duration_seconds" => {
+                // Use raw sort for fields not in SortBy enum
+                search_query.with_raw_sort(sort_field, direction)
+            }
+            "title" => search_query.with_sort(SortBy::Title, direction),
+            "artist" => search_query.with_sort(SortBy::Artist, direction),
+            "album" => search_query.with_sort(SortBy::Album, direction),
+            "rating" => search_query.with_sort(SortBy::Rating, direction),
+            "updated_at" => search_query.with_sort(SortBy::UpdatedAt, direction),
+            _ => search_query.with_sort(SortBy::CreatedAt, direction),
         }
-        "title" => search_query.with_sort(SortBy::Title, direction),
-        "artist" => search_query.with_sort(SortBy::Artist, direction),
-        "album" => search_query.with_sort(SortBy::Album, direction),
-        "rating" => search_query.with_sort(SortBy::Rating, direction),
-        "updated_at" => search_query.with_sort(SortBy::UpdatedAt, direction),
-        _ => search_query.with_sort(SortBy::CreatedAt, direction),
+    } else {
+        // Fallback to default sorting for unsupported fields
+        search_query.with_sort(SortBy::CreatedAt, direction)
     };
 
     // Set filters
