@@ -76,13 +76,8 @@ export function useSongInteractions() {
 
       const newFavoriteStatus = !song.user_is_favorite;
 
-      // Optimistically update the UI
-      // Note: In a real app, you'd want to update the song in your local state
-
-      // Call API to update favorite status
-      await apiClient.makeRequest("PATCH", `/api/songs/${song.id}`, {
-        data: { is_favorite: newFavoriteStatus },
-      });
+      // Use the correct API method
+      await apiClient.toggleSongFavorite(song.id, newFavoriteStatus);
 
       // Show notification
       events.emit("notification:show", {
@@ -403,13 +398,15 @@ export function useSongInteractions() {
     queueSong(song);
   });
 
-  events.on("song:favorite", ({ song }) => {
-    toggleFavorite(song);
-  });
+  // Remove these event listeners to prevent double API calls
+  // The SongFavoriteHeart component already handles the API calls
+  // events.on("song:favorite", ({ song }) => {
+  //   toggleFavorite(song);
+  // });
 
-  events.on("song:unfavorite", ({ song }) => {
-    toggleFavorite(song);
-  });
+  // events.on("song:unfavorite", ({ song }) => {
+  //   toggleFavorite(song);
+  // });
 
   return {
     // Core actions

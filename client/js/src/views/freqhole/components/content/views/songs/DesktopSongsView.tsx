@@ -370,64 +370,64 @@ export function DesktopSongsView(
                     }
                   }}
                 >
-                  {/* Favorite Heart / Selection Checkbox / Track Number / Play Button */}
+                  {/* Favorite Heart / Track Number/Selection / Play Button */}
                   <div class="flex items-center gap-2">
                     {/* Always show favorite heart on far left */}
-                    <Show when={!selection.isSelected(song.id)}>
-                      <SongFavoriteHeart
-                        song={songState.getUpdatedSong(song)}
-                        size="sm"
-                        class={
-                          songState.isFavorite(song.id)
-                            ? "opacity-100"
-                            : "opacity-0 group-hover:opacity-100 transition-opacity"
-                        }
-                        onToggle={(songId, isFavorite) => {
-                          updateSongInState(songId, {
-                            user_is_favorite: isFavorite,
-                          });
-                        }}
-                      />
-                    </Show>
+                    <SongFavoriteHeart
+                      song={songState.getUpdatedSong(song)}
+                      size="sm"
+                      class={
+                        songState.isFavorite(song.id)
+                          ? "opacity-100"
+                          : "opacity-0 group-hover:opacity-100 transition-opacity"
+                      }
+                      onToggle={(songId, isFavorite) => {
+                        updateSongInState(songId, {
+                          user_is_favorite: isFavorite,
+                        });
+                      }}
+                    />
 
-                    {/* Right side: selection indicator or track number/play */}
+                    {/* Right side: consistent width container for track number/selection */}
                     <div class="flex-1 text-right">
-                      {/* Selection indicator */}
-                      <Show when={selection.isSelected(song.id)}>
-                        <div class="text-magenta-400 text-sm inline-flex justify-end">
-                          <svg
-                            class="w-4 h-4"
-                            fill="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                          </svg>
-                        </div>
-                      </Show>
-
-                      {/* Track number and play button (when not selected) */}
-                      <Show when={!selection.isSelected(song.id)}>
-                        <div class="relative inline-flex items-center justify-center w-8 h-8">
-                          <div class="group-hover:invisible text-gray-400 text-sm absolute">
-                            {index() + 1}
-                          </div>
-                          <button
-                            class="invisible group-hover:visible text-gray-400 hover:text-magenta-400 transition-colors w-full h-full flex items-center justify-center rounded-full hover:bg-magenta-600/20"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              songInteractions.playSong(song);
-                            }}
-                          >
+                      <div class="relative inline-flex items-center justify-center w-8 h-8 group">
+                        {/* Selection checkbox (when selected and not hovering) */}
+                        <Show when={selection.isSelected(song.id)}>
+                          <div class="text-magenta-400 text-sm absolute group-hover:invisible">
                             <svg
-                              class="w-5 h-5"
+                              class="w-4 h-4"
                               fill="currentColor"
                               viewBox="0 0 24 24"
                             >
-                              <path d="M8 5v14l11-7z" />
+                              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                             </svg>
-                          </button>
-                        </div>
-                      </Show>
+                          </div>
+                        </Show>
+
+                        {/* Track number (when not selected and not hovering) */}
+                        <Show when={!selection.isSelected(song.id)}>
+                          <div class="group-hover:invisible text-gray-400 text-sm absolute">
+                            {index() + 1}
+                          </div>
+                        </Show>
+
+                        {/* Play button (always available on cell hover) */}
+                        <button
+                          class="invisible group-hover:visible text-gray-400 hover:text-magenta-400 transition-colors w-full h-full flex items-center justify-center rounded-full hover:bg-magenta-600/20"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            songInteractions.playSong(song);
+                          }}
+                        >
+                          <svg
+                            class="w-5 h-5"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
 
