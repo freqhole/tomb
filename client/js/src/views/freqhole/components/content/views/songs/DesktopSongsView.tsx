@@ -98,6 +98,7 @@ export function DesktopSongsView(
   const loading = infiniteScroll.state.loading;
   const error = infiniteScroll.state.error;
   const hasMore = infiniteScroll.state.hasMore;
+  const pagination = infiniteScroll.state.pagination;
 
   // Reload functionality
   const reloadSongs = () => {
@@ -160,8 +161,8 @@ export function DesktopSongsView(
       <div class="flex-shrink-0 p-6">
         <h1 class="text-2xl font-semibold text-white mb-2">songs</h1>
         <p class="text-gray-400 text-sm">
-          {songs().length > 0 &&
-            `${songs().length} ${songs().length === 1 ? "song" : "songs"}`}
+          {pagination()?.total !== undefined &&
+            `${pagination()!.total} ${pagination()!.total === 1 ? "song" : "songs"}`}
           {loading() && songs().length === 0 && "loading..."}
           {error() && "error loading songs"}
         </p>
