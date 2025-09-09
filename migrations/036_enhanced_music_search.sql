@@ -1,10 +1,8 @@
 -- Enhanced music search with comprehensive filtering, sorting, and NULL checking
 -- This migration consolidates all music search improvements into a single comprehensive function
 
--- Drop the existing function
-DROP FUNCTION IF EXISTS search_songs(
-    TEXT, TEXT, TEXT, TEXT, BOOLEAN, TEXT, BOOLEAN, TEXT, TEXT, TEXT, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, BIGINT, INTEGER, INTEGER, INTEGER, INTEGER, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, TEXT[], TEXT[], TEXT[], TEXT[], TEXT[], TEXT[], TEXT, TEXT[], INTEGER, INTEGER, TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, TEXT, TEXT[], TEXT, TEXT, TEXT, BOOLEAN, TEXT, JSONB, INTEGER, INTEGER, TEXT, TEXT
-);
+-- Drop all versions of search_songs function
+DROP FUNCTION IF EXISTS search_songs CASCADE;
 
 -- Enhanced search_songs function with NULL checking support
 CREATE OR REPLACE FUNCTION search_songs(
