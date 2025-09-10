@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createSignal, createEffect } from "solid-js";
+import { createSignal } from "solid-js";
 import { FavoriteHeart } from "./FavoriteHeart";
 import { apiClient } from "../../../../lib/api-client";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";

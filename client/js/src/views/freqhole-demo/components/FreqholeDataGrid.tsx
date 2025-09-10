@@ -7,7 +7,7 @@ import { useWebSocketFeed } from "../../../hooks/useWebSocketFeed";
 import { useFreqholeData } from "../hooks/useFreqholeData";
 import { useViewModes } from "../hooks/useViewModes";
 import { useResponsiveColumns } from "../hooks/useResponsiveColumns";
-import { useKeyboardNavigation } from "../hooks/useKeyboardNavigation";
+
 import { Thumbnail } from "./Thumbnail";
 import { getDisplayFilename } from "../../../lib/media-utils";
 import { formatBytes } from "../../../lib/format-utils";

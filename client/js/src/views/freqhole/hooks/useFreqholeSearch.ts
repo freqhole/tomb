@@ -14,6 +14,7 @@ export interface FreqholeSearchFilters {
   is_favorite?: boolean;
   has_thumbnail?: boolean;
   file_formats?: string[];
+  tags?: string[];
   [key: string]: any;
 }
 
@@ -78,6 +79,16 @@ export interface FreqholeSearchReturn {
   };
   loadMore: () => Promise<void>;
 
+  // Filter options and management
+  filterOptions: () => any;
+  hasActiveFilters: () => boolean;
+  filterSummary: () => string;
+
+  // Sorting
+  sortField: () => string | null;
+  sortDirection: () => "asc" | "desc" | null;
+  setSort: (field: string | null, direction?: "asc" | "desc" | null) => void;
+
   // Actions
   refresh: () => Promise<void>;
   clear: () => void;
@@ -120,6 +131,15 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
   const [pageSize] = createSignal(50);
   const [hasNext, setHasNext] = createSignal(false);
   const [hasPrev, setHasPrev] = createSignal(false);
+
+  // === FILTER OPTIONS STATE ===
+  const [filterOptions, setFilterOptions] = createSignal<any>({});
+
+  // === SORT STATE ===
+  const [sortField, setSortField] = createSignal<string | null>(null);
+  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc" | null>(
+    null
+  );
 
   // === DELAYED LOADING STATE ===
   const delayedLoading = useStandardDelayedLoading();
@@ -216,6 +236,45 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
     return songsData().length > 0;
   });
 
+  const hasActiveFilters = createMemo(() => {
+    const activeFilters = filters();
+    const query = searchQuery();
+    const excludedKeys = ["page", "page_size", "sort_by", "sort_direction"];
+
+    return (
+      query.length > 0 ||
+      Object.keys(activeFilters).some(
+        (key) =>
+          !excludedKeys.includes(key) &&
+          activeFilters[key as keyof FreqholeSearchFilters] !== undefined &&
+          activeFilters[key as keyof FreqholeSearchFilters] !== "" &&
+          activeFilters[key as keyof FreqholeSearchFilters] !== null &&
+          (!Array.isArray(activeFilters[key as keyof FreqholeSearchFilters]) ||
+            (activeFilters[key as keyof FreqholeSearchFilters] as any[])
+              .length > 0)
+      )
+    );
+  });
+
+  const filterSummary = createMemo(() => {
+    const currentFilters = filters();
+    const query = searchQuery();
+    const parts: string[] = [];
+
+    if (query) parts.push(`search: "${query}"`);
+    if (currentFilters.artist) parts.push(`artist: ${currentFilters.artist}`);
+    if (currentFilters.album) parts.push(`album: ${currentFilters.album}`);
+    if (currentFilters.genre) parts.push(`genre: ${currentFilters.genre}`);
+    if (currentFilters.tags && currentFilters.tags.length > 0) {
+      parts.push(`tags: ${currentFilters.tags.join(", ")}`);
+    }
+    if (currentFilters.is_favorite) parts.push("favorites only");
+    if (currentFilters.rating_min)
+      parts.push(`rating ≥ ${currentFilters.rating_min}`);
+
+    return parts.length > 0 ? parts.join(" • ") : "no filters";
+  });
+
   // === CORE FUNCTIONS ===
 
   /**
@@ -228,6 +287,11 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
       page_size: pageSize(),
     };
 
+    if (sortField() && sortDirection()) {
+      params.sort_by = sortField();
+      params.sort_direction = sortDirection();
+    }
+
     if (searchQuery()) {
       params.q = searchQuery();
 
@@ -239,6 +303,22 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
     }
 
     return params;
+  };
+
+  /**
+   * Load filter options from API
+   */
+  const loadFilterOptions = async () => {
+    try {
+      const response = await apiClient.makeRequest<any>(
+        "GET",
+        "/api/music/filter-options"
+      );
+      setFilterOptions(response || {});
+    } catch (err) {
+      console.warn("freqhole search: failed to load filter options:", err);
+      setFilterOptions({});
+    }
   };
 
   /**
@@ -277,12 +357,7 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
    * Perform search API call
    */
   const performSearch = async (pageToLoad = 1, append = false) => {
-    const query = searchQuery();
-
-    if (!query.trim()) {
-      clear();
-      return;
-    }
+    // Allow empty query to load all songs
 
     try {
       setLoading(true);
@@ -310,6 +385,14 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
       } else if (Array.isArray(response)) {
         newSongs = response.map((song: any) => convertSearchResultToSong(song));
         serverTotal = response.length;
+      }
+
+      // Extract actual sort from server response
+      if (response?.sort_applied) {
+        const actualSortField = response.sort_applied.primary_field;
+        const actualSortDirection = response.sort_applied.primary_direction;
+        setSortField(actualSortField);
+        setSortDirection(actualSortDirection as "asc" | "desc");
       }
 
       setTotalCount(serverTotal);
@@ -404,11 +487,8 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
     }
 
     // Only perform search if explicitly requested
-    if (executeSearch && query.trim()) {
+    if (executeSearch) {
       performSearch(1, false);
-    } else if (!query.trim()) {
-      // Clear results when query is empty
-      clear();
     }
   };
 
@@ -458,6 +538,28 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
     await performSearch(nextPage, true); // Append results
   };
 
+  const setSort = (
+    field: string | null,
+    direction: "asc" | "desc" | null = "asc"
+  ) => {
+    if (
+      (field === null && direction === null) ||
+      (field !== null && direction === null)
+    ) {
+      // Reset to server default
+      setSortField(null);
+      setSortDirection(null);
+    } else if (field && direction) {
+      setSortField(field);
+      setSortDirection(direction);
+    }
+
+    setCurrentPage(1);
+    if (searchQuery().trim()) {
+      performSearch(1, false);
+    }
+  };
+
   const refresh = async () => {
     setCurrentPage(1);
     if (searchQuery().trim()) {
@@ -476,8 +578,10 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
   };
 
   // === INITIALIZATION ===
-  onMount(() => {
-    // No initial search - wait for user input
+  onMount(async () => {
+    await loadFilterOptions();
+    // Load all songs initially
+    await performSearch(1, false);
   });
 
   // === RETURN API ===
@@ -511,6 +615,16 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
     // Pagination
     pagination,
     loadMore,
+
+    // Filter options and management
+    filterOptions,
+    hasActiveFilters,
+    filterSummary,
+
+    // Sorting
+    sortField,
+    sortDirection,
+    setSort,
 
     // Actions
     refresh,

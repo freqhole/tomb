@@ -2,12 +2,10 @@ import { Show, createEffect, createSignal } from "solid-js";
 import { apiClient } from "../../../../../../lib/api-client";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useStore } from "../../../../store";
-import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
+import { useFreqholeSearch } from "../../../../hooks/useFreqholeSearch";
 import { MobileSongList } from "./MobileSongList";
-import type { Song } from "../../../../../../lib/music/schemas/song";
-import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
 
 interface MobileSongsViewProps {
   class?: string;
@@ -18,7 +16,10 @@ export function MobileSongsView(props: MobileSongsViewProps) {
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
 
-  // Selection state
+  // Enhanced search hook with total counts
+  const searchHook = useFreqholeSearch(apiClient);
+
+  // Selection state (simplified for mobile)
   const selection = useSelection({
     onSelectionChange: (selectedIds) => {
       console.log(
@@ -47,48 +48,44 @@ export function MobileSongsView(props: MobileSongsViewProps) {
     });
   });
 
-  // Create fetch function for infinite scroll
-  const fetchSongs = async (
-    page: number
-  ): Promise<{ items: Song[]; pagination: PaginationMetadata }> => {
-    console.log(`🎵 Loading mobile songs page ${page}`);
-
-    const response = await apiClient.getSongs({
-      page,
-      page_size: 50,
-    });
-
-    console.log(`🎵 Loaded ${response.songs.length} mobile songs`, response);
-
-    return {
-      items: response.songs,
-      pagination: response.pagination,
-    };
+  // Use search hook for songs data
+  const songs = () => searchHook.songs();
+  const loading = () => searchHook.loading();
+  const error = () => searchHook.error();
+  const hasMore = () => {
+    const pag = searchHook.pagination();
+    return pag.hasNext;
   };
-
-  // Use infinite scroll hook
-  const infiniteScroll = useInfiniteScroll(fetchSongs, {
-    threshold: 200,
-    enabled: true,
-  });
-
-  // Extract state and actions
-  const songs = infiniteScroll.state.items;
-  const loading = infiniteScroll.state.loading;
-  const error = infiniteScroll.state.error;
-  const hasMore = infiniteScroll.state.hasMore;
+  const totalCount = () => searchHook.totalCount();
 
   // Reload functionality
   const reloadSongs = () => {
-    infiniteScroll.actions.reset();
+    searchHook.refresh();
   };
 
   // Listen for data reload events
-  events.on("data:reload", (data) => {
-    if (data.type === "songs") {
-      reloadSongs();
-    }
+  createEffect(() => {
+    events.on("data:reload", (data) => {
+      if (data.type === "songs") {
+        reloadSongs();
+      }
+    });
   });
+
+  // Scroll handler for infinite loading
+  const handleScroll = (e: Event) => {
+    const target = e.target as HTMLElement;
+    const threshold = 200;
+
+    if (
+      target.scrollTop + target.clientHeight >=
+        target.scrollHeight - threshold &&
+      hasMore() &&
+      !loading()
+    ) {
+      searchHook.loadMore();
+    }
+  };
 
   return (
     <div class={`h-full flex flex-col w-full max-w-full ${props.class || ""}`}>
@@ -99,7 +96,10 @@ export function MobileSongsView(props: MobileSongsViewProps) {
           when={!loading() && !error()}
           fallback={<p class="text-gray-300 text-sm">loading songs...</p>}
         >
-          <p class="text-gray-300 text-sm">{songs().length} songs</p>
+          <p class="text-gray-300 text-sm">
+            {totalCount() > 0 &&
+              `${totalCount()} ${totalCount() === 1 ? "song" : "songs"}`}
+          </p>
         </Show>
       </div>
 
@@ -134,15 +134,12 @@ export function MobileSongsView(props: MobileSongsViewProps) {
       {/* Mobile Songs List */}
       <Show when={!error() || songs().length > 0}>
         <div class="flex-1 flex flex-col h-full overflow-hidden">
-          <div
-            class="flex-1 overflow-y-auto min-h-0"
-            ref={infiniteScroll.containerRef}
-          >
+          <div class="flex-1 overflow-y-auto min-h-0" onScroll={handleScroll}>
             <MobileSongList
               songs={songs()}
               loading={loading()}
               hasMore={hasMore()}
-              onLoadMore={infiniteScroll.actions.loadMore}
+              onLoadMore={searchHook.loadMore}
               class="px-4"
             />
           </div>

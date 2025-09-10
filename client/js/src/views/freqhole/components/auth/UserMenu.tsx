@@ -1,7 +1,7 @@
 import { createSignal, Show } from "solid-js";
 import { useAuth } from "../../../../hooks/auth";
 import { Popover } from "../ui/Modal";
-import { UserIcon, LogoutIcon, SettingsIcon } from "../icons";
+import { UserIcon, LogoutIcon } from "../icons";
 
 export interface UserMenuProps {
   onLogout?: () => void;

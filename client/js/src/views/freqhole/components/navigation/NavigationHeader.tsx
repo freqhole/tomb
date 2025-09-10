@@ -1,4 +1,4 @@
-import { useNavigate, useSearchParams } from "@solidjs/router";
+import { useNavigate } from "@solidjs/router";
 import { createSignal, Show, createEffect } from "solid-js";
 import { storeActions } from "../../store";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
@@ -12,7 +12,6 @@ import { UserMenu } from "../auth/UserMenu";
 
 export function NavigationHeader() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
 
   const events = useGlobalEvents();
   const search = useSearchContext();

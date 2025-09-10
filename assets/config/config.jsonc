@@ -30,7 +30,7 @@
       "idle_timeout_seconds": 600
     },
     "migrations": {
-      "auto_run": true
+      "auto_run": false
     }
   },
   "webauthn": {

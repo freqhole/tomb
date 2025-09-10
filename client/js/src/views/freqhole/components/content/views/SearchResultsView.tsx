@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal } from "solid-js";
+import { For, Show, createEffect } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { useSearchContext } from "../../../context/SearchContext";
 import { useSongInteractions } from "../../../services/songInteractions";

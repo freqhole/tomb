@@ -9,10 +9,10 @@ import {
 import { apiClient } from "../../../../../../lib/api-client";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useStore } from "../../../../store";
-import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
 import { createUserPreferences } from "../../../../services/userPreferences";
+import { useFreqholeSearch } from "../../../../hooks/useFreqholeSearch";
 import {
   SongStarRating,
   SongFavoriteHeart,
@@ -20,8 +20,7 @@ import {
 } from "../../../ui";
 import { useSongState } from "../../../../services/songState";
 import type { Song } from "../../../../../../lib/music/schemas/song";
-import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
-import { useSorting, getSortIndicator } from "../../../../hooks/useSorting";
+import { getSortIndicator } from "../../../../hooks/useSorting";
 
 import type { RouteSectionProps } from "@solidjs/router";
 
@@ -37,6 +36,9 @@ export function DesktopSongsView(
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
   const userPreferences = createUserPreferences();
+
+  // Enhanced search hook with total counts
+  const searchHook = useFreqholeSearch(apiClient);
 
   // Selection state
   const selection = useSelection({
@@ -65,83 +67,67 @@ export function DesktopSongsView(
     });
   });
 
-  // Create fetch function for infinite scroll
-  const fetchSongs = async (
-    page: number
-  ): Promise<{ items: Song[]; pagination: PaginationMetadata }> => {
-    console.log(`🎵 Loading songs page ${page}`);
-
-    const response = await apiClient.getSongs({
-      page,
-      page_size: 50,
-      ...sorting.getSortParams(),
-    });
-
-    console.log(`🎵 Loaded ${response.songs.length} songs`, response);
-
-    // Debug: Log the structure of the first song to see what fields are available
-    if (response.songs.length > 0) {
-      console.log(`🎵 First song structure:`, response.songs[0]);
-      console.log(
-        `🎵 First song user_is_favorite:`,
-        response.songs[0]?.user_is_favorite
-      );
-      console.log(`🎵 First song user_rating:`, response.songs[0]?.user_rating);
-    }
-
-    // Sync songs with global state service
-    songState.setSongList(response.songs);
-
-    return {
-      items: response.songs,
-      pagination: response.pagination,
-    };
+  // Use search hook for songs data
+  const songs = () => searchHook.songs();
+  const loading = () => searchHook.loading();
+  const error = () => searchHook.error();
+  const hasMore = () => {
+    const pag = searchHook.pagination();
+    return pag.hasNext;
   };
-
-  // Use infinite scroll hook
-  // Sorting state
-  const sorting = useSorting();
-
-  const infiniteScroll = useInfiniteScroll(fetchSongs, {
-    threshold: 200,
-    enabled: true,
-  });
-
-  // Extract state and actions
-  const songs = infiniteScroll.state.items;
-  const loading = infiniteScroll.state.loading;
-  const error = infiniteScroll.state.error;
-  const hasMore = infiniteScroll.state.hasMore;
-  const pagination = infiniteScroll.state.pagination;
+  const totalCount = () => searchHook.totalCount();
 
   // Reload functionality
   const reloadSongs = () => {
-    infiniteScroll.actions.reset();
+    searchHook.refresh();
   };
 
   // Handle sort changes
   const handleSort = (field: string) => {
-    sorting.toggleSort(field);
-    reloadSongs(); // Reload with new sort order
+    const currentField = searchHook.sortField();
+    const currentDirection = searchHook.sortDirection();
+
+    if (currentField === field) {
+      // Toggle direction
+      const newDirection = currentDirection === "asc" ? "desc" : "asc";
+      searchHook.setSort(field, newDirection);
+    } else {
+      // New field, start with asc
+      searchHook.setSort(field, "asc");
+    }
   };
 
   // Update individual song in local state
   const updateSongInState = (songId: string, updates: Partial<Song>) => {
-    const currentItems = songs();
-    const updatedItems = currentItems.map((song) =>
-      song.id === songId ? { ...song, ...updates } : song
-    );
-    infiniteScroll.actions.setItems(updatedItems);
-    // Also update global state
+    // For now, just update global state and refresh
+    // TODO: optimize by updating local state without full refresh
     songState.updateSong(songId, updates);
+    reloadSongs();
   };
 
   // Listen for data reload events
-  events.on("data:reload", (data) => {
-    if (data.type === "songs") {
-      reloadSongs();
-    }
+  createEffect(() => {
+    events.on("data:reload", (data) => {
+      if (data.type === "songs") {
+        reloadSongs();
+      }
+    });
   });
+
+  // Scroll handler for infinite loading
+  const handleScroll = (e: Event) => {
+    const target = e.target as HTMLElement;
+    const threshold = 200;
+
+    if (
+      target.scrollTop + target.clientHeight >=
+        target.scrollHeight - threshold &&
+      hasMore() &&
+      !loading()
+    ) {
+      searchHook.loadMore();
+    }
+  };
 
   // Keyboard shortcuts for preferences
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -183,8 +169,8 @@ export function DesktopSongsView(
       <div class="flex-shrink-0 p-6">
         <h1 class="text-2xl font-semibold text-white mb-2">songs</h1>
         <p class="text-gray-400 text-sm">
-          {pagination()?.total !== undefined &&
-            `${pagination()!.total} ${pagination()!.total === 1 ? "song" : "songs"}`}
+          {totalCount() > 0 &&
+            `${totalCount()} ${totalCount() === 1 ? "song" : "songs"}`}
           {loading() && songs().length === 0 && "loading..."}
           {error() && "error loading songs"}
         </p>
@@ -220,10 +206,7 @@ export function DesktopSongsView(
 
       {/* Desktop Songs Table - Scrollable */}
       <Show when={!error() || songs().length > 0}>
-        <div
-          class="flex-1 overflow-y-auto min-h-0"
-          ref={infiniteScroll.containerRef}
-        >
+        <div class="flex-1 overflow-y-auto min-h-0" onScroll={handleScroll}>
           <div class="min-w-full">
             {/* Sticky Table Header */}
             <div class="sticky top-0 bg-black/95 backdrop-blur-sm px-6 py-3 text-xs text-gray-400 uppercase tracking-wider grid grid-cols-[auto_1fr_1fr_1fr_auto_auto_auto] gap-4 z-10">
@@ -236,9 +219,17 @@ export function DesktopSongsView(
                 onClick={() => handleSort("title")}
               >
                 title
-                <Show when={getSortIndicator("title", sorting.sortConfig())}>
+                <Show
+                  when={getSortIndicator("title", {
+                    field: searchHook.sortField(),
+                    direction: searchHook.sortDirection(),
+                  })}
+                >
                   <span class="text-magenta-400">
-                    {getSortIndicator("title", sorting.sortConfig()) === "asc"
+                    {getSortIndicator("title", {
+                      field: searchHook.sortField(),
+                      direction: searchHook.sortDirection(),
+                    }) === "asc"
                       ? "↑"
                       : "↓"}
                   </span>
@@ -249,9 +240,17 @@ export function DesktopSongsView(
                 onClick={() => handleSort("artist")}
               >
                 artist
-                <Show when={getSortIndicator("artist", sorting.sortConfig())}>
+                <Show
+                  when={getSortIndicator("artist", {
+                    field: searchHook.sortField(),
+                    direction: searchHook.sortDirection(),
+                  })}
+                >
                   <span class="text-magenta-400">
-                    {getSortIndicator("artist", sorting.sortConfig()) === "asc"
+                    {getSortIndicator("artist", {
+                      field: searchHook.sortField(),
+                      direction: searchHook.sortDirection(),
+                    }) === "asc"
                       ? "↑"
                       : "↓"}
                   </span>
@@ -262,9 +261,17 @@ export function DesktopSongsView(
                 onClick={() => handleSort("album")}
               >
                 album
-                <Show when={getSortIndicator("album", sorting.sortConfig())}>
+                <Show
+                  when={getSortIndicator("album", {
+                    field: searchHook.sortField(),
+                    direction: searchHook.sortDirection(),
+                  })}
+                >
                   <span class="text-magenta-400">
-                    {getSortIndicator("album", sorting.sortConfig()) === "asc"
+                    {getSortIndicator("album", {
+                      field: searchHook.sortField(),
+                      direction: searchHook.sortDirection(),
+                    }) === "asc"
                       ? "↑"
                       : "↓"}
                   </span>
@@ -275,9 +282,17 @@ export function DesktopSongsView(
                 onClick={() => handleSort("year")}
               >
                 year
-                <Show when={getSortIndicator("year", sorting.sortConfig())}>
+                <Show
+                  when={getSortIndicator("year", {
+                    field: searchHook.sortField(),
+                    direction: searchHook.sortDirection(),
+                  })}
+                >
                   <span class="text-magenta-400">
-                    {getSortIndicator("year", sorting.sortConfig()) === "asc"
+                    {getSortIndicator("year", {
+                      field: searchHook.sortField(),
+                      direction: searchHook.sortDirection(),
+                    }) === "asc"
                       ? "↑"
                       : "↓"}
                   </span>
@@ -288,9 +303,17 @@ export function DesktopSongsView(
                 onClick={() => handleSort("rating")}
               >
                 rating
-                <Show when={getSortIndicator("rating", sorting.sortConfig())}>
+                <Show
+                  when={getSortIndicator("rating", {
+                    field: searchHook.sortField(),
+                    direction: searchHook.sortDirection(),
+                  })}
+                >
                   <span class="text-magenta-400">
-                    {getSortIndicator("rating", sorting.sortConfig()) === "asc"
+                    {getSortIndicator("rating", {
+                      field: searchHook.sortField(),
+                      direction: searchHook.sortDirection(),
+                    }) === "asc"
                       ? "↑"
                       : "↓"}
                   </span>
@@ -302,16 +325,16 @@ export function DesktopSongsView(
               >
                 time
                 <Show
-                  when={getSortIndicator(
-                    "duration_seconds",
-                    sorting.sortConfig()
-                  )}
+                  when={getSortIndicator("duration_seconds", {
+                    field: searchHook.sortField(),
+                    direction: searchHook.sortDirection(),
+                  })}
                 >
                   <span class="text-magenta-400">
-                    {getSortIndicator(
-                      "duration_seconds",
-                      sorting.sortConfig()
-                    ) === "asc"
+                    {getSortIndicator("duration_seconds", {
+                      field: searchHook.sortField(),
+                      direction: searchHook.sortDirection(),
+                    }) === "asc"
                       ? "↑"
                       : "↓"}
                   </span>

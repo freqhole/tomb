@@ -152,7 +152,7 @@ export function ContextMenu(props: ContextMenuProps) {
                 ) {
                   filteredActions.push(action);
                 }
-              } else {
+              } else if (action) {
                 // Add non-separator actions
                 filteredActions.push(action);
               }

@@ -177,7 +177,7 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
                   onDblClick={() => handlePlaylistDoubleClick(playlist)}
                   onMouseEnter={() => setHoveredPlaylist(playlist.id)}
                   onMouseLeave={() => setHoveredPlaylist(null)}
-                  title={playlist.title}
+                  title={`${playlist.title}${hoveredPlaylist() === playlist.id ? " (hovered)" : ""}`}
                 >
                   <div class="flex items-center space-x-2">
                     <div class="relative w-8 h-8 flex-shrink-0">
