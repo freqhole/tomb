@@ -1,7 +1,7 @@
 services:
   dev-postgres:
     image: postgres:latest
-    container_name: dev-db
+    container_name: dev-freqhole-db
     ports:
       - "5432:5432"
     volumes:
@@ -12,7 +12,7 @@ services:
       - dev-network
   dev-pgadmin:
     image: dpage/pgadmin4
-    container_name: dev-pgadmin
+    container_name: dev-freqhole-pgadmin
     env_file:
       - ./.env
     ports:
