@@ -1,7 +1,7 @@
 import { InfiniteGrid } from "../../../../components/infinite-data-grid";
 import type { GridColumn } from "../../../../components/infinite-data-grid/types";
 import type { Song } from "../../../../lib/music/schemas/song";
-import { SongStarRating } from "../ui";
+import { SongStarRating, SongFavoriteHeart } from "../ui";
 
 export interface FreqholeInfiniteGridProps<T = any> {
   data: T[];
@@ -15,10 +15,12 @@ export interface FreqholeInfiniteGridProps<T = any> {
   selectedItems?: Set<string>;
   onSelectionChange?: (selectedIds: Set<string>) => void;
   onItemClick?: (item: T) => void;
+  onItemDoubleClick?: (item: T) => void;
   onContextMenu?: (event: MouseEvent, item: T) => void;
   sortField?: string | null;
   sortDirection?: "asc" | "desc" | null;
   onSort?: (field: string) => void;
+  showHeader?: boolean;
   class?: string;
 }
 
@@ -98,21 +100,6 @@ export function FreqholeInfiniteGrid<T = any>(
       ),
     },
     {
-      key: "user_rating",
-      title: "rating",
-      width: 120,
-      sortable: true,
-      render: (song: Song) => (
-        <div class="flex justify-center">
-          <SongStarRating
-            song={song}
-            size="sm"
-            class="[&_.group:hover_.text-magenta-400]:text-black [&_.group:hover_.text-magenta-300]:text-gray-600"
-          />
-        </div>
-      ),
-    },
-    {
       key: "duration_seconds",
       title: "time",
       width: 80,
@@ -123,6 +110,34 @@ export function FreqholeInfiniteGrid<T = any>(
         </div>
       ),
     },
+    {
+      key: "user_rating",
+      title: "rating",
+      width: 120,
+      sortable: true,
+      render: (song: Song) => (
+        <div class="flex justify-center">
+          <SongStarRating song={song} size="sm" />
+        </div>
+      ),
+    },
+    {
+      key: "is_favorite",
+      title: (
+        <div class="flex justify-center">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+          </svg>
+        </div>
+      ),
+      width: 60,
+      sortable: true,
+      render: (song: Song) => (
+        <div class="flex justify-center">
+          <SongFavoriteHeart song={song} size="sm" />
+        </div>
+      ),
+    },
   ];
 
   // Mobile song columns - simplified
@@ -130,17 +145,32 @@ export function FreqholeInfiniteGrid<T = any>(
     {
       key: "song_info",
       title: "song",
-      width: "100%",
+      width: "auto",
+      minWidth: 200,
       sortable: false,
       render: (song: Song) => (
-        <div class="py-3 px-4">
-          <div class="font-medium text-white mb-1">
+        <div class="py-3 px-4 flex-1 min-w-0">
+          <div class="font-medium text-white mb-1 truncate">
             {song.title || "untitled"}
           </div>
-          <div class="text-sm text-gray-400">
+          <div class="text-sm text-gray-400 truncate">
             {song.artist || ""}
             {song.album && ` • ${song.album}`}
+            {song.duration_seconds &&
+              ` • ${formatDuration(song.duration_seconds)}`}
           </div>
+        </div>
+      ),
+    },
+    {
+      key: "mobile_actions",
+      title: "",
+      width: 120,
+      sortable: false,
+      render: (song: Song) => (
+        <div class="py-3 px-4 flex items-center justify-end gap-3">
+          <SongStarRating song={song} size="sm" />
+          <SongFavoriteHeart song={song} size="sm" />
         </div>
       ),
     },
@@ -201,40 +231,28 @@ export function FreqholeInfiniteGrid<T = any>(
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Determine if we should show the status bar
-  const showStatusBar = () => {
-    return props.totalCount !== undefined && props.totalCount > 0;
-  };
-
-  // Get status bar text
+  // Get status text for header
   const getStatusText = () => {
     if (props.loading && props.data.length === 0) {
       return "loading...";
     }
     if (props.error) {
-      return `error: ${props.error}`;
+      return "error loading songs";
     }
     if (props.totalCount !== undefined) {
       const loaded = props.data.length;
       const total = props.totalCount;
       if (loaded < total) {
-        return `showing ${loaded} of ${total}`;
+        return `showing ${loaded} of ${total} songs`;
       } else {
-        return `${total} total`;
+        return `${total} ${total === 1 ? "song" : "songs"}`;
       }
     }
-    return `${props.data.length} items`;
+    return `${props.data.length} songs`;
   };
 
   return (
     <div class={`h-full flex flex-col ${props.class || ""}`}>
-      {/* Status bar */}
-      {showStatusBar() && (
-        <div class="flex-shrink-0 px-6 py-2 text-sm text-gray-400 border-b border-gray-800">
-          {getStatusText()}
-        </div>
-      )}
-
       {/* Grid */}
       <div class="flex-1 min-h-0">
         <InfiniteGrid
@@ -245,8 +263,8 @@ export function FreqholeInfiniteGrid<T = any>(
             headerHeight: 40,
           }}
           layout={{
-            stickyHeader: true,
-            showStatusBar: false, // We handle our own status bar above
+            stickyHeader: props.showHeader !== false,
+            showStatusBar: false,
           }}
           className="freqhole-infinite-grid w-full"
           selectedRowIds={props.selectedItems || new Set()}
@@ -255,6 +273,7 @@ export function FreqholeInfiniteGrid<T = any>(
           sortDirection={props.sortDirection || undefined}
           onSort={props.onSort}
           onRowClick={props.onItemClick}
+          onRowDoubleClick={props.onItemDoubleClick}
           onContextMenu={
             props.onContextMenu
               ? (item: T, _index: number, event: MouseEvent) =>

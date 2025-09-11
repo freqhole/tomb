@@ -290,6 +290,7 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
     if (sortField() && sortDirection()) {
       params.sort_by = sortField();
       params.sort_direction = sortDirection();
+      console.log(`🔍 Sorting by: ${sortField()} ${sortDirection()}`);
     }
 
     if (searchQuery()) {
@@ -555,9 +556,7 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
     }
 
     setCurrentPage(1);
-    if (searchQuery().trim()) {
-      performSearch(1, false);
-    }
+    performSearch(1, false);
   };
 
   const refresh = async () => {

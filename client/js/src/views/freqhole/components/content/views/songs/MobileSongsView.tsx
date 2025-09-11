@@ -6,7 +6,10 @@ import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
 import { useFreqholeSearch } from "../../../../hooks/useFreqholeSearch";
 import { FreqholeInfiniteGrid } from "../../../grid";
+import { useSongState } from "../../../../services/songState";
+import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
 import type { Song } from "../../../../../../lib/music/schemas/song";
+import type { SortField } from "../../../../../../components/search/SearchSortControls";
 
 interface MobileSongsViewProps {
   class?: string;
@@ -14,6 +17,7 @@ interface MobileSongsViewProps {
 
 export function MobileSongsView(props: MobileSongsViewProps) {
   const [] = useStore();
+  const songState = useSongState();
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
 
@@ -23,14 +27,10 @@ export function MobileSongsView(props: MobileSongsViewProps) {
   // Selection state (disabled for mobile)
   const selection = useSelection({
     onSelectionChange: (selectedIds) => {
-      console.log(
-        `🎵 Mobile selection changed: ${selectedIds.size} songs selected`
-      );
+      // Mobile selection changed
     },
     onBulkAction: (action, selectedSongs) => {
-      console.log(
-        `🎵 Mobile bulk action: ${action} for ${selectedSongs.length} songs`
-      );
+      // Mobile bulk action
     },
   });
 
@@ -39,13 +39,19 @@ export function MobileSongsView(props: MobileSongsViewProps) {
   // Listen for selection clear events
   createEffect(() => {
     events.on("selection:clear", () => {
-      console.log("🎵 Clearing mobile selection via event");
       selection.clearSelection();
     });
   });
 
   // Use search hook for songs data
-  const songs = () => searchHook.songs();
+  const songs = () => {
+    const songList = searchHook.songs();
+    // Sync songs with song state service for rating component
+    if (songList.length > 0) {
+      songState.setSongList(songList);
+    }
+    return songList;
+  };
   const loading = () => searchHook.loading();
   const error = () => searchHook.error();
   const totalCount = () => searchHook.totalCount();
@@ -79,16 +85,72 @@ export function MobileSongsView(props: MobileSongsViewProps) {
     selection.setSelectedItems(selectedIds);
   };
 
+  // Sort fields for mobile dropdown
+  const sortFields: SortField[] = [
+    { value: "title", label: "title", description: "Sort by song title" },
+    { value: "artist", label: "artist", description: "Sort by artist name" },
+    { value: "album", label: "album", description: "Sort by album name" },
+    { value: "year", label: "year", description: "Sort by release year" },
+    {
+      value: "user_rating",
+      label: "rating",
+      description: "Sort by user rating",
+    },
+    {
+      value: "is_favorite",
+      label: "favorite",
+      description: "Sort by favorite status",
+    },
+    {
+      value: "duration_seconds",
+      label: "duration",
+      description: "Sort by song length",
+    },
+    { value: "created_at", label: "added", description: "Sort by date added" },
+  ];
+
+  const handleSortChange = (field: string, direction: "asc" | "desc") => {
+    searchHook.setSort(field, direction);
+  };
+
   return (
     <div class={`h-full flex flex-col w-full max-w-full ${props.class || ""}`}>
       {/* Fixed Header */}
       <div class="flex-shrink-0 p-3">
-        <h1 class="text-2xl font-semibold text-white mb-2">songs</h1>
+        <div class="flex items-center justify-between mb-2">
+          <h1 class="text-2xl font-semibold text-white">songs</h1>
+          <SearchSortControls
+            sortBy={searchHook.sortField() || undefined}
+            sortDirection={searchHook.sortDirection() || undefined}
+            onSortChange={handleSortChange}
+            sortFields={sortFields}
+            directionStyle="arrows"
+            class="flex-shrink-0"
+          />
+        </div>
         <p class="text-gray-300 text-sm">
-          {totalCount() > 0 &&
-            `${totalCount()} ${totalCount() === 1 ? "song" : "songs"}`}
-          {loading() && songs().length === 0 && "loading..."}
-          {error() && "error loading songs"}
+          {(() => {
+            const songList = songs();
+            const total = totalCount();
+            const isLoading = loading();
+            const errorState = error();
+
+            if (isLoading && songList.length === 0) {
+              return "loading...";
+            }
+            if (errorState) {
+              return "error loading songs";
+            }
+            if (total !== undefined) {
+              const loaded = songList.length;
+              if (loaded < total) {
+                return `showing ${loaded} of ${total} songs`;
+              } else {
+                return `${total} ${total === 1 ? "song" : "songs"}`;
+              }
+            }
+            return `${songList.length} songs`;
+          })()}
         </p>
       </div>
 
@@ -136,6 +198,7 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             onSelectionChange={handleSelectionChange}
             onItemClick={handleSongClick}
             onContextMenu={handleContextMenu}
+            showHeader={false}
             class="h-full"
           />
         </div>

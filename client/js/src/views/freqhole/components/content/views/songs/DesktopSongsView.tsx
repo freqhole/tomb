@@ -6,6 +6,7 @@ import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
 import { useFreqholeSearch } from "../../../../hooks/useFreqholeSearch";
 import { FreqholeInfiniteGrid } from "../../../grid";
+import { useSongState } from "../../../../services/songState";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { RouteSectionProps } from "@solidjs/router";
 
@@ -17,6 +18,7 @@ export function DesktopSongsView(
   props: RouteSectionProps<unknown> & DesktopSongsViewProps = {} as any
 ) {
   const [] = useStore();
+  const songState = useSongState();
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
 
@@ -26,12 +28,10 @@ export function DesktopSongsView(
   // Selection state
   const selection = useSelection({
     onSelectionChange: (selectedIds) => {
-      console.log(`🎵 Selection changed: ${selectedIds.size} songs selected`);
+      // Selection changed
     },
     onBulkAction: (action, selectedSongs) => {
-      console.log(
-        `🎵 Bulk action: ${action} for ${selectedSongs.length} songs`
-      );
+      // Bulk action
     },
   });
 
@@ -45,13 +45,19 @@ export function DesktopSongsView(
   // Listen for selection clear events
   createEffect(() => {
     events.on("selection:clear", () => {
-      console.log("🎵 Clearing selection via event");
       selection.clearSelection();
     });
   });
 
   // Use search hook for songs data
-  const songs = () => searchHook.songs();
+  const songs = () => {
+    const songList = searchHook.songs();
+    // Sync songs with song state service for rating component
+    if (songList.length > 0) {
+      songState.setSongList(songList);
+    }
+    return songList;
+  };
   const loading = () => searchHook.loading();
   const error = () => searchHook.error();
   const totalCount = () => searchHook.totalCount();
@@ -87,7 +93,11 @@ export function DesktopSongsView(
 
   const handleSongClick = (song: Song) => {
     // Single click behavior - could expand for future features
-    console.log("🎵 Song clicked:", song.title);
+  };
+
+  const handleSongDoubleClick = (song: Song) => {
+    // Double click plays the song on desktop
+    songInteractions.playSong(song);
   };
 
   const handleContextMenu = (event: MouseEvent, song: Song) => {
@@ -127,7 +137,6 @@ export function DesktopSongsView(
       const rating = parseInt(e.key);
       selectedSongs.forEach((song) => {
         // TODO: implement rating update via songInteractions
-        console.log(`Setting rating ${rating} for song:`, song.title);
       });
       e.preventDefault();
     }
@@ -136,7 +145,6 @@ export function DesktopSongsView(
     if (e.key === "f" || e.key === "F") {
       selectedSongs.forEach((song) => {
         // TODO: implement favorite toggle via songInteractions
-        console.log(`Toggling favorite for song:`, song.title);
       });
       e.preventDefault();
     }
@@ -152,10 +160,28 @@ export function DesktopSongsView(
       <div class="flex-shrink-0 p-6">
         <h1 class="text-2xl font-semibold text-white mb-2">songs</h1>
         <p class="text-gray-400 text-sm">
-          {totalCount() > 0 &&
-            `${totalCount()} ${totalCount() === 1 ? "song" : "songs"}`}
-          {loading() && songs().length === 0 && "loading..."}
-          {error() && "error loading songs"}
+          {(() => {
+            const songList = songs();
+            const total = totalCount();
+            const isLoading = loading();
+            const errorState = error();
+
+            if (isLoading && songList.length === 0) {
+              return "loading...";
+            }
+            if (errorState) {
+              return "error loading songs";
+            }
+            if (total !== undefined) {
+              const loaded = songList.length;
+              if (loaded < total) {
+                return `showing ${loaded} of ${total} songs`;
+              } else {
+                return `${total} ${total === 1 ? "song" : "songs"}`;
+              }
+            }
+            return `${songList.length} songs`;
+          })()}
         </p>
       </div>
 
@@ -202,6 +228,7 @@ export function DesktopSongsView(
             selectedItems={selection.selectedItems()}
             onSelectionChange={handleSelectionChange}
             onItemClick={handleSongClick}
+            onItemDoubleClick={handleSongDoubleClick}
             onContextMenu={handleContextMenu}
             sortField={searchHook.sortField()}
             sortDirection={searchHook.sortDirection()}
