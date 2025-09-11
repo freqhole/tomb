@@ -78,48 +78,63 @@ export function GridHeader<T>(props: GridHeaderProps<T>) {
       </Show>
 
       <For each={props.columns}>
-        {(column) => (
-          <div
-            class={`${getHeaderClasses(column)} flex-shrink-0`}
-            style={{
-              width:
-                typeof column.width === "number"
-                  ? `${column.width}px`
-                  : column.width || "auto",
-              "min-width": column.minWidth ? `${column.minWidth}px` : undefined,
-              "max-width": column.maxWidth ? `${column.maxWidth}px` : undefined,
-            }}
-            onClick={() => handleSort(column)}
-            role="columnheader"
-            aria-sort={
-              props.sortField === column.key
-                ? props.sortDirection === "asc"
-                  ? "ascending"
-                  : props.sortDirection === "desc"
-                    ? "descending"
-                    : "none"
-                : "none"
-            }
-            tabIndex={column.sortable ? 0 : -1}
-            onKeyDown={(e) => {
-              if (column.sortable && (e.key === "Enter" || e.key === " ")) {
-                e.preventDefault();
-                handleSort(column);
+        {(column) => {
+          const shouldGrow =
+            typeof column.width === "string" &&
+            (column.width.includes("flex") ||
+              column.width.includes("fr") ||
+              column.width === "auto");
+
+          return (
+            <div
+              class={`${getHeaderClasses(column)} ${shouldGrow ? "flex-1 min-w-0" : "flex-shrink-0"}`}
+              style={{
+                width: shouldGrow
+                  ? undefined
+                  : typeof column.width === "number"
+                    ? `${column.width}px`
+                    : column.width || "auto",
+                "min-width": column.minWidth
+                  ? `${column.minWidth}px`
+                  : undefined,
+                "max-width": column.maxWidth
+                  ? `${column.maxWidth}px`
+                  : undefined,
+              }}
+              onClick={() => handleSort(column)}
+              role="columnheader"
+              aria-sort={
+                props.sortField === column.key
+                  ? props.sortDirection === "asc"
+                    ? "ascending"
+                    : props.sortDirection === "desc"
+                      ? "descending"
+                      : "none"
+                  : "none"
               }
-            }}
-          >
-            <div class="flex items-center justify-between">
-              <span class="truncate">
-                {column.renderHeader ? column.renderHeader() : column.title}
-              </span>
-              <Show when={column.sortable && getSortIndicator(column)}>
-                <span class={`${GRID_STYLES.sortIndicator} ml-1 flex-shrink-0`}>
-                  {getSortIndicator(column)}
+              tabIndex={column.sortable ? 0 : -1}
+              onKeyDown={(e) => {
+                if (column.sortable && (e.key === "Enter" || e.key === " ")) {
+                  e.preventDefault();
+                  handleSort(column);
+                }
+              }}
+            >
+              <div class="flex items-center justify-between">
+                <span class="truncate">
+                  {column.renderHeader ? column.renderHeader() : column.title}
                 </span>
-              </Show>
+                <Show when={column.sortable && getSortIndicator(column)}>
+                  <span
+                    class={`${GRID_STYLES.sortIndicator} ml-1 flex-shrink-0`}
+                  >
+                    {getSortIndicator(column)}
+                  </span>
+                </Show>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        }}
       </For>
     </div>
   );

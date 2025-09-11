@@ -12,6 +12,7 @@ export const routes = (
   <Route path="/" component={ThreeColumnLayout}>
     <Route path="/" component={SongTableView} />
     <Route path="/songs" component={SongTableView} />
+
     <Route
       path="/song/:id"
       component={() => <div class="p-4 text-white">song detail view</div>}

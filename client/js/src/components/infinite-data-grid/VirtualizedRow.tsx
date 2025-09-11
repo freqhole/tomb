@@ -147,22 +147,35 @@ export function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
       aria-rowindex={props.index + 1}
     >
       <For each={props.columns}>
-        {(column) => (
-          <div
-            class="flex-shrink-0"
-            style={{
-              width:
-                typeof column.width === "number"
-                  ? `${column.width}px`
-                  : column.width || "auto",
-              "min-width": column.minWidth ? `${column.minWidth}px` : undefined,
-              "max-width": column.maxWidth ? `${column.maxWidth}px` : undefined,
-            }}
-            role="gridcell"
-          >
-            {renderCell(column)}
-          </div>
-        )}
+        {(column) => {
+          const shouldGrow =
+            typeof column.width === "string" &&
+            (column.width.includes("flex") ||
+              column.width.includes("fr") ||
+              column.width === "auto");
+
+          return (
+            <div
+              class={shouldGrow ? "flex-1 min-w-0" : "flex-shrink-0"}
+              style={{
+                width: shouldGrow
+                  ? undefined
+                  : typeof column.width === "number"
+                    ? `${column.width}px`
+                    : column.width || "auto",
+                "min-width": column.minWidth
+                  ? `${column.minWidth}px`
+                  : undefined,
+                "max-width": column.maxWidth
+                  ? `${column.maxWidth}px`
+                  : undefined,
+              }}
+              role="gridcell"
+            >
+              {renderCell(column)}
+            </div>
+          );
+        }}
       </For>
     </div>
   );
