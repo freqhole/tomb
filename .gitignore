@@ -21,3 +21,4 @@ node_modules/
 assets/config/wordlist.txt
 assets/private/uploads/
 logs.txt
+logz.txt

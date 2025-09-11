@@ -27,10 +27,10 @@ export function DesktopSongsView(
 
   // Selection state
   const selection = useSelection({
-    onSelectionChange: (selectedIds) => {
+    onSelectionChange: (_selectedIds) => {
       // Selection changed
     },
-    onBulkAction: (action, selectedSongs) => {
+    onBulkAction: (_action, _selectedSongs) => {
       // Bulk action
     },
   });
@@ -91,7 +91,7 @@ export function DesktopSongsView(
     });
   });
 
-  const handleSongClick = (song: Song) => {
+  const handleSongClick = (_song: Song) => {
     // Single click behavior - could expand for future features
   };
 
@@ -134,8 +134,7 @@ export function DesktopSongsView(
 
     // Handle rating shortcuts (1-5)
     if (e.key >= "1" && e.key <= "5") {
-      const rating = parseInt(e.key);
-      selectedSongs.forEach((song) => {
+      selectedSongs.forEach((_song) => {
         // TODO: implement rating update via songInteractions
       });
       e.preventDefault();
@@ -143,7 +142,7 @@ export function DesktopSongsView(
 
     // Handle favorite toggle (f key)
     if (e.key === "f" || e.key === "F") {
-      selectedSongs.forEach((song) => {
+      selectedSongs.forEach((_song) => {
         // TODO: implement favorite toggle via songInteractions
       });
       e.preventDefault();
@@ -233,6 +232,8 @@ export function DesktopSongsView(
             sortField={searchHook.sortField()}
             sortDirection={searchHook.sortDirection()}
             onSort={handleSort}
+            gridId="desktop-songs"
+            enableScrollRestoration={true}
             class="h-full"
           />
         </div>

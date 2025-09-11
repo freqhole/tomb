@@ -2,6 +2,8 @@ import { InfiniteGrid } from "../../../../components/infinite-data-grid";
 import type { GridColumn } from "../../../../components/infinite-data-grid/types";
 import type { Song } from "../../../../lib/music/schemas/song";
 import { SongStarRating, SongFavoriteHeart } from "../ui";
+import { createSignal, createEffect } from "solid-js";
+import { useGridScrollRestoration } from "../../../../hooks/navigation/useGridScrollRestoration";
 
 export interface FreqholeInfiniteGridProps<T = any> {
   data: T[];
@@ -22,6 +24,9 @@ export interface FreqholeInfiniteGridProps<T = any> {
   onSort?: (field: string) => void;
   showHeader?: boolean;
   class?: string;
+  // scroll restoration options
+  gridId?: string;
+  enableScrollRestoration?: boolean;
 }
 
 /**
@@ -31,6 +36,16 @@ export interface FreqholeInfiniteGridProps<T = any> {
 export function FreqholeInfiniteGrid<T = any>(
   props: FreqholeInfiniteGridProps<T>
 ) {
+  // Scroll restoration setup
+  const scrollRestoration = useGridScrollRestoration({
+    gridId: props.gridId || props.renderMode,
+    enabled: props.enableScrollRestoration !== false,
+  });
+
+  // Direct ref callback for the scroll container
+  const handleScrollElementRef = (element: HTMLElement | null) => {
+    scrollRestoration.setScrollElement(element);
+  };
   // Configure columns based on render mode
   const getColumns = (): GridColumn<T>[] => {
     switch (props.renderMode) {
@@ -231,26 +246,6 @@ export function FreqholeInfiniteGrid<T = any>(
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Get status text for header
-  const getStatusText = () => {
-    if (props.loading && props.data.length === 0) {
-      return "loading...";
-    }
-    if (props.error) {
-      return "error loading songs";
-    }
-    if (props.totalCount !== undefined) {
-      const loaded = props.data.length;
-      const total = props.totalCount;
-      if (loaded < total) {
-        return `showing ${loaded} of ${total} songs`;
-      } else {
-        return `${total} ${total === 1 ? "song" : "songs"}`;
-      }
-    }
-    return `${props.data.length} songs`;
-  };
-
   return (
     <div class={`h-full flex flex-col ${props.class || ""}`}>
       {/* Grid */}
@@ -284,6 +279,7 @@ export function FreqholeInfiniteGrid<T = any>(
           hasMore={props.data.length < (props.totalCount || 0)}
           loading={props.loading || false}
           getRowId={(item: any) => item.id || item.name || String(item)}
+          scrollElementRef={handleScrollElementRef}
         />
       </div>
     </div>

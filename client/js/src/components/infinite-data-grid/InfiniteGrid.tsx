@@ -252,7 +252,10 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       </Show>
 
       <div
-        ref={layout.containerRef}
+        ref={(el) => {
+          layout.containerRef(el);
+          props.scrollElementRef?.(el);
+        }}
         class={GRID_STYLES.scrollContainer}
         onScroll={(e) => {
           layout.handleScroll(e);

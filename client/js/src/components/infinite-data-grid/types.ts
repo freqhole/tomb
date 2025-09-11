@@ -77,6 +77,9 @@ export interface InfiniteGridProps<T = any> {
   onLoadMore?: () => void;
   onScrollNearBottom?: () => void;
 
+  // Refs
+  scrollElementRef?: (element: HTMLElement | null) => void;
+
   // State
   sortField?: string;
   sortDirection?: SortDirection | null;

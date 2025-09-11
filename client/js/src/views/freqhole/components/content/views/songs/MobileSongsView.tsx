@@ -1,4 +1,4 @@
-import { createEffect, createSignal } from "solid-js";
+import { createEffect } from "solid-js";
 import { apiClient } from "../../../../../../lib/api-client";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useStore } from "../../../../store";
@@ -26,10 +26,10 @@ export function MobileSongsView(props: MobileSongsViewProps) {
 
   // Selection state (disabled for mobile)
   const selection = useSelection({
-    onSelectionChange: (selectedIds) => {
+    onSelectionChange: (_selectedIds) => {
       // Mobile selection changed
     },
-    onBulkAction: (action, selectedSongs) => {
+    onBulkAction: (_action, _selectedSongs) => {
       // Mobile bulk action
     },
   });
@@ -199,6 +199,8 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             onItemClick={handleSongClick}
             onContextMenu={handleContextMenu}
             showHeader={false}
+            gridId="mobile-songs"
+            enableScrollRestoration={true}
             class="h-full"
           />
         </div>

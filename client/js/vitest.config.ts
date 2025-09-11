@@ -15,9 +15,12 @@ export default defineConfig({
     environmentMatchGlobs: [
       // Component tests need jsdom for DOM testing
       ["tests/components/**/*.test.{ts,tsx}", "jsdom"],
+      // Navigation tests need jsdom for DOM and browser API testing
+      ["src/hooks/navigation/**/*.test.{ts,tsx}", "jsdom"],
     ],
     setupFiles: [
       // Setup file for tests with IndexedDB and browser API mocks
+      "src/test-setup.ts",
     ],
     coverage: {
       provider: "v8",
