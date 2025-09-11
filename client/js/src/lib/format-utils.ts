@@ -34,8 +34,10 @@ export function formatRelativeTime(date: string | Date): string {
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
   if (diffMinutes < 1) return "just now";
-  if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes === 1 ? "" : "s"} ago`;
-  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+  if (diffMinutes < 60)
+    return `${diffMinutes} minute${diffMinutes === 1 ? "" : "s"} ago`;
+  if (diffHours < 24)
+    return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
   if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
 
   return formatDate(d);
@@ -103,7 +105,18 @@ export function humanizeString(str: string): string {
 /**
  * Pluralize a word based on count
  */
-export function pluralize(word: string, count: number, plural?: string): string {
+export function pluralize(
+  word: string,
+  count: number,
+  plural?: string
+): string {
   if (count === 1) return word;
   return plural || word + "s";
+}
+
+/**
+ * Check if the current device is mobile based on screen size and touch capability
+ */
+export function isMobile(): boolean {
+  return window.innerWidth < 768 || "ontouchstart" in window;
 }

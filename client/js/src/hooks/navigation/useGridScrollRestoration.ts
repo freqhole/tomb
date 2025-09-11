@@ -14,112 +14,45 @@ export function useGridScrollRestoration(
   const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
     null
   );
-  const [hasRestored, setHasRestored] = createSignal(false);
 
   const scrollRestoration = useScrollRestoration({
     key: gridId,
     enabled,
   });
 
-  let saveTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // Debounced save function
-  const debouncedSave = () => {
-    if (!enabled) return;
-
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      const element = scrollElement();
-      if (element && hasRestored()) {
-        console.log(
-          `SCROLL_DEBUG [${gridId}] Saving scroll position: ${element.scrollTop}px`
-        );
-        scrollRestoration.saveScrollPosition(element);
-      } else {
-        console.log(
-          `SCROLL_DEBUG [${gridId}] Not saving - element: ${!!element}, hasRestored: ${hasRestored()}`
-        );
-      }
-      saveTimer = null;
-    }, 100);
-  };
-
   // Set up scroll listener when element is available
   createEffect(() => {
     const element = scrollElement();
     if (!element || !enabled) return;
 
-    console.log(
-      `SCROLL_DEBUG [${gridId}] Setting up scroll listener on element:`,
-      element
-    );
-
+    // Debounced save function
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
     const handleScroll = () => {
-      if (hasRestored()) {
-        console.log(
-          `SCROLL_DEBUG [${gridId}] Scroll event - position: ${element.scrollTop}px`
-        );
-        debouncedSave();
-      } else {
-        console.log(
-          `SCROLL_DEBUG [${gridId}] Scroll event ignored - not restored yet`
-        );
-      }
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        scrollRestoration.saveScrollPosition();
+        saveTimer = null;
+      }, 100);
     };
 
     element.addEventListener("scroll", handleScroll, { passive: true });
 
     onCleanup(() => {
       element.removeEventListener("scroll", handleScroll);
+      if (saveTimer) clearTimeout(saveTimer);
     });
   });
 
-  // Auto-restore when ready
+  // Connect scroll element to core restoration
   createEffect(() => {
-    if (!scrollRestoration.isReady() || !enabled) return;
-
     const element = scrollElement();
-    if (element && !hasRestored()) {
-      console.log(
-        `SCROLL_DEBUG [${gridId}] Attempting to restore scroll position`
-      );
-      const restored = scrollRestoration.restoreScrollPosition(element);
-      console.log(
-        `SCROLL_DEBUG [${gridId}] Restore result: ${restored}, position now: ${element.scrollTop}px`
-      );
-      setHasRestored(true);
-
-      if (!restored) {
-        console.log(
-          `SCROLL_DEBUG [${gridId}] No saved position, enabling saving`
-        );
-        return;
-      }
-    }
-  });
-
-  // Cleanup timer
-  onCleanup(() => {
-    if (saveTimer) {
-      clearTimeout(saveTimer);
-    }
+    scrollRestoration.setScrollElement(element);
   });
 
   return {
     setScrollElement: (el: HTMLElement | null) => {
-      console.log(`SCROLL_DEBUG [${gridId}] Setting scroll element:`, el);
       setScrollElement(el);
     },
-    getScrollElement: () => scrollElement(),
-    saveNow: () => {
-      const element = scrollElement();
-      if (element && enabled) {
-        console.log(
-          `SCROLL_DEBUG [${gridId}] Manual save - position: ${element.scrollTop}px`
-        );
-        scrollRestoration.saveScrollPosition(element);
-      }
-    },
-    hasRestored,
+    saveNow: () => scrollRestoration.saveScrollPosition(),
   };
 }

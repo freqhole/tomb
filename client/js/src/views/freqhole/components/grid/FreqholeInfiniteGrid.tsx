@@ -2,7 +2,7 @@ import { InfiniteGrid } from "../../../../components/infinite-data-grid";
 import type { GridColumn } from "../../../../components/infinite-data-grid/types";
 import type { Song } from "../../../../lib/music/schemas/song";
 import { SongStarRating, SongFavoriteHeart } from "../ui";
-import { createSignal, createEffect } from "solid-js";
+
 import { useGridScrollRestoration } from "../../../../hooks/navigation/useGridScrollRestoration";
 
 export interface FreqholeInfiniteGridProps<T = any> {

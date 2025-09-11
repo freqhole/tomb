@@ -1,6 +1,6 @@
-import { Show } from "solid-js";
 import { DesktopSongsView } from "./songs/DesktopSongsView";
 import { MobileSongsView } from "./songs/MobileSongsView";
+import { isMobile } from "../../../../../lib/format-utils";
 import type { RouteSectionProps } from "@solidjs/router";
 
 interface SongTableViewProps {
@@ -12,19 +12,11 @@ export function SongTableView(
 ) {
   return (
     <div class={`h-full w-full ${props.class || ""}`}>
-      {/* Desktop View */}
-      <Show when={true}>
-        <div class="hidden md:block h-full">
-          <DesktopSongsView {...props} />
-        </div>
-      </Show>
-
-      {/* Mobile View */}
-      <Show when={true}>
-        <div class="md:hidden h-full">
-          <MobileSongsView {...props} />
-        </div>
-      </Show>
+      {isMobile() ? (
+        <MobileSongsView {...props} />
+      ) : (
+        <DesktopSongsView {...props} />
+      )}
     </div>
   );
 }

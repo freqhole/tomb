@@ -1,5 +1,3 @@
-import { Show } from "solid-js";
-
 export interface FreqholeArtistRowProps {
   artist: {
     name: string;
@@ -32,9 +30,7 @@ export function FreqholeArtistRow(props: FreqholeArtistRowProps) {
       onClick={handleClick}
     >
       {/* Artist name */}
-      <div class="font-medium text-white truncate">
-        {props.artist.name}
-      </div>
+      <div class="font-medium text-white truncate">{props.artist.name}</div>
 
       {/* Song count */}
       <div class="text-center text-gray-400 text-sm w-20">
@@ -58,14 +54,13 @@ export function FreqholeArtistRow(props: FreqholeArtistRowProps) {
             {props.artist.name}
           </div>
           <div class="text-sm text-gray-400">
-            {props.artist.song_count} song{props.artist.song_count !== 1 ? "s" : ""}
+            {props.artist.song_count} song
+            {props.artist.song_count !== 1 ? "s" : ""}
           </div>
         </div>
 
         {/* Chevron indicator */}
-        <div class="flex-shrink-0 text-gray-500 ml-3">
-          →
-        </div>
+        <div class="flex-shrink-0 text-gray-500 ml-3">→</div>
       </div>
     </div>
   );
