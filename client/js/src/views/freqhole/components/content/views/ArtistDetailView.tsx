@@ -6,7 +6,8 @@ import {
   createEffect,
   createMemo,
 } from "solid-js";
-import { useParams, useNavigate } from "@solidjs/router";
+import { useParams } from "@solidjs/router";
+import { safeNavigate } from "../../../../../lib/navigation";
 import { useSelection } from "../../../hooks/useSelection";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { useSongInteractions } from "../../../services/songInteractions";
@@ -36,7 +37,7 @@ export function ArtistDetailView(
   props: RouteSectionProps<unknown> & ArtistDetailViewProps = {} as any
 ) {
   const params = useParams();
-  const navigate = useNavigate();
+
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
 
@@ -148,7 +149,7 @@ export function ArtistDetailView(
   });
 
   const handleBack = () => {
-    navigate("/artists");
+    safeNavigate("/artists");
   };
 
   const handlePlayAll = () => {

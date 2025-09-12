@@ -12,6 +12,7 @@ import {
   useAlbumNavigation,
   useAlbumLoader,
 } from "./albums/albumUtils";
+import { safeNavigate } from "../../../../../lib/navigation";
 
 interface AlbumDetailViewProps {
   class?: string;
@@ -66,7 +67,7 @@ export function AlbumDetailView(
   );
 
   const handleBack = () => {
-    window.location.hash = "#/albums";
+    safeNavigate("/albums");
   };
 
   const handleArtistClick = (artistName: string) => {
