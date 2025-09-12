@@ -1,5 +1,5 @@
 import { Show, createResource, createEffect } from "solid-js";
-import { useParams } from "@solidjs/router";
+import { useParams, useNavigate } from "@solidjs/router";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { storeActions } from "../../../store";
 import type { RouteSectionProps } from "@solidjs/router";
@@ -12,7 +12,6 @@ import {
   useAlbumNavigation,
   useAlbumLoader,
 } from "./albums/albumUtils";
-import { safeNavigate } from "../../../../../lib/navigation";
 
 interface AlbumDetailViewProps {
   class?: string;
@@ -66,8 +65,10 @@ export function AlbumDetailView(
     }
   );
 
+  const navigate = useNavigate();
+
   const handleBack = () => {
-    safeNavigate("/albums");
+    navigate(-1);
   };
 
   const handleArtistClick = (artistName: string) => {
@@ -118,7 +119,7 @@ export function AlbumDetailView(
             <button
               class="p-2 text-gray-400 hover:text-white transition-colors rounded-full hover:bg-magenta-600/20"
               onClick={handleBack}
-              title="Back to albums"
+              title="Back"
             >
               <svg
                 class="w-5 h-5"

@@ -6,8 +6,7 @@ import {
   createEffect,
   createMemo,
 } from "solid-js";
-import { useParams } from "@solidjs/router";
-import { safeNavigate } from "../../../../../lib/navigation";
+import { useParams, useNavigate } from "@solidjs/router";
 import { useSelection } from "../../../hooks/useSelection";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { useSongInteractions } from "../../../services/songInteractions";
@@ -148,8 +147,10 @@ export function ArtistDetailView(
     return sortedGroups;
   });
 
+  const navigate = useNavigate();
+
   const handleBack = () => {
-    safeNavigate("/artists");
+    navigate(-1);
   };
 
   const handlePlayAll = () => {
@@ -263,7 +264,7 @@ export function ArtistDetailView(
             <button
               class="p-2 text-gray-400 hover:text-white transition-colors rounded-full hover:bg-magenta-600/20"
               onClick={handleBack}
-              title="Back to artists"
+              title="Back"
             >
               <svg
                 class="w-5 h-5"
