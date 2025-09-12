@@ -125,10 +125,17 @@ export function useAlbumLoader() {
     }
   };
 
-  const findAlbumByName = async (albumName: string): Promise<Album | null> => {
+  const findAlbumByName = async (
+    albumName: string,
+    artistName?: string | null
+  ): Promise<Album | null> => {
     try {
       const response = await apiClient.getAlbums({ page: 1, page_size: 1000 });
-      const album = response.albums.find((a) => a.album === albumName);
+      const album = response.albums.find((a) => {
+        const albumMatch = a.album === albumName;
+        if (!artistName) return albumMatch;
+        return albumMatch && a.artist === artistName;
+      });
       return album || null;
     } catch (error) {
       console.error("failed to load album summary:", error);

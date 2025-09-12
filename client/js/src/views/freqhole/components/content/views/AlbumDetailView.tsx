@@ -23,10 +23,23 @@ export function AlbumDetailView(
   const params = useParams();
   const events = useGlobalEvents();
 
-  // Get album info from params
+  // Get album info from params - handle both single and dual parameter routes
   const albumName = () => {
-    const name = params.id;
-    return name ? decodeURIComponent(name) : null;
+    // New format: /album/:artist/:album
+    if (params.album) {
+      return decodeURIComponent(params.album);
+    }
+    // Legacy format: /album/:id
+    if (params.id) {
+      return decodeURIComponent(params.id);
+    }
+    return null;
+  };
+
+  const artistName = () => {
+    const name = params.artist;
+    if (!name || name === "unknown-artist") return null;
+    return decodeURIComponent(name);
   };
 
   // Shared utilities
@@ -36,10 +49,10 @@ export function AlbumDetailView(
 
   // Fetch album summary info
   const [albumSummaryResource] = createResource(
-    () => albumName(),
-    async (name: string) => {
-      if (!name) return null;
-      return await findAlbumByName(name);
+    () => ({ album: albumName(), artist: artistName() }),
+    async (params) => {
+      if (!params.album) return null;
+      return await findAlbumByName(params.album, params.artist);
     }
   );
 

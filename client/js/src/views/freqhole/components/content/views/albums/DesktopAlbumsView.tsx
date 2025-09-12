@@ -1,127 +1,126 @@
-import { For, Show, createSignal, createEffect, onMount } from "solid-js";
-import { useLocation } from "@solidjs/router";
-import { useStore } from "../../../../store";
-import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
+import { Show, For, createSignal, createEffect } from "solid-js";
+import { useNavigate } from "@solidjs/router";
+import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
+import { useAlbums } from "../../../../hooks/useAlbums";
 import { apiClient } from "../../../../../../lib/api-client";
-import type { RouteSectionProps } from "@solidjs/router";
+import { storeActions } from "../../../../store";
+import { saveScrollStateSecurely } from "../../../../../../lib/navigation";
 import type { Album } from "../../../../../../lib/music/schemas";
-import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
-
-interface ScrollRestorationState {
-  scrollTop: number;
-  estimatedIndex: number;
-  totalCount: number;
-  timestamp: number;
-}
-import {
-  getAlbumImageUrl,
-  formatAlbumDuration,
-  useAlbumPlayback,
-  useAlbumNavigation,
-  useAlbumLoader,
-  useAlbumScrollPosition,
-} from "./albumUtils";
 
 interface DesktopAlbumsViewProps {
   class?: string;
 }
 
-export function DesktopAlbumsView(
-  props: RouteSectionProps<unknown> & DesktopAlbumsViewProps = {} as any
-) {
-  const [] = useStore();
-  const location = useLocation();
+// Helper function for getting album image URLs
+const getAlbumImageUrl = (albumThumbnailId: string | null) => {
+  if (!albumThumbnailId) return null;
+  return `${apiClient.getBaseUrl()}/api/blobs/${albumThumbnailId}`;
+};
 
-  // Shared utilities
-  const { playAlbum } = useAlbumPlayback();
-  const { navigateToAlbum } = useAlbumNavigation();
-  const { loadAlbumTracks } = useAlbumLoader();
-  const {
-    saveScrollPosition,
-    restoreScrollPosition,
-    checkCameFromAlbumDetail,
-  } = useAlbumScrollPosition();
+// Format duration helper - total_duration is already a formatted string from server
+const formatAlbumDuration = (durationString: string | null) => {
+  if (!durationString) return "unknown";
+  return durationString;
+};
 
-  const [containerElement, setContainerElement] =
-    createSignal<HTMLElement | null>(null);
+export function DesktopAlbumsView(props: DesktopAlbumsViewProps) {
+  const navigate = useNavigate();
+  const events = useGlobalEvents();
 
-  // Router-aware scroll restoration
-  const [initialScrollTop, setInitialScrollTop] = createSignal(0);
+  // Simple albums data loading with clean scroll restoration
+  const albumsHook = useAlbums(apiClient);
+
+  // Scroll restoration state
   const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
     null
   );
 
-  // Create fetch function for infinite scroll
-  const fetchAlbums = async (
-    page: number
-  ): Promise<{ items: Album[]; pagination: PaginationMetadata }> => {
-    const response = await apiClient.getAlbums({
-      page,
-      page_size: 50,
-    });
-
-    return {
-      items: response.albums,
-      pagination: response.pagination,
-    };
+  // Get scroll state from browser history
+  const getSavedScrollTop = (): number => {
+    const state = history.state;
+    return (state && state.scrollTop) || 0;
   };
 
-  // Use infinite scroll hook
-  const infiniteScroll = useInfiniteScroll(fetchAlbums, {
-    threshold: 200,
-    enabled: true,
-  });
-
-  // Extract state and actions
-  const albums = infiniteScroll.state.items;
-  const loading = infiniteScroll.state.loading;
-  const error = infiniteScroll.state.error;
-
-  // Load saved scroll state from router history
-  onMount(() => {
-    const routerState = location.state as ScrollRestorationState | undefined;
-    if (routerState && routerState.scrollTop) {
-      setInitialScrollTop(routerState.scrollTop);
+  // Save scroll state to browser history
+  const saveScrollState = () => {
+    const element = scrollElement();
+    if (element && element.scrollTop > 0) {
+      saveScrollStateSecurely("scrollTop", element.scrollTop);
     }
-  });
+  };
 
-  // Save scroll state disabled to prevent infinite loops
-
-  // Restore scroll position on route change
+  // Restore scroll position when data loads
   createEffect(() => {
-    location.pathname; // track route changes
+    const element = scrollElement();
+    const savedScrollTop = getSavedScrollTop();
 
-    if (initialScrollTop() > 0) {
-      const element = scrollElement();
-      if (element && albums().length > 0) {
-        element.scrollTop = initialScrollTop();
-        setInitialScrollTop(0); // reset after restore
-      }
+    if (element && savedScrollTop > 0 && albumsHook.albums().length > 0) {
+      requestAnimationFrame(() => {
+        element.scrollTop = savedScrollTop;
+      });
     }
   });
 
   const handleAlbumClick = (album: Album) => {
-    // Save current scroll position before navigating
-    saveScrollPosition(containerElement());
+    storeActions.selectAlbum(album);
+    events.emit("album:selected", { album });
+
     // Navigate to album detail route
-    navigateToAlbum(album);
+    const encodedAlbum = encodeURIComponent(album.album || "unknown");
+    const encodedArtist = album.artist
+      ? encodeURIComponent(album.artist)
+      : "unknown-artist";
+    navigate(`/album/${encodedArtist}/${encodedAlbum}`);
   };
 
-  const handleAlbumPlayFromGrid = async (album: Album) => {
+  const handleAlbumPlay = async (album: Album, event: MouseEvent) => {
+    event.stopPropagation();
     try {
-      const tracks = await loadAlbumTracks(album);
-      playAlbum(tracks, album.album || undefined);
+      if (!album.album) {
+        console.error("album name is null, cannot play album");
+        return;
+      }
+      const tracks = await apiClient.getAlbumTracks(
+        album.album,
+        album.artist || undefined
+      );
+      if (Array.isArray(tracks) && tracks.length > 0) {
+        // Play first track and queue the rest
+        events.emit("song:play", { song: tracks[0], replaceQueue: true });
+        tracks.slice(1).forEach((track) => {
+          events.emit("song:queue", { song: track });
+        });
+      }
     } catch (error) {
-      console.error("failed to play album from grid:", error);
+      console.error("failed to play album:", error);
     }
   };
 
-  // Effect to restore scroll position when coming back from album detail
-  createEffect(() => {
-    if (checkCameFromAlbumDetail()) {
-      restoreScrollPosition(containerElement());
+  // Handle scroll for infinite loading and scroll restoration
+  const handleScroll = (event: Event) => {
+    const target = event.target as HTMLDivElement;
+    const scrollTop = target.scrollTop;
+    const scrollHeight = target.scrollHeight;
+    const clientHeight = target.clientHeight;
+    const buffer = Math.max(50, clientHeight * 0.25);
+
+    // Load more when near bottom
+    if (
+      scrollTop + clientHeight >= scrollHeight - buffer &&
+      !albumsHook.loading()
+    ) {
+      const currentLength = albumsHook.albums().length;
+      const totalCount = albumsHook.totalCount();
+      if (currentLength < totalCount) {
+        albumsHook.loadMore();
+      }
     }
-  });
+
+    // Debounced save of scroll state
+    let saveTimer: ReturnType<typeof setTimeout> | undefined;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveScrollState, 300);
+  };
 
   return (
     <div
@@ -131,135 +130,137 @@ export function DesktopAlbumsView(
       <div class="flex-shrink-0 p-6">
         <h1 class="text-2xl font-semibold text-white mb-2">albums</h1>
         <Show
-          when={!loading() && !error()}
+          when={!albumsHook.loading() && !albumsHook.error()}
           fallback={<p class="text-gray-300 text-sm">loading albums...</p>}
         >
-          <p class="text-gray-300 text-sm">{albums().length} albums</p>
+          <p class="text-gray-300 text-sm">
+            {albumsHook.albums().length} of {albumsHook.totalCount()} albums
+          </p>
         </Show>
       </div>
 
-      {/* Albums Grid - Scrollable with Infinite Scroll */}
-      <div
-        class="flex-1 overflow-y-auto p-6"
-        ref={(el) => {
-          infiniteScroll.containerRef(el);
-          setContainerElement(el);
-          setScrollElement(el);
-        }}
-      >
-        <Show
-          when={!loading() || albums().length > 0}
-          fallback={
-            <div class="flex-1 flex items-center justify-center">
-              <div class="text-magenta-400">loading albums...</div>
-            </div>
-          }
+      {/* Error State */}
+      <Show when={albumsHook.error()}>
+        <div class="p-6 text-center">
+          <div class="text-red-400 text-sm mb-2">failed to load albums</div>
+          <button
+            class="text-magenta-400 hover:text-magenta-300 text-sm transition-colors"
+            onClick={() => albumsHook.refresh()}
+          >
+            try again
+          </button>
+        </div>
+      </Show>
+
+      {/* Albums Grid - Scrollable with Infinite Loading */}
+      <Show when={!albumsHook.error()}>
+        <div
+          ref={setScrollElement}
+          class="flex-1 overflow-y-auto p-6"
+          onScroll={handleScroll}
         >
-          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-            <For each={albums()}>
-              {(album) => (
-                <div
-                  class="group cursor-pointer"
-                  onClick={() => handleAlbumClick(album)}
-                >
-                  {/* Album Cover */}
-                  <div class="aspect-square bg-magenta-800/30 rounded-lg overflow-hidden mb-3 transition-transform group-hover:scale-105 relative">
-                    <Show
-                      when={getAlbumImageUrl(album.album_thumbnail_id)}
-                      fallback={
-                        <div class="w-full h-full flex items-center justify-center">
+          <Show
+            when={!albumsHook.loading() || albumsHook.albums().length > 0}
+            fallback={
+              <div class="flex-1 flex items-center justify-center">
+                <div class="text-magenta-400">loading albums...</div>
+              </div>
+            }
+          >
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
+              <For each={albumsHook.albums()}>
+                {(album) => (
+                  <div
+                    class="group cursor-pointer"
+                    onClick={() => handleAlbumClick(album)}
+                  >
+                    {/* Album Cover */}
+                    <div class="aspect-square bg-magenta-800/30 rounded-lg overflow-hidden mb-3 transition-transform group-hover:scale-105 relative">
+                      <Show
+                        when={getAlbumImageUrl(album.album_thumbnail_id)}
+                        fallback={
+                          <div class="w-full h-full flex items-center justify-center">
+                            <svg
+                              class="w-12 h-12 text-magenta-400"
+                              fill="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                            </svg>
+                          </div>
+                        }
+                      >
+                        <img
+                          src={getAlbumImageUrl(album.album_thumbnail_id)!}
+                          alt={`${album.album} by ${album.artist}`}
+                          class="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      </Show>
+
+                      {/* Hover overlay with play button */}
+                      <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <button
+                          class="w-12 h-12 bg-magenta-600 hover:bg-magenta-500 rounded-full flex items-center justify-center transition-colors"
+                          onClick={(e) => handleAlbumPlay(album, e)}
+                          title="play album"
+                        >
                           <svg
-                            class="w-12 h-12 text-magenta-400"
+                            class="w-6 h-6 text-white ml-1"
                             fill="currentColor"
                             viewBox="0 0 24 24"
                           >
-                            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                            <path d="M8 5v14l11-7z" />
                           </svg>
-                        </div>
-                      }
-                    >
-                      <img
-                        src={getAlbumImageUrl(album.album_thumbnail_id)!}
-                        alt={`${album.album} by ${album.artist}`}
-                        class="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    </Show>
+                        </button>
+                      </div>
+                    </div>
 
-                    {/* Hover overlay with play button */}
-                    <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <button
-                        class="w-12 h-12 bg-magenta-600 hover:bg-magenta-500 rounded-full flex items-center justify-center transition-colors"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleAlbumPlayFromGrid(album);
-                        }}
-                        title="Play Album"
-                      >
-                        <svg
-                          class="w-6 h-6 text-white ml-1"
-                          fill="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
-                      </button>
+                    {/* Album Info */}
+                    <div class="text-white font-medium mb-1 truncate group-hover:text-magenta-300 transition-colors">
+                      {album.album || "unknown album"}
+                    </div>
+                    <div class="text-magenta-400 text-sm truncate">
+                      {album.artist || "unknown artist"}
+                    </div>
+                    <div class="text-magenta-500 text-xs mt-1">
+                      {album.year && `${album.year} · `}
+                      {album.track_count} track
+                      {album.track_count !== 1 ? "s" : ""}
+                      {album.total_duration &&
+                        ` · ${formatAlbumDuration(album.total_duration)}`}
                     </div>
                   </div>
+                )}
+              </For>
+            </div>
 
-                  {/* Album Info */}
-                  <div class="text-white font-medium mb-1 truncate group-hover:text-magenta-300 transition-colors">
-                    {album.album || "Unknown Album"}
-                  </div>
-                  <div class="text-magenta-400 text-sm truncate">
-                    {album.artist || "Unknown Artist"}
-                  </div>
-                  <div class="text-magenta-500 text-xs mt-1">
-                    {album.year && `${album.year} · `}
-                    {album.track_count} track
-                    {album.track_count !== 1 ? "s" : ""}
-                    {album.total_duration &&
-                      ` · ${formatAlbumDuration(album.total_duration)}`}
-                  </div>
+            {/* Loading indicator */}
+            <Show when={albumsHook.loading()}>
+              <div class="text-center py-8">
+                <div class="text-magenta-400 text-sm">
+                  loading more albums...
                 </div>
-              )}
-            </For>
-          </div>
-
-          {/* Loading indicator */}
-          <Show when={loading()}>
-            <div class="text-center py-8">
-              <div class="text-magenta-400 text-sm">loading more albums...</div>
-            </div>
-          </Show>
-
-          {/* End of list indicator */}
-          <Show
-            when={
-              infiniteScroll.state.hasMore() === false && albums().length > 0
-            }
-          >
-            <div class="text-center py-8">
-              <div class="text-gray-600 text-xs opacity-50">
-                — end of albums —
               </div>
-            </div>
-          </Show>
-        </Show>
+            </Show>
 
-        {/* Error state */}
-        <Show when={error()}>
-          <div class="text-center py-8">
-            <div class="text-red-400 text-sm mb-2">failed to load albums</div>
-            <button
-              class="text-magenta-400 hover:text-magenta-300 text-sm transition-colors"
-              onClick={() => infiniteScroll.actions.reset()}
+            {/* End of list indicator */}
+            <Show
+              when={
+                albumsHook.albums().length >= albumsHook.totalCount() &&
+                albumsHook.albums().length > 0 &&
+                !albumsHook.loading()
+              }
             >
-              try again
-            </button>
-          </div>
-        </Show>
-      </div>
+              <div class="text-center py-8">
+                <div class="text-gray-600 text-xs opacity-50">
+                  — end of albums —
+                </div>
+              </div>
+            </Show>
+          </Show>
+        </div>
+      </Show>
     </div>
   );
 }

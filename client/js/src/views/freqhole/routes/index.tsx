@@ -20,6 +20,7 @@ export const routes = (
     <Route path="/artists" component={ArtistSplitView} />
     <Route path="/artist/:id" component={ArtistDetailView} />
     <Route path="/albums" component={AlbumGridView} />
+    <Route path="/album/:artist/:album" component={AlbumDetailView} />
     <Route path="/album/:id" component={AlbumDetailView} />
     <Route path="/playlists" component={PlaylistDetailView} />
     <Route path="/playlists/new" component={PlaylistDetailView} />

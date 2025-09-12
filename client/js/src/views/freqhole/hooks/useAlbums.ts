@@ -47,7 +47,7 @@ export function useAlbums(apiClient: ApiClient): UseAlbumsReturn {
         setAlbums(newAlbums);
       }
 
-      setTotalCount(response.pagination.total_count);
+      setTotalCount(response.pagination.total);
       setCurrentPage(page);
     } catch (err) {
       const errorMessage =
