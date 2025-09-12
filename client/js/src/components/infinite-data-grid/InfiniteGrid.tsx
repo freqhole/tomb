@@ -1,5 +1,5 @@
 import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
-import { useLocation, useBeforeLeave } from "@solidjs/router";
+import { useLocation } from "@solidjs/router";
 import type { InfiniteGridProps, GridColumn } from "./types";
 import { GRID_STYLES, getRowClasses } from "./styles/grid-styles";
 import { useGridLayout } from "./hooks/useGridLayout";
@@ -31,41 +31,29 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
 
   const getItemId = props.getRowId || ((item: any) => item.id || String(item));
 
-  // router-aware scroll restoration
+  // simplified scroll restoration using browser history state
   const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
     null
   );
 
-  // save scroll state before navigation
-  useBeforeLeave(() => {
+  // get scroll state from browser history
+  const getSavedScrollTop = (): number => {
+    const state = history.state;
+    return (state && state.scrollTop) || 0;
+  };
+
+  // save scroll state to browser history
+  const saveScrollState = () => {
     const element = scrollElement();
-    if (element && props.onScrollSave) {
-      const scrollTop = element.scrollTop;
-      const estimatedIndex = Math.floor(
-        scrollTop / (props.virtualization?.rowHeight || 64)
-      );
-      props.onScrollSave({
-        scrollTop,
-        estimatedIndex,
-        totalCount: props.data.length,
-        timestamp: Date.now(),
-      });
+    if (element && element.scrollTop > 0) {
+      const currentState = history.state || {};
+      const newState = {
+        ...currentState,
+        scrollTop: element.scrollTop,
+      };
+      history.replaceState(newState, "", location.pathname + location.search);
     }
-    return true;
-  });
-
-  // restore scroll position on route change
-  createEffect(() => {
-    location.pathname; // track route changes
-
-    if (props.initialScrollTop && props.initialScrollTop > 0) {
-      const element = scrollElement();
-      if (element) {
-        // restore scroll position immediately
-        element.scrollTop = props.initialScrollTop || 0;
-      }
-    }
-  });
+  };
 
   // simple sort logic directly in component
   const sortedData = createMemo(() => {
@@ -89,12 +77,48 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
         comparison = aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
       }
 
-      return config.direction === "desc" ? comparison * -1 : comparison;
+      return config.direction === "desc" ? -comparison : comparison;
     });
   });
 
   // layout management
   const layout = useGridLayout();
+
+  // virtualization-aware data management (after layout is defined)
+  const rowHeight = props.virtualization?.rowHeight || 64;
+
+  // calculate visible range
+  const visibleRange = createMemo(() => {
+    const scrollTop = layout.scrollTop();
+    const containerHeight = layout.containerHeight();
+    const totalItems = props.serverTotal || props.data.length;
+
+    if (totalItems === 0 || containerHeight === 0) {
+      return {
+        start: 0,
+        end: Math.min(50, props.data.length),
+        needsMore: false,
+      };
+    }
+
+    const startIndex = Math.floor(scrollTop / rowHeight);
+    const visibleCount = Math.ceil(containerHeight / rowHeight);
+    const bufferSize = Math.max(20, visibleCount);
+
+    const start = Math.max(0, startIndex - bufferSize);
+    const end = Math.min(totalItems, startIndex + visibleCount + bufferSize);
+    const needsMore = end > props.data.length && props.data.length < totalItems;
+
+    return { start, end, needsMore };
+  });
+
+  // trigger loading when we need more data
+  createEffect(() => {
+    const range = visibleRange();
+    if (range.needsMore && !props.loading && props.onScrollNearBottom) {
+      props.onScrollNearBottom();
+    }
+  });
 
   // row selection with keyboard support
   const selection = useRowSelection({
@@ -106,17 +130,15 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
   // infinite loading
   const infiniteLoading = useInfiniteLoading(props.onScrollNearBottom);
 
-  // scroll restoration - restore initial scroll position when container is ready
+  // restore scroll position when data loads
   createEffect(() => {
-    const container = layout.containerRef();
-    if (container && props.initialScrollTop && props.initialScrollTop > 0) {
-      // Use requestAnimationFrame to ensure DOM is ready
+    const element = scrollElement();
+    const savedScrollTop = getSavedScrollTop();
+
+    if (element && savedScrollTop > 0 && props.data.length > 0) {
+      // restore after data is loaded
       requestAnimationFrame(() => {
-        (container as HTMLDivElement).scrollTo({
-          top: props.initialScrollTop!,
-          left: 0,
-          behavior: "auto",
-        });
+        element.scrollTop = savedScrollTop;
       });
     }
   });
@@ -152,41 +174,37 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     },
   });
 
-  // render all loaded items
+  // render only visible items for performance
   const visibleItems = createMemo(() => {
     const data = sortedData();
+    const range = visibleRange();
 
     if (data.length === 0) {
       return [];
     }
 
-    // render all available data with proper indices
-    return data.map((itemData, index) => ({ data: itemData, index }));
+    // only render items in visible range
+    const items = [];
+    for (let i = range.start; i < Math.min(range.end, data.length); i++) {
+      items.push({ data: data[i], index: i });
+    }
+
+    return items;
   });
 
-  // calculate visible range based on scroll position
-  const visibleRange = createMemo(() => {
-    const totalItems = props.data.length;
-    const scrollTop = layout.scrollTop();
-    const containerHeight = layout.containerHeight();
-    const rowHeight = props.virtualization?.rowHeight || 50;
+  // calculate display range for status bar
+  const displayRange = createMemo(() => {
+    const range = visibleRange();
+    const totalItems = props.serverTotal || props.data.length;
 
-    if (totalItems === 0 || containerHeight === 0) {
+    if (totalItems === 0) {
       return { start: 0, end: 0 };
     }
 
-    // calculate which rows are actually visible
-    const startIndex = Math.floor(scrollTop / rowHeight);
-    const visibleRowCount = Math.ceil(containerHeight / rowHeight);
-    const endIndex = Math.min(startIndex + visibleRowCount, totalItems);
-
-    // convert to 1-based display numbers
-    const result = {
-      start: Math.max(1, startIndex + 1),
-      end: Math.max(1, endIndex),
+    return {
+      start: Math.max(1, range.start + 1),
+      end: Math.min(range.end, totalItems),
     };
-
-    return result;
   });
 
   // handle sorting
@@ -315,15 +333,38 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
         onScroll={(e) => {
           layout.handleScroll(e);
           infiniteLoading.handleScroll(e);
+
+          // debounced save of scroll state
+          let saveTimer: ReturnType<typeof setTimeout> | undefined;
+          if (saveTimer) clearTimeout(saveTimer);
+          saveTimer = setTimeout(saveScrollState, 300);
         }}
         style={{
           "scrollbar-width": "thin",
           "scrollbar-color": "#4a4a4a #1a1a1a",
         }}
       >
-        <div class={GRID_STYLES.contentContainer}>
+        <div
+          class={GRID_STYLES.contentContainer}
+          style={{
+            height: `${(props.serverTotal || props.data.length) * rowHeight}px`,
+            position: "relative",
+          }}
+        >
           <For each={visibleItems()}>
-            {(item) => renderRow(item.data, item.index)}
+            {(item) => (
+              <div
+                style={{
+                  position: "absolute",
+                  top: `${item.index * rowHeight}px`,
+                  left: "0",
+                  right: "0",
+                  height: `${rowHeight}px`,
+                }}
+              >
+                {item.data && renderRow(item.data, item.index)}
+              </div>
+            )}
           </For>
         </div>
       </div>
@@ -332,7 +373,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
       <Show when={props.layout?.showStatusBar}>
         <div class="fixed bottom-4 right-4 z-20">
           {(() => {
-            const range = visibleRange();
+            const range = displayRange();
             const statusBarProps = {
               totalItems: props.serverTotal || props.data.length,
               visibleItems: props.data.length,

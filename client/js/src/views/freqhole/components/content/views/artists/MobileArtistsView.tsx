@@ -1,9 +1,16 @@
-import { For, Show } from "solid-js";
-import { useNavigate } from "@solidjs/router";
+import { For, Show, createSignal, createEffect, onMount } from "solid-js";
+import { useNavigate, useLocation } from "@solidjs/router";
 import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { apiClient } from "../../../../../../lib/api-client";
 import type { ArtistSummary } from "../../../../../../lib/music/schemas";
 import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
+
+interface ScrollRestorationState {
+  scrollTop: number;
+  estimatedIndex: number;
+  totalCount: number;
+  timestamp: number;
+}
 
 interface MobileArtistsViewProps {
   class?: string;
@@ -11,6 +18,13 @@ interface MobileArtistsViewProps {
 
 export function MobileArtistsView(props: MobileArtistsViewProps) {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Router-aware scroll restoration
+  const [initialScrollTop, setInitialScrollTop] = createSignal(0);
+  const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
+    null
+  );
 
   // Create fetch function for infinite scroll
   const fetchArtists = async (
@@ -38,6 +52,29 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
   const loading = infiniteScroll.state.loading;
   const error = infiniteScroll.state.error;
 
+  // Load saved scroll state from router history
+  onMount(() => {
+    const routerState = location.state as ScrollRestorationState | undefined;
+    if (routerState && routerState.scrollTop) {
+      setInitialScrollTop(routerState.scrollTop);
+    }
+  });
+
+  // Save scroll state disabled to prevent infinite loops
+
+  // Restore scroll position on route change
+  createEffect(() => {
+    location.pathname; // track route changes
+
+    if (initialScrollTop() > 0) {
+      const element = scrollElement();
+      if (element && artists().length > 0) {
+        element.scrollTop = initialScrollTop();
+        setInitialScrollTop(0); // reset after restore
+      }
+    }
+  });
+
   const handleArtistClick = (artist: ArtistSummary) => {
     // Navigate to artist detail route
     const encodedArtist = encodeURIComponent(artist.artist);
@@ -59,7 +96,10 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
 
         <div
           class="flex-1 overflow-y-auto min-h-0"
-          ref={infiniteScroll.containerRef}
+          ref={(el) => {
+            infiniteScroll.containerRef(el);
+            setScrollElement(el);
+          }}
         >
           <Show
             when={!loading() || artists().length > 0}

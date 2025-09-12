@@ -1,9 +1,17 @@
-import { For, Show, createEffect } from "solid-js";
-import { useNavigate, useSearchParams } from "@solidjs/router";
+import { For, Show, createEffect, createSignal, onMount } from "solid-js";
+import { useNavigate, useSearchParams, useLocation } from "@solidjs/router";
 import { useSearchContext } from "../../../context/SearchContext";
 import { useSongInteractions } from "../../../services/songInteractions";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Song } from "../../../../../lib/music/schemas/song";
+
+interface ScrollRestorationState {
+  scrollTop: number;
+  estimatedIndex: number;
+  totalCount: number;
+  activeTab: string;
+  timestamp: number;
+}
 
 interface SearchResultsViewProps {
   class?: string;
@@ -18,6 +26,13 @@ export function SearchResultsView(
   const [searchParams] = useSearchParams();
   const songInteractions = useSongInteractions();
   const search = useSearchContext();
+  const location = useLocation();
+
+  // Router-aware scroll restoration
+  const [initialScrollTop, setInitialScrollTop] = createSignal(0);
+  const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
+    null
+  );
 
   // Initialize search from URL parameters - run once on mount only
   let hasRun = false;
@@ -27,6 +42,35 @@ export function SearchResultsView(
     if (urlQuery && !hasRun) {
       hasRun = true;
       search.setSearchQuery(urlQuery, true);
+    }
+  });
+
+  // Load saved scroll state from router history
+  onMount(() => {
+    const routerState = location.state as ScrollRestorationState | undefined;
+    if (routerState && routerState.scrollTop) {
+      setInitialScrollTop(routerState.scrollTop);
+      if (
+        routerState.activeTab &&
+        routerState.activeTab !== search.activeTab()
+      ) {
+        search.setActiveTab(routerState.activeTab as any);
+      }
+    }
+  });
+
+  // Save scroll state disabled to prevent infinite loops
+
+  // Restore scroll position on route change
+  createEffect(() => {
+    location.pathname; // track route changes
+
+    if (initialScrollTop() > 0) {
+      const element = scrollElement();
+      if (element && search.hasResults()) {
+        element.scrollTop = initialScrollTop();
+        setInitialScrollTop(0); // reset after restore
+      }
     }
   });
 
@@ -140,7 +184,7 @@ export function SearchResultsView(
       </div>
 
       {/* Search Results Content */}
-      <div class="flex-1 overflow-y-auto p-6">
+      <div class="flex-1 overflow-y-auto p-6" ref={setScrollElement}>
         <Show when={search.loading()}>
           <div class="text-center py-8">
             <div class="animate-spin h-8 w-8 border-2 border-magenta-500 border-t-transparent mx-auto mb-4"></div>

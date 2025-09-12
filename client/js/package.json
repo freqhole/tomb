@@ -27,7 +27,8 @@
     "lint": "eslint 'src/**/*.{ts,tsx}' 'tests/**/*.ts'",
     "lint:fix": "eslint 'src/**/*.{ts,tsx}' 'tests/**/*.ts' --fix",
     "format": "prettier --write 'src/**/*.{ts,tsx}' 'tests/**/*.ts'",
-    "type-check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "type-check": "npm run typecheck",
     "clean": "rm -rf dist coverage",
     "prepublishOnly": "npm run test && npm run lint"
   },

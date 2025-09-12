@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onMount } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
 import { apiClient } from "../../../../../../lib/api-client";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useStore } from "../../../../store";
@@ -9,7 +9,6 @@ import { FreqholeInfiniteGrid } from "../../../grid";
 import { useSongState } from "../../../../services/songState";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { RouteSectionProps } from "@solidjs/router";
-import type { ScrollRestorationState } from "../../../../../../components/infinite-data-grid/types";
 
 interface DesktopSongsViewProps {
   class?: string;
@@ -25,9 +24,6 @@ export function DesktopSongsView(
 
   // Enhanced search hook with total counts
   const searchHook = useFreqholeSearch(apiClient);
-
-  // Router-aware scroll restoration state
-  const [initialScrollTop, setInitialScrollTop] = createSignal(0);
 
   // Selection state
   const selection = useSelection({
@@ -65,37 +61,6 @@ export function DesktopSongsView(
   const loading = () => searchHook.loading();
   const error = () => searchHook.error();
   const totalCount = () => searchHook.totalCount();
-
-  // Load saved scroll state on mount
-  onMount(() => {
-    const storageKey = `scroll_desktop-songs_/songs`;
-    try {
-      const stored = sessionStorage.getItem(storageKey);
-      if (stored) {
-        const state: ScrollRestorationState = JSON.parse(stored);
-        const now = Date.now();
-        const TTL = 30 * 60 * 1000; // 30 minutes
-
-        if (now - state.timestamp < TTL) {
-          setInitialScrollTop(state.scrollTop);
-        } else {
-          sessionStorage.removeItem(storageKey);
-        }
-      }
-    } catch (e) {
-      console.warn("failed to load scroll state:", e);
-    }
-  });
-
-  // Handle scroll state saving
-  const handleScrollSave = (state: ScrollRestorationState) => {
-    const storageKey = `scroll_desktop-songs_/songs`;
-    try {
-      sessionStorage.setItem(storageKey, JSON.stringify(state));
-    } catch (e) {
-      console.warn("failed to save scroll state:", e);
-    }
-  };
 
   // Reload functionality
   const reloadSongs = () => {
@@ -267,10 +232,6 @@ export function DesktopSongsView(
             sortField={searchHook.sortField()}
             sortDirection={searchHook.sortDirection()}
             onSort={handleSort}
-            gridId="desktop-songs"
-            enableScrollRestoration={true}
-            onScrollSave={handleScrollSave}
-            initialScrollTop={initialScrollTop()}
             class="h-full"
           />
         </div>

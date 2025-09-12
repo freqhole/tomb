@@ -1,10 +1,18 @@
-import { For, Show, createSignal, createEffect } from "solid-js";
+import { For, Show, createSignal, createEffect, onMount } from "solid-js";
+import { useLocation } from "@solidjs/router";
 import { useStore } from "../../../../store";
 import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { apiClient } from "../../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Album } from "../../../../../../lib/music/schemas";
 import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
+
+interface ScrollRestorationState {
+  scrollTop: number;
+  estimatedIndex: number;
+  totalCount: number;
+  timestamp: number;
+}
 import {
   getAlbumImageUrl,
   formatAlbumDuration,
@@ -22,6 +30,7 @@ export function DesktopAlbumsView(
   props: RouteSectionProps<unknown> & DesktopAlbumsViewProps = {} as any
 ) {
   const [] = useStore();
+  const location = useLocation();
 
   // Shared utilities
   const { playAlbum } = useAlbumPlayback();
@@ -35,6 +44,12 @@ export function DesktopAlbumsView(
 
   const [containerElement, setContainerElement] =
     createSignal<HTMLElement | null>(null);
+
+  // Router-aware scroll restoration
+  const [initialScrollTop, setInitialScrollTop] = createSignal(0);
+  const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
+    null
+  );
 
   // Create fetch function for infinite scroll
   const fetchAlbums = async (
@@ -61,6 +76,29 @@ export function DesktopAlbumsView(
   const albums = infiniteScroll.state.items;
   const loading = infiniteScroll.state.loading;
   const error = infiniteScroll.state.error;
+
+  // Load saved scroll state from router history
+  onMount(() => {
+    const routerState = location.state as ScrollRestorationState | undefined;
+    if (routerState && routerState.scrollTop) {
+      setInitialScrollTop(routerState.scrollTop);
+    }
+  });
+
+  // Save scroll state disabled to prevent infinite loops
+
+  // Restore scroll position on route change
+  createEffect(() => {
+    location.pathname; // track route changes
+
+    if (initialScrollTop() > 0) {
+      const element = scrollElement();
+      if (element && albums().length > 0) {
+        element.scrollTop = initialScrollTop();
+        setInitialScrollTop(0); // reset after restore
+      }
+    }
+  });
 
   const handleAlbumClick = (album: Album) => {
     // Save current scroll position before navigating
@@ -106,6 +144,7 @@ export function DesktopAlbumsView(
         ref={(el) => {
           infiniteScroll.containerRef(el);
           setContainerElement(el);
+          setScrollElement(el);
         }}
       >
         <Show

@@ -199,8 +199,6 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             onItemClick={handleSongClick}
             onContextMenu={handleContextMenu}
             showHeader={false}
-            gridId="mobile-songs"
-            enableScrollRestoration={true}
             class="h-full"
           />
         </div>

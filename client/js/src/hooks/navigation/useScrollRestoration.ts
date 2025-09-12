@@ -1,19 +1,15 @@
-import { createSignal, createEffect, onCleanup } from "solid-js";
+import { createSignal } from "solid-js";
 import { useLocation, useBeforeLeave } from "@solidjs/router";
 
-interface ViewState {
+interface ScrollState {
   scrollTop: number;
   pagesLoaded: number;
-  timestamp: number;
 }
 
 interface UseScrollRestorationOptions {
   key?: string;
   enabled?: boolean;
 }
-
-const STORAGE_PREFIX = "view_";
-const STORAGE_TTL = 30 * 60 * 1000; // 30 minutes
 
 export function useScrollRestoration(
   options: UseScrollRestorationOptions = {}
@@ -24,99 +20,73 @@ export function useScrollRestoration(
   const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
     null
   );
-  const [restoredState, setRestoredState] = createSignal<ViewState | null>(
-    null
-  );
 
-  // Get storage key for current route
-  const getStorageKey = () => {
-    const route = location.pathname + location.search;
-    const normalizedRoute = route === "/" ? "/songs" : route;
-    return `${STORAGE_PREFIX}${key}_${normalizedRoute}`;
-  };
-
-  // Save current view state
-  const saveViewState = (pagesLoaded: number) => {
+  // Save current scroll state to history
+  const saveScrollState = (pagesLoaded: number) => {
     if (!enabled) return;
 
     const element = scrollElement();
-    if (!element || element.offsetParent === null) return;
+    if (!element) return;
 
-    const state: ViewState = {
+    const scrollState: ScrollState = {
       scrollTop: element.scrollTop,
       pagesLoaded,
-      timestamp: Date.now(),
     };
 
-    try {
-      sessionStorage.setItem(getStorageKey(), JSON.stringify(state));
-    } catch (e) {
-      console.warn("Failed to save view state:", e);
-    }
+    // Update current history entry with scroll state
+    const currentState = history.state || {};
+    const newState = {
+      ...currentState,
+      [`scroll_${key}`]: scrollState,
+    };
+
+    history.replaceState(newState, "", location.pathname + location.search);
   };
 
-  // Load saved view state
-  const loadViewState = (): ViewState | null => {
+  // Get saved scroll state from history
+  const getSavedScrollState = (): ScrollState | null => {
     if (!enabled) return null;
 
-    try {
-      const stored = sessionStorage.getItem(getStorageKey());
-      if (stored) {
-        const state: ViewState = JSON.parse(stored);
-        const now = Date.now();
-        if (now - state.timestamp < STORAGE_TTL) {
-          return state;
-        } else {
-          sessionStorage.removeItem(getStorageKey());
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to load view state:", e);
+    const state = history.state;
+    if (state && state[`scroll_${key}`]) {
+      return state[`scroll_${key}`] as ScrollState;
     }
     return null;
   };
 
   // Save before navigation
   useBeforeLeave(() => {
-    // Can't save here without context - rely on manual saves
+    // saveScrollState will be called by the component with pages context
     return true;
   });
 
-  // Load state on route change
-  createEffect(() => {
-    location.pathname + location.search; // Track route changes
-    const state = loadViewState();
-    setRestoredState(state);
-  });
+  // Restore scroll position after data loads
+  const restoreScrollPosition = (currentDataLength: number) => {
+    if (!enabled) return;
 
-  // Auto-save scroll changes with debouncing
-  createEffect(() => {
     const element = scrollElement();
-    if (!element || !enabled) return;
+    const savedState = getSavedScrollState();
 
-    let saveTimer: ReturnType<typeof setTimeout> | null = null;
-    const handleScroll = () => {
-      // We need pages context to save - this will be provided by caller
-    };
-
-    element.addEventListener("scroll", handleScroll, { passive: true });
-
-    onCleanup(() => {
-      element.removeEventListener("scroll", handleScroll);
-      if (saveTimer) clearTimeout(saveTimer);
-    });
-  });
+    if (element && savedState && savedState.scrollTop > 0) {
+      // Only restore if we have enough data loaded
+      if (currentDataLength >= savedState.pagesLoaded * 50) {
+        // estimate 50 items per page
+        element.scrollTop = savedState.scrollTop;
+      }
+    }
+  };
 
   return {
     // Element management
     setScrollElement,
 
     // State management
-    saveViewState,
+    saveScrollState,
+    restoreScrollPosition,
 
     // Restoration values
-    initialScrollTop: () => restoredState()?.scrollTop || 0,
-    initialPagesLoaded: () => restoredState()?.pagesLoaded || 1,
-    hasSavedState: () => restoredState() !== null,
+    initialScrollTop: () => getSavedScrollState()?.scrollTop || 0,
+    initialPagesLoaded: () => getSavedScrollState()?.pagesLoaded || 1,
+    hasSavedState: () => getSavedScrollState() !== null,
   };
 }

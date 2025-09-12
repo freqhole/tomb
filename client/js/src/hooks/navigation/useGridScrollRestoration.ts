@@ -15,19 +15,25 @@ export function useGridScrollRestoration(
     enabled,
   });
 
+  // Auto-save scroll state when data changes
+  const saveScrollState = (dataLength: number) => {
+    const pagesLoaded = Math.ceil(dataLength / 50); // estimate 50 items per page
+    scrollRestoration.saveScrollState(pagesLoaded);
+  };
+
+  // Auto-restore scroll position when data loads
+  const restoreWhenReady = (dataLength: number) => {
+    scrollRestoration.restoreScrollPosition(dataLength);
+  };
+
   return {
     // For InfiniteGrid
     initialScrollTop: scrollRestoration.initialScrollTop,
     setScrollElement: scrollRestoration.setScrollElement,
 
-    // For search restoration
-    initialPagesLoaded: scrollRestoration.initialPagesLoaded,
+    // Simple API for components
+    saveScrollState,
+    restoreWhenReady,
     hasSavedState: scrollRestoration.hasSavedState,
-    saveViewState: scrollRestoration.saveViewState,
-
-    // Manual save
-    saveNow: () => {
-      // This will need pages context from caller
-    },
   };
 }

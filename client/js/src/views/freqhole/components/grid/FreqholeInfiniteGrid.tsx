@@ -1,11 +1,7 @@
 import { InfiniteGrid } from "../../../../components/infinite-data-grid";
-import type {
-  GridColumn,
-  ScrollRestorationState,
-} from "../../../../components/infinite-data-grid/types";
+import type { GridColumn } from "../../../../components/infinite-data-grid/types";
 import type { Song } from "../../../../lib/music/schemas/song";
 import { SongStarRating, SongFavoriteHeart } from "../ui";
-import { useGridScrollRestoration } from "../../../../hooks/navigation/useGridScrollRestoration";
 
 export interface FreqholeInfiniteGridProps<T = any> {
   data: T[];
@@ -26,12 +22,6 @@ export interface FreqholeInfiniteGridProps<T = any> {
   onSort?: (field: string) => void;
   showHeader?: boolean;
   class?: string;
-  // scroll restoration options
-  gridId?: string;
-  enableScrollRestoration?: boolean;
-  scrollElementRef?: (element: HTMLElement | null) => void;
-  initialScrollTop?: number;
-  onScrollSave?: (state: ScrollRestorationState) => void;
 }
 
 /**
@@ -41,11 +31,6 @@ export interface FreqholeInfiniteGridProps<T = any> {
 export function FreqholeInfiniteGrid<T = any>(
   props: FreqholeInfiniteGridProps<T>
 ) {
-  // Scroll restoration setup
-  const scrollRestoration = useGridScrollRestoration({
-    gridId: props.gridId || props.renderMode,
-    enabled: props.enableScrollRestoration !== false,
-  });
   // Configure columns based on render mode
   const getColumns = (): GridColumn<T>[] => {
     switch (props.renderMode) {
@@ -279,13 +264,6 @@ export function FreqholeInfiniteGrid<T = any>(
           hasMore={props.data.length < (props.totalCount || 0)}
           loading={props.loading || false}
           getRowId={(item: any) => item.id || item.name || String(item)}
-          scrollElementRef={
-            props.scrollElementRef || scrollRestoration.setScrollElement
-          }
-          initialScrollTop={
-            props.initialScrollTop || scrollRestoration.initialScrollTop()
-          }
-          onScrollSave={props.onScrollSave}
         />
       </div>
     </div>

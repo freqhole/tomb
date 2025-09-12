@@ -4,16 +4,24 @@ import {
   createSignal,
   createResource,
   createEffect,
+  onMount,
 } from "solid-js";
-import { useStore, storeActions } from "../../../../store";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useSongInteractions } from "../../../../services/songInteractions";
+import { useLocation } from "@solidjs/router";
 import { useSelection } from "../../../../hooks/useSelection";
 import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { apiClient } from "../../../../../../lib/api-client";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Album, Song } from "../../../../../../lib/music/schemas";
 import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
+
+interface ScrollRestorationState {
+  scrollTop: number;
+  estimatedIndex: number;
+  totalCount: number;
+  timestamp: number;
+}
 
 interface MobileAlbumsViewProps {
   class?: string;
@@ -22,9 +30,15 @@ interface MobileAlbumsViewProps {
 export function MobileAlbumsView(
   props: RouteSectionProps<unknown> & MobileAlbumsViewProps = {} as any
 ) {
-  const [] = useStore();
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
+  const location = useLocation();
+
+  // Router-aware scroll restoration
+  const [initialScrollTop, setInitialScrollTop] = createSignal(0);
+  const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
+    null
+  );
 
   const [selectedAlbum, setSelectedAlbum] = createSignal<Album | null>(null);
   const [loadingAlbumTracks, setLoadingAlbumTracks] = createSignal(false);
@@ -70,6 +84,29 @@ export function MobileAlbumsView(
   const loading = infiniteScroll.state.loading;
   const error = infiniteScroll.state.error;
 
+  // Load saved scroll state from router history
+  onMount(() => {
+    const routerState = location.state as ScrollRestorationState | undefined;
+    if (routerState && routerState.scrollTop) {
+      setInitialScrollTop(routerState.scrollTop);
+    }
+  });
+
+  // Save scroll state disabled to prevent infinite loops
+
+  // Restore scroll position on route change
+  createEffect(() => {
+    location.pathname; // track route changes
+
+    if (initialScrollTop() > 0) {
+      const element = scrollElement();
+      if (element && albums().length > 0) {
+        element.scrollTop = initialScrollTop();
+        setInitialScrollTop(0); // reset after restore
+      }
+    }
+  });
+
   // Fetch tracks for selected album
   const [albumTracksResource] = createResource(
     () => selectedAlbum(),
@@ -100,7 +137,7 @@ export function MobileAlbumsView(
   const handleAlbumClick = (album: Album) => {
     setSelectedAlbum(album);
     setViewMode("detail");
-    storeActions.selectAlbum(album);
+
     events.emit("album:selected", { album });
     // Clear selection when switching albums
     selection.clearSelection();
@@ -225,8 +262,11 @@ export function MobileAlbumsView(
 
           {/* Albums Grid - Scrollable with Infinite Scroll */}
           <div
-            class="flex-1 overflow-y-auto px-6 pb-6"
-            ref={infiniteScroll.containerRef}
+            class="flex-1 overflow-y-auto min-h-0"
+            ref={(el) => {
+              infiniteScroll.containerRef(el);
+              setScrollElement(el);
+            }}
           >
             <Show
               when={!loading() || albums().length > 0}
