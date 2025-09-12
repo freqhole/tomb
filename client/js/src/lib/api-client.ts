@@ -122,44 +122,27 @@ export class ApiClient {
     }
 
     // Add query parameters
-    console.log("🔧 API CLIENT DEBUG: Building URL with params:", queryParams);
     if (queryParams) {
       const searchParams = new URLSearchParams();
       Object.entries(queryParams).forEach(([key, value]) => {
-        console.log(
-          `🔧 API CLIENT DEBUG: Processing param ${key}:`,
-          value,
-          typeof value,
-          Array.isArray(value)
-        );
         if (value !== undefined && value !== null) {
           if (Array.isArray(value)) {
-            console.log(
-              `🔧 API CLIENT DEBUG: Array param ${key}, adding ${value.length} items:`,
-              value
-            );
             // For arrays, add each item as a separate parameter with the same key
-            value.forEach((item, index) => {
-              console.log(
-                `🔧 API CLIENT DEBUG: Adding ${key}[${index}] = ${item}`
-              );
+            value.forEach((item) => {
               searchParams.append(key, String(item));
             });
           } else {
-            console.log(`🔧 API CLIENT DEBUG: Single param ${key} = ${value}`);
             searchParams.append(key, String(value));
           }
         }
       });
       const queryString = searchParams.toString();
-      console.log("🔧 API CLIENT DEBUG: Final query string:", queryString);
       if (queryString) {
         url += `?${queryString}`;
       }
     }
 
     const finalUrl = `${this.baseUrl}${url}`;
-    console.log("🔧 API CLIENT DEBUG: Final URL:", finalUrl);
 
     return finalUrl;
   }
@@ -452,10 +435,6 @@ export class ApiClient {
   ): Promise<SearchResult> {
     const params = { q: query, ...options };
 
-    console.log("🔍 API searchMusic called with params:", params);
-    console.log("🔍 Query:", query);
-    console.log("🔍 Options:", options);
-
     try {
       const response = await this.makeRequest<unknown>(
         "GET",
@@ -552,9 +531,6 @@ export class ApiClient {
     options: Omit<MusicSearchOptions, "q"> = {}
   ): Promise<SearchResult> {
     const params = { ...options };
-
-    console.log("🎛️ API filterMusic called with params:", params);
-    console.log("🎛️ Filter options:", options);
 
     try {
       const response = await this.makeRequest<unknown>(

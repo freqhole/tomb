@@ -26,40 +26,24 @@ export function ContextMenuManager() {
   // Listen for context menu events
   createEffect(() => {
     events.on("context-menu:open", ({ x, y, actions: menuActions }) => {
-      console.log(
-        "📋 Opening context menu at",
-        { x, y },
-        "with actions:",
-        menuActions
-      );
       setActions(menuActions);
       setPlaylistSelector(null); // Clear any existing playlist selector
       contextMenu.open(x, y);
     });
 
     events.on("context-menu:close", () => {
-      console.log("📋 Closing context menu");
       contextMenu.close();
       setPlaylistSelector(null);
     });
 
     events.on("playlist-selector:open", ({ x, y, songs }) => {
-      console.log(
-        "📋 PLAYLIST SELECTOR EVENT RECEIVED at",
-        { x, y },
-        "for",
-        songs.length,
-        "songs"
-      );
       // Close any existing context menu first
       setActions([]);
       setPlaylistSelector({ songs, show: true });
-      console.log("📋 Playlist selector state set, opening menu");
       contextMenu.open(x, y);
     });
 
     events.on("playlist-selector:close", () => {
-      console.log("📋 Closing playlist selector");
       contextMenu.close();
       setPlaylistSelector(null);
     });
@@ -122,7 +106,6 @@ export function ContextMenuManager() {
 
   // Convert action format from songInteractions to ContextMenu format
   const convertActions = (rawActions: any[]): any[] => {
-    console.log("📋 Converting actions:", rawActions);
     return rawActions
       .filter(
         (action) => action && (action.type === "separator" || action.label)
@@ -136,16 +119,10 @@ export function ContextMenuManager() {
           label: action.label,
           icon: createIcon(action.icon),
           onClick: () => {
-            console.log("📋 Context menu action clicked:", action.label);
-            console.log("📋 Action object:", action);
             if (action.action) {
-              console.log("📋 Calling action.action()");
               action.action();
             } else if (action.onClick) {
-              console.log("📋 Calling action.onClick()");
               action.onClick();
-            } else {
-              console.log("📋 No action or onClick found!");
             }
           },
           disabled: action.disabled || false,
@@ -155,20 +132,17 @@ export function ContextMenuManager() {
   };
 
   const handleClose = () => {
-    console.log("📋 Closing context menu/playlist selector");
     contextMenu.close();
     setActions([]);
     setPlaylistSelector(null);
   };
 
   const handlePlaylistSelected = (playlist: any) => {
-    console.log("✅ Playlist selected:", playlist.title);
     // Clear selection after successful playlist addition
     events.emit("selection:clear", {});
   };
 
   const handleNewPlaylistCreated = (playlist: any) => {
-    console.log("✅ New playlist created:", playlist.title);
     // Clear selection after successful playlist creation
     events.emit("selection:clear", {});
   };

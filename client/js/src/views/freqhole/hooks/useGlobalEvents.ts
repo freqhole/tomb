@@ -105,7 +105,6 @@ export type EventData<T extends EventName> = FreqholeEvents[T];
  */
 export function useGlobalEvents() {
   const emit = <T extends EventName>(eventName: T, data: EventData<T>) => {
-    console.log(`🔄 Event: ${eventName}`, data);
     const event = new CustomEvent(eventName, { detail: data });
     eventBus.dispatchEvent(event);
   };
@@ -161,7 +160,6 @@ export function useGlobalEvents() {
   const getListeners = () => {
     // Note: EventTarget doesn't provide a way to enumerate listeners
     // This is mainly for debugging purposes
-    console.log("Event bus listeners (use browser dev tools to inspect)");
     return eventBus;
   };
 

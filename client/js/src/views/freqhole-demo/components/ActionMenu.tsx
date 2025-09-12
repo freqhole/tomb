@@ -1,4 +1,3 @@
-
 import { Show, createSignal, onCleanup, createEffect } from "solid-js";
 import type { MediaBlob } from "../../../lib/websocket-types";
 import { getDisplayFilename } from "../../../lib/media-utils";
@@ -85,7 +84,6 @@ export function ActionMenu() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      console.log(`📥 Downloaded: ${filename}`);
     } catch (error) {
       console.error("Download failed:", error);
     }
@@ -111,7 +109,6 @@ export function ActionMenu() {
       items: [item],
       onConfirm: () => {
         // TODO: Implement actual delete API call
-        console.log(`🗑️ Deleted: ${getDisplayFilename(item)}`);
         state.setConfirmDialog(null);
       },
     });
@@ -125,7 +122,6 @@ export function ActionMenu() {
     try {
       const url = `${window.location.origin}/api/blobs/${item.id}`;
       await navigator.clipboard.writeText(url);
-      console.log(`🔗 Copied URL for: ${getDisplayFilename(item)}`);
     } catch (error) {
       console.error("Copy URL failed:", error);
     }

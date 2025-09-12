@@ -50,9 +50,6 @@ export function useScrollRestoration(
 
     try {
       sessionStorage.setItem(getStorageKey(), JSON.stringify(state));
-      console.log(
-        `[SCROLL RESTORE] Saved: scrollTop=${state.scrollTop}, pages=${state.pagesLoaded} to key="${getStorageKey()}"`
-      );
     } catch (e) {
       console.warn("Failed to save view state:", e);
     }
@@ -68,16 +65,10 @@ export function useScrollRestoration(
         const state: ViewState = JSON.parse(stored);
         const now = Date.now();
         if (now - state.timestamp < STORAGE_TTL) {
-          console.log(
-            `[SCROLL RESTORE] Loaded: scrollTop=${state.scrollTop}, pages=${state.pagesLoaded} from key="${getStorageKey()}"`
-          );
           return state;
         } else {
-          console.log(`[SCROLL RESTORE] Expired state removed`);
           sessionStorage.removeItem(getStorageKey());
         }
-      } else {
-        console.log(`[SCROLL RESTORE] No saved state found in storage`);
       }
     } catch (e) {
       console.warn("Failed to load view state:", e);

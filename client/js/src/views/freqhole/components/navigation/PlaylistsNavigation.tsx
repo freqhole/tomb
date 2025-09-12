@@ -28,28 +28,18 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
   // Listen for playlist operation events to refresh the navigation list
   createEffect(() => {
     events.on("playlist:deleted", ({ playlistTitle }) => {
-      console.log(
-        "📝 Navigation: Playlist deleted event received:",
-        playlistTitle
-      );
       setRefreshPlaylists(refreshPlaylists() + 1);
     });
 
     events.on("playlist:created", ({ playlist }) => {
-      console.log(
-        "📝 Navigation: Playlist created event received:",
-        playlist.title
-      );
       setRefreshPlaylists(refreshPlaylists() + 1);
     });
 
     events.on("playlist:song-removed", () => {
-      console.log("📝 Navigation: Playlist song removed event received");
       setRefreshPlaylists(refreshPlaylists() + 1);
     });
 
     events.on("playlist:song-added", () => {
-      console.log("📝 Navigation: Playlist song added event received");
       setRefreshPlaylists(refreshPlaylists() + 1);
     });
   });
@@ -62,7 +52,6 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
     },
     async () => {
       try {
-        console.log("📝 Fetching recent playlists for navigation...");
         const response = await apiClient.getPlaylists({ page_size: 25 });
 
         // Sort by created_at descending (most recent first)
@@ -72,10 +61,9 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
           return dateB - dateA; // Most recent first
         });
 
-        console.log("📝 Recent playlists loaded:", sortedPlaylists.length);
         return sortedPlaylists;
       } catch (error) {
-        console.error("❌ Failed to load recent playlists:", error);
+        console.error("failed to load recent playlistz:", error);
         return [];
       }
     }
@@ -97,9 +85,6 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
       const songs = await apiClient.getPlaylistSongs(playlist.id);
 
       if (songs.length > 0 && songs[0]) {
-        console.log(
-          `🎵 Playing playlist: ${playlist.title} with ${songs.length} songs`
-        );
         // Play first song and queue the rest
         songInteractions.playSong(songs[0], true); // Replace queue
         songs.slice(1).forEach((song) => {
@@ -109,7 +94,7 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
         });
       }
     } catch (error) {
-      console.error("❌ Failed to play playlist:", error);
+      console.error("failed to play playlist:", error);
     }
   };
 

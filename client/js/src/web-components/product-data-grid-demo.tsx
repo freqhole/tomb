@@ -1,7 +1,10 @@
 /* @jsxImportSource solid-js */
 import { render } from "solid-js/web";
 import { createSignal, createMemo } from "solid-js";
-import { GenericInfiniteGrid, GridColumn } from "./generic-infinite-grid";
+import {
+  GenericInfiniteGrid,
+  GridColumn,
+} from "../components/infinite-data-grid/GenericInfiniteGrid";
 
 console.log("🚀 Product Data Grid Demo script loading");
 

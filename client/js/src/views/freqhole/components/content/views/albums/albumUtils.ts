@@ -29,11 +29,8 @@ export const formatAlbumDuration = (durationStr: string | null): string => {
 export function useAlbumPlayback() {
   const songInteractions = useSongInteractions();
 
-  const playAlbum = (tracks: Song[], albumName?: string) => {
+  const playAlbum = (tracks: Song[], _albumName?: string) => {
     if (tracks.length > 0) {
-      console.log(
-        `🎵 Playing album: ${albumName || "Unknown"} with ${tracks.length} tracks`
-      );
       const firstTrack = tracks[0];
       if (firstTrack) {
         songInteractions.playSong(firstTrack, true); // Replace queue and start playing
@@ -45,12 +42,9 @@ export function useAlbumPlayback() {
     }
   };
 
-  const shuffleAlbum = (tracks: Song[], albumName?: string) => {
+  const shuffleAlbum = (tracks: Song[], _albumName?: string) => {
     if (tracks.length > 0) {
       const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-      console.log(
-        `🎵 Shuffling album: ${albumName || "Unknown"} with ${shuffled.length} tracks`
-      );
       const firstTrack = shuffled[0];
       if (firstTrack) {
         songInteractions.playSong(firstTrack, true); // Replace queue and start playing
@@ -115,7 +109,6 @@ export function useAlbumLoader() {
   const loadAlbumTracks = async (album: Album): Promise<Song[]> => {
     if (!album?.album) return [];
 
-    console.log("🎵 Fetching tracks for album:", album.album);
     setLoadingTracks(true);
 
     try {
@@ -123,10 +116,9 @@ export function useAlbumLoader() {
         album.album,
         album.artist || undefined
       );
-      console.log("🎵 Album tracks loaded:", tracks);
       return tracks;
     } catch (error) {
-      console.error("❌ Failed to load album tracks:", error);
+      console.error("failed to load album tracks:", error);
       return [];
     } finally {
       setLoadingTracks(false);
@@ -135,13 +127,11 @@ export function useAlbumLoader() {
 
   const findAlbumByName = async (albumName: string): Promise<Album | null> => {
     try {
-      console.log("💿 Fetching album summary for:", albumName);
       const response = await apiClient.getAlbums({ page: 1, page_size: 1000 });
       const album = response.albums.find((a) => a.album === albumName);
-      console.log("💿 Album summary loaded:", album);
       return album || null;
     } catch (error) {
-      console.error("❌ Failed to load album summary:", error);
+      console.error("failed to load album summary:", error);
       return null;
     }
   };

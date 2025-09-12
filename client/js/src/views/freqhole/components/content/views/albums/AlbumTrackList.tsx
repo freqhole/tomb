@@ -20,14 +20,13 @@ export function AlbumTrackList(props: AlbumTrackListProps) {
   const selection = useSelection({
     onSelectionChange: (selectedIds) => {
       console.log(
-        `🎵 Album track list selection changed: ${selectedIds.size} songs selected`
+        `#TODO album track list selection changed: ${selectedIds.size} songs selected`
       );
     },
   });
 
   // Listen for selection clear events
   events.on("selection:clear", () => {
-    console.log("🎵 Clearing album track list selection via event");
     selection.clearSelection();
   });
 
@@ -66,10 +65,7 @@ export function AlbumTrackList(props: AlbumTrackListProps) {
                     : ""
                 }`}
                 onClick={(e) => {
-                  if (
-                    e.shiftKey &&
-                    selection.lastSelectedIndex() >= 0
-                  ) {
+                  if (e.shiftKey && selection.lastSelectedIndex() >= 0) {
                     selection.selectRange(
                       selection.lastSelectedIndex(),
                       index(),
@@ -79,9 +75,7 @@ export function AlbumTrackList(props: AlbumTrackListProps) {
                     selection.handleRowClick(track, index(), e);
                   }
                 }}
-                onDblClick={() =>
-                  songInteractions.handleDoubleClick(track)
-                }
+                onDblClick={() => songInteractions.handleDoubleClick(track)}
                 onMouseDown={(e) =>
                   selection.handleRowMouseDown(track, index(), e)
                 }
@@ -92,12 +86,11 @@ export function AlbumTrackList(props: AlbumTrackListProps) {
                     selection.setLastSelectedIndex(index());
                   }
 
-                  const selectedTracks = selection.getSelectedSongs(props.tracks);
+                  const selectedTracks = selection.getSelectedSongs(
+                    props.tracks
+                  );
                   if (selectedTracks.length > 1) {
-                    songInteractions.handleBulkRightClick(
-                      e,
-                      selectedTracks
-                    );
+                    songInteractions.handleBulkRightClick(e, selectedTracks);
                   } else {
                     songInteractions.handleRightClick(e, track, {
                       hideViewAlbum: true,
@@ -114,7 +107,12 @@ export function AlbumTrackList(props: AlbumTrackListProps) {
                       {track.title}
                     </div>
                     <div class="text-magenta-400 text-sm truncate">
-                      <Show when={track.artist && track.artist !== props.selectedAlbumArtist}>
+                      <Show
+                        when={
+                          track.artist &&
+                          track.artist !== props.selectedAlbumArtist
+                        }
+                      >
                         <button
                           class="hover:text-magenta-300 transition-colors"
                           onClick={(e) => {

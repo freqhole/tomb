@@ -21,14 +21,13 @@ export function MobileSongList(props: MobileSongListProps) {
   const selection = useSelection({
     onSelectionChange: (selectedIds: Set<string>) => {
       console.log(
-        `🎵 Mobile song list selection changed: ${selectedIds.size} songs selected`
+        `#TODO mobile song list selection changed: ${selectedIds.size} songs selected`
       );
     },
   });
 
   // Clear selection when songs change
   events.on("selection:clear", () => {
-    console.log("🎵 Clearing mobile song list selection via event");
     selection.clearSelection();
   });
 

@@ -28,12 +28,6 @@ export interface InfiniteScrollOptions {
    * @default true
    */
   enabled?: boolean | (() => boolean);
-
-  /**
-   * Debounce scroll events (in milliseconds)
-   * @default 100
-   */
-  debounceMs?: number;
 }
 
 export interface InfiniteScrollState<T> {
@@ -69,12 +63,7 @@ export function useInfiniteScroll<T>(
   ) => Promise<{ items: T[]; pagination: PaginationMetadata }>,
   options: InfiniteScrollOptions = {}
 ): UseInfiniteScrollResult<T> {
-  const {
-    threshold = 200,
-    container = null,
-    enabled = true,
-    debounceMs = 100,
-  } = options;
+  const { threshold = 200, container = null, enabled = true } = options;
 
   // Helper to check if enabled
   const isEnabled = () => {
@@ -99,76 +88,63 @@ export function useInfiniteScroll<T>(
     return result;
   };
 
-  // Debounced scroll handler
-  let scrollTimeout: number | null = null;
+  // Immediate scroll handler with passive listening
+  let checkInProgress = false;
 
   const handleScroll = () => {
-    if (scrollTimeout) {
-      clearTimeout(scrollTimeout);
+    if (checkInProgress || !isEnabled() || loading() || !hasMore()) {
+      return;
     }
 
-    scrollTimeout = setTimeout(() => {
-      if (!isEnabled() || loading() || !hasMore()) {
-        return;
-      }
+    checkInProgress = true;
 
-      const element = containerElement() || window;
-      let scrollHeight: number;
-      let scrollTop: number;
-      let clientHeight: number;
+    const element = containerElement() || window;
+    let scrollHeight: number;
+    let scrollTop: number;
+    let clientHeight: number;
 
-      if (element === window) {
-        scrollHeight = document.documentElement.scrollHeight;
-        scrollTop = window.scrollY;
-        clientHeight = window.innerHeight;
-      } else {
-        const el = element as HTMLElement;
-        scrollHeight = el.scrollHeight;
-        scrollTop = el.scrollTop;
-        clientHeight = el.clientHeight;
-      }
+    if (element === window) {
+      scrollHeight = document.documentElement.scrollHeight;
+      scrollTop = window.scrollY;
+      clientHeight = window.innerHeight;
+    } else {
+      const el = element as HTMLElement;
+      scrollHeight = el.scrollHeight;
+      scrollTop = el.scrollTop;
+      clientHeight = el.clientHeight;
+    }
 
-      const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
 
-      if (distanceFromBottom <= threshold) {
-        loadMore();
-      }
-    }, debounceMs) as unknown as number;
+    if (distanceFromBottom <= threshold) {
+      loadMore();
+    }
+
+    checkInProgress = false;
   };
 
   // Load more data
   const loadMore = async () => {
     const currentPagination = pagination();
-    // loadMore called - removed verbose logging
 
     if (loading() || (!hasMore() && pagination())) {
-      // loadMore early exit - already loading or no more data
       return;
     }
 
     try {
-      // loadMore starting fetch
       setLoading(true);
       setError(null);
 
       const nextPage = currentPagination ? currentPagination.page + 1 : 1;
-      // loadMore fetching page: ${nextPage}
-
       const result = await fetchFn(nextPage);
-      // loadMore fetch result received
 
-      // Append new items to existing items
       setItems((prev) => [...prev, ...result.items]);
       setPagination(result.pagination);
-
-      console.log(
-        `📜 Infinite scroll: Loaded page ${nextPage}, ${result.items.length} new items, ${items().length} total`
-      );
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to load more data";
       setError(errorMessage);
-      console.error("📜 Infinite scroll error:", err);
+      console.error("infinite scroll error:", err);
     } finally {
       setLoading(false);
     }
@@ -207,9 +183,6 @@ export function useInfiniteScroll<T>(
 
     onCleanup(() => {
       element.removeEventListener("scroll", handleScroll);
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
     });
   });
 
@@ -220,23 +193,7 @@ export function useInfiniteScroll<T>(
     const isLoading = loading();
     const paginationData = pagination();
 
-    console.log(
-      `📜 Infinite scroll auto-load check [${Math.random().toString(36).substr(2, 4)}]:`,
-      {
-        enabled,
-        itemsLength,
-        isLoading,
-        hasPagination: !!paginationData,
-        shouldLoad:
-          enabled && itemsLength === 0 && !isLoading && !paginationData,
-        hookId: `${enabled ? "ACTIVE" : "INACTIVE"}-hook`,
-      }
-    );
-
     if (enabled && itemsLength === 0 && !isLoading && !paginationData) {
-      console.log(
-        `📜 Auto-loading first page... [${Math.random().toString(36).substr(2, 4)}]`
-      );
       loadMore();
     }
   });

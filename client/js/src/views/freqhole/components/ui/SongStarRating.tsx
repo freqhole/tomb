@@ -37,23 +37,13 @@ export function SongStarRating(props: SongStarRatingProps) {
     // Use 0 to represent "no rating" instead of null
     const finalRating = rating;
 
-    console.log(
-      `🎵 Rating change: "${song.title}" from ${getRating()} to ${finalRating} (input: ${rating})`
-    );
-    console.log(
-      `🎵 Will send to API: ${finalRating === 0 ? "CLEAR RATING (0)" : `SET TO ${finalRating}`}`
-    );
-
     try {
       setIsUpdating(true);
 
       // Optimistic update through state service
       songState.updateRating(song.id, finalRating);
 
-      console.log(`🎵 API call: rateSong(${song.id}, ${finalRating})`);
       const result = await apiClient.rateSong(song.id, finalRating);
-      console.log(`🎵 API response:`, result);
-      console.log(`🎵 Server returned rating: ${result.rating}`);
 
       // Check if the server actually cleared the rating
       if (
@@ -62,7 +52,7 @@ export function SongStarRating(props: SongStarRatingProps) {
         result.rating !== undefined
       ) {
         console.warn(
-          `🎵 WARNING: Tried to clear rating but server returned: ${result.rating}`
+          `[SongStarRating] tried to clear rating but server returned: ${result.rating}`
         );
       }
 
@@ -74,10 +64,8 @@ export function SongStarRating(props: SongStarRatingProps) {
 
       // Call the optional callback
       props.onRate?.(song.id, finalRating);
-
-      console.log(`🎵 Rated "${song.title}" with ${finalRating} stars`);
     } catch (error) {
-      console.error("Failed to rate song:", error);
+      console.error("failed to rate song:", error);
       // Revert optimistic update on error
       const originalRating = songState.getRating(song.id);
       songState.updateRating(song.id, originalRating);

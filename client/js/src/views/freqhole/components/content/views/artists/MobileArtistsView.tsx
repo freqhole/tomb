@@ -16,17 +16,10 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
   const fetchArtists = async (
     page: number
   ): Promise<{ items: ArtistSummary[]; pagination: PaginationMetadata }> => {
-    console.log(`🎤 Loading mobile artists page ${page}`);
-
     const response = await apiClient.getArtists({
       page,
       page_size: 50,
     });
-
-    console.log(
-      `🎤 Loaded ${response.artists.length} mobile artists`,
-      response
-    );
 
     return {
       items: response.artists,

@@ -33,7 +33,7 @@ import "./sync-progress";
 import "./unified-sync-demo";
 import "./blob-viewer";
 import "./infinite-data-grid";
-import "./generic-infinite-grid";
+import "../components/infinite-data-grid/GenericInfiniteGrid";
 import "./product-data-grid-demo";
 import "./search-demo";
 import "./freqhole-demo";

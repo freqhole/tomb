@@ -32,17 +32,14 @@ export function MobileAlbumsView(
 
   // Selection state
   const selection = useSelection({
-    onSelectionChange: (selectedIds: Set<string>) => {
-      console.log(
-        `🎵 Album view selection changed: ${selectedIds.size} songs selected`
-      );
+    onSelectionChange: (_selectedIds) => {
+      // selection changed
     },
   });
 
   // Listen for selection clear events
   createEffect(() => {
     events.on("selection:clear", () => {
-      console.log("🎵 Clearing album view selection via event");
       selection.clearSelection();
     });
   });
@@ -51,14 +48,10 @@ export function MobileAlbumsView(
   const fetchAlbums = async (
     page: number
   ): Promise<{ items: Album[]; pagination: PaginationMetadata }> => {
-    console.log(`💿 Loading mobile albums page ${page}`);
-
     const response = await apiClient.getAlbums({
       page,
       page_size: 50,
     });
-
-    console.log(`💿 Loaded ${response.albums.length} mobile albums`, response);
 
     return {
       items: response.albums,
@@ -83,22 +76,20 @@ export function MobileAlbumsView(
     async (album: Album) => {
       if (!album?.album) return { tracks: [] };
 
-      console.log("🎵 Fetching tracks for album:", album.album);
       setLoadingAlbumTracks(true);
 
       try {
         if (!album.album) {
-          console.error("❌ Album name is null, cannot load tracks");
+          console.error("album name is null, cannot load tracks");
           return [];
         }
         const tracks = await apiClient.getAlbumTracks(
           album.album,
           album.artist || undefined
         );
-        console.log("🎵 Album tracks loaded:", tracks.length);
         return tracks;
       } catch (error) {
-        console.error("❌ Failed to load album tracks:", error);
+        console.error("failed to load album tracks:", error);
         return [];
       } finally {
         setLoadingAlbumTracks(false);
@@ -163,9 +154,8 @@ export function MobileAlbumsView(
 
   const handlePlayAlbumFromGrid = async (album: Album) => {
     try {
-      console.log("🎵 Playing album from grid:", album.album);
       if (!album.album) {
-        console.error("❌ Album name is null, cannot play album");
+        console.error("album name is null, cannot play album");
         return;
       }
       const tracks = await apiClient.getAlbumTracks(

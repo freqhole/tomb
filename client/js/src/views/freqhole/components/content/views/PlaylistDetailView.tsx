@@ -54,8 +54,8 @@ export function PlaylistDetailView(
   // Selection state
   const selection = useSelection({
     onSelectionChange: (selectedIds) => {
-      console.log(
-        `🎵 Playlist selection changed: ${selectedIds.size} songs selected`
+      console.info(
+        `playlist selection changed: ${selectedIds.size} songs selected`
       );
     },
   });
@@ -63,7 +63,6 @@ export function PlaylistDetailView(
   // Listen for selection clear events
   createEffect(() => {
     events.on("selection:clear", () => {
-      console.log("🎵 Clearing playlist view selection via event");
       selection.clearSelection();
     });
   });
@@ -71,12 +70,8 @@ export function PlaylistDetailView(
   // Listen for playlist operation events to refresh UI
   createEffect(() => {
     events.on("playlist:deleted", ({ playlistId }) => {
-      console.log("📝 Playlist deleted event received:", playlistId);
       // If we're currently viewing the deleted playlist, navigate away
       if (selectedPlaylist()?.id === playlistId) {
-        console.log(
-          "📝 Currently viewing deleted playlist, navigating to list"
-        );
         navigate("/playlists");
       }
       // Refresh playlists list
@@ -84,7 +79,6 @@ export function PlaylistDetailView(
     });
 
     events.on("playlist:song-removed", ({ playlistId, updatedPlaylist }) => {
-      console.log("📝 Playlist song removed event received:", playlistId);
       // If we're currently viewing this playlist, update its song count
       if (selectedPlaylist()?.id === playlistId) {
         setSelectedPlaylist(updatedPlaylist);
@@ -94,7 +88,6 @@ export function PlaylistDetailView(
     });
 
     events.on("playlist:created", () => {
-      console.log("📝 Playlist created event received");
       // Refresh playlists list
       setRefreshPlaylists(refreshPlaylists() + 1);
     });
@@ -135,7 +128,6 @@ export function PlaylistDetailView(
   // Load specific playlist by ID
   const loadPlaylistById = async (playlistId: string) => {
     try {
-      console.log("📝 Loading playlist:", playlistId);
       // Find playlist in cache first, or fetch all playlists
       const response = await apiClient.getPlaylists({ page_size: 100 });
       const playlist = response.playlists.find((p) => p.id === playlistId);
@@ -148,14 +140,13 @@ export function PlaylistDetailView(
         setOriginalDescription(playlist.description || "");
         storeActions.selectPlaylist(playlist);
         events.emit("playlist:selected", { playlist });
-        console.log("📝 Playlist loaded:", playlist.title);
       } else {
-        console.warn("⚠️ Playlist not found:", playlistId);
+        console.warn("playlist not found:", playlistId);
         // Navigate back to playlists list if not found
         navigate("/playlists");
       }
     } catch (error) {
-      console.error("❌ Failed to load playlist:", error);
+      console.error("failed to load playlist:", error);
       navigate("/playlists");
     }
   };
@@ -172,13 +163,10 @@ export function PlaylistDetailView(
         : false;
     },
     async () => {
-      console.log("📝 Fetching playlists...");
       try {
         const response = await apiClient.getPlaylists({ page_size: 100 });
-        console.log("📝 Playlists loaded:", response.playlists.length);
         return response;
       } catch (error) {
-        console.error("❌ Failed to load playlists:", error);
         return { playlists: [], pagination: null };
       }
     }
@@ -204,18 +192,16 @@ export function PlaylistDetailView(
       const playlistId =
         lastHyphenIndex > 0 ? key.substring(0, lastHyphenIndex) : key;
       if (!playlistId) {
-        console.warn("⚠️ Invalid playlist key format:", key);
+        console.warn("invalid playlist key format:", key);
         return [];
       }
-      console.log("🎵 Fetching songs for playlist:", playlistId);
       setLoadingPlaylistSongs(true);
 
       try {
         const songs = await apiClient.getPlaylistSongs(playlistId);
-        console.log("🎵 Playlist songs loaded:", songs.length);
         return songs;
       } catch (error) {
-        console.error("❌ Failed to load playlist songs:", error);
+        console.error("failed to load playlist songs:", error);
         return [];
       } finally {
         setLoadingPlaylistSongs(false);
@@ -275,8 +261,6 @@ export function PlaylistDetailView(
         thumbnail_blob_id: selectedPlaylist()?.thumbnail_blob_id || null,
       });
 
-      console.log("✅ Playlist created successfully:", newPlaylist.title);
-
       // Emit event for other components to react to playlist creation
       events.emit("playlist:created", {
         playlist: newPlaylist,
@@ -290,7 +274,7 @@ export function PlaylistDetailView(
         message: "Playlist created successfully",
       });
     } catch (error) {
-      console.error("❌ Failed to create playlist:", error);
+      console.error("failed to create playlist:", error);
       events.emit("notification:show", {
         type: "error",
         message: "Failed to create playlist",
@@ -321,7 +305,7 @@ export function PlaylistDetailView(
         message: "Playlist updated successfully",
       });
     } catch (error) {
-      console.error("❌ Failed to update playlist:", error);
+      console.error("failed to update playlist:", error);
       events.emit("notification:show", {
         type: "error",
         message: "Failed to update playlist",
@@ -338,11 +322,7 @@ export function PlaylistDetailView(
     }
 
     try {
-      console.log("🗑️ Deleting playlist:", playlist.title);
-
       await apiClient.deletePlaylist(playlist.id);
-
-      console.log("🗑️ Playlist deleted successfully, emitting events...");
 
       // Emit event for other components to react to playlist deletion
       events.emit("playlist:deleted", {
@@ -355,10 +335,10 @@ export function PlaylistDetailView(
 
       events.emit("notification:show", {
         type: "success",
-        message: "Playlist deleted successfully",
+        message: "playlist deleted",
       });
     } catch (error) {
-      console.error("❌ Error deleting playlist:", error);
+      console.error("error deleting playlist:", error);
       events.emit("notification:show", {
         type: "error",
         message: "Failed to delete playlist",
@@ -406,14 +386,10 @@ export function PlaylistDetailView(
         setUploadProgress(progress.progress);
       });
 
-      console.log("📸 Uploading playlist photo:", file.name);
-
       const uploadResult = await fileUploader.uploadMediaBlob(file, {
         type: "playlist-photo",
         playlistId: selectedPlaylist()?.id || "new",
       });
-
-      console.log("✅ Photo uploaded successfully:", uploadResult.id);
 
       // Update the playlist with the new photo
       if (selectedPlaylist()) {
@@ -429,7 +405,7 @@ export function PlaylistDetailView(
         message: "Photo uploaded successfully",
       });
     } catch (error) {
-      console.error("❌ Error uploading photo:", error);
+      console.error("error uploading photo:", error);
       events.emit("notification:show", {
         type: "error",
         message: "Failed to upload photo",
@@ -508,12 +484,6 @@ export function PlaylistDetailView(
     const playlist = selectedPlaylist();
     if (!playlist) return;
 
-    console.log("🗑️ Removing song from playlist:", {
-      songTitle: song.title,
-      playlistTitle: playlist.title,
-      currentSongCount: playlist.song_count,
-    });
-
     try {
       await apiClient.removeSongsFromPlaylist(playlist.id, [song.id]);
 
@@ -525,8 +495,6 @@ export function PlaylistDetailView(
 
       // Update the selected playlist song count
       setSelectedPlaylist(updatedPlaylist);
-
-      console.log("🗑️ Song removed successfully, triggering refresh...");
 
       // Trigger refresh of songs resource
       setRefreshSongs(refreshSongs() + 1);
@@ -543,10 +511,10 @@ export function PlaylistDetailView(
         message: "Song removed from playlist",
       });
     } catch (error) {
-      console.error("❌ Failed to remove song:", error);
+      console.error("failed to remove song:", error);
       events.emit("notification:show", {
         type: "error",
-        message: "Failed to remove song",
+        message: "failed to remove song",
       });
     }
   };
@@ -613,9 +581,7 @@ export function PlaylistDetailView(
         );
       } catch (reorderError) {
         // If reorder endpoint doesn't exist, fall back to remove all and re-add
-        console.log(
-          "Reorder endpoint not available, using remove/add approach"
-        );
+
         await apiClient.removeSongsFromPlaylist(
           playlist.id,
           songs.map((s) => s.id)
@@ -631,7 +597,7 @@ export function PlaylistDetailView(
         message: "Playlist reordered successfully",
       });
     } catch (error) {
-      console.error("❌ Failed to reorder playlist:", error);
+      console.error("failed to reorder playlist:", error);
       events.emit("notification:show", {
         type: "error",
         message: "Failed to reorder playlist",

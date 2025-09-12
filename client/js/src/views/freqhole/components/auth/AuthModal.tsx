@@ -25,16 +25,8 @@ export const AuthModal = (props: AuthModalProps) => {
     },
     onAuthError: (error) => {
       // Error is handled by the hook's error state
-      console.error("Auth error:", error);
+      console.error("auth error:", error);
     },
-  });
-
-  // Debug: Log what AuthModal sees
-  console.log("AuthModal auth state:", {
-    isAuthenticated: auth.isAuthenticated,
-    currentUser: auth.currentUser,
-    isLoading: auth.isLoading,
-    error: auth.error,
   });
 
   const handleSubmit = async (e: Event) => {

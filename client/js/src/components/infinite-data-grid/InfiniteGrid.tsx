@@ -1,4 +1,5 @@
 import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
+import { useLocation, useBeforeLeave } from "@solidjs/router";
 import type { InfiniteGridProps, GridColumn } from "./types";
 import { GRID_STYLES, getRowClasses } from "./styles/grid-styles";
 import { useGridLayout } from "./hooks/useGridLayout";
@@ -13,6 +14,8 @@ import { GridHeader } from "./GridHeader";
 import { GridStatusBar } from "./GridStatusBar";
 
 export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
+  const location = useLocation();
+
   // state for edit mode tracking
   const [isEditMode, setIsEditMode] = createSignal(false);
   const [editingCell, setEditingCell] = createSignal<{
@@ -27,6 +30,42 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
   });
 
   const getItemId = props.getRowId || ((item: any) => item.id || String(item));
+
+  // router-aware scroll restoration
+  const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
+    null
+  );
+
+  // save scroll state before navigation
+  useBeforeLeave(() => {
+    const element = scrollElement();
+    if (element && props.onScrollSave) {
+      const scrollTop = element.scrollTop;
+      const estimatedIndex = Math.floor(
+        scrollTop / (props.virtualization?.rowHeight || 64)
+      );
+      props.onScrollSave({
+        scrollTop,
+        estimatedIndex,
+        totalCount: props.data.length,
+        timestamp: Date.now(),
+      });
+    }
+    return true;
+  });
+
+  // restore scroll position on route change
+  createEffect(() => {
+    location.pathname; // track route changes
+
+    if (props.initialScrollTop && props.initialScrollTop > 0) {
+      const element = scrollElement();
+      if (element) {
+        // restore scroll position immediately
+        element.scrollTop = props.initialScrollTop || 0;
+      }
+    }
+  });
 
   // simple sort logic directly in component
   const sortedData = createMemo(() => {
@@ -270,6 +309,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
         ref={(el) => {
           layout.containerRef(el);
           props.scrollElementRef?.(el);
+          setScrollElement(el);
         }}
         class={GRID_STYLES.scrollContainer}
         onScroll={(e) => {

@@ -187,7 +187,7 @@ export const Player = () => {
     });
 
     audio.addEventListener("error", () => {
-      console.error("Audio playback error");
+      console.error("audio playback error");
       storeActions.setPlayerState({ isPlaying: false });
     });
 
@@ -228,21 +228,11 @@ export const Player = () => {
     const song = currentSong();
     const audio = audioElement();
 
-    console.log("🎵 Song effect triggered:", {
-      songId: song?.id,
-      songTitle: song?.title,
-      lastLoadedId: lastLoadedSongId(),
-      audioSrc: audio?.src,
-    });
-
     if (song && audio) {
       // Only proceed if this is actually a different song
       if (lastLoadedSongId() === song.id) {
-        console.log("🎵 Same song ID, skipping reload:", song.title);
         return;
       }
-
-      console.log("🎵 Loading NEW audio for song:", song.title);
       setLastLoadedSongId(song.id);
 
       audio.pause(); // Stop any currently playing audio
@@ -256,13 +246,11 @@ export const Player = () => {
       // Wait for the audio to load before playing (only for new songs)
       const shouldPlay = untrack(() => isPlaying());
       if (shouldPlay) {
-        console.log("🎵 Setting up auto-play for new song");
         audio.addEventListener(
           "canplay",
           () => {
-            console.log("🎵 Audio can play, starting playback");
             audio.play().catch((err) => {
-              console.error("Failed to play audio:", err);
+              console.error("failed to play audio:", err);
               storeActions.setPlayerState({ isPlaying: false });
             });
           },
@@ -278,14 +266,6 @@ export const Player = () => {
     const song = currentSong();
     const playing = isPlaying();
 
-    console.log("🎮 Play/pause effect triggered:", {
-      songId: song?.id,
-      playing,
-      audioSrc: audio?.src,
-      audioPaused: audio?.paused,
-      audioCurrentTime: audio?.currentTime,
-    });
-
     if (!audio || !song) return;
 
     // Update page title and media session
@@ -294,25 +274,15 @@ export const Player = () => {
 
     // Only handle play/pause if audio is already loaded for this song
     if (audio.src && audio.src.includes(song.media_blob_id)) {
-      console.log("🎮 Play/pause state change:", {
-        playing,
-        paused: audio.paused,
-        currentTime: audio.currentTime,
-      });
-
       if (playing && audio.paused) {
         // Resume from current position, don't restart
-        console.log("🎮 Resuming playback from:", audio.currentTime);
         audio.play().catch((err) => {
-          console.error("Failed to play audio:", err);
+          console.error("failed to play audio:", err);
           storeActions.setPlayerState({ isPlaying: false });
         });
       } else if (!playing && !audio.paused) {
-        console.log("🎮 Pausing playback at:", audio.currentTime);
         audio.pause();
       }
-    } else {
-      console.log("🎮 Skipping play/pause - audio not loaded for current song");
     }
   });
 
@@ -322,7 +292,6 @@ export const Player = () => {
     const audio = audioElement();
     if (audio && audio.src) {
       // Only update volume if audio is already loaded
-      console.log("🔊 Updating volume to:", vol);
       audio.volume = vol;
     }
   });

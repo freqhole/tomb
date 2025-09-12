@@ -41,16 +41,14 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
 
   // Selection state
   const selection = useSelection({
-    onSelectionChange: (selectedIds) => {
-      console.log(
-        `🎵 Desktop artist view selection changed: ${selectedIds.size} songs selected`
-      );
+    onSelectionChange: (_selectedIds) => {
+      // selection changed
+      //
     },
   });
 
   // Listen for selection clear events
   events.on("selection:clear", () => {
-    console.log("🎵 Clearing desktop artist view selection via event");
     selection.clearSelection();
   });
 
@@ -58,14 +56,10 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
   const fetchArtists = async (
     page: number
   ): Promise<{ items: ArtistSummary[]; pagination: PaginationMetadata }> => {
-    console.log(`🎤 Loading artists page ${page}`);
-
     const response = await apiClient.getArtists({
       page,
       page_size: 50,
     });
-
-    console.log(`🎤 Loaded ${response.artists.length} artists`, response);
 
     return {
       items: response.artists,
@@ -95,15 +89,13 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
     async (artist: ArtistSummary) => {
       if (!artist?.artist) return { songs: [] };
 
-      console.log("🎵 Fetching songs for artist:", artist.artist);
       setLoadingArtistSongs(true);
 
       try {
         const songs = await apiClient.getArtistSongs(artist.artist);
-        console.log("🎵 Artist songs loaded:", songs);
         return songs;
       } catch (error) {
-        console.error("❌ Failed to load artist songs:", error);
+        console.error("failed to load artist songs:", error);
         return { songs: [] };
       } finally {
         setLoadingArtistSongs(false);
@@ -168,7 +160,6 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
         // Find the artist in the loaded artists list
         const artist = artists().find((a) => a.artist === artistName);
         if (artist && selectedArtist()?.artist !== artistName) {
-          console.log(`🎤 Loading artist from URL: ${artistName}`);
           setSelectedArtist(artist);
           storeActions.selectArtist(artist);
           events.emit("artist:selected", { artist });
@@ -199,7 +190,6 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
   const handlePlayAll = () => {
     const songs = artistSongsResource()?.songs || [];
     if (songs.length > 0) {
-      console.log(`🎵 Playing all songs for artist: ${songs.length} songs`);
       // Use songInteractions to properly queue and play all songs
       const firstSong = songs[0];
       if (firstSong) {
@@ -216,9 +206,7 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
     const songs = artistSongsResource()?.songs || [];
     if (songs.length > 0) {
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      console.log(
-        `🎵 Shuffling all songs for artist: ${shuffled.length} songs`
-      );
+
       // Use songInteractions to properly queue and play shuffled songs
       const firstSong = shuffled[0];
       if (firstSong) {
@@ -240,9 +228,6 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
 
   const handlePlayAlbum = (album: AlbumGroup) => {
     if (album.songs.length > 0) {
-      console.log(
-        `🎵 Playing album: ${album.album} with ${album.songs.length} songs`
-      );
       // Use songInteractions to properly queue and play the album
       const firstSong = album.songs[0];
       if (firstSong) {
@@ -258,9 +243,7 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
   const handleShuffleAlbum = (album: AlbumGroup) => {
     if (album.songs.length > 0) {
       const shuffled = [...album.songs].sort(() => Math.random() - 0.5);
-      console.log(
-        `🎵 Shuffling album: ${album.album} with ${shuffled.length} songs`
-      );
+
       // Use songInteractions to properly queue and play the shuffled album
       const firstSong = shuffled[0];
       if (firstSong) {

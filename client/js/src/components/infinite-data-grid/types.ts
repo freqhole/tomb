@@ -1,6 +1,13 @@
 // Generic types for the infinite data grid component
 import type { JSX } from "solid-js";
 
+export interface ScrollRestorationState {
+  scrollTop: number;
+  estimatedIndex: number;
+  totalCount: number;
+  timestamp: number;
+}
+
 export interface GridColumn<T = any> {
   key: string;
   title: string | JSX.Element;
@@ -88,6 +95,10 @@ export interface InfiniteGridProps<T = any> {
   hasMore?: boolean;
   serverTotal?: number;
   initialScrollTop?: number; // For scroll restoration
+
+  // Scroll restoration
+  onScrollSave?: (state: ScrollRestorationState) => void;
+  estimatedStartIndex?: number;
 
   // Song-focused rendering (specific to music domain)
   songRowRenderer?: "default" | "compact" | "detailed" | "album-header";

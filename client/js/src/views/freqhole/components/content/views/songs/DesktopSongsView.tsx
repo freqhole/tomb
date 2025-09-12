@@ -7,9 +7,9 @@ import { useSelection } from "../../../../hooks/useSelection";
 import { useFreqholeSearch } from "../../../../hooks/useFreqholeSearch";
 import { FreqholeInfiniteGrid } from "../../../grid";
 import { useSongState } from "../../../../services/songState";
-import { useScrollRestoration } from "../../../../../../hooks/navigation/useScrollRestoration";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { RouteSectionProps } from "@solidjs/router";
+import type { ScrollRestorationState } from "../../../../../../components/infinite-data-grid/types";
 
 interface DesktopSongsViewProps {
   class?: string;
@@ -26,11 +26,8 @@ export function DesktopSongsView(
   // Enhanced search hook with total counts
   const searchHook = useFreqholeSearch(apiClient);
 
-  // Scroll restoration
-  const scrollRestoration = useScrollRestoration({
-    key: "desktop-songs",
-    enabled: true,
-  });
+  // Router-aware scroll restoration state
+  const [initialScrollTop, setInitialScrollTop] = createSignal(0);
 
   // Selection state
   const selection = useSelection({
@@ -69,50 +66,36 @@ export function DesktopSongsView(
   const error = () => searchHook.error();
   const totalCount = () => searchHook.totalCount();
 
-  // Restore pagination and scroll on mount
-  onMount(async () => {
-    if (scrollRestoration.hasSavedState()) {
-      const targetPages = scrollRestoration.initialPagesLoaded();
-      const targetScroll = scrollRestoration.initialScrollTop();
+  // Load saved scroll state on mount
+  onMount(() => {
+    const storageKey = `scroll_desktop-songs_/songs`;
+    try {
+      const stored = sessionStorage.getItem(storageKey);
+      if (stored) {
+        const state: ScrollRestorationState = JSON.parse(stored);
+        const now = Date.now();
+        const TTL = 30 * 60 * 1000; // 30 minutes
 
-      console.log(
-        `[SCROLL RESTORE] Found saved state: pages=${targetPages}, scrollTop=${targetScroll}`
-      );
-
-      // Load pages until we have enough data for scroll restoration
-      for (let page = 2; page <= targetPages; page++) {
-        if (searchHook.pagination().hasNext && !loading()) {
-          console.log(
-            `[SCROLL RESTORE] Loading page ${page} for restoration...`
-          );
-          await searchHook.loadMore();
+        if (now - state.timestamp < TTL) {
+          setInitialScrollTop(state.scrollTop);
         } else {
-          console.log(
-            `[SCROLL RESTORE] Cannot load page ${page}: hasNext=${searchHook.pagination().hasNext}, loading=${loading()}`
-          );
-          break;
+          sessionStorage.removeItem(storageKey);
         }
       }
-
-      console.log(
-        `[SCROLL RESTORE] Finished loading pages. Current items: ${songs().length}`
-      );
-    } else {
-      console.log(`[SCROLL RESTORE] No saved state found`);
+    } catch (e) {
+      console.warn("failed to load scroll state:", e);
     }
   });
 
-  // Auto-save scroll state when pagination changes
-  createEffect(() => {
-    const pag = searchHook.pagination();
-    const currentItems = songs().length;
-    if (currentItems > 0) {
-      console.log(
-        `[SCROLL RESTORE] Saving state: page=${pag.page}, items=${currentItems}`
-      );
-      scrollRestoration.saveViewState(pag.page);
+  // Handle scroll state saving
+  const handleScrollSave = (state: ScrollRestorationState) => {
+    const storageKey = `scroll_desktop-songs_/songs`;
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify(state));
+    } catch (e) {
+      console.warn("failed to save scroll state:", e);
     }
-  });
+  };
 
   // Reload functionality
   const reloadSongs = () => {
@@ -286,8 +269,8 @@ export function DesktopSongsView(
             onSort={handleSort}
             gridId="desktop-songs"
             enableScrollRestoration={true}
-            scrollElementRef={scrollRestoration.setScrollElement}
-            initialScrollTop={scrollRestoration.initialScrollTop()}
+            onScrollSave={handleScrollSave}
+            initialScrollTop={initialScrollTop()}
             class="h-full"
           />
         </div>

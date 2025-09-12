@@ -46,14 +46,13 @@ export function ArtistDetailView(
   const selection = useSelection({
     onSelectionChange: (selectedIds) => {
       console.log(
-        `🎵 Artist detail view selection changed: ${selectedIds.size} songs selected`
+        `#TODO artist detail view selection changed: ${selectedIds.size} songs selected`
       );
     },
   });
 
   // Listen for selection clear events
   events.on("selection:clear", () => {
-    console.log("🎵 Clearing artist detail view selection via event");
     selection.clearSelection();
   });
 
@@ -70,17 +69,15 @@ export function ArtistDetailView(
       if (!name) return null;
 
       try {
-        console.log("🎤 Fetching artist summary for:", name);
         // We'll need to get this from the artists list or create a separate endpoint
         const response = await apiClient.getArtists({
           page: 1,
           page_size: 1000,
         });
         const artist = response.artists.find((a) => a.artist === name);
-        console.log("🎤 Artist summary loaded:", artist);
         return artist || null;
       } catch (error) {
-        console.error("❌ Failed to load artist summary:", error);
+        console.error("failed to load artist summary:", error);
         return null;
       }
     }
@@ -92,15 +89,13 @@ export function ArtistDetailView(
     async (name: string) => {
       if (!name) return { songs: [] };
 
-      console.log("🎵 Fetching songs for artist:", name);
       setLoadingArtistSongs(true);
 
       try {
         const songs = await apiClient.getArtistSongs(name);
-        console.log("🎵 Artist songs loaded:", songs);
         return songs;
       } catch (error) {
-        console.error("❌ Failed to load artist songs:", error);
+        console.error("failed to load artist songs:", error);
         return { songs: [] };
       } finally {
         setLoadingArtistSongs(false);
@@ -159,7 +154,6 @@ export function ArtistDetailView(
   const handlePlayAll = () => {
     const songs = artistSongsResource()?.songs || [];
     if (songs.length > 0) {
-      console.log(`🎵 Playing all songs for artist: ${songs.length} songs`);
       // Use songInteractions to properly queue and play all songs
       const firstSong = songs[0];
       if (firstSong) {
@@ -176,9 +170,7 @@ export function ArtistDetailView(
     const songs = artistSongsResource()?.songs || [];
     if (songs.length > 0) {
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      console.log(
-        `🎵 Shuffling all songs for artist: ${shuffled.length} songs`
-      );
+
       // Use songInteractions to properly queue and play shuffled songs
       const firstSong = shuffled[0];
       if (firstSong) {
@@ -200,9 +192,6 @@ export function ArtistDetailView(
 
   const handlePlayAlbum = (album: AlbumGroup) => {
     if (album.songs.length > 0) {
-      console.log(
-        `🎵 Playing album: ${album.album} with ${album.songs.length} songs`
-      );
       // Use songInteractions to properly queue and play the album
       const firstSong = album.songs[0];
       if (firstSong) {
@@ -218,9 +207,7 @@ export function ArtistDetailView(
   const handleShuffleAlbum = (album: AlbumGroup) => {
     if (album.songs.length > 0) {
       const shuffled = [...album.songs].sort(() => Math.random() - 0.5);
-      console.log(
-        `🎵 Shuffling album: ${album.album} with ${shuffled.length} songs`
-      );
+
       // Use songInteractions to properly queue and play the shuffled album
       const firstSong = shuffled[0];
       if (firstSong) {

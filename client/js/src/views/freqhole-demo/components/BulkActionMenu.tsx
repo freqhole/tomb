@@ -70,13 +70,13 @@ export function BulkActionMenu() {
 
   const handleDownloadAll = async () => {
     // TODO: Get selected items from context and implement bulk download
-    console.log("🗑️ Bulk download requested");
+    console.log("[BulkActionMenu] bulk download requested...");
     state.setBulkActionMenu(null);
   };
 
   const handleDeleteAll = () => {
     // TODO: Get selected items from context and show confirm dialog
-    console.log("🗑️ Bulk delete requested");
+    console.log("[BulkActionMenu] Bulk delete requested");
     state.setBulkActionMenu(null);
   };
 

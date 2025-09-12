@@ -53,12 +53,8 @@ export function SongFavoriteHeart(props: SongFavoriteHeartProps) {
 
       // Call the optional callback
       props.onToggle?.(song.id, newFavoriteState);
-
-      console.log(
-        `🎵 ${newFavoriteState ? "Added to" : "Removed from"} favorites: ${song.title}`
-      );
     } catch (error) {
-      console.error("Failed to toggle favorite:", error);
+      console.error("failed to toggle favorite:", error);
       // Revert optimistic update on error
       songState.updateSong(song.id, { user_is_favorite: !newFavoriteState });
     } finally {

@@ -40,14 +40,10 @@ export function DesktopAlbumsView(
   const fetchAlbums = async (
     page: number
   ): Promise<{ items: Album[]; pagination: PaginationMetadata }> => {
-    console.log(`💿 Loading albums page ${page}`);
-
     const response = await apiClient.getAlbums({
       page,
       page_size: 50,
     });
-
-    console.log(`💿 Loaded ${response.albums.length} albums`, response);
 
     return {
       items: response.albums,
@@ -75,11 +71,10 @@ export function DesktopAlbumsView(
 
   const handleAlbumPlayFromGrid = async (album: Album) => {
     try {
-      console.log("🎵 Playing album from grid:", album.album);
       const tracks = await loadAlbumTracks(album);
       playAlbum(tracks, album.album || undefined);
     } catch (error) {
-      console.error("❌ Failed to play album from grid:", error);
+      console.error("failed to play album from grid:", error);
     }
   };
 

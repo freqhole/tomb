@@ -18,7 +18,6 @@ export function normalizeServerDate(dateStr: string): string {
     // Pattern: "2025-07-12T5:51:01" should become "2025-07-12T05:51:01"
     normalized = normalized.replace(/T(\d):/, "T0$1:");
 
-    console.log("Date normalization:", { original: dateStr, normalized });
     return normalized;
   }
 
@@ -83,13 +82,6 @@ export function formatCompactRelativeDate(dateStr: string): string {
 
   const isoDateStr = normalizeServerDate(dateStr);
   const date = new Date(isoDateStr);
-
-  console.log("formatCompactRelativeDate:", {
-    input: dateStr,
-    normalized: isoDateStr,
-    dateObj: date,
-    isValid: !isNaN(date.getTime()),
-  });
 
   if (isNaN(date.getTime())) return "";
 

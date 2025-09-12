@@ -29,17 +29,8 @@ export function useSongInteractions() {
 
   // Song playback actions
   const playSong = (song: Song, replaceQueue: boolean = true) => {
-    console.log(`🎵 Playing song: ${song.display_title}`, { replaceQueue });
-    console.log(
-      `🎵 Before playSong - isPlaying: ${store.player.isPlaying}, currentSong: ${store.player.currentSong?.id}`
-    );
-
     // Update player state
     storeActions.playSong(song);
-
-    console.log(
-      `🎵 After playSong - isPlaying: ${store.player.isPlaying}, currentSong: ${store.player.currentSong?.id}`
-    );
 
     // Handle queue replacement or addition
     if (replaceQueue) {
@@ -58,8 +49,6 @@ export function useSongInteractions() {
   };
 
   const queueSong = (song: Song) => {
-    console.log(`📝 Adding to queue: ${song.display_title}`);
-
     // Add to queue
     storeActions.addToQueue(song);
 
@@ -72,8 +61,6 @@ export function useSongInteractions() {
 
   const toggleFavorite = async (song: Song) => {
     try {
-      console.log(`❤️ Toggling favorite for: ${song.display_title}`);
-
       const newFavoriteStatus = !song.user_is_favorite;
 
       // Use the correct API method
@@ -90,7 +77,7 @@ export function useSongInteractions() {
       // Trigger data reload to refresh the UI
       events.emit("data:reload", { type: "songs" });
     } catch (error) {
-      console.error("❌ Failed to toggle favorite:", error);
+      console.error("failed to toggle favorite:", error);
       events.emit("notification:show", {
         message: `failed to update favorite status`,
         type: "error",
@@ -100,7 +87,6 @@ export function useSongInteractions() {
 
   const viewArtist = (song: Song) => {
     if (song.artist) {
-      console.log(`👤 Viewing artist: ${song.artist}`);
       storeActions.selectArtist({ name: song.artist });
       storeActions.setCurrentView("artists");
       // Navigate to artist page (would need router integration)
@@ -110,7 +96,6 @@ export function useSongInteractions() {
 
   const viewAlbum = (song: Song) => {
     if (song.album) {
-      console.log(`💿 Viewing album: ${song.album}`);
       storeActions.selectAlbum({
         name: song.album,
         artist: song.album_artist || song.artist,
@@ -122,8 +107,6 @@ export function useSongInteractions() {
   };
 
   const addToPlaylist = (song: Song, playlistId?: string) => {
-    console.log(`📋 Adding to playlist: ${song.display_title}`, { playlistId });
-
     if (playlistId) {
       // Add to specific playlist
       events.emit("playlist:add-songs", {
@@ -187,18 +170,11 @@ export function useSongInteractions() {
         label: "add to playlist...",
         icon: "playlist-add",
         action: () => {
-          console.log("🎵 Context menu: add to playlist clicked");
-          console.log(
-            "🎵 Emitting playlist-selector:open event with position:",
-            lastContextMenuPosition
-          );
-          console.log("🎵 Song for playlist:", song);
           events.emit("playlist-selector:open", {
             x: lastContextMenuPosition.x,
             y: lastContextMenuPosition.y,
             songs: [song],
           });
-          console.log("🎵 Event emitted successfully");
         },
       },
     ];
@@ -238,7 +214,10 @@ export function useSongInteractions() {
         icon: "playlist-remove",
         action: () => {
           // This would need to be implemented
-          console.log("Remove from playlist:", context.currentPlaylistId);
+          console.log(
+            "[songInteractions] #TODO something meaningful? remove from playlist action:",
+            context.currentPlaylistId
+          );
         },
         destructive: true,
       } as SongAction);
@@ -291,21 +270,16 @@ export function useSongInteractions() {
 
   const handlePlaylistSelectorClick = (event: MouseEvent, songs: Song[]) => {
     event.preventDefault();
-    console.log("🎵 handlePlaylistSelectorClick called with songs:", songs);
-    console.log("🎵 Event position:", { x: event.clientX, y: event.clientY });
 
     events.emit("playlist-selector:open", {
       x: event.clientX,
       y: event.clientY,
       songs,
     });
-    console.log("🎵 Direct playlist selector event emitted");
   };
 
   const createBulkContextMenuActions = (songs: Song[]) => {
     const songCount = songs.length;
-    console.log("🎵 Creating bulk context menu for", songCount, "songs");
-    console.log("🎵 Songs:", songs);
 
     return [
       {
@@ -333,18 +307,11 @@ export function useSongInteractions() {
         label: `add ${songCount} songs to playlist...`,
         icon: "playlist-add",
         action: () => {
-          console.log("🎵 Bulk context menu: add to playlist clicked");
-          console.log(
-            "🎵 Emitting playlist-selector:open event with position:",
-            lastContextMenuPosition
-          );
-          console.log("🎵 Songs for playlist:", songs);
           events.emit("playlist-selector:open", {
             x: lastContextMenuPosition.x,
             y: lastContextMenuPosition.y,
             songs,
           });
-          console.log("🎵 Bulk event emitted successfully");
         },
       },
       { type: "separator" },
@@ -375,7 +342,6 @@ export function useSongInteractions() {
 
   const handleBulkRightClick = (event: MouseEvent, songs: Song[]) => {
     event.preventDefault();
-    console.log("🎵 handleBulkRightClick called with", songs.length, "songs");
 
     // Store position for potential playlist selector
     lastContextMenuPosition = { x: event.clientX, y: event.clientY };

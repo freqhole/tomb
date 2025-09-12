@@ -8,7 +8,10 @@ import {
   For,
   Show,
 } from "solid-js";
-import { GenericInfiniteGrid, GridColumn } from "./generic-infinite-grid";
+import {
+  GenericInfiniteGrid,
+  GridColumn,
+} from "../components/infinite-data-grid/GenericInfiniteGrid";
 import { useWebSocketFeed } from "../hooks/useWebSocketFeed";
 import type { MediaBlob, NotificationChannel } from "../lib/websocket-types";
 import { ConnectionStatus } from "../lib/websocket-client";

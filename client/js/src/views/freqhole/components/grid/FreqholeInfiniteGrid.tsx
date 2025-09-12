@@ -1,5 +1,8 @@
 import { InfiniteGrid } from "../../../../components/infinite-data-grid";
-import type { GridColumn } from "../../../../components/infinite-data-grid/types";
+import type {
+  GridColumn,
+  ScrollRestorationState,
+} from "../../../../components/infinite-data-grid/types";
 import type { Song } from "../../../../lib/music/schemas/song";
 import { SongStarRating, SongFavoriteHeart } from "../ui";
 import { useGridScrollRestoration } from "../../../../hooks/navigation/useGridScrollRestoration";
@@ -28,6 +31,7 @@ export interface FreqholeInfiniteGridProps<T = any> {
   enableScrollRestoration?: boolean;
   scrollElementRef?: (element: HTMLElement | null) => void;
   initialScrollTop?: number;
+  onScrollSave?: (state: ScrollRestorationState) => void;
 }
 
 /**
@@ -281,6 +285,7 @@ export function FreqholeInfiniteGrid<T = any>(
           initialScrollTop={
             props.initialScrollTop || scrollRestoration.initialScrollTop()
           }
+          onScrollSave={props.onScrollSave}
         />
       </div>
     </div>

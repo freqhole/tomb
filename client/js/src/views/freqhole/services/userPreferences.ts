@@ -24,24 +24,20 @@ export function createUserPreferences() {
     setIsLoading(true);
 
     try {
-      console.log(
-        `🎵 API call: toggleSongFavorite(${songId}, ${!currentFavorite})`
-      );
       const result = await apiClient.toggleSongFavorite(
         songId,
         !currentFavorite
-      );
-      console.log(
-        `🎵 API success - Toggled favorite for song ${songId}:`,
-        result
       );
       return result;
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "failed to toggle favorite";
       setError(errorMessage);
-      console.error("🎵 API error - Failed to toggle song favorite:", err);
-      console.error("🎵 Error details:", {
+      console.error(
+        "[userPreferences] API error - failed to toggle song favorite:",
+        err
+      );
+      console.error("[userPreferences] error details:", {
         songId,
         currentFavorite,
         targetFavorite: !currentFavorite,
@@ -61,19 +57,14 @@ export function createUserPreferences() {
     setIsLoading(true);
 
     try {
-      console.log(`🎵 API call: rateSong(${songId}, ${rating})`);
       const result = await apiClient.rateSong(songId, rating);
-      console.log(
-        `🎵 API success - Rated song ${songId} with ${rating} stars:`,
-        result
-      );
       return result;
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "failed to rate song";
       setError(errorMessage);
-      console.error("🎵 API error - Failed to rate song:", err);
-      console.error("🎵 Error details:", {
+      console.error("[userPreferences] API error - failed to rate song:", err);
+      console.error("[userPreferences] error details:", {
         songId,
         rating,
         error: err,
@@ -94,16 +85,12 @@ export function createUserPreferences() {
 
     try {
       const result = await apiClient.bulkToggleFavorite(songIds, isFavorite);
-      console.log(
-        `🎵 Bulk ${isFavorite ? "favorited" : "unfavorited"} ${songIds.length} songs:`,
-        result
-      );
       return result;
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "failed to bulk toggle favorites";
       setError(errorMessage);
-      console.error("🎵 Failed to bulk toggle favorites:", err);
+      console.error("[userPreferences] failed to bulk toggle favorites:", err);
       return null;
     } finally {
       setIsLoading(false);
@@ -119,16 +106,13 @@ export function createUserPreferences() {
 
     try {
       const result = await apiClient.bulkRateSongs(songIds, rating);
-      console.log(
-        `🎵 Bulk rated ${songIds.length} songs with ${rating} stars:`,
-        result
-      );
+
       return result;
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "failed to bulk rate songs";
       setError(errorMessage);
-      console.error("🎵 Failed to bulk rate songs:", err);
+      console.error("[userPreferences] failed to bulk rate songs:", err);
       return null;
     } finally {
       setIsLoading(false);
@@ -148,7 +132,6 @@ export function createUserPreferences() {
         playlistId,
         !currentFavorite
       );
-      console.log(`🎵 Toggled playlist favorite ${playlistId}:`, result);
       return result;
     } catch (err) {
       const errorMessage =
@@ -156,7 +139,10 @@ export function createUserPreferences() {
           ? err.message
           : "failed to toggle playlist favorite";
       setError(errorMessage);
-      console.error("🎵 Failed to toggle playlist favorite:", err);
+      console.error(
+        "[userPreferences] failed to toggle playlist favorite:",
+        err
+      );
       return null;
     } finally {
       setIsLoading(false);
@@ -175,10 +161,7 @@ export function createUserPreferences() {
         playlistId,
         isFavorite
       );
-      console.log(
-        `🎵 Bulk ${isFavorite ? "favorited" : "unfavorited"} playlist ${playlistId} songs:`,
-        result
-      );
+
       return result;
     } catch (err) {
       const errorMessage =
@@ -186,7 +169,10 @@ export function createUserPreferences() {
           ? err.message
           : "failed to bulk favorite playlist songs";
       setError(errorMessage);
-      console.error("🎵 Failed to bulk favorite playlist songs:", err);
+      console.error(
+        "[userPreferences] failed to bulk favorite playlist songs:",
+        err
+      );
       return null;
     } finally {
       setIsLoading(false);
@@ -203,16 +189,13 @@ export function createUserPreferences() {
 
     try {
       const result = await apiClient.bulkFavoriteAlbum(album, isFavorite);
-      console.log(
-        `🎵 Bulk ${isFavorite ? "favorited" : "unfavorited"} album "${album}":`,
-        result
-      );
+
       return result;
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "failed to bulk favorite album";
       setError(errorMessage);
-      console.error("🎵 Failed to bulk favorite album:", err);
+      console.error("[userPreferences] failed to bulk favorite album:", err);
       return null;
     } finally {
       setIsLoading(false);
@@ -227,7 +210,6 @@ export function createUserPreferences() {
 
     try {
       const result = await apiClient.getAlbumFavoriteStatus(album);
-      console.log(`🎵 Got album favorite status for "${album}":`, result);
       return result;
     } catch (err) {
       const errorMessage =
@@ -235,7 +217,10 @@ export function createUserPreferences() {
           ? err.message
           : "failed to get album favorite status";
       setError(errorMessage);
-      console.error("🎵 Failed to get album favorite status:", err);
+      console.error(
+        "[userPreferences] failed to get album favorite status:",
+        err
+      );
       return null;
     } finally {
       setIsLoading(false);
