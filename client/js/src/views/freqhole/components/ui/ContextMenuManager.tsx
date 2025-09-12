@@ -137,12 +137,12 @@ export function ContextMenuManager() {
     setPlaylistSelector(null);
   };
 
-  const handlePlaylistSelected = (playlist: any) => {
+  const handlePlaylistSelected = (_playlist: any) => {
     // Clear selection after successful playlist addition
     events.emit("selection:clear", {});
   };
 
-  const handleNewPlaylistCreated = (playlist: any) => {
+  const handleNewPlaylistCreated = (_playlist: any) => {
     // Clear selection after successful playlist creation
     events.emit("selection:clear", {});
   };

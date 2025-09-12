@@ -27,11 +27,11 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
 
   // Listen for playlist operation events to refresh the navigation list
   createEffect(() => {
-    events.on("playlist:deleted", ({ playlistTitle }) => {
+    events.on("playlist:deleted", () => {
       setRefreshPlaylists(refreshPlaylists() + 1);
     });
 
-    events.on("playlist:created", ({ playlist }) => {
+    events.on("playlist:created", () => {
       setRefreshPlaylists(refreshPlaylists() + 1);
     });
 
