@@ -103,10 +103,7 @@ export function ThreeColumnLayout(props: any) {
                 </svg>
               </button>
             </div>
-            <div
-              class="h-full overflow-y-auto pb-20"
-              onClick={handleMobileNavClose}
-            >
+            <div class="h-full overflow-y-auto pb-20">
               <Navigation />
             </div>
           </div>

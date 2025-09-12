@@ -54,7 +54,8 @@ export function NavigationHeader() {
     setShowSuggestions(false);
   };
 
-  const handleInputFocus = () => {
+  const handleInputFocus = (e: FocusEvent) => {
+    e.stopPropagation();
     setInputFocused(true);
     setShowSuggestions(true);
     // Trigger suggestion loading if we have enough characters
@@ -182,6 +183,7 @@ export function NavigationHeader() {
           onKeyDown={handleInputKeyDown}
           onFocus={handleInputFocus}
           onBlur={handleInputBlur}
+          onClick={(e) => e.stopPropagation()}
           class="w-full px-3 py-2 md:py-2 bg-gray-800 text-white rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-magenta-500 focus:bg-gray-700 hover:bg-gray-700 transition-all duration-200"
         />
 
