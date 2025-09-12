@@ -162,7 +162,7 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
             <Show
               when={!albumsHook.loading() || albumsHook.albums().length > 0}
               fallback={
-                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 px-3">
                   <For each={Array.from({ length: 20 })}>
                     {() => (
                       <div class="animate-pulse">
@@ -175,7 +175,7 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
                 </div>
               }
             >
-              <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 px-3">
                 <For each={albumsHook.albums()}>
                   {(album) => (
                     <div
