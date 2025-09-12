@@ -56,9 +56,7 @@ export function ThreeColumnLayout(props: any) {
               <span>le</span>
             </span>
           </div>
-          <div>
-            <button onClick={() => setAuthOpen(true)}>auth</button>
-          </div>
+
           {/* Hamburger Menu */}
           <button
             class="p-2 text-white hover:text-magenta-400 transition-colors"
@@ -67,11 +65,6 @@ export function ThreeColumnLayout(props: any) {
           >
             <MenuIcon className="w-6 h-6" />
           </button>
-        </div>
-
-        {/* Mobile Search Bar */}
-        <div class="px-4 pb-2">
-          <NavigationHeader />
         </div>
       </div>
 
