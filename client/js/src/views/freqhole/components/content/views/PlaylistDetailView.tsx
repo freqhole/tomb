@@ -13,6 +13,7 @@ import { useSongInteractions } from "../../../services/songInteractions";
 import { apiClient } from "../../../../../lib/api-client";
 import { formatRelativeDate } from "../../../utils/dateUtils";
 import { FileUploadHandler } from "../../../../../lib/file-upload";
+import { isMobile } from "../../../../../lib/format-utils";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Playlist, Song } from "../../../../../lib/music/schemas";
 
@@ -780,7 +781,7 @@ export function PlaylistDetailView(
       <Show when={selectedPlaylist()}>
         {/* Playlist Detail View */}
         <div
-          class="h-full flex flex-col relative"
+          class={`h-full ${isMobile() ? "overflow-y-auto" : "flex flex-col"} relative`}
           style={{
             ...(selectedPlaylist()?.thumbnail_blob_id && {
               "background-image": `url('${apiClient.getBaseUrl()}/api/blobs/${selectedPlaylist()?.thumbnail_blob_id}')`,
@@ -790,13 +791,15 @@ export function PlaylistDetailView(
             }),
           }}
         >
-          {/* Background overlay */}
-          <Show when={selectedPlaylist()?.thumbnail_blob_id}>
+          {/* Background overlay - Desktop only */}
+          <Show when={!isMobile() && selectedPlaylist()?.thumbnail_blob_id}>
             <div class="absolute inset-0 bg-black/70 z-0"></div>
           </Show>
 
           {/* Header with inline back button */}
-          <div class="flex-shrink-0 p-6 relative z-10">
+          <div
+            class={`${isMobile() ? "p-6 bg-black/70" : "flex-shrink-0 p-6"} relative z-10`}
+          >
             <div class="flex items-start justify-between">
               <div class="flex-1">
                 {/* Playlist Info */}
@@ -969,7 +972,7 @@ export function PlaylistDetailView(
                           !playlistSongsResource()?.length
                         }
                       >
-                        play all
+                        {isMobile() ? "play" : "play all"}
                       </button>
                       <button
                         class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
@@ -989,7 +992,7 @@ export function PlaylistDetailView(
                           !playlistSongsResource()?.length
                         }
                       >
-                        + add to queue
+                        {isMobile() ? "queue" : "+ add to queue"}
                       </button>
                     </div>
                   </Show>
@@ -1073,7 +1076,9 @@ export function PlaylistDetailView(
 
           {/* Songs List - Only show for existing playlists */}
           <Show when={!isNewPlaylist()}>
-            <div class="flex-1 overflow-y-auto p-6 relative z-10">
+            <div
+              class={`${isMobile() ? "p-6 bg-black/70" : "flex-1 overflow-y-auto p-6"} relative z-10`}
+            >
               <Show
                 when={!loadingPlaylistSongs() && playlistSongsResource()}
                 fallback={
