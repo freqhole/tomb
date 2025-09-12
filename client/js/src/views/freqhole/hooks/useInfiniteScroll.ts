@@ -95,19 +95,7 @@ export function useInfiniteScroll<T>(
   const hasMore = () => {
     const pag = pagination();
     const result = pag ? pag.has_next : true; // Allow initial load when no pagination yet
-    console.log("📜 hasMore check:", {
-      pagination: pag,
-      hasMore: result,
-      paginationDetails: pag
-        ? {
-            page: pag.page,
-            total_pages: pag.total_pages,
-            has_next: pag.has_next,
-            has_prev: pag.has_prev,
-            total: pag.total,
-          }
-        : null,
-    });
+    // hasMore check - removed verbose logging
     return result;
   };
 
@@ -150,32 +138,24 @@ export function useInfiniteScroll<T>(
 
   // Load more data
   const loadMore = async () => {
-    const isCurrentlyLoading = loading();
-    const hasMoreData = hasMore();
     const currentPagination = pagination();
-
-    console.log("📜 loadMore called:", {
-      isCurrentlyLoading,
-      hasMoreData,
-      currentPagination,
-      shouldProceed: !isCurrentlyLoading && (hasMoreData || !currentPagination),
-    });
+    // loadMore called - removed verbose logging
 
     if (loading() || (!hasMore() && pagination())) {
-      console.log("📜 loadMore early exit - already loading or no more data");
+      // loadMore early exit - already loading or no more data
       return;
     }
 
     try {
-      console.log("📜 loadMore starting fetch...");
+      // loadMore starting fetch
       setLoading(true);
       setError(null);
 
       const nextPage = currentPagination ? currentPagination.page + 1 : 1;
-      console.log("📜 loadMore fetching page:", nextPage);
+      // loadMore fetching page: ${nextPage}
 
       const result = await fetchFn(nextPage);
-      console.log("📜 loadMore fetch result:", result);
+      // loadMore fetch result received
 
       // Append new items to existing items
       setItems((prev) => [...prev, ...result.items]);

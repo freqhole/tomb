@@ -601,41 +601,61 @@ const contextMenuActions = [
 4. Clean up debugging logs
 5. Update documentation
 
-### Phase 3: Scroll Restoration ✅ COMPLETE
+### Phase 3: Scroll Restoration ⚠️ IN PROGRESS - DEBUGGING PAGINATION INTEGRATION
 
-**Completed Features:**
+**Completed Infrastructure:**
 
-- ✅ Navigation state management system (`useScrollRestoration`)
-- ✅ Grid-specific scroll restoration (`useGridScrollRestoration`)
-- ✅ NavigationProvider context integration
-- ✅ Browser history and sessionStorage persistence
-- ✅ Enhanced FreqholeInfiniteGrid with scroll tracking
-- ✅ Desktop and mobile songs view integration
-- ✅ Automatic save on route changes and search/sort updates
-- ✅ Debounced scroll position saving for performance
+- ✅ Basic scroll restoration hooks (`useScrollRestoration`, `useGridScrollRestoration`)
+- ✅ SessionStorage persistence with TTL (30 minutes)
+- ✅ InfiniteGrid `initialScrollTop` prop integration
+- ✅ Desktop/Mobile view conflict resolution (only render one at a time)
+- ✅ Mobile detection utility (`isMobile()` in format-utils)
+- ✅ Cleaned up excessive debug logging
 
-**Implementation Details:**
+**Current Status - DEBUGGING REQUIRED:**
 
-- Core scroll management in `lib/navigation/`
-- Session-based persistence with 30-minute expiration
-- Grid-aware scroll restoration with search state tracking
-- Seamless browser back/forward navigation
-- Touch-friendly mobile scroll restoration
+The scroll restoration appears to be working partially but has a critical issue with pagination state restoration:
 
-### Phase 4: Tag Management (Week 4) - NEXT
+**✅ What Works:**
 
-1. **Build scroll management system**
-   - Create navigation state management
-   - Implement browser history integration
-   - Add route-level scroll tracking
+- Scroll position is being saved correctly (`scrollTop=2927, pages=2`)
+- Scroll element detection and debounced saving
+- Route change detection and storage key generation
+- Initial scroll restoration attempt
 
-2. **Integrate with views**
-   - Add scroll restoration to all main routes (desktop and mobile)
-   - Test navigation between views
-   - Handle search state preservation
-   - Ensure touch scrolling works properly on mobile
+**❌ Current Issue:**
+The core problem is that scroll restoration without pagination restoration is insufficient for infinite scroll views:
 
-### Phase 4: Tag Management (Week 4)
+1. **Root Cause**: When user scrolls to page 3 (150 items loaded) and navigates away, only page 1 (50 items) loads on return
+2. **Symptom**: Scroll position restores but there's no content below the fold to scroll to
+3. **Log Evidence**: Saves `scrollTop=2927, pages=2` but gets overwritten with `scrollTop=0, pages=1` on component remount
+
+**Technical Details:**
+
+- `useFreqholeSearch` hook has pagination with `loadMore()` that appends results
+- `onMount()` always calls `performSearch(1, false)` which resets pagination
+- Auto-save effect overwrites saved state when component reinitializes
+- Need to restore both scroll position AND load sufficient pages of data
+
+**Next Steps Required:**
+
+1. **Complete analysis of logz.txt** - Need full log review to understand the save/restore timing
+2. **Fix pagination restoration** - Modify search hook to restore page state on mount
+3. **Prevent state overwrites** - Stop auto-save from overwriting good saved state
+4. **Integration testing** - Test full user flow: scroll → navigate → return
+5. **Apply to all views** - Extend to Artists and Albums views
+
+**Implementation Notes:**
+
+- Current approach: Save `{scrollTop, pagesLoaded}` to sessionStorage
+- Files modified: `hooks/navigation/`, `FreqholeInfiniteGrid.tsx`, `DesktopSongsView.tsx`
+- Debug logging added with `[SCROLL RESTORE]` prefix for easier tracking
+
+### Phase 4: Tag Management (Week 4) - BLOCKED BY SCROLL RESTORATION
+
+**Blocked until Phase 3 complete** - Need working scroll restoration before adding more features
+
+### Phase 4: Tag Management (When Phase 3 Complete)
 
 1. **Global tag filtering**
    - Add tag filter UI to view headers (desktop and mobile)
@@ -698,7 +718,17 @@ const contextMenuActions = [
 - **Route-level persistence**: SessionStorage-based state persistence
 - **Mobile & desktop support**: Working across all view modes
 
-### 🎯 Next Steps (Phase 4)
+### 🎯 Next Steps (Complete Phase 3 First)
+
+**IMMEDIATE PRIORITY - Scroll Restoration Debugging:**
+
+1. **Comprehensive log analysis** - Review full logz.txt to understand save/restore timing
+2. **Fix pagination integration** - Modify `useFreqholeSearch` to restore page state on mount
+3. **Prevent state overwrites** - Fix auto-save overwriting good saved state on component reinit
+4. **Test full user journey** - Scroll deep → navigate → return (should maintain position)
+5. **Extend to all views** - Apply working solution to Artists and Albums views
+
+**After Phase 3 Complete:**
 
 - Enhanced song tags & global filtering
 - Tag management context menu
@@ -714,6 +744,18 @@ const contextMenuActions = [
 5. **Responsive Layout**: ✅ Fixed infinite-data-grid to grow title column
 
 ### Architecture Progress & Lessons Learned
+
+**Major Lesson from Scroll Restoration:**
+
+- **Infinite scroll + scroll restoration is complex** - Can't just restore scroll position, must also restore pagination state
+- **Over-engineering trap** - Started with complex timing/retry logic when the real issue was data loading
+- **Component lifecycle conflicts** - Auto-save effects can overwrite good saved state during component remount
+- **Integration points matter** - Scroll restoration must be deeply integrated with data loading, not bolted on externally
+
+**Key Insight for Future Features:**
+Before adding new features, ensure existing features work completely. Scroll restoration affects user experience more than additional functionality.
+
+### Architecture Progress & Lessons Learned (Previous)
 
 The implementation successfully leveraged ~80% existing infrastructure:
 

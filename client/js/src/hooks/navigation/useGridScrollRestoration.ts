@@ -1,4 +1,3 @@
-import { createSignal, createEffect, onCleanup } from "solid-js";
 import { useScrollRestoration } from "./useScrollRestoration";
 
 interface UseGridScrollRestorationOptions {
@@ -11,48 +10,24 @@ export function useGridScrollRestoration(
 ) {
   const { gridId = "grid", enabled = true } = options;
 
-  const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
-    null
-  );
-
   const scrollRestoration = useScrollRestoration({
     key: gridId,
     enabled,
   });
 
-  // Set up scroll listener when element is available
-  createEffect(() => {
-    const element = scrollElement();
-    if (!element || !enabled) return;
-
-    // Debounced save function
-    let saveTimer: ReturnType<typeof setTimeout> | null = null;
-    const handleScroll = () => {
-      if (saveTimer) clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => {
-        scrollRestoration.saveScrollPosition();
-        saveTimer = null;
-      }, 100);
-    };
-
-    element.addEventListener("scroll", handleScroll, { passive: true });
-
-    onCleanup(() => {
-      element.removeEventListener("scroll", handleScroll);
-      if (saveTimer) clearTimeout(saveTimer);
-    });
-  });
-
-  // Connect scroll element to core restoration
-  createEffect(() => {
-    const element = scrollElement();
-    scrollRestoration.setScrollElement(element);
-  });
-
   return {
-    setScrollElement: (el: HTMLElement | null) => {
-      setScrollElement(el);
+    // For InfiniteGrid
+    initialScrollTop: scrollRestoration.initialScrollTop,
+    setScrollElement: scrollRestoration.setScrollElement,
+
+    // For search restoration
+    initialPagesLoaded: scrollRestoration.initialPagesLoaded,
+    hasSavedState: scrollRestoration.hasSavedState,
+    saveViewState: scrollRestoration.saveViewState,
+
+    // Manual save
+    saveNow: () => {
+      // This will need pages context from caller
     },
-    saveNow: () => scrollRestoration.saveScrollPosition(),
   };
 }

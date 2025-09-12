@@ -1,15 +1,19 @@
 import { createSignal, createEffect, onCleanup } from "solid-js";
 import { useLocation, useBeforeLeave } from "@solidjs/router";
 
-interface ScrollState {
-  top: number;
-  left: number;
+interface ViewState {
+  scrollTop: number;
+  pagesLoaded: number;
+  timestamp: number;
 }
 
 interface UseScrollRestorationOptions {
   key?: string;
   enabled?: boolean;
 }
+
+const STORAGE_PREFIX = "view_";
+const STORAGE_TTL = 30 * 60 * 1000; // 30 minutes
 
 export function useScrollRestoration(
   options: UseScrollRestorationOptions = {}
@@ -20,105 +24,108 @@ export function useScrollRestoration(
   const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
     null
   );
-  const [isReady, setIsReady] = createSignal(false);
+  const [restoredState, setRestoredState] = createSignal<ViewState | null>(
+    null
+  );
 
   // Get storage key for current route
   const getStorageKey = () => {
     const route = location.pathname + location.search;
     const normalizedRoute = route === "/" ? "/songs" : route;
-    return `scroll_${key}_${normalizedRoute}`;
+    return `${STORAGE_PREFIX}${key}_${normalizedRoute}`;
   };
 
-  // Save scroll position to sessionStorage
-  const saveScrollPosition = () => {
+  // Save current view state
+  const saveViewState = (pagesLoaded: number) => {
     if (!enabled) return;
 
     const element = scrollElement();
-    if (!element) return;
+    if (!element || element.offsetParent === null) return;
 
-    // Don't save if element is hidden (handles desktop/mobile view conflicts)
-    if (element.offsetParent === null) {
-      return;
-    }
-
-    const scrollState: ScrollState = {
-      top: element.scrollTop,
-      left: element.scrollLeft,
+    const state: ViewState = {
+      scrollTop: element.scrollTop,
+      pagesLoaded,
+      timestamp: Date.now(),
     };
 
-    const storageKey = getStorageKey();
     try {
-      sessionStorage.setItem(storageKey, JSON.stringify(scrollState));
+      sessionStorage.setItem(getStorageKey(), JSON.stringify(state));
+      console.log(
+        `[SCROLL RESTORE] Saved: scrollTop=${state.scrollTop}, pages=${state.pagesLoaded} to key="${getStorageKey()}"`
+      );
     } catch (e) {
-      console.warn("Failed to save scroll state:", e);
+      console.warn("Failed to save view state:", e);
     }
   };
 
-  // Restore scroll position from sessionStorage
-  const restoreScrollPosition = () => {
-    if (!enabled) return false;
+  // Load saved view state
+  const loadViewState = (): ViewState | null => {
+    if (!enabled) return null;
 
-    const element = scrollElement();
-    if (!element) return false;
-
-    // Don't restore if element is hidden (handles desktop/mobile view conflicts)
-    if (element.offsetParent === null) {
-      return false;
-    }
-
-    const storageKey = getStorageKey();
     try {
-      const stored = sessionStorage.getItem(storageKey);
+      const stored = sessionStorage.getItem(getStorageKey());
       if (stored) {
-        const scrollState: ScrollState = JSON.parse(stored);
-        element.scrollTo({
-          top: scrollState.top,
-          left: scrollState.left,
-          behavior: "auto",
-        });
-        return true;
+        const state: ViewState = JSON.parse(stored);
+        const now = Date.now();
+        if (now - state.timestamp < STORAGE_TTL) {
+          console.log(
+            `[SCROLL RESTORE] Loaded: scrollTop=${state.scrollTop}, pages=${state.pagesLoaded} from key="${getStorageKey()}"`
+          );
+          return state;
+        } else {
+          console.log(`[SCROLL RESTORE] Expired state removed`);
+          sessionStorage.removeItem(getStorageKey());
+        }
+      } else {
+        console.log(`[SCROLL RESTORE] No saved state found in storage`);
       }
     } catch (e) {
-      console.warn("Failed to restore scroll state:", e);
+      console.warn("Failed to load view state:", e);
     }
-
-    return false;
+    return null;
   };
 
   // Save before navigation
   useBeforeLeave(() => {
-    saveScrollPosition();
+    // Can't save here without context - rely on manual saves
     return true;
   });
 
-  // Handle route changes
+  // Load state on route change
   createEffect(() => {
-    const route = location.pathname + location.search;
-    setIsReady(false);
-    // Give DOM a moment to update
-    setTimeout(() => setIsReady(true), 10);
+    location.pathname + location.search; // Track route changes
+    const state = loadViewState();
+    setRestoredState(state);
   });
 
-  // Restore when ready
+  // Auto-save scroll changes with debouncing
   createEffect(() => {
-    if (isReady() && scrollElement()) {
-      restoreScrollPosition();
-    }
-  });
+    const element = scrollElement();
+    if (!element || !enabled) return;
 
-  // Save on page unload
-  createEffect(() => {
-    const handleBeforeUnload = () => saveScrollPosition();
-    window.addEventListener("beforeunload", handleBeforeUnload);
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleScroll = () => {
+      // We need pages context to save - this will be provided by caller
+    };
+
+    element.addEventListener("scroll", handleScroll, { passive: true });
+
     onCleanup(() => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
+      element.removeEventListener("scroll", handleScroll);
+      if (saveTimer) clearTimeout(saveTimer);
     });
   });
 
   return {
+    // Element management
     setScrollElement,
-    saveScrollPosition,
-    restoreScrollPosition,
-    isReady,
+
+    // State management
+    saveViewState,
+
+    // Restoration values
+    initialScrollTop: () => restoredState()?.scrollTop || 0,
+    initialPagesLoaded: () => restoredState()?.pagesLoaded || 1,
+    hasSavedState: () => restoredState() !== null,
   };
 }

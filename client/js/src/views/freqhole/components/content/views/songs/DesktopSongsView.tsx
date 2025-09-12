@@ -1,4 +1,4 @@
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createSignal, onMount } from "solid-js";
 import { apiClient } from "../../../../../../lib/api-client";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useStore } from "../../../../store";
@@ -7,6 +7,7 @@ import { useSelection } from "../../../../hooks/useSelection";
 import { useFreqholeSearch } from "../../../../hooks/useFreqholeSearch";
 import { FreqholeInfiniteGrid } from "../../../grid";
 import { useSongState } from "../../../../services/songState";
+import { useScrollRestoration } from "../../../../../../hooks/navigation/useScrollRestoration";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { RouteSectionProps } from "@solidjs/router";
 
@@ -24,6 +25,12 @@ export function DesktopSongsView(
 
   // Enhanced search hook with total counts
   const searchHook = useFreqholeSearch(apiClient);
+
+  // Scroll restoration
+  const scrollRestoration = useScrollRestoration({
+    key: "desktop-songs",
+    enabled: true,
+  });
 
   // Selection state
   const selection = useSelection({
@@ -61,6 +68,51 @@ export function DesktopSongsView(
   const loading = () => searchHook.loading();
   const error = () => searchHook.error();
   const totalCount = () => searchHook.totalCount();
+
+  // Restore pagination and scroll on mount
+  onMount(async () => {
+    if (scrollRestoration.hasSavedState()) {
+      const targetPages = scrollRestoration.initialPagesLoaded();
+      const targetScroll = scrollRestoration.initialScrollTop();
+
+      console.log(
+        `[SCROLL RESTORE] Found saved state: pages=${targetPages}, scrollTop=${targetScroll}`
+      );
+
+      // Load pages until we have enough data for scroll restoration
+      for (let page = 2; page <= targetPages; page++) {
+        if (searchHook.pagination().hasNext && !loading()) {
+          console.log(
+            `[SCROLL RESTORE] Loading page ${page} for restoration...`
+          );
+          await searchHook.loadMore();
+        } else {
+          console.log(
+            `[SCROLL RESTORE] Cannot load page ${page}: hasNext=${searchHook.pagination().hasNext}, loading=${loading()}`
+          );
+          break;
+        }
+      }
+
+      console.log(
+        `[SCROLL RESTORE] Finished loading pages. Current items: ${songs().length}`
+      );
+    } else {
+      console.log(`[SCROLL RESTORE] No saved state found`);
+    }
+  });
+
+  // Auto-save scroll state when pagination changes
+  createEffect(() => {
+    const pag = searchHook.pagination();
+    const currentItems = songs().length;
+    if (currentItems > 0) {
+      console.log(
+        `[SCROLL RESTORE] Saving state: page=${pag.page}, items=${currentItems}`
+      );
+      scrollRestoration.saveViewState(pag.page);
+    }
+  });
 
   // Reload functionality
   const reloadSongs = () => {
@@ -234,6 +286,8 @@ export function DesktopSongsView(
             onSort={handleSort}
             gridId="desktop-songs"
             enableScrollRestoration={true}
+            scrollElementRef={scrollRestoration.setScrollElement}
+            initialScrollTop={scrollRestoration.initialScrollTop()}
             class="h-full"
           />
         </div>

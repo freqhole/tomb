@@ -26,7 +26,7 @@ export function createSongStateService() {
         if (hasChanges) {
           const updatedSong = { ...existingSong, ...updates };
           newSongs.set(songId, updatedSong);
-          console.log(`🎵 Updated song state for ${songId}:`, updates);
+          // Updated song state for ${songId}
         }
       } else {
         console.warn(`🎵 Attempted to update non-existent song: ${songId}`);
@@ -57,7 +57,7 @@ export function createSongStateService() {
       });
 
       if (updateCount > 0) {
-        console.log(`🎵 Updated ${updateCount} songs in global state`);
+        // Updated ${updateCount} songs in global state
       }
       return newSongs;
     });
@@ -93,7 +93,7 @@ export function createSongStateService() {
   events.on("data:reload", ({ type }) => {
     if (type === "songs") {
       setSongs(new Map());
-      console.log("🎵 Cleared song state cache for reload");
+      // Cleared song state cache for reload
     }
   });
 

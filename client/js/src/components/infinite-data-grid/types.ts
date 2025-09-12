@@ -87,6 +87,7 @@ export interface InfiniteGridProps<T = any> {
   loading?: boolean;
   hasMore?: boolean;
   serverTotal?: number;
+  initialScrollTop?: number; // For scroll restoration
 
   // Song-focused rendering (specific to music domain)
   songRowRenderer?: "default" | "compact" | "detailed" | "album-header";

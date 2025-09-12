@@ -59,14 +59,15 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
 
   // State
   const [scrollTop, setScrollTop] = createSignal(0);
+  const [containerHeight, setContainerHeight] = createSignal(500);
 
-  let scrollContainer: HTMLDivElement;
+  let scrollContainer: HTMLDivElement | undefined;
 
   // Virtual scrolling calculations
   // Much simpler virtual scrolling
   const totalRows = createMemo(() => props.data.length);
-  // Use a reasonable default for virtual scrolling calculations
-  const estimatedContainerHeight = 500;
+  // Use container height from state
+  const estimatedContainerHeight = containerHeight();
   const visibleRowCount =
     Math.ceil(estimatedContainerHeight / ROW_HEIGHT()) + BUFFER_SIZE;
 
@@ -173,7 +174,9 @@ function GenericInfiniteGrid<T = any>(props: GridProps<T>) {
   };
 
   const handleResize = () => {
-    setContainerHeight(window.innerHeight);
+    if (scrollContainer) {
+      setContainerHeight(scrollContainer.clientHeight);
+    }
   };
 
   onMount(() => {

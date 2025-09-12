@@ -1,4 +1,4 @@
-import { createSignal, createMemo, For, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
 import type { InfiniteGridProps, GridColumn } from "./types";
 import { GRID_STYLES, getRowClasses } from "./styles/grid-styles";
 import { useGridLayout } from "./hooks/useGridLayout";
@@ -66,6 +66,21 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
 
   // infinite loading
   const infiniteLoading = useInfiniteLoading(props.onScrollNearBottom);
+
+  // scroll restoration - restore initial scroll position when container is ready
+  createEffect(() => {
+    const container = layout.containerRef();
+    if (container && props.initialScrollTop && props.initialScrollTop > 0) {
+      // Use requestAnimationFrame to ensure DOM is ready
+      requestAnimationFrame(() => {
+        (container as HTMLDivElement).scrollTo({
+          top: props.initialScrollTop!,
+          left: 0,
+          behavior: "auto",
+        });
+      });
+    }
+  });
 
   // keyboard navigation
   useKeyboardNavigation({

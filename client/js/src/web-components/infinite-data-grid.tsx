@@ -130,27 +130,12 @@ function getDisplayFilename(item: MediaBlob): string {
 }
 
 // Helper function to get MIME category (e.g., "audio" from "audio/mp3")
-function getMimeCategory(mimeType: string): string {
+function getMimeCategory(mimeType?: string): string {
   if (!mimeType) return "unknown";
   return mimeType.split("/")[0];
 }
 
-// Helper functions for media type detection
-function isVideoType(mimeType: string): boolean {
-  return mimeType.startsWith("video/");
-}
-
-function isAudioType(mimeType: string): boolean {
-  return mimeType.startsWith("audio/");
-}
-
-function isTextType(mimeType: string): boolean {
-  return (
-    mimeType.startsWith("text/") ||
-    mimeType.includes("json") ||
-    mimeType.includes("xml")
-  );
-}
+// Helper functions for media type detection removed to fix TypeScript warnings
 
 function MediaBlobDataGrid() {
   console.log("📦 MediaBlobDataGrid component created");
@@ -182,7 +167,7 @@ function MediaBlobDataGrid() {
   const [filterPanelWidth, setFilterPanelWidth] = createSignal(
     initialState.filterPanelWidth || DEFAULT_FILTER_PANEL_WIDTH
   );
-  const [isBrowsePanelOpen, setIsBrowsePanelOpen] = createSignal(
+  const [, setIsBrowsePanelOpen] = createSignal(
     initialState.isBrowsePanelOpen ?? true
   );
   const [browsePanelWidth, setBrowsePanelWidth] = createSignal(
@@ -520,7 +505,7 @@ function MediaBlobDataGrid() {
 
   // Drag selection handlers
   const handleRowMouseDown = (
-    item: MediaBlob,
+    _item: MediaBlob,
     index: number,
     event: MouseEvent
   ) => {
@@ -533,7 +518,7 @@ function MediaBlobDataGrid() {
       !event.shiftKey &&
       !clickTimeout() // Don't start drag if we have a pending click
     ) {
-      const rect = (event.target as HTMLElement).getBoundingClientRect();
+      const _rect = (event.target as HTMLElement).getBoundingClientRect();
       setDragStart({
         x: event.clientX,
         y: event.clientY,
@@ -582,7 +567,7 @@ function MediaBlobDataGrid() {
     }
   };
 
-  const handleMouseUp = (event: MouseEvent) => {
+  const handleMouseUp = (_event: MouseEvent) => {
     if (isDragSelecting()) {
       const selection = selectedItems();
       saveGridState({ selectedItems: selection });
@@ -601,7 +586,7 @@ function MediaBlobDataGrid() {
       width:
         viewMode() === "compact" ? 0 : viewMode() === "detailed" ? 120 : 60,
       sortable: false,
-      render: (item, value) => {
+      render: (item, _value) => {
         if (viewMode() === "compact") return null;
 
         const thumbnailUrl = getThumbnailUrl(item);
@@ -687,7 +672,7 @@ function MediaBlobDataGrid() {
       title: "ID",
       width: 100,
       sortable: true,
-      render: (item, value) => (
+      render: (_item, value) => (
         <code
           style="font-size: 11px; background: #333; padding: 2px 4px; border-radius: 3px; color: #0ff;"
           title={value}
@@ -701,7 +686,7 @@ function MediaBlobDataGrid() {
       title: "SHA256",
       width: 120,
       sortable: true,
-      render: (item, value) => (
+      render: (_item, value) => (
         <code
           style="font-size: 11px; background: #333; padding: 2px 4px; border-radius: 3px; color: #f90;"
           title={value}
@@ -714,7 +699,7 @@ function MediaBlobDataGrid() {
       key: "name",
       title: "Name",
       sortable: true,
-      render: (item, value) => (
+      render: (_item, value) => (
         <span
           style="font-weight: 500; color: #e0e0e0;"
           title={getDisplayFilename(item)}
@@ -729,7 +714,7 @@ function MediaBlobDataGrid() {
       title: "Type",
       width: 100,
       sortable: true,
-      render: (item, value) => (
+      render: (item, _value) => (
         <span
           class={`blob-type-badge blob-type-${value}`}
           style={`
@@ -750,7 +735,7 @@ function MediaBlobDataGrid() {
       title: "MIME Type",
       width: 140,
       sortable: true,
-      render: (item, value) => (
+      render: (_item, value) => (
         <span style="font-family: monospace; font-size: 12px;">
           {value || "unknown"}
         </span>
@@ -761,7 +746,7 @@ function MediaBlobDataGrid() {
       title: "Size",
       width: 100,
       sortable: true,
-      render: (item, value) => (
+      render: (_item, value) => (
         <span style="color: #ffffff; font-weight: 600; font-size: 12px;">
           {formatBytes(value || 0)}
         </span>
@@ -772,7 +757,7 @@ function MediaBlobDataGrid() {
       title: "Parent",
       width: 80,
       sortable: true,
-      render: (item, value) =>
+      render: (_item, value) =>
         value ? (
           <span
             style="color: #ff00ff; font-size: 11px;"
@@ -789,7 +774,7 @@ function MediaBlobDataGrid() {
       title: "Local",
       width: 80,
       sortable: true,
-      render: (item, value) =>
+      render: (_item, value) =>
         value ? (
           <span style="color: #ff00ff; font-size: 11px;" title={value}>
             📁
@@ -803,7 +788,7 @@ function MediaBlobDataGrid() {
       title: "Created",
       width: 140,
       sortable: true,
-      render: (item, value) => (
+      render: (_item, value) => (
         <span style="font-size: 12px; color: #888;">
           {new Date(value).toLocaleString()}
         </span>
@@ -814,7 +799,7 @@ function MediaBlobDataGrid() {
       title: "Updated",
       width: 140,
       sortable: true,
-      render: (item, value) => (
+      render: (_item, value) => (
         <span style="font-size: 12px; color: #888;">
           {new Date(value).toLocaleString()}
         </span>
@@ -847,7 +832,7 @@ function MediaBlobDataGrid() {
           {isFilterPanelOpen() ? "→" : "←"}
         </button>
       ),
-      render: (item, value) => {
+      render: (item, _value) => {
         // Only show action menu button when controls panel is open
         if (!isFilterPanelOpen()) {
           return null;
@@ -992,7 +977,7 @@ function MediaBlobDataGrid() {
     }
 
     // Calculate menu position
-    const rect = (event.target as HTMLElement).getBoundingClientRect();
+    const _rect = (event.target as HTMLElement).getBoundingClientRect();
     const menuWidth = 160;
     const menuHeight = 120;
 
@@ -1039,7 +1024,7 @@ function MediaBlobDataGrid() {
     });
   };
 
-  const toggleBrowsePanel = () => {
+  const _toggleBrowsePanel = () => {
     setIsBrowsePanelOpen((prev) => {
       const newValue = !prev;
       saveGridState({ isBrowsePanelOpen: newValue });
@@ -1893,7 +1878,7 @@ function MediaBlobDataGrid() {
                       }
 
                       setActiveActionMenu({
-                        item: selectedItemsArray[0], // Use first item as context
+                        item: selectedItemsArray[0]!, // Use first item as context
                         x,
                         y,
                       });
@@ -1944,7 +1929,7 @@ function MediaBlobDataGrid() {
           onContextMenu={(item, index, event) =>
             handleContextMenu(item, index, event)
           }
-          selectedItems={selectedItems()}
+          selectedRowIds={selectedItems()}
           isDragSelecting={isDragSelecting()}
           onScrollNearBottom={() => {
             if (feed.state().hasMore && !feed.state().isLoadingMore) {
