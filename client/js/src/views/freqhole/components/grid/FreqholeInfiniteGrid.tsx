@@ -185,9 +185,17 @@ export function FreqholeInfiniteGrid<T = any>(
       minWidth: 200,
       sortable: true,
       render: (artist: any) => (
-        <div class="px-6 py-4">
-          <div class="text-white font-medium mb-1">{artist.artist}</div>
-          <div class="text-gray-300 text-sm">
+        <div class="px-6 py-4 min-w-0 flex-1">
+          <div
+            class="text-white font-medium mb-1 truncate"
+            title={artist.artist}
+          >
+            {artist.artist}
+          </div>
+          <div
+            class="text-gray-300 text-sm truncate"
+            title={`${artist.song_count} songs · ${artist.album_count} albums`}
+          >
             {artist.song_count} songs · {artist.album_count} albums
           </div>
         </div>

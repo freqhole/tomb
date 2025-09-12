@@ -10,7 +10,7 @@ export function useSafeNavigate() {
   return (path: string, options?: { replace?: boolean }) => {
     // Always ensure we're using relative paths for hash router
     // The hash router will automatically handle the # prefix
-    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    const cleanPath = path.startsWith("/") ? path : `/${path}`;
 
     navigate(cleanPath, options);
   };
@@ -18,17 +18,33 @@ export function useSafeNavigate() {
 
 /**
  * Safe navigation function for use outside components
+ * Preserves history state for scroll restoration
  */
 export function safeNavigate(path: string, options?: { replace?: boolean }) {
   // Always ensure we're using relative paths for hash router
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+
+  // Preserve existing history state when navigating
+  const currentState = history.state || {};
 
   // For hash routing, we should use window.location.hash directly
   // This prevents the routing issues with history.pushState
   if (options?.replace) {
     window.location.hash = cleanPath;
+    // Restore the preserved state after hash navigation
+    if (Object.keys(currentState).length > 0) {
+      setTimeout(() => {
+        history.replaceState(currentState, "");
+      }, 0);
+    }
   } else {
     window.location.hash = cleanPath;
+    // Restore the preserved state after hash navigation
+    if (Object.keys(currentState).length > 0) {
+      setTimeout(() => {
+        history.replaceState(currentState, "");
+      }, 0);
+    }
   }
 }
 
@@ -52,14 +68,16 @@ export function saveScrollStateSecurely(key: string, scrollState: any) {
  */
 export function checkHashRouting() {
   const hasHash = window.location.hash.length > 0;
-  const hasPath = window.location.pathname !== '/';
+  const hasPath = window.location.pathname !== "/";
 
   if (hasPath && !hasHash) {
     console.warn(
-      'Hash routing issue detected:',
-      'pathname =', window.location.pathname,
-      'hash =', window.location.hash,
-      'This usually means navigation bypassed the hash router'
+      "Hash routing issue detected:",
+      "pathname =",
+      window.location.pathname,
+      "hash =",
+      window.location.hash,
+      "This usually means navigation bypassed the hash router"
     );
   }
 

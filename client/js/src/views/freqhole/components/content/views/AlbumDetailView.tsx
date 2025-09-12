@@ -112,9 +112,9 @@ export function AlbumDetailView(
           </div>
         }
       >
-        {/* Sticky Header */}
-        <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm p-6 border-b border-magenta-800/30">
-          <div class="flex items-center gap-3 mb-4">
+        {/* Minimal Sticky Header - Back Button + Title Only */}
+        <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm px-4 py-3 border-b border-magenta-800/30">
+          <div class="flex items-center gap-3">
             <button
               class="p-2 text-gray-400 hover:text-white transition-colors rounded-full hover:bg-magenta-600/20"
               onClick={handleBack}
@@ -135,12 +135,12 @@ export function AlbumDetailView(
               </svg>
             </button>
             <div class="flex-1 min-w-0">
-              <h1 class="text-3xl font-bold text-white truncate">
+              <h1 class="text-xl font-bold text-white truncate">
                 {albumName()}
               </h1>
               <Show when={albumSummaryResource()?.artist}>
                 <button
-                  class="text-lg text-magenta-400 hover:text-magenta-300 transition-colors truncate block mt-1"
+                  class="text-sm text-magenta-400 hover:text-magenta-300 transition-colors truncate block"
                   onClick={() =>
                     albumSummaryResource()?.artist &&
                     handleArtistClick(albumSummaryResource()!.artist!)
@@ -152,95 +152,102 @@ export function AlbumDetailView(
               </Show>
             </div>
           </div>
+        </div>
 
-          {/* Album Artwork and Info */}
+        {/* Scrollable Content */}
+        <div class="flex-1 overflow-y-auto">
+          {/* Album Artwork and Info - Scrollable */}
           <Show when={albumSummaryResource()}>
             {(album) => (
-              <div class="flex gap-6 mb-6">
-                {/* Album Artwork */}
-                <div class="w-32 h-32 bg-magenta-950/50 rounded-lg flex-shrink-0 overflow-hidden">
-                  <Show
-                    when={album().album_thumbnail_id}
-                    fallback={
-                      <div class="w-full h-full flex items-center justify-center text-magenta-400">
-                        <svg
-                          class="w-16 h-16"
-                          fill="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-                        </svg>
+              <div class="p-6">
+                <div class="flex gap-6 mb-6">
+                  {/* Album Artwork */}
+                  <div class="w-32 h-32 bg-magenta-950/50 rounded-lg flex-shrink-0 overflow-hidden">
+                    <Show
+                      when={album().album_thumbnail_id}
+                      fallback={
+                        <div class="w-full h-full flex items-center justify-center text-magenta-400">
+                          <svg
+                            class="w-16 h-16"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                          </svg>
+                        </div>
+                      }
+                    >
+                      <img
+                        src={getAlbumImageUrl(album().album_thumbnail_id)!}
+                        alt={`${album().album} cover`}
+                        class="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </Show>
+                  </div>
+
+                  {/* Album Stats */}
+                  <div class="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div class="bg-magenta-950/30 rounded-lg p-3">
+                      <div class="text-magenta-300 text-sm mb-1">tracks</div>
+                      <div class="text-white text-xl font-semibold">
+                        {album().track_count || 0}
                       </div>
-                    }
-                  >
-                    <img
-                      src={getAlbumImageUrl(album().album_thumbnail_id)!}
-                      alt={`${album().album} cover`}
-                      class="w-full h-full object-cover"
-                      loading="lazy"
-                    />
-                  </Show>
+                    </div>
+                    <div class="bg-magenta-950/30 rounded-lg p-3">
+                      <div class="text-magenta-300 text-sm mb-1">duration</div>
+                      <div class="text-white text-xl font-semibold">
+                        {formatAlbumDuration(album().total_duration)}
+                      </div>
+                    </div>
+                    <div class="bg-magenta-950/30 rounded-lg p-3">
+                      <div class="text-magenta-300 text-sm mb-1">year</div>
+                      <div class="text-white text-xl font-semibold">
+                        {album().year || "—"}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Album Stats */}
-                <div class="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div class="bg-magenta-950/30 rounded-lg p-3">
-                    <div class="text-magenta-300 text-sm mb-1">tracks</div>
-                    <div class="text-white text-xl font-semibold">
-                      {album().track_count || 0}
-                    </div>
-                  </div>
-                  <div class="bg-magenta-950/30 rounded-lg p-3">
-                    <div class="text-magenta-300 text-sm mb-1">duration</div>
-                    <div class="text-white text-xl font-semibold">
-                      {formatAlbumDuration(album().total_duration)}
-                    </div>
-                  </div>
-                  <div class="bg-magenta-950/30 rounded-lg p-3">
-                    <div class="text-magenta-300 text-sm mb-1">year</div>
-                    <div class="text-white text-xl font-semibold">
-                      {album().year || "—"}
-                    </div>
-                  </div>
+                {/* Quick Actions */}
+                <div class="flex flex-wrap gap-3 mb-6">
+                  <button
+                    class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 border border-transparent hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handlePlayAll}
+                    disabled={loadingTracks() || !albumTracksResource()?.length}
+                  >
+                    <span class="hidden md:inline">play all</span>
+                    <span class="md:hidden">play</span>
+                  </button>
+                  <button
+                    class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleShuffle}
+                    disabled={loadingTracks() || !albumTracksResource()?.length}
+                  >
+                    shuffle
+                  </button>
+                  <button
+                    class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleAddToQueue}
+                    disabled={loadingTracks() || !albumTracksResource()?.length}
+                  >
+                    <span class="hidden md:inline">add to queue</span>
+                    <span class="md:hidden">queue</span>
+                  </button>
                 </div>
               </div>
             )}
           </Show>
 
-          {/* Quick Actions */}
-          <div class="flex flex-wrap gap-3">
-            <button
-              class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 border border-transparent hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={handlePlayAll}
-              disabled={loadingTracks() || !albumTracksResource()?.length}
-            >
-              play all
-            </button>
-            <button
-              class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={handleShuffle}
-              disabled={loadingTracks() || !albumTracksResource()?.length}
-            >
-              shuffle
-            </button>
-            <button
-              class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={handleAddToQueue}
-              disabled={loadingTracks() || !albumTracksResource()?.length}
-            >
-              add to queue
-            </button>
+          {/* Album Track List */}
+          <div class="px-6 pb-6">
+            <AlbumTrackList
+              tracks={albumTracksResource() || []}
+              loading={loadingTracks()}
+              selectedAlbumArtist={albumSummaryResource()?.artist}
+              onArtistClick={handleArtistClick}
+            />
           </div>
-        </div>
-
-        {/* Scrollable Content */}
-        <div class="flex-1 overflow-y-auto p-6">
-          <AlbumTrackList
-            tracks={albumTracksResource() || []}
-            loading={loadingTracks()}
-            selectedAlbumArtist={albumSummaryResource()?.artist}
-            onArtistClick={handleArtistClick}
-          />
         </div>
       </Show>
     </div>

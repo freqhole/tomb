@@ -2,15 +2,9 @@ import { For, Show, createSignal, createEffect, onMount } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { apiClient } from "../../../../../../lib/api-client";
+import { saveScrollStateSecurely } from "../../../../../../lib/navigation";
 import type { ArtistSummary } from "../../../../../../lib/music/schemas";
 import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
-
-interface ScrollRestorationState {
-  scrollTop: number;
-  estimatedIndex: number;
-  totalCount: number;
-  timestamp: number;
-}
 
 interface MobileArtistsViewProps {
   class?: string;
@@ -20,8 +14,7 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Router-aware scroll restoration
-  const [initialScrollTop, setInitialScrollTop] = createSignal(0);
+  // Scroll restoration state
   const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
     null
   );
@@ -52,30 +45,36 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
   const loading = infiniteScroll.state.loading;
   const error = infiniteScroll.state.error;
 
-  // Load saved scroll state from router history
-  onMount(() => {
-    const routerState = location.state as ScrollRestorationState | undefined;
-    if (routerState && routerState.scrollTop) {
-      setInitialScrollTop(routerState.scrollTop);
+  // Get scroll state from browser history
+  const getSavedScrollTop = (): number => {
+    const state = history.state;
+    return (state && state.scrollTop) || 0;
+  };
+
+  // Save scroll state to browser history
+  const saveScrollState = () => {
+    const element = scrollElement();
+    if (element && element.scrollTop > 0) {
+      saveScrollStateSecurely("scrollTop", element.scrollTop);
     }
-  });
+  };
 
-  // Save scroll state disabled to prevent infinite loops
-
-  // Restore scroll position on route change
+  // Restore scroll position when data loads
   createEffect(() => {
-    location.pathname; // track route changes
+    const element = scrollElement();
+    const savedScrollTop = getSavedScrollTop();
 
-    if (initialScrollTop() > 0) {
-      const element = scrollElement();
-      if (element && artists().length > 0) {
-        element.scrollTop = initialScrollTop();
-        setInitialScrollTop(0); // reset after restore
-      }
+    if (element && savedScrollTop > 0 && artists().length > 0) {
+      requestAnimationFrame(() => {
+        element.scrollTop = savedScrollTop;
+      });
     }
   });
 
   const handleArtistClick = (artist: ArtistSummary) => {
+    // Save scroll state before navigating
+    saveScrollState();
+
     // Navigate to artist detail route
     const encodedArtist = encodeURIComponent(artist.artist);
     navigate(`/artist/${encodedArtist}`);
@@ -100,6 +99,12 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
             infiniteScroll.containerRef(el);
             setScrollElement(el);
           }}
+          onScroll={() => {
+            // Debounced save of scroll state - like desktop FreqholeInfiniteGrid
+            let saveTimer: ReturnType<typeof setTimeout> | undefined;
+            if (saveTimer) clearTimeout(saveTimer);
+            saveTimer = setTimeout(saveScrollState, 300);
+          }}
         >
           <Show
             when={!loading() || artists().length > 0}
@@ -115,10 +120,16 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
                   class="p-4 hover:bg-magenta-600/20 transition-colors cursor-pointer border-b border-gray-800/50"
                   onClick={() => handleArtistClick(artist)}
                 >
-                  <div class="text-white font-medium mb-1 truncate">
+                  <div
+                    class="text-white font-medium mb-1 truncate"
+                    title={artist.artist}
+                  >
                     {artist.artist}
                   </div>
-                  <div class="text-gray-300 text-sm truncate">
+                  <div
+                    class="text-gray-300 text-sm truncate"
+                    title={`${artist.song_count} songs · ${artist.album_count} albums`}
+                  >
                     {artist.song_count} songs · {artist.album_count} albums
                   </div>
                 </div>

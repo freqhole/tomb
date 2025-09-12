@@ -6,7 +6,7 @@ import { Content } from "../content/Content";
 import { Queue } from "../queue/Queue";
 import { PlayerWrapper } from "../player/PlayerWrapper";
 import { ContextMenuManager } from "../ui/ContextMenuManager";
-import { NavigationHeader } from "../navigation/NavigationHeader";
+
 import { FreqholeIcon, MenuIcon } from "../ui/icons";
 import { AuthModal } from "../auth/AuthModal";
 

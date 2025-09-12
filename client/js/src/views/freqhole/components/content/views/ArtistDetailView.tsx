@@ -227,11 +227,6 @@ export function ArtistDetailView(
     return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
   };
 
-  const formatGenres = (genres: string[]) => {
-    if (!genres || genres.length === 0) return "unknown";
-    return genres.slice(0, 3).join(", ");
-  };
-
   const formatAlbumDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -262,9 +257,9 @@ export function ArtistDetailView(
           </div>
         }
       >
-        {/* Sticky Header */}
-        <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm p-6 border-b border-magenta-800/30">
-          <div class="flex items-center gap-3 mb-4">
+        {/* Minimal Sticky Header - Back Button + Title Only */}
+        <div class="sticky top-0 z-10 bg-black/95 backdrop-blur-sm px-4 py-3 border-b border-magenta-800/30">
+          <div class="flex items-center gap-3">
             <button
               class="p-2 text-gray-400 hover:text-white transition-colors rounded-full hover:bg-magenta-600/20"
               onClick={handleBack}
@@ -284,260 +279,273 @@ export function ArtistDetailView(
                 />
               </svg>
             </button>
-            <h1 class="text-3xl font-bold text-white truncate">
+            <h1 class="text-xl font-bold text-white truncate">
               {artistName()}
             </h1>
           </div>
+        </div>
 
-          {/* Artist Stats */}
+        {/* Scrollable Content */}
+        <div class="flex-1 overflow-y-auto">
+          {/* Artist Stats - Scrollable */}
           <Show when={artistSummaryResource()}>
             {(artist) => (
-              <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div class="bg-magenta-950/30 rounded-lg p-3">
-                  <div class="text-magenta-300 text-sm mb-1">songs</div>
-                  <div class="text-white text-xl font-semibold">
-                    {artist().song_count || 0}
+              <div class="p-6">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div class="bg-magenta-950/30 rounded-lg p-3">
+                    <div class="text-magenta-300 text-sm mb-1">songs</div>
+                    <div class="text-white text-xl font-semibold">
+                      {artist().song_count || 0}
+                    </div>
+                  </div>
+                  <div class="bg-magenta-950/30 rounded-lg p-3">
+                    <div class="text-magenta-300 text-sm mb-1">albums</div>
+                    <div class="text-white text-xl font-semibold">
+                      {artist().album_count || 0}
+                    </div>
+                  </div>
+                  <div class="bg-magenta-950/30 rounded-lg p-3">
+                    <div class="text-magenta-300 text-sm mb-1">avg rating</div>
+                    <div class="text-white text-xl font-semibold">
+                      {artist().avg_rating
+                        ? artist().avg_rating!.toFixed(1)
+                        : "—"}
+                    </div>
+                  </div>
+                  <div class="bg-magenta-950/30 rounded-lg p-3">
+                    <div class="text-magenta-300 text-sm mb-1">duration</div>
+                    <div class="text-white text-xl font-semibold">
+                      {artist().total_duration || "—"}
+                    </div>
                   </div>
                 </div>
-                <div class="bg-magenta-950/30 rounded-lg p-3">
-                  <div class="text-magenta-300 text-sm mb-1">albums</div>
-                  <div class="text-white text-xl font-semibold">
-                    {artist().album_count || 0}
-                  </div>
-                </div>
-                <div class="bg-magenta-950/30 rounded-lg p-3">
-                  <div class="text-magenta-300 text-sm mb-1">duration</div>
-                  <div class="text-white text-xl font-semibold">
-                    {formatAlbumDuration(artist().total_duration || 0)}
-                  </div>
-                </div>
-                <div class="bg-magenta-950/30 rounded-lg p-3">
-                  <div class="text-magenta-300 text-sm mb-1">genres</div>
-                  <div class="text-white text-xl font-semibold">
-                    {formatGenres(artist().genres || [])}
-                  </div>
+
+                {/* Quick Actions */}
+                <div class="flex flex-wrap gap-3 mb-6">
+                  <button
+                    class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 border border-transparent hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handlePlayAll}
+                    disabled={
+                      loadingArtistSongs() ||
+                      !artistSongsResource()?.songs?.length
+                    }
+                  >
+                    <span class="hidden md:inline">play all</span>
+                    <span class="md:hidden">play</span>
+                  </button>
+                  <button
+                    class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleShuffle}
+                    disabled={
+                      loadingArtistSongs() ||
+                      !artistSongsResource()?.songs?.length
+                    }
+                  >
+                    shuffle
+                  </button>
+                  <button
+                    class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleAddToQueue}
+                    disabled={
+                      loadingArtistSongs() ||
+                      !artistSongsResource()?.songs?.length
+                    }
+                  >
+                    <span class="hidden md:inline">add to queue</span>
+                    <span class="md:hidden">queue</span>
+                  </button>
                 </div>
               </div>
             )}
           </Show>
 
-          {/* Quick Actions */}
-          <div class="flex flex-wrap gap-3">
-            <button
-              class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 border border-transparent hover:border-magenta-400 rounded text-black font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={handlePlayAll}
-              disabled={
-                loadingArtistSongs() || !artistSongsResource()?.songs?.length
+          {/* Artist Songs List */}
+          <div class="px-6 pb-6">
+            <Show when={loadingArtistSongs()}>
+              <div class="text-center py-8">
+                <div class="text-magenta-400">Loading songs...</div>
+              </div>
+            </Show>
+
+            <Show
+              when={!loadingArtistSongs() && albumGroups().length > 0}
+              fallback={
+                <Show when={!loadingArtistSongs()}>
+                  <div class="text-center py-8">
+                    <div class="text-gray-400">No songs found</div>
+                  </div>
+                </Show>
               }
             >
-              play all
-            </button>
-            <button
-              class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={handleShuffle}
-              disabled={
-                loadingArtistSongs() || !artistSongsResource()?.songs?.length
-              }
-            >
-              shuffle
-            </button>
-            <button
-              class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={handleAddToQueue}
-              disabled={
-                loadingArtistSongs() || !artistSongsResource()?.songs?.length
-              }
-            >
-              add to queue
-            </button>
-          </div>
-        </div>
+              <div class="space-y-8">
+                <For each={albumGroups()}>
+                  {(album) => (
+                    <div class="space-y-4">
+                      {/* Album Header */}
+                      <div class="flex items-center gap-4 p-4 bg-magenta-950/20 rounded-lg">
+                        {/* Album Artwork */}
+                        <div class="w-16 h-16 bg-magenta-950/50 rounded-lg flex-shrink-0 overflow-hidden">
+                          <Show
+                            when={album.albumThumbnailId}
+                            fallback={
+                              <div class="w-full h-full flex items-center justify-center text-magenta-400">
+                                <svg
+                                  class="w-8 h-8"
+                                  fill="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                                </svg>
+                              </div>
+                            }
+                          >
+                            <img
+                              src={getImageUrl(album.albumThumbnailId)!}
+                              alt={`${album.album} cover`}
+                              class="w-full h-full object-cover"
+                              loading="lazy"
+                            />
+                          </Show>
+                        </div>
 
-        {/* Scrollable Content */}
-        <div class="flex-1 overflow-y-auto p-6">
-          <Show when={loadingArtistSongs()}>
-            <div class="text-center py-8">
-              <div class="text-magenta-400">Loading songs...</div>
-            </div>
-          </Show>
+                        {/* Album Info */}
+                        <div class="flex-1 min-w-0">
+                          <h3 class="text-xl font-semibold text-white mb-1 truncate">
+                            {album.album}
+                          </h3>
+                          <div class="text-gray-300 text-sm">
+                            {album.songs.length} tracks ·{" "}
+                            {formatAlbumDuration(album.totalDuration)}
+                          </div>
+                        </div>
 
-          <Show
-            when={!loadingArtistSongs() && albumGroups().length > 0}
-            fallback={
-              <Show when={!loadingArtistSongs()}>
-                <div class="text-center py-8">
-                  <div class="text-gray-400">No songs found</div>
-                </div>
-              </Show>
-            }
-          >
-            <div class="space-y-8">
-              <For each={albumGroups()}>
-                {(album) => (
-                  <div class="space-y-4">
-                    {/* Album Header */}
-                    <div class="flex items-center gap-4 p-4 bg-magenta-950/20 rounded-lg">
-                      {/* Album Artwork */}
-                      <div class="w-16 h-16 bg-magenta-950/50 rounded-lg flex-shrink-0 overflow-hidden">
-                        <Show
-                          when={album.albumThumbnailId}
-                          fallback={
-                            <div class="w-full h-full flex items-center justify-center text-magenta-400">
-                              <svg
-                                class="w-8 h-8"
-                                fill="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-                              </svg>
-                            </div>
-                          }
-                        >
-                          <img
-                            src={getImageUrl(album.albumThumbnailId)!}
-                            alt={`${album.album} cover`}
-                            class="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        </Show>
-                      </div>
-
-                      {/* Album Info */}
-                      <div class="flex-1 min-w-0">
-                        <h3 class="text-xl font-semibold text-white mb-1 truncate">
-                          {album.album}
-                        </h3>
-                        <div class="text-gray-300 text-sm">
-                          {album.songs.length} tracks ·{" "}
-                          {formatAlbumDuration(album.totalDuration)}
+                        {/* Album Actions */}
+                        <div class="flex gap-2 flex-shrink-0">
+                          <button
+                            class="p-2 text-magenta-400 hover:text-magenta-300 transition-colors rounded-full hover:bg-magenta-600/20"
+                            onClick={() => handlePlayAlbum(album)}
+                            title="Play album"
+                          >
+                            <svg
+                              class="w-5 h-5"
+                              fill="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path d="M8 5v14l11-7z" />
+                            </svg>
+                          </button>
+                          <button
+                            class="p-2 text-magenta-400 hover:text-magenta-300 transition-colors rounded-full hover:bg-magenta-600/20"
+                            onClick={() => handleShuffleAlbum(album)}
+                            title="Shuffle album"
+                          >
+                            <svg
+                              class="w-5 h-5"
+                              fill="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
+                            </svg>
+                          </button>
                         </div>
                       </div>
 
-                      {/* Album Actions */}
-                      <div class="flex gap-2 flex-shrink-0">
-                        <button
-                          class="p-2 text-magenta-400 hover:text-magenta-300 transition-colors rounded-full hover:bg-magenta-600/20"
-                          onClick={() => handlePlayAlbum(album)}
-                          title="Play album"
-                        >
-                          <svg
-                            class="w-5 h-5"
-                            fill="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path d="M8 5v14l11-7z" />
-                          </svg>
-                        </button>
-                        <button
-                          class="p-2 text-magenta-400 hover:text-magenta-300 transition-colors rounded-full hover:bg-magenta-600/20"
-                          onClick={() => handleShuffleAlbum(album)}
-                          title="Shuffle album"
-                        >
-                          <svg
-                            class="w-5 h-5"
-                            fill="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
+                      {/* Album Songs */}
+                      <div class="space-y-1 pl-4">
+                        <For each={album.songs}>
+                          {(song, index) => (
+                            <div
+                              class={`p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group ${
+                                selection.isSelected(song.id)
+                                  ? "bg-magenta-600/30 border-magenta-400/50"
+                                  : ""
+                              }`}
+                              onClick={(e) => {
+                                if (
+                                  e.shiftKey &&
+                                  selection.lastSelectedIndex() >= 0
+                                ) {
+                                  selection.selectRange(
+                                    selection.lastSelectedIndex(),
+                                    index(),
+                                    album.songs
+                                  );
+                                } else {
+                                  selection.handleRowClick(song, index(), e);
+                                }
+                              }}
+                              onDblClick={() =>
+                                songInteractions.handleDoubleClick(song)
+                              }
+                              onMouseDown={(e) =>
+                                selection.handleRowMouseDown(song, index(), e)
+                              }
+                              onContextMenu={(e) => {
+                                // If right-clicking on unselected song, select it first
+                                if (!selection.isSelected(song.id)) {
+                                  selection.setSelectedItems(
+                                    new Set([song.id])
+                                  );
+                                  selection.setLastSelectedIndex(index());
+                                }
 
-                    {/* Album Songs */}
-                    <div class="space-y-1 pl-4">
-                      <For each={album.songs}>
-                        {(song, index) => (
-                          <div
-                            class={`p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer group ${
-                              selection.isSelected(song.id)
-                                ? "bg-magenta-600/30 border-magenta-400/50"
-                                : ""
-                            }`}
-                            onClick={(e) => {
-                              if (
-                                e.shiftKey &&
-                                selection.lastSelectedIndex() >= 0
-                              ) {
-                                selection.selectRange(
-                                  selection.lastSelectedIndex(),
-                                  index(),
-                                  album.songs
-                                );
-                              } else {
-                                selection.handleRowClick(song, index(), e);
-                              }
-                            }}
-                            onDblClick={() =>
-                              songInteractions.handleDoubleClick(song)
-                            }
-                            onMouseDown={(e) =>
-                              selection.handleRowMouseDown(song, index(), e)
-                            }
-                            onContextMenu={(e) => {
-                              // If right-clicking on unselected song, select it first
-                              if (!selection.isSelected(song.id)) {
-                                selection.setSelectedItems(new Set([song.id]));
-                                selection.setLastSelectedIndex(index());
-                              }
-
-                              const selectedSongs = selection.getSelectedSongs(
-                                album.songs
-                              );
-                              if (selectedSongs.length > 1) {
-                                songInteractions.handleBulkRightClick(
-                                  e,
-                                  selectedSongs
-                                );
-                              } else {
-                                songInteractions.handleRightClick(e, song, {
-                                  hideViewArtist: true,
-                                });
-                              }
-                            }}
-                          >
-                            <div class="flex items-center min-w-0">
-                              <div class="w-8 text-gray-400 text-sm flex-shrink-0 text-center">
-                                {song.track_number || "—"}
-                              </div>
-                              <div class="flex-1 min-w-0 pr-3 ml-3">
-                                <div class="text-white font-medium truncate group-hover:text-magenta-300 transition-colors">
-                                  {song.title}
+                                const selectedSongs =
+                                  selection.getSelectedSongs(album.songs);
+                                if (selectedSongs.length > 1) {
+                                  songInteractions.handleBulkRightClick(
+                                    e,
+                                    selectedSongs
+                                  );
+                                } else {
+                                  songInteractions.handleRightClick(e, song, {
+                                    hideViewArtist: true,
+                                  });
+                                }
+                              }}
+                            >
+                              <div class="flex items-center min-w-0">
+                                <div class="w-8 text-gray-400 text-sm flex-shrink-0 text-center">
+                                  {song.track_number || "—"}
                                 </div>
-                                <Show when={song.duration_seconds}>
-                                  <div class="text-magenta-400 text-sm">
-                                    {formatDuration(song.duration_seconds!)}
+                                <div class="flex-1 min-w-0 pr-3 ml-3">
+                                  <div class="text-white font-medium truncate group-hover:text-magenta-300 transition-colors">
+                                    {song.title}
                                   </div>
-                                </Show>
-                              </div>
-                              <div class="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                                <button
-                                  class="p-1 rounded-full hover:bg-magenta-600/30 transition-colors"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    events.emit("song:queue", { song });
-                                  }}
-                                  title="Add to queue"
-                                >
-                                  <svg
-                                    class="w-4 h-4 text-magenta-400"
-                                    fill="currentColor"
-                                    viewBox="0 0 20 20"
+                                  <Show when={song.duration_seconds}>
+                                    <div class="text-magenta-400 text-sm">
+                                      {formatDuration(song.duration_seconds!)}
+                                    </div>
+                                  </Show>
+                                </div>
+                                <div class="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                                  <button
+                                    class="p-1 rounded-full hover:bg-magenta-600/30 transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      events.emit("song:queue", { song });
+                                    }}
+                                    title="Add to queue"
                                   >
-                                    <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
-                                  </svg>
-                                </button>
+                                    <svg
+                                      class="w-4 h-4 text-magenta-400"
+                                      fill="currentColor"
+                                      viewBox="0 0 20 20"
+                                    >
+                                      <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
+                                    </svg>
+                                  </button>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )}
-                      </For>
+                          )}
+                        </For>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
         </div>
       </Show>
     </div>
