@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
-import { useLocation, useBeforeLeave } from "@solidjs/router";
+import { useBeforeLeave } from "@solidjs/router";
+import { saveScrollStateSecurely } from "../../lib/navigation";
 
 interface ScrollState {
   scrollTop: number;
@@ -15,7 +16,6 @@ export function useScrollRestoration(
   options: UseScrollRestorationOptions = {}
 ) {
   const { key = "default", enabled = true } = options;
-  const location = useLocation();
 
   const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
     null
@@ -33,14 +33,8 @@ export function useScrollRestoration(
       pagesLoaded,
     };
 
-    // Update current history entry with scroll state
-    const currentState = history.state || {};
-    const newState = {
-      ...currentState,
-      [`scroll_${key}`]: scrollState,
-    };
-
-    history.replaceState(newState, "", location.pathname + location.search);
+    // Use safe scroll state saving to prevent hash router issues
+    saveScrollStateSecurely(`scroll_${key}`, scrollState);
   };
 
   // Get saved scroll state from history

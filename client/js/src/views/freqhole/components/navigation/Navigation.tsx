@@ -1,12 +1,13 @@
-import { useLocation, useNavigate } from "@solidjs/router";
+import { useLocation } from "@solidjs/router";
 import { storeActions } from "../../store";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
+import { useSafeNavigate } from "../../../../lib/navigation";
 import { NavigationHeader } from "./NavigationHeader";
 import { NavigationSections } from "./NavigationSections";
 import { PlaylistsNavigation } from "./PlaylistsNavigation";
 
 export function Navigation() {
-  const navigate = useNavigate();
+  const navigate = useSafeNavigate();
   const location = useLocation();
 
   const events = useGlobalEvents();
@@ -14,7 +15,7 @@ export function Navigation() {
   // Listen for navigation events
   events.on("nav:change", ({ view }) => {
     storeActions.setCurrentView(view as any);
-    navigate(`/${view}`);
+    navigate(view);
   });
 
   return (

@@ -1,8 +1,8 @@
 import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
-import { useLocation } from "@solidjs/router";
 import type { InfiniteGridProps, GridColumn } from "./types";
 import { GRID_STYLES, getRowClasses } from "./styles/grid-styles";
 import { useGridLayout } from "./hooks/useGridLayout";
+import { saveScrollStateSecurely } from "../../lib/navigation";
 
 import { useRowSelection } from "./hooks/useRowSelection";
 import { useKeyboardNavigation } from "./hooks/useKeyboardNavigation";
@@ -14,8 +14,6 @@ import { GridHeader } from "./GridHeader";
 import { GridStatusBar } from "./GridStatusBar";
 
 export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
-  const location = useLocation();
-
   // state for edit mode tracking
   const [isEditMode, setIsEditMode] = createSignal(false);
   const [editingCell, setEditingCell] = createSignal<{
@@ -46,12 +44,8 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
   const saveScrollState = () => {
     const element = scrollElement();
     if (element && element.scrollTop > 0) {
-      const currentState = history.state || {};
-      const newState = {
-        ...currentState,
-        scrollTop: element.scrollTop,
-      };
-      history.replaceState(newState, "", location.pathname + location.search);
+      // Use safe scroll state saving to prevent hash router issues
+      saveScrollStateSecurely("scrollTop", element.scrollTop);
     }
   };
 

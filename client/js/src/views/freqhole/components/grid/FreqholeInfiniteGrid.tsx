@@ -179,21 +179,18 @@ export function FreqholeInfiniteGrid<T = any>(
   // Artist columns
   const getArtistColumns = (): GridColumn<any>[] => [
     {
-      key: "name",
+      key: "artist",
       title: "artist",
-      width: "1fr",
+      width: "auto",
+      minWidth: 200,
       sortable: true,
       render: (artist: any) => (
-        <div class="font-medium text-white">{artist.name}</div>
-      ),
-    },
-    {
-      key: "song_count",
-      title: "songs",
-      width: 100,
-      sortable: true,
-      render: (artist: any) => (
-        <div class="text-center text-gray-400">{artist.song_count || 0}</div>
+        <div class="px-6 py-4">
+          <div class="text-white font-medium mb-1">{artist.artist}</div>
+          <div class="text-gray-300 text-sm">
+            {artist.song_count} songs · {artist.album_count} albums
+          </div>
+        </div>
       ),
     },
   ];
@@ -263,7 +260,9 @@ export function FreqholeInfiniteGrid<T = any>(
           onScrollNearBottom={props.onLoadMore}
           hasMore={props.data.length < (props.totalCount || 0)}
           loading={props.loading || false}
-          getRowId={(item: any) => item.id || item.name || String(item)}
+          getRowId={(item: any) =>
+            item.id || item.artist || item.name || String(item)
+          }
         />
       </div>
     </div>

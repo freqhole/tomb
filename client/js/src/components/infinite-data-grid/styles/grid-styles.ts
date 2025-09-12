@@ -19,7 +19,7 @@ export const GRID_STYLES = {
   rowSelected: "bg-magenta-500 bg-opacity-30 [&_*]:!text-white",
   rowSelectedBorder: "shadow-[inset_0_0_0_2px_rgb(217,70,239)]",
   rowFocused: "",
-  rowHover: "hover:bg-black hover:bg-opacity-70",
+  rowHover: "hover:bg-magenta-600/20",
 
   // Cell classes
   cell: "px-3 py-0 text-sm overflow-hidden text-ellipsis whitespace-nowrap",
@@ -56,11 +56,7 @@ export const GRID_STYLES = {
 } as const;
 
 // Row state class combinations
-export const getRowClasses = (
-  isSelected: boolean,
-  isFocused: boolean,
-  isHovered: boolean = false
-) => {
+export const getRowClasses = (isSelected: boolean, isFocused: boolean) => {
   const base = GRID_STYLES.row;
   const states: string[] = [GRID_STYLES.rowDefault];
 
@@ -73,7 +69,8 @@ export const getRowClasses = (
     states.push(GRID_STYLES.rowFocused);
   }
 
-  if (!isSelected && isHovered) {
+  // Always add hover class since it's handled by CSS :hover pseudo-class
+  if (!isSelected) {
     states.push(GRID_STYLES.rowHover);
   }
 
