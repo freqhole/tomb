@@ -2,6 +2,7 @@ import { Show, createEffect } from "solid-js";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
 import { PlaylistSelectorMenu } from "./PlaylistSelectorMenu";
+import { TagSelectorMenu } from "../../../../components/tags/TagSelectorMenu";
 import { createSignal } from "solid-js";
 import type { Song } from "../../../../lib/music/schemas/song";
 
@@ -23,29 +24,58 @@ export function ContextMenuManager() {
     show: boolean;
   } | null>(null);
 
+  const [tagSelector, setTagSelector] = createSignal<{
+    songs: Song[];
+    mode: "view" | "manage";
+    show: boolean;
+  } | null>(null);
+
   // Listen for context menu events
   createEffect(() => {
     events.on("context-menu:open", ({ x, y, actions: menuActions }) => {
       setActions(menuActions);
       setPlaylistSelector(null); // Clear any existing playlist selector
+      setTagSelector(null); // Clear any existing tag selector
       contextMenu.open(x, y);
     });
 
     events.on("context-menu:close", () => {
       contextMenu.close();
       setPlaylistSelector(null);
+      setTagSelector(null);
     });
 
     events.on("playlist-selector:open", ({ x, y, songs }) => {
       // Close any existing context menu first
       setActions([]);
       setPlaylistSelector({ songs, show: true });
+      setTagSelector(null);
       contextMenu.open(x, y);
     });
 
     events.on("playlist-selector:close", () => {
       contextMenu.close();
       setPlaylistSelector(null);
+    });
+
+    events.on("tag-selector:open", ({ x, y, songs, mode }) => {
+      console.log("ContextMenuManager received tag-selector:open:", {
+        x,
+        y,
+        songsCount: songs.length,
+        mode,
+      });
+      // Close any existing context menu first
+      setActions([]);
+      setPlaylistSelector(null);
+      setTagSelector({ songs, mode: mode || "manage", show: true });
+      contextMenu.open(x, y);
+    });
+
+    events.on("tag-selector:close", () => {
+      console.log("ContextMenuManager received tag-selector:close");
+      contextMenu.close();
+      setTagSelector(null);
     });
   });
 
@@ -135,6 +165,7 @@ export function ContextMenuManager() {
     contextMenu.close();
     setActions([]);
     setPlaylistSelector(null);
+    setTagSelector(null);
   };
 
   const handlePlaylistSelected = (_playlist: any) => {
@@ -147,33 +178,42 @@ export function ContextMenuManager() {
     events.emit("selection:clear", {});
   };
 
+  // Determine which menu to show
+  const showTagSelector = () => tagSelector()?.show;
+  const showPlaylistSelector = () => playlistSelector()?.show;
+  const showRegularMenu = () => !showTagSelector() && !showPlaylistSelector();
+
+  console.log("ContextMenuManager render state:", {
+    showTagSelector: showTagSelector(),
+    showPlaylistSelector: showPlaylistSelector(),
+    showRegularMenu: showRegularMenu(),
+    isOpen: contextMenu.isOpen(),
+  });
+
   return (
-    <Show
-      when={playlistSelector()?.show}
-      fallback={
-        <ContextMenu
-          x={contextMenu.position().x}
-          y={contextMenu.position().y}
-          isOpen={contextMenu.isOpen()}
-          onClose={handleClose}
-          actions={convertActions(actions())}
-        />
-      }
+    <ContextMenu
+      x={contextMenu.position().x}
+      y={contextMenu.position().y}
+      isOpen={contextMenu.isOpen()}
+      onClose={handleClose}
+      actions={showRegularMenu() ? convertActions(actions()) : []}
     >
-      <ContextMenu
-        x={contextMenu.position().x}
-        y={contextMenu.position().y}
-        isOpen={contextMenu.isOpen()}
-        onClose={handleClose}
-        actions={[]}
-      >
+      <Show when={showTagSelector()}>
+        <TagSelectorMenu
+          songs={tagSelector()!.songs}
+          mode={tagSelector()!.mode}
+          onClose={handleClose}
+        />
+      </Show>
+
+      <Show when={showPlaylistSelector()}>
         <PlaylistSelectorMenu
           songs={playlistSelector()!.songs}
           onClose={handleClose}
           onPlaylistSelected={handlePlaylistSelected}
           onNewPlaylistCreated={handleNewPlaylistCreated}
         />
-      </ContextMenu>
-    </Show>
+      </Show>
+    </ContextMenu>
   );
 }

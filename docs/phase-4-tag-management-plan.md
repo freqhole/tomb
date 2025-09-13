@@ -511,43 +511,149 @@ server/src/media/
 └── search.rs                      (modify - implement tags in filter-options)
 ```
 
-## Success Criteria
+## Implementation Progress
 
-**Phase 1 Complete:**
+### ✅ **Phase 1: Tag Management API - COMPLETE**
 
-- [ ] Admin users can bulk update tags for single or multiple songs
-- [ ] Non-admin users get 403 when attempting tag modifications
-- [ ] JavaScript API client supports all tag operations
-- [ ] Zod schemas validate tag update requests
-- [ ] Single song updates work through bulk endpoint
+**What was built:**
 
-**Phase 2 Complete:**
+- **Server-side (Rust):** Added bulk song metadata update functionality in grimoire package
+  - New models: `BulkUpdateSongsRequest`, `BulkTagOperation`, `BulkSongUpdates` in `grimoire/src/music/models.rs`
+  - Repository methods: `bulk_update_songs()`, `apply_tag_operation()` in `grimoire/src/music/repository/mod.rs`
+  - Service methods: `bulk_update_songs()` in `grimoire/src/music/playlist_service.rs`
+  - Server endpoint: `PUT /api/media/songs/bulk` with `require_admin` middleware
+  - SQL operations: Replace, Add (with deduplication), Remove tag operations
+- **Client-side (TypeScript):** Added admin API methods
+  - Zod schemas in `client/js/src/lib/music/schemas/song-updates.ts`
+  - Admin API methods in `client/js/src/lib/music/api-admin-methods.ts`
+  - ApiClient integration: `bulkUpdateSongs()`, `updateSongTags()`, `addTagsToSongs()`, etc.
+- **Auth utilities:** Added to `useAuth()` hook: `isAdmin`, `requireAdmin()`, `adminOnly()`
 
-- [ ] Context menu shows tag options based on user role
-- [ ] Tag management modal allows viewing/editing tags
-- [ ] Admin users can create new tags inline
-- [ ] Bulk tag operations work from UI
-- [ ] Read-only tag viewing available to all users
+**Key technical decisions:**
 
-**Phase 3 Complete:**
+- Used grimoire package for all SQL operations (no inline SQL in server)
+- Admin-only protection via middleware and client-side checks
+- Bulk API handles 1 or many songs with 1 or many tags
+- Three tag operations: Replace (set all), Add (append with dedup), Remove (subtract)
+
+### 🚧 **Phase 2: Tag Management UI - IN PROGRESS**
+
+**What was built:**
+
+- **Context menu integration:** Added "tags" option to song context menus (admin-only)
+- **Event system:** Added `tag-selector:open/close` events to global events
+- **TagSelectorMenu component:** Created menu following playlist selector pattern
+  - Read current tags from selected songs
+  - Add new tags (with API integration)
+  - Remove existing tags (with API integration)
+  - Fetch available tags for autocomplete
+  - Emit data reload events after changes
+- **ContextMenuManager updates:** Added tag selector support alongside playlist selector
+
+**Current issue - NEEDS DEBUGGING:**
+The tag selector menu is not visible when clicking "tags" in context menu, despite:
+
+- Events are being emitted correctly (`tag-selector:open` logs show)
+- ContextMenuManager receives events correctly
+- TagSelectorMenu is rendering (console logs show)
+- Menu might be rendering off-screen or with wrong z-index
+- Tag icon is not showing in context menu (need to investigate icon system)
+
+**Console logs when testing:**
+
+```
+songInteractions.ts:237 Emitting tag-selector:open for single song: 3b31937d-563f-4320-b1ed-5d4b677c0b82
+ContextMenuManager.tsx:62 ContextMenuManager received tag-selector:open: {x: 785, y: 247, songsCount: 1, mode: 'manage'}
+TagSelectorMenu.tsx:120 TagSelectorMenu rendering: {mode: 'manage', songCount: 1, currentTags: 0, isReadOnly: false}
+```
+
+### 🔄 **Next Steps - Immediate**
+
+1. **Debug tag selector visibility:**
+   - Compare with working "add to playlist..." menu behavior
+   - Check z-index, positioning, overflow issues
+   - Verify ContextMenu component children rendering
+   - Fix tag icon not showing in context menu
+
+2. **Remove debug logs** once working
+
+3. **Continue Phase 2:** Test bulk operations, error handling
+
+### 📋 **Success Criteria**
+
+**Phase 1 Complete:** ✅
+
+- [x] Admin users can bulk update tags for single or multiple songs
+- [x] Non-admin users get 403 when attempting tag modifications
+- [x] JavaScript API client supports all tag operations
+- [x] Zod schemas validate tag update requests
+- [x] Single song updates work through bulk endpoint
+- [x] SQL operations moved to grimoire package
+
+**Phase 2 Complete:** 🚧
+
+- [x] Context menu shows tag options based on user role
+- [ ] **Tag selector menu is visible and functional** ⚠️ DEBUGGING
+- [ ] Tag icon shows in context menu ⚠️ DEBUGGING
+- [x] Admin users can create new tags inline (code ready)
+- [x] Bulk tag operations work from UI (code ready)
+- [x] Data reload events trigger after tag changes
+
+**Phase 3 Not Started:**
 
 - [ ] Tag filter UI appears in songs list headers (desktop and mobile)
 - [ ] Available tags are loaded from `/api/music/filter-options`
 - [ ] Tag filtering works through search API
 - [ ] UI is responsive and follows design system
 
-**Phase 4 Complete:**
+**Phase 4 Not Started:**
 
 - [ ] Artists view supports tag filtering
 - [ ] Albums view supports tag filtering
 - [ ] Tag filters work consistently across all views
 
-## Investigation TODOs
+## Files Modified/Created
 
-1. **Auth Context Investigation:** How is user role/authentication handled in current frontend?
-2. **Modal System Investigation:** How are modals implemented and managed?
-3. **Icon System Investigation:** What icons are available for tag-related actions?
-4. **Error Handling Investigation:** How should API errors be displayed to users?
+**Server (Rust):**
+
+- `grimoire/src/music/models.rs` - Added bulk update models
+- `grimoire/src/music/repository/mod.rs` - Added bulk update methods
+- `grimoire/src/music/playlist_service.rs` - Added service method
+- `grimoire/src/music/mod.rs` - Added exports
+- `server/src/media/songs.rs` - Added route and endpoint
+
+**Client (TypeScript):**
+
+- `client/js/src/lib/music/schemas/song-updates.ts` - New schemas
+- `client/js/src/lib/music/api-admin-methods.ts` - New admin API methods
+- `client/js/src/lib/api-client.ts` - Added method exports
+- `client/js/src/hooks/auth/index.ts` - Added admin utilities
+- `client/js/src/views/freqhole/hooks/useGlobalEvents.ts` - Added tag selector events
+- `client/js/src/views/freqhole/services/songInteractions.ts` - Added context menu actions
+- `client/js/src/views/freqhole/components/ui/ContextMenuManager.tsx` - Added tag selector support
+- `client/js/src/components/tags/TagSelectorMenu.tsx` - New component
+
+## Technical Context for Debugging
+
+**Current issue:** Tag selector menu not visible despite proper event flow.
+
+**Investigation approach:**
+
+1. Compare with working `PlaylistSelectorMenu` behavior in same ContextMenuManager
+2. Check CSS z-index, positioning, overflow properties
+3. Look at how `ContextMenu` component renders children
+4. Verify tag icon availability in icon system
+5. Test with browser dev tools element inspector
+
+**Debugging aids added (REMOVE AFTER FIXING):**
+
+- Console logs in `songInteractions.ts`, `ContextMenuManager.tsx`, `TagSelectorMenu.tsx`
+
+**Known working patterns to reference:**
+
+- Playlist selector menu implementation
+- Context menu positioning and visibility
+- Icon usage in other context menu items
 
 ## Future Enhancements
 

@@ -2,6 +2,7 @@ import { useGlobalEvents } from "../hooks/useGlobalEvents";
 import { storeActions, useStore } from "../store";
 import type { Song } from "../../../lib/music/schemas/song";
 import { apiClient } from "../../../lib/api-client";
+import { useAuth } from "../../../hooks/auth";
 
 interface SongAction {
   label: string;
@@ -223,6 +224,27 @@ export function useSongInteractions() {
       } as SongAction);
     }
 
+    // Add tag management actions
+    const auth = useAuth();
+    actions.push({ type: "separator" } as SeparatorAction);
+
+    // Tags option (admin-only)
+    if (auth.isAdmin) {
+      actions.push({
+        label: "tags",
+        icon: "tag",
+        action: () => {
+          console.log("Emitting tag-selector:open for single song:", song.id);
+          events.emit("tag-selector:open", {
+            x: lastContextMenuPosition.x,
+            y: lastContextMenuPosition.y,
+            songs: [song],
+            mode: "manage",
+          });
+        },
+      });
+    }
+
     // Add separator and info action
     actions.push({ type: "separator" } as SeparatorAction);
     actions.push({
@@ -280,8 +302,9 @@ export function useSongInteractions() {
 
   const createBulkContextMenuActions = (songs: Song[]) => {
     const songCount = songs.length;
+    const auth = useAuth();
 
-    return [
+    const actions = [
       {
         label: `play ${songCount} songs`,
         icon: "play",
@@ -338,6 +361,29 @@ export function useSongInteractions() {
         },
       },
     ];
+
+    // Add bulk tag management for admin users
+    if (auth.isAdmin) {
+      actions.push({ type: "separator" });
+      actions.push({
+        label: `tags (${songCount} songs)`,
+        icon: "tag",
+        action: () => {
+          console.log(
+            "Emitting tag-selector:open for bulk songs:",
+            songs.length
+          );
+          events.emit("tag-selector:open", {
+            x: lastContextMenuPosition.x,
+            y: lastContextMenuPosition.y,
+            songs,
+            mode: "manage",
+          });
+        },
+      });
+    }
+
+    return actions;
   };
 
   const handleBulkRightClick = (event: MouseEvent, songs: Song[]) => {

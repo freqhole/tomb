@@ -69,6 +69,13 @@ export interface FreqholeEvents {
   "context-menu:close": {};
   "playlist-selector:open": { x: number; y: number; songs: any[] };
   "playlist-selector:close": {};
+  "tag-selector:open": {
+    x: number;
+    y: number;
+    songs: any[];
+    mode?: "view" | "manage";
+  };
+  "tag-selector:close": {};
   "selection:clear": {};
   "notification:show": {
     message: string;
