@@ -1216,6 +1216,35 @@ impl BulkUpdatePreferencesRequest {
     }
 }
 
+/// Bulk song metadata update models
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BulkUpdateSongsRequest {
+    pub song_ids: Vec<Uuid>,
+    pub updates: BulkSongUpdates,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BulkSongUpdates {
+    pub tags: Option<BulkTagOperation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum BulkTagOperation {
+    Replace { tags: Vec<String> },
+    Add { tags: Vec<String> },
+    Remove { tags: Vec<String> },
+}
+
+impl BulkUpdateSongsRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.song_ids.is_empty() {
+            return Err("song_ids cannot be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
 // song models with user context
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]

@@ -321,6 +321,10 @@ export const useAuth = (options: UseAuthOptions = {}) => {
     get error() {
       return authStore.error;
     },
+    // Admin utilities
+    get isAdmin() {
+      return authStore.role === "admin";
+    },
     // Actions
     checkAuthStatus,
     checkAuthStatusSilent,
@@ -329,5 +333,12 @@ export const useAuth = (options: UseAuthOptions = {}) => {
     logout,
     clearError,
     resetLoadingState,
+    // Admin utility functions
+    requireAdmin: <T>(adminValue: T, fallback: T): T => {
+      return authStore.role === "admin" ? adminValue : fallback;
+    },
+    adminOnly: <T>(content: T): T | null => {
+      return authStore.role === "admin" ? content : null;
+    },
   };
 };

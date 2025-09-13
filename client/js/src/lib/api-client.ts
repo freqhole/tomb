@@ -26,6 +26,7 @@ import {
 } from "./search/types.js";
 import { searchValidation } from "./search/validation.js";
 import { musicApiMethods } from "./music/api-methods.js";
+import { musicAdminApiMethods } from "./music/api-admin-methods.js";
 
 // Error handling
 export class ApiError extends Error {
@@ -706,6 +707,27 @@ export class ApiClient {
 
   async getAlbumFavoriteStatus(album: string) {
     return musicApiMethods.getAlbumFavoriteStatus.call(this, album);
+  }
+
+  // Bulk song metadata update methods (admin-only)
+  async bulkUpdateSongs(request: any) {
+    return musicAdminApiMethods.bulkUpdateSongs.call(this, request);
+  }
+
+  async updateSongTags(songId: string, tags: string[]) {
+    return musicAdminApiMethods.updateSongTags.call(this, songId, tags);
+  }
+
+  async addTagsToSongs(songIds: string[], tags: string[]) {
+    return musicAdminApiMethods.addTagsToSongs.call(this, songIds, tags);
+  }
+
+  async removeTagsFromSongs(songIds: string[], tags: string[]) {
+    return musicAdminApiMethods.removeTagsFromSongs.call(this, songIds, tags);
+  }
+
+  async replaceTagsForSongs(songIds: string[], tags: string[]) {
+    return musicAdminApiMethods.replaceTagsForSongs.call(this, songIds, tags);
   }
 }
 

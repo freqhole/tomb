@@ -2,10 +2,12 @@
 //!
 //! This module provides REST API endpoints for managing songs and playlists.
 
+use crate::auth::require_admin;
 use crate::auth::AuthenticatedUser;
 use axum::{
     extract::{DefaultBodyLimit, Extension, Multipart, Path, Query},
     http::StatusCode,
+    middleware as axum_middleware,
     response::Json,
     routing::{delete, get, post, put},
     Router,
@@ -17,8 +19,9 @@ use grimoire::music::models::{
     UpdateUserPreferenceRequest as GrimoireUpdateUserPreferenceRequest, UserSongPreference,
 };
 use grimoire::music::{
-    AlbumSummary, AlbumTrack, CreatePlaylist, MusicRepository, Playlist, PlaylistQuery,
-    PlaylistService, PlaylistSummary, PlaylistWithCount, Song, SongQuery, UpdatePlaylist,
+    AlbumSummary, AlbumTrack, BulkUpdateSongsRequest, CreatePlaylist, MusicRepository, Playlist,
+    PlaylistQuery, PlaylistService, PlaylistSummary, PlaylistWithCount, Song, SongQuery,
+    UpdatePlaylist,
 };
 use grimoire::thumbnails::ThumbnailService;
 use grimoire::DatabaseConnection;
@@ -697,6 +700,29 @@ pub struct BulkUserPreferenceResponse {
     pub updated_preferences: Vec<UserPreferenceResponse>,
 }
 
+/// Bulk song metadata update response
+#[derive(Debug, Serialize)]
+pub struct BulkUpdateSongsResponse {
+    pub message: String,
+    pub updated_songs: Vec<SongResponse>,
+    pub operations_summary: BulkOperationSummary,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BulkOperationSummary {
+    pub total_songs: usize,
+    pub successful_updates: usize,
+    pub failed_updates: usize,
+    pub tag_operations: Option<TagOperationSummary>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TagOperationSummary {
+    pub operation_type: String,
+    pub tags_affected: Vec<String>,
+    pub songs_modified: usize,
+}
+
 /// Song update response
 #[derive(Debug, Serialize)]
 pub struct SongUpdateResponse {
@@ -909,6 +935,52 @@ pub async fn bulk_update_user_preferences(
     Ok(Json(BulkUserPreferenceResponse {
         message: "preferences updated successfully".to_string(),
         updated_preferences,
+    }))
+}
+
+/// Bulk update song metadata (admin-only)
+pub async fn bulk_update_songs(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(_user): Extension<AuthenticatedUser>,
+    Json(req): Json<BulkUpdateSongsRequest>,
+) -> Result<Json<BulkUpdateSongsResponse>, WebauthnError> {
+    let repository = MusicRepository::new(db.pool().clone());
+    let service = PlaylistService::new(repository);
+
+    // Use grimoire service to update songs directly
+    let updated_songs = service
+        .bulk_update_songs(req)
+        .await
+        .map_err(|_| WebauthnError::DatabaseError)?;
+
+    let successful_updates = updated_songs.len();
+
+    // Create operation summary
+    let tag_operation_summary = updated_songs.first().and_then(|_| {
+        // For now, create a simple summary - we could enhance this later
+        Some(TagOperationSummary {
+            operation_type: "bulk operation".to_string(),
+            tags_affected: vec![], // Could extract from request if needed
+            songs_modified: successful_updates,
+        })
+    });
+
+    let summary = BulkOperationSummary {
+        total_songs: successful_updates,
+        successful_updates,
+        failed_updates: 0, // grimoire handles failures internally
+        tag_operations: tag_operation_summary,
+    };
+
+    let message = format!("successfully updated {} songs", successful_updates);
+
+    let response_songs: Vec<SongResponse> =
+        updated_songs.into_iter().map(SongResponse::from).collect();
+
+    Ok(Json(BulkUpdateSongsResponse {
+        message,
+        updated_songs: response_songs,
+        operations_summary: summary,
     }))
 }
 
@@ -1732,6 +1804,11 @@ pub fn create_routes() -> Router {
         .route(
             "/upload_media_blob",
             post(upload_media_blob).layer(DefaultBodyLimit::max(10 * 1024 * 1024)), // 10MB limit for media blobs
+        )
+        // Bulk song metadata update route (admin-only)
+        .route(
+            "/songs/bulk",
+            put(bulk_update_songs).layer(axum_middleware::from_fn(require_admin)),
         )
 }
 

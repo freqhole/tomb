@@ -5,12 +5,13 @@
 
 use crate::music::models::{
     AlbumFavoriteStatus, AlbumSummary, AlbumTrack, ArtistAlbum, BulkFavoriteAlbumRequest,
-    BulkUpdatePreferencesRequest, CreatePlaylist, CreateSong, MusicDatabaseStats, Playlist,
-    PlaylistComplete, PlaylistOwnership, PlaylistQuery, PlaylistSong, PlaylistSongDetail,
-    PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount, PlaylistWithUserContext,
-    RecentSongWithThumbnail, Song, SongQuery, SongWithMedia, SongWithUserPrefs,
-    TransferPlaylistOwnershipRequest, UpdatePlaylist, UpdateUserPlaylistPreferenceRequest,
-    UpdateUserPreferenceRequest, UserPlaylistPreference, UserSongPreference,
+    BulkTagOperation, BulkUpdatePreferencesRequest, BulkUpdateSongsRequest, CreatePlaylist,
+    CreateSong, MusicDatabaseStats, Playlist, PlaylistComplete, PlaylistOwnership, PlaylistQuery,
+    PlaylistSong, PlaylistSongDetail, PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount,
+    PlaylistWithUserContext, RecentSongWithThumbnail, Song, SongQuery, SongWithMedia,
+    SongWithUserPrefs, TransferPlaylistOwnershipRequest, UpdatePlaylist,
+    UpdateUserPlaylistPreferenceRequest, UpdateUserPreferenceRequest, UserPlaylistPreference,
+    UserSongPreference,
 };
 use crate::search::{SearchQuery, SearchService, SongSearchResult, SortBy, SortDirection};
 use sqlx::{PgPool, Row};
@@ -314,6 +315,90 @@ impl MusicRepository {
         }
 
         Ok(preferences)
+    }
+
+    /// Bulk update song metadata for multiple songs (admin-only)
+    pub async fn bulk_update_songs(&self, request: BulkUpdateSongsRequest) -> Result<Vec<Song>> {
+        request
+            .validate()
+            .map_err(MusicRepositoryError::Validation)?;
+
+        let mut updated_songs = Vec::new();
+
+        // Process tag operations if specified
+        if let Some(tag_operation) = request.updates.tags {
+            for song_id in &request.song_ids {
+                match self.apply_tag_operation(*song_id, &tag_operation).await {
+                    Ok(song) => updated_songs.push(song),
+                    Err(e) => {
+                        tracing::error!("Failed to update tags for song {}: {:?}", song_id, e);
+                        // Continue with other songs, don't fail entire operation
+                    }
+                }
+            }
+        }
+
+        Ok(updated_songs)
+    }
+
+    /// Apply tag operation to a single song
+    async fn apply_tag_operation(
+        &self,
+        song_id: Uuid,
+        operation: &BulkTagOperation,
+    ) -> Result<Song> {
+        match operation {
+            BulkTagOperation::Replace { tags } => {
+                // Replace all tags with new ones
+                let song = sqlx::query_as::<_, Song>(
+                    r#"
+                    UPDATE songs
+                    SET tags = $1, updated_at = NOW()
+                    WHERE id = $2 AND deleted_at IS NULL
+                    RETURNING *
+                    "#,
+                )
+                .bind(tags)
+                .bind(song_id)
+                .fetch_one(&self.pool)
+                .await?;
+                Ok(song)
+            }
+            BulkTagOperation::Add { tags } => {
+                // Add tags to existing ones (using array concatenation and deduplication)
+                let song = sqlx::query_as::<_, Song>(
+                    r#"
+                    UPDATE songs
+                    SET tags = array(SELECT DISTINCT unnest(tags || $1)),
+                        updated_at = NOW()
+                    WHERE id = $2 AND deleted_at IS NULL
+                    RETURNING *
+                    "#,
+                )
+                .bind(tags)
+                .bind(song_id)
+                .fetch_one(&self.pool)
+                .await?;
+                Ok(song)
+            }
+            BulkTagOperation::Remove { tags } => {
+                // Remove specific tags from existing ones
+                let song = sqlx::query_as::<_, Song>(
+                    r#"
+                    UPDATE songs
+                    SET tags = array(SELECT unnest(tags) EXCEPT SELECT unnest($1)),
+                        updated_at = NOW()
+                    WHERE id = $2 AND deleted_at IS NULL
+                    RETURNING *
+                    "#,
+                )
+                .bind(tags)
+                .bind(song_id)
+                .fetch_one(&self.pool)
+                .await?;
+                Ok(song)
+            }
+        }
     }
 
     /// Search songs with user preferences included

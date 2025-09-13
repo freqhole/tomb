@@ -5,10 +5,10 @@
 //! business rules enforcement.
 
 use crate::music::models::{
-    AlbumSummary, AlbumTrack, ArtistAlbum, BulkUpdatePreferencesRequest, CreatePlaylist, Playlist,
-    PlaylistComplete, PlaylistQuery, PlaylistSongDetail, PlaylistSongWithMedia, PlaylistSummary,
-    PlaylistWithCount, Song, SongQuery, UpdatePlaylist, UpdateUserPreferenceRequest,
-    UserSongPreference,
+    AlbumSummary, AlbumTrack, ArtistAlbum, BulkUpdatePreferencesRequest, BulkUpdateSongsRequest,
+    CreatePlaylist, Playlist, PlaylistComplete, PlaylistQuery, PlaylistSongDetail,
+    PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount, Song, SongQuery, UpdatePlaylist,
+    UpdateUserPreferenceRequest, UserSongPreference,
 };
 use crate::music::repository::{MusicRepository, MusicRepositoryError};
 use uuid::Uuid;
@@ -155,6 +155,14 @@ impl PlaylistService {
     ) -> Result<Vec<UserSongPreference>> {
         self.repository
             .bulk_update_user_preferences(user_id, request)
+            .await
+            .map_err(PlaylistServiceError::Repository)
+    }
+
+    /// Bulk update song metadata for multiple songs (admin-only)
+    pub async fn bulk_update_songs(&self, request: BulkUpdateSongsRequest) -> Result<Vec<Song>> {
+        self.repository
+            .bulk_update_songs(request)
             .await
             .map_err(PlaylistServiceError::Repository)
     }

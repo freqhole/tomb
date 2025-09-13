@@ -1,5 +1,5 @@
-import { For, Show, createSignal, createEffect, onMount } from "solid-js";
-import { useNavigate, useLocation } from "@solidjs/router";
+import { For, Show, createSignal, createEffect } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
 import { apiClient } from "../../../../../../lib/api-client";
 import { saveScrollStateSecurely } from "../../../../../../lib/navigation";
@@ -12,7 +12,6 @@ interface MobileArtistsViewProps {
 
 export function MobileArtistsView(props: MobileArtistsViewProps) {
   const navigate = useNavigate();
-  const location = useLocation();
 
   // Scroll restoration state
   const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
