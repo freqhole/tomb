@@ -96,7 +96,7 @@ export function TagFilterControls(props: TagFilterControlsProps) {
           </svg>
         </button>
         {/* all the tags */}
-        <For each={tagFilters.selectedTags}>
+        <For each={tagFilters.selectedTags()}>
           {(tag) => (
             <div class="inline-flex items-center gap-1 px-2 py-1 bg-magenta-600 text-white text-xs rounded">
               <span>{tag}</span>

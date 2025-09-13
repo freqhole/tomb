@@ -151,7 +151,7 @@ export const useTagFilters = () => {
 
   return [
     {
-      selectedTags: store.filters.tags,
+      selectedTags: () => store.filters.tags,
       availableTags: reactiveActions.resources?.availableTags,
       unselectedTags: unselectedTags,
       loading: () => reactiveActions.resources?.availableTags?.loading,
