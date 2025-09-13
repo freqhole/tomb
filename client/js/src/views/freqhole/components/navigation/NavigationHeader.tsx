@@ -2,7 +2,7 @@ import { useNavigate } from "@solidjs/router";
 import { createSignal, Show, createEffect } from "solid-js";
 import { storeActions } from "../../store";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
-import { useSearchContext } from "../../context/SearchContext";
+import { useSearch } from "../../store/hooks";
 import { SearchSuggestions } from "../../../../components/search/SearchSuggestions";
 import { useAuth } from "../../../../hooks/auth";
 
@@ -14,7 +14,7 @@ export function NavigationHeader() {
   const navigate = useNavigate();
 
   const events = useGlobalEvents();
-  const search = useSearchContext();
+  const search = useSearch();
   const auth = useAuth();
   const [inputValue, setInputValue] = createSignal("");
   const [showSuggestions, setShowSuggestions] = createSignal(false);
@@ -41,7 +41,6 @@ export function NavigationHeader() {
       events.emit("search:query", { query: searchQuery });
     } else {
       search.clear();
-      storeActions.clearSearch();
       events.emit("search:clear", {});
       navigate("/songs");
     }

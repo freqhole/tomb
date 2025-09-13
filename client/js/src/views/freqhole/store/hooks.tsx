@@ -1,16 +1,72 @@
-import { createMemo } from "solid-js";
-import { useStore, reactiveActions } from "./index";
+import { createMemo, createSignal } from "solid-js";
+import { useStore, reactiveActions, storeActions } from "./index";
 
-// granular hooks for specific functionality
+// comprehensive search hook that bridges old useSearchContext API
 export const useSearch = () => {
-  const [store, actions] = useStore();
-  return [
-    store.search,
-    {
-      setQuery: actions.setSearchQuery,
-      clearSearch: actions.clearSearch,
-    },
-  ] as const;
+  const [store] = useStore();
+  const [activeTab, setActiveTab] = createSignal<
+    "all" | "songs" | "artists" | "albums" | "playlists"
+  >("all");
+
+  // bridge methods to match old useSearchContext API
+  const searchQuery = () => store.search.query;
+  const setSearchQuery = (query: string, executeSearch = false) => {
+    storeActions.setSearchQuery(query);
+    if (executeSearch) {
+      // trigger search through reactive resources
+      // resources will automatically update based on store.search.query
+    }
+  };
+
+  const songs = () => reactiveActions.resources?.songs() || [];
+  const artists = () => reactiveActions.resources?.artists() || [];
+  const albums = () => reactiveActions.resources?.albums() || [];
+  const loading = () => reactiveActions.resources?.songs?.loading || false;
+  const error = () => reactiveActions.resources?.songs?.error || null;
+
+  const hasResults = () => {
+    const songsData = songs();
+    const artistsData = artists();
+    const albumsData = albums();
+    return (
+      songsData.length > 0 || artistsData.length > 0 || albumsData.length > 0
+    );
+  };
+
+  const totalCount = () => {
+    return songs().length + artists().length + albums().length;
+  };
+
+  const clear = () => {
+    storeActions.clearSearch();
+    setActiveTab("all");
+  };
+
+  // placeholder suggestions - can be enhanced later
+  const suggestions = () => [];
+  const onSuggestionSelect = (suggestion: string) => {
+    setSearchQuery(suggestion, true);
+  };
+
+  return {
+    // state
+    searchQuery,
+    activeTab,
+    songs,
+    artists,
+    albums,
+    loading,
+    error,
+    hasResults,
+    totalCount,
+    suggestions,
+
+    // actions
+    setSearchQuery,
+    setActiveTab,
+    clear,
+    onSuggestionSelect,
+  };
 };
 
 export const useTagFilters = () => {

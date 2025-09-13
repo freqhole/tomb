@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createSignal, onMount } from "solid-js";
 import { useNavigate, useSearchParams, useLocation } from "@solidjs/router";
-import { useSearchContext } from "../../../context/SearchContext";
+import { useSearch } from "../../../store/hooks";
 import { useSongInteractions } from "../../../services/songInteractions";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Song } from "../../../../../lib/music/schemas/song";
@@ -25,7 +25,7 @@ export function SearchResultsView(
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const songInteractions = useSongInteractions();
-  const search = useSearchContext();
+  const search = useSearch();
   const location = useLocation();
 
   // Router-aware scroll restoration
