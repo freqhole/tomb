@@ -130,7 +130,7 @@ export function TagFilterControls(props: TagFilterControlsProps) {
             </div>
 
             <Show
-              when={!tagFilters.loading}
+              when={!tagFilters.loading()}
               fallback={
                 <div class="text-xs text-gray-400 py-2">loading tags...</div>
               }

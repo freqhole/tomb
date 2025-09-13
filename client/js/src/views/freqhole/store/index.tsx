@@ -61,8 +61,6 @@ export interface FreqholeStore {
       actions: any[];
     };
     notifications: any[];
-    // tag list versioning for reactive updates
-    tagListVersion: number;
   };
 
   // server context for multi-server preparation
@@ -136,7 +134,6 @@ const initialState: FreqholeStore = {
       actions: [],
     },
     notifications: [],
-    tagListVersion: 1,
   },
 };
 
@@ -152,6 +149,9 @@ export interface StoreProviderProps {
 
 // provider component
 export const StoreProvider: ParentComponent<StoreProviderProps> = (props) => {
+  // create reactive actions in provider context (inside reactive boundary)
+  reactiveActions = createStoreActions(store, setStore, apiClient);
+
   const value = [store, storeActions] as [typeof store, typeof storeActions];
   return (
     <StoreContext.Provider value={value}>
@@ -339,5 +339,5 @@ export const storeActions = {
     setStore("ui", "notifications", (prev) => prev.filter((n) => n.id !== id)),
 };
 
-// create reactive actions - will be exposed later
-export const reactiveActions = createStoreActions(store, setStore, apiClient);
+// reactive actions will be created in provider context
+export let reactiveActions: ReturnType<typeof createStoreActions>;

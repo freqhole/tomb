@@ -1,4 +1,4 @@
-import { createMemo, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import { useStore, reactiveActions, storeActions } from "./index";
 
 // comprehensive search hook that bridges old useSearchContext API
@@ -110,6 +110,36 @@ export const useSearch = () => {
 export const useTagFilters = () => {
   const [store, actions] = useStore();
 
+  // debug what's happening with the resource
+  const availableTagsResource = reactiveActions.resources?.availableTags;
+  console.log("useTagFilters debug:", {
+    resourceExists: !!availableTagsResource,
+    loading: availableTagsResource?.loading,
+    data: availableTagsResource?.(),
+    error: availableTagsResource?.error,
+  });
+
+  // debug what the component actually sees
+  const tagFiltersResult = {
+    selectedTags: store.filters.tags,
+    availableTags: reactiveActions.resources?.availableTags,
+    unselectedTags: reactiveActions.resources?.availableTags() || [],
+    loading: reactiveActions.resources?.availableTags?.loading,
+    error: reactiveActions.resources?.availableTags?.error,
+  };
+  console.log("component sees tagFilters:", tagFiltersResult);
+
+  // track when resource data changes
+  createEffect(() => {
+    const data = availableTagsResource?.();
+    const loading = availableTagsResource?.loading;
+    console.log("resource data changed:", {
+      loading,
+      dataLength: Array.isArray(data) ? data.length : "not array",
+      data: data,
+    });
+  });
+
   // memoized available tags excluding selected ones
   const unselectedTags = createMemo(() => {
     const available = reactiveActions.resources?.availableTags() || [];
@@ -124,8 +154,8 @@ export const useTagFilters = () => {
       selectedTags: store.filters.tags,
       availableTags: reactiveActions.resources?.availableTags,
       unselectedTags: unselectedTags,
-      loading: reactiveActions.resources?.availableTags?.loading,
-      error: reactiveActions.resources?.availableTags?.error,
+      loading: () => reactiveActions.resources?.availableTags?.loading,
+      error: () => reactiveActions.resources?.availableTags?.error,
     },
     {
       addTag: (tag: string) => actions.addTagFilter(tag),
@@ -172,6 +202,7 @@ export const useNavigation = () => {
 export const useTagManagement = () => {
   return {
     availableTags: reactiveActions.resources?.availableTags,
+    mutateAvailableTags: reactiveActions.mutateAvailableTags,
     addTagToSongs: reactiveActions.addTagToSongs,
     removeTagFromSongs: reactiveActions.removeTagFromSongs,
     loading: reactiveActions.resources?.availableTags?.loading,

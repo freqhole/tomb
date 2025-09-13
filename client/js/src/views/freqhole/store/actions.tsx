@@ -80,18 +80,35 @@ export function createStoreActions(
       }
     );
 
-  // available tags with reactive updates when tags are created/deleted
-  const [availableTagsResource, { refetch: refetchAvailableTags }] =
+  // available tags - load once, then use mutate for updates
+  const [availableTagsResource, { mutate: mutateAvailableTags }] =
     createResource(
-      () => true, // always load initially, then use refetch for updates
+      () => {
+        console.log("availableTagsResource dependency triggered");
+        return true;
+      }, // load once initially, then use mutate for performance
       async () => {
         try {
-          console.log(
-            "fetching available tags, tagListVersion:",
-            store.ui.tagListVersion
-          );
+          console.log("fetching available tags - API call starting");
           const filterOptions = await apiClient.getFilterOptions();
-          return filterOptions.tags.items || [];
+          const tags = filterOptions.tags.items || [];
+          console.log(
+            "fetching available tags - API call success:",
+            tags.length,
+            "tags:",
+            tags
+          );
+
+          // debug resource state after return
+          setTimeout(() => {
+            console.log("resource state after completion:", {
+              loading: availableTagsResource.loading,
+              data: availableTagsResource(),
+              error: availableTagsResource.error,
+            });
+          }, 100);
+
+          return tags;
         } catch (error) {
           console.error("failed to fetch available tags:", error);
           return [];
@@ -109,6 +126,9 @@ export function createStoreActions(
       recentPlaylists: recentPlaylistsResource,
       availableTags: availableTagsResource,
     },
+
+    // expose mutate functions for coordinated updates
+    mutateAvailableTags,
 
     // smart filter actions with selective updates
     addTagFilter: (tag: string) => {
@@ -278,15 +298,30 @@ export function createStoreActions(
     refreshAlbums: () => refetchAlbums(),
     refreshPlaylists: () => refetchPlaylists(),
 
-    // tag lifecycle management - using bulk song update for now
+    // tag lifecycle management with optimistic updates
     addTagToSongs: async (songIds: string[], tagName: string) => {
-      try {
-        // use existing bulk update API to add tags
-        await apiClient.addTagsToSongs(songIds, [tagName]);
+      // optimistic update to available tags
+      mutateAvailableTags((current) => {
+        if (!current) return current;
+        const existing = current.find((tag) => tag.value === tagName);
+        if (existing) {
+          // increment count for existing tag
+          return current.map((tag) =>
+            tag.value === tagName
+              ? { ...tag, count: tag.count + songIds.length }
+              : tag
+          );
+        } else {
+          // add new tag to list
+          return [
+            ...current,
+            { value: tagName, label: tagName, count: songIds.length },
+          ];
+        }
+      });
 
-        // increment version and manually refresh tags
-        setStore("ui", "tagListVersion", (v: number) => v + 1);
-        refetchAvailableTags();
+      try {
+        await apiClient.addTagsToSongs(songIds, [tagName]);
 
         eventBus.dispatchEvent(
           new CustomEvent("song:tags-updated", {
@@ -294,18 +329,43 @@ export function createStoreActions(
           })
         );
       } catch (error) {
+        // rollback optimistic update
+        mutateAvailableTags((current) => {
+          if (!current) return current;
+          const existing = current.find((tag) => tag.value === tagName);
+          if (existing && existing.count <= songIds.length) {
+            // remove tag if count would be zero or negative
+            return current.filter((tag) => tag.value !== tagName);
+          } else if (existing) {
+            // decrement count
+            return current.map((tag) =>
+              tag.value === tagName
+                ? { ...tag, count: tag.count - songIds.length }
+                : tag
+            );
+          }
+          return current;
+        });
         console.error("failed to add tag to songs:", error);
         throw error;
       }
     },
 
     removeTagFromSongs: async (songIds: string[], tagName: string) => {
+      // optimistic update to available tags
+      mutateAvailableTags((current) => {
+        if (!current) return current;
+        return current
+          .map((tag) =>
+            tag.value === tagName
+              ? { ...tag, count: Math.max(0, tag.count - songIds.length) }
+              : tag
+          )
+          .filter((tag) => tag.count > 0);
+      });
+
       try {
         await apiClient.removeTagsFromSongs(songIds, [tagName]);
-
-        // increment version and manually refresh tags
-        setStore("ui", "tagListVersion", (v: number) => v + 1);
-        refetchAvailableTags();
 
         eventBus.dispatchEvent(
           new CustomEvent("song:tags-updated", {
@@ -313,6 +373,25 @@ export function createStoreActions(
           })
         );
       } catch (error) {
+        // rollback optimistic update
+        mutateAvailableTags((current) => {
+          if (!current) return current;
+          const existing = current.find((tag) => tag.value === tagName);
+          if (existing) {
+            // restore count
+            return current.map((tag) =>
+              tag.value === tagName
+                ? { ...tag, count: tag.count + songIds.length }
+                : tag
+            );
+          } else {
+            // re-add tag that was removed
+            return [
+              ...current,
+              { value: tagName, label: tagName, count: songIds.length },
+            ];
+          }
+        });
         console.error("failed to remove tag from songs:", error);
         throw error;
       }
@@ -326,7 +405,7 @@ export function createStoreActions(
         refetchAlbums();
         refetchPlaylists();
         refetchRecentPlaylists();
-        refetchAvailableTags();
+        // note: availableTags uses mutate pattern, doesn't need refetch
       });
     },
   };
