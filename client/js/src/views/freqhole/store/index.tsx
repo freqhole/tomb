@@ -1,7 +1,9 @@
 import { createStore } from "solid-js/store";
 import { createContext, useContext, ParentComponent, JSX } from "solid-js";
+import { apiClient } from "../../../lib/api-client";
+import { createStoreActions } from "./actions";
 
-// Define the main store interface
+// define the main store interface
 export interface FreqholeStore {
   layout: {
     queueOpen: boolean;
@@ -59,10 +61,19 @@ export interface FreqholeStore {
       actions: any[];
     };
     notifications: any[];
+    // tag list versioning for reactive updates
+    tagListVersion: number;
+  };
+
+  // server context for multi-server preparation
+  server: {
+    apiClient: typeof apiClient;
+    baseUrl: string;
+    serverId: string;
   };
 }
 
-// Initial state
+// initial state
 const initialState: FreqholeStore = {
   layout: {
     queueOpen: false,
@@ -107,6 +118,11 @@ const initialState: FreqholeStore = {
     currentUser: null,
     token: null,
   },
+  server: {
+    apiClient: apiClient,
+    baseUrl: window.location.origin,
+    serverId: "default",
+  },
   ui: {
     modals: {
       authModal: false,
@@ -120,22 +136,23 @@ const initialState: FreqholeStore = {
       actions: [],
     },
     notifications: [],
+    tagListVersion: 0,
   },
 };
 
-// Create the store
+// create the store
 export const [store, setStore] = createStore(initialState);
 
-// Store context
-const StoreContext = createContext<[FreqholeStore, typeof setStore]>();
+// store context with actions
+const StoreContext = createContext<[FreqholeStore, typeof storeActions]>();
 
 export interface StoreProviderProps {
   children: JSX.Element;
 }
 
-// Provider component
+// provider component
 export const StoreProvider: ParentComponent<StoreProviderProps> = (props) => {
-  const value = [store, setStore] as [typeof store, typeof setStore];
+  const value = [store, storeActions] as [typeof store, typeof storeActions];
   return (
     <StoreContext.Provider value={value}>
       {props.children}
@@ -143,7 +160,7 @@ export const StoreProvider: ParentComponent<StoreProviderProps> = (props) => {
   );
 };
 
-// Hook to use the store
+// hook to use the store
 export const useStore = () => {
   const context = useContext(StoreContext);
   if (!context) {
@@ -152,9 +169,15 @@ export const useStore = () => {
   return context;
 };
 
-// Convenience hooks for specific store sections
+// hook specifically for store actions
+export const useStoreActions = () => {
+  const [, actions] = useStore();
+  return actions;
+};
+
+// convenience hooks for specific store sections
 export const useLayout = () => {
-  const [store, setStore] = useStore();
+  const [store] = useStore();
   return [
     store.layout,
     (updates: Partial<FreqholeStore["layout"]>) => setStore("layout", updates),
@@ -162,7 +185,7 @@ export const useLayout = () => {
 };
 
 export const useNavigation = () => {
-  const [store, setStore] = useStore();
+  const [store] = useStore();
   return [
     store.navigation,
     (updates: Partial<FreqholeStore["navigation"]>) =>
@@ -171,7 +194,7 @@ export const useNavigation = () => {
 };
 
 export const usePlayer = () => {
-  const [store, setStore] = useStore();
+  const [store] = useStore();
   return [
     store.player,
     (updates: Partial<FreqholeStore["player"]>) => setStore("player", updates),
@@ -179,7 +202,7 @@ export const usePlayer = () => {
 };
 
 export const useQueue = () => {
-  const [store, setStore] = useStore();
+  const [store] = useStore();
   return [
     store.queue,
     (updates: Partial<FreqholeStore["queue"]>) => setStore("queue", updates),
@@ -187,7 +210,7 @@ export const useQueue = () => {
 };
 
 export const useSearch = () => {
-  const [store, setStore] = useStore();
+  const [store] = useStore();
   return [
     store.search,
     (updates: Partial<FreqholeStore["search"]>) => setStore("search", updates),
@@ -195,7 +218,7 @@ export const useSearch = () => {
 };
 
 export const useFilters = () => {
-  const [store, setStore] = useStore();
+  const [store] = useStore();
   return [
     store.filters,
     (updates: Partial<FreqholeStore["filters"]>) =>
@@ -204,7 +227,7 @@ export const useFilters = () => {
 };
 
 export const useAuth = () => {
-  const [store, setStore] = useStore();
+  const [store] = useStore();
   return [
     store.auth,
     (updates: Partial<FreqholeStore["auth"]>) => setStore("auth", updates),
@@ -212,21 +235,21 @@ export const useAuth = () => {
 };
 
 export const useUI = () => {
-  const [store, setStore] = useStore();
+  const [store] = useStore();
   return [
     store.ui,
     (updates: Partial<FreqholeStore["ui"]>) => setStore("ui", updates),
   ] as const;
 };
 
-// Action creators for common operations
+// basic store actions without reactive patterns yet
 export const storeActions = {
-  // Layout actions
+  // layout actions
   toggleQueue: () => setStore("layout", "queueOpen", (prev) => !prev),
   setBreakpoint: (breakpoint: FreqholeStore["layout"]["breakpoint"]) =>
     setStore("layout", "breakpoint", breakpoint),
 
-  // Navigation actions
+  // navigation actions
   setCurrentView: (view: FreqholeStore["navigation"]["currentView"]) =>
     setStore("navigation", "currentView", view),
   selectArtist: (artist: any) =>
@@ -235,7 +258,7 @@ export const storeActions = {
   selectPlaylist: (playlist: any) =>
     setStore("navigation", "selectedPlaylist", playlist),
 
-  // Player actions
+  // player actions
   playSong: (song: any) => {
     setStore("player", {
       currentSong: song,
@@ -248,7 +271,7 @@ export const storeActions = {
   setPlayerState: (updates: Partial<FreqholeStore["player"]>) =>
     setStore("player", updates),
 
-  // Queue actions
+  // queue actions
   addToQueue: (song: any) =>
     setStore("queue", "items", (prev) => [...prev, song]),
   removeFromQueue: (index: number) =>
@@ -256,7 +279,7 @@ export const storeActions = {
   clearQueue: () => setStore("queue", "items", []),
   setCurrentIndex: (index: number) => setStore("queue", "currentIndex", index),
 
-  // Search actions
+  // search actions
   setSearchQuery: (query: string) => {
     setStore("search", "query", query);
     setStore("search", "isActive", query.trim().length > 0);
@@ -271,7 +294,7 @@ export const storeActions = {
     });
   },
 
-  // Auth actions
+  // auth actions
   login: (user: any, token: string) => {
     setStore("auth", {
       isAuthenticated: true,
@@ -287,7 +310,7 @@ export const storeActions = {
     });
   },
 
-  // Filter actions
+  // basic filter actions
   addTagFilter: (tag: string) =>
     setStore("filters", "tags", (prev) =>
       prev.includes(tag) ? prev : [...prev, tag]
@@ -296,7 +319,7 @@ export const storeActions = {
     setStore("filters", "tags", (prev) => prev.filter((t) => t !== tag)),
   clearTagFilters: () => setStore("filters", "tags", []),
 
-  // UI actions
+  // ui actions
   openModal: (modal: keyof FreqholeStore["ui"]["modals"]) =>
     setStore("ui", "modals", modal, true),
   closeModal: (modal: keyof FreqholeStore["ui"]["modals"]) =>
@@ -315,3 +338,6 @@ export const storeActions = {
   removeNotification: (id: string) =>
     setStore("ui", "notifications", (prev) => prev.filter((n) => n.id !== id)),
 };
+
+// create reactive actions - will be exposed later
+export const reactiveActions = createStoreActions(store, setStore, apiClient);
