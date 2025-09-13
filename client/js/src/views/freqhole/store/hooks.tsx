@@ -18,9 +18,31 @@ export const useSearch = () => {
     }
   };
 
-  const songs = () => reactiveActions.resources?.songs() || [];
-  const artists = () => reactiveActions.resources?.artists() || [];
-  const albums = () => reactiveActions.resources?.albums() || [];
+  // extract arrays from API response structure
+  const songs = () => {
+    const result = reactiveActions.resources?.songs();
+    if (result && typeof result === "object" && "songs" in result) {
+      return (result as any).songs || [];
+    }
+    return Array.isArray(result) ? result : [];
+  };
+
+  const artists = () => {
+    const result = reactiveActions.resources?.artists();
+    if (result && typeof result === "object" && "artists" in result) {
+      return (result as any).artists || [];
+    }
+    return Array.isArray(result) ? result : [];
+  };
+
+  const albums = () => {
+    const result = reactiveActions.resources?.albums();
+    if (result && typeof result === "object" && "albums" in result) {
+      return (result as any).albums || [];
+    }
+    return Array.isArray(result) ? result : [];
+  };
+
   const loading = () => reactiveActions.resources?.songs?.loading || false;
   const error = () => reactiveActions.resources?.songs?.error || null;
 
@@ -48,6 +70,20 @@ export const useSearch = () => {
     setSearchQuery(suggestion, true);
   };
 
+  // pagination support - extracted from API response
+  const pagination = () => {
+    const result = reactiveActions.resources?.songs();
+    if (result && typeof result === "object" && "pagination" in result) {
+      return (result as any).pagination;
+    }
+    return { page: 1, page_size: 50, total_pages: 1, has_next: false };
+  };
+
+  const loadMore = () => {
+    // TODO: implement pagination loading in future phases
+    console.log("loadMore not implemented yet");
+  };
+
   return {
     // state
     searchQuery,
@@ -60,12 +96,14 @@ export const useSearch = () => {
     hasResults,
     totalCount,
     suggestions,
+    pagination,
 
     // actions
     setSearchQuery,
     setActiveTab,
     clear,
     onSuggestionSelect,
+    loadMore,
   };
 };
 
