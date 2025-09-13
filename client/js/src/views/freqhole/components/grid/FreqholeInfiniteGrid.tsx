@@ -54,7 +54,7 @@ export function FreqholeInfiniteGrid<T = any>(
       title: "#",
       width: 60,
       sortable: false,
-      headerClassName: "flex  justify-center",
+      headerClassName: "flex justify-center",
       render: (_song, index) => (
         <div class="flex items-center justify-center text-gray-400 text-sm">
           {(index || 0) + 1}
