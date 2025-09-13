@@ -1,8 +1,9 @@
-import { createSignal, createMemo, onMount } from "solid-js";
+import { createSignal, createMemo, onMount, createEffect } from "solid-js";
 import type { ApiClient } from "../../../lib/api-client.js";
 import type { Song } from "../../../lib/music/schemas/song.js";
 import { useStandardDelayedLoading } from "../../../hooks/useDelayedLoading.js";
 import { useFilters } from "../store/index.js";
+import { useStore } from "../store/index.js";
 import type { PostSearchRequest } from "../../../lib/search/types.js";
 
 export interface FreqholeSearchFilters {
@@ -99,10 +100,20 @@ export interface FreqholeSearchReturn {
 }
 
 /**
- * Freqhole search hook with unified search backend integration
+ * @deprecated LEGACY SYSTEM - DO NOT USE FOR NEW CODE
+ * Enhanced search hook for Freqhole that provides comprehensive search functionality
  * Currently supports songs search with derived artists/albums from song results
+ *
+ * TODO: Phase 2.5 - Replace all usage with store-based useSearch() hook
+ * TODO: Phase 2.5 - Remove this entire file after migration complete
  */
 export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
+  // ===========================================
+  // ⚠️  TEMPORARY BRIDGE CODE - REMOVE IN PHASE 2.5
+  // Making legacy system reactive to store tag changes
+  // This is a band-aid to get tag filtering working
+  // ===========================================
+  const [store] = useStore();
   // === CORE STATE ===
   const [searchQuery, setSearchQuerySignal] = createSignal("");
   const [filters, setFiltersSignal] = createSignal<FreqholeSearchFilters>({});
@@ -146,6 +157,11 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
 
   // === DELAYED LOADING STATE ===
   const delayedLoading = useStandardDelayedLoading();
+
+  // ===========================================
+  // ⚠️  BRIDGE REMOVED - CAUSED INFINITE LOOP
+  // TODO: Phase 2.5 - Implement proper tag filtering without loops
+  // ===========================================
 
   // === DEBOUNCING STATE ===
   let suggestionTimeout: ReturnType<typeof setTimeout> | undefined;
