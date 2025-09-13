@@ -25,18 +25,26 @@
 - Clean TypeScript compilation achieved
 - All functionality preserved
 
-**Phase 2**: 🔄 **CURRENT** - Tag Context Menu Fix (Week 2)
+**Phase 2**: ⚠️ **BLOCKED** - Tag Context Menu Fix (Week 2) - REACTIVE ARCHITECTURE ISSUES
 
 - **Goal**: Fix reactive patterns for tag management
-- **Current Issue**: availableTags resource returns empty array
-- **Target**: Creating tags from context menu updates global list reactively
+- **Progress**: 80% complete - API and schemas working, but reactive patterns broken
+- **Status**: BLOCKED by fundamental Solid.js reactive architecture issues
+- **Critical Issues**: Tag loading stuck, tag selection not working, store/resource lifecycle problems
 
-**Next Steps**:
+**Phase 2.5**: 🚨 **URGENT** - Fix Reactive Architecture (Week 3)
 
-- Fix tag context menu reactivity issues
-- Ensure tag creation properly updates availableTags resource
-- Test reactive tag lifecycle management
-- Validate cross-component tag synchronization
+- **Goal**: Resolve fundamental Solid.js reactive store issues before proceeding
+- **Scope**: Store/resource lifecycle, reactive dependencies, component integration
+- **Blocker**: Must be resolved before Phase 3 backend work
+
+**Next Steps** (URGENT - Architecture Fix Required):
+
+- Debug and fix Solid.js reactive store architecture issues
+- Resolve resource loading on initial page load vs hot reload
+- Fix tag selection/filtering functionality
+- Establish proper reactive patterns before continuing with backend work
+- Consider store architecture refactor if needed
 
 ## Overview
 
@@ -148,22 +156,57 @@ AuthProvider → StoreProvider → SearchProvider → FreqholeContext (stub)
 
 **[View detailed implementation](./state-management-refactor-and-phase-4-plan-completed.md)**
 
-### Phase 2: Tag Context Menu Fix (Week 2) - CURRENT
+### Phase 2: Tag Context Menu Fix (Week 2) - ⚠️ BLOCKED BY REACTIVE ARCHITECTURE ISSUES
 
-#### 2.1: Tag Context Menu Reactive Pattern Fix
+#### 🔄 2.1: Tag Context Menu Reactive Pattern Fix - 80% COMPLETE, BLOCKED
 
 **Goal**: Fix current reactive conflicts in tag context menus and make tag lifecycle fully reactive
 
-**Current Problem**: `availableTags` resource returns empty array - tag creation doesn't update global list
+**Completed Work:**
 
-**Files to Debug:**
+- ✅ Fixed `availableTags` resource to call real `/api/music/filter-options` API
+- ✅ Added proper `getFilterOptions()` method to ApiClient with Zod validation
+- ✅ Created comprehensive `FilterOptionsResponseSchema` matching actual API response
+- ✅ Refactored `TagSelectorMenu` to use `useTagManagement()` hook instead of direct API calls
+- ✅ Enabled `tagListVersion` increments to trigger reactive updates
+- ✅ Removed ugly type guards with proper `FilterOption[]` typing
+- ✅ Added utility for handling optional arrays (`createOptionalArraySchema`)
+- ✅ Eliminated dynamic imports in favor of standard top-level imports
 
-- Investigate why `availableTags` resource returns empty array
-- Debug `tagListVersion` reactive dependency
-- Test tag creation → available tags list updates
-- Fix any broken reactive chains
+**🚨 CRITICAL ISSUES DISCOVERED:**
 
-**Expected Fix**: Tag creation through context menu should immediately update available tags dropdown in all components
+**Issue #1: Resource Loading Failure on Initial Load**
+
+- **Symptom**: TagFilterControls shows "loading tags..." forever on initial page load
+- **Debug Info**: `{loading: true, availableTags: undefined, unselectedTags: Array(0)}`
+- **But Works After Hot Reload**: `{loading: false, availableTags: Array(10), unselectedTags: Array(10)}`
+- **Root Cause**: Reactive dependency issue with `createResource(() => store.ui.tagListVersion, ...)`
+
+**Issue #2: Tag Selection Not Working**
+
+- **Symptom**: Selecting tags doesn't show selected tags, songs list doesn't filter
+- **Root Cause**: Store actions calling wrong actions or reactive updates not propagating
+
+**Issue #3: Store Architecture Problems**
+
+- **Problem**: `reactiveActions` created at module level, outside reactive context
+- **Problem**: `createResource` dependencies not properly reactive to store changes
+- **Problem**: Multiple store action patterns (basic vs reactive) causing confusion
+
+**DEEPER ARCHITECTURAL CONCERNS:**
+
+1. **Module-Level Store Creation**: `reactiveActions = createStoreActions(store, setStore, apiClient)` happens outside component tree
+2. **Reactive Context Issues**: Store accessed in resource dependencies may not be reactive
+3. **Multiple Action Patterns**: Both `storeActions` and `reactiveActions` exist, unclear which to use when
+4. **Resource Lifecycle**: Resources not properly triggering on initial app load
+
+**TECHNICAL DEBT IDENTIFIED:**
+
+- Legacy `AllFiltersResponseSchema` (low priority)
+- Mixed action patterns need consolidation (high priority)
+- ESLint rule needed for dynamic imports (medium priority)
+
+**BLOCKING PHASE 3**: Cannot proceed with backend API extensions until reactive store foundation is solid
 
 ### Phase 3: Backend API Extensions (Week 3)
 
@@ -928,13 +971,28 @@ const PlaylistNavItem = (props: { playlist: Playlist }) => {
 - **migration**: seamless - full API compatibility maintained
 - **benefit**: significantly reduced complexity, eliminated provider stack
 
-### Phase 2: Tag Context Menu Fix (Week 2) - CURRENT
+### ⚠️ Phase 2: Tag Context Menu Fix - BLOCKED
 
-- **risk**: low-medium - fixing existing broken reactive patterns
-- **scope**: make tag context menu work properly with reactive patterns
-- **validation**: creating tags from context menu updates global list
-- **rollback**: easy - keep old context menu alongside new one
-- **reality check**: this is currently broken, so fixing it is pure win
+- **outcome**: blocked - 80% complete but reactive architecture issues discovered
+- **scope**: fixed API/schemas but revealed fundamental Solid.js store problems
+- **validation**: ❌ tag loading fails on initial load, tag selection broken
+- **benefit**: proper API integration and type safety achieved, but UX broken
+- **rollback**: may need significant store architecture refactor
+- **reality check**: deeper problems than expected, need architecture review
+
+### Phase 2.5: Fix Reactive Architecture - URGENT
+
+- **risk**: high - fundamental architecture changes needed
+- **scope**: debug and fix Solid.js reactive store patterns
+- **validation**: tags load on initial page load, tag selection works correctly
+- **rollback**: may need to revert to old patterns temporarily
+- **reality check**: client foundation not solid, must fix before backend work
+
+### Phase 3: Backend API Extensions - ON HOLD
+
+- **status**: blocked by Phase 2 reactive architecture issues
+- **rationale**: no point adding backend features if frontend is broken
+- **timeline**: will resume after Phase 2.5 completion
 
 ### Phase 3: Artists/Albums API (Week 2-3)
 
@@ -1018,14 +1076,32 @@ client/js/src/views/freqhole/context/
 - [x] clean TypeScript compilation achieved
 - [x] runtime errors eliminated
 
-### Phase 2 Complete:
+### Phase 2 Complete: ❌ BLOCKED
 
-- [x] artists POST endpoint with tag filtering (GET endpoint unchanged)
-- [x] albums POST endpoint with tag filtering (GET endpoint unchanged)
-- [x] shared query logic between GET and POST variants
-- [x] proper pagination and sorting with both filtered and unfiltered requests
-- [x] clean zod validation for all endpoints
-- [x] client automatically chooses GET vs POST based on filter presence
+**What's Working:**
+
+- [x] API integration - getFilterOptions() calls real endpoint with Zod validation
+- [x] Type safety - proper FilterOptionsResponse schema matching actual API
+- [x] Code quality - eliminated dynamic imports, proper FilterOption[] types
+- [x] Context menu refactor - TagSelectorMenu uses useTagManagement hook
+- [x] Utility functions - createOptionalArraySchema for handling API quirks
+
+**What's Broken (BLOCKING):**
+
+- [ ] Resource loading - availableTags stuck loading on initial page load
+- [ ] Tag selection - selecting tags doesn't work, UI doesn't update
+- [ ] Reactive updates - tagListVersion changes not triggering resource refresh
+- [ ] Store architecture - module-level reactive actions causing issues
+- [ ] Component integration - hooks calling wrong action patterns
+
+### Phase 3 Complete:
+
+- [ ] artists POST endpoint with tag filtering (GET endpoint unchanged)
+- [ ] albums POST endpoint with tag filtering (GET endpoint unchanged)
+- [ ] shared query logic between GET and POST variants
+- [ ] proper pagination and sorting with both filtered and unfiltered requests
+- [ ] clean zod validation for all endpoints
+- [ ] client automatically chooses GET vs POST based on filter presence
 
 ### Phase 3 Complete:
 

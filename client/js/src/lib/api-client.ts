@@ -23,6 +23,7 @@ import type {
   PostSearchRequest,
   PostSearchResponse,
 } from "./search/types.js";
+import type { FilterOptionsResponse } from "./search/music/filter-types.js";
 import {
   SearchResultSchema,
   SongsSearchResultSchema,
@@ -31,6 +32,7 @@ import {
   PostSearchRequestSchema,
   PostSearchResponseSchema,
 } from "./search/types.js";
+import { FilterOptionsResponseSchema } from "./search/music/filter-types.js";
 import { searchValidation } from "./search/validation.js";
 import { musicApiMethods } from "./music/api-methods.js";
 import { musicAdminApiMethods } from "./music/api-admin-methods.js";
@@ -844,6 +846,87 @@ export class ApiClient {
 
   async replaceTagsForSongs(songIds: string[], tags: string[]) {
     return musicAdminApiMethods.replaceTagsForSongs.call(this, songIds, tags);
+  }
+
+  // Filter options methods
+  async getFilterOptions(): Promise<FilterOptionsResponse> {
+    try {
+      const response = await this.makeRequest<unknown>(
+        "GET",
+        "/api/music/filter-options"
+      );
+
+      // Parse and validate the response with Zod
+      const validatedResponse = FilterOptionsResponseSchema.parse(response);
+      return validatedResponse;
+    } catch (error) {
+      console.error("failed to fetch filter options:", error);
+
+      // Return a safe fallback that matches the schema
+      return {
+        artists: {
+          items: [],
+          total_count: 0,
+          page: 1,
+          page_size: 50,
+          total_pages: 0,
+          has_next: false,
+          has_prev: false,
+        },
+        albums: {
+          items: [],
+          total_count: 0,
+          page: 1,
+          page_size: 50,
+          total_pages: 0,
+          has_next: false,
+          has_prev: false,
+        },
+        genres: {
+          items: [],
+          total_count: 0,
+          page: 1,
+          page_size: 50,
+          total_pages: 0,
+          has_next: false,
+          has_prev: false,
+        },
+        tags: {
+          items: [],
+          total_count: 0,
+          page: 1,
+          page_size: 50,
+          total_pages: 0,
+          has_next: false,
+          has_prev: false,
+        },
+        years: [],
+        year_ranges: [],
+        rating_distribution: [],
+        avg_rating: 0,
+        file_formats: [],
+        bitrate_ranges: [],
+        duration_ranges: [],
+        key_signatures: [],
+        bpm_ranges: [],
+        mood_categories: [],
+        favorites_count: 0,
+        has_thumbnail_count: 0,
+        has_lyrics_count: 0,
+        compilation_count: 0,
+        statistics: {
+          total_songs: 0,
+          total_artists: 0,
+          total_albums: 0,
+          total_genres: 0,
+          total_tags: 0,
+          total_playtime_seconds: 0,
+          avg_song_duration: 0,
+          total_file_size_bytes: 0,
+          last_updated: "",
+        },
+      };
+    }
   }
 }
 

@@ -136,7 +136,7 @@ const initialState: FreqholeStore = {
       actions: [],
     },
     notifications: [],
-    tagListVersion: 0,
+    tagListVersion: 1,
   },
 };
 

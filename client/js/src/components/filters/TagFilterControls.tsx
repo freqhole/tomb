@@ -145,13 +145,11 @@ export function TagFilterControls(props: TagFilterControlsProps) {
                   <For each={tagFilters.unselectedTags()}>
                     {(tag) => (
                       <button
-                        onClick={() => handleAddTag(tag?.value || tag)}
+                        onClick={() => handleAddTag(tag.value)}
                         class="w-full text-left px-2 py-1 text-xs hover:bg-magenta-600 hover:text-white text-gray-300 rounded transition-colors flex items-center justify-between"
                       >
-                        <span>{tag?.label || tag}</span>
-                        <span class="text-gray-500 text-xs">
-                          ({tag?.count || 0})
-                        </span>
+                        <span>{tag.label}</span>
+                        <span class="text-gray-500 text-xs">({tag.count})</span>
                       </button>
                     )}
                   </For>

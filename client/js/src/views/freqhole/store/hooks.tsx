@@ -114,9 +114,8 @@ export const useTagFilters = () => {
   const unselectedTags = createMemo(() => {
     const available = reactiveActions.resources?.availableTags() || [];
     const selected = store.filters.tags;
-    return available.filter((tag: any) => {
-      const tagValue = tag?.value || tag;
-      return !selected.includes(tagValue);
+    return available.filter((tag) => {
+      return !selected.includes(tag.value);
     });
   });
 

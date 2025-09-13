@@ -126,6 +126,99 @@ export const FilterSummarySchema = z.object({
   unique_years: z.number().int().min(0),
 });
 
+// Paginated filter options structure matching the actual API
+export const PaginatedFilterOptionsSchema = z.object({
+  items: z.array(FilterOptionSchema),
+  total_count: z.number().int().min(0),
+  page: z.number().int().min(1),
+  page_size: z.number().int().min(1),
+  total_pages: z.number().int().min(1),
+  has_next: z.boolean(),
+  has_prev: z.boolean(),
+});
+
+// Utility for handling potentially empty arrays with proper typing
+// Handles cases where API returns undefined, null, or empty array
+export function createOptionalArraySchema<T extends z.ZodTypeAny>(
+  itemSchema: T
+) {
+  return z
+    .array(itemSchema)
+    .nullable()
+    .optional()
+    .transform((val) => val || [])
+    .default([]);
+}
+
+// Duration range structure from the actual API
+export const DurationRangeSchema = z.object({
+  min_seconds: z.number().int().min(0),
+  max_seconds: z.number().int().min(0),
+  label: z.string(),
+  count: z.number().int().min(0),
+});
+
+// BPM range structure from the actual API
+export const BpmRangeSchema = z.object({
+  min_bpm: z.number().int().min(0),
+  max_bpm: z.number().int().min(0),
+  label: z.string(),
+  count: z.number().int().min(0),
+});
+
+// Year range structure from the actual API
+export const YearRangeSchema = z.object({
+  min_year: z.number().int(),
+  max_year: z.number().int(),
+  label: z.string(),
+  count: z.number().int().min(0),
+});
+
+// Bitrate range structure from the actual API
+export const BitrateRangeSchema = z.object({
+  min_bitrate: z.number().int().min(0),
+  max_bitrate: z.number().int().min(0),
+  label: z.string(),
+  count: z.number().int().min(0),
+});
+
+// Library statistics structure from the actual API
+export const LibraryStatisticsSchema = z.object({
+  total_songs: z.number().int().min(0),
+  total_artists: z.number().int().min(0),
+  total_albums: z.number().int().min(0),
+  total_genres: z.number().int().min(0),
+  total_tags: z.number().int().min(0),
+  total_playtime_seconds: z.number().int().min(0),
+  avg_song_duration: z.number(),
+  total_file_size_bytes: z.number().int().min(0),
+  last_updated: z.string(),
+});
+
+// The actual filter-options API response structure
+export const FilterOptionsResponseSchema = z.object({
+  artists: PaginatedFilterOptionsSchema,
+  albums: PaginatedFilterOptionsSchema,
+  genres: PaginatedFilterOptionsSchema,
+  tags: PaginatedFilterOptionsSchema,
+  years: z.array(FilterOptionSchema),
+  year_ranges: createOptionalArraySchema(YearRangeSchema),
+  rating_distribution: createOptionalArraySchema(z.number().int().min(0)),
+  avg_rating: z.number(),
+  file_formats: createOptionalArraySchema(FilterOptionSchema),
+  bitrate_ranges: createOptionalArraySchema(BitrateRangeSchema),
+  duration_ranges: createOptionalArraySchema(DurationRangeSchema),
+  key_signatures: createOptionalArraySchema(FilterOptionSchema),
+  bpm_ranges: createOptionalArraySchema(BpmRangeSchema),
+  mood_categories: createOptionalArraySchema(FilterOptionSchema),
+  favorites_count: z.number().int().min(0),
+  has_thumbnail_count: z.number().int().min(0),
+  has_lyrics_count: z.number().int().min(0),
+  compilation_count: z.number().int().min(0),
+  statistics: LibraryStatisticsSchema,
+});
+
+// Keep the old schema for backward compatibility
 export const AllFiltersResponseSchema = z.object({
   genres: z.array(FilterOptionSchema),
   artists: z.array(FilterOptionSchema),
@@ -148,6 +241,15 @@ export type ValidatedYearFiltersResponse = z.infer<
 export type ValidatedAllFiltersResponse = z.infer<
   typeof AllFiltersResponseSchema
 >;
+export type PaginatedFilterOptions = z.infer<
+  typeof PaginatedFilterOptionsSchema
+>;
+export type FilterOptionsResponse = z.infer<typeof FilterOptionsResponseSchema>;
+export type YearRange = z.infer<typeof YearRangeSchema>;
+export type BitrateRange = z.infer<typeof BitrateRangeSchema>;
+export type DurationRange = z.infer<typeof DurationRangeSchema>;
+export type BpmRange = z.infer<typeof BpmRangeSchema>;
+export type LibraryStatistics = z.infer<typeof LibraryStatisticsSchema>;
 
 // Default filter options structure for component compatibility
 export interface DefaultFilterOptions {

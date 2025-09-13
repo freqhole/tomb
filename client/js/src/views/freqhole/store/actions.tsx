@@ -81,19 +81,23 @@ export function createStoreActions(
     );
 
   // available tags with reactive updates when tags are created/deleted
-  const [availableTagsResource] = createResource(
-    () => store.ui.tagListVersion, // increment this to force refresh
-    async () => {
-      try {
-        // TODO: implement proper tag fetching in phase 2
-        // For now return empty array until we have proper API
-        return [];
-      } catch (error) {
-        console.error("failed to fetch available tags:", error);
-        return [];
+  const [availableTagsResource, { refetch: refetchAvailableTags }] =
+    createResource(
+      () => true, // always load initially, then use refetch for updates
+      async () => {
+        try {
+          console.log(
+            "fetching available tags, tagListVersion:",
+            store.ui.tagListVersion
+          );
+          const filterOptions = await apiClient.getFilterOptions();
+          return filterOptions.tags.items || [];
+        } catch (error) {
+          console.error("failed to fetch available tags:", error);
+          return [];
+        }
       }
-    }
-  );
+    );
 
   return {
     // resources for components to consume
@@ -280,9 +284,9 @@ export function createStoreActions(
         // use existing bulk update API to add tags
         await apiClient.addTagsToSongs(songIds, [tagName]);
 
-        // increment version to trigger availableTagsResource refresh
-        // TODO: fix tagListVersion access once UI type is corrected
-        // setStore("ui", "tagListVersion", (v: number) => v + 1);
+        // increment version and manually refresh tags
+        setStore("ui", "tagListVersion", (v: number) => v + 1);
+        refetchAvailableTags();
 
         eventBus.dispatchEvent(
           new CustomEvent("song:tags-updated", {
@@ -299,9 +303,9 @@ export function createStoreActions(
       try {
         await apiClient.removeTagsFromSongs(songIds, [tagName]);
 
-        // increment version to trigger availableTagsResource refresh
-        // TODO: fix tagListVersion access once UI type is corrected
-        // setStore("ui", "tagListVersion", (v: number) => v + 1);
+        // increment version and manually refresh tags
+        setStore("ui", "tagListVersion", (v: number) => v + 1);
+        refetchAvailableTags();
 
         eventBus.dispatchEvent(
           new CustomEvent("song:tags-updated", {
@@ -322,8 +326,7 @@ export function createStoreActions(
         refetchAlbums();
         refetchPlaylists();
         refetchRecentPlaylists();
-        // TODO: fix tagListVersion access once UI type is corrected
-        // setStore("ui", "tagListVersion", (v: number) => v + 1); // refresh tags too
+        refetchAvailableTags();
       });
     },
   };

@@ -1,7 +1,6 @@
 import { createSignal, Show, For, onMount, onCleanup } from "solid-js";
-import { apiClient } from "../../lib/api-client";
 import { useAuth } from "../../hooks/auth";
-import { useGlobalEvents } from "../../views/freqhole/hooks/useGlobalEvents";
+import { useTagManagement } from "../../views/freqhole/store/hooks";
 import type { Song } from "../../lib/music/schemas/song";
 
 interface TagSelectorMenuProps {
@@ -12,12 +11,10 @@ interface TagSelectorMenuProps {
 
 export function TagSelectorMenu(props: TagSelectorMenuProps) {
   const auth = useAuth();
-  const events = useGlobalEvents();
+  const tagManagement = useTagManagement();
 
   const [newTagInput, setNewTagInput] = createSignal("");
   const [showNewTagInput, setShowNewTagInput] = createSignal(false);
-  const [loading, setLoading] = createSignal(false);
-  const [recentTags, setRecentTags] = createSignal<any[]>([]);
   const [tagOverrides, setTagOverrides] = createSignal<Map<string, string[]>>(
     new Map()
   );
@@ -37,35 +34,18 @@ export function TagSelectorMenu(props: TagSelectorMenuProps) {
     return Array.from(tagSet).sort();
   };
 
-  // Fetch fresh tags every time the menu opens
-  const fetchRecentTags = async () => {
-    try {
-      const response = await apiClient.makeRequest<any>(
-        "GET",
-        "/api/music/filter-options"
-      );
-
-      // Tags are now in response.tags.items structure
-      const tags = response?.tags?.items || [];
-
-      // Sort by count/usage and take top 10
-      const sortedTags = tags
-        .sort((a: any, b: any) => (b.count || 0) - (a.count || 0))
-        .slice(0, 10);
-      setRecentTags(sortedTags);
-    } catch (error) {
-      console.error("failed to fetch recent tags:", error);
-      setRecentTags([]);
-    }
+  // Get recent tags from reactive store
+  const getRecentTags = () => {
+    const availableTags = tagManagement.availableTags() || [];
+    return availableTags.sort((a, b) => b.count - a.count).slice(0, 10);
   };
 
   const handleRemoveTag = async (tag: string) => {
-    if (!auth.isAdmin || loading()) return;
+    if (!auth.isAdmin || tagManagement.loading) return;
 
-    setLoading(true);
     try {
       const songIds = props.songs.map((song) => song.id);
-      await apiClient.removeTagsFromSongs(songIds, [tag]);
+      await tagManagement.removeTagFromSongs(songIds, tag);
 
       // Update local overrides immediately
       const overrides = new Map(tagOverrides());
@@ -77,27 +57,18 @@ export function TagSelectorMenu(props: TagSelectorMenuProps) {
         overrides.set(song.id, newTags);
       });
       setTagOverrides(overrides);
-
-      // Emit reload event to refresh song data in parent
-      events.emit("data:reload", { type: "songs" });
-
-      // Refresh recent tags
-      fetchRecentTags();
     } catch (error) {
       console.error("failed to remove tag:", error);
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleAddNewTag = async () => {
     const tagName = newTagInput().trim();
-    if (!tagName || !auth.isAdmin || loading()) return;
+    if (!tagName || !auth.isAdmin || tagManagement.loading) return;
 
-    setLoading(true);
     try {
       const songIds = props.songs.map((song) => song.id);
-      await apiClient.addTagsToSongs(songIds, [tagName]);
+      await tagManagement.addTagToSongs(songIds, tagName);
 
       setNewTagInput("");
       setShowNewTagInput(false);
@@ -112,26 +83,17 @@ export function TagSelectorMenu(props: TagSelectorMenuProps) {
         overrides.set(song.id, newTags);
       });
       setTagOverrides(overrides);
-
-      // Emit reload event to refresh song data in parent
-      events.emit("data:reload", { type: "songs" });
-
-      // Refresh recent tags
-      fetchRecentTags();
     } catch (error) {
       console.error("failed to add tag:", error);
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleAddExistingTag = async (tag: string) => {
-    if (!auth.isAdmin || loading()) return;
+    if (!auth.isAdmin || tagManagement.loading) return;
 
-    setLoading(true);
     try {
       const songIds = props.songs.map((song) => song.id);
-      await apiClient.addTagsToSongs(songIds, [tag]);
+      await tagManagement.addTagToSongs(songIds, tag);
 
       // Update local overrides immediately
       const overrides = new Map(tagOverrides());
@@ -140,21 +102,12 @@ export function TagSelectorMenu(props: TagSelectorMenuProps) {
           ? overrides.get(song.id)!
           : song.tags || [];
         if (!currentTags.includes(tag)) {
-          const newTags = [...currentTags, tag];
-          overrides.set(song.id, newTags);
+          overrides.set(song.id, [...currentTags, tag]);
         }
       });
       setTagOverrides(overrides);
-
-      // Emit reload event to refresh song data in parent
-      events.emit("data:reload", { type: "songs" });
-
-      // Refresh recent tags
-      fetchRecentTags();
     } catch (error) {
-      console.error("failed to add tag:", error);
-    } finally {
-      setLoading(false);
+      console.error("failed to add tag to songs:", error);
     }
   };
 
@@ -168,7 +121,6 @@ export function TagSelectorMenu(props: TagSelectorMenuProps) {
 
   onMount(() => {
     document.addEventListener("keydown", handleKeyDown);
-    fetchRecentTags();
   });
 
   onCleanup(() => {
@@ -208,7 +160,7 @@ export function TagSelectorMenu(props: TagSelectorMenuProps) {
                       <button
                         class="ml-2 text-red-400 hover:text-red-300 text-xs"
                         onClick={() => handleRemoveTag(tag)}
-                        disabled={loading()}
+                        disabled={tagManagement.loading}
                       >
                         ×
                       </button>
@@ -238,15 +190,15 @@ export function TagSelectorMenu(props: TagSelectorMenuProps) {
                   onInput={(e) => setNewTagInput(e.target.value)}
                   placeholder="enter new tag name..."
                   class="w-full px-3 py-2 text-sm bg-dark-200 border border-dark-300 text-white placeholder-gray-400 focus:outline-none focus:border-magenta-400 rounded"
-                  disabled={loading()}
+                  disabled={tagManagement.loading}
                 />
                 <div class="flex gap-2 mt-2">
                   <button
                     class="flex-1 px-3 py-1 text-xs bg-magenta-600 text-white hover:bg-magenta-500 disabled:opacity-50 rounded"
                     onClick={handleAddNewTag}
-                    disabled={loading() || !newTagInput().trim()}
+                    disabled={tagManagement.loading || !newTagInput().trim()}
                   >
-                    {loading() ? "adding..." : "add"}
+                    {tagManagement.loading ? "adding..." : "add"}
                   </button>
                   <button
                     class="px-3 py-1 text-xs bg-gray-600 text-white hover:bg-gray-500 rounded"
@@ -254,7 +206,7 @@ export function TagSelectorMenu(props: TagSelectorMenuProps) {
                       setShowNewTagInput(false);
                       setNewTagInput("");
                     }}
-                    disabled={loading()}
+                    disabled={tagManagement.loading}
                   >
                     cancel
                   </button>
@@ -268,7 +220,7 @@ export function TagSelectorMenu(props: TagSelectorMenuProps) {
                 <button
                   class="w-full px-3 py-2 text-left text-sm text-white hover:bg-dark-300 rounded flex items-center gap-2 transition-colors"
                   onClick={() => setShowNewTagInput(true)}
-                  disabled={loading()}
+                  disabled={tagManagement.loading}
                 >
                   <span>+</span>
                   <span>add new tag</span>
@@ -277,19 +229,19 @@ export function TagSelectorMenu(props: TagSelectorMenuProps) {
             </Show>
 
             {/* Recent Tags */}
-            <Show when={recentTags().length > 0 && !showNewTagInput()}>
+            <Show when={getRecentTags().length > 0 && !showNewTagInput()}>
               <div class="p-3">
                 <div class="text-gray-300 text-xs font-medium mb-2">
                   recent tags
                 </div>
                 <div class="space-y-1">
-                  <For each={recentTags()}>
+                  <For each={getRecentTags()}>
                     {(tagOption) => (
                       <Show when={!currentTags.includes(tagOption.value)}>
                         <button
                           class="w-full px-3 py-2 text-left text-sm text-white hover:bg-dark-300 rounded truncate transition-colors"
                           onClick={() => handleAddExistingTag(tagOption.value)}
-                          disabled={loading()}
+                          disabled={tagManagement.loading}
                         >
                           <span>{tagOption.label}</span>
                           <Show when={tagOption.count}>
