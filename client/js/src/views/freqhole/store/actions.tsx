@@ -31,8 +31,8 @@ export function createStoreActions(
       if (params.query) {
         return apiClient.searchMusic(params.query);
       } else if (params.tags.length > 0) {
-        // TODO: implement tag filtering in phase 2-3
-        return apiClient.getSongs();
+        // use POST endpoint for proper tag filtering
+        return apiClient.searchPost({ tags: params.tags });
       }
       return apiClient.getSongs();
     }
@@ -83,32 +83,11 @@ export function createStoreActions(
   // available tags - load once, then use mutate for updates
   const [availableTagsResource, { mutate: mutateAvailableTags }] =
     createResource(
-      () => {
-        console.log("availableTagsResource dependency triggered");
-        return true;
-      }, // load once initially, then use mutate for performance
+      () => true, // load once initially, then use mutate for performance
       async () => {
         try {
-          console.log("fetching available tags - API call starting");
           const filterOptions = await apiClient.getFilterOptions();
-          const tags = filterOptions.tags.items || [];
-          console.log(
-            "fetching available tags - API call success:",
-            tags.length,
-            "tags:",
-            tags
-          );
-
-          // debug resource state after return
-          setTimeout(() => {
-            console.log("resource state after completion:", {
-              loading: availableTagsResource.loading,
-              data: availableTagsResource(),
-              error: availableTagsResource.error,
-            });
-          }, 100);
-
-          return tags;
+          return filterOptions.tags.items || [];
         } catch (error) {
           console.error("failed to fetch available tags:", error);
           return [];
