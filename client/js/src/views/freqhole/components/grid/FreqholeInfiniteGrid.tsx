@@ -142,7 +142,7 @@ export function FreqholeInfiniteGrid<T = any>(
       key: "tags",
       title: "tags",
       width: 180,
-      sortable: false,
+      sortable: true,
       render: (song: Song) => {
         if (!song.tags || song.tags.length === 0) return null;
 
