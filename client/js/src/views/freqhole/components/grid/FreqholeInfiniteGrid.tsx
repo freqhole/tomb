@@ -138,6 +138,47 @@ export function FreqholeInfiniteGrid<T = any>(
         </div>
       ),
     },
+    {
+      key: "tags",
+      title: "tags",
+      width: 180,
+      sortable: false,
+      render: (song: Song) => {
+        if (!song.tags || song.tags.length === 0) return null;
+
+        // Display up to 5 tags total, flowing across two rows, leaving space for overflow indicator
+        const visibleTags = song.tags.slice(0, 5);
+        const remainingTags = song.tags.slice(5);
+
+        return (
+          <div class="py-1 px-1 h-full flex flex-col justify-center gap-1">
+            <div class="flex flex-wrap gap-1 overflow-hidden h-12 content-start">
+              {visibleTags.map((tag) => (
+                <button
+                  class="px-1.5 py-0.5 bg-gray-700 text-gray-300 hover:bg-magenta-600 hover:text-white text-xs transition-colors cursor-pointer truncate max-w-16 flex-shrink-0"
+                  data-tag={tag}
+                  title={tag}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // TODO: future tag filtering functionality
+                  }}
+                >
+                  {tag}
+                </button>
+              ))}
+              {remainingTags.length > 0 && (
+                <span
+                  class="px-1.5 py-0.5 text-xs text-gray-500 flex-shrink-0"
+                  title={remainingTags.join(", ")}
+                >
+                  +{remainingTags.length}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      },
+    },
   ];
 
   // Mobile song columns - simplified
