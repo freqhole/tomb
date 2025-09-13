@@ -177,22 +177,29 @@ export function MobileSongList(props: MobileSongListProps) {
                     class="p-1 text-gray-400 hover:text-magenta-400 hover:bg-magenta-600/30 rounded transition-all"
                     onClick={(e) => {
                       e.stopPropagation();
+                      e.preventDefault();
+                      e.stopImmediatePropagation();
+
+                      // Prevent multiple rapid clicks
+                      const target = e.currentTarget as HTMLButtonElement;
+                      if (target.disabled) return;
+                      target.disabled = true;
+
                       songInteractions.queueSong(song);
+
+                      // Re-enable after a short delay
+                      setTimeout(() => {
+                        target.disabled = false;
+                      }, 300);
                     }}
                     title="Add to queue"
                   >
                     <svg
                       class="w-4 h-4"
-                      fill="none"
-                      stroke="currentColor"
+                      fill="currentColor"
                       viewBox="0 0 24 24"
                     >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                      />
+                      <path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
                     </svg>
                   </button>
                 </div>

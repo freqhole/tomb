@@ -1,11 +1,4 @@
-import {
-  createSignal,
-  createEffect,
-  Show,
-  For,
-  onMount,
-  onCleanup,
-} from "solid-js";
+import { createSignal, Show, For, onMount, onCleanup } from "solid-js";
 import { apiClient } from "../../lib/api-client";
 import { useAuth } from "../../hooks/auth";
 import { useGlobalEvents } from "../../views/freqhole/hooks/useGlobalEvents";

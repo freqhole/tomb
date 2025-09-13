@@ -1177,21 +1177,24 @@ export function PlaylistDetailView(
                         </div>
 
                         {/* Actions */}
-                        <div class="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div
+                          class={`flex items-center space-x-2 ${isMobile() ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}
+                        >
                           <button
                             class="p-1 rounded-full hover:bg-magenta-600/30 transition-colors"
                             onClick={(e) => {
                               e.stopPropagation();
-                              songInteractions.queueSong(song);
+                              e.preventDefault();
+                              songInteractions.smartQueueSong(song);
                             }}
                             title="Add to queue"
                           >
                             <svg
                               class="w-4 h-4 text-magenta-400"
                               fill="currentColor"
-                              viewBox="0 0 20 20"
+                              viewBox="0 0 24 24"
                             >
-                              <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
+                              <path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
                             </svg>
                           </button>
                           <button

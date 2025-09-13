@@ -57,9 +57,7 @@ export function useAlbumPlayback() {
   };
 
   const addAlbumToQueue = (tracks: Song[]) => {
-    tracks.forEach((track) => {
-      songInteractions.queueSong(track);
-    });
+    songInteractions.smartQueueSongs(tracks);
   };
 
   return {

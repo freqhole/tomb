@@ -60,6 +60,44 @@ export function useSongInteractions() {
     });
   };
 
+  // Smart queue function that starts playing if queue is empty or no current song
+  const smartQueueSong = (song: Song) => {
+    const isQueueEmpty = store.queue.items.length === 0;
+    const hasNoCurrentSong = !store.player.currentSong;
+
+    // Only start playing if queue is empty or there's no current song
+    if (isQueueEmpty || hasNoCurrentSong) {
+      playSong(song, true); // Replace queue and start playing
+    } else {
+      queueSong(song); // Just add to queue
+    }
+  };
+
+  // Smart queue function for multiple songs (albums, playlists, etc.)
+  const smartQueueSongs = (songs: Song[]) => {
+    if (songs.length === 0) return;
+
+    const isQueueEmpty = store.queue.items.length === 0;
+    const hasNoCurrentSong = !store.player.currentSong;
+
+    // Only start playing if queue is empty or there's no current song
+    if (isQueueEmpty || hasNoCurrentSong) {
+      const firstSong = songs[0];
+      if (firstSong) {
+        playSong(firstSong, true); // Replace queue and start playing
+        // Add remaining songs to queue
+        songs.slice(1).forEach((song) => {
+          queueSong(song);
+        });
+      }
+    } else {
+      // Otherwise just add all songs to queue
+      songs.forEach((song) => {
+        queueSong(song);
+      });
+    }
+  };
+
   const toggleFavorite = async (song: Song) => {
     try {
       const newFavoriteStatus = !song.user_is_favorite;
@@ -419,6 +457,8 @@ export function useSongInteractions() {
     // Core actions
     playSong,
     queueSong,
+    smartQueueSong,
+    smartQueueSongs,
     toggleFavorite,
     viewArtist,
     viewAlbum,

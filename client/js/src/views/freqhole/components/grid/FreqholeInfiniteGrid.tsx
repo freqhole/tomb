@@ -1,7 +1,7 @@
 import { InfiniteGrid } from "../../../../components/infinite-data-grid";
 import type { GridColumn } from "../../../../components/infinite-data-grid/types";
 import type { Song } from "../../../../lib/music/schemas/song";
-import { SongStarRating, SongFavoriteHeart } from "../ui";
+import { SongFavoriteHeart, SongStarRatingCompact } from "../ui";
 
 export interface FreqholeInfiniteGridProps<T = any> {
   data: T[];
@@ -54,6 +54,7 @@ export function FreqholeInfiniteGrid<T = any>(
       title: "#",
       width: 60,
       sortable: false,
+      headerClassName: "flex  justify-center",
       render: (_song, index) => (
         <div class="flex items-center justify-center text-gray-400 text-sm">
           {(index || 0) + 1}
@@ -112,12 +113,16 @@ export function FreqholeInfiniteGrid<T = any>(
     },
     {
       key: "user_rating",
-      title: "rating",
-      width: 120,
+      title: "✨",
+      width: 40,
       sortable: true,
       render: (song: Song) => (
         <div class="flex justify-center">
-          <SongStarRating song={song} size="sm" />
+          <SongStarRatingCompact
+            song={song}
+            size="sm"
+            selected={props.selectedItems?.has(song.id) || false}
+          />
         </div>
       ),
     },
@@ -130,7 +135,7 @@ export function FreqholeInfiniteGrid<T = any>(
           </svg>
         </div>
       ),
-      width: 60,
+      width: 40,
       sortable: true,
       render: (song: Song) => (
         <div class="flex justify-center">
@@ -190,7 +195,7 @@ export function FreqholeInfiniteGrid<T = any>(
       minWidth: 200,
       sortable: false,
       render: (song: Song) => (
-        <div class="py-3 px-4 flex-1 min-w-0">
+        <div class="py-3 pl-2 flex-1 min-w-0">
           <div class="font-medium text-white mb-1 truncate">
             {song.title || "untitled"}
           </div>
@@ -206,12 +211,12 @@ export function FreqholeInfiniteGrid<T = any>(
     {
       key: "mobile_actions",
       title: "",
-      width: 120,
+      width: 85,
       sortable: false,
       render: (song: Song) => (
-        <div class="py-3 px-4 flex items-center justify-end gap-3">
-          <SongStarRating song={song} size="sm" />
-          <SongFavoriteHeart song={song} size="sm" />
+        <div class="py-3 pr-2 flex items-center justify-end gap-3">
+          <SongStarRatingCompact song={song} size="md" />
+          <SongFavoriteHeart song={song} size="md" />
         </div>
       ),
     },

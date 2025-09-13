@@ -102,21 +102,6 @@ export function TagFilterControls(props: TagFilterControlsProps) {
     <div class={`relative ${props.class || ""}`}>
       {/* Active Tag Filters */}
       <div class="flex items-center gap-2 flex-wrap">
-        <For each={filters.tags}>
-          {(tag) => (
-            <div class="inline-flex items-center gap-1 px-2 py-1 bg-magenta-600 text-white text-xs rounded">
-              <span>{tag}</span>
-              <button
-                onClick={() => handleRemoveTag(tag)}
-                class="hover:text-magenta-200 transition-colors"
-                title={`Remove ${tag} filter`}
-              >
-                ×
-              </button>
-            </div>
-          )}
-        </For>
-
         {/* Add Tag Button */}
         <button
           ref={buttonRef}
@@ -155,6 +140,21 @@ export function TagFilterControls(props: TagFilterControlsProps) {
             />
           </svg>
         </button>
+        {/* all the tags */}
+        <For each={filters.tags}>
+          {(tag) => (
+            <div class="inline-flex items-center gap-1 px-2 py-1 bg-magenta-600 text-white text-xs rounded">
+              <span>{tag}</span>
+              <button
+                onClick={() => handleRemoveTag(tag)}
+                class="hover:text-magenta-200 transition-colors"
+                title={`Remove ${tag} filter`}
+              >
+                ×
+              </button>
+            </div>
+          )}
+        </For>
       </div>
 
       {/* Tag Selection Menu */}

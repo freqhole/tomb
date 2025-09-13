@@ -157,7 +157,7 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             class="flex-shrink-0"
           />
         </div>
-        <div class="flex items-center justify-end">
+        <div class="flex items-center">
           <TagFilterControls compact={true} />
         </div>
       </div>
