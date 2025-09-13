@@ -9,6 +9,7 @@ import { FreqholeInfiniteGrid } from "../../../grid";
 import { useSongState } from "../../../../services/songState";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { RouteSectionProps } from "@solidjs/router";
+import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
 
 interface DesktopSongsViewProps {
   class?: string;
@@ -157,7 +158,10 @@ export function DesktopSongsView(
     >
       {/* Fixed Header */}
       <div class="flex-shrink-0 p-6">
-        <h1 class="text-2xl font-semibold text-white mb-2">songs</h1>
+        <div class="flex items-center justify-between mb-2">
+          <h1 class="text-2xl font-semibold text-white">songs</h1>
+          <TagFilterControls compact={true} />
+        </div>
         <p class="text-gray-400 text-sm">
           {(() => {
             const songList = songs();

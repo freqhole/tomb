@@ -38,6 +38,9 @@ export interface FreqholeStore {
     isActive: boolean;
     loading: boolean;
   };
+  filters: {
+    tags: string[];
+  };
   auth: {
     isAuthenticated: boolean;
     currentUser: any | null;
@@ -95,6 +98,9 @@ const initialState: FreqholeStore = {
     },
     isActive: false,
     loading: false,
+  },
+  filters: {
+    tags: [],
   },
   auth: {
     isAuthenticated: false,
@@ -188,6 +194,15 @@ export const useSearch = () => {
   ] as const;
 };
 
+export const useFilters = () => {
+  const [store, setStore] = useStore();
+  return [
+    store.filters,
+    (updates: Partial<FreqholeStore["filters"]>) =>
+      setStore("filters", updates),
+  ] as const;
+};
+
 export const useAuth = () => {
   const [store, setStore] = useStore();
   return [
@@ -271,6 +286,15 @@ export const storeActions = {
       token: null,
     });
   },
+
+  // Filter actions
+  addTagFilter: (tag: string) =>
+    setStore("filters", "tags", (prev) =>
+      prev.includes(tag) ? prev : [...prev, tag]
+    ),
+  removeTagFilter: (tag: string) =>
+    setStore("filters", "tags", (prev) => prev.filter((t) => t !== tag)),
+  clearTagFilters: () => setStore("filters", "tags", []),
 
   // UI actions
   openModal: (modal: keyof FreqholeStore["ui"]["modals"]) =>

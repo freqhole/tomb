@@ -8,6 +8,7 @@ import { useFreqholeSearch } from "../../../../hooks/useFreqholeSearch";
 import { FreqholeInfiniteGrid } from "../../../grid";
 import { useSongState } from "../../../../services/songState";
 import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
+import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { SortField } from "../../../../../../components/search/SearchSortControls";
 
@@ -127,6 +128,9 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             directionStyle="arrows"
             class="flex-shrink-0"
           />
+        </div>
+        <div class="mb-2">
+          <TagFilterControls compact={true} />
         </div>
         <p class="text-gray-300 text-sm">
           {(() => {

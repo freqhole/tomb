@@ -1,7 +1,8 @@
-import { createSignal, createMemo, onMount } from "solid-js";
+import { createSignal, createMemo, onMount, createEffect } from "solid-js";
 import type { ApiClient } from "../../../lib/api-client.js";
 import type { Song } from "../../../lib/music/schemas/song.js";
 import { useStandardDelayedLoading } from "../../../hooks/useDelayedLoading.js";
+import { useFilters } from "../store/index.js";
 
 export interface FreqholeSearchFilters {
   artist?: string;
@@ -107,6 +108,7 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
   const [searchField, setSearchFieldSignal] = createSignal<string | null>(
     "all"
   );
+  const [globalFilters] = useFilters();
   const [activeTab, setActiveTabSignal] = createSignal<
     "all" | "songs" | "artists" | "albums" | "playlists"
   >("all");
@@ -265,9 +267,14 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
     if (currentFilters.artist) parts.push(`artist: ${currentFilters.artist}`);
     if (currentFilters.album) parts.push(`album: ${currentFilters.album}`);
     if (currentFilters.genre) parts.push(`genre: ${currentFilters.genre}`);
-    if (currentFilters.tags && currentFilters.tags.length > 0) {
-      parts.push(`tags: ${currentFilters.tags.join(", ")}`);
+
+    // Include global tag filters in summary
+    const activeTags =
+      globalFilters.tags.length > 0 ? globalFilters.tags : currentFilters.tags;
+    if (activeTags && activeTags.length > 0) {
+      parts.push(`tags: ${activeTags.join(", ")}`);
     }
+
     if (currentFilters.is_favorite) parts.push("favorites only");
     if (currentFilters.rating_min)
       parts.push(`rating ≥ ${currentFilters.rating_min}`);
@@ -281,11 +288,58 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
    * Build search parameters for API call
    */
   const buildSearchParams = (page = currentPage()) => {
+    const localFilters = filters();
+    const mergedFilters = {
+      ...localFilters,
+      // Merge global tag filters with local filters and convert proxy array to regular array
+      tags:
+        globalFilters.tags.length > 0
+          ? [...globalFilters.tags]
+          : localFilters.tags,
+    };
+
     const params: any = {
-      ...filters(),
+      ...mergedFilters,
       page,
       page_size: pageSize(),
     };
+
+    // Debug logging for tag filters
+    console.log(
+      "buildSearchParams - globalFilters.tags:",
+      globalFilters.tags,
+      typeof globalFilters.tags,
+      Array.isArray(globalFilters.tags)
+    );
+    console.log(
+      "buildSearchParams - localFilters.tags:",
+      localFilters.tags,
+      typeof localFilters.tags,
+      Array.isArray(localFilters.tags)
+    );
+    console.log(
+      "buildSearchParams - mergedFilters.tags:",
+      mergedFilters.tags,
+      typeof mergedFilters.tags,
+      Array.isArray(mergedFilters.tags)
+    );
+    console.log(
+      "buildSearchParams - final params.tags:",
+      params.tags,
+      typeof params.tags,
+      Array.isArray(params.tags)
+    );
+    console.log("buildSearchParams - final params:", params);
+
+    // Test Array.isArray with direct check
+    if (params.tags) {
+      console.log("Direct Array.isArray test:", Array.isArray(params.tags));
+      console.log("params.tags.constructor:", params.tags.constructor);
+      console.log(
+        "params.tags instanceof Array:",
+        params.tags instanceof Array
+      );
+    }
 
     if (sortField() && sortDirection()) {
       params.sort_by = sortField();
@@ -561,9 +615,8 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
 
   const refresh = async () => {
     setCurrentPage(1);
-    if (searchQuery().trim()) {
-      await performSearch(1, false);
-    }
+    // Always perform search on refresh, even with empty query, to include tag filters
+    await performSearch(1, false);
   };
 
   const clear = () => {
@@ -582,6 +635,10 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
     // Load all songs initially
     await performSearch(1, false);
   });
+
+  // === REACTIVE EFFECTS ===
+  // Note: Removed automatic tag filter effect to prevent infinite loops
+  // Tag filter changes will trigger search manually from store actions
 
   // === RETURN API ===
   return {
@@ -629,6 +686,9 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
     refresh,
     clear,
     hasResults,
-    totalCount: () => totalCount(),
+    totalCount,
+
+    // Expose performSearch for manual triggering
+    triggerSearch: () => performSearch(1, false),
   };
 }
