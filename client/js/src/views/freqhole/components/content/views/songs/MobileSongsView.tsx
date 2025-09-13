@@ -119,7 +119,35 @@ export function MobileSongsView(props: MobileSongsViewProps) {
       {/* Fixed Header */}
       <div class="flex-shrink-0 p-3">
         <div class="flex items-center justify-between mb-2">
-          <h1 class="text-2xl font-semibold text-white">songs</h1>
+          <h1 class="text-2xl font-semibold text-white">
+            songs
+            <span class="text-gray-300 text-sm ml-1">
+              (
+              {(() => {
+                const songList = songs();
+                const total = totalCount();
+                const isLoading = loading();
+                const errorState = error();
+
+                if (isLoading && songList.length === 0) {
+                  return "loading...";
+                }
+                if (errorState) {
+                  return "";
+                }
+                if (total !== undefined) {
+                  const loaded = songList.length;
+                  if (loaded < total) {
+                    return `${loaded} of ${total} songs`;
+                  } else {
+                    return `${total} ${total === 1 ? "song" : "songs"}`;
+                  }
+                }
+                return `${songList.length} songs`;
+              })()}
+              )
+            </span>
+          </h1>
           <SearchSortControls
             sortBy={searchHook.sortField() || undefined}
             sortDirection={searchHook.sortDirection() || undefined}
@@ -129,33 +157,9 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             class="flex-shrink-0"
           />
         </div>
-        <div class="mb-2">
+        <div class="flex items-center justify-end">
           <TagFilterControls compact={true} />
         </div>
-        <p class="text-gray-300 text-sm">
-          {(() => {
-            const songList = songs();
-            const total = totalCount();
-            const isLoading = loading();
-            const errorState = error();
-
-            if (isLoading && songList.length === 0) {
-              return "loading...";
-            }
-            if (errorState) {
-              return "error loading songs";
-            }
-            if (total !== undefined) {
-              const loaded = songList.length;
-              if (loaded < total) {
-                return `showing ${loaded} of ${total} songs`;
-              } else {
-                return `${total} ${total === 1 ? "song" : "songs"}`;
-              }
-            }
-            return `${songList.length} songs`;
-          })()}
-        </p>
       </div>
 
       {/* Error State */}

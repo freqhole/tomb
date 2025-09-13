@@ -160,7 +160,7 @@ export function DesktopSongsView(
       <div class="flex-shrink-0 p-6">
         <div class="flex items-center justify-between mb-2">
           <h1 class="text-2xl font-semibold text-white">songs</h1>
-          <TagFilterControls compact={true} />
+          <TagFilterControls compact={false} />
         </div>
         <p class="text-gray-400 text-sm">
           {(() => {

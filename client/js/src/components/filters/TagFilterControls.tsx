@@ -155,17 +155,6 @@ export function TagFilterControls(props: TagFilterControlsProps) {
             />
           </svg>
         </button>
-
-        {/* Clear All Button */}
-        <Show when={filters.tags.length > 0}>
-          <button
-            onClick={handleClearAllTags}
-            class="text-xs text-gray-400 hover:text-red-400 transition-colors"
-            title="Clear all tag filters"
-          >
-            clear all
-          </button>
-        </Show>
       </div>
 
       {/* Tag Selection Menu */}
@@ -175,22 +164,26 @@ export function TagFilterControls(props: TagFilterControlsProps) {
           class="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-lg z-50 min-w-48 max-w-64"
         >
           <div class="p-2">
-            <div class="text-xs text-gray-400 mb-2">
-              Select tags to filter by:
+            <div class="border-gray-700 border-b max-h-48 overflow-y-auto">
+              <button
+                onClick={handleClearAllTags}
+                class=" w-full text-left px-2 py-1 text-xs hover:bg-magenta-600 hover:text-white text-gray-300 rounded transition-colors flex items-center justify-between"
+                title="clear all tag filters"
+              >
+                clear all
+              </button>
             </div>
 
             <Show
               when={!loading()}
               fallback={
-                <div class="text-xs text-gray-400 py-2">Loading tags...</div>
+                <div class="text-xs text-gray-400 py-2">loading tags...</div>
               }
             >
               <Show
                 when={unselectedTags().length > 0}
                 fallback={
-                  <div class="text-xs text-gray-400 py-2">
-                    No more tags available
-                  </div>
+                  <div class="text-xs text-gray-400 py-2">you got 'em all!</div>
                 }
               >
                 <div class="max-h-48 overflow-y-auto">
