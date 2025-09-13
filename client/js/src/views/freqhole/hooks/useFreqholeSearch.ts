@@ -1,8 +1,9 @@
-import { createSignal, createMemo, onMount, createEffect } from "solid-js";
+import { createSignal, createMemo, onMount } from "solid-js";
 import type { ApiClient } from "../../../lib/api-client.js";
 import type { Song } from "../../../lib/music/schemas/song.js";
 import { useStandardDelayedLoading } from "../../../hooks/useDelayedLoading.js";
 import { useFilters } from "../store/index.js";
+import type { PostSearchRequest } from "../../../lib/search/types.js";
 
 export interface FreqholeSearchFilters {
   artist?: string;
@@ -285,9 +286,9 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
   // === CORE FUNCTIONS ===
 
   /**
-   * Build search parameters for API call
+   * Build POST search request body
    */
-  const buildSearchParams = (page = currentPage()) => {
+  const buildSearchRequest = (page = currentPage()): PostSearchRequest => {
     const localFilters = filters();
     const mergedFilters = {
       ...localFilters,
@@ -298,66 +299,48 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
           : localFilters.tags,
     };
 
-    const params: any = {
-      ...mergedFilters,
+    const request: PostSearchRequest = {
       page,
       page_size: pageSize(),
     };
 
-    // Debug logging for tag filters
-    console.log(
-      "buildSearchParams - globalFilters.tags:",
-      globalFilters.tags,
-      typeof globalFilters.tags,
-      Array.isArray(globalFilters.tags)
-    );
-    console.log(
-      "buildSearchParams - localFilters.tags:",
-      localFilters.tags,
-      typeof localFilters.tags,
-      Array.isArray(localFilters.tags)
-    );
-    console.log(
-      "buildSearchParams - mergedFilters.tags:",
-      mergedFilters.tags,
-      typeof mergedFilters.tags,
-      Array.isArray(mergedFilters.tags)
-    );
-    console.log(
-      "buildSearchParams - final params.tags:",
-      params.tags,
-      typeof params.tags,
-      Array.isArray(params.tags)
-    );
-    console.log("buildSearchParams - final params:", params);
-
-    // Test Array.isArray with direct check
-    if (params.tags) {
-      console.log("Direct Array.isArray test:", Array.isArray(params.tags));
-      console.log("params.tags.constructor:", params.tags.constructor);
-      console.log(
-        "params.tags instanceof Array:",
-        params.tags instanceof Array
-      );
-    }
-
-    if (sortField() && sortDirection()) {
-      params.sort_by = sortField();
-      params.sort_direction = sortDirection();
-      // Sorting by: ${sortField()} ${sortDirection()}
-    }
-
+    // Add query and search fields
     if (searchQuery()) {
-      params.q = searchQuery();
+      request.query = searchQuery();
 
-      // Add search fields if specific field is selected
       const currentField = searchField();
       if (currentField && currentField !== "all") {
-        params.search_fields = [currentField];
+        request.search_fields = [currentField];
       }
     }
 
-    return params;
+    // Add sorting
+    if (sortField() && sortDirection()) {
+      request.sort_by = sortField()!;
+      request.sort_direction = sortDirection()!;
+    }
+
+    // Add filters object if we have any filters
+    if (
+      Object.keys(mergedFilters).some(
+        (key) => mergedFilters[key as keyof typeof mergedFilters] !== undefined
+      )
+    ) {
+      request.filters = {
+        artist: mergedFilters.artist,
+        album: mergedFilters.album,
+        genre: mergedFilters.genre,
+        year_min: mergedFilters.year_min,
+        year_max: mergedFilters.year_max,
+        rating_min: mergedFilters.rating_min,
+        rating_max: mergedFilters.rating_max,
+        is_favorite: mergedFilters.is_favorite,
+        has_thumbnail: mergedFilters.has_thumbnail,
+        tags: mergedFilters.tags,
+      };
+    }
+
+    return request;
   };
 
   /**
@@ -419,35 +402,21 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
       delayedLoading.startLoading();
       setError(null);
 
-      const params = buildSearchParams(pageToLoad);
+      const searchRequest = buildSearchRequest(pageToLoad);
 
-      // Use the same endpoint as the admin version
-      const response = await apiClient.makeRequest<any>(
-        "GET",
-        "/api/music/search",
-        { params }
+      // Use clean POST endpoint with JSON body
+      const response = await apiClient.searchPost(searchRequest);
+
+      // Convert search results to Song format
+      const newSongs = response.songs.map((song) =>
+        convertSearchResultToSong(song)
       );
-
-      let newSongs: Song[] = [];
-      let serverTotal = 0;
-
-      if (response?.songs) {
-        // Convert search results to Song format
-        newSongs = response.songs.map((song: any) =>
-          convertSearchResultToSong(song)
-        );
-        serverTotal = response.total_count || response.total || 0;
-      } else if (Array.isArray(response)) {
-        newSongs = response.map((song: any) => convertSearchResultToSong(song));
-        serverTotal = response.length;
-      }
+      const serverTotal = response.total_count;
 
       // Extract actual sort from server response
-      if (response?.sort_applied) {
-        const actualSortField = response.sort_applied.primary_field;
-        const actualSortDirection = response.sort_applied.primary_direction;
-        setSortField(actualSortField);
-        setSortDirection(actualSortDirection as "asc" | "desc");
+      if (response.sort_applied) {
+        setSortField(response.sort_applied.field);
+        setSortDirection(response.sort_applied.direction as "asc" | "desc");
       }
 
       setTotalCount(serverTotal);
@@ -687,8 +656,5 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
     clear,
     hasResults,
     totalCount,
-
-    // Expose performSearch for manual triggering
-    triggerSearch: () => performSearch(1, false),
   };
 }

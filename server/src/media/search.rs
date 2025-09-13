@@ -19,6 +19,85 @@ use std::collections::HashMap;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+/// POST search request body schema
+#[derive(Debug, Deserialize, Clone)]
+pub struct PostSearchRequest {
+    // Text search
+    pub query: Option<String>,
+    pub search_type: Option<String>,
+    pub search_fields: Option<Vec<String>>,
+
+    // Pagination
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+
+    // Sorting
+    pub sort_by: Option<String>,
+    pub sort_direction: Option<String>,
+
+    // Filters
+    pub filters: Option<PostSearchFilters>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct PostSearchFilters {
+    // Basic filters
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub genre: Option<String>,
+    pub title: Option<String>,
+
+    // Numeric range filters
+    pub year: Option<i32>,
+    pub year_min: Option<i32>,
+    pub year_max: Option<i32>,
+    pub rating: Option<i32>,
+    pub rating_min: Option<i32>,
+    pub rating_max: Option<i32>,
+
+    // Boolean filters
+    pub is_favorite: Option<bool>,
+    pub has_thumbnail: Option<bool>,
+
+    // Array filters
+    pub tags: Option<Vec<String>>,
+    pub tags_any: Option<Vec<String>>,
+    pub tags_exclude: Option<Vec<String>>,
+    pub genres: Option<Vec<String>>,
+    pub artists: Option<Vec<String>>,
+    pub albums: Option<Vec<String>>,
+}
+
+/// POST search response schema
+#[derive(Debug, Serialize)]
+pub struct PostSearchResponse {
+    pub songs: Vec<SongResponse>,
+    pub total_count: u64,
+    pub page: u32,
+    pub page_size: u32,
+    pub total_pages: u32,
+    pub has_next: bool,
+    pub has_prev: bool,
+    pub query_time_ms: Option<u64>,
+    pub applied_filters: Option<AppliedFiltersInfo>,
+    pub sort_applied: Option<SortAppliedInfo>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AppliedFiltersInfo {
+    pub text_search: Option<String>,
+    pub filters_count: u32,
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SortAppliedInfo {
+    pub field: String,
+    pub direction: String,
+}
+
 /// Custom deserializer for search_fields that handles both single strings and arrays
 fn deserialize_search_fields<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
 where
@@ -602,6 +681,162 @@ pub async fn search_music(
     };
 
     Ok(Json(response))
+}
+
+/// POST search endpoint with JSON body
+pub async fn search_music_post(
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(db): Extension<DatabaseConnection>,
+    Json(request): Json<PostSearchRequest>,
+) -> Result<Json<PostSearchResponse>, StatusCode> {
+    let start_time = std::time::Instant::now();
+
+    // Clone values we need to use later
+    let query_clone = request.query.clone();
+    let sort_by_clone = request.sort_by.clone();
+    let sort_direction_clone = request.sort_direction.clone();
+
+    // Convert POST request to UnifiedSearchParams
+    let mut params = UnifiedSearchParams {
+        q: request.query,
+        search_type: request.search_type.unwrap_or_else(default_search_type),
+        search_fields: request.search_fields,
+        page: request.page,
+        page_size: request.page_size,
+        sort_by: request.sort_by,
+        sort_direction: request.sort_direction,
+        // Default all other fields
+        offset: None,
+        limit: None,
+        secondary_sort: None,
+        artist: None,
+        artist_exact: None,
+        album: None,
+        album_exact: None,
+        genre: None,
+        title: None,
+        year: None,
+        year_min: None,
+        year_max: None,
+        rating: None,
+        rating_min: None,
+        rating_max: None,
+        bpm: None,
+        bpm_min: None,
+        bpm_max: None,
+        duration_seconds: None,
+        duration_min: None,
+        duration_max: None,
+        track_number: None,
+        disc_number: None,
+        is_favorite: None,
+        has_thumbnail: None,
+        has_lyrics: None,
+        has_waveform: None,
+        is_compilation: None,
+        tags: None,
+        tags_any: None,
+        tags_exclude: None,
+        genres: None,
+        artists: None,
+        albums: None,
+        file_format: None,
+        file_formats: None,
+        bitrate_min: None,
+        bitrate_max: None,
+        sample_rate_min: None,
+        sample_rate_max: None,
+        file_size_min: None,
+        file_size_max: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+        added_after: None,
+        added_before: None,
+        key_signature: None,
+        key_signatures: None,
+        mood: None,
+        energy_level_min: None,
+        energy_level_max: None,
+        tempo_category: None,
+        playlist_id: None,
+        not_in_playlist: None,
+        duplicate_check: None,
+        missing_metadata: None,
+        has_errors: None,
+        needs_review: None,
+        include_deleted: None,
+        include_hidden: None,
+        full_metadata: None,
+        include_file_info: None,
+        include_statistics: None,
+        include_related: None,
+        skip_total_count: None,
+        explain_query: None,
+        rating_is_null: None,
+        genre_is_null: None,
+        year_is_null: None,
+        bpm_is_null: None,
+        key_signature_is_null: None,
+        artist_is_null: None,
+        album_is_null: None,
+        album_artist_is_null: None,
+        favorites_only: false,
+        songs_only: false,
+    };
+
+    // Apply filters from request
+    let has_filters = request.filters.is_some();
+    if let Some(filters) = request.filters {
+        params.artist = filters.artist;
+        params.album = filters.album;
+        params.genre = filters.genre;
+        params.title = filters.title;
+        params.year = filters.year;
+        params.year_min = filters.year_min;
+        params.year_max = filters.year_max;
+        params.rating = filters.rating;
+        params.rating_min = filters.rating_min;
+        params.rating_max = filters.rating_max;
+        params.is_favorite = filters.is_favorite;
+        params.has_thumbnail = filters.has_thumbnail;
+        params.tags = filters.tags;
+        params.tags_any = filters.tags_any;
+        params.tags_exclude = filters.tags_exclude;
+        params.genres = filters.genres;
+        params.artists = filters.artists;
+        params.albums = filters.albums;
+    }
+
+    // Use existing search logic
+    let search_result = search_music(Extension(user), Extension(db), Query(params)).await?;
+    let response_data = search_result.0;
+
+    // Convert to POST response format
+    let total_pages = if response_data.total_count == 0 {
+        0
+    } else {
+        (response_data.total_count as f64 / request.page_size as f64).ceil() as u32
+    };
+
+    let post_response = PostSearchResponse {
+        songs: response_data.songs,
+        total_count: response_data.total_count,
+        page: request.page,
+        page_size: request.page_size,
+        total_pages,
+        has_next: request.page < total_pages,
+        has_prev: request.page > 1,
+        query_time_ms: Some(start_time.elapsed().as_millis() as u64),
+        applied_filters: None, // Skip for now to avoid null field issues
+        sort_applied: sort_by_clone.map(|field| SortAppliedInfo {
+            field,
+            direction: sort_direction_clone.unwrap_or_else(|| "desc".to_string()),
+        }),
+    };
+
+    Ok(Json(post_response))
 }
 
 /// Convert UnifiedSearchParams to SearchQuery
@@ -1498,8 +1733,10 @@ fn calculate_confidence(text: &str, partial: &str) -> f32 {
 
 /// Create search routes
 pub fn create_search_routes() -> Router {
+    #[allow(unused_imports)]
+    use axum::routing::post;
     Router::new()
-        .route("/search", get(search_music))
+        .route("/search", get(search_music).post(search_music_post))
         .route("/filter-options", get(get_filter_options))
         .route("/suggestions", get(get_suggestions))
 }

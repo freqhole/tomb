@@ -15,14 +15,21 @@ import type {
   SearchResult,
   SongsSearchResult,
   SuggestionsResult,
+  UnifiedSearchResult,
   MusicSearchOptions,
   SongsSearchOptions,
   SuggestionsOptions,
+  UnifiedSearchOptions,
+  PostSearchRequest,
+  PostSearchResponse,
 } from "./search/types.js";
 import {
   SearchResultSchema,
   SongsSearchResultSchema,
   SuggestionsResultSchema,
+  UnifiedSearchResultSchema,
+  PostSearchRequestSchema,
+  PostSearchResponseSchema,
 } from "./search/types.js";
 import { searchValidation } from "./search/validation.js";
 import { musicApiMethods } from "./music/api-methods.js";
@@ -489,6 +496,115 @@ export class ApiClient {
         );
       }
       throw error;
+    }
+  }
+
+  async searchUnified(
+    options: Partial<UnifiedSearchOptions> = {}
+  ): Promise<UnifiedSearchResult> {
+    try {
+      // Build URL manually to handle array serialization properly
+      const url = new URL("/api/music/search", this.baseUrl);
+
+      // Handle array parameters specially for proper serialization
+      Object.entries(options).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          if (Array.isArray(value)) {
+            // For arrays, append each item as a separate parameter
+            value.forEach((item) => {
+              if (item !== undefined && item !== null) {
+                url.searchParams.append(key, String(item));
+              }
+            });
+          } else {
+            url.searchParams.append(key, String(value));
+          }
+        }
+      });
+
+      const response = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          ...this.defaultHeaders,
+        },
+        credentials: this.credentials,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new ApiError(
+          `Unified search failed: ${response.status} ${response.statusText}`,
+          response.status,
+          errorText,
+          url.toString()
+        );
+      }
+
+      const data = await response.json();
+
+      return searchValidation.validateResponse(
+        UnifiedSearchResultSchema,
+        data,
+        "Unified search"
+      ) as UnifiedSearchResult;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError(
+        `Unified search failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        0,
+        String(error),
+        "/api/music/search"
+      );
+    }
+  }
+
+  async searchPost(
+    request: Partial<PostSearchRequest>
+  ): Promise<PostSearchResponse> {
+    try {
+      // Validate request with Zod
+      const validatedRequest = PostSearchRequestSchema.parse(request);
+
+      const response = await fetch(`${this.baseUrl}/api/music/search`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...this.defaultHeaders,
+        },
+        body: JSON.stringify(validatedRequest),
+        credentials: this.credentials,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new ApiError(
+          `POST search failed: ${response.status} ${response.statusText}`,
+          response.status,
+          errorText,
+          "/api/music/search"
+        );
+      }
+
+      const data = await response.json();
+
+      // Validate response with Zod
+      return searchValidation.validateResponse(
+        PostSearchResponseSchema,
+        data,
+        "POST search"
+      ) as PostSearchResponse;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError(
+        `POST search failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        0,
+        String(error),
+        "/api/music/search"
+      );
     }
   }
 
