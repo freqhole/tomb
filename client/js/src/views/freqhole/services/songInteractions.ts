@@ -234,7 +234,6 @@ export function useSongInteractions() {
         label: "tags",
         icon: "tag",
         action: () => {
-          console.log("Emitting tag-selector:open for single song:", song.id);
           events.emit("tag-selector:open", {
             x: lastContextMenuPosition.x,
             y: lastContextMenuPosition.y,
@@ -369,10 +368,6 @@ export function useSongInteractions() {
         label: `tags (${songCount} songs)`,
         icon: "tag",
         action: () => {
-          console.log(
-            "Emitting tag-selector:open for bulk songs:",
-            songs.length
-          );
           events.emit("tag-selector:open", {
             x: lastContextMenuPosition.x,
             y: lastContextMenuPosition.y,

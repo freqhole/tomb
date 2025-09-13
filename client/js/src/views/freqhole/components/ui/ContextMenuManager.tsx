@@ -59,21 +59,19 @@ export function ContextMenuManager() {
     });
 
     events.on("tag-selector:open", ({ x, y, songs, mode }) => {
-      console.log("ContextMenuManager received tag-selector:open:", {
-        x,
-        y,
-        songsCount: songs.length,
-        mode,
-      });
-      // Close any existing context menu first
+      // Close existing menu first
+      contextMenu.close();
       setActions([]);
       setPlaylistSelector(null);
-      setTagSelector({ songs, mode: mode || "manage", show: true });
-      contextMenu.open(x, y);
+
+      // Use setTimeout to ensure clean state transition
+      setTimeout(() => {
+        setTagSelector({ songs, mode: mode || "manage", show: true });
+        contextMenu.open(x, y);
+      }, 10);
     });
 
     events.on("tag-selector:close", () => {
-      console.log("ContextMenuManager received tag-selector:close");
       contextMenu.close();
       setTagSelector(null);
     });
@@ -129,6 +127,11 @@ export function ContextMenuManager() {
           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
         </svg>
       ),
+      tag: (
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z" />
+        </svg>
+      ),
     };
 
     return iconMap[iconName] || undefined;
@@ -179,16 +182,9 @@ export function ContextMenuManager() {
   };
 
   // Determine which menu to show
-  const showTagSelector = () => tagSelector()?.show;
-  const showPlaylistSelector = () => playlistSelector()?.show;
-  const showRegularMenu = () => !showTagSelector() && !showPlaylistSelector();
-
-  console.log("ContextMenuManager render state:", {
-    showTagSelector: showTagSelector(),
-    showPlaylistSelector: showPlaylistSelector(),
-    showRegularMenu: showRegularMenu(),
-    isOpen: contextMenu.isOpen(),
-  });
+  const showTagSelector = () => !!tagSelector();
+  const showPlaylistSelector = () => !!playlistSelector();
+  const showRegularMenu = () => !tagSelector() && !playlistSelector();
 
   return (
     <ContextMenu

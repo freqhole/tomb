@@ -905,7 +905,7 @@ pub async fn get_filter_options(
     Extension(db): Extension<DatabaseConnection>,
     Query(params): Query<FilterOptionsParams>,
 ) -> Result<Json<FilterOptionsResponse>, StatusCode> {
-    let _repository = MusicRepository::new(db.pool().clone());
+    let repository = MusicRepository::new(db.pool().clone());
 
     // get library statistics
     let total_songs =
@@ -1122,14 +1122,43 @@ pub async fn get_filter_options(
             has_next: params.page < ((total_genres as f64 / params.page_size as f64).ceil() as u32),
             has_prev: params.page > 1,
         },
-        tags: PaginatedFilterOptions {
-            items: vec![], // tags require special handling due to jsonb array
-            total_count: 0,
-            page: params.page,
-            page_size: params.page_size,
-            total_pages: 0,
-            has_next: false,
-            has_prev: false,
+        tags: {
+            // Get tags with pagination using grimoire repository
+            let tag_data = repository
+                .get_available_tags(params.page, params.page_size)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            let tag_items: Vec<FilterOption> = tag_data
+                .into_iter()
+                .map(|(tag, count)| FilterOption {
+                    value: tag.clone(),
+                    label: tag,
+                    count,
+                    percentage: (count as f64 / total_songs as f64 * 100.0) as f32,
+                })
+                .collect();
+
+            let total_tags = repository
+                .get_total_tags_count()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                as u64;
+
+            PaginatedFilterOptions {
+                items: tag_items,
+                total_count: total_tags as u32,
+                page: params.page,
+                page_size: params.page_size,
+                total_pages: if total_tags == 0 {
+                    0
+                } else {
+                    (total_tags as f64 / params.page_size as f64).ceil() as u32
+                },
+                has_next: params.page
+                    < ((total_tags as f64 / params.page_size as f64).ceil() as u32),
+                has_prev: params.page > 1,
+            }
         },
         years,
         year_ranges,
@@ -1150,7 +1179,10 @@ pub async fn get_filter_options(
             total_artists: total_artists as u32,
             total_albums: total_albums as u32,
             total_genres: total_genres as u32,
-            total_tags: 0,
+            total_tags: repository
+                .get_total_tags_count()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             total_playtime_seconds: 0u64,
             avg_song_duration: 0.0,
             total_file_size_bytes: 0u64,

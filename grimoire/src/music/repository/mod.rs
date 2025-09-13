@@ -1334,6 +1334,79 @@ impl MusicRepository {
         Ok(thumbnail_id)
     }
 
+    /// Get available tags with pagination and usage counts
+    pub async fn get_available_tags(
+        &self,
+        page: u32,
+        page_size: u32,
+    ) -> Result<Vec<(String, u32)>> {
+        let offset = (page - 1) * page_size;
+
+        // Use a query that works with PostgreSQL text[] arrays
+        let tags = match sqlx::query_as::<_, (String, i64)>(
+            r#"
+            SELECT tag_value, COUNT(*) as usage_count
+            FROM (
+                SELECT unnest(s.tags) as tag_value
+                FROM songs s
+                WHERE s.tags IS NOT NULL
+                  AND array_length(s.tags, 1) > 0
+                  AND s.deleted_at IS NULL
+            ) tag_counts
+            WHERE tag_value IS NOT NULL AND tag_value != ''
+            GROUP BY tag_value
+            ORDER BY usage_count DESC, tag_value ASC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(page_size as i64)
+        .bind(offset as i64)
+        .fetch_all(&self.pool)
+        .await
+        {
+            Ok(tags) => tags,
+            Err(e) => {
+                tracing::error!("Failed to fetch available tags: {:?}", e);
+                // Return empty result on error instead of propagating
+                return Ok(vec![]);
+            }
+        };
+
+        Ok(tags
+            .into_iter()
+            .map(|(tag, count)| (tag, count as u32))
+            .collect())
+    }
+
+    /// Get total count of unique tags
+    pub async fn get_total_tags_count(&self) -> Result<u32> {
+        let count = match sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(DISTINCT tag_value)
+            FROM (
+                SELECT unnest(s.tags) as tag_value
+                FROM songs s
+                WHERE s.tags IS NOT NULL
+                  AND array_length(s.tags, 1) > 0
+                  AND s.deleted_at IS NULL
+            ) all_tags
+            WHERE tag_value IS NOT NULL AND tag_value != ''
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await
+        {
+            Ok(count) => count,
+            Err(e) => {
+                tracing::error!("Failed to get total tags count: {:?}", e);
+                // Return 0 on error instead of propagating
+                return Ok(0);
+            }
+        };
+
+        Ok(count as u32)
+    }
+
     /// Create a song record with full metadata (used during scanning)
     pub async fn create_song_with_metadata(
         &self,
