@@ -31,6 +31,19 @@ export interface FreqholeInfiniteGridProps<T = any> {
 export function FreqholeInfiniteGrid<T = any>(
   props: FreqholeInfiniteGridProps<T>
 ) {
+  // Development warning: detect potential server/client sorting conflicts
+  const hasServerSortProps =
+    props.sortField !== undefined && props.onSort !== undefined;
+  const hasSortableColumns =
+    props.renderMode === "songs" || props.renderMode === "songs-mobile";
+
+  if (!hasServerSortProps && hasSortableColumns && props.data?.length > 0) {
+    console.warn(
+      `FreqholeInfiniteGrid: Using client-side sorting for ${props.renderMode}. ` +
+        `If data is pre-sorted by server, pass sortField and onSort props to prevent conflicts.`
+    );
+  }
+
   // Configure columns based on render mode
   const getColumns = (): GridColumn<T>[] => {
     switch (props.renderMode) {
