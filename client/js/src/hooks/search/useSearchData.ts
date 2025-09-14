@@ -124,16 +124,16 @@ export function useSearchData(props: UseSearchDataProps): SearchDataReturn {
       }
 
       // Rating filters - only apply to song results
-      if (filters.rating_min && isSong && item.rating) {
-        if (item.rating < filters.rating_min) return false;
+      if (filters.rating_min && isSong && item.user_rating) {
+        if (item.user_rating < filters.rating_min) return false;
       }
 
-      if (filters.rating_max && isSong && item.rating) {
-        if (item.rating > filters.rating_max) return false;
+      if (filters.rating_max && isSong && item.user_rating) {
+        if (item.user_rating > filters.rating_max) return false;
       }
 
-      // Favorites filter - only apply to song results
-      if (filters.favorites_only && isSong && !item.is_favorite) {
+      // Favorites filter
+      if (filters.favorites_only && isSong && !item.user_is_favorite) {
         return false;
       }
 

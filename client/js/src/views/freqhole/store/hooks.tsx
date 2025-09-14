@@ -108,7 +108,7 @@ export const useSearch = () => {
 };
 
 export const useTagFilters = () => {
-  const [store, actions] = useStore();
+  const [store] = useStore();
   const reactiveActions = useReactiveActions();
 
   // memoized available tags excluding selected ones

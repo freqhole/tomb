@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createPartialArraySchema, DEFAULT_ZOD_CONFIG } from "./validation.js";
+import { SongSchema } from "../music/schemas/song.js";
 
 // Search domains for multi-domain support
 export const SearchDomainSchema = z.enum([
@@ -211,31 +212,8 @@ export const SearchSuggestionSchema = z.object({
 });
 
 // Song search result schema (for songs-only endpoint)
-export const SongSearchResultSchema = z.object({
-  id: z.string(),
-  media_blob_id: z.string(),
-  thumbnail_blob_id: z.string().nullish(),
-  waveform_blob_id: z.string().nullish(),
-  title: z.string(),
-  artist: z.string().nullish(),
-  album: z.string().nullish(),
-  album_artist: z.string().nullish(),
-  track_number: z.number().nullish(),
-  disc_number: z.number().nullish(),
-  duration_seconds: z.number().nullish(),
-  genre: z.string().nullish(),
-  year: z.number().nullish(),
-  bpm: z.number().nullish(),
-  key_signature: z.string().nullish(),
-  rating: z.number().nullish(),
-  is_favorite: z.boolean(),
-  tags: z.array(z.string()),
-  display_title: z.string(),
-  detailed_display_title: z.string(),
-  created_at: z.string(),
-  updated_at: z.string().nullish(),
-  thumbnail_blob_ids: z.array(z.string()),
-});
+// Use canonical SongSchema instead of duplicate search result schema
+export const SongSearchResultSchema = SongSchema;
 
 // Collection schemas using partial parsing for graceful degradation
 export const SearchResultItemsSchema = createPartialArraySchema(
@@ -249,7 +227,7 @@ export const SearchSuggestionsSchema = createPartialArraySchema(
 );
 
 export const SongSearchResultsSchema = createPartialArraySchema(
-  SongSearchResultSchema,
+  SongSchema,
   DEFAULT_ZOD_CONFIG
 );
 
@@ -429,7 +407,7 @@ export type SongsSearchResult = z.infer<typeof SongsSearchResultSchema>;
 export type SuggestionsResult = z.infer<typeof SuggestionsResultSchema>;
 export type UnifiedSearchResult = z.infer<typeof UnifiedSearchResultSchema>;
 export type SearchResultItem = z.infer<typeof SearchResultItemSchema>;
-export type SongSearchResult = z.infer<typeof SongSearchResultSchema>;
+export type SongSearchResult = z.infer<typeof SongSchema>;
 export type SearchSuggestion = z.infer<typeof SearchSuggestionSchema>;
 
 // Search client configuration

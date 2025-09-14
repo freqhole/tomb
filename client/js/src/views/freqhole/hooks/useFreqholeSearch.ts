@@ -1,4 +1,4 @@
-import { createSignal, createMemo, onMount, createEffect } from "solid-js";
+import { createSignal, createMemo, onMount } from "solid-js";
 import type { ApiClient } from "../../../lib/api-client.js";
 import type { Song } from "../../../lib/music/schemas/song.js";
 import { useStandardDelayedLoading } from "../../../hooks/useDelayedLoading.js";
@@ -113,7 +113,7 @@ export function useFreqholeSearch(apiClient: ApiClient): FreqholeSearchReturn {
   // Making legacy system reactive to store tag changes
   // This is a band-aid to get tag filtering working
   // ===========================================
-  const [store] = useStore();
+  const [] = useStore();
   // === CORE STATE ===
   const [searchQuery, setSearchQuerySignal] = createSignal("");
   const [filters, setFiltersSignal] = createSignal<FreqholeSearchFilters>({});

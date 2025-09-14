@@ -6,10 +6,7 @@ import { useSelection } from "../../../../hooks/useSelection";
 import { useDataSections } from "../../../../store/hooks";
 import { FreqholeInfiniteGrid } from "../../../grid";
 import { useSongState } from "../../../../services/songState";
-import type {
-  PostSearchResponse,
-  SongSearchResult,
-} from "../../../../../../lib/search/types";
+import type { PostSearchResponse } from "../../../../../../lib/search/types";
 import type { RouteSectionProps } from "@solidjs/router";
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
 import type { Song } from "../../../../../../lib/music/schemas/song";

@@ -77,11 +77,10 @@ pub struct SongResponse {
 impl From<SongWithUserPrefs> for SongResponse {
     fn from(song: SongWithUserPrefs) -> Self {
         let display_title = song.display_title();
-        let detailed_display_title = format!(
-            "{} - {}",
-            song.artist.as_deref().unwrap_or("unknown artist"),
-            song.title
-        );
+        let detailed_display_title = match &song.artist {
+            Some(artist) => format!("{} - {}", artist, song.title),
+            None => song.title.clone(),
+        };
 
         Self {
             id: song.id,

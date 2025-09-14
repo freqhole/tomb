@@ -3,7 +3,6 @@ import { produce } from "solid-js/store";
 import type { FreqholeStore } from "./index";
 import type { SetStoreFunction } from "solid-js/store";
 import { eventBus } from "../hooks/useGlobalEvents";
-import type { PostSearchResponse } from "../../../lib/search/types";
 
 // basic resources without view coupling
 export interface BasicStoreResources {
@@ -21,19 +20,28 @@ export function createStoreActions(
   setStore: SetStoreFunction<FreqholeStore>,
   apiClient: typeof import("../../../lib/api-client").apiClient
 ) {
-  // songs resource using only POST search endpoint with proper types
+  // Use stable getSongs for main list, POST search only for tag filtering
   const [songsResource, { refetch: refetchSongs, mutate: mutateSongs }] =
     createResource(
       () => ({
         tags: store.filters.tags,
         query: store.search.query?.trim() || "",
       }),
-      async (params): Promise<PostSearchResponse> => {
-        // Always use POST search endpoint - returns PostSearchResponse with proper types
-        return apiClient.searchPost({
-          query: params.query || undefined,
-          filters: params.tags.length > 0 ? { tags: params.tags } : undefined,
-          page: 1,
+      async (params) => {
+        // Use original working endpoints for stability
+        if (params.query) {
+          return apiClient.searchMusic(params.query);
+        } else if (params.tags.length > 0) {
+          // POST search for tag filtering with proper structure and consistent sorting
+          return apiClient.searchPost({
+            filters: { tags: params.tags },
+            sort_by: "created_at",
+            sort_direction: "desc",
+            page_size: 100,
+          });
+        }
+        // Use original getSongs endpoint for consistency
+        return apiClient.getSongs({
           page_size: 100,
         });
       }
@@ -242,31 +250,84 @@ export function createStoreActions(
       }
     },
 
-    // pagination support for songs
+    // Fixed pagination support - handle different endpoint return types
     loadMoreSongs: async () => {
       const currentResult = songsResource();
-      if (!currentResult || !currentResult.has_next) {
-        return;
+      if (!currentResult) return;
+
+      // Handle different response structures from different endpoints
+      let hasNext = false;
+      let currentPage = 1;
+
+      if ("has_next" in currentResult && "page" in currentResult) {
+        // POST search response
+        hasNext = currentResult.has_next;
+        currentPage = currentResult.page;
+      } else if ("pagination" in currentResult) {
+        // GET songs response
+        hasNext = currentResult.pagination?.has_next || false;
+        currentPage = currentResult.pagination?.page || 1;
       }
 
-      const nextPage = currentResult.page + 1;
-      const nextPageResult = await apiClient.searchPost({
-        query: store.search.query?.trim() || undefined,
-        filters:
-          store.filters.tags.length > 0
-            ? { tags: store.filters.tags }
-            : undefined,
-        page: nextPage,
-        page_size: 100,
-      });
+      if (!hasNext) return;
 
-      // Append new songs to existing ones using proper PostSearchResponse type
+      const nextPage = currentPage + 1;
+      let nextPageResult;
+
+      // Use same endpoint logic as main resource
+      const params = {
+        tags: store.filters.tags,
+        query: store.search.query?.trim() || "",
+      };
+
+      if (params.query) {
+        nextPageResult = await apiClient.searchMusic(params.query, {
+          page: nextPage,
+        });
+      } else if (params.tags.length > 0) {
+        nextPageResult = await apiClient.searchPost({
+          filters: { tags: params.tags },
+          sort_by: "created_at",
+          sort_direction: "desc",
+          page: nextPage,
+          page_size: 100,
+        });
+      } else {
+        nextPageResult = await apiClient.getSongs({
+          page: nextPage,
+          page_size: 100,
+        });
+      }
+
+      // Append new songs handling different response structures
       mutateSongs((current) => {
-        if (!current) return nextPageResult;
-        return {
-          ...nextPageResult,
-          songs: [...current.songs, ...nextPageResult.songs],
-        };
+        if (!current || !nextPageResult) return nextPageResult;
+
+        let currentSongs, newSongs;
+
+        // Extract songs from current result
+        if ("songs" in current) {
+          currentSongs = current.songs;
+        } else {
+          currentSongs = current;
+        }
+
+        // Extract songs from new result
+        if ("songs" in nextPageResult) {
+          newSongs = nextPageResult.songs;
+        } else {
+          newSongs = nextPageResult;
+        }
+
+        // Return updated result with same structure as nextPageResult
+        if ("songs" in nextPageResult) {
+          return {
+            ...nextPageResult,
+            songs: [...(currentSongs || []), ...newSongs],
+          };
+        } else {
+          return [...(currentSongs || []), ...newSongs];
+        }
       });
     },
 

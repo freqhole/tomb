@@ -1,6 +1,7 @@
 //! Unified music search API endpoints
 
 use crate::auth::AuthenticatedUser;
+use crate::media::songs::SongResponse;
 
 use axum::{
     extract::{Extension, Query},
@@ -17,7 +18,6 @@ use grimoire::DatabaseConnection;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use time::OffsetDateTime;
-use uuid::Uuid;
 
 /// POST search request body schema
 #[derive(Debug, Deserialize, Clone)]
@@ -536,34 +536,6 @@ pub struct Suggestion {
     pub confidence: f32,
 }
 
-/// Song response structure for full metadata
-#[derive(Debug, Serialize)]
-pub struct SongResponse {
-    pub id: Uuid,
-    pub title: String,
-    pub artist: Option<String>,
-    pub album: Option<String>,
-    pub album_artist: Option<String>,
-    pub track_number: Option<i32>,
-    pub disc_number: Option<i32>,
-    pub duration_seconds: Option<i64>,
-    pub genre: Option<String>,
-    pub year: Option<i32>,
-    pub bpm: Option<i32>,
-    pub key_signature: Option<String>,
-    pub rating: Option<i32>,
-    pub is_favorite: bool,
-    pub tags: Vec<String>,
-    pub display_title: String,
-    pub detailed_display_title: String,
-    pub created_at: String,
-    pub updated_at: Option<String>,
-    pub media_blob_id: String,
-    pub thumbnail_blob_id: Option<String>,
-    pub waveform_blob_id: Option<String>,
-    pub thumbnail_blob_ids: Vec<String>,
-}
-
 // Default values
 fn default_search_type() -> String {
     "websearch".to_string()
@@ -607,43 +579,48 @@ pub async fn search_music(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    // Convert SongSearchResult to SongResponse
+    // Convert SongSearchResult to SongResponse with consistent field naming
+    // This ensures we use user_rating, user_is_favorite, etc. like the songs endpoint
     let songs: Vec<SongResponse> = search_results
         .into_iter()
         .map(|result| {
             let duration_seconds = result
                 .duration
-                .map(|d| (d.whole_microseconds() / 1_000_000) as i64)
-                .unwrap_or(0);
+                .map(|d| (d.whole_microseconds() / 1_000_000) as i64);
+
+            let display_title = result.title.clone();
+            let detailed_display_title = match &result.artist {
+                Some(artist) => format!("{} - {}", artist, result.title),
+                None => result.title.clone(),
+            };
 
             SongResponse {
                 id: result.id,
-                display_title: result.title.clone(),
-                detailed_display_title: format!(
-                    "{} - {}",
-                    result.artist.as_deref().unwrap_or("Unknown Artist"),
-                    result.title
-                ),
                 title: result.title,
                 artist: result.artist,
                 album: result.album,
                 album_artist: result.album_artist,
                 track_number: result.track_number,
                 disc_number: result.disc_number,
-                duration_seconds: Some(duration_seconds),
+                duration_seconds,
                 genre: result.genre,
                 year: result.year,
                 bpm: result.bpm,
                 key_signature: result.key_signature,
-                rating: result.rating,
-                is_favorite: result.is_favorite,
+                user_rating: result.rating,
+                user_is_favorite: result.is_favorite,
                 tags: result.tags,
-                created_at: result.created_at.to_string(),
-                updated_at: Some(result.updated_at.to_string()),
+                display_title,
+                detailed_display_title,
+                created_at: result
+                    .created_at
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_default(),
                 media_blob_id: result.media_blob_id,
                 thumbnail_blob_id: result.thumbnail_blob_id,
                 waveform_blob_id: result.waveform_blob_id,
                 thumbnail_blob_ids: result.thumbnail_blob_ids.unwrap_or_default(),
+                preference_updated_at: None, // Search results don't track preference timestamps
             }
         })
         .collect();
@@ -692,7 +669,7 @@ pub async fn search_music_post(
     let start_time = std::time::Instant::now();
 
     // Clone values we need to use later
-    let query_clone = request.query.clone();
+    let _query_clone = request.query.clone();
     let sort_by_clone = request.sort_by.clone();
     let sort_direction_clone = request.sort_direction.clone();
 
@@ -787,7 +764,7 @@ pub async fn search_music_post(
     };
 
     // Apply filters from request
-    let has_filters = request.filters.is_some();
+    let _has_filters = request.filters.is_some();
     if let Some(filters) = request.filters {
         params.artist = filters.artist;
         params.album = filters.album;
