@@ -13,11 +13,9 @@ import type {
 } from "./api-spec.js";
 import type {
   SearchResult,
-  SongsSearchResult,
   SuggestionsResult,
   UnifiedSearchResult,
   MusicSearchOptions,
-  SongsSearchOptions,
   SuggestionsOptions,
   UnifiedSearchOptions,
   PostSearchRequest,
@@ -26,7 +24,6 @@ import type {
 import type { FilterOptionsResponse } from "./search/music/filter-types.js";
 import {
   SearchResultSchema,
-  SongsSearchResultSchema,
   SuggestionsResultSchema,
   UnifiedSearchResultSchema,
   PostSearchRequestSchema,
@@ -443,68 +440,6 @@ export class ApiClient {
   }
 
   // Search Methods - Music Domain
-  // @deprecated LEGACY: Use searchPost() instead for consistent filtering and pagination
-  async searchMusic(
-    query: string,
-    options: Omit<MusicSearchOptions, "q"> = {}
-  ): Promise<SongsSearchResult> {
-    const params = { q: query, ...options };
-
-    try {
-      const response = await this.makeRequest<unknown>(
-        "GET",
-        "/api/music/search",
-        { params }
-      );
-
-      return searchValidation.validateResponse(
-        SearchResultSchema,
-        response,
-        "Music search"
-      ) as SearchResult;
-    } catch (error) {
-      if (error instanceof ApiError) {
-        throw new ApiError(
-          `Music search failed: ${error.message}`,
-          error.status,
-          error.responseText,
-          "/api/music/search"
-        );
-      }
-      throw error;
-    }
-  }
-
-  async searchSongs(
-    query: string,
-    options: Omit<SongsSearchOptions, "q"> = {}
-  ): Promise<SongsSearchResult> {
-    const params = { q: query, ...options };
-
-    try {
-      const response = await this.makeRequest<unknown>(
-        "GET",
-        "/api/music/search/songs",
-        { params }
-      );
-
-      return searchValidation.validateResponse(
-        SongsSearchResultSchema,
-        response,
-        "Songs search"
-      ) as SongsSearchResult;
-    } catch (error) {
-      if (error instanceof ApiError) {
-        throw new ApiError(
-          `Songs search failed: ${error.message}`,
-          error.status,
-          error.responseText,
-          "/api/music/search/songs"
-        );
-      }
-      throw error;
-    }
-  }
 
   // @deprecated LEGACY: Use searchPost() instead for consistent filtering and pagination
   async searchUnified(
@@ -684,14 +619,6 @@ export class ApiClient {
   }
 
   // Music API methods - Songs
-  async getSongs(options?: {
-    limit?: number;
-    offset?: number;
-    page?: number;
-    page_size?: number;
-  }) {
-    return musicApiMethods.getSongs.call(this, options);
-  }
 
   // Music API methods - Artists
   async getArtists(options?: {

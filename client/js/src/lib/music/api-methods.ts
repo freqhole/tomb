@@ -55,59 +55,6 @@ import type {
  */
 export const musicApiMethods = {
   // Songs API methods
-  async getSongs(
-    this: ApiClient,
-    options?: {
-      limit?: number;
-      offset?: number;
-      page?: number;
-      page_size?: number;
-      sort_by?: string;
-      sort_direction?: string;
-    }
-  ): Promise<{ songs: Song[]; pagination: any }> {
-    return musicApiUtils
-      .withGracefulPaginatedCollection(
-        async () => {
-          const params = options || {};
-          const response = await this.makeRequest<unknown>(
-            "GET",
-            "/api/media/songs",
-            { params }
-          );
-
-          const validatedResponse = musicValidation.validateResponse(
-            SongListResponseSchema,
-            response,
-            "Songs"
-          );
-
-          const songs = musicValidation.parseCollection(
-            SongSchema,
-            validatedResponse.songs || [],
-            "Songs"
-          ) as Song[];
-
-          const pagination = {
-            total: validatedResponse.total,
-            page: validatedResponse.page,
-            page_size: validatedResponse.page_size,
-            total_pages: validatedResponse.total_pages,
-            has_next: validatedResponse.has_next,
-            has_prev: validatedResponse.has_prev,
-          };
-
-          return { items: songs, pagination };
-        },
-        "/api/media/songs",
-        "getSongs",
-        options || {}
-      )
-      .then((result) => ({
-        songs: result.items,
-        pagination: result.pagination,
-      }));
-  },
 
   // Artists API methods
   async getArtists(

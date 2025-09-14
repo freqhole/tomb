@@ -36,22 +36,13 @@ export type {
 export { SearchBar } from "./SearchBar.js";
 export type { SearchBarProps } from "./SearchBar.js";
 
-export {
-  SearchProvider,
-  useSearchContext,
-  useOptionalSearchContext,
-} from "./SearchContext.js";
-export type {
-  SearchProviderProps,
-  SearchContextValue,
-} from "./SearchContext.js";
+// SearchContext removed - use modern store hooks instead
 
 // Filter components are available via direct import from FilterComponents.js
 // export { FilterDropdown, FilterRange, FilterTags, FilterToggle, FilterDateRange, FilterText } from "./FilterComponents.js";
 
 // Re-export search hooks for convenience
-export { useSearch } from "../../hooks/search/index.js";
-export { useSearchAll } from "../../hooks/search/index.js";
+// useSearch and useSearchAll removed - use modern store hooks instead
 export { useSearchData } from "../../hooks/search/index.js";
 export { useSearchState } from "../../hooks/search/index.js";
 export { useSearchSuggestions } from "../../hooks/search/index.js";

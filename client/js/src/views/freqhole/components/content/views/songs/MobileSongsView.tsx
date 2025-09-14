@@ -1,10 +1,10 @@
 import { createEffect } from "solid-js";
-import { apiClient } from "../../../../../../lib/api-client";
+
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useStore } from "../../../../store";
 import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
-import { useFreqholeSearch } from "../../../../hooks/useFreqholeSearch";
+import { useReactiveActions } from "../../../../store";
 import { FreqholeInfiniteGrid } from "../../../grid";
 import { useSongState } from "../../../../services/songState";
 import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
@@ -22,8 +22,8 @@ export function MobileSongsView(props: MobileSongsViewProps) {
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
 
-  // Enhanced search hook with total counts
-  const searchHook = useFreqholeSearch(apiClient);
+  // Use modern reactive store instead of legacy search hook
+  const reactiveActions = useReactiveActions();
 
   // Selection state (disabled for mobile)
   const selection = useSelection({
@@ -44,22 +44,32 @@ export function MobileSongsView(props: MobileSongsViewProps) {
     });
   });
 
-  // Use search hook for songs data
+  // Use reactive store for songs data
   const songs = () => {
-    const songList = searchHook.songs();
+    const result = reactiveActions.resources?.songs();
+    let songList = [];
+    if (result && typeof result === "object" && "songs" in result) {
+      songList = (result as any).songs || [];
+    }
     // Sync songs with song state service for rating component
     if (songList.length > 0) {
       songState.setSongList(songList);
     }
     return songList;
   };
-  const loading = () => searchHook.loading();
-  const error = () => searchHook.error();
-  const totalCount = () => searchHook.totalCount();
+  const loading = () => reactiveActions.resources?.songs?.loading || false;
+  const error = () => reactiveActions.resources?.songs?.error;
+  const totalCount = () => {
+    const result = reactiveActions.resources?.songs();
+    if (result && typeof result === "object" && "total" in result) {
+      return (result as any).total || 0;
+    }
+    return songs().length;
+  };
 
   // Reload functionality
   const reloadSongs = () => {
-    searchHook.refresh();
+    reactiveActions.refreshSongs();
   };
 
   // Listen for data reload events
@@ -111,7 +121,13 @@ export function MobileSongsView(props: MobileSongsViewProps) {
   ];
 
   const handleSortChange = (field: string, direction: "asc" | "desc") => {
-    searchHook.setSort(field, direction);
+    // Sort change - modern store doesn't need explicit sort setting as it uses searchPost
+    // The sort will be handled by the server via the unified API
+    console.warn(
+      "Mobile sort change not yet implemented with modern store:",
+      field,
+      direction
+    );
   };
 
   return (
@@ -149,8 +165,8 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             </span>
           </h1>
           <SearchSortControls
-            sortBy={searchHook.sortField() || undefined}
-            sortDirection={searchHook.sortDirection() || undefined}
+            sortBy={undefined}
+            sortDirection={undefined}
             onSortChange={handleSortChange}
             sortFields={sortFields}
             directionStyle="arrows"
@@ -196,7 +212,7 @@ export function MobileSongsView(props: MobileSongsViewProps) {
           <FreqholeInfiniteGrid
             data={songs()}
             totalCount={totalCount()}
-            onLoadMore={searchHook.loadMore}
+            onLoadMore={reactiveActions.loadMoreSongs}
             renderMode="songs-mobile"
             loading={loading()}
             error={error()}
@@ -207,7 +223,6 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             onItemClick={handleSongClick}
             onContextMenu={handleContextMenu}
             showHeader={false}
-            class="h-full"
           />
         </div>
       )}

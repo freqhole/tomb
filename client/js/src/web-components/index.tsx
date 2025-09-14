@@ -37,7 +37,6 @@ import "../components/infinite-data-grid/GenericInfiniteGrid";
 import "./product-data-grid-demo";
 import "./search-demo";
 import "./freqhole-demo";
-import "./zune-demo";
 import "./freqhole-music-admin";
 
 // Component registration confirmation
@@ -61,7 +60,6 @@ const REGISTERED_COMPONENTS = [
   "product-data-grid-demo",
   "search-demo",
   "freqhole-demo",
-  "zune-demo",
   "freqhole-music-admin",
 ] as const;
 
@@ -229,11 +227,6 @@ declare global {
         "auto-connect"?: boolean;
       };
 
-      "zune-demo": {
-        "api-base-url"?: string;
-        "auto-connect"?: boolean;
-      };
-
       "freqhole-music-admin": {
         "api-base-url"?: string;
         theme?: "light" | "dark";
@@ -299,6 +292,5 @@ console.log("🧩 Web Components Library loaded - Available components:", [
   "product-data-grid-demo",
   "search-demo",
   "freqhole-demo",
-  "zune-demo",
   "freqhole-music-admin",
 ]);

@@ -4,9 +4,6 @@
 // Music domain-specific hooks and utilities
 export * as Music from "./music/index.js";
 
-export { useSearch } from "./useSearch.js";
-export type { UseSearchProps, UseSearchReturn } from "./useSearch.js";
-
 export { useSearchSuggestions } from "./useSearchSuggestions.js";
 export type {
   UseSearchSuggestionsProps,
@@ -23,9 +20,6 @@ export type {
 
 export { useSearchData } from "./useSearchData.js";
 export type { UseSearchDataProps, SearchDataReturn } from "./useSearchData.js";
-
-export { useSearchAll } from "./useSearchAll.js";
-export type { UseSearchAllProps, UseSearchAllReturn } from "./useSearchAll.js";
 
 // Re-export search types for convenience
 export type {

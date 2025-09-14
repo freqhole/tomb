@@ -45,15 +45,7 @@ export {
   createValidatedResponseSchema,
 } from "./validation.js";
 
-// Search builder for fluent API
-export type { SearchBuilderChain, MusicSearchBuilderChain } from "./builder.js";
-
-export {
-  SearchBuilder,
-  MusicSearchBuilder,
-  createSearchBuilder,
-  createMusicSearchBuilder,
-} from "./builder.js";
+// Search builder functionality removed - use modern searchPost API instead
 
 // Re-export enhanced ApiClient with search methods
 export { ApiClient, ApiError } from "../api-client.js";
