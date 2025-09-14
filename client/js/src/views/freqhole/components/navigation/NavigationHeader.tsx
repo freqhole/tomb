@@ -136,43 +136,6 @@ export function NavigationHeader() {
         </div>
       </div>
 
-      {/* Mobile Header */}
-      <div class="flex md:hidden items-center justify-between mb-4">
-        <span class="text-lg font-light text-white lowercase">
-          <span>freqh</span>
-          <FreqholeIcon class="inline" size={16} />
-          <span>le</span>
-        </span>
-        <div>
-          <Show
-            when={auth.isAuthenticated}
-            fallback={
-              <button
-                onClick={() => setAuthOpen(true)}
-                class="p-2 text-gray-400 hover:text-white transition-colors rounded-full hover:bg-magenta-600/20"
-                title="sign in"
-              >
-                <svg
-                  class="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                  />
-                </svg>
-              </button>
-            }
-          >
-            <UserMenu />
-          </Show>
-        </div>
-      </div>
-
       <div class="relative">
         <input
           type="text"
