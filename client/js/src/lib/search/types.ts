@@ -197,17 +197,17 @@ export const SearchResultItemSchema = z.object({
 
 // Search suggestion schema
 export const SearchSuggestionSchema = z.object({
-  text: z.string(),
+  // Server response fields (required)
+  value: z.string(),
+  display: z.string(),
+  highlight: z.string(),
+  count: z.number(),
+  suggestion_type: z.string(),
+  confidence: z.number(),
+  // Legacy client fields (optional for compatibility)
+  text: z.string().optional(),
   category: z.string().optional(),
   frequency: z.number().optional(),
-  // Server fields
-  value: z.string().optional(),
-  display: z.string().optional(),
-  highlight: z.string().optional(),
-  count: z.number().optional(),
-  suggestion_type: z.string().optional(),
-  confidence: z.number().optional(),
-  // Used for type compatibility
   query: z.string().optional(),
 });
 

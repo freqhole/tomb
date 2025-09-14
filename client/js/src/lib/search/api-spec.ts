@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 // Search domains for multi-domain support
-export const SearchDomainSchema = z.enum(["music", "photos", "videos", "documents"]);
+export const SearchDomainSchema = z.enum([
+  "music",
+  "photos",
+  "videos",
+  "documents",
+]);
 export type SearchDomain = z.infer<typeof SearchDomainSchema>;
 
 // Search type enumeration
@@ -9,7 +14,14 @@ export const SearchTypeSchema = z.enum(["websearch", "plainto", "phrase"]);
 export type SearchType = z.infer<typeof SearchTypeSchema>;
 
 // Sort fields and directions
-export const SortBySchema = z.enum(["relevance", "title", "artist", "album", "created_at", "rating"]);
+export const SortBySchema = z.enum([
+  "relevance",
+  "title",
+  "artist",
+  "album",
+  "created_at",
+  "rating",
+]);
 export const SortDirectionSchema = z.enum(["asc", "desc"]);
 
 // Base search options schema
@@ -58,11 +70,14 @@ export const SearchResultItemSchema = z.object({
   updated_at: z.string(),
 });
 
-// Search suggestion schema
+// Search suggestion schema - matches server Suggestion struct
 export const SearchSuggestionSchema = z.object({
-  text: z.string(),
-  category: z.string(),
-  frequency: z.number(),
+  value: z.string(),
+  display: z.string(),
+  highlight: z.string(),
+  count: z.number(),
+  suggestion_type: z.string(),
+  confidence: z.number(),
 });
 
 // Song search result schema (for songs-only endpoint)
@@ -169,7 +184,8 @@ export const SEARCH_API_SPEC = {
 // Type helpers for working with the search API spec
 export type SearchApiSpec = typeof SEARCH_API_SPEC;
 export type SearchEndpointName = keyof SearchApiSpec["endpoints"];
-export type SearchEndpointConfig<T extends SearchEndpointName> = SearchApiSpec["endpoints"][T];
+export type SearchEndpointConfig<T extends SearchEndpointName> =
+  SearchApiSpec["endpoints"][T];
 
 // Inferred types from schemas
 export type SearchOptions = z.infer<typeof SearchOptionsSchema>;

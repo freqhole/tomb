@@ -623,7 +623,7 @@ export class ApiClient {
   ): Promise<SuggestionsResult> {
     // Server expects field and partial parameters
     const params = {
-      field: options.field || "title",
+      field: options.field || "all",
       partial: query,
       page_size: options.limit || 25,
     };

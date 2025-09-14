@@ -65,8 +65,8 @@ export const useSearch = () => {
     setActiveTab("all");
   };
 
-  // placeholder suggestions - can be enhanced later
-  const suggestions = () => [];
+  // actual suggestions from reactive store
+  const suggestions = () => reactiveActions.resources?.suggestions() || [];
   const onSuggestionSelect = (suggestion: string) => {
     setSearchQuery(suggestion, true);
   };

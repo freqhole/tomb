@@ -105,6 +105,22 @@ export function createStoreActions(
       }
     );
 
+  const [suggestionsResource] = createResource(
+    () => store.search.query?.trim() || "",
+    async (query) => {
+      if (!query || query.length < 2) {
+        return [];
+      }
+      try {
+        const result = await apiClient.getMusicSuggestions(query);
+        return result.suggestions || [];
+      } catch (error) {
+        console.error("failed to fetch suggestions:", error);
+        return [];
+      }
+    }
+  );
+
   return {
     // resources for components to consume
     resources: {
@@ -114,6 +130,7 @@ export function createStoreActions(
       playlists: playlistsResource,
       recentPlaylists: recentPlaylistsResource,
       availableTags: availableTagsResource,
+      suggestions: suggestionsResource,
     },
 
     // expose mutate functions for coordinated updates
