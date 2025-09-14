@@ -45,30 +45,42 @@ export function createStoreActions(
     );
 
   const [artistsResource, { refetch: refetchArtists }] = createResource(
-    () => store.filters.tags,
-    async (tags) => {
-      // Use new Phase 3 filtering APIs
-      if (tags.length > 0) {
-        return apiClient.getArtistsByTags(tags, {
-          sort_by: "artist",
-          sort_direction: "asc",
-        });
-      }
-      return apiClient.getArtists();
+    () => {
+      const deps = {
+        tags: [...store.filters.tags], // spread to track changes properly
+        query: store.search.query?.trim() || "",
+      };
+      return deps;
+    },
+    async (params) => {
+      // Use unified filterArtists API for everything
+      return await apiClient.filterArtists({
+        query: params.query || undefined,
+        tags: params.tags.length > 0 ? params.tags : undefined,
+        sort_by: "artist",
+        sort_direction: "asc",
+        page_size: 100,
+      });
     }
   );
 
   const [albumsResource, { refetch: refetchAlbums }] = createResource(
-    () => store.filters.tags,
-    async (tags) => {
-      // Use new Phase 3 filtering APIs
-      if (tags.length > 0) {
-        return apiClient.getAlbumsByTags(tags, {
-          sort_by: "year",
-          sort_direction: "desc",
-        });
-      }
-      return apiClient.getAlbums();
+    () => {
+      const deps = {
+        tags: [...store.filters.tags], // spread to track changes properly
+        query: store.search.query?.trim() || "",
+      };
+      return deps;
+    },
+    async (params) => {
+      // Use unified filterAlbums API for everything
+      return await apiClient.filterAlbums({
+        query: params.query || undefined,
+        tags: params.tags.length > 0 ? params.tags : undefined,
+        sort_by: "year",
+        sort_direction: "desc",
+        page_size: 100,
+      });
     }
   );
 

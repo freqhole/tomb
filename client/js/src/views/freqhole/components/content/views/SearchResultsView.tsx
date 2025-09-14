@@ -90,8 +90,8 @@ export function SearchResultsView(
   };
 
   const handleArtistClick = (artist: any) => {
-    if (artist.name) {
-      const encodedArtist = encodeURIComponent(artist.name);
+    if (artist.artist) {
+      const encodedArtist = encodeURIComponent(artist.artist);
       navigate(`/artist/${encodedArtist}`);
     }
   };
@@ -230,7 +230,7 @@ export function SearchResultsView(
                             onClick={() => handleArtistClick(artist)}
                           >
                             <div class="text-white font-medium truncate">
-                              {artist.name}
+                              {artist.artist}
                             </div>
                             <div class="text-magenta-400 text-sm">
                               {artist.song_count || 0} songs
@@ -403,7 +403,7 @@ export function SearchResultsView(
                       onClick={() => handleArtistClick(artist)}
                     >
                       <div class="text-white font-medium truncate">
-                        {artist.name}
+                        {artist.artist}
                       </div>
                       <div class="text-magenta-400 text-sm">
                         {artist.song_count || 0} songs
