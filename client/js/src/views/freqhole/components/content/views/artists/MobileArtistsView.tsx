@@ -1,10 +1,13 @@
 import { For, Show, createSignal, createEffect } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { useInfiniteScroll } from "../../../../hooks/useInfiniteScroll";
+import { useReactiveActions, useSort } from "../../../../store";
+import { useDataSections } from "../../../../store/hooks";
 import { apiClient } from "../../../../../../lib/api-client";
 import { saveScrollStateSecurely } from "../../../../../../lib/navigation";
+import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
+import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
 import type { ArtistSummary } from "../../../../../../lib/music/schemas";
-import type { PaginationMetadata } from "../../../../hooks/useInfiniteScroll";
+import type { SortField } from "../../../../../../components/search/SearchSortControls";
 
 interface MobileArtistsViewProps {
   class?: string;
@@ -13,36 +16,67 @@ interface MobileArtistsViewProps {
 export function MobileArtistsView(props: MobileArtistsViewProps) {
   const navigate = useNavigate();
 
+  // Use modern reactive store instead of legacy hook
+  const reactiveActions = useReactiveActions();
+  const [sortState] = useSort();
+  const dataSections = useDataSections();
+
+  // Data access using modern reactive store
+  const artists = () => {
+    const result = dataSections.artists.data() as
+      | { artists: any[]; pagination: any }
+      | undefined;
+    return result?.artists || [];
+  };
+  const loading = () => dataSections.artists.loading || false;
+  const error = () => dataSections.artists.error;
+  const totalCount = () => {
+    const result = dataSections.artists.data() as
+      | { artists: any[]; pagination: any }
+      | undefined;
+    if (result?.pagination?.total) {
+      return result.pagination.total;
+    }
+    return artists().length;
+  };
+
+  // Sort fields for mobile artists dropdown
+  const sortFields: SortField[] = [
+    { value: "artist", label: "artist", description: "Sort by artist name" },
+    {
+      value: "song_count",
+      label: "songs",
+      description: "Sort by song count",
+    },
+    {
+      value: "album_count",
+      label: "albums",
+      description: "Sort by album count",
+    },
+    {
+      value: "rating",
+      label: "rating",
+      description: "Sort by average rating",
+    },
+  ];
+
+  // Set valid default for artists if current sort field is invalid
+  const currentSortField = sortState.field;
+  const validSortFields = sortFields.map((f) => f.value);
+  if (!validSortFields.includes(currentSortField)) {
+    // Set to "artist" as default for artists
+    reactiveActions.setSort("artist", "asc");
+  }
+
+  // Handle sort changes
+  const handleSortChange = (field: string, direction: "asc" | "desc") => {
+    reactiveActions.setSort(field, direction);
+  };
+
   // Scroll restoration state
   const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
     null
   );
-
-  // Create fetch function for infinite scroll
-  const fetchArtists = async (
-    page: number
-  ): Promise<{ items: ArtistSummary[]; pagination: PaginationMetadata }> => {
-    const response = await apiClient.getArtists({
-      page,
-      page_size: 50,
-    });
-
-    return {
-      items: response.artists,
-      pagination: response.pagination,
-    };
-  };
-
-  // Use infinite scroll hook
-  const infiniteScroll = useInfiniteScroll(fetchArtists, {
-    threshold: 200,
-    enabled: true,
-  });
-
-  // Extract state and actions
-  const artists = infiniteScroll.state.items;
-  const loading = infiniteScroll.state.loading;
-  const error = infiniteScroll.state.error;
 
   // Get scroll state from browser history
   const getSavedScrollTop = (): number => {
@@ -83,23 +117,55 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
     <div class={`h-full flex flex-col w-full max-w-full ${props.class || ""}`}>
       <div class="flex-1 flex flex-col h-full overflow-hidden">
         <div class="p-3">
-          <h1 class="text-2xl font-semibold text-white mb-2">artists</h1>
+          <div class="flex items-center justify-between mb-2">
+            <h1 class="text-2xl font-semibold text-white">artists</h1>
+            <SearchSortControls
+              sortBy={sortState.field}
+              sortDirection={sortState.direction}
+              onSortChange={handleSortChange}
+              sortFields={sortFields}
+              directionStyle="arrows"
+              class="flex-shrink-0"
+            />
+          </div>
           <Show
-            when={!loading() && !error()}
+            when={dataSections.artists.data() && !error()}
             fallback={<p class="text-gray-300 text-sm">loading artists...</p>}
           >
-            <p class="text-gray-300 text-sm">{artists().length} artists</p>
+            <p class="text-gray-300 text-sm">
+              {totalCount()} artist{totalCount() !== 1 ? "s" : ""}
+            </p>
           </Show>
+          <div class="flex items-center mt-2">
+            <TagFilterControls compact={true} />
+          </div>
         </div>
 
         <div
           class="flex-1 overflow-y-auto min-h-0"
           ref={(el) => {
-            infiniteScroll.containerRef(el);
             setScrollElement(el);
           }}
-          onScroll={() => {
-            // Debounced save of scroll state - like desktop FreqholeInfiniteGrid
+          onScroll={(event) => {
+            // Handle infinite loading
+            const target = event.target as HTMLDivElement;
+            const scrollTop = target.scrollTop;
+            const scrollHeight = target.scrollHeight;
+            const clientHeight = target.clientHeight;
+            const buffer = Math.max(50, clientHeight * 0.25);
+
+            if (
+              scrollTop + clientHeight >= scrollHeight - buffer &&
+              !loading()
+            ) {
+              const currentLength = artists().length;
+              const total = totalCount();
+              if (currentLength < total) {
+                reactiveActions.loadMoreArtists();
+              }
+            }
+
+            // Debounced save of scroll state
             let saveTimer: ReturnType<typeof setTimeout> | undefined;
             if (saveTimer) clearTimeout(saveTimer);
             saveTimer = setTimeout(saveScrollState, 300);
@@ -145,7 +211,9 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
           {/* End of list indicator */}
           <Show
             when={
-              infiniteScroll.state.hasMore() === false && artists().length > 0
+              artists().length >= totalCount() &&
+              artists().length > 0 &&
+              !loading()
             }
           >
             <div class="p-4 text-center">

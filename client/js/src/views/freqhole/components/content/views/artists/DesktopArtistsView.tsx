@@ -1,12 +1,16 @@
 import { createSignal, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
-import { useArtists } from "../../../../hooks/useArtists";
+import { useReactiveActions, useSort } from "../../../../store";
+import { useDataSections } from "../../../../store/hooks";
 import { FreqholeInfiniteGrid } from "../../../grid";
 import { ArtistDetailPanel } from "./ArtistDetailPanel";
 import { apiClient } from "../../../../../../lib/api-client";
 import { storeActions } from "../../../../store";
+import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
+import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
 import type { ArtistSummary } from "../../../../../../lib/music/schemas";
+import type { SortField } from "../../../../../../components/search/SearchSortControls";
 
 interface DesktopArtistsViewProps {
   class?: string;
@@ -16,8 +20,62 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
   const navigate = useNavigate();
   const events = useGlobalEvents();
 
-  // Simple artists data loading
-  const artistsHook = useArtists(apiClient);
+  // Use modern reactive store instead of legacy hook
+  const reactiveActions = useReactiveActions();
+  const [sortState] = useSort();
+  const dataSections = useDataSections();
+
+  // Data access using modern reactive store
+  const artists = () => {
+    const result = dataSections.artists.data() as
+      | { artists: any[]; pagination: any }
+      | undefined;
+    return result?.artists || [];
+  };
+  const loading = () => dataSections.artists.loading || false;
+  const error = () => dataSections.artists.error;
+  const totalCount = () => {
+    const result = dataSections.artists.data() as
+      | { artists: any[]; pagination: any }
+      | undefined;
+    if (result?.pagination?.total) {
+      return result.pagination.total;
+    }
+    return artists().length;
+  };
+
+  // Sort fields for artists
+  const sortFields: SortField[] = [
+    { value: "artist", label: "artist", description: "Sort by artist name" },
+    {
+      value: "song_count",
+      label: "songs",
+      description: "Sort by song count",
+    },
+    {
+      value: "album_count",
+      label: "albums",
+      description: "Sort by album count",
+    },
+    {
+      value: "rating",
+      label: "rating",
+      description: "Sort by average rating",
+    },
+  ];
+
+  // Set valid default for artists if current sort field is invalid
+  const currentSortField = sortState.field;
+  const validSortFields = sortFields.map((f) => f.value);
+  if (!validSortFields.includes(currentSortField)) {
+    // Set to "artist" as default for artists
+    reactiveActions.setSort("artist", "asc");
+  }
+
+  // Handle sort changes
+  const handleSortChange = (field: string, direction: "asc" | "desc") => {
+    reactiveActions.setSort(field, direction);
+  };
 
   // Artist selection state
   const [selectedArtist, setSelectedArtist] =
@@ -44,45 +102,64 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
       <div class="w-72 min-w-72 flex-shrink-0 flex flex-col border-r border-magenta-800/30">
         {/* Header */}
         <div class="flex-shrink-0 p-6">
-          <h1 class="text-2xl font-semibold text-white mb-2">artists</h1>
-          <Show
-            when={!artistsHook.loading() && !artistsHook.error()}
-            fallback={<p class="text-gray-300 text-sm">loading artists...</p>}
-          >
-            <p class="text-gray-300 text-sm">
-              {artistsHook.totalCount()} artist
-              {artistsHook.totalCount() !== 1 ? "s" : ""}
-            </p>
-          </Show>
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h1 class="text-2xl font-semibold text-white mb-2">artists</h1>
+              <Show
+                when={dataSections.artists.data() && !error()}
+                fallback={
+                  <p class="text-gray-300 text-sm">loading artists...</p>
+                }
+              >
+                <p class="text-gray-300 text-sm">
+                  {totalCount()} artist{totalCount() !== 1 ? "s" : ""}
+                </p>
+              </Show>
+            </div>
+            <SearchSortControls
+              sortBy={sortState.field}
+              sortDirection={sortState.direction}
+              onSortChange={handleSortChange}
+              sortFields={sortFields}
+              directionStyle="arrows"
+              class="flex-shrink-0"
+            />
+          </div>
+          <div class="flex items-center">
+            <TagFilterControls compact={true} />
+          </div>
         </div>
 
         {/* Artist List using FreqholeInfiniteGrid */}
         <div class="flex-1 min-h-0">
-          <Show when={artistsHook.error()}>
+          <Show when={error()}>
             <div class="px-6 py-4 text-center">
               <div class="text-red-400 text-sm mb-2">
                 failed to load artists
               </div>
               <button
                 class="text-magenta-400 hover:text-magenta-300 text-sm transition-colors"
-                onClick={() => artistsHook.refresh()}
+                onClick={() => reactiveActions.refreshArtists()}
               >
                 try again
               </button>
             </div>
           </Show>
 
-          <Show when={!artistsHook.error()}>
+          <Show when={!error()}>
             <FreqholeInfiniteGrid
-              data={artistsHook.artists()}
-              totalCount={artistsHook.totalCount()}
-              onLoadMore={artistsHook.loadMore}
+              data={artists()}
+              totalCount={totalCount()}
+              onLoadMore={reactiveActions.loadMoreArtists}
               renderMode="artists"
-              loading={artistsHook.loading()}
+              loading={loading()}
               enableSelection={false}
               enableKeyboardShortcuts={false}
               onItemClick={handleArtistClick}
               onItemDoubleClick={handleArtistDoubleClick}
+              sortField={sortState.field}
+              sortDirection={sortState.direction}
+              onSort={handleSortChange}
               showHeader={false}
               selectedItems={new Set()}
               class="h-full"

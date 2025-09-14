@@ -48,27 +48,28 @@ export function createStoreActions(
       }
     );
 
-  const [artistsResource, { refetch: refetchArtists }] = createResource(
-    () => {
-      const deps = {
-        tags: [...store.filters.tags], // spread to track changes properly
-        query: store.search.query?.trim() || "",
-        sortField: store.sort.field,
-        sortDirection: store.sort.direction,
-      };
-      return deps;
-    },
-    async (params) => {
-      // Use unified filterArtists API for everything
-      return await apiClient.filterArtists({
-        query: params.query || undefined,
-        tags: params.tags.length > 0 ? params.tags : undefined,
-        sort_by: params.sortField,
-        sort_direction: params.sortDirection,
-        page_size: 100,
-      });
-    }
-  );
+  const [artistsResource, { refetch: refetchArtists, mutate: mutateArtists }] =
+    createResource(
+      () => {
+        const deps = {
+          tags: [...store.filters.tags], // spread to track changes properly
+          query: store.search.query?.trim() || "",
+          sortField: store.sort.field,
+          sortDirection: store.sort.direction,
+        };
+        return deps;
+      },
+      async (params) => {
+        // Use unified filterArtists API for everything
+        return await apiClient.filterArtists({
+          query: params.query || undefined,
+          tags: params.tags.length > 0 ? params.tags : undefined,
+          sort_by: params.sortField,
+          sort_direction: params.sortDirection,
+          page_size: 100,
+        });
+      }
+    );
 
   const [albumsResource, { refetch: refetchAlbums, mutate: mutateAlbums }] =
     createResource(
@@ -83,13 +84,6 @@ export function createStoreActions(
       },
       async (params) => {
         // Use unified filterAlbums API for everything
-        console.log("albums resource API call:", {
-          sort_by: params.sortField,
-          sort_direction: params.sortDirection,
-          query: params.query,
-          tags: params.tags,
-        });
-
         return await apiClient.filterAlbums({
           query: params.query || undefined,
           tags: params.tags.length > 0 ? params.tags : undefined,
@@ -413,12 +407,6 @@ export function createStoreActions(
           query: store.search.query?.trim() || "",
         };
 
-        console.log("loadMoreAlbums API call:", {
-          sort_by: store.sort.field,
-          sort_direction: store.sort.direction,
-          page: nextPage,
-        });
-
         nextPageResult = await apiClient.filterAlbums({
           query: params.query || undefined,
           tags: params.tags.length > 0 ? params.tags : undefined,
@@ -441,6 +429,71 @@ export function createStoreActions(
 
         return {
           albums: [...currentAlbums, ...newAlbums],
+          pagination: {
+            ...nextPageResult.pagination,
+            page: nextPageResult.pagination.page,
+            has_next: nextPageResult.pagination.has_next,
+          },
+        };
+      });
+
+      // Reset loading guard
+      isLoadingMore = false;
+    },
+
+    // Fixed pagination support for artists
+    loadMoreArtists: async () => {
+      // Prevent duplicate requests
+      if (isLoadingMore) {
+        return;
+      }
+
+      const currentResult = artistsResource();
+      if (!currentResult) return;
+
+      isLoadingMore = true;
+
+      // Artists API returns { artists, pagination } structure
+      const hasNext = currentResult.pagination?.has_next || false;
+      const currentPage = currentResult.pagination?.page || 1;
+
+      if (!hasNext) {
+        isLoadingMore = false;
+        return;
+      }
+
+      const nextPage = currentPage + 1;
+      let nextPageResult;
+
+      try {
+        // Use EXACT same parameters as main resource to ensure consistency
+        const params = {
+          tags: [...store.filters.tags], // spread to match main resource
+          query: store.search.query?.trim() || "",
+        };
+
+        nextPageResult = await apiClient.filterArtists({
+          query: params.query || undefined,
+          tags: params.tags.length > 0 ? params.tags : undefined,
+          sort_by: store.sort.field,
+          sort_direction: store.sort.direction,
+          page: nextPage,
+          page_size: 100,
+        });
+      } catch (error) {
+        isLoadingMore = false;
+        return;
+      }
+
+      // Append new artists to existing ones
+      mutateArtists((current) => {
+        if (!current || !nextPageResult) return nextPageResult;
+
+        const currentArtists = current.artists;
+        const newArtists = nextPageResult.artists;
+
+        return {
+          artists: [...currentArtists, ...newArtists],
           pagination: {
             ...nextPageResult.pagination,
             page: nextPageResult.pagination.page,
