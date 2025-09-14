@@ -1,6 +1,6 @@
 import { createEffect, createSignal } from "solid-js";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
-import { useStore, useReactiveActions } from "../../../../store";
+import { useStore, useReactiveActions, useSort } from "../../../../store";
 import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
 import { useDataSections } from "../../../../store/hooks";
@@ -20,6 +20,7 @@ export function DesktopSongsView(
 ) {
   const [] = useStore();
   const reactiveActions = useReactiveActions();
+  const [sortState] = useSort();
   const songState = useSongState();
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
@@ -65,19 +66,11 @@ export function DesktopSongsView(
   const loading = () => dataSections.songs.loading || false;
   const error = () => dataSections.songs.error;
   const totalCount = () => {
-    const result = dataSections.songs.data();
-    if (!result) return 0;
-
-    // Both endpoints now return SongListResponse format with 'total' field
-    if ("pagination" in result && result.pagination) {
-      // GET songs format with pagination object
-      return result.pagination.total || 0;
-    } else if ("total" in result) {
-      // POST search format (also SongListResponse)
-      return result.total || 0;
+    const result = reactiveActions.resources?.songs();
+    if (result && typeof result === "object" && "total" in result) {
+      return (result as any).total || 0;
     }
-
-    return 0;
+    return songs().length;
   };
 
   // Reload functionality - reactive store handles this automatically
@@ -85,10 +78,14 @@ export function DesktopSongsView(
     // TODO: Add manual refresh capability to reactive store if needed
   };
 
-  // Handle sort changes - TODO: implement sorting in reactive store
-  const handleSort = (_field: string) => {
-    // TODO: Add sorting support to reactive store
-    console.warn("sorting not yet implemented in reactive store");
+  // Handle sort changes - unified with mobile view
+  const handleSort = (field: string, direction: "asc" | "desc" | null) => {
+    if (direction === null) {
+      // Reset to default sort
+      reactiveActions.setSort("created_at", "desc");
+    } else {
+      reactiveActions.setSort(field, direction);
+    }
   };
 
   // Listen for data reload events
@@ -241,8 +238,8 @@ export function DesktopSongsView(
             onItemClick={handleSongClick}
             onItemDoubleClick={handleSongDoubleClick}
             onContextMenu={handleContextMenu}
-            sortField={null}
-            sortDirection={"asc"}
+            sortField={sortState.field}
+            sortDirection={sortState.direction}
             onSort={handleSort}
             class="h-full"
           />

@@ -43,6 +43,10 @@ export interface FreqholeStore {
   filters: {
     tags: string[];
   };
+  sort: {
+    field: string;
+    direction: "asc" | "desc";
+  };
   auth: {
     isAuthenticated: boolean;
     currentUser: any | null;
@@ -110,6 +114,10 @@ const initialState: FreqholeStore = {
   },
   filters: {
     tags: [],
+  },
+  sort: {
+    field: "created_at",
+    direction: "desc",
   },
   auth: {
     isAuthenticated: false,
@@ -235,6 +243,14 @@ export const useSearch = () => {
   return [
     store.search,
     (updates: Partial<FreqholeStore["search"]>) => setStore("search", updates),
+  ] as const;
+};
+
+export const useSort = () => {
+  const [store] = useStore();
+  return [
+    store.sort,
+    (updates: Partial<FreqholeStore["sort"]>) => setStore("sort", updates),
   ] as const;
 };
 

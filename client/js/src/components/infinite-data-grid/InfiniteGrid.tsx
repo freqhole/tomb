@@ -21,11 +21,24 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
     columnKey: string;
   } | null>(null);
 
-  // core grid state - simplified to fix reactivity
-  const [sortConfig, setSortConfig] = createSignal({
-    field: props.sortField || "created_at",
-    direction: props.sortDirection || "desc",
+  // core grid state - use external sort state if provided, otherwise internal
+  const isServerSideSorting = () =>
+    props.sortField !== undefined && props.onSort !== undefined;
+
+  const [internalSortConfig, setInternalSortConfig] = createSignal({
+    field: "created_at",
+    direction: "desc" as "asc" | "desc",
   });
+
+  const sortConfig = () => {
+    if (isServerSideSorting()) {
+      return {
+        field: props.sortField || "created_at",
+        direction: props.sortDirection || "desc",
+      };
+    }
+    return internalSortConfig();
+  };
 
   const getItemId = props.getRowId || ((item: any) => item.id || String(item));
 
@@ -204,19 +217,29 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
   // handle sorting
   const handleSort = (field: string) => {
     const current = sortConfig();
+    let newDirection: "asc" | "desc";
 
     if (current.field === field) {
-      // cycle through: asc -> desc -> null (reset to default)
+      // cycle through: asc -> desc (for server-side) or asc -> desc -> null (for client-side)
       if (current.direction === "asc") {
-        setSortConfig({ field, direction: "desc" });
+        newDirection = "desc";
       } else if (current.direction === "desc") {
-        setSortConfig({ field, direction: "asc" });
+        newDirection = isServerSideSorting() ? "asc" : "desc";
+      } else {
+        newDirection = "asc";
       }
     } else {
-      setSortConfig({ field, direction: "asc" });
+      newDirection = "asc";
     }
 
-    props.onSort?.(field, sortConfig().direction);
+    if (isServerSideSorting()) {
+      // Server-side sorting: just call the external handler
+      props.onSort?.(field, newDirection);
+    } else {
+      // Client-side sorting: update internal state and call handler
+      setInternalSortConfig({ field, direction: newDirection });
+      props.onSort?.(field, newDirection);
+    }
   };
 
   // handle row clicks with selection logic

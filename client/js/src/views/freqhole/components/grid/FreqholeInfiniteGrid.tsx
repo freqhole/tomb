@@ -19,7 +19,7 @@ export interface FreqholeInfiniteGridProps<T = any> {
   onContextMenu?: (event: MouseEvent, item: T) => void;
   sortField?: string | null;
   sortDirection?: "asc" | "desc" | null;
-  onSort?: (field: string) => void;
+  onSort?: (field: string, direction: "asc" | "desc" | null) => void;
   showHeader?: boolean;
   class?: string;
 }

@@ -896,6 +896,8 @@ fn convert_unified_params_to_search_query(params: UnifiedSearchParams) -> Search
             "artist" => search_query.with_sort(SortBy::Artist, direction),
             "album" => search_query.with_sort(SortBy::Album, direction),
             "rating" => search_query.with_sort(SortBy::Rating, direction),
+            "user_rating" => search_query.with_sort(SortBy::Rating, direction),
+            "user_is_favorite" => search_query.with_raw_sort("user_is_favorite", direction),
             "updated_at" => search_query.with_sort(SortBy::UpdatedAt, direction),
             _ => search_query.with_sort(SortBy::CreatedAt, direction),
         }

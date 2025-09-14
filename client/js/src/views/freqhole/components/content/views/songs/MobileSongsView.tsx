@@ -4,7 +4,7 @@ import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useStore } from "../../../../store";
 import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
-import { useReactiveActions } from "../../../../store";
+import { useReactiveActions, useSort } from "../../../../store";
 import { FreqholeInfiniteGrid } from "../../../grid";
 import { useSongState } from "../../../../services/songState";
 import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
@@ -24,6 +24,7 @@ export function MobileSongsView(props: MobileSongsViewProps) {
 
   // Use modern reactive store instead of legacy search hook
   const reactiveActions = useReactiveActions();
+  const [sortState] = useSort();
 
   // Selection state (disabled for mobile)
   const selection = useSelection({
@@ -108,7 +109,7 @@ export function MobileSongsView(props: MobileSongsViewProps) {
       description: "Sort by user rating",
     },
     {
-      value: "is_favorite",
+      value: "user_is_favorite",
       label: "favorite",
       description: "Sort by favorite status",
     },
@@ -121,13 +122,8 @@ export function MobileSongsView(props: MobileSongsViewProps) {
   ];
 
   const handleSortChange = (field: string, direction: "asc" | "desc") => {
-    // Sort change - modern store doesn't need explicit sort setting as it uses searchPost
-    // The sort will be handled by the server via the unified API
-    console.warn(
-      "Mobile sort change not yet implemented with modern store:",
-      field,
-      direction
-    );
+    // Use reactive store to update sort - this will automatically trigger songs refetch
+    reactiveActions.setSort(field, direction);
   };
 
   return (
@@ -165,8 +161,8 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             </span>
           </h1>
           <SearchSortControls
-            sortBy={undefined}
-            sortDirection={undefined}
+            sortBy={sortState.field}
+            sortDirection={sortState.direction}
             onSortChange={handleSortChange}
             sortFields={sortFields}
             directionStyle="arrows"

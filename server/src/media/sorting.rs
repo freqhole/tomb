@@ -24,8 +24,8 @@
 /// ```
 pub fn validate_sort_field(field: &str) -> Option<&str> {
     match field {
-        "title" | "artist" | "album" | "rating" | "year" | "duration_seconds" | "created_at"
-        | "updated_at" => Some(field),
+        "title" | "artist" | "album" | "rating" | "user_rating" | "user_is_favorite" | "year"
+        | "duration_seconds" | "created_at" | "updated_at" => Some(field),
         _ => None,
     }
 }
@@ -62,6 +62,8 @@ pub const SUPPORTED_SORT_FIELDS: &[&str] = &[
     "artist",
     "album",
     "rating",
+    "user_rating",
+    "user_is_favorite",
     "year",
     "duration_seconds",
     "created_at",

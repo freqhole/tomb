@@ -97,13 +97,18 @@ export const musicSortFields = [
     defaultDirection: "desc" as const,
   },
   {
-    field: "rating",
+    field: "user_rating",
     label: "rating",
     defaultDirection: "desc" as const,
   },
   {
     field: "duration_seconds",
     label: "duration",
+    defaultDirection: "desc" as const,
+  },
+  {
+    field: "user_is_favorite",
+    label: "favorite",
     defaultDirection: "desc" as const,
   },
   {

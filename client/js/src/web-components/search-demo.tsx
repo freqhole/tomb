@@ -115,7 +115,7 @@ function SearchDemoContent(props: { apiClient: ApiClient }) {
     { value: "artist", label: "artist" },
     { value: "album", label: "album" },
     { value: "year", label: "year" },
-    { value: "rating", label: "rating" },
+    { value: "user_rating", label: "rating" },
     { value: "duration_seconds", label: "duration" },
   ];
 

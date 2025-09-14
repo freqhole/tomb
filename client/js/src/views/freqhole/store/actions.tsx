@@ -29,6 +29,8 @@ export function createStoreActions(
         const deps = {
           tags: [...store.filters.tags], // spread to track changes properly
           query: store.search.query?.trim() || "",
+          sortField: store.sort.field,
+          sortDirection: store.sort.direction,
         };
         return deps;
       },
@@ -37,8 +39,8 @@ export function createStoreActions(
         return await apiClient.searchPost({
           query: params.query || undefined,
           filters: params.tags.length > 0 ? { tags: params.tags } : undefined,
-          sort_by: "created_at",
-          sort_direction: "desc",
+          sort_by: params.sortField,
+          sort_direction: params.sortDirection,
           page_size: 100,
         });
       }
@@ -320,8 +322,8 @@ export function createStoreActions(
         nextPageResult = await apiClient.searchPost({
           query: params.query || undefined,
           filters: params.tags.length > 0 ? { tags: params.tags } : undefined,
-          sort_by: "created_at",
-          sort_direction: "desc",
+          sort_by: store.sort.field,
+          sort_direction: store.sort.direction,
           page: nextPage,
           page_size: 100,
         });
@@ -369,6 +371,12 @@ export function createStoreActions(
     refreshArtists: () => refetchArtists(),
     refreshAlbums: () => refetchAlbums(),
     refreshPlaylists: () => refetchPlaylists(),
+
+    // sort management
+    setSort: (field: string, direction: "asc" | "desc") => {
+      setStore("sort", { field, direction });
+      // songs resource will automatically refetch due to reactive dependencies
+    },
 
     // tag lifecycle management with optimistic updates
     addTagToSongs: async (songIds: string[], tagName: string) => {
