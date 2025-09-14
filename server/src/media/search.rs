@@ -1,7 +1,7 @@
 //! Unified music search API endpoints
 
 use crate::auth::AuthenticatedUser;
-use crate::media::songs::SongResponse;
+use crate::media::songs::{SongListResponse, SongResponse};
 
 use axum::{
     extract::{Extension, Query},
@@ -665,13 +665,13 @@ pub async fn search_music_post(
     Extension(user): Extension<AuthenticatedUser>,
     Extension(db): Extension<DatabaseConnection>,
     Json(request): Json<PostSearchRequest>,
-) -> Result<Json<PostSearchResponse>, StatusCode> {
-    let start_time = std::time::Instant::now();
+) -> Result<Json<SongListResponse>, StatusCode> {
+    let _start_time = std::time::Instant::now();
 
     // Clone values we need to use later
     let _query_clone = request.query.clone();
-    let sort_by_clone = request.sort_by.clone();
-    let sort_direction_clone = request.sort_direction.clone();
+    let _sort_by_clone = request.sort_by.clone();
+    let _sort_direction_clone = request.sort_direction.clone();
 
     // Convert POST request to UnifiedSearchParams
     let mut params = UnifiedSearchParams {
@@ -790,30 +790,24 @@ pub async fn search_music_post(
     let search_result = search_music(Extension(user), Extension(db), Query(params)).await?;
     let response_data = search_result.0;
 
-    // Convert to POST response format
+    // Convert to SongListResponse format (same as GET songs endpoint)
     let total_pages = if response_data.total_count == 0 {
         0
     } else {
-        (response_data.total_count as f64 / request.page_size as f64).ceil() as u32
+        (response_data.total_count as f64 / request.page_size as f64).ceil() as i32
     };
 
-    let post_response = PostSearchResponse {
+    let song_list_response = SongListResponse {
         songs: response_data.songs,
-        total_count: response_data.total_count,
-        page: request.page,
-        page_size: request.page_size,
-        total_pages,
-        has_next: request.page < total_pages,
+        total: response_data.total_count as i64,
+        page: Some(request.page as i32),
+        page_size: Some(request.page_size as i32),
+        total_pages: Some(total_pages),
+        has_next: request.page < total_pages as u32,
         has_prev: request.page > 1,
-        query_time_ms: Some(start_time.elapsed().as_millis() as u64),
-        applied_filters: None, // Skip for now to avoid null field issues
-        sort_applied: sort_by_clone.map(|field| SortAppliedInfo {
-            field,
-            direction: sort_direction_clone.unwrap_or_else(|| "desc".to_string()),
-        }),
     };
 
-    Ok(Json(post_response))
+    Ok(Json(song_list_response))
 }
 
 /// Convert UnifiedSearchParams to SearchQuery

@@ -20,6 +20,8 @@ export function createStoreActions(
   setStore: SetStoreFunction<FreqholeStore>,
   apiClient: typeof import("../../../lib/api-client").apiClient
 ) {
+  // Loading guard to prevent duplicate pagination requests
+  let isLoadingMore = false;
   // Use stable getSongs for main list, POST search only for tag filtering
   const [songsResource, { refetch: refetchSongs, mutate: mutateSongs }] =
     createResource(
@@ -28,31 +30,16 @@ export function createStoreActions(
           tags: [...store.filters.tags], // spread to track changes properly
           query: store.search.query?.trim() || "",
         };
-        console.log("Songs resource dependency changed:", deps);
         return deps;
       },
       async (params) => {
-        console.log("Songs resource fetching with params:", params);
-        // Use original working endpoints for stability
-        if (params.query) {
-          console.log("Using searchMusic for query:", params.query);
-          return apiClient.searchMusic(params.query);
-        } else if (params.tags.length > 0) {
-          // POST search for tag filtering with proper structure and consistent sorting
-          console.log("Using searchPost for tags:", params.tags);
-          return apiClient.searchPost({
-            filters: { tags: params.tags },
-            sort_by: "created_at",
-            sort_direction: "desc",
-            page_size: 100,
-          });
-        }
-        // Use original getSongs endpoint for consistency
-        console.log("Using getSongs (no filters)");
-        return apiClient.getSongs({
-          page_size: 100,
+        // Use searchPost for everything - it handles queries, tags, and empty searches
+        return await apiClient.searchPost({
+          query: params.query || undefined,
+          filters: params.tags.length > 0 ? { tags: params.tags } : undefined,
           sort_by: "created_at",
           sort_direction: "desc",
+          page_size: 100,
         });
       }
     );
@@ -134,9 +121,6 @@ export function createStoreActions(
 
     // reactive filter actions with proper produce patterns
     addTagFilter: (tag: string) => {
-      console.log("Adding tag filter:", tag);
-      console.log("Current tags before:", store.filters.tags);
-
       setStore(
         "filters",
         produce((draft) => {
@@ -145,8 +129,6 @@ export function createStoreActions(
           }
         })
       );
-
-      console.log("Current tags after:", store.filters.tags);
       // resources automatically refetch based on reactive dependencies
 
       eventBus.dispatchEvent(
@@ -157,17 +139,12 @@ export function createStoreActions(
     },
 
     removeTagFilter: (tag: string) => {
-      console.log("Removing tag filter:", tag);
-      console.log("Current tags before:", store.filters.tags);
-
       setStore(
         "filters",
         produce((draft) => {
           draft.tags = draft.tags.filter((t: string) => t !== tag);
         })
       );
-
-      console.log("Current tags after:", store.filters.tags);
       // resources auto-update - no manual coordination needed
 
       eventBus.dispatchEvent(
@@ -272,85 +249,90 @@ export function createStoreActions(
 
     // Fixed pagination support - handle different endpoint return types
     loadMoreSongs: async () => {
+      // Prevent duplicate requests
+      if (isLoadingMore) {
+        return;
+      }
+
       const currentResult = songsResource();
       if (!currentResult) return;
 
-      // Handle different response structures from different endpoints
+      isLoadingMore = true;
+
+      // Both endpoints now return SongListResponse format
       let hasNext = false;
       let currentPage = 1;
 
-      if ("has_next" in currentResult && "page" in currentResult) {
-        // POST search response
-        hasNext = currentResult.has_next;
-        currentPage = currentResult.page;
-      } else if ("pagination" in currentResult) {
+      if ("pagination" in currentResult) {
         // GET songs response
         hasNext = currentResult.pagination?.has_next || false;
         currentPage = currentResult.pagination?.page || 1;
+      } else {
+        // POST search response (now also SongListResponse format)
+        hasNext = currentResult.has_next || false;
+        currentPage = currentResult.page || 1;
       }
 
-      if (!hasNext) return;
+      if (!hasNext) {
+        isLoadingMore = false;
+        return;
+      }
 
       const nextPage = currentPage + 1;
       let nextPageResult;
 
-      // Use same endpoint logic as main resource
-      const params = {
-        tags: store.filters.tags,
-        query: store.search.query?.trim() || "",
-      };
+      try {
+        // Use EXACT same parameters as main resource to ensure consistency
+        const params = {
+          tags: [...store.filters.tags], // spread to match main resource
+          query: store.search.query?.trim() || "",
+        };
 
-      if (params.query) {
-        nextPageResult = await apiClient.searchMusic(params.query, {
-          page: nextPage,
-        });
-      } else if (params.tags.length > 0) {
         nextPageResult = await apiClient.searchPost({
-          filters: { tags: params.tags },
+          query: params.query || undefined,
+          filters: params.tags.length > 0 ? { tags: params.tags } : undefined,
           sort_by: "created_at",
           sort_direction: "desc",
           page: nextPage,
           page_size: 100,
         });
-      } else {
-        nextPageResult = await apiClient.getSongs({
-          page: nextPage,
-          page_size: 100,
-          sort_by: "created_at",
-          sort_direction: "desc",
-        });
+      } catch (error) {
+        isLoadingMore = false;
+        return;
       }
 
-      // Append new songs handling different response structures
+      // Append new songs - both endpoints now return SongListResponse format
       mutateSongs((current) => {
         if (!current || !nextPageResult) return nextPageResult;
 
-        let currentSongs, newSongs;
+        const currentSongs = current.songs;
+        const newSongs = nextPageResult.songs;
 
-        // Extract songs from current result
-        if ("songs" in current) {
-          currentSongs = current.songs;
-        } else {
-          currentSongs = current;
-        }
-
-        // Extract songs from new result
-        if ("songs" in nextPageResult) {
-          newSongs = nextPageResult.songs;
-        } else {
-          newSongs = nextPageResult;
-        }
-
-        // Return updated result with same structure as nextPageResult
-        if ("songs" in nextPageResult) {
+        // Consistent SongListResponse format merging
+        if ("pagination" in current) {
+          // GET songs format - preserve pagination structure
           return {
-            ...nextPageResult,
-            songs: [...(currentSongs || []), ...newSongs],
+            ...current,
+            songs: [...currentSongs, ...newSongs],
+            pagination: {
+              ...current.pagination,
+              page: nextPageResult.pagination?.page || current.pagination?.page,
+              has_next: nextPageResult.pagination?.has_next || false,
+            },
           };
         } else {
-          return [...(currentSongs || []), ...newSongs];
+          // POST search format (now also SongListResponse)
+          return {
+            ...current,
+            songs: [...currentSongs, ...newSongs],
+            page: nextPageResult.page,
+            has_next: nextPageResult.has_next,
+          };
         }
       });
+
+      // Reset loading guard
+      isLoadingMore = false;
     },
 
     // selective refresh methods - components can call what they need

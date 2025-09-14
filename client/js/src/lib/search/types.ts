@@ -348,36 +348,14 @@ export const PostSearchRequestSchema = z.object({
 export const PostSearchResponseSchema = z.object({
   // Results
   songs: SongSearchResultsSchema,
-  total_count: z.number(),
+  total: z.number(),
 
   // Pagination
-  page: z.number(),
-  page_size: z.number(),
-  total_pages: z.number(),
+  page: z.number().optional(),
+  page_size: z.number().optional(),
+  total_pages: z.number().optional(),
   has_next: z.boolean(),
   has_prev: z.boolean(),
-
-  // Performance
-  query_time_ms: z.number().optional(),
-
-  // Applied filters summary
-  applied_filters: z
-    .object({
-      text_search: z.string().nullable().optional(),
-      filters_count: z.number(),
-      tags: z.array(z.string()).nullable().optional(),
-    })
-    .nullable()
-    .optional(),
-
-  // Sort info
-  sort_applied: z
-    .object({
-      field: z.string(),
-      direction: z.string(),
-    })
-    .nullable()
-    .optional(),
 });
 
 // Suggestions response schema with graceful collection parsing

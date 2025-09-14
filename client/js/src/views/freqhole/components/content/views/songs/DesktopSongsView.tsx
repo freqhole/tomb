@@ -68,18 +68,13 @@ export function DesktopSongsView(
     const result = dataSections.songs.data();
     if (!result) return 0;
 
-    // Handle different response formats
-    if ("total_count" in result) {
-      // PostSearchResponse format
-      return result.total_count;
-    } else if ("pagination" in result && result.pagination) {
-      // getSongs format with pagination object
+    // Both endpoints now return SongListResponse format with 'total' field
+    if ("pagination" in result && result.pagination) {
+      // GET songs format with pagination object
       return result.pagination.total || 0;
-    }
-
-    // Fallback to array length if no total available
-    if ("songs" in result) {
-      return result.songs.length;
+    } else if ("total" in result) {
+      // POST search format (also SongListResponse)
+      return result.total || 0;
     }
 
     return 0;
