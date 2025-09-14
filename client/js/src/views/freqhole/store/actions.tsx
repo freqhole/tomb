@@ -23,16 +23,23 @@ export function createStoreActions(
   // Use stable getSongs for main list, POST search only for tag filtering
   const [songsResource, { refetch: refetchSongs, mutate: mutateSongs }] =
     createResource(
-      () => ({
-        tags: store.filters.tags,
-        query: store.search.query?.trim() || "",
-      }),
+      () => {
+        const deps = {
+          tags: [...store.filters.tags], // spread to track changes properly
+          query: store.search.query?.trim() || "",
+        };
+        console.log("Songs resource dependency changed:", deps);
+        return deps;
+      },
       async (params) => {
+        console.log("Songs resource fetching with params:", params);
         // Use original working endpoints for stability
         if (params.query) {
+          console.log("Using searchMusic for query:", params.query);
           return apiClient.searchMusic(params.query);
         } else if (params.tags.length > 0) {
           // POST search for tag filtering with proper structure and consistent sorting
+          console.log("Using searchPost for tags:", params.tags);
           return apiClient.searchPost({
             filters: { tags: params.tags },
             sort_by: "created_at",
@@ -41,8 +48,11 @@ export function createStoreActions(
           });
         }
         // Use original getSongs endpoint for consistency
+        console.log("Using getSongs (no filters)");
         return apiClient.getSongs({
           page_size: 100,
+          sort_by: "created_at",
+          sort_direction: "desc",
         });
       }
     );
@@ -124,6 +134,9 @@ export function createStoreActions(
 
     // reactive filter actions with proper produce patterns
     addTagFilter: (tag: string) => {
+      console.log("Adding tag filter:", tag);
+      console.log("Current tags before:", store.filters.tags);
+
       setStore(
         "filters",
         produce((draft) => {
@@ -132,6 +145,8 @@ export function createStoreActions(
           }
         })
       );
+
+      console.log("Current tags after:", store.filters.tags);
       // resources automatically refetch based on reactive dependencies
 
       eventBus.dispatchEvent(
@@ -142,12 +157,17 @@ export function createStoreActions(
     },
 
     removeTagFilter: (tag: string) => {
+      console.log("Removing tag filter:", tag);
+      console.log("Current tags before:", store.filters.tags);
+
       setStore(
         "filters",
         produce((draft) => {
           draft.tags = draft.tags.filter((t: string) => t !== tag);
         })
       );
+
+      console.log("Current tags after:", store.filters.tags);
       // resources auto-update - no manual coordination needed
 
       eventBus.dispatchEvent(
@@ -296,6 +316,8 @@ export function createStoreActions(
         nextPageResult = await apiClient.getSongs({
           page: nextPage,
           page_size: 100,
+          sort_by: "created_at",
+          sort_direction: "desc",
         });
       }
 

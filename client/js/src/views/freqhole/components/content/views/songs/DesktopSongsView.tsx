@@ -65,8 +65,24 @@ export function DesktopSongsView(
   const loading = () => dataSections.songs.loading || false;
   const error = () => dataSections.songs.error;
   const totalCount = () => {
-    const result = dataSections.songs.data() as PostSearchResponse | undefined;
-    return result?.total_count || 0;
+    const result = dataSections.songs.data();
+    if (!result) return 0;
+
+    // Handle different response formats
+    if ("total_count" in result) {
+      // PostSearchResponse format
+      return result.total_count;
+    } else if ("pagination" in result && result.pagination) {
+      // getSongs format with pagination object
+      return result.pagination.total || 0;
+    }
+
+    // Fallback to array length if no total available
+    if ("songs" in result) {
+      return result.songs.length;
+    }
+
+    return 0;
   };
 
   // Reload functionality - reactive store handles this automatically
