@@ -56,3 +56,31 @@ export const AlbumTracksResponseSchema = z.object({
 });
 
 export type AlbumTracksResponse = z.infer<typeof AlbumTracksResponseSchema>;
+
+// Albums filtering request schema
+export const AlbumsFilterRequestSchema = z.object({
+  tags: z.array(z.string()).optional(),
+  query: z.string().optional(),
+  artist: z.string().optional(),
+  year_min: z.number().optional(),
+  year_max: z.number().optional(),
+  page: z.number().optional(),
+  page_size: z.number().optional(),
+  sort_by: z.string().optional(),
+  sort_direction: z.string().optional(),
+});
+
+export type AlbumsFilterRequest = z.infer<typeof AlbumsFilterRequestSchema>;
+
+// Albums filtering response schema
+export const AlbumsFilterResponseSchema = z.object({
+  albums: z.array(AlbumSchema),
+  total: z.number(),
+  page: z.number(),
+  page_size: z.number(),
+  total_pages: z.number(),
+  has_next: z.boolean(),
+  has_prev: z.boolean(),
+});
+
+export type AlbumsFilterResponse = z.infer<typeof AlbumsFilterResponseSchema>;

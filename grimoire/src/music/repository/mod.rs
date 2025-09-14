@@ -17,6 +17,8 @@ use crate::search::{SearchQuery, SearchService, SongSearchResult, SortBy, SortDi
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+pub mod filters;
+
 #[derive(Debug, thiserror::Error)]
 pub enum MusicRepositoryError {
     #[error("Database error: {0}")]

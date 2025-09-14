@@ -7,8 +7,12 @@ import {
   SongListResponseSchema,
   ArtistSummarySchema,
   ArtistsListResponseSchema,
+  ArtistsFilterRequestSchema,
+  ArtistsFilterResponseSchema,
   AlbumSchema,
   AlbumListResponseSchema,
+  AlbumsFilterRequestSchema,
+  AlbumsFilterResponseSchema,
   AlbumTracksResponseSchema,
   PlaylistSchema,
   PlaylistListResponseSchema,
@@ -28,7 +32,9 @@ import {
 import type {
   Song,
   ArtistSummary,
+  ArtistsFilterRequest,
   Album,
+  AlbumsFilterRequest,
   Playlist,
   CreatePlaylistRequest,
   UpdatePlaylistRequest,
@@ -278,6 +284,104 @@ export const musicApiMethods = {
         "/api/media/albums",
         "getAlbums",
         options || {}
+      )
+      .then((result) => ({
+        albums: result.items,
+        pagination: result.pagination,
+      }));
+  },
+
+  // Artists filtering (POST method for advanced filtering)
+  async filterArtists(
+    this: ApiClient,
+    request: ArtistsFilterRequest
+  ): Promise<{ artists: ArtistSummary[]; pagination: any }> {
+    return musicApiUtils
+      .withGracefulPaginatedCollection(
+        async () => {
+          const validatedRequest = ArtistsFilterRequestSchema.parse(request);
+
+          const response = await this.makeRequest<unknown>(
+            "POST",
+            "/api/media/artists",
+            { data: validatedRequest }
+          );
+
+          const validatedResponse = musicValidation.validateResponse(
+            ArtistsFilterResponseSchema,
+            response,
+            "Artists Filter"
+          );
+
+          const artists = musicValidation.parseCollection(
+            ArtistSummarySchema,
+            validatedResponse.artists || [],
+            "Filtered Artists"
+          ) as ArtistSummary[];
+
+          const pagination = {
+            total: validatedResponse.total,
+            page: validatedResponse.page,
+            page_size: validatedResponse.page_size,
+            total_pages: validatedResponse.total_pages,
+            has_next: validatedResponse.has_next,
+            has_prev: validatedResponse.has_prev,
+          };
+
+          return { items: artists, pagination };
+        },
+        "/api/media/artists",
+        "filterArtists",
+        request
+      )
+      .then((result) => ({
+        artists: result.items,
+        pagination: result.pagination,
+      }));
+  },
+
+  // Albums filtering (POST method for advanced filtering)
+  async filterAlbums(
+    this: ApiClient,
+    request: AlbumsFilterRequest
+  ): Promise<{ albums: Album[]; pagination: any }> {
+    return musicApiUtils
+      .withGracefulPaginatedCollection(
+        async () => {
+          const validatedRequest = AlbumsFilterRequestSchema.parse(request);
+
+          const response = await this.makeRequest<unknown>(
+            "POST",
+            "/api/media/albums",
+            { data: validatedRequest }
+          );
+
+          const validatedResponse = musicValidation.validateResponse(
+            AlbumsFilterResponseSchema,
+            response,
+            "Albums Filter"
+          );
+
+          const albums = musicValidation.parseCollection(
+            AlbumSchema,
+            validatedResponse.albums || [],
+            "Filtered Albums"
+          ) as Album[];
+
+          const pagination = {
+            total: validatedResponse.total,
+            page: validatedResponse.page,
+            page_size: validatedResponse.page_size,
+            total_pages: validatedResponse.total_pages,
+            has_next: validatedResponse.has_next,
+            has_prev: validatedResponse.has_prev,
+          };
+
+          return { items: albums, pagination };
+        },
+        "/api/media/albums",
+        "filterAlbums",
+        request
       )
       .then((result) => ({
         albums: result.items,

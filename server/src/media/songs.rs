@@ -754,6 +754,55 @@ pub struct ArtistsListResponse {
     pub has_prev: bool,
 }
 
+/// Artists filter request for POST endpoint
+#[derive(Debug, Deserialize)]
+pub struct ArtistsFilterRequest {
+    pub tags: Option<Vec<String>>,
+    pub query: Option<String>,
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+    pub sort_by: Option<String>,
+    pub sort_direction: Option<String>,
+}
+
+/// Artists filter response
+#[derive(Debug, Serialize)]
+pub struct ArtistsFilterResponse {
+    pub artists: Vec<ArtistSummary>,
+    pub total: i64,
+    pub page: i32,
+    pub page_size: i32,
+    pub total_pages: i32,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
+/// Albums filter request for POST endpoint
+#[derive(Debug, Deserialize)]
+pub struct AlbumsFilterRequest {
+    pub tags: Option<Vec<String>>,
+    pub query: Option<String>,
+    pub artist: Option<String>,
+    pub year_min: Option<i32>,
+    pub year_max: Option<i32>,
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+    pub sort_by: Option<String>,
+    pub sort_direction: Option<String>,
+}
+
+/// Albums filter response
+#[derive(Debug, Serialize)]
+pub struct AlbumsFilterResponse {
+    pub albums: Vec<AlbumSummaryResponse>,
+    pub total: i64,
+    pub page: i32,
+    pub page_size: i32,
+    pub total_pages: i32,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
 // Route handlers
 
 /// List songs
@@ -1061,6 +1110,130 @@ pub async fn list_artists(
 
     Ok(Json(ArtistsListResponse {
         artists,
+        total: total_count,
+        page,
+        page_size,
+        total_pages,
+        has_next,
+        has_prev,
+    }))
+}
+
+/// Filter artists with tag support (POST /api/music/artists)
+pub async fn filter_artists(
+    Extension(db): Extension<DatabaseConnection>,
+    Json(request): Json<ArtistsFilterRequest>,
+) -> Result<Json<ArtistsFilterResponse>, WebauthnError> {
+    use grimoire::music::repository::filters;
+
+    // Calculate pagination parameters
+    let page = request.page.unwrap_or(1);
+    let page_size = request.page_size.unwrap_or(50);
+    let offset = (page - 1) * page_size;
+
+    // Get filtered artists count for pagination
+    let total_count = filters::get_filtered_artists_count(
+        db.pool(),
+        request.tags.as_deref(),
+        request.query.as_deref(),
+    )
+    .await
+    .map_err(|_| WebauthnError::SqlxError(sqlx::Error::RowNotFound))?;
+
+    // Get filtered artists
+    let artists_data = filters::filter_artists(
+        db.pool(),
+        request.tags.as_deref(),
+        request.query.as_deref(),
+        request.sort_by.as_deref(),
+        request.sort_direction.as_deref(),
+        page_size as i64,
+        offset as i64,
+    )
+    .await
+    .map_err(|_| WebauthnError::SqlxError(sqlx::Error::RowNotFound))?;
+
+    // Convert to ArtistSummary
+    let artists: Vec<ArtistSummary> = artists_data
+        .into_iter()
+        .map(|result| ArtistSummary {
+            artist: result.artist,
+            song_count: result.song_count,
+            album_count: result.album_count,
+            total_duration: result.total_duration as i64,
+            genres: result.genres,
+            avg_rating: result.avg_rating,
+            favorite_count: result.favorite_count,
+        })
+        .collect();
+
+    // Calculate pagination metadata
+    let total_pages = ((total_count as f64) / (page_size as f64)).ceil() as i32;
+    let has_next = page < total_pages;
+    let has_prev = page > 1;
+
+    Ok(Json(ArtistsFilterResponse {
+        artists,
+        total: total_count,
+        page,
+        page_size,
+        total_pages,
+        has_next,
+        has_prev,
+    }))
+}
+
+/// Filter albums with tag support (POST /api/music/albums)
+pub async fn filter_albums(
+    Extension(db): Extension<DatabaseConnection>,
+    Json(request): Json<AlbumsFilterRequest>,
+) -> Result<Json<AlbumsFilterResponse>, WebauthnError> {
+    use grimoire::music::repository::filters;
+
+    // Calculate pagination parameters
+    let page = request.page.unwrap_or(1);
+    let page_size = request.page_size.unwrap_or(50);
+    let offset = (page - 1) * page_size;
+
+    // Get filtered albums count for pagination
+    let total_count = filters::get_filtered_albums_count(
+        db.pool(),
+        request.tags.as_deref(),
+        request.query.as_deref(),
+        request.artist.as_deref(),
+        request.year_min,
+        request.year_max,
+    )
+    .await
+    .map_err(|_| WebauthnError::SqlxError(sqlx::Error::RowNotFound))?;
+
+    // Get filtered albums
+    let albums = filters::filter_albums(
+        db.pool(),
+        request.tags.as_deref(),
+        request.query.as_deref(),
+        request.artist.as_deref(),
+        request.year_min,
+        request.year_max,
+        request.sort_by.as_deref(),
+        request.sort_direction.as_deref(),
+        page_size as i64,
+        offset as i64,
+    )
+    .await
+    .map_err(|_| WebauthnError::SqlxError(sqlx::Error::RowNotFound))?;
+
+    // Convert to AlbumSummaryResponse
+    let responses: Vec<AlbumSummaryResponse> =
+        albums.into_iter().map(AlbumSummaryResponse::from).collect();
+
+    // Calculate pagination metadata
+    let total_pages = ((total_count as f64) / (page_size as f64)).ceil() as i32;
+    let has_next = page < total_pages;
+    let has_prev = page > 1;
+
+    Ok(Json(AlbumsFilterResponse {
+        albums: responses,
         total: total_count,
         page,
         page_size,
@@ -1770,7 +1943,7 @@ pub fn create_routes() -> Router {
         .route("/songs/{song_id}/preferences", put(update_song_preferences))
         .route("/songs/preferences/bulk", put(bulk_update_user_preferences))
         // Artist routes
-        .route("/artists", get(list_artists))
+        .route("/artists", get(list_artists).post(filter_artists))
         .route("/artists/{artist}/songs", get(get_artist_songs))
         // Playlist routes
         .route("/playlists", get(list_playlists))
@@ -1794,7 +1967,7 @@ pub fn create_routes() -> Router {
         .route("/playlists/{playlist_id}/reorder", put(reorder_playlist))
         // Enhanced views and summaries
         .route("/playlists/summaries", get(get_playlist_summaries))
-        .route("/albums", get(get_album_summaries))
+        .route("/albums", get(get_album_summaries).post(filter_albums))
         .route("/albums/{album}/tracks", get(get_album_tracks))
         .route(
             "/albums/{album}/create-playlist",

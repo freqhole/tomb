@@ -36,6 +36,10 @@ import { FilterOptionsResponseSchema } from "./search/music/filter-types.js";
 import { searchValidation } from "./search/validation.js";
 import { musicApiMethods } from "./music/api-methods.js";
 import { musicAdminApiMethods } from "./music/api-admin-methods.js";
+import type {
+  ArtistsFilterRequest,
+  AlbumsFilterRequest,
+} from "./music/schemas/index.js";
 
 // Error handling
 export class ApiError extends Error {
@@ -696,6 +700,10 @@ export class ApiClient {
     return musicApiMethods.getArtists.call(this, options);
   }
 
+  async filterArtists(request: ArtistsFilterRequest) {
+    return musicApiMethods.filterArtists.call(this, request);
+  }
+
   async getArtistSongs(
     artist: string,
     options?: {
@@ -716,6 +724,99 @@ export class ApiClient {
     page_size?: number;
   }) {
     return musicApiMethods.getAlbums.call(this, options);
+  }
+
+  async filterAlbums(request: AlbumsFilterRequest) {
+    return musicApiMethods.filterAlbums.call(this, request);
+  }
+
+  // Convenient helper methods for common filtering scenarios
+  async getArtistsByTags(
+    tags: string[],
+    options?: {
+      query?: string;
+      sort_by?: string;
+      sort_direction?: string;
+      page?: number;
+      page_size?: number;
+    }
+  ) {
+    return this.filterArtists({
+      tags,
+      query: options?.query,
+      sort_by: options?.sort_by || "artist",
+      sort_direction: options?.sort_direction || "asc",
+      page: options?.page,
+      page_size: options?.page_size,
+    });
+  }
+
+  async getAlbumsByTags(
+    tags: string[],
+    options?: {
+      query?: string;
+      artist?: string;
+      year_min?: number;
+      year_max?: number;
+      sort_by?: string;
+      sort_direction?: string;
+      page?: number;
+      page_size?: number;
+    }
+  ) {
+    return this.filterAlbums({
+      tags,
+      query: options?.query,
+      artist: options?.artist,
+      year_min: options?.year_min,
+      year_max: options?.year_max,
+      sort_by: options?.sort_by || "year",
+      sort_direction: options?.sort_direction || "desc",
+      page: options?.page,
+      page_size: options?.page_size,
+    });
+  }
+
+  async searchArtists(
+    query: string,
+    options?: {
+      sort_by?: string;
+      sort_direction?: string;
+      page?: number;
+      page_size?: number;
+    }
+  ) {
+    return this.filterArtists({
+      query,
+      sort_by: options?.sort_by || "artist",
+      sort_direction: options?.sort_direction || "asc",
+      page: options?.page,
+      page_size: options?.page_size,
+    });
+  }
+
+  async searchAlbums(
+    query: string,
+    options?: {
+      artist?: string;
+      year_min?: number;
+      year_max?: number;
+      sort_by?: string;
+      sort_direction?: string;
+      page?: number;
+      page_size?: number;
+    }
+  ) {
+    return this.filterAlbums({
+      query,
+      artist: options?.artist,
+      year_min: options?.year_min,
+      year_max: options?.year_max,
+      sort_by: options?.sort_by || "year",
+      sort_direction: options?.sort_direction || "desc",
+      page: options?.page,
+      page_size: options?.page_size,
+    });
   }
 
   async getAlbumTracks(album: string, artist?: string) {

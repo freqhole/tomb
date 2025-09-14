@@ -58,3 +58,28 @@ export const ArtistSongsResponseSchema = z.object({
 });
 
 export type ArtistSongsResponse = z.infer<typeof ArtistSongsResponseSchema>;
+
+// Artists filtering request schema
+export const ArtistsFilterRequestSchema = z.object({
+  tags: z.array(z.string()).optional(),
+  query: z.string().optional(),
+  page: z.number().optional(),
+  page_size: z.number().optional(),
+  sort_by: z.string().optional(),
+  sort_direction: z.string().optional(),
+});
+
+export type ArtistsFilterRequest = z.infer<typeof ArtistsFilterRequestSchema>;
+
+// Artists filtering response schema
+export const ArtistsFilterResponseSchema = z.object({
+  artists: z.array(ArtistSummarySchema),
+  total: z.number(),
+  page: z.number(),
+  page_size: z.number(),
+  total_pages: z.number(),
+  has_next: z.boolean(),
+  has_prev: z.boolean(),
+});
+
+export type ArtistsFilterResponse = z.infer<typeof ArtistsFilterResponseSchema>;
