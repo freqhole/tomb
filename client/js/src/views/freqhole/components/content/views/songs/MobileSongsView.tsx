@@ -124,26 +124,8 @@ export function MobileSongsView(props: MobileSongsViewProps) {
   ];
 
   const handleSortChange = (field: string, direction: "asc" | "desc") => {
-    console.log("mobile sort change called:", { field, direction });
-    console.log("current store sort before:", {
-      field: sortState.field,
-      direction: sortState.direction,
-    });
-    console.log("songs length before:", songs().length);
-    console.log("first song id before:", songs()[0]?.id);
-
     // Use reactive store to update sort - this will automatically trigger songs refetch
     reactiveActions.setSort(field, direction);
-
-    // Check if store actually updated
-    setTimeout(() => {
-      console.log("current store sort after:", {
-        field: sortState.field,
-        direction: sortState.direction,
-      });
-      console.log("songs length after:", songs().length);
-      console.log("first song id after:", songs()[0]?.id);
-    }, 100);
   };
 
   return (
