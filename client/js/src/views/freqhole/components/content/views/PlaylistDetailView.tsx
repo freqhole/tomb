@@ -1084,7 +1084,6 @@ export function PlaylistDetailView(
                 fallback={
                   <Show when={selectedPlaylist() && !loadingPlaylistSongs()}>
                     <div class="text-center py-12">
-                      <div class="text-6xl mb-4">📝</div>
                       <div class="text-white text-xl mb-2">no songs yet</div>
                       <div class="text-magenta-400">
                         add some songs to get started
@@ -1139,7 +1138,7 @@ export function PlaylistDetailView(
                         {/* Track Number / Drag Handle */}
                         <div class="w-8 text-magenta-400 text-sm flex-shrink-0 flex items-center">
                           <Show
-                            when={editMode()}
+                            when={!editMode()}
                             fallback={
                               <div
                                 class="cursor-grab active:cursor-grabbing opacity-60 hover:opacity-100 transition-opacity"
@@ -1197,28 +1196,30 @@ export function PlaylistDetailView(
                               <path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
                             </svg>
                           </button>
-                          <button
-                            class="p-1 rounded-full hover:bg-red-600/30 transition-colors"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveSong(song);
-                            }}
-                            title="Remove from playlist"
-                          >
-                            <svg
-                              class="w-4 h-4 text-red-400"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
+                          <Show when={isMobile() ? editMode() : true}>
+                            <button
+                              class="p-1 rounded-full hover:bg-red-600/30 transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveSong(song);
+                              }}
+                              title="Remove from playlist"
                             >
-                              <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M6 18L18 6M6 6l12 12"
-                              />
-                            </svg>
-                          </button>
+                              <svg
+                                class="w-4 h-4 text-red-400"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M6 18L18 6M6 6l12 12"
+                                />
+                              </svg>
+                            </button>
+                          </Show>
                         </div>
                       </div>
                     )}
