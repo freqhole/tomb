@@ -57,7 +57,6 @@ export function DesktopSongsView(
     const result = dataSections.songs.data() as PostSearchResponse | undefined;
     const songList = result?.songs || [];
 
-    // Sync songs with song state service for rating component
     if (songList.length > 0) {
       songState.setSongList(songList);
     }

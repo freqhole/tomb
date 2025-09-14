@@ -31,6 +31,14 @@ export interface FreqholeInfiniteGridProps<T = any> {
 export function FreqholeInfiniteGrid<T = any>(
   props: FreqholeInfiniteGridProps<T>
 ) {
+  // Debug: log when component renders and what data it receives
+  console.log("FreqholeInfiniteGrid render:", {
+    renderMode: props.renderMode,
+    dataLength: props.data?.length || 0,
+    firstItemId: props.data?.[0]?.id || "none",
+    loading: props.loading,
+    totalCount: props.totalCount,
+  });
   // Configure columns based on render mode
   const getColumns = (): GridColumn<T>[] => {
     switch (props.renderMode) {

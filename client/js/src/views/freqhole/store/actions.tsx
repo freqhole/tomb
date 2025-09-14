@@ -32,17 +32,19 @@ export function createStoreActions(
           sortField: store.sort.field,
           sortDirection: store.sort.direction,
         };
+
         return deps;
       },
       async (params) => {
-        // Use searchPost for everything - it handles queries, tags, and empty searches
-        return await apiClient.searchPost({
+        const requestBody = {
           query: params.query || undefined,
           filters: params.tags.length > 0 ? { tags: params.tags } : undefined,
           sort_by: params.sortField,
           sort_direction: params.sortDirection,
           page_size: 100,
-        });
+        };
+
+        return await apiClient.searchPost(requestBody);
       }
     );
 
@@ -160,6 +162,7 @@ export function createStoreActions(
           }
         })
       );
+
       // resources automatically refetch based on reactive dependencies
 
       eventBus.dispatchEvent(
@@ -176,6 +179,7 @@ export function createStoreActions(
           draft.tags = draft.tags.filter((t: string) => t !== tag);
         })
       );
+
       // resources auto-update - no manual coordination needed
 
       eventBus.dispatchEvent(
@@ -375,6 +379,7 @@ export function createStoreActions(
     // sort management
     setSort: (field: string, direction: "asc" | "desc") => {
       setStore("sort", { field, direction });
+
       // songs resource will automatically refetch due to reactive dependencies
     },
 

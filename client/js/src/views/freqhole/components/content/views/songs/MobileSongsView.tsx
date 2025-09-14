@@ -1,16 +1,18 @@
-import { createEffect } from "solid-js";
+import { createEffect, createMemo } from "solid-js";
 
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useStore } from "../../../../store";
 import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
 import { useReactiveActions, useSort } from "../../../../store";
+import { useDataSections } from "../../../../store/hooks";
 import { FreqholeInfiniteGrid } from "../../../grid";
 import { useSongState } from "../../../../services/songState";
 import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { SortField } from "../../../../../../components/search/SearchSortControls";
+import type { PostSearchResponse } from "../../../../../../lib/search/types";
 
 interface MobileSongsViewProps {
   class?: string;
@@ -25,6 +27,9 @@ export function MobileSongsView(props: MobileSongsViewProps) {
   // Use modern reactive store instead of legacy search hook
   const reactiveActions = useReactiveActions();
   const [sortState] = useSort();
+
+  // Use same data access pattern as working desktop view
+  const dataSections = useDataSections();
 
   // Selection state (disabled for mobile)
   const selection = useSelection({
@@ -45,21 +50,18 @@ export function MobileSongsView(props: MobileSongsViewProps) {
     });
   });
 
-  // Use reactive store for songs data
+  // Use exact same pattern as working desktop view
   const songs = () => {
-    const result = reactiveActions.resources?.songs();
-    let songList = [];
-    if (result && typeof result === "object" && "songs" in result) {
-      songList = (result as any).songs || [];
-    }
-    // Sync songs with song state service for rating component
+    const result = dataSections.songs.data() as PostSearchResponse | undefined;
+    const songList = result?.songs || [];
+
     if (songList.length > 0) {
       songState.setSongList(songList);
     }
     return songList;
   };
-  const loading = () => reactiveActions.resources?.songs?.loading || false;
-  const error = () => reactiveActions.resources?.songs?.error;
+  const loading = () => dataSections.songs.loading || false;
+  const error = () => dataSections.songs.error;
   const totalCount = () => {
     const result = reactiveActions.resources?.songs();
     if (result && typeof result === "object" && "total" in result) {
@@ -122,8 +124,26 @@ export function MobileSongsView(props: MobileSongsViewProps) {
   ];
 
   const handleSortChange = (field: string, direction: "asc" | "desc") => {
+    console.log("mobile sort change called:", { field, direction });
+    console.log("current store sort before:", {
+      field: sortState.field,
+      direction: sortState.direction,
+    });
+    console.log("songs length before:", songs().length);
+    console.log("first song id before:", songs()[0]?.id);
+
     // Use reactive store to update sort - this will automatically trigger songs refetch
     reactiveActions.setSort(field, direction);
+
+    // Check if store actually updated
+    setTimeout(() => {
+      console.log("current store sort after:", {
+        field: sortState.field,
+        direction: sortState.direction,
+      });
+      console.log("songs length after:", songs().length);
+      console.log("first song id after:", songs()[0]?.id);
+    }, 100);
   };
 
   return (
@@ -218,6 +238,9 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             onSelectionChange={handleSelectionChange}
             onItemClick={handleSongClick}
             onContextMenu={handleContextMenu}
+            sortField={sortState.field}
+            sortDirection={sortState.direction}
+            onSort={handleSortChange}
             showHeader={false}
           />
         </div>

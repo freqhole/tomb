@@ -347,14 +347,30 @@ Ensure suggestions don't include tag filtering (global suggestions only).
 - **Pagination Fixed**: Resolved infinite scroll duplication bug with loading guards
 - **Tag Filtering Restored**: Fixed reactive dependency tracking with `[...store.filters.tags]`
 - **Suggestions Schema Fixed**: Updated to match server response format
+- **MAJOR LEGACY CLEANUP COMPLETED** (Latest Session):
+  - Deleted 8+ deprecated files (useSearch, useSearchAll, SearchContext, etc.)
+  - Removed deprecated API methods (getSongs, searchMusic, searchSongs)
+  - Unified server-side sorting: Both desktop and mobile use same reactive store
+  - Fixed SearchResultsView artist data bug (artist.name → artist.artist)
+  - Consistent field naming: user_rating and user_is_favorite throughout system
+  - Updated MobileSongsView to use modern reactive store (deleted useFreqholeSearch)
 
 ### Current Status
 
 - Songs view: ✅ Working with unified `searchPost` endpoint
 - Tag filtering: ✅ Working in songs view
 - Search suggestions: ✅ Fixed Zod validation, needs UI improvements
-- Artists/Albums: ❌ Need unified search endpoints
-- Search results page: ❌ Missing tag filtering, artists results broken
+- Artists/Albums: ✅ Server APIs already support unified search! (Phase 1 was done)
+- Search results page: ✅ Fixed artist display bug
+- Desktop sorting: ✅ Now uses same reactive store as mobile
+- Mobile sorting: ❌ **STILL BROKEN** - sort changes don't affect song order with tags
+- Desktop favorites sorting: ❌ **STILL BROKEN** - favorites don't group properly
+
+### 🚨 **CURRENT BLOCKERS** (For Next Session)
+
+1. **Mobile Sorting Not Working**: Mobile sort by/direction changes not affecting song order when tags applied
+2. **Desktop Favorites Sorting Weird**: Favorites not grouping together properly on desktop
+3. **Server-Side Sorting Investigation Needed**: Need to trace server SQL queries for user preferences
 
 ### Key Insights
 
@@ -362,7 +378,30 @@ Ensure suggestions don't include tag filtering (global suggestions only).
 - Reactive store works well when dependencies are correctly tracked
 - Legacy code patterns cause regressions - aggressive cleanup needed
 - User experience requires search + tags to work together seamlessly
+- **Unified sorting architecture works** - both mobile/desktop use same store state
+- **Field naming consistency critical** - user_rating/user_is_favorite prevents confusion
+- **Server validation vs SQL implementation** - validation accepts fields but SQL queries may not handle user preferences correctly
 
 ---
 
-**Next Steps**: Begin with Phase 1 server-side API enhancements, focusing on artists endpoint first to validate the unified approach.
+## 📋 **NEXT SESSION PRIORITIES**
+
+1. **🔍 Investigate Server-Side User Preference Sorting**
+   - Check if SQL queries properly JOIN user_song_preferences table
+   - Verify user_rating and user_is_favorite fields exist in search result queries
+   - Compare working desktop vs broken mobile queries
+
+2. **🐛 Debug Mobile Sorting**
+   - Trace network requests: are correct sort params being sent?
+   - Check if server is returning differently sorted results
+   - Verify mobile pagination loadMoreSongs uses correct sort params
+
+3. **🔧 Fix Desktop Favorites Sorting**
+   - Investigate favorites grouping logic in server SQL
+   - Check if user_is_favorite field properly sorts true values first
+
+### Files to Investigate Next Session:
+
+- `grimoire/src/search/` - SQL query building for user preferences
+- Server logs for sort parameter handling
+- Network tab during mobile sort changes
