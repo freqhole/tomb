@@ -53,6 +53,8 @@ export function createStoreActions(
       const deps = {
         tags: [...store.filters.tags], // spread to track changes properly
         query: store.search.query?.trim() || "",
+        sortField: store.sort.field,
+        sortDirection: store.sort.direction,
       };
       return deps;
     },
@@ -61,32 +63,35 @@ export function createStoreActions(
       return await apiClient.filterArtists({
         query: params.query || undefined,
         tags: params.tags.length > 0 ? params.tags : undefined,
-        sort_by: "artist",
-        sort_direction: "asc",
+        sort_by: params.sortField,
+        sort_direction: params.sortDirection,
         page_size: 100,
       });
     }
   );
 
-  const [albumsResource, { refetch: refetchAlbums }] = createResource(
-    () => {
-      const deps = {
-        tags: [...store.filters.tags], // spread to track changes properly
-        query: store.search.query?.trim() || "",
-      };
-      return deps;
-    },
-    async (params) => {
-      // Use unified filterAlbums API for everything
-      return await apiClient.filterAlbums({
-        query: params.query || undefined,
-        tags: params.tags.length > 0 ? params.tags : undefined,
-        sort_by: "year",
-        sort_direction: "desc",
-        page_size: 100,
-      });
-    }
-  );
+  const [albumsResource, { refetch: refetchAlbums, mutate: mutateAlbums }] =
+    createResource(
+      () => {
+        const deps = {
+          tags: [...store.filters.tags], // spread to track changes properly
+          query: store.search.query?.trim() || "",
+          sortField: store.sort.field,
+          sortDirection: store.sort.direction,
+        };
+        return deps;
+      },
+      async (params) => {
+        // Use unified filterAlbums API for everything
+        return await apiClient.filterAlbums({
+          query: params.query || undefined,
+          tags: params.tags.length > 0 ? params.tags : undefined,
+          sort_by: params.sortField,
+          sort_direction: params.sortDirection,
+          page_size: 100,
+        });
+      }
+    );
 
   const [playlistsResource, { refetch: refetchPlaylists }] = createResource(
     () => true, // simple fetch - components decide when to access
@@ -364,6 +369,71 @@ export function createStoreActions(
             has_next: nextPageResult.has_next,
           };
         }
+      });
+
+      // Reset loading guard
+      isLoadingMore = false;
+    },
+
+    // Fixed pagination support for albums
+    loadMoreAlbums: async () => {
+      // Prevent duplicate requests
+      if (isLoadingMore) {
+        return;
+      }
+
+      const currentResult = albumsResource();
+      if (!currentResult) return;
+
+      isLoadingMore = true;
+
+      // Albums API returns { albums, pagination } structure
+      const hasNext = currentResult.pagination?.has_next || false;
+      const currentPage = currentResult.pagination?.page || 1;
+
+      if (!hasNext) {
+        isLoadingMore = false;
+        return;
+      }
+
+      const nextPage = currentPage + 1;
+      let nextPageResult;
+
+      try {
+        // Use EXACT same parameters as main resource to ensure consistency
+        const params = {
+          tags: [...store.filters.tags], // spread to match main resource
+          query: store.search.query?.trim() || "",
+        };
+
+        nextPageResult = await apiClient.filterAlbums({
+          query: params.query || undefined,
+          tags: params.tags.length > 0 ? params.tags : undefined,
+          sort_by: store.sort.field,
+          sort_direction: store.sort.direction,
+          page: nextPage,
+          page_size: 100,
+        });
+      } catch (error) {
+        isLoadingMore = false;
+        return;
+      }
+
+      // Append new albums to existing ones
+      mutateAlbums((current) => {
+        if (!current || !nextPageResult) return nextPageResult;
+
+        const currentAlbums = current.albums;
+        const newAlbums = nextPageResult.albums;
+
+        return {
+          albums: [...currentAlbums, ...newAlbums],
+          pagination: {
+            ...nextPageResult.pagination,
+            page: nextPageResult.pagination.page,
+            has_next: nextPageResult.pagination.has_next,
+          },
+        };
       });
 
       // Reset loading guard

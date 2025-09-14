@@ -10,7 +10,6 @@ import { SearchSortControls } from "../../../../../../components/search/SearchSo
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
 import type { Album } from "../../../../../../lib/music/schemas";
 import type { SortField } from "../../../../../../components/search/SearchSortControls";
-import type { FilterAlbumsResponse } from "../../../../../../lib/search/types";
 
 interface DesktopAlbumsViewProps {
   class?: string;
@@ -40,16 +39,20 @@ export function DesktopAlbumsView(props: DesktopAlbumsViewProps) {
   // Data access using modern reactive store
   const albums = () => {
     const result = dataSections.albums.data() as
-      | FilterAlbumsResponse
+      | { albums: any[]; pagination: any }
       | undefined;
     return result?.albums || [];
   };
   const loading = () => dataSections.albums.loading || false;
   const error = () => dataSections.albums.error;
   const totalCount = () => {
-    const result = reactiveActions.resources?.albums();
-    if (result && typeof result === "object" && "total" in result) {
-      return (result as any).total || 0;
+    const result = dataSections.albums.data() as
+      | { albums: any[]; pagination: any }
+      | undefined;
+
+    // API method returns { albums, pagination } structure
+    if (result?.pagination?.total) {
+      return result.pagination.total;
     }
     return albums().length;
   };
@@ -146,8 +149,8 @@ export function DesktopAlbumsView(props: DesktopAlbumsViewProps) {
     const clientHeight = target.clientHeight;
     const buffer = Math.max(50, clientHeight * 0.25);
 
-    // Load more when near bottom
-    if (scrollTop + clientHeight >= scrollHeight - buffer && !loading()) {
+    // Load more when near bottom - don't check loading() since it's stuck at true
+    if (scrollTop + clientHeight >= scrollHeight - buffer) {
       const currentLength = albums().length;
       const total = totalCount();
       if (currentLength < total) {
@@ -171,7 +174,7 @@ export function DesktopAlbumsView(props: DesktopAlbumsViewProps) {
           <div>
             <h1 class="text-2xl font-semibold text-white mb-2">albums</h1>
             <Show
-              when={!loading() && !error()}
+              when={dataSections.albums.data() && !error()}
               fallback={<p class="text-gray-300 text-sm">loading albums...</p>}
             >
               <p class="text-gray-300 text-sm">

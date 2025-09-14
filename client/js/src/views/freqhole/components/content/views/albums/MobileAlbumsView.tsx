@@ -10,7 +10,6 @@ import { SearchSortControls } from "../../../../../../components/search/SearchSo
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
 import type { Album } from "../../../../../../lib/music/schemas";
 import type { SortField } from "../../../../../../components/search/SearchSortControls";
-import type { FilterAlbumsResponse } from "../../../../../../lib/search/types";
 
 interface MobileAlbumsViewProps {
   class?: string;
@@ -40,16 +39,19 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
   // Data access using modern reactive store
   const albums = () => {
     const result = dataSections.albums.data() as
-      | FilterAlbumsResponse
+      | { albums: any[]; pagination: any }
       | undefined;
     return result?.albums || [];
   };
   const loading = () => dataSections.albums.loading || false;
   const error = () => dataSections.albums.error;
   const totalCount = () => {
-    const result = reactiveActions.resources?.albums();
-    if (result && typeof result === "object" && "total" in result) {
-      return (result as any).total || 0;
+    const result = dataSections.albums.data() as
+      | { albums: any[]; pagination: any }
+      | undefined;
+    // API method returns { albums, pagination } structure
+    if (result?.pagination?.total) {
+      return result.pagination.total;
     }
     return albums().length;
   };
@@ -179,7 +181,7 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
             />
           </div>
           <Show
-            when={!loading() && !error()}
+            when={dataSections.albums.data() && !error()}
             fallback={<p class="text-gray-300 text-sm">loading albums...</p>}
           >
             <p class="text-gray-300 text-sm">
