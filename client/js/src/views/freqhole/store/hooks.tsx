@@ -1,9 +1,10 @@
 import { createMemo, createSignal } from "solid-js";
-import { useStore, reactiveActions, storeActions } from "./index";
+import { useStore, useReactiveActions, storeActions } from "./index";
 
 // comprehensive search hook that bridges old useSearchContext API
 export const useSearch = () => {
   const [store] = useStore();
+  const reactiveActions = useReactiveActions();
   const [activeTab, setActiveTab] = createSignal<
     "all" | "songs" | "artists" | "albums" | "playlists"
   >("all");
@@ -81,7 +82,6 @@ export const useSearch = () => {
 
   const loadMore = () => {
     // TODO: implement pagination loading in future phases
-    console.log("loadMore not implemented yet");
   };
 
   return {
@@ -109,6 +109,7 @@ export const useSearch = () => {
 
 export const useTagFilters = () => {
   const [store, actions] = useStore();
+  const reactiveActions = useReactiveActions();
 
   // memoized available tags excluding selected ones
   const unselectedTags = createMemo(() => {
@@ -128,14 +129,17 @@ export const useTagFilters = () => {
       error: () => reactiveActions.resources?.availableTags?.error,
     },
     {
-      addTag: (tag: string) => actions.addTagFilter(tag),
-      removeTag: (tag: string) => actions.removeTagFilter(tag),
-      clearTags: () => actions.clearTagFilters(),
+      // Use reactive actions instead of legacy store actions
+      addTag: reactiveActions.addTagFilter,
+      removeTag: reactiveActions.removeTagFilter,
+      clearTags: reactiveActions.clearTagFilters,
     },
   ] as const;
 };
 
 export const useDataSections = () => {
+  const reactiveActions = useReactiveActions();
+
   return {
     songs: {
       data: reactiveActions.resources?.songs,
@@ -162,6 +166,8 @@ export const useDataSections = () => {
 
 // hook for nav-specific data (always loaded)
 export const useNavigation = () => {
+  const reactiveActions = useReactiveActions();
+
   return {
     recentPlaylists: reactiveActions.resources?.recentPlaylists,
     // router handles current view, not store
@@ -170,6 +176,8 @@ export const useNavigation = () => {
 
 // hook for tag management in context menus
 export const useTagManagement = () => {
+  const reactiveActions = useReactiveActions();
+
   return {
     availableTags: reactiveActions.resources?.availableTags,
     mutateAvailableTags: reactiveActions.mutateAvailableTags,
@@ -182,6 +190,7 @@ export const useTagManagement = () => {
 // hook for currently playing indicators across the app
 export const useCurrentlyPlaying = () => {
   const [store] = useStore();
+  const reactiveActions = useReactiveActions();
 
   // memoized indicator for any song
   const isCurrentlyPlaying = createMemo(() => (songId: string) => {

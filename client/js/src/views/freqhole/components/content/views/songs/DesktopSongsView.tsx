@@ -1,15 +1,18 @@
 import { createEffect, createSignal } from "solid-js";
-import { apiClient } from "../../../../../../lib/api-client";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
-import { useStore } from "../../../../store";
+import { useStore, useReactiveActions } from "../../../../store";
 import { useSongInteractions } from "../../../../services/songInteractions";
 import { useSelection } from "../../../../hooks/useSelection";
-import { useFreqholeSearch } from "../../../../hooks/useFreqholeSearch";
+import { useDataSections } from "../../../../store/hooks";
 import { FreqholeInfiniteGrid } from "../../../grid";
 import { useSongState } from "../../../../services/songState";
-import type { Song } from "../../../../../../lib/music/schemas/song";
+import type {
+  PostSearchResponse,
+  SongSearchResult,
+} from "../../../../../../lib/search/types";
 import type { RouteSectionProps } from "@solidjs/router";
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
+import type { Song } from "../../../../../../lib/music/schemas/song";
 
 interface DesktopSongsViewProps {
   class?: string;
@@ -19,12 +22,13 @@ export function DesktopSongsView(
   props: RouteSectionProps<unknown> & DesktopSongsViewProps = {} as any
 ) {
   const [] = useStore();
+  const reactiveActions = useReactiveActions();
   const songState = useSongState();
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
 
-  // Enhanced search hook with total counts
-  const searchHook = useFreqholeSearch(apiClient);
+  // Use reactive store data instead of legacy search hook
+  const dataSections = useDataSections();
 
   // Selection state
   const selection = useSelection({
@@ -50,37 +54,33 @@ export function DesktopSongsView(
     });
   });
 
-  // Use search hook for songs data
+  // Use reactive store data for songs - PostSearchResponse has proper types
   const songs = () => {
-    const songList = searchHook.songs();
+    const result = dataSections.songs.data() as PostSearchResponse | undefined;
+    const songList = result?.songs || [];
+
     // Sync songs with song state service for rating component
     if (songList.length > 0) {
       songState.setSongList(songList);
     }
     return songList;
   };
-  const loading = () => searchHook.loading();
-  const error = () => searchHook.error();
-  const totalCount = () => searchHook.totalCount();
-
-  // Reload functionality
-  const reloadSongs = () => {
-    searchHook.refresh();
+  const loading = () => dataSections.songs.loading || false;
+  const error = () => dataSections.songs.error;
+  const totalCount = () => {
+    const result = dataSections.songs.data() as PostSearchResponse | undefined;
+    return result?.total_count || 0;
   };
 
-  // Handle sort changes
-  const handleSort = (field: string) => {
-    const currentField = searchHook.sortField();
-    const currentDirection = searchHook.sortDirection();
+  // Reload functionality - reactive store handles this automatically
+  const reloadSongs = () => {
+    // TODO: Add manual refresh capability to reactive store if needed
+  };
 
-    if (currentField === field) {
-      // Toggle direction
-      const newDirection = currentDirection === "asc" ? "desc" : "asc";
-      searchHook.setSort(field, newDirection);
-    } else {
-      // New field, start with asc
-      searchHook.setSort(field, "asc");
-    }
+  // Handle sort changes - TODO: implement sorting in reactive store
+  const handleSort = (_field: string) => {
+    // TODO: Add sorting support to reactive store
+    console.warn("sorting not yet implemented in reactive store");
   };
 
   // Listen for data reload events
@@ -222,7 +222,7 @@ export function DesktopSongsView(
           <FreqholeInfiniteGrid
             data={songs()}
             totalCount={totalCount()}
-            onLoadMore={searchHook.loadMore}
+            onLoadMore={reactiveActions.loadMoreSongs}
             renderMode="songs"
             loading={loading()}
             error={error()}
@@ -233,8 +233,8 @@ export function DesktopSongsView(
             onItemClick={handleSongClick}
             onItemDoubleClick={handleSongDoubleClick}
             onContextMenu={handleContextMenu}
-            sortField={searchHook.sortField()}
-            sortDirection={searchHook.sortDirection()}
+            sortField={null}
+            sortDirection={"asc"}
             onSort={handleSort}
             class="h-full"
           />

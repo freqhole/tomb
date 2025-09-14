@@ -443,10 +443,11 @@ export class ApiClient {
   }
 
   // Search Methods - Music Domain
+  // @deprecated LEGACY: Use searchPost() instead for consistent filtering and pagination
   async searchMusic(
     query: string,
     options: Omit<MusicSearchOptions, "q"> = {}
-  ): Promise<SearchResult> {
+  ): Promise<SongsSearchResult> {
     const params = { q: query, ...options };
 
     try {
@@ -505,6 +506,7 @@ export class ApiClient {
     }
   }
 
+  // @deprecated LEGACY: Use searchPost() instead for consistent filtering and pagination
   async searchUnified(
     options: Partial<UnifiedSearchOptions> = {}
   ): Promise<UnifiedSearchResult> {
@@ -566,6 +568,7 @@ export class ApiClient {
     }
   }
 
+  // PREFERRED METHOD: Use this for all search/filtering operations
   async searchPost(
     request: Partial<PostSearchRequest>
   ): Promise<PostSearchResponse> {

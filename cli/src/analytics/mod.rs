@@ -77,7 +77,7 @@ impl AnalyticsCommands {
                 }
             }
             Err(e) => {
-                eprintln!("❌ Failed to get analytics: {}", e);
+                eprintln!("failed to get analytics: {}", e);
                 return Err(e.into());
             }
         }
@@ -94,7 +94,7 @@ impl AnalyticsCommands {
         let user_uuid = match AnalyticsCliService::parse_user_id(user_id) {
             Ok(uuid) => uuid,
             Err(e) => {
-                eprintln!("❌ Invalid user ID format: {}", user_id);
+                eprintln!("invalid user id format: {}", user_id);
                 return Err(e.into());
             }
         };
@@ -116,7 +116,7 @@ impl AnalyticsCommands {
                 }
             }
             Err(e) => {
-                eprintln!("❌ Failed to get user activity: {}", e);
+                eprintln!("failed to get user activity: {}", e);
                 return Err(e.into());
             }
         }
@@ -146,7 +146,7 @@ impl AnalyticsCommands {
                 }
             }
             Err(e) => {
-                eprintln!("❌ Failed to cleanup analytics: {}", e);
+                eprintln!("failed to cleanup analytics: {}", e);
                 return Err(e.into());
             }
         }

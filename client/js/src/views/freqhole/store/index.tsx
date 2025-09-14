@@ -140,8 +140,11 @@ const initialState: FreqholeStore = {
 // create the store
 export const [store, setStore] = createStore(initialState);
 
-// store context with actions
-const StoreContext = createContext<[FreqholeStore, typeof storeActions]>();
+// store context with both basic and reactive actions
+const StoreContext =
+  createContext<
+    [FreqholeStore, typeof storeActions, ReturnType<typeof createStoreActions>]
+  >();
 
 export interface StoreProviderProps {
   children: JSX.Element;
@@ -150,9 +153,17 @@ export interface StoreProviderProps {
 // provider component
 export const StoreProvider: ParentComponent<StoreProviderProps> = (props) => {
   // create reactive actions in provider context (inside reactive boundary)
-  reactiveActions = createStoreActions(store, setStore, apiClient);
+  const reactiveActionsInstance = createStoreActions(
+    store,
+    setStore,
+    apiClient
+  );
 
-  const value = [store, storeActions] as [typeof store, typeof storeActions];
+  const value = [store, storeActions, reactiveActionsInstance] as [
+    typeof store,
+    typeof storeActions,
+    typeof reactiveActionsInstance,
+  ];
   return (
     <StoreContext.Provider value={value}>
       {props.children}
@@ -166,10 +177,20 @@ export const useStore = () => {
   if (!context) {
     throw new Error("useStore must be used within a StoreProvider");
   }
-  return context;
+  return [context[0], context[1]] as [(typeof context)[0], (typeof context)[1]];
+};
+
+// hook to get reactive actions (NEW - replaces module-level reactiveActions)
+export const useReactiveActions = () => {
+  const context = useContext(StoreContext);
+  if (!context) {
+    throw new Error("useReactiveActions must be used within a StoreProvider");
+  }
+  return context[2];
 };
 
 // hook specifically for store actions
+// @deprecated LEGACY: Use useReactiveActions() hook for reactive patterns
 export const useStoreActions = () => {
   const [, actions] = useStore();
   return actions;
@@ -242,7 +263,8 @@ export const useUI = () => {
   ] as const;
 };
 
-// basic store actions without reactive patterns yet
+// @deprecated LEGACY: Basic store actions without reactive patterns
+// Use useReactiveActions() hook for reactive patterns instead
 export const storeActions = {
   // layout actions
   toggleQueue: () => setStore("layout", "queueOpen", (prev) => !prev),
@@ -310,7 +332,7 @@ export const storeActions = {
     });
   },
 
-  // basic filter actions
+  // @deprecated LEGACY: basic filter actions - use useReactiveActions() instead
   addTagFilter: (tag: string) =>
     setStore("filters", "tags", (prev) =>
       prev.includes(tag) ? prev : [...prev, tag]
@@ -339,5 +361,6 @@ export const storeActions = {
     setStore("ui", "notifications", (prev) => prev.filter((n) => n.id !== id)),
 };
 
-// reactive actions will be created in provider context
+// @deprecated LEGACY: Module-level reactiveActions - use useReactiveActions() hook instead
+// This caused reactive context issues - keeping for backward compatibility only
 export let reactiveActions: ReturnType<typeof createStoreActions>;

@@ -3,6 +3,7 @@ import { produce } from "solid-js/store";
 import type { FreqholeStore } from "./index";
 import type { SetStoreFunction } from "solid-js/store";
 import { eventBus } from "../hooks/useGlobalEvents";
+import type { PostSearchResponse } from "../../../lib/search/types";
 
 // basic resources without view coupling
 export interface BasicStoreResources {
@@ -20,31 +21,33 @@ export function createStoreActions(
   setStore: SetStoreFunction<FreqholeStore>,
   apiClient: typeof import("../../../lib/api-client").apiClient
 ) {
-  // basic resource fetching for phase 1 - let components decide when to load
-  const [songsResource, { refetch: refetchSongs }] = createResource(
-    () => ({
-      tags: store.filters.tags,
-      query: store.search.query,
-    }),
-    async (params) => {
-      // simple fetching - components control when this runs
-      if (params.query) {
-        return apiClient.searchMusic(params.query);
-      } else if (params.tags.length > 0) {
-        // use POST endpoint for proper tag filtering
-        return apiClient.searchPost({ tags: params.tags });
+  // songs resource using only POST search endpoint with proper types
+  const [songsResource, { refetch: refetchSongs, mutate: mutateSongs }] =
+    createResource(
+      () => ({
+        tags: store.filters.tags,
+        query: store.search.query?.trim() || "",
+      }),
+      async (params): Promise<PostSearchResponse> => {
+        // Always use POST search endpoint - returns PostSearchResponse with proper types
+        return apiClient.searchPost({
+          query: params.query || undefined,
+          filters: params.tags.length > 0 ? { tags: params.tags } : undefined,
+          page: 1,
+          page_size: 100,
+        });
       }
-      return apiClient.getSongs();
-    }
-  );
+    );
 
   const [artistsResource, { refetch: refetchArtists }] = createResource(
     () => store.filters.tags,
     async (tags) => {
-      // simple fetch - components decide when to use this resource
+      // Use new Phase 3 filtering APIs
       if (tags.length > 0) {
-        // TODO: implement filterArtists in phase 3
-        return apiClient.getArtists();
+        return apiClient.getArtistsByTags(tags, {
+          sort_by: "artist",
+          sort_direction: "asc",
+        });
       }
       return apiClient.getArtists();
     }
@@ -53,10 +56,12 @@ export function createStoreActions(
   const [albumsResource, { refetch: refetchAlbums }] = createResource(
     () => store.filters.tags,
     async (tags) => {
-      // simple fetch - components decide when to use this resource
+      // Use new Phase 3 filtering APIs
       if (tags.length > 0) {
-        // TODO: implement filterAlbums in phase 3
-        return apiClient.getAlbums();
+        return apiClient.getAlbumsByTags(tags, {
+          sort_by: "year",
+          sort_direction: "desc",
+        });
       }
       return apiClient.getAlbums();
     }
@@ -109,19 +114,18 @@ export function createStoreActions(
     // expose mutate functions for coordinated updates
     mutateAvailableTags,
 
-    // smart filter actions with selective updates
+    // reactive filter actions with proper produce patterns
     addTagFilter: (tag: string) => {
       setStore(
-        produce((draft: any) => {
-          if (!draft.filters.tags.includes(tag)) {
-            draft.filters.tags.push(tag);
+        "filters",
+        produce((draft) => {
+          if (!draft.tags.includes(tag)) {
+            draft.tags.push(tag);
           }
         })
       );
       // resources automatically refetch based on reactive dependencies
-      // no manual refetch needed - performance optimized!
 
-      // event for any remaining listeners
       eventBus.dispatchEvent(
         new CustomEvent("tag:added", {
           detail: { tag },
@@ -131,13 +135,12 @@ export function createStoreActions(
 
     removeTagFilter: (tag: string) => {
       setStore(
-        produce((draft: any) => {
-          draft.filters.tags = draft.filters.tags.filter(
-            (t: string) => t !== tag
-          );
+        "filters",
+        produce((draft) => {
+          draft.tags = draft.tags.filter((t: string) => t !== tag);
         })
       );
-      // again, resources auto-update - no manual coordination needed
+      // resources auto-update - no manual coordination needed
 
       eventBus.dispatchEvent(
         new CustomEvent("tag:removed", {
@@ -156,29 +159,19 @@ export function createStoreActions(
       );
     },
 
-    // remove view tracking - let router handle this
+    // @deprecated LEGACY: view tracking removed - router handles this now
 
     // cross-view synchronization with optimistic updates
     toggleSongFavorite: (songId: string, isFavorite: boolean) => {
-      // optimistic update in current resource
-      // TODO: implement optimistic updates once mutate import is fixed
-      // mutate(songsResource, (songs: any) => {
-      //   const song = songs?.find((s: any) => s.id === songId);
-      //   if (song) song.is_favorite = isFavorite;
-      // });
+      // TODO: implement optimistic updates in future phase
+      // for now, just make API call and let resources refetch
 
-      // api call with rollback on error
-      apiClient.toggleSongFavorite(songId, isFavorite).catch(() => {
-        // revert optimistic updates
-        // TODO: implement optimistic rollback once mutate import is fixed
-        // mutate(songsResource, (songs: any) => {
-        //   const song = songs?.find((s: any) => s.id === songId);
-        //   if (song) song.is_favorite = !isFavorite;
-        // });
-        console.error("failed to update song preference");
+      // api call with error handling
+      apiClient.toggleSongFavorite(songId, isFavorite).catch((error) => {
+        console.error("failed to update song preference", error);
       });
 
-      // event for "currently playing" indicators and other listeners
+      // event for currently playing indicators and other listeners
       eventBus.dispatchEvent(
         new CustomEvent("song:favorite-changed", {
           detail: { songId, isFavorite },
@@ -202,28 +195,18 @@ export function createStoreActions(
 
     // playlist updates with cross-view synchronization
     updatePlaylist: async (playlistId: string, updates: any) => {
-      // optimistic update in main playlists resource
-      // TODO: implement optimistic updates once mutate import is fixed
-      // mutate(playlistsResource, (playlists: any) => {
-      //   const playlist = playlists?.find((p: any) => p.id === playlistId);
-      //   if (playlist) {
-      //     Object.assign(playlist, updates);
-      //   }
-      // });
-
-      // also update recent playlists in nav
-      // mutate(recentPlaylistsResource, (recent: any) => {
-      //   const playlist = recent?.find((p: any) => p.id === playlistId);
-      //   if (playlist) {
-      //     Object.assign(playlist, updates);
-      //   }
-      // });
+      // TODO: implement optimistic updates in future phase
+      // for now, make API call and let resources handle updates
 
       try {
         const updatedPlaylist = await apiClient.updatePlaylist(
           playlistId,
           updates
         );
+
+        // refresh resources that might be affected
+        refetchPlaylists();
+        refetchRecentPlaylists();
 
         // success event for nav and other listeners
         eventBus.dispatchEvent(
@@ -232,26 +215,21 @@ export function createStoreActions(
           })
         );
       } catch (error) {
-        // revert optimistic updates on error
-        refetchPlaylists();
-        refetchRecentPlaylists();
+        console.error("failed to update playlist", error);
         throw error;
       }
     },
 
     // add song to playlist with nav synchronization
     addSongToPlaylist: async (playlistId: string, songId: string) => {
-      // optimistic update to playlist song count
-      // TODO: implement optimistic updates once mutate import is fixed
-      // mutate(recentPlaylistsResource, (recent: any) => {
-      //   const playlist = recent?.find((p: any) => p.id === playlistId);
-      //   if (playlist) {
-      //     playlist.song_count = (playlist.song_count || 0) + 1;
-      //   }
-      // });
+      // TODO: implement optimistic updates in future phase
 
       try {
         await apiClient.addSongsToPlaylist(playlistId, [songId]);
+
+        // refresh playlists to get updated counts
+        refetchPlaylists();
+        refetchRecentPlaylists();
 
         eventBus.dispatchEvent(
           new CustomEvent("playlist:song-added", {
@@ -259,16 +237,37 @@ export function createStoreActions(
           })
         );
       } catch (error) {
-        // revert optimistic update
-        // TODO: implement optimistic rollback once mutate import is fixed
-        // mutate(recentPlaylistsResource, (recent: any) => {
-        //   const playlist = recent?.find((p: any) => p.id === playlistId);
-        //   if (playlist) {
-        //     playlist.song_count = Math.max(0, (playlist.song_count || 1) - 1);
-        //   }
-        // });
+        console.error("failed to add song to playlist", error);
         throw error;
       }
+    },
+
+    // pagination support for songs
+    loadMoreSongs: async () => {
+      const currentResult = songsResource();
+      if (!currentResult || !currentResult.has_next) {
+        return;
+      }
+
+      const nextPage = currentResult.page + 1;
+      const nextPageResult = await apiClient.searchPost({
+        query: store.search.query?.trim() || undefined,
+        filters:
+          store.filters.tags.length > 0
+            ? { tags: store.filters.tags }
+            : undefined,
+        page: nextPage,
+        page_size: 100,
+      });
+
+      // Append new songs to existing ones using proper PostSearchResponse type
+      mutateSongs((current) => {
+        if (!current) return nextPageResult;
+        return {
+          ...nextPageResult,
+          songs: [...current.songs, ...nextPageResult.songs],
+        };
+      });
     },
 
     // selective refresh methods - components can call what they need

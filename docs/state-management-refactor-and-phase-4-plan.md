@@ -61,9 +61,18 @@
 - Establish proper reactive patterns before continuing with frontend work
 - Consider store architecture refactor if needed
 
+**CRITICAL ISSUE DISCOVERED** (Phase 3.5 - API Client Type Drift):
+
+- **Problem**: TypeScript types and Zod schemas have drifted between API client and backend responses
+- **Symptoms**: `SongSearchResult` vs `Song` type mismatches, missing user preference fields
+- **Root Cause**: Search endpoints return different schema than regular Song endpoints
+- **Impact**: Type safety compromised, runtime errors likely
+- **Status**: URGENT - needs resolution before Phase 4
+
 **Next Steps** (Phase 4 - Frontend Integration):
 
 - **PREREQUISITE**: Complete Phase 2.5 reactive architecture fixes first
+- **PREREQUISITE**: Fix Phase 3.5 API client type/schema drift
 - Integrate new filtering APIs into frontend components
 - Update tag context menus to use new backend filtering
 - Implement infinite grid virtualization with new APIs
@@ -231,7 +240,33 @@ AuthProvider → StoreProvider → SearchProvider → FreqholeContext (stub)
 
 **BLOCKING PHASE 3**: Cannot proceed with backend API extensions until reactive store foundation is solid
 
-### Phase 3: Backend API Extensions (Week 3)
+### Phase 3: Backend API Extensions (Week 3) - ✅ COMPLETED
+
+**Status**: Backend APIs implemented but frontend integration blocked by type drift
+
+### Phase 3.5: API Client Type/Schema Drift Fix - 🚨 URGENT
+
+**Problem**: Critical type safety issues discovered during Phase 3 integration:
+
+- `searchPost` returns `SongSearchResult[]` but components expect `Song[]`
+- Missing user preference fields (`user_rating`, `user_is_favorite`, etc.)
+- Schema drift between search endpoints and regular song endpoints
+- Type guards and complex casting being added instead of fixing root cause
+
+**Solution Options**:
+
+1. Align all song endpoints to return consistent schema
+2. Create proper type transformers with validation
+3. Update all components to use search result types
+
+**Files Affected**:
+
+- `client/js/src/lib/search/types.ts` - Search result schemas
+- `client/js/src/lib/music/schemas/song.ts` - Song schemas
+- `client/js/src/views/freqhole/store/actions.tsx` - Type casting issues
+- All song display components - Type mismatches
+
+**Priority**: Must fix before Phase 4 frontend integration
 
 **Scope:** Artists and albums APIs with tag filtering support
 
