@@ -1077,7 +1077,7 @@ export function PlaylistDetailView(
           {/* Songs List - Only show for existing playlists */}
           <Show when={!isNewPlaylist()}>
             <div
-              class={`${isMobile() ? "p-6 bg-black/70" : "flex-1 overflow-y-auto p-6"} relative z-10`}
+              class={`${isMobile() ? "p-2 bg-black/70" : "flex-1 overflow-y-auto p-6"} relative z-10`}
             >
               <Show
                 when={!loadingPlaylistSongs() && playlistSongsResource()}
@@ -1136,30 +1136,31 @@ export function PlaylistDetailView(
                         }}
                       >
                         {/* Track Number / Drag Handle */}
-                        <div class="w-8 text-magenta-400 text-sm flex-shrink-0 flex items-center">
-                          <Show
-                            when={!editMode()}
-                            fallback={
-                              <div
-                                class="cursor-grab active:cursor-grabbing opacity-60 hover:opacity-100 transition-opacity"
-                                title="Drag to reorder"
-                              >
-                                <svg
-                                  class="w-4 h-4"
-                                  fill="currentColor"
-                                  viewBox="0 0 20 20"
+                        <Show when={!isMobile()}>
+                          <div class="w-8 text-magenta-400 text-sm flex-shrink-0 flex items-center">
+                            <Show
+                              when={!editMode()}
+                              fallback={
+                                <div
+                                  class="cursor-grab active:cursor-grabbing opacity-60 hover:opacity-100 transition-opacity"
+                                  title="Drag to reorder"
                                 >
-                                  <path d="M3 7a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 13a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
-                                </svg>
-                              </div>
-                            }
-                          >
-                            <span>{index() + 1}</span>
-                          </Show>
-                        </div>
-
+                                  <svg
+                                    class="w-4 h-4"
+                                    fill="currentColor"
+                                    viewBox="0 0 20 20"
+                                  >
+                                    <path d="M3 7a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 13a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
+                                  </svg>
+                                </div>
+                              }
+                            >
+                              <span>{index() + 1}</span>
+                            </Show>
+                          </div>
+                        </Show>
                         {/* Song Info */}
-                        <div class="flex-1 min-w-0 mx-4">
+                        <div class={`flex-1 min-w-0${!isMobile() && " mx-4"}`}>
                           <div class="text-white font-medium truncate group-hover:text-magenta-300 transition-colors">
                             {song.title}
                           </div>
