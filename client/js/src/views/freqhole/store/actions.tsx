@@ -83,6 +83,13 @@ export function createStoreActions(
       },
       async (params) => {
         // Use unified filterAlbums API for everything
+        console.log("albums resource API call:", {
+          sort_by: params.sortField,
+          sort_direction: params.sortDirection,
+          query: params.query,
+          tags: params.tags,
+        });
+
         return await apiClient.filterAlbums({
           query: params.query || undefined,
           tags: params.tags.length > 0 ? params.tags : undefined,
@@ -405,6 +412,12 @@ export function createStoreActions(
           tags: [...store.filters.tags], // spread to match main resource
           query: store.search.query?.trim() || "",
         };
+
+        console.log("loadMoreAlbums API call:", {
+          sort_by: store.sort.field,
+          sort_direction: store.sort.direction,
+          page: nextPage,
+        });
 
         nextPageResult = await apiClient.filterAlbums({
           query: params.query || undefined,

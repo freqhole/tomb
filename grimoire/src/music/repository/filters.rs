@@ -282,7 +282,9 @@ pub async fn filter_albums(
         "artist" => format!("artist {}", sort_direction_val),
         "year" => format!("year {} NULLS LAST", sort_direction_val),
         "rating" => format!("avg_rating {} NULLS LAST", sort_direction_val),
-        _ => "year DESC NULLS LAST".to_string(),
+        "track_count" => format!("track_count {}", sort_direction_val),
+        "first_added" | "created_at" => format!("first_added {}", sort_direction_val),
+        _ => "first_added DESC".to_string(),
     };
 
     let sql_query = format!(
@@ -352,7 +354,9 @@ async fn filter_albums_with_tags(
         "artist" => format!("als.artist {}", sort_direction_val),
         "year" => format!("als.year {} NULLS LAST", sort_direction_val),
         "rating" => format!("als.avg_rating {} NULLS LAST", sort_direction_val),
-        _ => "als.year DESC NULLS LAST".to_string(),
+        "track_count" => format!("als.track_count {}", sort_direction_val),
+        "first_added" | "created_at" => format!("als.first_added {}", sort_direction_val),
+        _ => "als.first_added DESC".to_string(),
     };
 
     let sql_query = format!(

@@ -97,8 +97,25 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
       label: "tracks",
       description: "Sort by track count",
     },
-    { value: "created_at", label: "added", description: "Sort by date added" },
+    {
+      value: "rating",
+      label: "rating",
+      description: "Sort by average rating",
+    },
+    {
+      value: "first_added",
+      label: "added",
+      description: "Sort by date added",
+    },
   ];
+
+  // Set valid default for albums if current sort field is invalid
+  const currentSortField = sortState.field;
+  const validSortFields = sortFields.map((f) => f.value);
+  if (!validSortFields.includes(currentSortField)) {
+    // Set to "first_added" as default for albums (equivalent to created_at)
+    reactiveActions.setSort("first_added", "desc");
+  }
 
   // Handle sort changes
   const handleSortChange = (field: string, direction: "asc" | "desc") => {
