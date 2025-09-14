@@ -1160,7 +1160,7 @@ export function PlaylistDetailView(
                           </div>
                         </Show>
                         {/* Song Info */}
-                        <div class={`flex-1 min-w-0${!isMobile() && " mx-4"}`}>
+                        <div class={`flex-1 min-w-0 ${!isMobile() && " mx-4"}`}>
                           <div class="text-white font-medium truncate group-hover:text-magenta-300 transition-colors">
                             {song.title}
                           </div>
