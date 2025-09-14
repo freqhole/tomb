@@ -1,11 +1,16 @@
 import { Show, For, createSignal, createEffect } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
-import { useAlbums } from "../../../../hooks/useAlbums";
+import { useReactiveActions, useSort } from "../../../../store";
+import { useDataSections } from "../../../../store/hooks";
 import { apiClient } from "../../../../../../lib/api-client";
 import { storeActions } from "../../../../store";
 import { saveScrollStateSecurely } from "../../../../../../lib/navigation";
+import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
+import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
 import type { Album } from "../../../../../../lib/music/schemas";
+import type { SortField } from "../../../../../../components/search/SearchSortControls";
+import type { FilterAlbumsResponse } from "../../../../../../lib/search/types";
 
 interface MobileAlbumsViewProps {
   class?: string;
@@ -27,8 +32,27 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
   const navigate = useNavigate();
   const events = useGlobalEvents();
 
-  // Simple albums data loading with clean scroll restoration
-  const albumsHook = useAlbums(apiClient);
+  // Use modern reactive store instead of legacy hook
+  const reactiveActions = useReactiveActions();
+  const [sortState] = useSort();
+  const dataSections = useDataSections();
+
+  // Data access using modern reactive store
+  const albums = () => {
+    const result = dataSections.albums.data() as
+      | FilterAlbumsResponse
+      | undefined;
+    return result?.albums || [];
+  };
+  const loading = () => dataSections.albums.loading || false;
+  const error = () => dataSections.albums.error;
+  const totalCount = () => {
+    const result = reactiveActions.resources?.albums();
+    if (result && typeof result === "object" && "total" in result) {
+      return (result as any).total || 0;
+    }
+    return albums().length;
+  };
 
   // Scroll restoration state
   const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
@@ -54,12 +78,30 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
     const element = scrollElement();
     const savedScrollTop = getSavedScrollTop();
 
-    if (element && savedScrollTop > 0 && albumsHook.albums().length > 0) {
+    if (element && savedScrollTop > 0 && albums().length > 0) {
       requestAnimationFrame(() => {
         element.scrollTop = savedScrollTop;
       });
     }
   });
+
+  // Sort fields for mobile albums dropdown
+  const sortFields: SortField[] = [
+    { value: "album", label: "album", description: "Sort by album name" },
+    { value: "artist", label: "artist", description: "Sort by artist name" },
+    { value: "year", label: "year", description: "Sort by release year" },
+    {
+      value: "track_count",
+      label: "tracks",
+      description: "Sort by track count",
+    },
+    { value: "created_at", label: "added", description: "Sort by date added" },
+  ];
+
+  // Handle sort changes
+  const handleSortChange = (field: string, direction: "asc" | "desc") => {
+    reactiveActions.setSort(field, direction);
+  };
 
   const handleAlbumClick = (album: Album) => {
     storeActions.selectAlbum(album);
@@ -105,14 +147,11 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
     const buffer = Math.max(50, clientHeight * 0.25);
 
     // Load more when near bottom
-    if (
-      scrollTop + clientHeight >= scrollHeight - buffer &&
-      !albumsHook.loading()
-    ) {
-      const currentLength = albumsHook.albums().length;
-      const totalCount = albumsHook.totalCount();
-      if (currentLength < totalCount) {
-        albumsHook.loadMore();
+    if (scrollTop + clientHeight >= scrollHeight - buffer && !loading()) {
+      const currentLength = albums().length;
+      const total = totalCount();
+      if (currentLength < total) {
+        reactiveActions.loadMoreAlbums();
       }
     }
 
@@ -128,24 +167,37 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
       <div class="h-full flex flex-col">
         {/* Header */}
         <div class="flex-shrink-0 p-3">
-          <h1 class="text-2xl font-semibold text-white mb-2">albums</h1>
+          <div class="flex items-center justify-between mb-2">
+            <h1 class="text-2xl font-semibold text-white">albums</h1>
+            <SearchSortControls
+              sortBy={sortState.field}
+              sortDirection={sortState.direction}
+              onSortChange={handleSortChange}
+              sortFields={sortFields}
+              directionStyle="arrows"
+              class="flex-shrink-0"
+            />
+          </div>
           <Show
-            when={!albumsHook.loading() && !albumsHook.error()}
-            fallback={<p class="text-magenta-300 text-sm">loading albums...</p>}
+            when={!loading() && !error()}
+            fallback={<p class="text-gray-300 text-sm">loading albums...</p>}
           >
-            <p class="text-magenta-300 text-sm">
-              {albumsHook.albums().length} of {albumsHook.totalCount()} albums
+            <p class="text-gray-300 text-sm">
+              {albums().length} of {totalCount()} albums
             </p>
           </Show>
+          <div class="flex items-center mt-2">
+            <TagFilterControls compact={true} />
+          </div>
         </div>
 
         {/* Error State */}
-        <Show when={albumsHook.error()}>
+        <Show when={error()}>
           <div class="p-4 text-center">
             <div class="text-red-400 text-sm mb-2">failed to load albums</div>
             <button
               class="text-magenta-400 hover:text-magenta-300 text-sm transition-colors"
-              onClick={() => albumsHook.refresh()}
+              onClick={() => reactiveActions.refreshAlbums()}
             >
               try again
             </button>
@@ -153,14 +205,14 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
         </Show>
 
         {/* Albums Grid - Scrollable with Infinite Loading */}
-        <Show when={!albumsHook.error()}>
+        <Show when={!error()}>
           <div
             ref={setScrollElement}
             class="flex-1 overflow-y-auto min-h-0"
             onScroll={handleScroll}
           >
             <Show
-              when={!albumsHook.loading() || albumsHook.albums().length > 0}
+              when={!loading() || albums().length > 0}
               fallback={
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 px-3">
                   <For each={Array.from({ length: 20 })}>
@@ -176,7 +228,7 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
               }
             >
               <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 px-3">
-                <For each={albumsHook.albums()}>
+                <For each={albums()}>
                   {(album) => (
                     <div
                       class="group cursor-pointer transition-all hover:scale-105"
@@ -244,7 +296,7 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
               </div>
 
               {/* Loading indicator */}
-              <Show when={albumsHook.loading()}>
+              <Show when={loading()}>
                 <div class="text-center py-8">
                   <div class="text-magenta-400 text-sm">
                     loading more albums...
@@ -255,9 +307,9 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
               {/* End of list indicator */}
               <Show
                 when={
-                  albumsHook.albums().length >= albumsHook.totalCount() &&
-                  albumsHook.albums().length > 0 &&
-                  !albumsHook.loading()
+                  albums().length >= totalCount() &&
+                  albums().length > 0 &&
+                  !loading()
                 }
               >
                 <div class="text-center py-8">
