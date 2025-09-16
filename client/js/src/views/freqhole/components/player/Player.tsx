@@ -27,8 +27,8 @@ const updateMediaSession = (song: any, isPlaying: boolean) => {
   if ("mediaSession" in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: song.title,
-      artist: song.artist || "Unknown Artist",
-      album: song.album || "Unknown Album",
+      artist: song.artist,
+      album: song.album,
       artwork: song.thumbnail_blob_id
         ? [
             {
@@ -47,10 +47,9 @@ const updateMediaSession = (song: any, isPlaying: boolean) => {
 // Page title helper
 const updatePageTitle = (song: any, isPlaying: boolean) => {
   if (song) {
-    const status = isPlaying ? "▶️" : "⏸️";
-    document.title = `${status} ${song.title} - ${song.artist || "Unknown Artist"} | Freqhole`;
+    document.title = `${isPlaying ? "▷ " : ""}${song.title} - ${song.artist} | F R E Q H O L E`;
   } else {
-    document.title = "Freqhole - Audio Player";
+    document.title = "F R E Q H O L E";
   }
 };
 

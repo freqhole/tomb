@@ -72,7 +72,7 @@ export function QueueItem(props: QueueItemProps) {
       </div>
 
       <button
-        class="opacity-0 group-hover:opacity-100 p-2 ml-2 text-gray-500 hover:text-red-400 hover:bg-red-500/20 rounded-lg transition-all duration-200"
+        class={`${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "} p-2 ml-2 text-gray-500 hover:text-red-400 hover:bg-red-500/20 rounded-lg transition-all duration-200`}
         onClick={(e) => {
           e.stopPropagation();
           props.onRemove();

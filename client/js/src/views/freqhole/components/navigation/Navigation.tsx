@@ -5,6 +5,7 @@ import { useSafeNavigate } from "../../../../lib/navigation";
 import { NavigationHeader } from "./NavigationHeader";
 import { NavigationSections } from "./NavigationSections";
 import { PlaylistsNavigation } from "./PlaylistsNavigation";
+import { isMobile } from "../../../../lib/format-utils";
 
 export function Navigation() {
   const navigate = useSafeNavigate();
@@ -22,7 +23,7 @@ export function Navigation() {
     <div class="flex flex-col h-full bg-black/80">
       <NavigationHeader />
 
-      <div class="flex-1 overflow-y-auto">
+      <div class={`flex-1 overflow-y-auto${isMobile() ? " mb-20" : ""}`}>
         <NavigationSections
           currentPath={location.pathname}
           onNavigate={navigate}
