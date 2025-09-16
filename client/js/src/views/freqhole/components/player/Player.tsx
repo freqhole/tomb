@@ -23,12 +23,7 @@ import { SongFavoriteHeart } from "../ui";
 import { useSongState } from "../../services/songState";
 
 // Media Session API helper
-const updateMediaSession = (
-  song: any,
-  isPlaying: boolean,
-  currentTime?: number,
-  duration?: number
-) => {
+const updateMediaSession = (song: any, isPlaying: boolean) => {
   if ("mediaSession" in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: song.title,
@@ -46,15 +41,6 @@ const updateMediaSession = (
     });
 
     navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
-
-    // set position state to help ios show proper controls
-    if (typeof currentTime === "number" && typeof duration === "number") {
-      navigator.mediaSession.setPositionState({
-        duration: duration,
-        playbackRate: 1.0,
-        position: currentTime,
-      });
-    }
   }
 };
 
@@ -192,16 +178,6 @@ export const Player = () => {
 
     audio.addEventListener("timeupdate", () => {
       storeActions.setCurrentTime(audio.currentTime);
-      // update media session position for ios
-      const song = currentSong();
-      if (song) {
-        updateMediaSession(
-          song,
-          isPlaying(),
-          audio.currentTime,
-          audio.duration
-        );
-      }
     });
 
     audio.addEventListener("ended", () => {
@@ -209,48 +185,42 @@ export const Player = () => {
       playNext(); // Auto-play next song
     });
 
-    audio.addEventListener("error", () => {
-      console.error("audio playback error");
-      storeActions.setPlayerState({ isPlaying: false });
+    audio.addEventListener("playing", () => {
+      // set up media session when audio starts playing
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.setActionHandler("play", () => {
+          storeActions.setPlayerState({ isPlaying: true });
+        });
+
+        navigator.mediaSession.setActionHandler("pause", () => {
+          storeActions.setPlayerState({ isPlaying: false });
+        });
+
+        navigator.mediaSession.setActionHandler("previoustrack", () => {
+          playPrevious();
+        });
+
+        navigator.mediaSession.setActionHandler("nexttrack", () => {
+          playNext();
+        });
+
+        navigator.mediaSession.setActionHandler("seekto", (details) => {
+          if (details.seekTime) {
+            seekToTime(details.seekTime);
+          }
+        });
+
+        // explicitly disable seek handlers to prioritize track navigation on ios
+        navigator.mediaSession.setActionHandler("seekbackward", null);
+        navigator.mediaSession.setActionHandler("seekforward", null);
+
+        navigator.mediaSession.playbackState = "playing";
+      }
     });
 
-    // Set up Media Session API handlers
+    // set initial paused state
     if ("mediaSession" in navigator) {
-      navigator.mediaSession.setActionHandler("play", () => {
-        storeActions.setPlayerState({ isPlaying: true });
-      });
-
-      navigator.mediaSession.setActionHandler("pause", () => {
-        storeActions.setPlayerState({ isPlaying: false });
-      });
-
-      navigator.mediaSession.setActionHandler("previoustrack", () => {
-        playPrevious();
-      });
-
-      navigator.mediaSession.setActionHandler("nexttrack", () => {
-        playNext();
-      });
-
-      navigator.mediaSession.setActionHandler("seekto", (details) => {
-        if (details.seekTime) {
-          seekToTime(details.seekTime);
-        }
-      });
-
-      // explicitly disable seek handlers to prioritize track navigation on ios
-      navigator.mediaSession.setActionHandler("seekbackward", null);
-      navigator.mediaSession.setActionHandler("seekforward", null);
-
-      // ios sometimes needs a delay to properly recognize handlers
-      setTimeout(() => {
-        if ("mediaSession" in navigator) {
-          const song = currentSong();
-          if (song) {
-            updateMediaSession(song, isPlaying(), currentTime(), duration());
-          }
-        }
-      }, 100);
+      navigator.mediaSession.playbackState = "paused";
     }
 
     return () => {
@@ -263,9 +233,6 @@ export const Player = () => {
         navigator.mediaSession.setActionHandler("pause", null);
         navigator.mediaSession.setActionHandler("previoustrack", null);
         navigator.mediaSession.setActionHandler("nexttrack", null);
-        navigator.mediaSession.setActionHandler("seekto", null);
-        navigator.mediaSession.setActionHandler("seekbackward", null);
-        navigator.mediaSession.setActionHandler("seekforward", null);
       }
     };
   });
@@ -315,9 +282,9 @@ export const Player = () => {
 
     if (!audio || !song) return;
 
-    // Update page title and media session
+    // Update page title and media session metadata
     updatePageTitle(song, playing);
-    updateMediaSession(song, playing, currentTime(), duration());
+    updateMediaSession(song, playing);
 
     // Only handle play/pause if audio is already loaded for this song
     if (audio.src && audio.src.includes(song.media_blob_id)) {
@@ -450,7 +417,7 @@ export const Player = () => {
                 {getCurrentSong()?.title}
               </h4>
               <p class="text-gray-300 font-light text-sm truncate m-0">
-                {getCurrentSong()?.artist || "Unknown Artist"}
+                {getCurrentSong()?.artist}
               </p>
             </div>
           </div>
