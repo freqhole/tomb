@@ -23,7 +23,12 @@ import { SongFavoriteHeart } from "../ui";
 import { useSongState } from "../../services/songState";
 
 // Media Session API helper
-const updateMediaSession = (song: any, isPlaying: boolean) => {
+const updateMediaSession = (
+  song: any,
+  isPlaying: boolean,
+  currentTime?: number,
+  duration?: number
+) => {
   if ("mediaSession" in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: song.title,
@@ -41,6 +46,15 @@ const updateMediaSession = (song: any, isPlaying: boolean) => {
     });
 
     navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+
+    // set position state to help ios show proper controls
+    if (typeof currentTime === "number" && typeof duration === "number") {
+      navigator.mediaSession.setPositionState({
+        duration: duration,
+        playbackRate: 1.0,
+        position: currentTime,
+      });
+    }
   }
 };
 
@@ -178,6 +192,16 @@ export const Player = () => {
 
     audio.addEventListener("timeupdate", () => {
       storeActions.setCurrentTime(audio.currentTime);
+      // update media session position for ios
+      const song = currentSong();
+      if (song) {
+        updateMediaSession(
+          song,
+          isPlaying(),
+          audio.currentTime,
+          audio.duration
+        );
+      }
     });
 
     audio.addEventListener("ended", () => {
@@ -213,12 +237,36 @@ export const Player = () => {
           seekToTime(details.seekTime);
         }
       });
+
+      // explicitly disable seek handlers to prioritize track navigation on ios
+      navigator.mediaSession.setActionHandler("seekbackward", null);
+      navigator.mediaSession.setActionHandler("seekforward", null);
+
+      // ios sometimes needs a delay to properly recognize handlers
+      setTimeout(() => {
+        if ("mediaSession" in navigator) {
+          const song = currentSong();
+          if (song) {
+            updateMediaSession(song, isPlaying(), currentTime(), duration());
+          }
+        }
+      }, 100);
     }
 
     return () => {
       audio.pause();
       audio.src = "";
-      audio.remove();
+
+      // cleanup media session
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.setActionHandler("play", null);
+        navigator.mediaSession.setActionHandler("pause", null);
+        navigator.mediaSession.setActionHandler("previoustrack", null);
+        navigator.mediaSession.setActionHandler("nexttrack", null);
+        navigator.mediaSession.setActionHandler("seekto", null);
+        navigator.mediaSession.setActionHandler("seekbackward", null);
+        navigator.mediaSession.setActionHandler("seekforward", null);
+      }
     };
   });
 
@@ -269,7 +317,7 @@ export const Player = () => {
 
     // Update page title and media session
     updatePageTitle(song, playing);
-    updateMediaSession(song, playing);
+    updateMediaSession(song, playing, currentTime(), duration());
 
     // Only handle play/pause if audio is already loaded for this song
     if (audio.src && audio.src.includes(song.media_blob_id)) {
