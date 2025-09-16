@@ -169,13 +169,7 @@ export function createStoreActions(
 
     // reactive filter actions with proper produce patterns
     setFavoritesFilter: (enabled: boolean) => {
-      console.log("setFavoritesFilter called with:", enabled);
-      console.log("current favoritesOnly state:", store.filters.favoritesOnly);
       setStore("filters", "favoritesOnly", enabled);
-      console.log(
-        "after setStore - new favoritesOnly state:",
-        store.filters.favoritesOnly
-      );
 
       eventBus.dispatchEvent(
         new CustomEvent("favorites:toggled", {

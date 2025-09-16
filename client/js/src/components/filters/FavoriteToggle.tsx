@@ -11,14 +11,7 @@ export function FavoriteToggle(props: FavoriteToggleProps): JSX.Element {
 
   const handleToggle = () => {
     const currentState = store.filters.favoritesOnly;
-    console.log(
-      "favorites toggle clicked - current state:",
-      currentState,
-      "toggling to:",
-      !currentState
-    );
     reactiveActions.setFavoritesFilter(!currentState);
-    console.log("after toggle - new state:", store.filters.favoritesOnly);
   };
 
   return (
