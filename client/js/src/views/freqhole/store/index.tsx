@@ -42,6 +42,7 @@ export interface FreqholeStore {
   };
   filters: {
     tags: string[];
+    favoritesOnly: boolean;
   };
   sort: {
     field: string;
@@ -114,6 +115,7 @@ const initialState: FreqholeStore = {
   },
   filters: {
     tags: [],
+    favoritesOnly: false,
   },
   sort: {
     field: "created_at",
@@ -356,6 +358,12 @@ export const storeActions = {
   removeTagFilter: (tag: string) =>
     setStore("filters", "tags", (prev) => prev.filter((t) => t !== tag)),
   clearTagFilters: () => setStore("filters", "tags", []),
+
+  // favorites filter actions
+  setFavoritesFilter: (enabled: boolean) =>
+    setStore("filters", "favoritesOnly", enabled),
+  toggleFavoritesFilter: () =>
+    setStore("filters", "favoritesOnly", (prev) => !prev),
 
   // ui actions
   openModal: (modal: keyof FreqholeStore["ui"]["modals"]) =>

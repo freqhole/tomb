@@ -1,4 +1,4 @@
-import { createEffect, createMemo } from "solid-js";
+import { createEffect } from "solid-js";
 
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { useStore } from "../../../../store";
@@ -10,6 +10,7 @@ import { FreqholeInfiniteGrid } from "../../../grid";
 import { useSongState } from "../../../../services/songState";
 import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
+import { FavoriteToggle } from "../../../../../../components/filters/FavoriteToggle";
 import type { Song } from "../../../../../../lib/music/schemas/song";
 import type { SortField } from "../../../../../../components/search/SearchSortControls";
 import type { PostSearchResponse } from "../../../../../../lib/search/types";
@@ -123,9 +124,17 @@ export function MobileSongsView(props: MobileSongsViewProps) {
     { value: "created_at", label: "added", description: "Sort by date added" },
   ];
 
-  const handleSortChange = (field: string, direction: "asc" | "desc") => {
-    // Use reactive store to update sort - this will automatically trigger songs refetch
-    reactiveActions.setSort(field, direction);
+  const handleSortChange = (
+    field: string,
+    direction: "asc" | "desc" | null
+  ) => {
+    if (direction === null) {
+      // Reset to default sort
+      reactiveActions.setSort("created_at", "desc");
+    } else {
+      // Use reactive store to update sort - this will automatically trigger songs refetch
+      reactiveActions.setSort(field, direction);
+    }
   };
 
   return (
@@ -171,8 +180,11 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             class="flex-shrink-0"
           />
         </div>
-        <div class="flex items-center">
+        <div class="flex items-center gap-2">
           <TagFilterControls compact={true} />
+          <div class="w-8 h-8">
+            <FavoriteToggle />
+          </div>
         </div>
       </div>
 

@@ -31,14 +31,23 @@ export function createStoreActions(
           query: store.search.query?.trim() || "",
           sortField: store.sort.field,
           sortDirection: store.sort.direction,
+          favoritesOnly: store.filters.favoritesOnly,
         };
 
         return deps;
       },
       async (params) => {
+        const filters: any = {};
+        if (params.tags.length > 0) {
+          filters.tags = params.tags;
+        }
+        if (params.favoritesOnly) {
+          filters.is_favorite = true;
+        }
+
         const requestBody = {
           query: params.query || undefined,
-          filters: params.tags.length > 0 ? { tags: params.tags } : undefined,
+          filters: Object.keys(filters).length > 0 ? filters : undefined,
           sort_by: params.sortField,
           sort_direction: params.sortDirection,
           page_size: 100,
@@ -159,6 +168,33 @@ export function createStoreActions(
     mutateAvailableTags,
 
     // reactive filter actions with proper produce patterns
+    setFavoritesFilter: (enabled: boolean) => {
+      console.log("setFavoritesFilter called with:", enabled);
+      console.log("current favoritesOnly state:", store.filters.favoritesOnly);
+      setStore("filters", "favoritesOnly", enabled);
+      console.log(
+        "after setStore - new favoritesOnly state:",
+        store.filters.favoritesOnly
+      );
+
+      eventBus.dispatchEvent(
+        new CustomEvent("favorites:toggled", {
+          detail: { enabled },
+        })
+      );
+    },
+
+    toggleFavoritesFilter: () => {
+      const newValue = !store.filters.favoritesOnly;
+      setStore("filters", "favoritesOnly", newValue);
+
+      eventBus.dispatchEvent(
+        new CustomEvent("favorites:toggled", {
+          detail: { enabled: newValue },
+        })
+      );
+    },
+
     addTagFilter: (tag: string) => {
       setStore(
         "filters",
@@ -304,15 +340,9 @@ export function createStoreActions(
       let hasNext = false;
       let currentPage = 1;
 
-      if ("pagination" in currentResult) {
-        // GET songs response
-        hasNext = currentResult.pagination?.has_next || false;
-        currentPage = currentResult.pagination?.page || 1;
-      } else {
-        // POST search response (now also SongListResponse format)
-        hasNext = currentResult.has_next || false;
-        currentPage = currentResult.page || 1;
-      }
+      // POST search response format
+      hasNext = currentResult.has_next || false;
+      currentPage = currentResult.page || 1;
 
       if (!hasNext) {
         isLoadingMore = false;
@@ -327,11 +357,20 @@ export function createStoreActions(
         const params = {
           tags: [...store.filters.tags], // spread to match main resource
           query: store.search.query?.trim() || "",
+          favoritesOnly: store.filters.favoritesOnly,
         };
+
+        const filters: any = {};
+        if (params.tags.length > 0) {
+          filters.tags = params.tags;
+        }
+        if (params.favoritesOnly) {
+          filters.is_favorite = true;
+        }
 
         nextPageResult = await apiClient.searchPost({
           query: params.query || undefined,
-          filters: params.tags.length > 0 ? { tags: params.tags } : undefined,
+          filters: Object.keys(filters).length > 0 ? filters : undefined,
           sort_by: store.sort.field,
           sort_direction: store.sort.direction,
           page: nextPage,
@@ -350,26 +389,13 @@ export function createStoreActions(
         const newSongs = nextPageResult.songs;
 
         // Consistent SongListResponse format merging
-        if ("pagination" in current) {
-          // GET songs format - preserve pagination structure
-          return {
-            ...current,
-            songs: [...currentSongs, ...newSongs],
-            pagination: {
-              ...current.pagination,
-              page: nextPageResult.pagination?.page || current.pagination?.page,
-              has_next: nextPageResult.pagination?.has_next || false,
-            },
-          };
-        } else {
-          // POST search format (now also SongListResponse)
-          return {
-            ...current,
-            songs: [...currentSongs, ...newSongs],
-            page: nextPageResult.page,
-            has_next: nextPageResult.has_next,
-          };
-        }
+        // POST search format
+        return {
+          ...current,
+          songs: [...currentSongs, ...newSongs],
+          page: nextPageResult.page,
+          has_next: nextPageResult.has_next,
+        };
       });
 
       // Reset loading guard
