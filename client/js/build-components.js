@@ -15,6 +15,52 @@ function getServiceWorkerCode() {
   return null;
 }
 
+// Generate PWA manifest as data URI for inline embedding
+function generatePWAManifest(elementName) {
+  const manifest = {
+    name: "freqhole",
+    short_name: "freqhole",
+    description: "music player and library manager",
+    start_url: "./",
+    display: "standalone",
+    background_color: "#000000",
+    theme_color: "#000000",
+    orientation: "portrait-primary",
+    categories: ["music", "entertainment"],
+    icons: [
+      {
+        src:
+          "data:image/svg+xml;base64," +
+          btoa(`
+          <svg width="192" height="192" viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg">
+            <rect width="192" height="192" fill="#000000"/>
+            <path d="M96 48c-26.5 0-48 21.5-48 48s21.5 48 48 48 48-21.5 48-48-21.5-48-48-48zm0 12c6 0 12 2 16.8 5.6L96 96l-16.8-30.4c4.8-3.6 10.8-5.6 16.8-5.6zm-24 24c0-4 1-8 2.8-11.2L96 96 74.8 132.8c-1.8-3.2-2.8-7.2-2.8-11.2zm48 0c0 4-1 8-2.8 11.2L96 96l21.2-33.2c1.8 3.2 2.8 7.2 2.8 11.2zm-24 36c-6 0-12-2-16.8-5.6L96 96l16.8 30.4c-4.8 3.6-10.8 5.6-16.8 5.6z" fill="#d946ef"/>
+          </svg>
+        `),
+        sizes: "192x192",
+        type: "image/svg+xml",
+      },
+      {
+        src:
+          "data:image/svg+xml;base64," +
+          btoa(`
+          <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <rect width="512" height="512" fill="#000000"/>
+            <path d="M256 128c-70.7 0-128 57.3-128 128s57.3 128 128 128 128-57.3 128-128-57.3-128-128-128zm0 32c16 0 32 5.3 44.8 14.9L256 256l-44.8-81.1c12.8-9.6 28.8-14.9 44.8-14.9zm-64 64c0-10.7 2.7-21.3 7.5-30.9L256 256l-56.5 102.9c-4.8-9.6-7.5-20.2-7.5-30.9zm128 0c0 10.7-2.7 21.3-7.5 30.9L256 256l56.5-102.9c4.8 9.6 7.5 20.2 7.5 30.9zm-64 96c-16 0-32-5.3-44.8-14.9L256 256l44.8 81.1c-12.8 9.6-28.8 14.9-44.8 14.9z" fill="#d946ef"/>
+          </svg>
+        `),
+        sizes: "512x512",
+        type: "image/svg+xml",
+        purpose: "any maskable",
+      },
+    ],
+  };
+
+  const manifestJson = JSON.stringify(manifest);
+  const manifestBase64 = Buffer.from(manifestJson).toString("base64");
+  return `data:application/json;base64,${manifestBase64}`;
+}
+
 // Component-specific attributes configuration
 const COMPONENT_ATTRIBUTES = {
   "webauthn-auth": {
@@ -120,23 +166,34 @@ function generateHtmlTemplate(elementName, jsCode, cssCode) {
     .map(([key, value]) => `${key}="${value.replace(/"/g, "&quot;")}"`)
     .join(" ");
 
-  // Add basic PWA meta tags for playlistz component (manifest will be generated dynamically)
-  // #TODO: should all componentz have this?
-  const isPWA = elementName === "freqhole-playlistz";
-  const pwaMetaTags = isPWA
-    ? `
+  // Enable PWA for freqhole components
+  const isPWA =
+    elementName === "freqhole-demo" || elementName === "freqhole-playlistz";
+
+  let pwaMetaTags = "";
+  let manifestLink = "";
+
+  if (isPWA) {
+    const manifestDataUri = generatePWAManifest(elementName);
+    pwaMetaTags = `
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="freqhole">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="theme-color" content="#000000">`
-    : "";
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-touch-fullscreen" content="yes">
+  <meta name="format-detection" content="telephone=no">`;
+
+    manifestLink = `
+  <link rel="manifest" href="${manifestDataUri}">`;
+  }
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${elementName}</title>${pwaMetaTags}
+  <title>F R E Q H O L E</title>${pwaMetaTags}${manifestLink}
   <style>
     * { box-sizing: border-box; }
     body {
@@ -270,12 +327,14 @@ async function buildAllComponents() {
 
                 console.log(`generated: ${elementName}.html`);
 
-                // Generate service worker for playlistz component
-                // #TODO: should other componentz have a sw.js?
+                // Generate service worker for freqhole components
                 console.log(
                   `Checking if should generate SW for: ${elementName}`
                 );
-                if (elementName === "freqhole-playlistz") {
+                if (
+                  elementName === "freqhole-demo" ||
+                  elementName === "freqhole-playlistz"
+                ) {
                   console.log(
                     `generating service worker for ${elementName}...`
                   );
