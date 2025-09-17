@@ -9,6 +9,8 @@ import { ContextMenuManager } from "../ui/ContextMenuManager";
 
 import { FreqholeIcon, MenuIcon } from "../ui/icons";
 import { AuthModal } from "../auth/AuthModal";
+import { SongInfoModal } from "../modals/SongInfoModal";
+import type { Song } from "../../../../lib/music/schemas/song";
 import { UserMenu } from "../auth/UserMenu";
 import { useAuth } from "../../../../hooks/auth";
 
@@ -17,6 +19,8 @@ export function ThreeColumnLayout(props: any) {
   const events = useGlobalEvents();
   const [mobileNavOpen, setMobileNavOpen] = createSignal(false);
   const [authOpen, setAuthOpen] = createSignal(false);
+  const [songInfoOpen, setSongInfoOpen] = createSignal(false);
+  const [songInfoData, setSongInfoData] = createSignal<Song[]>([]);
   const auth = useAuth();
 
   // Responsive layout logic
@@ -35,6 +39,20 @@ export function ThreeColumnLayout(props: any) {
   // Listen for queue toggle events
   events.on("queue:toggle", () => {
     storeActions.toggleQueue();
+  });
+
+  // Listen for modal events
+  events.on("modal:open", ({ modal, data }) => {
+    if (modal === "songInfoModal" && data?.songs) {
+      setSongInfoData(data.songs);
+      setSongInfoOpen(true);
+    }
+  });
+
+  events.on("modal:close", ({ modal }) => {
+    if (modal === "songInfoModal") {
+      setSongInfoOpen(false);
+    }
   });
 
   // Mobile navigation handlers
@@ -186,8 +204,15 @@ export function ThreeColumnLayout(props: any) {
       {/* Global Context Menu */}
       <ContextMenuManager />
 
-      {/* auth model */}
+      {/* auth modal */}
       <AuthModal isOpen={authOpen()} onClose={() => setAuthOpen(false)} />
+
+      {/* song info modal */}
+      <SongInfoModal
+        isOpen={songInfoOpen()}
+        onClose={() => setSongInfoOpen(false)}
+        songs={songInfoData()}
+      />
     </div>
   );
 }

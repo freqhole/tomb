@@ -291,7 +291,7 @@ export function useSongInteractions() {
         // Open song info modal
         events.emit("modal:open", {
           modal: "songInfoModal",
-          data: { song },
+          data: { songs: [song] },
         });
       },
     });
@@ -415,6 +415,20 @@ export function useSongInteractions() {
         },
       });
     }
+
+    // Add bulk song info action
+    actions.push({ type: "separator" });
+    actions.push({
+      label: `edit ${songCount} songs`,
+      icon: "info",
+      action: () => {
+        // Open song info modal for multiple songs
+        events.emit("modal:open", {
+          modal: "songInfoModal",
+          data: { songs },
+        });
+      },
+    });
 
     return actions;
   };
