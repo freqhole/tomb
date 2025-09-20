@@ -7,6 +7,8 @@ import { SongMetadataView } from "../songs/SongMetadataView";
 import { SongEditForm } from "../songs/SongEditForm";
 import { SongBulkEditForm } from "../songs/SongBulkEditForm";
 import { SongPagination } from "../songs/SongPagination";
+// FEATURE TOGGLE: new schema-driven forms
+import { SongInfoModalNew } from "./SongInfoModalNew";
 
 interface SongInfoModalProps {
   isOpen: boolean;
@@ -15,6 +17,14 @@ interface SongInfoModalProps {
 }
 
 export function SongInfoModal(props: SongInfoModalProps) {
+  // FEATURE TOGGLE: enable new schema-driven forms (set to true to test)
+  const USE_NEW_SCHEMA_FORMS = true;
+
+  if (USE_NEW_SCHEMA_FORMS) {
+    return <SongInfoModalNew {...props} />;
+  }
+
+  // LEGACY: old implementation - TODO: migrate to schema-driven approach
   const events = useGlobalEvents();
   const auth = useAuth();
   const [currentSongIndex, setCurrentSongIndex] = createSignal(0);

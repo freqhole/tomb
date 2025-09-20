@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SongSchema } from "./song.js";
+import { SongMetadataFieldsSchema } from "./form-schemas.js";
 
 export const BulkTagOperationSchema = z.discriminatedUnion("type", [
   z.object({
@@ -18,6 +19,13 @@ export const BulkTagOperationSchema = z.discriminatedUnion("type", [
 
 export const BulkSongUpdatesSchema = z.object({
   tags: BulkTagOperationSchema.optional(),
+  // add metadata updates - all fields optional for partial updates
+  ...Object.fromEntries(
+    Object.entries(SongMetadataFieldsSchema.shape).map(([key, schema]) => [
+      key,
+      schema.optional(),
+    ])
+  ),
 });
 
 export const BulkUpdateSongsRequestSchema = z.object({
@@ -35,7 +43,7 @@ export const BulkOperationSummarySchema = z.object({
   total_songs: z.number(),
   successful_updates: z.number(),
   failed_updates: z.number(),
-  tag_operations: TagOperationSummarySchema.optional(),
+  tag_operations: TagOperationSummarySchema.nullable().optional(),
 });
 
 export const BulkUpdateSongsResponseSchema = z.object({
