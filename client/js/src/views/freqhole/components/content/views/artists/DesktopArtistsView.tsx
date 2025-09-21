@@ -5,7 +5,7 @@ import { useReactiveActions, useSort } from "../../../../store";
 import { useDataSections } from "../../../../store/hooks";
 import { FreqholeInfiniteGrid } from "../../../grid";
 import { ArtistDetailPanel } from "./ArtistDetailPanel";
-import { apiClient } from "../../../../../../lib/api-client";
+
 import { storeActions } from "../../../../store";
 import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
@@ -73,8 +73,16 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
   }
 
   // Handle sort changes
-  const handleSortChange = (field: string, direction: "asc" | "desc") => {
-    reactiveActions.setSort(field, direction);
+  const handleSortChange = (
+    field: string,
+    direction: "asc" | "desc" | null
+  ) => {
+    if (direction === null) {
+      // Handle null direction case - could clear sort or use default
+      reactiveActions.setSort(field, "asc");
+    } else {
+      reactiveActions.setSort(field, direction);
+    }
   };
 
   // Artist selection state

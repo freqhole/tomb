@@ -3,12 +3,13 @@ import { Modal } from "../ui/Modal";
 import type { Song } from "../../../../lib/music/schemas/song";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { useAuth } from "../../../../hooks/auth";
+import { apiClient } from "../../../../lib/api-client";
+import { useSongFormStore } from "../../../../hooks/forms/useFormStore";
 import { SongMetadataView } from "../songs/SongMetadataView";
 import { SongEditForm } from "../songs/SongEditForm";
 import { SongBulkEditForm } from "../songs/SongBulkEditForm";
 import { SongPagination } from "../songs/SongPagination";
-// FEATURE TOGGLE: new schema-driven forms
-import { SongInfoModalNew } from "./SongInfoModalNew";
+import type { EditableSongFields } from "../../../../lib/music/schemas/form-schemas";
 
 interface SongInfoModalProps {
   isOpen: boolean;
@@ -17,21 +18,21 @@ interface SongInfoModalProps {
 }
 
 export function SongInfoModal(props: SongInfoModalProps) {
-  // FEATURE TOGGLE: enable new schema-driven forms (set to true to test)
-  const USE_NEW_SCHEMA_FORMS = true;
-
-  if (USE_NEW_SCHEMA_FORMS) {
-    return <SongInfoModalNew {...props} />;
-  }
-
-  // LEGACY: old implementation - TODO: migrate to schema-driven approach
   const events = useGlobalEvents();
   const auth = useAuth();
   const [currentSongIndex, setCurrentSongIndex] = createSignal(0);
   const [isBulkMode, setIsBulkMode] = createSignal(false);
   const [isLoading, setIsLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [formData, setFormData] = createSignal<any>({});
+
+  // use schema-driven form store
+  const formStore = () => {
+    if (isBulkMode() || props.songs.length > 1) {
+      return useSongFormStore(props.songs);
+    }
+    const currentSong = props.songs[currentSongIndex()];
+    return currentSong ? useSongFormStore(currentSong) : null;
+  };
 
   const totalSongs = () => props.songs.length;
   const currentSong = () => props.songs[currentSongIndex()];
@@ -59,180 +60,247 @@ export function SongInfoModal(props: SongInfoModalProps) {
 
   // navigation handlers
   const goToPrevious = () => {
-    if (currentSongIndex() > 0) {
-      setCurrentSongIndex(currentSongIndex() - 1);
-    }
+    setCurrentSongIndex((prev) => (prev > 0 ? prev - 1 : totalSongs() - 1));
   };
 
   const goToNext = () => {
-    if (currentSongIndex() < totalSongs() - 1) {
-      setCurrentSongIndex(currentSongIndex() + 1);
-    }
+    setCurrentSongIndex((prev) => (prev < totalSongs() - 1 ? prev + 1 : 0));
   };
 
-  // mode toggle
-  const toggleBulkMode = () => {
-    setIsBulkMode(!isBulkMode());
-  };
-
-  // form change handler
-  const handleFormChange = (data: any) => {
-    setFormData(data);
-  };
-
-  // save handler
+  // schema-driven save handler
   const handleSave = async () => {
-    setIsLoading(true);
-    setError(null);
-
     try {
-      // TODO: implement save logic via api client
-      console.log("saving song data:", {
-        songs: props.songs,
-        formData: formData(),
-        isBulkMode: isBulkMode(),
-      });
+      setIsLoading(true);
+      setError(null);
 
+      const store = formStore();
+      if (!store || !store.isDirty()) {
+        console.log("no changes to save");
+        props.onClose();
+        return;
+      }
+
+      const changes = store.changes();
+      const songIds = props.songs.map((s) => s.id);
+
+      const promises = [];
+
+      // schema-driven API calls - the methods automatically handle field categorization
+      if (auth.isAdmin) {
+        // metadata updates (handled automatically by schema-driven method)
+        promises.push(
+          apiClient
+            .bulkUpdateSongsFromChanges({
+              song_ids: songIds,
+              updates: changes,
+            })
+            .catch((err) => {
+              // if no metadata fields, this is expected and ok
+              if (err.message?.includes("no metadata updates")) {
+                return null;
+              }
+              throw err;
+            })
+        );
+      }
+
+      // user preference updates (handled automatically by schema-driven method)
+      promises.push(
+        apiClient
+          .bulkUpdateUserPreferencesFromChanges({
+            song_ids: songIds,
+            updates: changes,
+          })
+          .catch((err) => {
+            // if no user preference fields, this is expected and ok
+            if (err.message?.includes("no user preference updates")) {
+              return null;
+            }
+            throw err;
+          })
+      );
+
+      const results = await Promise.all(promises);
+      const validResults = results.filter(Boolean);
+
+      if (validResults.length > 0) {
+        // collect updated songs from all API responses
+        const updatedSongs = validResults.flatMap((result) => {
+          if (
+            result &&
+            typeof result === "object" &&
+            "updated_songs" in result
+          ) {
+            return result.updated_songs;
+          }
+          return [];
+        });
+
+        if (updatedSongs.length > 0) {
+          // emit targeted update with actual server response data
+          events.emit("songs:updated", {
+            songs: updatedSongs,
+            operation: isBulkMode() ? "bulk-update" : "single-update",
+          });
+        } else {
+          // fallback to full reload if no updated songs in response
+          events.emit("data:reload", { type: "songs" });
+        }
+      }
+
+      // success feedback
       events.emit("notification:show", {
-        message: isBulkMode()
-          ? `updated ${totalSongs()} songs`
-          : "song updated successfully",
+        message: `updated ${totalSongs()} song(s)`,
         type: "success",
       });
 
-      // trigger data reload
-      events.emit("data:reload", { type: "songs" });
-
       props.onClose();
     } catch (err) {
+      console.error("save failed:", err);
       setError(err instanceof Error ? err.message : "failed to save changes");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getModalTitle = () => {
-    if (!isEditing()) {
-      return totalSongs() > 1
-        ? `song info (${totalSongs()} songs)`
-        : "song info";
+  // keyboard navigation
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (!props.isOpen || isEditing()) return;
+
+    switch (e.key) {
+      case "ArrowLeft":
+        e.preventDefault();
+        goToPrevious();
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        goToNext();
+        break;
+      case "Escape":
+        e.preventDefault();
+        props.onClose();
+        break;
     }
-    return isBulkMode() ? `edit ${totalSongs()} songs` : `edit song info`;
   };
 
+  onMount(() => {
+    document.addEventListener("keydown", handleKeyDown);
+  });
+
   return (
-    <Modal
-      isOpen={props.isOpen}
-      onClose={props.onClose}
-      size="lg"
-      title={getModalTitle()}
-    >
-      <div class="flex flex-col min-h-96 max-h-[80vh]">
-        {/* error display */}
-        <Show when={error()}>
-          <div class="bg-red-500/10 border border-red-500/20 text-red-400 p-3 mb-4">
-            {error()}
-          </div>
-        </Show>
-
-        {/* scrollable content area */}
-        <div class="flex-1 overflow-y-auto">
-          <Show when={!isEditing()}>
-            {/* view-only mode */}
-            <SongMetadataView
-              songs={props.songs}
-              currentSongIndex={currentSongIndex()}
-            />
-          </Show>
-
-          <Show when={isEditing()}>
-            <Show when={isBulkMode() && totalSongs() > 1}>
-              {/* bulk edit mode */}
-              <SongBulkEditForm
-                songs={props.songs}
-                onFormChange={handleFormChange}
-              />
-            </Show>
-
-            <Show when={(!isBulkMode() || totalSongs() === 1) && currentSong()}>
-              {/* single song edit mode */}
-              <SongEditForm
-                song={currentSong()!}
-                onFormChange={handleFormChange}
-              />
-            </Show>
-          </Show>
-        </div>
-
-        {/* sticky footer with pagination and actions */}
-        <Show when={isEditing()}>
-          <SongPagination
-            currentIndex={currentSongIndex()}
-            totalSongs={totalSongs()}
-            isBulkMode={isBulkMode()}
-            isLoading={isLoading()}
-            onPrevious={goToPrevious}
-            onNext={goToNext}
-            onToggleBulkMode={toggleBulkMode}
-            onCancel={props.onClose}
-            onSave={handleSave}
-          />
-        </Show>
-
-        {/* view-only mode footer */}
-        <Show when={!isEditing()}>
-          <div class="sticky bottom-0 bg-black border-t border-gray-700 p-4">
-            <div class="flex items-center justify-between">
-              {/* pagination for view-only mode */}
-              <Show when={totalSongs() > 1}>
-                <div class="flex items-center gap-2">
-                  <button
-                    class={`
-                      px-3 py-1 text-sm transition-colors
-                      ${
-                        currentSongIndex() > 0
-                          ? "text-white hover:text-magenta-400 hover:bg-gray-800"
-                          : "text-gray-600 cursor-not-allowed"
-                      }
-                    `}
-                    disabled={currentSongIndex() <= 0}
-                    onClick={goToPrevious}
-                  >
-                    ← previous
-                  </button>
-
-                  <div class="text-sm text-gray-400 px-3">
-                    {currentSongIndex() + 1} of {totalSongs()}
-                  </div>
-
-                  <button
-                    class={`
-                      px-3 py-1 text-sm transition-colors
-                      ${
-                        currentSongIndex() < totalSongs() - 1
-                          ? "text-white hover:text-magenta-400 hover:bg-gray-800"
-                          : "text-gray-600 cursor-not-allowed"
-                      }
-                    `}
-                    disabled={currentSongIndex() >= totalSongs() - 1}
-                    onClick={goToNext}
-                  >
-                    next →
-                  </button>
-                </div>
-              </Show>
-
-              {/* close button */}
+    <Show when={props.isOpen}>
+      <Modal isOpen={props.isOpen} onClose={() => props.onClose()} size="lg">
+        <div class="space-y-6">
+          {/* header */}
+          <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold text-white">
+              {isBulkMode() ? "bulk song info" : "song info"}
+            </h2>
+            <div class="flex items-center gap-2">
+              {totalSongs() > 1 && (
+                <button
+                  onClick={() => setIsBulkMode(!isBulkMode())}
+                  class="px-3 py-1 text-sm bg-gray-700 text-white hover:bg-gray-600 transition-colors"
+                  disabled={isLoading()}
+                >
+                  {isBulkMode() ? "single edit" : "bulk edit"}
+                </button>
+              )}
               <button
-                class="px-4 py-2 text-gray-400 hover:text-white transition-colors"
-                onClick={props.onClose}
+                onClick={() => props.onClose()}
+                class="text-gray-400 hover:text-white transition-colors"
+                disabled={isLoading()}
               >
-                close
+                ✕
               </button>
             </div>
           </div>
-        </Show>
-      </div>
-    </Modal>
+
+          {/* error display */}
+          <Show when={error()}>
+            <div class="p-4 bg-red-900/20 border border-red-600 text-red-200">
+              {error()}
+            </div>
+          </Show>
+
+          {/* content */}
+          <div class="space-y-6">
+            {isBulkMode() ? (
+              // bulk edit mode - uses schema-driven form
+              <>
+                <div class="text-sm text-gray-400">
+                  editing {totalSongs()} songs
+                </div>
+                {isEditing() ? (
+                  <SongBulkEditForm
+                    songs={props.songs}
+                    onFormChange={(_changes: Partial<EditableSongFields>) => {}} // form store handles changes internally
+                  />
+                ) : (
+                  <div class="text-gray-400">
+                    bulk editing requires admin privileges
+                  </div>
+                )}
+              </>
+            ) : (
+              // single song mode
+              <>
+                {/* song navigation */}
+                <Show when={totalSongs() > 1}>
+                  <SongPagination
+                    currentIndex={currentSongIndex()}
+                    totalSongs={totalSongs()}
+                    isBulkMode={false}
+                    isLoading={isLoading()}
+                    onPrevious={goToPrevious}
+                    onNext={goToNext}
+                    onToggleBulkMode={() => setIsBulkMode(true)}
+                    onCancel={() => props.onClose()}
+                    onSave={handleSave}
+                  />
+                </Show>
+
+                {/* song content - uses schema-driven form */}
+                <Show when={currentSong()}>
+                  {isEditing() ? (
+                    <SongEditForm
+                      song={currentSong()!}
+                      onFormChange={(
+                        _changes: Partial<EditableSongFields>
+                      ) => {}} // form store handles changes internally
+                    />
+                  ) : (
+                    <SongMetadataView
+                      songs={[currentSong()!]}
+                      currentSongIndex={0}
+                    />
+                  )}
+                </Show>
+              </>
+            )}
+          </div>
+
+          {/* actions */}
+          <Show when={isEditing()}>
+            <div class="flex justify-end gap-3 pt-4 border-t border-gray-700">
+              <button
+                onClick={() => props.onClose()}
+                class="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+                disabled={isLoading()}
+              >
+                cancel
+              </button>
+              <button
+                onClick={handleSave}
+                class="px-4 py-2 bg-magenta-600 text-white hover:bg-magenta-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isLoading() || !formStore()?.isDirty()}
+              >
+                {isLoading() ? "saving..." : "save changes"}
+              </button>
+            </div>
+          </Show>
+        </div>
+      </Modal>
+    </Show>
   );
 }

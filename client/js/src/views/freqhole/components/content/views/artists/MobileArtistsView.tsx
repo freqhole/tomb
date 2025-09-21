@@ -2,7 +2,7 @@ import { For, Show, createSignal, createEffect } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useReactiveActions, useSort } from "../../../../store";
 import { useDataSections } from "../../../../store/hooks";
-import { apiClient } from "../../../../../../lib/api-client";
+
 import { saveScrollStateSecurely } from "../../../../../../lib/navigation";
 import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";

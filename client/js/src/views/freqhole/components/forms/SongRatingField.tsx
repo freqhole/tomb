@@ -19,16 +19,14 @@ export function SongRatingField(props: SongRatingFieldProps) {
     props.onUpdate(newRating);
   };
 
-  const handleStarHover = (rating: number) => {
+  const handleStarHover = (_rating: number) => {
     // could add hover preview here if needed
   };
 
   return (
     <div class="space-y-2">
       <div class="flex items-center justify-between">
-        <label class="block text-sm font-medium text-gray-300">
-          rating
-        </label>
+        <label class="block text-sm font-medium text-gray-300">rating</label>
         <Show when={props.isDirty && !props.disabled}>
           <button
             type="button"
@@ -51,21 +49,23 @@ export function SongRatingField(props: SongRatingFieldProps) {
               disabled={props.disabled}
               class={`
                 w-6 h-6 transition-all duration-150 focus:outline-none
-                ${props.disabled
-                  ? 'opacity-50 cursor-not-allowed'
-                  : 'hover:scale-110 cursor-pointer'
+                ${
+                  props.disabled
+                    ? "opacity-50 cursor-not-allowed"
+                    : "hover:scale-110 cursor-pointer"
                 }
-                ${props.isDirty && star <= currentRating()
-                  ? 'text-magenta-500 drop-shadow-[0_0_4px_rgba(236,72,153,0.5)]'
-                  : star <= currentRating()
-                  ? 'text-yellow-500'
-                  : 'text-gray-600 hover:text-yellow-400'
+                ${
+                  props.isDirty && star <= currentRating()
+                    ? "text-magenta-500 drop-shadow-[0_0_4px_rgba(236,72,153,0.5)]"
+                    : star <= currentRating()
+                      ? "text-yellow-500"
+                      : "text-gray-600 hover:text-yellow-400"
                 }
               `}
               title={
                 currentRating() === star
                   ? `remove rating (currently ${star} stars)`
-                  : `rate ${star} star${star === 1 ? '' : 's'}`
+                  : `rate ${star} star${star === 1 ? "" : "s"}`
               }
             >
               <svg
@@ -73,29 +73,23 @@ export function SongRatingField(props: SongRatingFieldProps) {
                 viewBox="0 0 24 24"
                 class="w-full h-full"
               >
-                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
               </svg>
             </button>
           )}
         </For>
 
         <Show when={currentRating() > 0}>
-          <span class="ml-2 text-sm text-gray-400">
-            {currentRating()}/5
-          </span>
+          <span class="ml-2 text-sm text-gray-400">{currentRating()}/5</span>
         </Show>
 
         <Show when={currentRating() === 0}>
-          <span class="ml-2 text-sm text-gray-500">
-            not rated
-          </span>
+          <span class="ml-2 text-sm text-gray-500">not rated</span>
         </Show>
       </div>
 
       <Show when={props.isDirty}>
-        <div class="text-xs text-magenta-400">
-          rating will be updated
-        </div>
+        <div class="text-xs text-magenta-400">rating will be updated</div>
       </Show>
     </div>
   );
