@@ -91,6 +91,7 @@ export interface FreqholeEvents {
   // Data events
   "data:reload": { type: "songs" | "artists" | "albums" | "playlists" };
   "data:error": { error: string; type?: string };
+  "songs:updated": { songs: any[]; operation: "bulk-update" | "single-update" };
 }
 
 export type EventName = keyof FreqholeEvents;

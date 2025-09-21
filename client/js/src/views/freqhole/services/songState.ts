@@ -29,7 +29,7 @@ export function createSongStateService() {
           // Updated song state for ${songId}
         }
       } else {
-        console.warn(`🎵 Attempted to update non-existent song: ${songId}`);
+        console.warn(`attempted to update non-existent song: ${songId}`);
       }
 
       return newSongs;
@@ -88,6 +88,12 @@ export function createSongStateService() {
       updateSong(songId, { user_rating: rating });
     }
   );
+
+  // Listen for targeted song updates
+  events.on("songs:updated", ({ songs: updatedSongs }) => {
+    setSongList(updatedSongs);
+    console.log(`updated ${updatedSongs.length} songs via targeted update`);
+  });
 
   // Clear state on data reload
   events.on("data:reload", ({ type }) => {

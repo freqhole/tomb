@@ -829,41 +829,15 @@ export class ApiClient {
       throw new Error("no user preference updates provided");
     }
 
-    console.log("API: bulkUpdateUserPreferences - raw request:", {
-      song_ids: request.song_ids,
-      updates: request.updates,
-    });
-    console.log("API: bulkUpdateUserPreferences - clean payload:", {
+    console.log("API: bulkUpdateUserPreferences payload:", {
       song_ids: request.song_ids,
       updates: userPrefUpdates,
     });
-    console.log(
-      "API: bulkUpdateUserPreferences - field count:",
-      Object.keys(userPrefUpdates).length
-    );
 
-    try {
-      return await musicApiMethods.bulkUpdateUserPreferences.call(this, {
-        song_ids: request.song_ids,
-        updates: userPrefUpdates,
-      });
-    } catch (error) {
-      console.error("bulk update user preferences error:", error);
-      // handle schema validation errors gracefully - the update might still succeed
-      if (
-        error.message?.includes("validation failed") ||
-        error.message?.includes("Expected object, received null")
-      ) {
-        console.warn(
-          "user preferences schema validation failed but update likely succeeded, returning success response"
-        );
-        return {
-          message: "user preferences updated (schema validation bypassed)",
-          updated_preferences: [],
-        };
-      }
-      throw error;
-    }
+    return musicApiMethods.bulkUpdateUserPreferences.call(this, {
+      song_ids: request.song_ids,
+      updates: userPrefUpdates,
+    });
   }
 
   async toggleSongFavorite(songId: string, isFavorite: boolean) {
@@ -952,48 +926,15 @@ export class ApiClient {
       throw new Error("no metadata updates provided");
     }
 
-    console.log("API: bulkUpdateSongs - raw request:", {
-      song_ids: request.song_ids,
-      updates: request.updates,
-    });
-    console.log("API: bulkUpdateSongs - clean payload:", {
+    console.log("API: bulkUpdateSongs payload:", {
       song_ids: request.song_ids,
       updates: cleanMetadataUpdates,
     });
-    console.log(
-      "API: bulkUpdateSongs - field count:",
-      Object.keys(cleanMetadataUpdates).length
-    );
 
-    try {
-      return await musicAdminApiMethods.bulkUpdateSongs.call(this, {
-        song_ids: request.song_ids,
-        updates: cleanMetadataUpdates,
-      });
-    } catch (error) {
-      console.error("bulk update songs error:", error);
-      // handle schema validation errors gracefully - the update might still succeed
-      if (
-        error.message?.includes("validation failed") ||
-        error.message?.includes("tag_operations") ||
-        error.message?.includes("Expected object, received null")
-      ) {
-        console.warn(
-          "schema validation failed but update likely succeeded, returning success response"
-        );
-        return {
-          message: "update completed (schema validation bypassed)",
-          updated_songs: [],
-          operations_summary: {
-            total_songs: request.song_ids.length,
-            successful_updates: request.song_ids.length,
-            failed_updates: 0,
-            tag_operations: null,
-          },
-        };
-      }
-      throw error;
-    }
+    return musicAdminApiMethods.bulkUpdateSongs.call(this, {
+      song_ids: request.song_ids,
+      updates: cleanMetadataUpdates,
+    });
   }
 
   async updateSongTags(songId: string, tags: string[]) {

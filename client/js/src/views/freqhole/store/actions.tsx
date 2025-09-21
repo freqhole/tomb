@@ -167,6 +167,29 @@ export function createStoreActions(
     // expose mutate functions for coordinated updates
     mutateAvailableTags,
 
+    // targeted song updates for efficiency
+    updateSongsInPlace: (updatedSongs: any[]) => {
+      mutateSongs((current) => {
+        if (!current || !Array.isArray(current.songs)) return current;
+
+        // create a map of updated songs by ID for fast lookup
+        const updatedSongsMap = new Map(
+          updatedSongs.map((song) => [song.id, song])
+        );
+
+        // update existing songs in place
+        const newSongs = current.songs.map((song) => {
+          const updated = updatedSongsMap.get(song.id);
+          return updated ? updated : song;
+        });
+
+        return {
+          ...current,
+          songs: newSongs,
+        };
+      });
+    },
+
     // reactive filter actions with proper produce patterns
     setFavoritesFilter: (enabled: boolean) => {
       setStore("filters", "favoritesOnly", enabled);

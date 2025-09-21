@@ -61,9 +61,7 @@ export function QueueItem(props: QueueItemProps) {
           <h4 class="text-sm font-medium truncate">
             {props.song.title || "Unknown Title"}
           </h4>
-          <p class="text-xs text-gray-400 truncate">
-            {props.song.artist || "Unknown Artist"}
-          </p>
+          <p class="text-xs text-gray-400 truncate">{props.song.artist}</p>
         </div>
 
         <div class="text-xs text-gray-400">

@@ -123,7 +123,31 @@ export function SongInfoModalNew(props: SongInfoModalProps) {
       }
 
       if (promises.length > 0) {
-        await Promise.all(promises);
+        const results = await Promise.all(promises);
+
+        // collect updated songs from all API responses
+        const updatedSongs = results.flatMap((result) => {
+          if ("updated_songs" in result) {
+            return result.updated_songs;
+          }
+          if ("updated_preferences" in result) {
+            // for user preferences, we need to merge with existing song data
+            // for now, trigger full reload since we don't have the full song objects
+            return [];
+          }
+          return [];
+        });
+
+        if (updatedSongs.length > 0) {
+          // emit targeted update with actual server response data
+          events.emit("songs:updated", {
+            songs: updatedSongs,
+            operation: isBulkMode() ? "bulk-update" : "single-update",
+          });
+        } else {
+          // fallback to full reload if no updated songs in response
+          events.emit("data:reload", { type: "songs" });
+        }
       }
 
       // success feedback
@@ -131,9 +155,6 @@ export function SongInfoModalNew(props: SongInfoModalProps) {
         message: `updated ${totalSongs()} song(s)`,
         type: "success",
       });
-
-      // refresh data (no optimistic updates during form editing)
-      events.emit("data:reload", { type: "songs" });
 
       props.onClose();
     } catch (err) {

@@ -5,11 +5,11 @@
 
 use crate::music::models::{
     AlbumFavoriteStatus, AlbumSummary, AlbumTrack, ArtistAlbum, BulkFavoriteAlbumRequest,
-    BulkTagOperation, BulkUpdatePreferencesRequest, BulkUpdateSongsRequest, CreatePlaylist,
-    CreateSong, MusicDatabaseStats, Playlist, PlaylistComplete, PlaylistOwnership, PlaylistQuery,
-    PlaylistSong, PlaylistSongDetail, PlaylistSongWithMedia, PlaylistSummary, PlaylistWithCount,
-    PlaylistWithUserContext, RecentSongWithThumbnail, Song, SongQuery, SongWithMedia,
-    SongWithUserPrefs, TransferPlaylistOwnershipRequest, UpdatePlaylist,
+    BulkSongUpdates, BulkTagOperation, BulkUpdatePreferencesRequest, BulkUpdateSongsRequest,
+    CreatePlaylist, CreateSong, MusicDatabaseStats, Playlist, PlaylistComplete, PlaylistOwnership,
+    PlaylistQuery, PlaylistSong, PlaylistSongDetail, PlaylistSongWithMedia, PlaylistSummary,
+    PlaylistWithCount, PlaylistWithUserContext, RecentSongWithThumbnail, Song, SongQuery,
+    SongWithMedia, SongWithUserPrefs, TransferPlaylistOwnershipRequest, UpdatePlaylist,
     UpdateUserPlaylistPreferenceRequest, UpdateUserPreferenceRequest, UserPlaylistPreference,
     UserSongPreference,
 };
@@ -327,11 +327,43 @@ impl MusicRepository {
 
         let mut updated_songs = Vec::new();
 
+        // Process metadata updates if any are specified
+        let has_metadata_updates = request.updates.title.is_some()
+            || request.updates.artist.is_some()
+            || request.updates.album.is_some()
+            || request.updates.album_artist.is_some()
+            || request.updates.track_number.is_some()
+            || request.updates.disc_number.is_some()
+            || request.updates.genre.is_some()
+            || request.updates.year.is_some()
+            || request.updates.bpm.is_some()
+            || request.updates.key_signature.is_some();
+
+        if has_metadata_updates {
+            // Update metadata fields for all songs
+            match self
+                .bulk_update_metadata(&request.song_ids, &request.updates)
+                .await
+            {
+                Ok(songs) => updated_songs.extend(songs),
+                Err(e) => {
+                    tracing::error!("Failed to update metadata for songs: {:?}", e);
+                }
+            }
+        }
+
         // Process tag operations if specified
         if let Some(tag_operation) = request.updates.tags {
             for song_id in &request.song_ids {
                 match self.apply_tag_operation(*song_id, &tag_operation).await {
-                    Ok(song) => updated_songs.push(song),
+                    Ok(song) => {
+                        // If we already updated metadata, replace the existing entry
+                        if let Some(pos) = updated_songs.iter().position(|s| s.id == song.id) {
+                            updated_songs[pos] = song;
+                        } else {
+                            updated_songs.push(song);
+                        }
+                    }
                     Err(e) => {
                         tracing::error!("Failed to update tags for song {}: {:?}", song_id, e);
                         // Continue with other songs, don't fail entire operation
@@ -341,6 +373,53 @@ impl MusicRepository {
         }
 
         Ok(updated_songs)
+    }
+
+    /// Bulk update metadata fields for multiple songs
+    async fn bulk_update_metadata(
+        &self,
+        song_ids: &[Uuid],
+        updates: &BulkSongUpdates,
+    ) -> Result<Vec<Song>> {
+        if song_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let songs = sqlx::query_as::<_, Song>(
+            r#"
+            UPDATE songs
+            SET
+                title = COALESCE($1, title),
+                artist = COALESCE($2, artist),
+                album = COALESCE($3, album),
+                album_artist = COALESCE($4, album_artist),
+                track_number = COALESCE($5, track_number),
+                disc_number = COALESCE($6, disc_number),
+                genre = COALESCE($7, genre),
+                year = COALESCE($8, year),
+                bpm = COALESCE($9, bpm),
+                key_signature = COALESCE($10, key_signature),
+                updated_at = NOW()
+            WHERE id = ANY($11)
+            RETURNING *
+            "#,
+        )
+        .bind(&updates.title)
+        .bind(&updates.artist)
+        .bind(&updates.album)
+        .bind(&updates.album_artist)
+        .bind(updates.track_number)
+        .bind(updates.disc_number)
+        .bind(&updates.genre)
+        .bind(updates.year)
+        .bind(updates.bpm)
+        .bind(&updates.key_signature)
+        .bind(song_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(MusicRepositoryError::Database)?;
+
+        Ok(songs)
     }
 
     /// Apply tag operation to a single song

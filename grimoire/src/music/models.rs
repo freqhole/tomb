@@ -1226,6 +1226,17 @@ pub struct BulkUpdateSongsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BulkSongUpdates {
     pub tags: Option<BulkTagOperation>,
+    // Metadata fields - all optional for partial updates
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<i32>,
+    pub disc_number: Option<i32>,
+    pub genre: Option<String>,
+    pub year: Option<i32>,
+    pub bpm: Option<i32>,
+    pub key_signature: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

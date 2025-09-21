@@ -94,6 +94,13 @@ export function DesktopSongsView(
         reloadSongs();
       }
     });
+
+    // Listen for targeted song updates - more efficient than full reload
+    events.on("songs:updated", (data) => {
+      console.log(`desktop: received ${data.songs.length} updated songs`);
+      // Update reactive store directly for immediate UI refresh
+      reactiveActions.updateSongsInPlace(data.songs);
+    });
   });
 
   const handleSongClick = (_song: Song) => {
