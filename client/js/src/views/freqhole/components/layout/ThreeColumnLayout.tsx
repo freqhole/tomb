@@ -13,6 +13,7 @@ import { SongInfoModal } from "../modals/SongInfoModal";
 import type { Song } from "../../../../lib/music/schemas/song";
 import { UserMenu } from "../auth/UserMenu";
 import { useAuth } from "../../../../hooks/auth";
+import { isMobile } from "../../../../lib/format-utils";
 
 export function ThreeColumnLayout(props: any) {
   const [layout] = useLayout();
@@ -160,41 +161,44 @@ export function ThreeColumnLayout(props: any) {
         </div>
       </Show>
 
-      {/* Desktop Layout */}
-      <div class={`hidden md:grid ${columnClasses()} h-full pb-20`}>
-        {/* Navigation Column */}
-        <div class="h-full overflow-y-auto">
-          <Navigation />
-        </div>
-
-        {/* Content Column */}
-        <div class="h-full overflow-y-auto">
-          <Content>{props.children}</Content>
-        </div>
-
-        {/* Queue Column (conditional) */}
-        <Show when={layout.queueOpen}>
+      <Show when={!isMobile()}>
+        {/* Desktop Layout */}
+        <div class={`hidden md:grid ${columnClasses()} h-full pb-20`}>
+          {/* Navigation Column */}
           <div class="h-full overflow-y-auto">
-            <Queue />
+            <Navigation />
           </div>
-        </Show>
-      </div>
 
-      {/* Mobile Single Column Layout */}
-      <div class="md:hidden flex-1 overflow-hidden pb-20 w-full max-w-full">
-        <Show when={!mobileNavOpen()}>
-          <Show when={!layout.queueOpen}>
-            <div class="h-full overflow-y-auto w-full max-w-full">
-              <Content>{props.children}</Content>
-            </div>
-          </Show>
+          {/* Content Column */}
+          <div class="h-full overflow-y-auto">
+            <Content>{props.children}</Content>
+          </div>
+
+          {/* Queue Column (conditional) */}
           <Show when={layout.queueOpen}>
-            <div class="h-full overflow-y-auto w-full max-w-full">
+            <div class="h-full overflow-y-auto">
               <Queue />
             </div>
           </Show>
-        </Show>
-      </div>
+        </div>
+      </Show>
+      <Show when={isMobile()}>
+        {/* Mobile Single Column Layout */}
+        <div class="md:hidden flex-1 overflow-hidden pb-20 w-full max-w-full">
+          <Show when={!mobileNavOpen()}>
+            <Show when={!layout.queueOpen}>
+              <div class="h-full overflow-y-auto w-full max-w-full">
+                <Content>{props.children}</Content>
+              </div>
+            </Show>
+            <Show when={layout.queueOpen}>
+              <div class="h-full overflow-y-auto w-full max-w-full">
+                <Queue />
+              </div>
+            </Show>
+          </Show>
+        </div>
+      </Show>
 
       {/* Fixed Footer Player */}
       <div class="fixed bottom-0 left-0 right-0 z-50">
