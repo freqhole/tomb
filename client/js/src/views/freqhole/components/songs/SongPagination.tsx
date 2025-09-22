@@ -24,13 +24,13 @@ export function SongPagination(props: SongPaginationProps) {
   };
 
   return (
-    <div class="sticky bottom-0 bg-black border-t border-gray-700 p-4">
+    <div class="sticky bottom-0 bg-black p-4">
       <div class="flex items-center justify-between">
         {/* left side - pagination controls */}
         <div class="flex items-center gap-4">
           <Show when={props.totalSongs > 1}>
             {/* bulk mode toggle */}
-            <button
+            {/*<button
               class={`
                 px-3 py-1 text-sm transition-colors
                 ${
@@ -44,7 +44,7 @@ export function SongPagination(props: SongPaginationProps) {
               title={props.isBulkMode ? "switch to individual mode" : "switch to bulk mode"}
             >
               {props.isBulkMode ? "bulk edit" : "bulk edit"}
-            </button>
+            </button>*/}
 
             {/* pagination controls - only show when not in bulk mode */}
             <Show when={!props.isBulkMode}>
@@ -84,13 +84,6 @@ export function SongPagination(props: SongPaginationProps) {
                 </button>
               </div>
             </Show>
-          </Show>
-
-          {/* mode indicator */}
-          <Show when={props.totalSongs > 1}>
-            <div class="text-xs text-gray-500">
-              {props.isBulkMode ? "bulk mode" : "individual mode"}
-            </div>
           </Show>
         </div>
 

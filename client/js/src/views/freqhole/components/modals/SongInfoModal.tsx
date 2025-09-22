@@ -189,23 +189,39 @@ export function SongInfoModal(props: SongInfoModalProps) {
 
   return (
     <Show when={props.isOpen}>
-      <Modal isOpen={props.isOpen} onClose={() => props.onClose()} size="lg">
+      <Modal
+        isOpen={props.isOpen}
+        onClose={() => props.onClose()}
+        showCloseButton={false}
+        size="lg"
+      >
         <div class="space-y-6">
           {/* header */}
           <div class="flex items-center justify-between">
-            <h2 class="text-xl font-bold text-white">
-              {isBulkMode() ? "bulk song info" : "song info"}
-            </h2>
+            {/* song navigation */}
+            <Show when={totalSongs() > 1}>
+              <button
+                onClick={() => setIsBulkMode(!isBulkMode())}
+                class="px-3 py-1 text-sm bg-gray-700 text-white hover:bg-gray-600 transition-colors"
+                disabled={isLoading()}
+              >
+                {isBulkMode() ? "single edit" : "bulk edit"}
+              </button>
+
+              <SongPagination
+                currentIndex={currentSongIndex()}
+                totalSongs={totalSongs()}
+                isBulkMode={false}
+                isLoading={isLoading()}
+                onPrevious={goToPrevious}
+                onNext={goToNext}
+                onToggleBulkMode={() => setIsBulkMode(true)}
+                onCancel={() => props.onClose()}
+                onSave={handleSave}
+              />
+            </Show>
+
             <div class="flex items-center gap-2">
-              {totalSongs() > 1 && (
-                <button
-                  onClick={() => setIsBulkMode(!isBulkMode())}
-                  class="px-3 py-1 text-sm bg-gray-700 text-white hover:bg-gray-600 transition-colors"
-                  disabled={isLoading()}
-                >
-                  {isBulkMode() ? "single edit" : "bulk edit"}
-                </button>
-              )}
               <button
                 onClick={() => props.onClose()}
                 class="text-gray-400 hover:text-white transition-colors"
@@ -245,21 +261,6 @@ export function SongInfoModal(props: SongInfoModalProps) {
             ) : (
               // single song mode
               <>
-                {/* song navigation */}
-                <Show when={totalSongs() > 1}>
-                  <SongPagination
-                    currentIndex={currentSongIndex()}
-                    totalSongs={totalSongs()}
-                    isBulkMode={false}
-                    isLoading={isLoading()}
-                    onPrevious={goToPrevious}
-                    onNext={goToNext}
-                    onToggleBulkMode={() => setIsBulkMode(true)}
-                    onCancel={() => props.onClose()}
-                    onSave={handleSave}
-                  />
-                </Show>
-
                 {/* song content - uses schema-driven form */}
                 <Show when={currentSong()}>
                   {isEditing() ? (
