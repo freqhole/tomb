@@ -1,4 +1,4 @@
-import { createEffect, For } from "solid-js";
+import { createEffect, For, createSignal } from "solid-js";
 import { useSongFormStore } from "../../../../hooks/forms/useFormStore";
 import { SongFormField } from "../forms/SongFormField";
 import { FormFieldConfig } from "../../../../lib/music/schemas/form-schemas";
@@ -7,7 +7,10 @@ import type { EditableSongFields } from "../../../../lib/music/schemas/form-sche
 
 interface SongEditFormProps {
   song: Song;
+  songs?: Song[];
+  currentIndex?: number;
   onFormChange: (changes: Partial<EditableSongFields>) => void;
+  onSongChange?: (index: number) => void;
 }
 
 export function SongEditForm(props: SongEditFormProps) {
@@ -18,8 +21,51 @@ export function SongEditForm(props: SongEditFormProps) {
     props.onFormChange(formStore.changes());
   });
 
+  const totalSongs = () => props.songs?.length || 1;
+  const currentIndex = () => props.currentIndex || 0;
+  const canGoPrevious = () => currentIndex() > 0;
+  const canGoNext = () => currentIndex() < totalSongs() - 1;
+  const isMultipleSongs = () => totalSongs() > 1;
+
+  const goToPrevious = () => {
+    if (canGoPrevious() && props.onSongChange) {
+      props.onSongChange(currentIndex() - 1);
+    }
+  };
+
+  const goToNext = () => {
+    if (canGoNext() && props.onSongChange) {
+      props.onSongChange(currentIndex() + 1);
+    }
+  };
+
   return (
     <div class="space-y-6">
+      {/* pagination - shown when multiple songs */}
+      {isMultipleSongs() && (
+        <div class="flex items-center justify-between pb-4 border-b border-gray-700">
+          <div class="flex items-center gap-4">
+            <button
+              onClick={goToPrevious}
+              class="px-3 py-1 text-sm text-gray-300 hover:text-white transition-colors disabled:opacity-50"
+              disabled={!canGoPrevious()}
+            >
+              ← previous
+            </button>
+            <span class="text-sm text-gray-400">
+              {currentIndex() + 1} of {totalSongs()}
+            </span>
+            <button
+              onClick={goToNext}
+              class="px-3 py-1 text-sm text-gray-300 hover:text-white transition-colors disabled:opacity-50"
+              disabled={!canGoNext()}
+            >
+              next →
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* song info header */}
       <div class="bg-gray-800/50 p-4 border border-gray-700">
         <div class="font-medium text-white mb-1">

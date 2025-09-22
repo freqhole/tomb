@@ -25,7 +25,6 @@ export function SongInfoModal(props: SongInfoModalProps) {
   const [formChanges, setFormChanges] = createSignal<
     Partial<EditableSongFields>
   >({});
-  const [formKey, setFormKey] = createSignal(0);
 
   const totalSongs = () => props.songs.length;
   const currentSong = () => props.songs[currentSongIndex()];
@@ -50,17 +49,7 @@ export function SongInfoModal(props: SongInfoModalProps) {
       } else {
         setIsBulkMode(false);
       }
-      // force form re-render
-      setFormKey((k) => k + 1);
     }
-  });
-
-  // clear form changes when switching modes or songs
-  createEffect(() => {
-    isBulkMode();
-    currentSongIndex();
-    setFormChanges({});
-    setFormKey((k) => k + 1);
   });
 
   // navigation handlers
@@ -75,12 +64,6 @@ export function SongInfoModal(props: SongInfoModalProps) {
   // form change handler
   const handleFormChange = (changes: Partial<EditableSongFields>) => {
     setFormChanges(changes);
-  };
-
-  // reset handler - force form re-creation which resets all values
-  const handleReset = () => {
-    setFormChanges({});
-    setFormKey((k) => k + 1);
   };
 
   // schema-driven save handler
@@ -207,7 +190,12 @@ export function SongInfoModal(props: SongInfoModalProps) {
 
   return (
     <Show when={props.isOpen}>
-      <Modal isOpen={props.isOpen} onClose={() => props.onClose()} size="lg">
+      <Modal
+        isOpen={props.isOpen}
+        onClose={() => props.onClose()}
+        size="lg"
+        showCloseButton={false}
+      >
         <div class="space-y-6">
           {/* header */}
           <div class="flex items-center justify-between">
@@ -250,12 +238,10 @@ export function SongInfoModal(props: SongInfoModalProps) {
                   editing {totalSongs()} songs
                 </div>
                 {isEditing() ? (
-                  <Show when={formKey() >= 0}>
-                    <SongBulkEditForm
-                      songs={props.songs}
-                      onFormChange={handleFormChange}
-                    />
-                  </Show>
+                  <SongBulkEditForm
+                    songs={props.songs}
+                    onFormChange={handleFormChange}
+                  />
                 ) : (
                   <div class="text-gray-400">
                     bulk editing requires admin privileges
@@ -268,11 +254,16 @@ export function SongInfoModal(props: SongInfoModalProps) {
                 {/* song content - uses schema-driven form */}
                 <Show when={currentSong()}>
                   {isEditing() ? (
-                    <Show when={formKey() >= 0}>
-                      <SongEditForm
-                        song={currentSong()!}
-                        onFormChange={handleFormChange}
-                      />
+                    <Show when={currentSong()?.id} keyed>
+                      {(songId) => (
+                        <SongEditForm
+                          song={currentSong()!}
+                          songs={props.songs}
+                          currentIndex={currentSongIndex()}
+                          onFormChange={handleFormChange}
+                          onSongChange={(index) => setCurrentSongIndex(index)}
+                        />
+                      )}
                     </Show>
                   ) : (
                     <SongMetadataView
@@ -286,63 +277,34 @@ export function SongInfoModal(props: SongInfoModalProps) {
           </div>
 
           {/* actions */}
-          <div class="flex items-center justify-between pt-4 border-t border-gray-700">
-            {/* pagination - only shown in single edit mode with multiple songs */}
-            <Show
-              when={!isBulkMode() && totalSongs() > 1}
-              fallback={<div></div>}
-            >
-              <div class="flex items-center gap-4">
-                <button
-                  onClick={goToPrevious}
-                  class="px-3 py-1 text-sm text-gray-300 hover:text-white transition-colors disabled:opacity-50"
-                  disabled={currentSongIndex() <= 0}
-                >
-                  ← previous
-                </button>
-                <span class="text-sm text-gray-400">
-                  {currentSongIndex() + 1} of {totalSongs()}
-                </span>
-                <button
-                  onClick={goToNext}
-                  class="px-3 py-1 text-sm text-gray-300 hover:text-white transition-colors disabled:opacity-50"
-                  disabled={currentSongIndex() >= totalSongs() - 1}
-                >
-                  next →
-                </button>
-              </div>
+          <div class="flex justify-end gap-3 pt-4 border-t border-gray-700">
+            {/* cancel and save buttons - always shown when editing */}
+            <Show when={isEditing()}>
+              <button
+                onClick={() => props.onClose()}
+                class="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+                disabled={isLoading()}
+              >
+                cancel
+              </button>
+              <button
+                onClick={handleSave}
+                class="px-4 py-2 bg-magenta-600 text-white hover:bg-magenta-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isLoading() || !hasChanges()}
+              >
+                {isLoading() ? "saving..." : "save changes"}
+              </button>
             </Show>
 
-            {/* action buttons */}
-            <div class="flex items-center gap-3">
-              {/* cancel and save buttons - always shown when editing */}
-              <Show when={isEditing()}>
-                <button
-                  onClick={() => props.onClose()}
-                  class="px-4 py-2 text-gray-300 hover:text-white transition-colors"
-                  disabled={isLoading()}
-                >
-                  cancel
-                </button>
-                <button
-                  onClick={handleSave}
-                  class="px-4 py-2 bg-magenta-600 text-white hover:bg-magenta-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={isLoading() || !hasChanges()}
-                >
-                  {isLoading() ? "saving..." : "save changes"}
-                </button>
-              </Show>
-
-              {/* close button for view-only mode */}
-              <Show when={!isEditing()}>
-                <button
-                  onClick={() => props.onClose()}
-                  class="px-4 py-2 text-gray-300 hover:text-white transition-colors"
-                >
-                  close
-                </button>
-              </Show>
-            </div>
+            {/* close button for view-only mode */}
+            <Show when={!isEditing()}>
+              <button
+                onClick={() => props.onClose()}
+                class="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+              >
+                close
+              </button>
+            </Show>
           </div>
         </div>
       </Modal>
