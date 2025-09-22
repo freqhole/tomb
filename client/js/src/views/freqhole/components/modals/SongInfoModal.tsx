@@ -255,15 +255,13 @@ export function SongInfoModal(props: SongInfoModalProps) {
                 <Show when={currentSong()}>
                   {isEditing() ? (
                     <Show when={currentSong()?.id} keyed>
-                      {(songId) => (
-                        <SongEditForm
-                          song={currentSong()!}
-                          songs={props.songs}
-                          currentIndex={currentSongIndex()}
-                          onFormChange={handleFormChange}
-                          onSongChange={(index) => setCurrentSongIndex(index)}
-                        />
-                      )}
+                      <SongEditForm
+                        song={currentSong()!}
+                        songs={props.songs}
+                        currentIndex={currentSongIndex()}
+                        onFormChange={handleFormChange}
+                        onSongChange={(index) => setCurrentSongIndex(index)}
+                      />
                     </Show>
                   ) : (
                     <SongMetadataView
