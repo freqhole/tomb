@@ -31,10 +31,14 @@ export function SongFormField(props: SongFormFieldProps) {
 
   // only update input value if it actually changed and input is not focused
   createEffect(() => {
-    if (inputRef && document.activeElement !== inputRef) {
+    if (inputRef) {
       const newValue = props.value || "";
       if (inputRef.value !== newValue) {
         inputRef.value = newValue;
+        // if the input is focused and we're resetting, blur it first
+        if (document.activeElement === inputRef && !props.isDirty) {
+          inputRef.blur();
+        }
       }
     }
   });
@@ -128,7 +132,13 @@ export function SongFormField(props: SongFormFieldProps) {
         <Show when={props.isDirty && !props.disabled}>
           <button
             type="button"
-            onClick={props.onReset}
+            onClick={() => {
+              // blur the input before resetting to ensure value updates
+              if (inputRef && document.activeElement === inputRef) {
+                inputRef.blur();
+              }
+              props.onReset();
+            }}
             class="text-xs text-gray-400 hover:text-magenta-400 transition-colors px-2 py-1 hover:bg-gray-700"
             title="reset to original value"
           >
