@@ -155,7 +155,19 @@ export function SongInfoModal(props: SongInfoModalProps) {
         type: "success",
       });
 
-      props.onClose();
+      // handle post-save navigation
+      if (isBulkMode() || totalSongs() === 1) {
+        // close modal for bulk mode or single song
+        props.onClose();
+      } else {
+        // single edit mode with multiple songs - advance to next or close if last
+        const isLastSong = currentSongIndex() >= totalSongs() - 1;
+        if (isLastSong) {
+          props.onClose();
+        } else {
+          goToNext();
+        }
+      }
     } catch (err) {
       console.error("save failed:", err);
       setError(err instanceof Error ? err.message : "failed to save changes");
@@ -290,7 +302,13 @@ export function SongInfoModal(props: SongInfoModalProps) {
                 class="px-4 py-2 bg-magenta-600 text-white hover:bg-magenta-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={isLoading() || !hasChanges()}
               >
-                {isLoading() ? "saving..." : "save changes"}
+                {isLoading()
+                  ? "saving..."
+                  : !isBulkMode() &&
+                      totalSongs() > 1 &&
+                      currentSongIndex() < totalSongs() - 1
+                    ? "save and next"
+                    : "save"}
               </button>
             </Show>
 
