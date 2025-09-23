@@ -187,29 +187,49 @@ export function ContextMenuManager() {
   const showRegularMenu = () => !tagSelector() && !playlistSelector();
 
   return (
-    <ContextMenu
-      x={contextMenu.position().x}
-      y={contextMenu.position().y}
-      isOpen={contextMenu.isOpen()}
-      onClose={handleClose}
-      actions={showRegularMenu() ? convertActions(actions()) : []}
-    >
-      <Show when={showTagSelector()}>
-        <TagSelectorMenu
-          songs={tagSelector()!.songs}
-          mode={tagSelector()!.mode}
+    <>
+      <Show when={showRegularMenu()}>
+        <ContextMenu
+          x={contextMenu.position().x}
+          y={contextMenu.position().y}
+          isOpen={contextMenu.isOpen()}
           onClose={handleClose}
+          actions={convertActions(actions())}
         />
       </Show>
 
-      <Show when={showPlaylistSelector()}>
-        <PlaylistSelectorMenu
-          songs={playlistSelector()!.songs}
+      <Show when={showTagSelector()}>
+        <ContextMenu
+          x={contextMenu.position().x}
+          y={contextMenu.position().y}
+          isOpen={contextMenu.isOpen()}
           onClose={handleClose}
-          onPlaylistSelected={handlePlaylistSelected}
-          onNewPlaylistCreated={handleNewPlaylistCreated}
-        />
+          actions={[]}
+        >
+          <TagSelectorMenu
+            songs={tagSelector()!.songs}
+            mode={tagSelector()!.mode}
+            onClose={handleClose}
+          />
+        </ContextMenu>
       </Show>
-    </ContextMenu>
+
+      <Show when={showPlaylistSelector()}>
+        <ContextMenu
+          x={contextMenu.position().x}
+          y={contextMenu.position().y}
+          isOpen={contextMenu.isOpen()}
+          onClose={handleClose}
+          actions={[]}
+        >
+          <PlaylistSelectorMenu
+            songs={playlistSelector()!.songs}
+            onClose={handleClose}
+            onPlaylistSelected={handlePlaylistSelected}
+            onNewPlaylistCreated={handleNewPlaylistCreated}
+          />
+        </ContextMenu>
+      </Show>
+    </>
   );
 }

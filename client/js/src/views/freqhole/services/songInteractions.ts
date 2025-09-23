@@ -171,7 +171,8 @@ export function useSongInteractions() {
       currentPlaylistId?: string;
     }
   ): MenuAction[] => {
-    const actions = [
+    const auth = useAuth();
+    const actions: MenuAction[] = [
       {
         label: "play",
         icon: "play",
@@ -197,7 +198,7 @@ export function useSongInteractions() {
         icon: "queue-add",
         action: () => queueSong(song),
       },
-      { type: "separator" } as SeparatorAction,
+      { type: "separator" },
       {
         label: song.user_is_favorite
           ? "remove from favorites"
@@ -218,21 +219,20 @@ export function useSongInteractions() {
       },
     ];
 
-    // Add conditional separator and navigation actions
+    // Add navigation actions if available
     const hasNavActions =
       (!context?.hideViewArtist && song.artist) ||
       (!context?.hideViewAlbum && song.album);
 
     if (hasNavActions) {
-      actions.push({ type: "separator" } as SeparatorAction);
+      actions.push({ type: "separator" });
 
       if (!context?.hideViewArtist && song.artist) {
         actions.push({
           label: "view artist",
           icon: "artist",
           action: () => viewArtist(song),
-          disabled: !song.artist,
-        } as SongAction);
+        });
       }
 
       if (!context?.hideViewAlbum && song.album) {
@@ -240,14 +240,13 @@ export function useSongInteractions() {
           label: "view album",
           icon: "album",
           action: () => viewAlbum(song),
-          disabled: !song.album,
-        } as SongAction);
+        });
       }
     }
 
     // Add playlist removal option if in a playlist
     if (context?.currentPlaylistId) {
-      actions.push({ type: "separator" } as SeparatorAction);
+      actions.push({ type: "separator" });
       actions.push({
         label: "remove from playlist",
         icon: "playlist-remove",
@@ -259,15 +258,12 @@ export function useSongInteractions() {
           );
         },
         destructive: true,
-      } as SongAction);
+      });
     }
 
-    // Add tag management actions
-    const auth = useAuth();
-    actions.push({ type: "separator" } as SeparatorAction);
-
-    // Tags option (admin-only)
+    // Add tag management actions (admin only)
     if (auth.isAdmin) {
+      actions.push({ type: "separator" });
       actions.push({
         label: "tags",
         icon: "tag",
@@ -282,8 +278,8 @@ export function useSongInteractions() {
       });
     }
 
-    // Add separator and info action
-    actions.push({ type: "separator" } as SeparatorAction);
+    // Add info action
+    actions.push({ type: "separator" });
     actions.push({
       label: "song info",
       icon: "info",
