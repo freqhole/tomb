@@ -1,5 +1,9 @@
-import { Show } from "solid-js";
+import { Show, createSignal, createEffect } from "solid-js";
 import type { Song } from "../../../../lib/music/schemas/song";
+import { SongRatingField } from "../forms/SongRatingField";
+import { SongFavoriteField } from "../forms/SongFavoriteField";
+import { apiClient } from "../../../../lib/api-client";
+import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 
 interface SongMetadataViewProps {
   songs: Song[];
@@ -7,19 +11,29 @@ interface SongMetadataViewProps {
 }
 
 export function SongMetadataView(props: SongMetadataViewProps) {
-  const totalSongs = () => props.songs.length;
-  const currentSong = () => props.songs[props.currentSongIndex];
+  const events = useGlobalEvents();
+  const [isUpdating, setIsUpdating] = createSignal(false);
+  const [localSongs, setLocalSongs] = createSignal(props.songs);
+
+  // Update local songs when props change
+  createEffect(() => {
+    setLocalSongs(props.songs);
+  });
+
+  const totalSongs = () => localSongs().length;
+  const currentSong = () => localSongs()[props.currentSongIndex];
   const isBulkMode = () => totalSongs() > 1;
 
   // determine if values are mixed across selected songs
   const getMixedOrValue = <T,>(getValue: (song: Song) => T): T | "mixed" => {
-    if (props.songs.length === 0) return "mixed" as T | "mixed";
+    const songs = localSongs();
+    if (songs.length === 0) return "mixed" as T | "mixed";
 
-    const firstSong = props.songs[0];
+    const firstSong = songs[0];
     if (!firstSong) return "mixed" as T | "mixed";
 
     const firstValue = getValue(firstSong);
-    const allSame = props.songs.every((song) => getValue(song) === firstValue);
+    const allSame = songs.every((song) => getValue(song) === firstValue);
 
     return allSame ? firstValue : "mixed";
   };
@@ -136,24 +150,114 @@ export function SongMetadataView(props: SongMetadataViewProps) {
         )}
       </div>
 
-      {/* user preference placeholders */}
+      {/* user preferences */}
       <div class="border-t border-gray-700 pt-4">
         <h3 class="text-sm font-medium text-gray-300 mb-3">user preferences</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div class="space-y-1">
-            <div class="text-sm font-medium text-gray-400">rating</div>
-            <div class="text-sm text-gray-500">
-              // TODO: use SongStarRatingCompact component (read-only)
-            </div>
+        <Show when={isBulkMode()}>
+          <div class="mb-4 p-3 bg-yellow-900/20 border border-yellow-600 text-yellow-200 text-sm">
+            Bulk editing of user preferences is not yet supported. Please edit
+            songs individually.
           </div>
+        </Show>
+        <Show when={!isBulkMode() && currentSong()}>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <SongRatingField
+              value={currentSong()?.user_rating || null}
+              isDirty={false}
+              disabled={isUpdating()}
+              onUpdate={async (rating) => {
+                const song = currentSong();
+                if (!song) return;
 
-          <div class="space-y-1">
-            <div class="text-sm font-medium text-gray-400">favorite</div>
-            <div class="text-sm text-gray-500">
-              // TODO: use SongFavoriteHeart component (read-only)
-            </div>
+                try {
+                  setIsUpdating(true);
+
+                  // Optimistically update local state first
+                  const updatedSong = { ...song, user_rating: rating };
+                  setLocalSongs((prev) =>
+                    prev.map((s) => (s.id === song.id ? updatedSong : s))
+                  );
+
+                  await apiClient.rateSong(song.id, rating || 0);
+
+                  // Emit events for other components
+                  events.emit("songs:updated", {
+                    songs: [updatedSong],
+                    operation: "single-update",
+                  });
+
+                  events.emit("notification:show", {
+                    message: rating
+                      ? `rated ${rating} stars`
+                      : "rating removed",
+                    type: "success",
+                  });
+                } catch (error) {
+                  console.error("failed to update rating:", error);
+                  // Revert local state on error
+                  setLocalSongs((prev) =>
+                    prev.map((s) => (s.id === song.id ? song : s))
+                  );
+                  events.emit("notification:show", {
+                    message: "failed to update rating",
+                    type: "error",
+                  });
+                } finally {
+                  setIsUpdating(false);
+                }
+              }}
+              onReset={() => {}}
+            />
+
+            <SongFavoriteField
+              value={currentSong()?.user_is_favorite || false}
+              isDirty={false}
+              disabled={isUpdating()}
+              onUpdate={async (isFavorite) => {
+                const song = currentSong();
+                if (!song) return;
+
+                try {
+                  setIsUpdating(true);
+
+                  // Optimistically update local state first
+                  const updatedSong = { ...song, user_is_favorite: isFavorite };
+                  setLocalSongs((prev) =>
+                    prev.map((s) => (s.id === song.id ? updatedSong : s))
+                  );
+
+                  await apiClient.toggleSongFavorite(song.id, isFavorite);
+
+                  // Emit events for other components
+                  events.emit("songs:updated", {
+                    songs: [updatedSong],
+                    operation: "single-update",
+                  });
+
+                  events.emit("notification:show", {
+                    message: isFavorite
+                      ? "added to favorites"
+                      : "removed from favorites",
+                    type: "success",
+                  });
+                } catch (error) {
+                  console.error("failed to update favorite:", error);
+                  // Revert local state on error
+                  setLocalSongs((prev) =>
+                    prev.map((s) => (s.id === song.id ? song : s))
+                  );
+                  events.emit("notification:show", {
+                    message: "failed to update favorite",
+                    type: "error",
+                  });
+                } finally {
+                  setIsUpdating(false);
+                }
+              }}
+              onReset={() => {}}
+            />
           </div>
-        </div>
+        </Show>
       </div>
     </div>
   );

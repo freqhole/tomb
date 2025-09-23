@@ -255,9 +255,7 @@ export function SongInfoModal(props: SongInfoModalProps) {
                     onFormChange={handleFormChange}
                   />
                 ) : (
-                  <div class="text-gray-400">
-                    bulk editing requires admin privileges
-                  </div>
+                  <SongMetadataView songs={props.songs} currentSongIndex={0} />
                 )}
               </>
             ) : (
