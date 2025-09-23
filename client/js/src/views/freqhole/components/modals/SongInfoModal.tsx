@@ -31,9 +31,9 @@ export function SongInfoModal(props: SongInfoModalProps) {
   const isEditing = () => auth.isAdmin;
   const hasChanges = () => Object.keys(formChanges()).length > 0;
 
-  // initialize bulk mode for multi-song selections
+  // initialize bulk mode for multi-song selections (admin only)
   onMount(() => {
-    if (totalSongs() > 1) {
+    if (totalSongs() > 1 && auth.isAdmin) {
       setIsBulkMode(true);
     }
   });
@@ -44,7 +44,7 @@ export function SongInfoModal(props: SongInfoModalProps) {
       setCurrentSongIndex(0);
       setError(null);
       setFormChanges({});
-      if (totalSongs() > 1) {
+      if (totalSongs() > 1 && auth.isAdmin) {
         setIsBulkMode(true);
       } else {
         setIsBulkMode(false);
@@ -215,7 +215,7 @@ export function SongInfoModal(props: SongInfoModalProps) {
               {isBulkMode() ? "bulk song info" : "song info"}
             </h2>
             <div class="flex items-center gap-2">
-              {totalSongs() > 1 && (
+              {totalSongs() > 1 && auth.isAdmin && (
                 <button
                   onClick={() => setIsBulkMode(!isBulkMode())}
                   class="px-3 py-1 text-sm bg-gray-700 text-white hover:bg-gray-600 transition-colors"
@@ -255,7 +255,11 @@ export function SongInfoModal(props: SongInfoModalProps) {
                     onFormChange={handleFormChange}
                   />
                 ) : (
-                  <SongMetadataView songs={props.songs} currentSongIndex={0} />
+                  <SongMetadataView
+                    songs={props.songs}
+                    currentSongIndex={0}
+                    isBulkMode={true}
+                  />
                 )}
               </>
             ) : (
@@ -275,8 +279,10 @@ export function SongInfoModal(props: SongInfoModalProps) {
                     </Show>
                   ) : (
                     <SongMetadataView
-                      songs={[currentSong()!]}
-                      currentSongIndex={0}
+                      songs={props.songs}
+                      currentSongIndex={currentSongIndex()}
+                      onSongChange={(index) => setCurrentSongIndex(index)}
+                      isBulkMode={false}
                     />
                   )}
                 </Show>

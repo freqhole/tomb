@@ -8,6 +8,8 @@ import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 interface SongMetadataViewProps {
   songs: Song[];
   currentSongIndex: number;
+  onSongChange?: (index: number) => void;
+  isBulkMode?: boolean;
 }
 
 export function SongMetadataView(props: SongMetadataViewProps) {
@@ -22,7 +24,22 @@ export function SongMetadataView(props: SongMetadataViewProps) {
 
   const totalSongs = () => localSongs().length;
   const currentSong = () => localSongs()[props.currentSongIndex];
-  const isBulkMode = () => totalSongs() > 1;
+  const isBulkMode = () => props.isBulkMode || false;
+  const isMultipleSongs = () => totalSongs() > 1;
+  const canGoPrevious = () => props.currentSongIndex > 0;
+  const canGoNext = () => props.currentSongIndex < totalSongs() - 1;
+
+  const goToPrevious = () => {
+    if (canGoPrevious() && props.onSongChange) {
+      props.onSongChange(props.currentSongIndex - 1);
+    }
+  };
+
+  const goToNext = () => {
+    if (canGoNext() && props.onSongChange) {
+      props.onSongChange(props.currentSongIndex + 1);
+    }
+  };
 
   // determine if values are mixed across selected songs
   const getMixedOrValue = <T,>(getValue: (song: Song) => T): T | "mixed" => {
@@ -76,6 +93,31 @@ export function SongMetadataView(props: SongMetadataViewProps) {
 
   return (
     <div class="space-y-6">
+      {/* navigation - shown when multiple songs and not in bulk mode */}
+      <Show when={isMultipleSongs() && !isBulkMode()}>
+        <div class="flex items-center justify-between pb-4 border-b border-gray-700">
+          <div class="flex items-center gap-4">
+            <button
+              onClick={goToPrevious}
+              class="px-3 py-1 text-sm text-gray-300 hover:text-white transition-colors disabled:opacity-50"
+              disabled={!canGoPrevious()}
+            >
+              ← previous
+            </button>
+            <span class="text-sm text-gray-400">
+              {props.currentSongIndex + 1} of {totalSongs()}
+            </span>
+            <button
+              onClick={goToNext}
+              class="px-3 py-1 text-sm text-gray-300 hover:text-white transition-colors disabled:opacity-50"
+              disabled={!canGoNext()}
+            >
+              next →
+            </button>
+          </div>
+        </div>
+      </Show>
+
       {/* bulk mode header */}
       <Show when={isBulkMode()}>
         <div class="bg-gray-800/50 p-4 border border-gray-700">
@@ -90,29 +132,17 @@ export function SongMetadataView(props: SongMetadataViewProps) {
         </div>
       </Show>
 
-      {/* single song header */}
-      <Show when={totalSongs() === 1}>
+      {/* song info header - for single song or current song in navigation */}
+      <Show when={currentSong()}>
         <div class="bg-gray-800/50 p-4 border border-gray-700">
           <div class="font-medium text-white mb-1">
+            {isMultipleSongs() ? "viewing: " : ""}
             {currentSong()?.title || "untitled"}
           </div>
           <div class="text-sm text-gray-400">
             {currentSong()?.artist && `${currentSong()?.artist} • `}
             {currentSong()?.album || "no album"}
             {currentSong()?.year && ` • ${currentSong()?.year}`}
-          </div>
-        </div>
-      </Show>
-
-      {/* current song info during multi-song navigation */}
-      <Show when={totalSongs() > 1 && props.currentSongIndex >= 0}>
-        <div class="bg-gray-700/30 p-3 border border-gray-600">
-          <div class="text-sm text-gray-300">
-            currently viewing:{" "}
-            <span class="text-white font-medium">
-              {currentSong()?.title || "untitled"}
-            </span>
-            {currentSong()?.artist && ` by ${currentSong()?.artist}`}
           </div>
         </div>
       </Show>
@@ -153,12 +183,6 @@ export function SongMetadataView(props: SongMetadataViewProps) {
       {/* user preferences */}
       <div class="border-t border-gray-700 pt-4">
         <h3 class="text-sm font-medium text-gray-300 mb-3">user preferences</h3>
-        <Show when={isBulkMode()}>
-          <div class="mb-4 p-3 bg-yellow-900/20 border border-yellow-600 text-yellow-200 text-sm">
-            Bulk editing of user preferences is not yet supported. Please edit
-            songs individually.
-          </div>
-        </Show>
         <Show when={!isBulkMode() && currentSong()}>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <SongRatingField
