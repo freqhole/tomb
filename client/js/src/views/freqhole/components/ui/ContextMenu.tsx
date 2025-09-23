@@ -1,4 +1,11 @@
-import { JSX, Show, createSignal, onMount, onCleanup } from "solid-js";
+import {
+  JSX,
+  Show,
+  createSignal,
+  onMount,
+  onCleanup,
+  createEffect,
+} from "solid-js";
 import { useGlobalOverlay } from "./useGlobalOverlay";
 
 export interface MenuAction {
@@ -22,6 +29,7 @@ export interface ContextMenuProps {
 export function ContextMenu(props: ContextMenuProps) {
   const [menuRef, setMenuRef] = createSignal<HTMLDivElement>();
   const [position, setPosition] = createSignal({ x: props.x, y: props.y });
+  let resizeObserver: ResizeObserver | undefined;
 
   // Calculate constrained position
   const calculateConstrainedPosition = () => {
@@ -88,7 +96,32 @@ export function ContextMenu(props: ContextMenuProps) {
 
     onCleanup(() => {
       overlay.deactivate();
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
     });
+  });
+
+  // Set up ResizeObserver to recalculate position when menu size changes
+  createEffect(() => {
+    const menu = menuRef();
+    if (menu && props.isOpen) {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+
+      resizeObserver = new ResizeObserver(() => {
+        requestAnimationFrame(() => {
+          const constrainedPos = calculateConstrainedPosition();
+          setPosition(constrainedPos);
+        });
+      });
+
+      resizeObserver.observe(menu);
+    } else if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = undefined;
+    }
   });
 
   const handleAction = (action: MenuAction) => {
