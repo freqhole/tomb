@@ -129,7 +129,7 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
 
   // row selection with keyboard support
   const selection = useRowSelection({
-    data: props.data,
+    data: () => props.data,
     getItemId: getItemId,
     onSelectionChange: props.onSelectionChange,
   });

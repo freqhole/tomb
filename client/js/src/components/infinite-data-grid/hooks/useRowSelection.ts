@@ -1,7 +1,7 @@
-import { createSignal } from "solid-js";
+import { createSignal, createEffect } from "solid-js";
 
 export function useRowSelection<T>(props: {
-  data: T[];
+  data: () => T[];
   getItemId: (item: T) => string;
   onSelectionChange?: (
     selectedIds: Set<string>,
@@ -20,9 +20,10 @@ export function useRowSelection<T>(props: {
       // range selection
       const start = Math.min(lastSelectedIndex(), index);
       const end = Math.max(lastSelectedIndex(), index);
+      const data = props.data();
       for (let i = start; i <= end; i++) {
-        if (i < props.data.length && props.data[i] != null) {
-          current.add(props.getItemId(props.data[i]!));
+        if (i < data.length && data[i] != null) {
+          current.add(props.getItemId(data[i]!));
         }
       }
     } else if (event.ctrlKey || event.metaKey) {
@@ -45,14 +46,11 @@ export function useRowSelection<T>(props: {
   };
 
   const selectAll = () => {
-    const allIds = new Set<string>(
-      props.data.map((item) => props.getItemId(item))
-    );
+    const data = props.data();
+    const allIds = new Set<string>(data.map((item) => props.getItemId(item)));
     setSelectedIds(() => allIds);
     const lastId =
-      props.data.length > 0
-        ? props.getItemId(props.data[props.data.length - 1]!)
-        : undefined;
+      data.length > 0 ? props.getItemId(data[data.length - 1]!) : undefined;
     props.onSelectionChange?.(allIds, lastId);
   };
 
@@ -66,19 +64,18 @@ export function useRowSelection<T>(props: {
     const current = new Set(selectedIds());
     const start = Math.min(startIndex, endIndex);
     const end = Math.max(startIndex, endIndex);
+    const data = props.data();
 
     for (let i = start; i <= end; i++) {
-      if (i < props.data.length && props.data[i] != null) {
-        const itemId = props.getItemId(props.data[i]!);
+      if (i < data.length && data[i] != null) {
+        const itemId = props.getItemId(data[i]!);
         current.add(itemId);
       }
     }
 
     setSelectedIds(current);
     const lastId =
-      endIndex < props.data.length
-        ? props.getItemId(props.data[endIndex]!)
-        : undefined;
+      endIndex < data.length ? props.getItemId(data[endIndex]!) : undefined;
     props.onSelectionChange?.(current, lastId);
   };
 
