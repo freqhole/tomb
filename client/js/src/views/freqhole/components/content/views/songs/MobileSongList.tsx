@@ -38,11 +38,18 @@ export function MobileSongList(props: MobileSongListProps) {
         <For each={props.songs}>
           {(song, index) => (
             <div
-              class={`p-3 hover:bg-magenta-600/20 transition-colors cursor-pointer group border border-transparent rounded-lg ${
+              class={`p-3 hover:bg-magenta-600/20 transition-colors cursor-pointer group border border-transparent rounded-lg select-none ${
                 selection.isSelected(song.id)
                   ? "bg-magenta-600/30 border-magenta-400/50"
                   : ""
               }`}
+              data-song-row
+              style={{
+                "user-select": "none",
+                "-webkit-user-select": "none",
+                "-webkit-touch-callout": "none",
+                "-webkit-tap-highlight-color": "transparent",
+              }}
               onClick={(e) => {
                 if (e.detail === 1) {
                   // Single click - handle selection

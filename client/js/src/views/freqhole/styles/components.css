@@ -17,6 +17,24 @@
   @apply bg-red-500 text-white hover:bg-red-600 hover:border-red-300;
 }
 
+/* Song Row Styles - Prevent text selection on mobile */
+.song-row,
+.song-item,
+[data-song-row] {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Apply to any interactive song elements */
+[class*="song-"]:not(input):not(textarea) {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
 .freqhole-button-icon {
   @apply p-2 rounded border border-transparent hover:bg-primary-500 hover:border-primary-300 transition-all duration-200;
 }

@@ -138,6 +138,10 @@ export function ContextMenu(props: ContextMenuProps) {
 
   return (
     <Show when={props.isOpen}>
+      {/* Backdrop */}
+      <div class="fixed inset-0 z-40 bg-black/30" onClick={props.onClose} />
+
+      {/* Menu */}
       <div
         ref={(el) => {
           setMenuRef(el);
