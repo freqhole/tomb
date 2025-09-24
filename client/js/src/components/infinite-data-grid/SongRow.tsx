@@ -112,19 +112,14 @@ export function SongRow(props: SongRowProps) {
 
   return (
     <div
-      class={`absolute inset-x-0 flex items-center transition-colors select-none ${
+      class={`absolute inset-x-0 flex items-center transition-colors ${
         props.isSelected
           ? "bg-magenta-500 bg-opacity-30 shadow-[inset_0_0_0_2px_rgb(217,70,239)]"
           : "bg-black bg-opacity-90 hover:bg-opacity-70"
       } ${props.isFocused ? "shadow-[inset_0_0_0_1px_white]" : ""}`}
-      data-song-row
       style={{
         height: "64px",
         transform: `translateY(${props.index * 64}px)`,
-        "user-select": "none",
-        "-webkit-user-select": "none",
-        "-webkit-touch-callout": "none",
-        "-webkit-tap-highlight-color": "transparent",
       }}
       onClick={props.onClick}
       onDblClick={props.onDoubleClick}

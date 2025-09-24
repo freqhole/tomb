@@ -1,6 +1,8 @@
 import { createSignal, For, JSX } from "solid-js";
 import type { GridColumn } from "./types";
 import { getCellClasses } from "./styles/grid-styles";
+import { useLongPress } from "../../views/freqhole/hooks/useLongPress";
+import { isMobile } from "../../lib/format-utils";
 
 export interface VirtualizedRowProps<T> {
   item: T;
@@ -31,6 +33,37 @@ export interface VirtualizedRowProps<T> {
 }
 
 export function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
+  // Touch handling for mobile devices
+  const longPressHandlers = useLongPress(
+    {
+      onLongPress: (event) => {
+        // Create synthetic mouse event for context menu
+        const syntheticEvent = {
+          preventDefault: () => {},
+          clientX: event.clientX,
+          clientY: event.clientY,
+          type: "contextmenu",
+        } as MouseEvent;
+        handleContextMenu(syntheticEvent);
+      },
+      onTap: () => {
+        // Handle as normal click
+        const syntheticEvent = {
+          preventDefault: () => {},
+          detail: 1,
+          shiftKey: false,
+          ctrlKey: false,
+          metaKey: false,
+        } as MouseEvent;
+        props.onClick?.(props.item, props.index, syntheticEvent);
+      },
+    },
+    {
+      delay: 500,
+      moveThreshold: 10,
+    }
+  );
+
   // handle context menu with cell context
   const handleContextMenu = (event: MouseEvent, column?: GridColumn<T>) => {
     if (!props.onContextMenu) return;
@@ -145,6 +178,7 @@ export function VirtualizedRow<T>(props: VirtualizedRowProps<T>) {
       role="row"
       aria-selected={props.isSelected}
       aria-rowindex={props.index + 1}
+      {...(isMobile() ? longPressHandlers : {})}
     >
       <For each={props.columns}>
         {(column) => {
