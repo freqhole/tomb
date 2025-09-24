@@ -60,6 +60,13 @@ export function SongStarRatingCompact(props: SongStarRatingCompactProps) {
         rating: rating,
       });
 
+      // Also emit songs:updated event for components that listen to that
+      const updatedSong = { ...song, user_rating: rating };
+      events.emit("songs:updated", {
+        songs: [updatedSong],
+        operation: "single-update",
+      });
+
       // Call the optional callback
       props.onRate?.(song.id, rating);
     } catch (error) {

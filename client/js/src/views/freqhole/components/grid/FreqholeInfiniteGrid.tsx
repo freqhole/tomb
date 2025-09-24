@@ -1,3 +1,4 @@
+import { createMemo } from "solid-js";
 import { InfiniteGrid } from "../../../../components/infinite-data-grid";
 import type { GridColumn } from "../../../../components/infinite-data-grid/types";
 import type { Song } from "../../../../lib/music/schemas/song";
@@ -45,24 +46,8 @@ export function FreqholeInfiniteGrid<T = any>(
     );
   }
 
-  // Configure columns based on render mode
-  const getColumns = (): GridColumn<T>[] => {
-    switch (props.renderMode) {
-      case "songs":
-        return getSongColumns() as GridColumn<T>[];
-      case "songs-mobile":
-        return getMobileSongColumns() as GridColumn<T>[];
-      case "artists":
-        return getArtistColumns() as GridColumn<T>[];
-      case "albums":
-        return getAlbumColumns() as GridColumn<T>[];
-      default:
-        return [];
-    }
-  };
-
   // Desktop song columns - full featured
-  const getSongColumns = (): GridColumn<Song>[] => [
+  const getSongColumns = (selectedItems?: Set<string>): GridColumn<Song>[] => [
     {
       key: "index",
       title: "#",
@@ -147,7 +132,7 @@ export function FreqholeInfiniteGrid<T = any>(
           <SongStarRatingCompact
             song={song}
             size="sm"
-            selected={props.selectedItems?.has(song.id) || false}
+            selected={selectedItems?.has(song.id) || false}
           />
         </div>
       ),
@@ -208,7 +193,9 @@ export function FreqholeInfiniteGrid<T = any>(
   ];
 
   // Mobile song columns - simplified
-  const getMobileSongColumns = (): GridColumn<Song>[] => [
+  const getMobileSongColumns = (
+    selectedItems?: Set<string>
+  ): GridColumn<Song>[] => [
     {
       key: "song_info",
       title: "song",
@@ -235,8 +222,17 @@ export function FreqholeInfiniteGrid<T = any>(
       width: 85,
       sortable: false,
       render: (song: Song) => (
-        <div class="py-3 pr-2 flex items-center justify-end gap-3">
-          <SongStarRatingCompact song={song} size="md" />
+        <div
+          class="py-3 pr-2 flex items-center justify-end gap-3"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <SongStarRatingCompact
+            song={song}
+            size="md"
+            selected={selectedItems?.has(song.id) || false}
+          />
           <SongFavoriteHeart song={song} size="md" />
         </div>
       ),
@@ -302,6 +298,22 @@ export function FreqholeInfiniteGrid<T = any>(
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
+
+  // Configure columns based on render mode - use createMemo to react to selectedItems changes
+  const getColumns = createMemo((): GridColumn<T>[] => {
+    switch (props.renderMode) {
+      case "songs":
+        return getSongColumns(props.selectedItems) as GridColumn<T>[];
+      case "songs-mobile":
+        return getMobileSongColumns(props.selectedItems) as GridColumn<T>[];
+      case "artists":
+        return getArtistColumns() as GridColumn<T>[];
+      case "albums":
+        return getAlbumColumns() as GridColumn<T>[];
+      default:
+        return [];
+    }
+  });
 
   return (
     <div class={`h-full flex flex-col ${props.class || ""}`}>

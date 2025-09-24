@@ -68,8 +68,7 @@ export function StarRatingCompact(props: StarRatingCompactProps) {
       }
     }
   };
-
-  const fillColor = props.selected ? "#000000" : "#d946ef";
+  const fillColor = props.selected ? "#eeddee" : "#d946ef";
   const emptyColor = props.selected ? "#333333" : "#6b7280";
 
   return (

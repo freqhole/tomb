@@ -52,6 +52,47 @@ export function DesktopSongsView(
     });
   });
 
+  // Listen for song updates to keep grid data in sync
+  createEffect(() => {
+    events.on("song:rating-updated", ({ songId, rating }) => {
+      // Update the song in reactive store
+      const currentData = dataSections.songs.data() as
+        | PostSearchResponse
+        | undefined;
+      if (currentData?.songs) {
+        const updatedSongs = currentData.songs.map((song) =>
+          song.id === songId ? { ...song, user_rating: rating } : song
+        );
+        // Update the reactive store with new data
+        reactiveActions.updateSongsInPlace(updatedSongs);
+      }
+    });
+
+    events.on("song:favorite", ({ song }) => {
+      const currentData = dataSections.songs.data() as
+        | PostSearchResponse
+        | undefined;
+      if (currentData?.songs) {
+        const updatedSongs = currentData.songs.map((s) =>
+          s.id === song.id ? { ...s, user_is_favorite: true } : s
+        );
+        reactiveActions.updateSongsInPlace(updatedSongs);
+      }
+    });
+
+    events.on("song:unfavorite", ({ song }) => {
+      const currentData = dataSections.songs.data() as
+        | PostSearchResponse
+        | undefined;
+      if (currentData?.songs) {
+        const updatedSongs = currentData.songs.map((s) =>
+          s.id === song.id ? { ...s, user_is_favorite: false } : s
+        );
+        reactiveActions.updateSongsInPlace(updatedSongs);
+      }
+    });
+  });
+
   // Use reactive store data for songs - PostSearchResponse has proper types
   const songs = () => {
     const result = dataSections.songs.data() as PostSearchResponse | undefined;

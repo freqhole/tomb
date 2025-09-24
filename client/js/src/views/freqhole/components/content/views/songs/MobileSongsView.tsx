@@ -233,9 +233,9 @@ export function MobileSongsView(props: MobileSongsViewProps) {
             renderMode="songs-mobile"
             loading={loading()}
             error={error()}
-            enableSelection={false}
+            enableSelection={true}
             enableKeyboardShortcuts={false}
-            selectedItems={new Set()}
+            selectedItems={selection.selectedItems()}
             onSelectionChange={handleSelectionChange}
             onItemClick={handleSongClick}
             onContextMenu={handleContextMenu}

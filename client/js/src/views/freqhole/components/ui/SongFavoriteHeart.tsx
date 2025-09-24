@@ -51,6 +51,13 @@ export function SongFavoriteHeart(props: SongFavoriteHeartProps) {
         events.emit("song:unfavorite", { song });
       }
 
+      // Also emit songs:updated event for components that listen to that
+      const updatedSong = { ...song, user_is_favorite: newFavoriteState };
+      events.emit("songs:updated", {
+        songs: [updatedSong],
+        operation: "single-update",
+      });
+
       // Call the optional callback
       props.onToggle?.(song.id, newFavoriteState);
     } catch (error) {
