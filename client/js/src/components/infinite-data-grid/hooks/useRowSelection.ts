@@ -1,4 +1,4 @@
-import { createSignal, createEffect } from "solid-js";
+import { createSignal } from "solid-js";
 
 export function useRowSelection<T>(props: {
   data: () => T[];
