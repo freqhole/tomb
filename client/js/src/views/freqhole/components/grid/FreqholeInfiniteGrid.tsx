@@ -1,4 +1,3 @@
-import { createMemo } from "solid-js";
 import { InfiniteGrid } from "../../../../components/infinite-data-grid";
 import type { GridColumn } from "../../../../components/infinite-data-grid/types";
 import type { Song } from "../../../../lib/music/schemas/song";
@@ -47,7 +46,7 @@ export function FreqholeInfiniteGrid<T = any>(
   }
 
   // Desktop song columns - full featured
-  const getSongColumns = (selectedItems?: Set<string>): GridColumn<Song>[] => [
+  const getSongColumns = (): GridColumn<Song>[] => [
     {
       key: "index",
       title: "#",
@@ -132,7 +131,7 @@ export function FreqholeInfiniteGrid<T = any>(
           <SongStarRatingCompact
             song={song}
             size="sm"
-            selected={selectedItems?.has(song.id) || false}
+            selected={props.selectedItems?.has(song.id) || false}
           />
         </div>
       ),
@@ -193,9 +192,7 @@ export function FreqholeInfiniteGrid<T = any>(
   ];
 
   // Mobile song columns - simplified
-  const getMobileSongColumns = (
-    selectedItems?: Set<string>
-  ): GridColumn<Song>[] => [
+  const getMobileSongColumns = (): GridColumn<Song>[] => [
     {
       key: "song_info",
       title: "song",
@@ -231,7 +228,7 @@ export function FreqholeInfiniteGrid<T = any>(
           <SongStarRatingCompact
             song={song}
             size="md"
-            selected={selectedItems?.has(song.id) || false}
+            selected={props.selectedItems?.has(song.id) || false}
           />
           <SongFavoriteHeart song={song} size="md" />
         </div>
@@ -299,13 +296,13 @@ export function FreqholeInfiniteGrid<T = any>(
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Configure columns based on render mode - use createMemo to react to selectedItems changes
-  const getColumns = createMemo((): GridColumn<T>[] => {
+  // Configure columns based on render mode - stable columns that don't recreate on selection changes
+  const getColumns = (): GridColumn<T>[] => {
     switch (props.renderMode) {
       case "songs":
-        return getSongColumns(props.selectedItems) as GridColumn<T>[];
+        return getSongColumns() as GridColumn<T>[];
       case "songs-mobile":
-        return getMobileSongColumns(props.selectedItems) as GridColumn<T>[];
+        return getMobileSongColumns() as GridColumn<T>[];
       case "artists":
         return getArtistColumns() as GridColumn<T>[];
       case "albums":
@@ -313,7 +310,7 @@ export function FreqholeInfiniteGrid<T = any>(
       default:
         return [];
     }
-  });
+  };
 
   return (
     <div class={`h-full flex flex-col ${props.class || ""}`}>
