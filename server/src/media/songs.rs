@@ -992,14 +992,27 @@ pub async fn bulk_update_songs(
     Extension(_user): Extension<AuthenticatedUser>,
     Json(req): Json<BulkUpdateSongsRequest>,
 ) -> Result<Json<BulkUpdateSongsResponse>, WebauthnError> {
+    tracing::info!(
+        "🎵 Bulk update songs endpoint called with {} song IDs",
+        req.song_ids.len()
+    );
+    tracing::info!("Song IDs: {:?}", req.song_ids);
+    tracing::info!("Updates: {:?}", req.updates);
+
     let repository = MusicRepository::new(db.pool().clone());
     let service = PlaylistService::new(repository);
 
     // Use grimoire service to update songs directly
-    let updated_songs = service
-        .bulk_update_songs(req)
-        .await
-        .map_err(|_| WebauthnError::DatabaseError)?;
+    let updated_songs = match service.bulk_update_songs(req).await {
+        Ok(songs) => {
+            tracing::info!("✅ Service returned {} updated songs", songs.len());
+            songs
+        }
+        Err(e) => {
+            tracing::error!("❌ Service error: {:?}", e);
+            return Err(WebauthnError::DatabaseError);
+        }
+    };
 
     let successful_updates = updated_songs.len();
 

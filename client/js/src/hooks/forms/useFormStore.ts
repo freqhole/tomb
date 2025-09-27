@@ -28,6 +28,7 @@ export function useSongFormStore(
       year: song.year,
       bpm: song.bpm,
       key_signature: song.key_signature,
+      thumbnail_blob_id: song.thumbnail_blob_id,
       user_rating: song.user_rating,
       user_is_favorite: song.user_is_favorite,
     });
@@ -97,10 +98,10 @@ export function useSongFormStore(
     return field in changes();
   };
 
-  // type-safe field updates
+  // type-safe field updates - allow File objects for image fields
   const updateField = <K extends keyof EditableSongFields>(
     field: K,
-    value: EditableSongFields[K] | null
+    value: EditableSongFields[K] | null | File
   ) => {
     setCurrentData((prev) => ({ ...prev, [field]: value }));
   };

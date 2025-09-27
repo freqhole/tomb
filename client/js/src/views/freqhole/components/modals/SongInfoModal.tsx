@@ -8,6 +8,7 @@ import { SongMetadataView } from "../songs/SongMetadataView";
 import { SongEditForm } from "../songs/SongEditForm";
 import { SongBulkEditForm } from "../songs/SongBulkEditForm";
 import type { EditableSongFields } from "../../../../lib/music/schemas/form-schemas";
+import { FileUploadHandler } from "../../../../lib/file-upload";
 
 interface SongInfoModalProps {
   isOpen: boolean;
@@ -83,6 +84,39 @@ export function SongInfoModal(props: SongInfoModalProps) {
         ? props.songs.map((s) => s.id)
         : [currentSong()!.id];
 
+      console.log("Song IDs to update:", songIds);
+      console.log("Original changes:", changes);
+
+      // Handle file uploads first
+      let processedChanges = { ...changes };
+
+      if (
+        changes.thumbnail_blob_id &&
+        typeof changes.thumbnail_blob_id === "object" &&
+        "name" in changes.thumbnail_blob_id &&
+        "size" in changes.thumbnail_blob_id
+      ) {
+        console.log("Uploading file:", changes.thumbnail_blob_id);
+
+        const fileUploader = new FileUploadHandler({
+          baseUrl: apiClient.getBaseUrl(),
+          minFileSize: 0,
+          maxFileSize: 10 * 1024 * 1024, // 10MB
+        });
+
+        const uploadResult = await fileUploader.uploadMediaBlob(
+          changes.thumbnail_blob_id as File,
+          {
+            type: "song-thumbnail",
+            songIds: songIds,
+          }
+        );
+
+        console.log("Upload result:", uploadResult);
+        processedChanges.thumbnail_blob_id = uploadResult.id;
+        console.log("Processed changes:", processedChanges);
+      }
+
       const promises = [];
 
       // schema-driven API calls - the methods automatically handle field categorization
@@ -92,9 +126,14 @@ export function SongInfoModal(props: SongInfoModalProps) {
           apiClient
             .bulkUpdateSongsFromChanges({
               song_ids: songIds,
-              updates: changes,
+              updates: processedChanges,
+            })
+            .then((result) => {
+              console.log("Metadata update result:", result);
+              return result;
             })
             .catch((err) => {
+              console.error("Metadata update error:", err);
               // if no metadata fields, this is expected and ok
               if (err.message?.includes("no metadata updates")) {
                 return null;
@@ -109,7 +148,7 @@ export function SongInfoModal(props: SongInfoModalProps) {
         apiClient
           .bulkUpdateUserPreferencesFromChanges({
             song_ids: songIds,
-            updates: changes,
+            updates: processedChanges,
           })
           .catch((err) => {
             // if no user preference fields, this is expected and ok
@@ -122,6 +161,8 @@ export function SongInfoModal(props: SongInfoModalProps) {
 
       const results = await Promise.all(promises);
       const validResults = results.filter(Boolean);
+
+      console.log("Valid results from API calls:", validResults);
 
       if (validResults.length > 0) {
         // collect updated songs from all API responses
@@ -136,14 +177,18 @@ export function SongInfoModal(props: SongInfoModalProps) {
           return [];
         });
 
+        console.log("Updated songs from API:", updatedSongs);
+
         if (updatedSongs.length > 0) {
           // emit targeted update with actual server response data
           events.emit("songs:updated", {
             songs: updatedSongs,
             operation: isBulkMode() ? "bulk-update" : "single-update",
           });
+          console.log("Emitted songs:updated event");
         } else {
           // fallback to full reload if no updated songs in response
+          console.log("No updated songs, emitting data:reload");
           events.emit("data:reload", { type: "songs" });
         }
       }

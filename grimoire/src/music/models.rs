@@ -1237,6 +1237,7 @@ pub struct BulkSongUpdates {
     pub year: Option<i32>,
     pub bpm: Option<i32>,
     pub key_signature: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

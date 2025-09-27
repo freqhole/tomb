@@ -1,4 +1,4 @@
-import { createSignal, Show, For } from "solid-js";
+import { createSignal, Show, For, createEffect } from "solid-js";
 import type { Song } from "../../../../lib/music/schemas/song";
 import { apiClient } from "../../../../lib/api-client";
 
@@ -85,26 +85,13 @@ export function ImageCarousel(props: ImageCarouselProps) {
   };
 
   // Watch for song changes and reset image index
-  (() => {
-    let lastSongId = currentSong()?.id;
-    let lastBulkMode = props.isBulkMode;
+  createEffect(() => {
+    const songId = currentSong()?.id;
+    const bulkMode = props.isBulkMode;
 
-    const checkForChanges = () => {
-      const newSongId = currentSong()?.id;
-      const newBulkMode = props.isBulkMode;
-
-      if (newSongId !== lastSongId || newBulkMode !== lastBulkMode) {
-        resetImageIndex();
-        lastSongId = newSongId;
-        lastBulkMode = newBulkMode;
-      }
-    };
-
-    // Create a derived signal to track changes
-    (() => {
-      checkForChanges();
-    })();
-  })();
+    // Reset image index when song or mode changes
+    resetImageIndex();
+  });
 
   return (
     <Show when={hasImages()}>

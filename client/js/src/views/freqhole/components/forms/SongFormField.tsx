@@ -5,6 +5,7 @@ import {
 } from "../../../../lib/music/schemas/form-schemas.js";
 import { SongRatingField } from "./SongRatingField.js";
 import { SongFavoriteField } from "./SongFavoriteField.js";
+import { SongImageField } from "./SongImageField.js";
 
 interface SongFormFieldProps {
   field: keyof EditableSongFields;
@@ -106,6 +107,17 @@ export function SongFormField(props: SongFormFieldProps) {
           />
         );
 
+      case "image":
+        return (
+          <SongImageField
+            value={props.value}
+            isDirty={props.isDirty}
+            disabled={props.disabled}
+            onUpdate={props.onUpdate}
+            onReset={props.onReset}
+          />
+        );
+
       default:
         return (
           <div class="text-red-500">
@@ -115,8 +127,12 @@ export function SongFormField(props: SongFormFieldProps) {
     }
   };
 
-  // rating and favorite components handle their own layout
-  if (config.type === "rating" || config.type === "favorite") {
+  // rating, favorite, and image components handle their own layout
+  if (
+    config.type === "rating" ||
+    config.type === "favorite" ||
+    config.type === "image"
+  ) {
     return renderInput();
   }
 

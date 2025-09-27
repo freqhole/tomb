@@ -13,6 +13,7 @@ export const SongMetadataFieldsSchema = SongSchema.pick({
   year: true,
   bpm: true,
   key_signature: true,
+  thumbnail_blob_id: true,
 });
 
 export type SongMetadataFields = z.infer<typeof SongMetadataFieldsSchema>;
@@ -29,7 +30,7 @@ export type SongUserPreferenceFields = z.infer<
 
 // combined editable fields
 export const EditableSongFieldsSchema = SongMetadataFieldsSchema.merge(
-  SongUserPreferenceFieldsSchema,
+  SongUserPreferenceFieldsSchema
 );
 
 export type EditableSongFields = z.infer<typeof EditableSongFieldsSchema>;
@@ -48,6 +49,7 @@ export const FormFieldConfig = {
     year: { label: "year", type: "number" as const },
     bpm: { label: "bpm", type: "number" as const },
     key_signature: { label: "key signature", type: "text" as const },
+    thumbnail_blob_id: { label: "thumbnail image", type: "image" as const },
   },
   // user preference fields
   userPreferences: {
@@ -75,17 +77,23 @@ export const isMetadataField = (field: keyof EditableSongFields): boolean => {
   return field in FormFieldConfig.metadata;
 };
 
-export const isUserPreferenceField = (field: keyof EditableSongFields): boolean => {
+export const isUserPreferenceField = (
+  field: keyof EditableSongFields
+): boolean => {
   return field in FormFieldConfig.userPreferences;
 };
 
 // helper to get field configuration
 export const getFieldConfig = (field: keyof EditableSongFields) => {
   if (field in FormFieldConfig.metadata) {
-    return FormFieldConfig.metadata[field as keyof typeof FormFieldConfig.metadata];
+    return FormFieldConfig.metadata[
+      field as keyof typeof FormFieldConfig.metadata
+    ];
   }
   if (field in FormFieldConfig.userPreferences) {
-    return FormFieldConfig.userPreferences[field as keyof typeof FormFieldConfig.userPreferences];
+    return FormFieldConfig.userPreferences[
+      field as keyof typeof FormFieldConfig.userPreferences
+    ];
   }
   throw new Error(`no configuration found for field: ${field}`);
 };

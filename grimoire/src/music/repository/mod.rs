@@ -337,7 +337,8 @@ impl MusicRepository {
             || request.updates.genre.is_some()
             || request.updates.year.is_some()
             || request.updates.bpm.is_some()
-            || request.updates.key_signature.is_some();
+            || request.updates.key_signature.is_some()
+            || request.updates.thumbnail_blob_id.is_some();
 
         if has_metadata_updates {
             // Update metadata fields for all songs
@@ -385,6 +386,13 @@ impl MusicRepository {
             return Ok(Vec::new());
         }
 
+        tracing::info!(
+            "Bulk updating metadata for {} songs: {:?}",
+            song_ids.len(),
+            song_ids
+        );
+        tracing::info!("Updates: {:?}", updates);
+
         let songs = sqlx::query_as::<_, Song>(
             r#"
             UPDATE songs
@@ -399,8 +407,9 @@ impl MusicRepository {
                 year = COALESCE($8, year),
                 bpm = COALESCE($9, bpm),
                 key_signature = COALESCE($10, key_signature),
+                thumbnail_blob_id = COALESCE($11, thumbnail_blob_id),
                 updated_at = NOW()
-            WHERE id = ANY($11)
+            WHERE id = ANY($12)
             RETURNING *
             "#,
         )
@@ -414,11 +423,13 @@ impl MusicRepository {
         .bind(updates.year)
         .bind(updates.bpm)
         .bind(&updates.key_signature)
+        .bind(&updates.thumbnail_blob_id)
         .bind(song_ids)
         .fetch_all(&self.pool)
         .await
         .map_err(MusicRepositoryError::Database)?;
 
+        tracing::info!("Successfully updated {} songs", songs.len());
         Ok(songs)
     }
 
