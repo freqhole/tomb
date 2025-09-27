@@ -78,13 +78,11 @@ export function SongImageField(props: SongImageFieldProps) {
       return;
     }
 
-    console.log("Selected file:", file.name, file.size, file.type);
     props.onUpdate(file);
     input.value = ""; // Clear input so same file can be selected again
   };
 
   const handleRemove = () => {
-    console.log("Removing image");
     props.onUpdate(null);
   };
 

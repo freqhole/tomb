@@ -386,13 +386,6 @@ impl MusicRepository {
             return Ok(Vec::new());
         }
 
-        tracing::info!(
-            "Bulk updating metadata for {} songs: {:?}",
-            song_ids.len(),
-            song_ids
-        );
-        tracing::info!("Updates: {:?}", updates);
-
         let songs = sqlx::query_as::<_, Song>(
             r#"
             UPDATE songs
@@ -429,7 +422,6 @@ impl MusicRepository {
         .await
         .map_err(MusicRepositoryError::Database)?;
 
-        tracing::info!("Successfully updated {} songs", songs.len());
         Ok(songs)
     }
 
