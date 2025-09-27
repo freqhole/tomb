@@ -4,6 +4,7 @@ import { SongRatingField } from "../forms/SongRatingField";
 import { SongFavoriteField } from "../forms/SongFavoriteField";
 import { apiClient } from "../../../../lib/api-client";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
+import { ImageCarousel } from "./ImageCarousel";
 
 interface SongMetadataViewProps {
   songs: Song[];
@@ -146,6 +147,13 @@ export function SongMetadataView(props: SongMetadataViewProps) {
           </div>
         </div>
       </Show>
+
+      {/* image carousel */}
+      <ImageCarousel
+        songs={localSongs()}
+        currentSongIndex={props.currentSongIndex}
+        isBulkMode={isBulkMode()}
+      />
 
       {/* metadata fields */}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">

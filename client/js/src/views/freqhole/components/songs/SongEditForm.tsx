@@ -4,6 +4,7 @@ import { SongFormField } from "../forms/SongFormField";
 import { FormFieldConfig } from "../../../../lib/music/schemas/form-schemas";
 import type { Song } from "../../../../lib/music/schemas/song";
 import type { EditableSongFields } from "../../../../lib/music/schemas/form-schemas";
+import { ImageCarousel } from "./ImageCarousel";
 
 interface SongEditFormProps {
   song: Song;
@@ -84,6 +85,13 @@ export function SongEditForm(props: SongEditFormProps) {
           </div>
         )}
       </div>
+
+      {/* image carousel */}
+      <ImageCarousel
+        songs={[props.song]}
+        currentSongIndex={0}
+        isBulkMode={false}
+      />
 
       {/* metadata fields */}
       <div class="space-y-4">
