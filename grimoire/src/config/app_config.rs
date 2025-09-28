@@ -56,6 +56,8 @@ pub struct AppConfig {
     pub storage: StorageConfig,
     /// Media and file upload configuration
     pub media: MediaConfig,
+    /// MusicBrainz integration configuration
+    pub musicbrainz: crate::musicbrainz::MusicBrainzConfig,
     /// Real-time notifications configuration
     pub notifications: crate::notifications::NotificationConfig,
     /// Development-specific settings
@@ -775,6 +777,10 @@ impl AppConfig {
                 thumbnails: ThumbnailConfig::default(),
                 playback: AudioPlaybackConfig::default(),
             },
+            musicbrainz: crate::musicbrainz::MusicBrainzConfig {
+                enabled: true, // enabled by default for generated configs
+                ..Default::default()
+            },
             notifications: crate::notifications::NotificationConfig::default(),
             development: DevelopmentConfig {
                 auto_generate_invites: false,
@@ -1023,6 +1029,10 @@ impl Default for AppConfig {
                 supported_audio_formats: default_supported_audio_formats(),
                 thumbnails: ThumbnailConfig::default(),
                 playback: AudioPlaybackConfig::default(),
+            },
+            musicbrainz: crate::musicbrainz::MusicBrainzConfig {
+                enabled: false, // disabled by default
+                ..Default::default()
             },
             notifications: crate::notifications::NotificationConfig::default(),
             development: DevelopmentConfig {

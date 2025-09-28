@@ -123,6 +123,21 @@
     "max_fs_file_size": 1073741824 // Maximum size for files on filesystem (1GB = 1024 * 1024 * 1024 bytes)
   },
 
+  // MusicBrainz integration configuration
+  "musicbrainz": {
+    "enabled": true, // Enable MusicBrainz integration for metadata enrichment
+    "user_agent": "tomb-musicbrainz-client/1.0 (https://github.com/freqhole/tomb)" // User agent for API requests (required by MusicBrainz)
+
+    // Optional advanced settings (these use defaults if not specified):
+    // "rate_limit_ms": 1000, // Minimum time between requests (1000ms minimum per MusicBrainz guidelines)
+    // "base_url": "https://musicbrainz.org/ws/2", // MusicBrainz API base URL
+    // "cover_art_url": "https://coverartarchive.org", // Cover Art Archive base URL
+    // "timeout_seconds": 30, // Request timeout in seconds
+    // "max_concurrent_requests": 1, // Maximum concurrent requests (keep low for rate limiting)
+    // "cache_ttl_hours": 24, // Cache TTL in hours
+    // "max_retries": 3 // Maximum retry attempts for failed requests
+  },
+
   // Real-time notifications configuration
   "notifications": {
     "channels": {}, // Channel-specific configurations (auto-configured based on usage)

@@ -4,6 +4,8 @@ use clap::Subcommand;
 use std::path::PathBuf;
 use uuid::Uuid;
 
+use crate::music::musicbrainz::MusicBrainzArgs;
+
 /// Music management commands
 #[derive(Debug, Clone, Subcommand)]
 pub enum MusicCommands {
@@ -391,5 +393,11 @@ pub enum MusicCommands {
         /// Maximum number of suggestions
         #[arg(long, short, default_value = "10")]
         limit: u32,
+    },
+
+    /// MusicBrainz integration commands
+    Musicbrainz {
+        #[command(flatten)]
+        args: MusicBrainzArgs,
     },
 }

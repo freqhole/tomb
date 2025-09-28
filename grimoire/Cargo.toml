@@ -39,5 +39,7 @@ image.workspace = true
 futures-util.workspace = true
 
 dotenvy.workspace = true
+reqwest.workspace = true
+url.workspace = true
 
 [dev-dependencies]

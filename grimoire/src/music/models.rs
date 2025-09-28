@@ -1238,6 +1238,8 @@ pub struct BulkSongUpdates {
     pub bpm: Option<i32>,
     pub key_signature: Option<String>,
     pub thumbnail_blob_id: Option<String>,
+    // JSON metadata field for storing additional data like MusicBrainz info
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

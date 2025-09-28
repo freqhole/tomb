@@ -95,6 +95,12 @@
       "player_args": ["--no-video", "--term-osd-bar"]
     }
   },
+  "musicbrainz": {
+    // Enable MusicBrainz integration for metadata enrichment
+    "enabled": true,
+    // User agent string for API requests (required by MusicBrainz)
+    "user_agent": "tomb-musicbrainz-client/1.0 (https://github.com/freqhole/tomb)"
+  },
   "notifications": {
     "channels": {},
     "rate_limiting": {

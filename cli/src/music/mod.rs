@@ -9,6 +9,7 @@
 pub mod commands;
 pub mod generation;
 pub mod library;
+pub mod musicbrainz;
 pub mod playlist;
 pub mod scanner;
 pub mod search;
@@ -220,6 +221,9 @@ impl MusicCommands {
             }
             Self::Suggest { query, limit } => {
                 search::handle_suggest(&service, query.clone(), *limit).await
+            }
+            Self::Musicbrainz { args } => {
+                musicbrainz::handle_musicbrainz_command((*args).clone(), &config).await
             }
         }
     }

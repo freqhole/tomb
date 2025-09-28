@@ -338,7 +338,8 @@ impl MusicRepository {
             || request.updates.year.is_some()
             || request.updates.bpm.is_some()
             || request.updates.key_signature.is_some()
-            || request.updates.thumbnail_blob_id.is_some();
+            || request.updates.thumbnail_blob_id.is_some()
+            || request.updates.metadata.is_some();
 
         if has_metadata_updates {
             // Update metadata fields for all songs
@@ -401,8 +402,9 @@ impl MusicRepository {
                 bpm = COALESCE($9, bpm),
                 key_signature = COALESCE($10, key_signature),
                 thumbnail_blob_id = COALESCE($11, thumbnail_blob_id),
+                metadata = COALESCE($12, metadata),
                 updated_at = NOW()
-            WHERE id = ANY($12)
+            WHERE id = ANY($13)
             RETURNING *
             "#,
         )
@@ -417,6 +419,7 @@ impl MusicRepository {
         .bind(updates.bpm)
         .bind(&updates.key_signature)
         .bind(&updates.thumbnail_blob_id)
+        .bind(&updates.metadata)
         .bind(song_ids)
         .fetch_all(&self.pool)
         .await

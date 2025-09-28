@@ -16,6 +16,7 @@ pub mod database;
 pub mod filesys;
 pub mod media;
 pub mod music;
+pub mod musicbrainz;
 pub mod notifications;
 pub mod photos;
 pub mod search;
@@ -70,9 +71,15 @@ pub use notifications::{
 
 // Re-export music types
 pub use music::{
-    AudioMetadata, JobParameters, JobPriority, JobResult, JobStatus, MusicJob, MusicJobHealth,
-    MusicJobType, MusicScanSession, ScanSessionStats, ScanSessionStatus, TitleBuilder,
-    TitleBuilderConfig, TitleBuilderError,
+    AudioMetadata, BulkSongUpdates, BulkUpdateSongsRequest, JobParameters, JobPriority, JobResult,
+    JobStatus, MusicJob, MusicJobHealth, MusicJobType, MusicScanSession, ScanSessionStats,
+    ScanSessionStatus, TitleBuilder, TitleBuilderConfig, TitleBuilderError,
+};
+
+// Re-export musicbrainz types
+pub use musicbrainz::{
+    MusicBrainzClient, MusicBrainzConfig, MusicBrainzError, MusicBrainzMatch, MusicBrainzService,
+    RateLimiter, Recording, RecordingSearchQuery, Release, ReleaseSearchQuery,
 };
 
 // Re-export photos types
