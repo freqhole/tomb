@@ -3,6 +3,7 @@
 //! provides musicbrainz api client, data models, and search functionality
 //! for metadata enrichment and cover art retrieval.
 
+pub mod batch;
 pub mod client;
 pub mod config;
 pub mod models;

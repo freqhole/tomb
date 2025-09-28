@@ -23,6 +23,21 @@ pub struct MusicBrainzArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum MusicBrainzCommands {
+    /// 🎵 Scan entire music library with MusicBrainz - albums first, then songs (RECOMMENDED)
+    Scan {
+        /// Auto-apply high confidence matches without confirmation [default: false]
+        #[arg(long)]
+        auto_apply: bool,
+        /// Minimum confidence threshold for auto-apply (0-100) [default: 85]
+        #[arg(long, default_value = "85")]
+        confidence_threshold: f32,
+        /// Dry run mode - show changes without applying [default: false]
+        #[arg(long)]
+        dry_run: bool,
+        /// Force rescan all songs, even those already processed [default: false]
+        #[arg(long)]
+        force_rescan: bool,
+    },
     /// Search for a song on MusicBrainz
     SearchSong {
         /// Song title (optional)
@@ -178,6 +193,40 @@ pub enum MusicBrainzCommands {
         #[arg(short, long)]
         filter: Option<String>,
     },
+
+    /// Mark songs as user-reviewed to prevent re-scanning
+    MarkReviewed {
+        /// Song ID to mark as reviewed [default: none]
+        #[arg(short, long)]
+        song_id: Option<String>,
+        /// Artist filter (partial match) [default: none]
+        #[arg(long)]
+        artist: Option<String>,
+        /// Album filter (partial match) [default: none]
+        #[arg(long)]
+        album: Option<String>,
+        /// Mark all songs in database as reviewed [default: false]
+        #[arg(long)]
+        all: bool,
+    },
+    /// Clear MusicBrainz metadata from songs
+    ClearData {
+        /// Song ID to clear data from [default: none]
+        #[arg(short, long)]
+        song_id: Option<String>,
+        /// Artist filter (partial match) [default: none]
+        #[arg(long)]
+        artist: Option<String>,
+        /// Album filter (partial match) [default: none]
+        #[arg(long)]
+        album: Option<String>,
+        /// Clear data from all songs in database [default: false]
+        #[arg(long)]
+        all: bool,
+        /// Skip confirmation prompt [default: false]
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 /// Main command handler dispatcher
@@ -186,6 +235,21 @@ pub async fn handle_musicbrainz_command(
     config: &AppConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
+        MusicBrainzCommands::Scan {
+            auto_apply,
+            confidence_threshold,
+            dry_run,
+            force_rescan,
+        } => {
+            batch::handle_full_scan(
+                auto_apply,
+                confidence_threshold,
+                dry_run,
+                force_rescan,
+                config,
+            )
+            .await
+        }
         MusicBrainzCommands::SearchSong {
             title,
             artist,
@@ -289,5 +353,20 @@ pub async fn handle_musicbrainz_command(
         MusicBrainzCommands::Status { detailed, filter } => {
             status::handle_status(detailed, filter.as_deref(), config).await
         }
+
+        MusicBrainzCommands::MarkReviewed {
+            song_id,
+            artist,
+            album,
+            all,
+        } => metadata::handle_mark_reviewed(song_id, artist, album, all, config).await,
+
+        MusicBrainzCommands::ClearData {
+            song_id,
+            artist,
+            album,
+            all,
+            force,
+        } => metadata::handle_clear_data(song_id, artist, album, all, force, config).await,
     }
 }

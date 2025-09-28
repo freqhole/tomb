@@ -9,6 +9,7 @@ use grimoire::{
     music::repository::MusicRepository,
     musicbrainz::{MusicBrainzClient, MusicBrainzMatch, MusicBrainzService},
 };
+
 use std::io::{self, Write};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -384,6 +385,117 @@ pub async fn handle_update_song(
         println!("✅ metadata updated successfully");
     } else {
         println!("⏭️  changes cancelled");
+    }
+
+    Ok(())
+}
+
+/// Handle mark reviewed command - mark songs as user-reviewed to prevent re-scanning
+pub async fn handle_mark_reviewed(
+    song_id: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    all: bool,
+    config: &AppConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = DatabaseConnection::new(pool);
+    let repository = Arc::new(MusicRepository::new(db.pool().clone()));
+
+    let song_uuid = song_id.as_ref().map(|id| Uuid::parse_str(id)).transpose()?;
+
+    if all {
+        println!("🏷️  marking all songs with musicbrainz data as user-reviewed...");
+    } else if let Some(id) = &song_id {
+        println!("🏷️  marking song {} as user-reviewed...", id);
+    } else if artist.is_some() || album.is_some() {
+        println!("🏷️  marking songs as user-reviewed with filters...");
+        if let Some(artist_filter) = &artist {
+            println!("   artist contains: {}", artist_filter);
+        }
+        if let Some(album_filter) = &album {
+            println!("   album contains: {}", album_filter);
+        }
+    } else {
+        return Err("must specify --song-id, --artist, --album, or --all".into());
+    }
+
+    let rows_affected = grimoire::musicbrainz::batch::mark_songs_as_reviewed(
+        &repository,
+        song_uuid,
+        artist.as_deref(),
+        album.as_deref(),
+        all,
+    )
+    .await?;
+
+    if song_id.is_some() && rows_affected == 0 {
+        println!("❌ song not found or has no musicbrainz data");
+    } else {
+        println!("✅ marked {} songs as user-reviewed", rows_affected);
+    }
+
+    Ok(())
+}
+
+/// Handle clear data command - remove MusicBrainz metadata from songs
+pub async fn handle_clear_data(
+    song_id: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    all: bool,
+    force: bool,
+    config: &AppConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = DatabaseConnection::new(pool);
+    let repository = Arc::new(MusicRepository::new(db.pool().clone()));
+
+    // Confirmation prompt unless --force
+    if !force {
+        print!("⚠️  this will permanently remove musicbrainz metadata. continue? (y/N): ");
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        if !input.trim().to_lowercase().starts_with('y') {
+            println!("❌ operation cancelled");
+            return Ok(());
+        }
+    }
+
+    let song_uuid = song_id.as_ref().map(|id| Uuid::parse_str(id)).transpose()?;
+
+    if all {
+        println!("🗑️  clearing all musicbrainz data...");
+    } else if let Some(id) = &song_id {
+        println!("🗑️  clearing musicbrainz data from song {}...", id);
+    } else if artist.is_some() || album.is_some() {
+        println!("🗑️  clearing musicbrainz data with filters...");
+        if let Some(artist_filter) = &artist {
+            println!("   artist contains: {}", artist_filter);
+        }
+        if let Some(album_filter) = &album {
+            println!("   album contains: {}", album_filter);
+        }
+    } else {
+        return Err("must specify --song-id, --artist, --album, or --all".into());
+    }
+
+    let rows_affected = grimoire::musicbrainz::batch::clear_musicbrainz_data(
+        &repository,
+        song_uuid,
+        artist.as_deref(),
+        album.as_deref(),
+        all,
+    )
+    .await?;
+
+    if song_id.is_some() && rows_affected == 0 {
+        println!("❌ song not found or has no musicbrainz data");
+    } else {
+        println!("✅ cleared musicbrainz data from {} songs", rows_affected);
     }
 
     Ok(())
