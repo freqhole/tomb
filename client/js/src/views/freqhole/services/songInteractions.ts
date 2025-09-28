@@ -278,20 +278,23 @@ export function useSongInteractions() {
       });
     }
 
-    // Add musicbrainz and delete options for admin users
+    // Add info action
+    actions.push({ type: "separator" });
+    actions.push({
+      label: "song info",
+      icon: "info",
+      action: () => {
+        // Open song info modal
+        events.emit("modal:open", {
+          modal: "songInfoModal",
+          data: { songs: [song] },
+        });
+      },
+    });
+
+    // Add delete option for admin users (at the end)
     if (auth.isAdmin) {
       actions.push({ type: "separator" });
-      actions.push({
-        label: "musicbrainz lookup",
-        icon: "brain",
-        action: () => {
-          events.emit("modal:open", {
-            modal: "musicbrainzModal",
-            data: { songs: [song] },
-          });
-        },
-      });
-
       actions.push({
         label: "delete song",
         icon: "trash",
@@ -309,20 +312,6 @@ export function useSongInteractions() {
         },
       });
     }
-
-    // Add info action
-    actions.push({ type: "separator" });
-    actions.push({
-      label: "song info",
-      icon: "info",
-      action: () => {
-        // Open song info modal
-        events.emit("modal:open", {
-          modal: "songInfoModal",
-          data: { songs: [song] },
-        });
-      },
-    });
 
     return actions;
   };
@@ -444,20 +433,23 @@ export function useSongInteractions() {
       });
     }
 
-    // Add bulk musicbrainz and delete options for admin users
+    // Add bulk song info action
+    actions.push({ type: "separator" });
+    actions.push({
+      label: `edit ${songCount} songs`,
+      icon: "info",
+      action: () => {
+        // Open song info modal for multiple songs
+        events.emit("modal:open", {
+          modal: "songInfoModal",
+          data: { songs },
+        });
+      },
+    });
+
+    // Add delete songs option for admin users (at the end)
     if (auth.isAdmin) {
       actions.push({ type: "separator" });
-      actions.push({
-        label: `musicbrainz lookup (${songCount} songs)`,
-        icon: "brain",
-        action: () => {
-          events.emit("modal:open", {
-            modal: "musicbrainzModal",
-            data: { songs },
-          });
-        },
-      });
-
       actions.push({
         label: `delete ${songCount} songs`,
         icon: "trash",
@@ -480,20 +472,6 @@ export function useSongInteractions() {
         },
       });
     }
-
-    // Add bulk song info action
-    actions.push({ type: "separator" });
-    actions.push({
-      label: `edit ${songCount} songs`,
-      icon: "info",
-      action: () => {
-        // Open song info modal for multiple songs
-        events.emit("modal:open", {
-          modal: "songInfoModal",
-          data: { songs },
-        });
-      },
-    });
 
     return actions;
   };

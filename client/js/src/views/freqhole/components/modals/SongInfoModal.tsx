@@ -1,4 +1,4 @@
-import { createSignal, Show, onMount, createEffect } from "solid-js";
+import { createSignal, Show, onMount, createEffect, For } from "solid-js";
 import { Modal } from "../ui/Modal";
 import type { Song } from "../../../../lib/music/schemas/song";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
@@ -9,6 +9,13 @@ import { SongEditForm } from "../songs/SongEditForm";
 import { SongBulkEditForm } from "../songs/SongBulkEditForm";
 import type { EditableSongFields } from "../../../../lib/music/schemas/form-schemas";
 import { FileUploadHandler } from "../../../../lib/file-upload";
+import { useMusicBrainz } from "../../hooks/useMusicBrainz";
+import type {
+  MusicBrainzMatch,
+  MusicBrainzSearchRequest,
+  AlbumMatch,
+  AlbumSearchRequest,
+} from "../../../../lib/musicbrainz/api-methods";
 
 interface SongInfoModalProps {
   isOpen: boolean;
@@ -26,6 +33,39 @@ export function SongInfoModal(props: SongInfoModalProps) {
   const [formChanges, setFormChanges] = createSignal<
     Partial<EditableSongFields>
   >({});
+
+  // Tab state and MusicBrainz functionality
+  const [activeTab, setActiveTab] = createSignal<
+    "musicbrainz" | "edit" | "matches"
+  >("edit");
+  const [matches, setMatches] = createSignal<MusicBrainzMatch[]>([]);
+  const [searchResults, setSearchResults] = createSignal<MusicBrainzMatch[]>(
+    []
+  );
+  const [albumSearchResults, setAlbumSearchResults] = createSignal<
+    AlbumMatch[]
+  >([]);
+  const [searchQuery, setSearchQuery] = createSignal<MusicBrainzSearchRequest>({
+    limit: 25,
+  });
+
+  // MusicBrainz hook with event integration
+  const musicBrainz = useMusicBrainz({
+    onError: (error) => {
+      setError(error);
+      events.emit("notification:show", {
+        message: error,
+        type: "error",
+      });
+    },
+    onSuccess: (message) => {
+      events.emit("notification:show", {
+        message,
+        type: "success",
+      });
+      events.emit("data:reload", { type: "songs" });
+    },
+  });
 
   const totalSongs = () => props.songs.length;
   const currentSong = () => props.songs[currentSongIndex()];
@@ -198,12 +238,184 @@ export function SongInfoModal(props: SongInfoModalProps) {
         }
       }
     } catch (err) {
-      console.error("save failed:", err);
+      console.error("failed to save song changes:", err);
       setError(err instanceof Error ? err.message : "failed to save changes");
     } finally {
       setIsLoading(false);
     }
   };
+
+  // MusicBrainz helper functions
+  const getSearchPreFillValues = (
+    songs: Song[]
+  ): Partial<MusicBrainzSearchRequest> => {
+    if (songs.length === 0) return {};
+
+    // for single song, use all values
+    if (songs.length === 1) {
+      const song = songs[0];
+      return {
+        title: song?.title || undefined,
+        artist: song?.artist || undefined,
+        album: song?.album || undefined,
+      };
+    }
+
+    // for bulk mode, only use values that are consistent across all songs
+    const firstSong = songs[0];
+    if (!firstSong) return {};
+
+    const titles = new Set(songs.map((s) => s.title));
+    const artists = new Set(songs.map((s) => s.artist).filter(Boolean));
+    const albums = new Set(songs.map((s) => s.album).filter(Boolean));
+
+    return {
+      // only pre-fill title if all songs have the same title (rare but possible)
+      title: titles.size === 1 ? firstSong.title : undefined,
+      // pre-fill artist if all songs have the same artist
+      artist:
+        artists.size === 1 ? Array.from(artists)[0] || undefined : undefined,
+      // pre-fill album if all songs have the same album
+      album: albums.size === 1 ? Array.from(albums)[0] || undefined : undefined,
+    };
+  };
+
+  const loadMatches = async () => {
+    if (!auth.isAdmin) return;
+
+    try {
+      setError(null);
+      const songsToProcess = isBulkMode() ? props.songs : [currentSong()!];
+      const songMatches = await musicBrainz.getMatches(songsToProcess);
+
+      // extract all matches from all songs
+      const allMatches = songMatches.flatMap(
+        (songWithMatches) => songWithMatches.matches
+      );
+      setMatches(allMatches);
+
+      // switch to matches tab if we have matches
+      if (allMatches.length > 0) {
+        setActiveTab("matches");
+      }
+    } catch (err) {
+      console.error("failed to load matches:", err);
+      setError(err instanceof Error ? err.message : "failed to load matches");
+    }
+  };
+
+  const searchMusicBrainz = async () => {
+    try {
+      setError(null);
+      musicBrainz.clearError();
+
+      const query = searchQuery();
+
+      // Use album search if we have multiple songs selected
+      if (totalSongs() > 1) {
+        const albumQuery: AlbumSearchRequest = {
+          artist: query.artist,
+          album: query.album,
+          limit: query.limit,
+        };
+        const albumResults = await musicBrainz.searchAlbums(albumQuery);
+        setAlbumSearchResults(albumResults);
+        setSearchResults([]); // Clear individual song results
+      } else {
+        const results = await musicBrainz.search(query);
+        setSearchResults(results);
+        setAlbumSearchResults([]); // Clear album results
+      }
+    } catch (err) {
+      console.error("search failed:", err);
+      setError(err instanceof Error ? err.message : "search failed");
+      setSearchResults([]);
+      setAlbumSearchResults([]);
+    }
+  };
+
+  const matchToFormChanges = (
+    match: MusicBrainzMatch
+  ): Partial<EditableSongFields> => {
+    const changes: Partial<EditableSongFields> = {
+      artist: match.artist,
+      album: match.album || undefined,
+      year: match.year || undefined,
+      genre: match.genre || undefined,
+    };
+
+    // only include title and track/disc numbers in single mode (not bulk mode)
+    if (!isBulkMode()) {
+      changes.title = match.title;
+      changes.track_number = match.track_number || undefined;
+      changes.disc_number = match.disc_number || undefined;
+    }
+
+    return changes;
+  };
+
+  const applyMatch = async (match: MusicBrainzMatch) => {
+    try {
+      setError(null);
+      musicBrainz.clearError();
+
+      const songsToProcess = isBulkMode() ? props.songs : [currentSong()!];
+      const success = await musicBrainz.applyMatch(songsToProcess, match);
+
+      if (success) {
+        // convert match data to form changes and switch to edit tab
+        const changes = matchToFormChanges(match);
+        setFormChanges(changes);
+        setActiveTab("edit");
+      }
+    } catch (err) {
+      console.error("failed to apply match:", err);
+      setError(err instanceof Error ? err.message : "failed to apply metadata");
+    }
+  };
+
+  const applyAlbumMatch = async (album: AlbumMatch) => {
+    // Convert album data to match format (album-level metadata only)
+    const match: MusicBrainzMatch = {
+      id: album.id,
+      title: "", // Don't apply album title to songs
+      artist: album.artist,
+      album: album.title,
+      year: album.year || null,
+      track_number: null, // Don't apply track numbers from album search
+      disc_number: null,
+      duration_seconds: null,
+      genre: null, // Albums don't have genre info in this context
+      confidence: 100,
+      mbid: album.mbid,
+      recording_id: null,
+      release_id: album.release_id,
+    };
+
+    await applyMatch(match);
+  };
+
+  // Initialize MusicBrainz data when modal opens
+  createEffect(() => {
+    if (props.isOpen && props.songs.length > 0) {
+      // Reset MusicBrainz state
+      setMatches([]);
+      setSearchResults([]);
+      setAlbumSearchResults([]);
+
+      // Pre-fill search form with song data
+      const preFillValues = getSearchPreFillValues(props.songs);
+      setSearchQuery({
+        limit: 25,
+        ...preFillValues,
+      });
+
+      // Load matches if admin
+      if (auth.isAdmin) {
+        loadMatches();
+      }
+    }
+  });
 
   // keyboard navigation
   const handleKeyDown = (e: KeyboardEvent) => {

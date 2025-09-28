@@ -306,13 +306,25 @@ export function DesktopSongsView(
               class="px-3 py-1 bg-magenta-700 hover:bg-magenta-800 rounded text-sm transition-colors"
               onClick={() => {
                 const selectedSongs = selection.getSelectedSongs(songs());
-                selectedSongs.forEach((song) =>
-                  songInteractions.queueSong(song)
-                );
+                events.emit("modal:open", {
+                  modal: "songInfoModal",
+                  data: { songs: selectedSongs },
+                });
                 selection.clearSelection();
               }}
             >
-              add to queue
+              edit
+            </button>
+
+            <button
+              class="px-3 py-1 bg-magenta-700 hover:bg-magenta-800 rounded text-sm transition-colors"
+              onClick={() => {
+                const selectedSongs = selection.getSelectedSongs(songs());
+                songInteractions.smartQueueSongs(selectedSongs);
+                selection.clearSelection();
+              }}
+            >
+              +queue
             </button>
 
             <button
@@ -322,14 +334,14 @@ export function DesktopSongsView(
                 songInteractions.handlePlaylistSelectorClick(e, selectedSongs);
               }}
             >
-              add to playlist
+              +playlist
             </button>
 
             <button
-              class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors"
+              class="px-3 py-1 bg-red-400 hover:bg-red-500 rounded text-sm transition-colors"
               onClick={() => selection.clearSelection()}
             >
-              clear
+              &times;
             </button>
           </div>
         </div>
