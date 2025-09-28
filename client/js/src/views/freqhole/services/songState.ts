@@ -133,12 +133,10 @@ export function createSongStateService() {
     getUpdatedSong: (originalSong: Song): Song => {
       const cachedSong = getSong(originalSong.id);
       if (cachedSong) {
-        // Merge original with cached updates
+        // Merge original with all cached updates
         return {
           ...originalSong,
-          user_is_favorite: cachedSong.user_is_favorite,
-          user_rating: cachedSong.user_rating,
-          preference_updated_at: cachedSong.preference_updated_at,
+          ...cachedSong,
         };
       }
       return originalSong;

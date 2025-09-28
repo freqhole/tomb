@@ -16,6 +16,8 @@ import type {
   AlbumMatch,
   AlbumSearchRequest,
 } from "../../../../lib/musicbrainz/api-methods";
+import { MusicBrainzImagePreview } from "../musicbrainz/MusicBrainzImagePreview";
+import { ImageCarousel } from "../songs/ImageCarousel";
 
 interface SongInfoModalProps {
   isOpen: boolean;
@@ -35,9 +37,9 @@ export function SongInfoModal(props: SongInfoModalProps) {
   >({});
 
   // Tab state and MusicBrainz functionality
-  const [activeTab, setActiveTab] = createSignal<"edit" | "matches" | "search">(
-    "edit"
-  );
+  const [activeTab, setActiveTab] = createSignal<
+    "metadata" | "images" | "matches" | "search"
+  >("metadata");
   const [matches, setMatches] = createSignal<MusicBrainzMatch[]>([]);
   const [searchResults, setSearchResults] = createSignal<MusicBrainzMatch[]>(
     []
@@ -49,6 +51,9 @@ export function SongInfoModal(props: SongInfoModalProps) {
     limit: 50,
   });
   const [formKey, setFormKey] = createSignal(0);
+  const [appliedImageUrl, setAppliedImageUrl] = createSignal<string | null>(
+    null
+  );
 
   // MusicBrainz hook with event integration
   const musicBrainz = useMusicBrainz({
@@ -295,10 +300,7 @@ export function SongInfoModal(props: SongInfoModalProps) {
       );
       setMatches(allMatches);
 
-      // switch to matches tab if we have matches
-      if (allMatches.length > 0) {
-        setActiveTab("matches");
-      }
+      // matches loaded - stay on current tab (don't auto-switch)
     } catch (err) {
       console.error("failed to load matches:", err);
       setError(err instanceof Error ? err.message : "failed to load matches");
@@ -367,7 +369,11 @@ export function SongInfoModal(props: SongInfoModalProps) {
       const changes = matchToFormChanges(match);
       setFormChanges(changes);
       setFormKey((prev) => prev + 1); // force form remount
-      setActiveTab("edit");
+
+      // store cover art url for image preview
+      setAppliedImageUrl(match.cover_art_url ?? null);
+
+      setActiveTab("metadata");
 
       // show success message
       events.emit("notification:show", {
@@ -391,14 +397,44 @@ export function SongInfoModal(props: SongInfoModalProps) {
       track_number: null, // Don't apply track numbers from album search
       disc_number: null,
       duration_seconds: null,
-      genre: undefined, // Don't override existing genre values for albums
+      genre: null, // Don't override existing genre values for albums
       confidence: 100,
       mbid: album.mbid,
       recording_id: null,
       release_id: album.release_id,
+      cover_art_url: null, // Albums don't include cover art URLs in current implementation
     };
 
     applyMatch(match);
+  };
+
+  // handle thumbnail click - switch to images tab and apply image
+  const handleThumbnailClick = (coverArtUrl: string) => {
+    setAppliedImageUrl(coverArtUrl);
+    setActiveTab("images");
+  };
+
+  // handle image applied from musicbrainz
+  const handleImageApplied = () => {
+    // clear the applied image url since it's now been processed
+    setAppliedImageUrl(null);
+
+    // emit events to reload song data
+    events.emit("data:reload", { type: "songs" });
+    events.emit("notification:show", {
+      message: "cover art applied and saved to songs",
+      type: "success",
+    });
+  };
+
+  // handle image reset
+  const handleImageReset = () => {
+    setAppliedImageUrl(null);
+
+    // remove thumbnail from form changes if it was set
+    const currentChanges = formChanges();
+    const { thumbnail_blob_id, ...otherChanges } = currentChanges;
+    setFormChanges(otherChanges);
   };
 
   // Initialize MusicBrainz data when modal opens
@@ -560,27 +596,40 @@ export function SongInfoModal(props: SongInfoModalProps) {
           <Show when={isEditing()}>
             <div class="flex border-b border-gray-700">
               <button
-                onClick={() => setActiveTab("edit")}
+                onClick={() => setActiveTab("metadata")}
                 class={`px-4 py-2 text-sm font-medium transition-colors ${
-                  activeTab() === "edit"
+                  activeTab() === "metadata"
                     ? "text-magenta-400 border-b-2 border-magenta-400"
                     : "text-gray-400 hover:text-white"
                 }`}
                 disabled={isLoading()}
               >
-                edit metadata
+                metadata
               </button>
               <button
-                onClick={() => setActiveTab("matches")}
+                onClick={() => setActiveTab("images")}
                 class={`px-4 py-2 text-sm font-medium transition-colors ${
-                  activeTab() === "matches"
+                  activeTab() === "images"
                     ? "text-magenta-400 border-b-2 border-magenta-400"
                     : "text-gray-400 hover:text-white"
                 }`}
                 disabled={isLoading()}
               >
-                available matches
+                images
               </button>
+              <Show when={matches().length > 0}>
+                <button
+                  onClick={() => setActiveTab("matches")}
+                  class={`px-4 py-2 text-sm font-medium transition-colors ${
+                    activeTab() === "matches"
+                      ? "text-magenta-400 border-b-2 border-magenta-400"
+                      : "text-gray-400 hover:text-white"
+                  }`}
+                  disabled={isLoading()}
+                >
+                  musicbrainz matches ({matches().length})
+                </button>
+              </Show>
               <button
                 onClick={() => setActiveTab("search")}
                 class={`px-4 py-2 text-sm font-medium transition-colors ${
@@ -590,7 +639,7 @@ export function SongInfoModal(props: SongInfoModalProps) {
                 }`}
                 disabled={isLoading()}
               >
-                search musicbrainz
+                search
               </button>
             </div>
           </Show>
@@ -609,8 +658,48 @@ export function SongInfoModal(props: SongInfoModalProps) {
                 <For each={matches()}>
                   {(match) => (
                     <div class="p-4 bg-gray-800/30 border border-gray-700 hover:border-gray-600 transition-colors">
-                      <div class="flex items-start justify-between">
-                        <div class="flex-1">
+                      <div class="flex items-start gap-3">
+                        {/* thumbnail */}
+                        <div class="w-16 h-16 bg-gray-700 border border-gray-600 rounded overflow-hidden flex-shrink-0 relative group">
+                          <Show
+                            when={match.cover_art_url}
+                            fallback={
+                              <div class="w-full h-full flex items-center justify-center text-gray-500 text-xs">
+                                no art
+                              </div>
+                            }
+                          >
+                            <button
+                              onClick={() =>
+                                handleThumbnailClick(match.cover_art_url!)
+                              }
+                              class="w-full h-full relative"
+                            >
+                              <img
+                                src={match.cover_art_url!.replace(
+                                  "front-500",
+                                  "front-250"
+                                )}
+                                alt="cover art"
+                                class="w-full h-full object-cover"
+                                onError={(e) => {
+                                  const target =
+                                    e.currentTarget as HTMLImageElement;
+                                  target.style.display = "none";
+                                  target.parentElement!.innerHTML =
+                                    '<div class="w-full h-full flex items-center justify-center text-gray-500 text-xs">404</div>';
+                                }}
+                              />
+                              <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <span class="text-white text-xs font-medium">
+                                  use this image
+                                </span>
+                              </div>
+                            </button>
+                          </Show>
+                        </div>
+
+                        <div class="flex-1 min-w-0">
                           <div class="font-medium text-white mb-1">
                             {match.title}
                             {match.track_number && (
@@ -643,9 +732,10 @@ export function SongInfoModal(props: SongInfoModalProps) {
                             )}
                           </div>
                         </div>
+
                         <button
                           onClick={() => applyMatch(match)}
-                          class="ml-4 px-3 py-1 bg-magenta-600 text-white text-sm hover:bg-magenta-700 transition-colors"
+                          class="ml-4 px-3 py-1 bg-magenta-600 text-white text-sm hover:bg-magenta-700 transition-colors flex-shrink-0"
                           disabled={isLoading()}
                         >
                           apply
@@ -795,8 +885,48 @@ export function SongInfoModal(props: SongInfoModalProps) {
                     <For each={searchResults()}>
                       {(result) => (
                         <div class="p-3 bg-gray-800/30 border border-gray-700 hover:border-gray-600 transition-colors">
-                          <div class="flex items-start justify-between">
-                            <div class="flex-1">
+                          <div class="flex items-start gap-3">
+                            {/* thumbnail */}
+                            <div class="w-12 h-12 bg-gray-700 border border-gray-600 rounded overflow-hidden flex-shrink-0 relative group">
+                              <Show
+                                when={result.cover_art_url}
+                                fallback={
+                                  <div class="w-full h-full flex items-center justify-center text-gray-500 text-xs">
+                                    no art
+                                  </div>
+                                }
+                              >
+                                <button
+                                  onClick={() =>
+                                    handleThumbnailClick(result.cover_art_url!)
+                                  }
+                                  class="w-full h-full relative"
+                                >
+                                  <img
+                                    src={result.cover_art_url!.replace(
+                                      "front-500",
+                                      "front-250"
+                                    )}
+                                    alt="cover art"
+                                    class="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      const target =
+                                        e.currentTarget as HTMLImageElement;
+                                      target.style.display = "none";
+                                      target.parentElement!.innerHTML =
+                                        '<div class="w-full h-full flex items-center justify-center text-gray-500 text-xs">404</div>';
+                                    }}
+                                  />
+                                  <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <span class="text-white text-xs font-medium">
+                                      use this image
+                                    </span>
+                                  </div>
+                                </button>
+                              </Show>
+                            </div>
+
+                            <div class="flex-1 min-w-0">
                               <div class="font-medium text-white">
                                 {result.title}
                                 {result.track_number && (
@@ -826,9 +956,10 @@ export function SongInfoModal(props: SongInfoModalProps) {
                                 )}
                               </div>
                             </div>
+
                             <button
                               onClick={() => applyMatch(result)}
-                              class="ml-4 px-3 py-1 bg-magenta-600 text-white text-sm hover:bg-magenta-700 transition-colors"
+                              class="ml-4 px-3 py-1 bg-magenta-600 text-white text-sm hover:bg-magenta-700 transition-colors flex-shrink-0"
                               disabled={isLoading()}
                             >
                               apply
@@ -854,20 +985,43 @@ export function SongInfoModal(props: SongInfoModalProps) {
               </div>
             </Show>
 
-            {/* edit tab */}
-            <Show when={activeTab() === "edit" || !isEditing()}>
+            {/* images tab */}
+            <Show when={activeTab() === "images"}>
+              <div class="space-y-6 py-4">
+                {/* musicbrainz image preview */}
+                <Show when={appliedImageUrl()}>
+                  <MusicBrainzImagePreview
+                    coverArtUrl={appliedImageUrl()}
+                    songs={props.songs}
+                    onImageApplied={handleImageApplied}
+                    onReset={handleImageReset}
+                  />
+                </Show>
+
+                {/* current song images */}
+                <ImageCarousel
+                  songs={props.songs}
+                  currentSongIndex={isBulkMode() ? 0 : currentSongIndex()}
+                  isBulkMode={isBulkMode()}
+                />
+              </div>
+            </Show>
+
+            {/* metadata tab */}
+            <Show when={activeTab() === "metadata" || !isEditing()}>
               <div class="space-y-6 py-4">
                 {isBulkMode() ? (
                   // bulk edit mode - uses schema-driven form
                   <>
                     {isEditing() ? (
-                      <SongBulkEditForm
-                        key={formKey()}
-                        songs={props.songs}
-                        onFormChange={handleFormChange}
-                        initialChanges={formChanges()}
-                        hideHeader={true}
-                      />
+                      <Show when={formKey() >= 0} keyed>
+                        <SongBulkEditForm
+                          songs={props.songs}
+                          onFormChange={handleFormChange}
+                          initialChanges={formChanges()}
+                          hideHeader={true}
+                        />
+                      </Show>
                     ) : (
                       <SongMetadataView
                         songs={props.songs}
@@ -882,9 +1036,8 @@ export function SongInfoModal(props: SongInfoModalProps) {
                     {/* song content - uses schema-driven form */}
                     <Show when={currentSong()}>
                       {isEditing() ? (
-                        <Show when={currentSong()?.id} keyed>
+                        <Show when={currentSong()?.id && formKey() >= 0} keyed>
                           <SongEditForm
-                            key={formKey()}
                             song={currentSong()!}
                             songs={props.songs}
                             currentIndex={currentSongIndex()}
@@ -921,9 +1074,11 @@ export function SongInfoModal(props: SongInfoModalProps) {
               >
                 cancel
               </button>
-              {/* save button for edit tab */}
+              {/* save button for metadata tab */}
               <Show
-                when={(activeTab() === "edit" || !isEditing()) && isEditing()}
+                when={
+                  (activeTab() === "metadata" || !isEditing()) && isEditing()
+                }
               >
                 <button
                   onClick={handleSave}

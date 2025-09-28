@@ -384,7 +384,7 @@ export const Player = () => {
           <div class="flex items-center gap-4 flex-1 min-w-0">
             <div class="w-12 h-12 flex-shrink-0">
               <Show
-                when={currentSong()?.thumbnail_blob_id}
+                when={getCurrentSong()?.thumbnail_blob_id}
                 fallback={
                   <div class="w-12 h-12 bg-gradient-to-br from-magenta-800 to-magenta-900 rounded flex items-center justify-center text-magenta-400">
                     <MusicIcon />
@@ -392,8 +392,8 @@ export const Player = () => {
                 }
               >
                 <img
-                  src={`${apiClient.getBaseUrl()}/api/blobs/${currentSong()?.thumbnail_blob_id}`}
-                  alt={currentSong()?.title}
+                  src={`${apiClient.getBaseUrl()}/api/blobs/${getCurrentSong()?.thumbnail_blob_id}`}
+                  alt={getCurrentSong()?.title}
                   class="w-12 h-12 rounded object-cover"
                 />
               </Show>
@@ -553,7 +553,7 @@ export const Player = () => {
             <div class="flex items-center gap-3 flex-1 min-w-0">
               <div class="w-10 h-10 flex-shrink-0">
                 <Show
-                  when={currentSong()?.thumbnail_blob_id}
+                  when={getCurrentSong()?.thumbnail_blob_id}
                   fallback={
                     <div class="w-10 h-10 bg-gradient-to-br from-magenta-800 to-magenta-900 rounded flex items-center justify-center text-magenta-400">
                       <MusicIcon />
@@ -561,8 +561,8 @@ export const Player = () => {
                   }
                 >
                   <img
-                    src={`${apiClient.getBaseUrl()}/api/blobs/${currentSong()?.thumbnail_blob_id}`}
-                    alt={currentSong()?.title}
+                    src={`${apiClient.getBaseUrl()}/api/blobs/${getCurrentSong()?.thumbnail_blob_id}`}
+                    alt={getCurrentSong()?.title}
                     class="w-10 h-10 rounded object-cover"
                   />
                 </Show>

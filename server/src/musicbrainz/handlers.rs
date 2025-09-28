@@ -67,6 +67,7 @@ pub struct MusicBrainzMatch {
     pub mbid: String,
     pub recording_id: Option<String>,
     pub release_id: Option<String>,
+    pub cover_art_url: Option<String>,
 }
 
 /// Request body for album search
@@ -380,7 +381,10 @@ pub async fn search_musicbrainz(
                 confidence: 100.0, // Default confidence for search results
                 mbid: recording.id.to_string(),
                 recording_id: Some(recording.id.to_string()),
-                release_id,
+                release_id: release_id.clone(),
+                cover_art_url: release_id
+                    .as_ref()
+                    .map(|id| format!("https://coverartarchive.org/release/{}/front-500", id)),
             }
         })
         .collect();
@@ -593,7 +597,10 @@ pub async fn scan_songs_for_matches(
                     confidence: mb_match.confidence_score as f64,
                     mbid: mb_match.recording.id.to_string(),
                     recording_id: Some(mb_match.recording.id.to_string()),
-                    release_id,
+                    release_id: release_id.clone(),
+                    cover_art_url: release_id
+                        .as_ref()
+                        .map(|id| format!("https://coverartarchive.org/release/{}/front-500", id)),
                 }
             })
             .collect();
@@ -709,6 +716,9 @@ fn extract_match_from_json(
         confidence,
         mbid: recording_id.clone(),
         recording_id: Some(recording_id),
-        release_id,
+        release_id: release_id.clone(),
+        cover_art_url: release_id
+            .as_ref()
+            .map(|id| format!("https://coverartarchive.org/release/{}/front-500", id)),
     })
 }

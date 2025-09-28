@@ -36,6 +36,7 @@ export const MusicBrainzMatchSchema = z.object({
   mbid: z.string(),
   recording_id: z.string().nullable(),
   release_id: z.string().nullable(),
+  cover_art_url: z.string().nullish(),
 });
 
 export const AlbumSearchRequestSchema = z.object({
