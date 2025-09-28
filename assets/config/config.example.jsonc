@@ -135,7 +135,19 @@
     // "timeout_seconds": 30, // Request timeout in seconds
     // "max_concurrent_requests": 1, // Maximum concurrent requests (keep low for rate limiting)
     // "cache_ttl_hours": 24, // Cache TTL in hours
-    // "max_retries": 3 // Maximum retry attempts for failed requests
+    // "max_retries": 3, // Maximum retry attempts for failed requests
+
+    // Album processing preferences:
+    // "preferred_country": "US", // Preferred country for release selection (US, GB, XW, etc.)
+    // "preferred_status": "Official", // Preferred release status (Official, Promotion, Bootleg, etc.)
+    // "album_completion_threshold": 90.0, // Percentage threshold (0-100) for tagging as complete album
+    // "prefer_complete_albums": true, // Prefer complete albums over partial matches
+    // "max_album_suggestions": 5, // Maximum album suggestions to show in UI
+
+    // Matching preferences:
+    // "duration_tolerance_seconds": 5, // Duration tolerance for matching (±seconds)
+    // "enable_duration_matching": false, // Include duration constraints in queries (can be restrictive)
+    // "full_album_tag": "full album" // Tag name to apply to complete albums
   },
 
   // Real-time notifications configuration

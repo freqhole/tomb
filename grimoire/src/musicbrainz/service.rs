@@ -374,6 +374,11 @@ impl MusicBrainzService {
         self.client.get_cover_art(release_mbid).await
     }
 
+    /// get specific release by musicbrainz id
+    pub async fn get_release(&self, mbid: &str) -> Result<Release> {
+        self.client.get_release(mbid).await
+    }
+
     /// calculate confidence score for a musicbrainz match
     fn calculate_confidence_score(&self, mb_match: &mut MusicBrainzMatch, song: &Song) {
         // clone data we need to avoid borrowing issues

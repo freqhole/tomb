@@ -57,6 +57,26 @@ pub struct MusicBrainzConfig {
     /// tag name to apply to complete albums
     #[serde(default = "default_full_album_tag")]
     pub full_album_tag: String,
+
+    /// preferred country for release selection (e.g., "US", "GB", "XW")
+    #[serde(default = "default_preferred_country")]
+    pub preferred_country: String,
+
+    /// preferred release status for selection ("Official", "Promotion", "Bootleg", etc.)
+    #[serde(default = "default_preferred_status")]
+    pub preferred_status: String,
+
+    /// album completion threshold percentage (0-100) for tagging as complete
+    #[serde(default = "default_album_completion_threshold")]
+    pub album_completion_threshold: f32,
+
+    /// prefer complete albums over partial matches
+    #[serde(default = "default_prefer_complete_albums")]
+    pub prefer_complete_albums: bool,
+
+    /// maximum album suggestions to show in UI
+    #[serde(default = "default_max_album_suggestions")]
+    pub max_album_suggestions: usize,
 }
 
 impl Default for MusicBrainzConfig {
@@ -75,6 +95,11 @@ impl Default for MusicBrainzConfig {
             duration_tolerance_seconds: 5,
             enable_duration_matching: false, // disabled by default as it can be too restrictive
             full_album_tag: "full album".to_string(),
+            preferred_country: "US".to_string(),
+            preferred_status: "Official".to_string(),
+            album_completion_threshold: 90.0,
+            prefer_complete_albums: true,
+            max_album_suggestions: 5,
         }
     }
 }
@@ -167,6 +192,26 @@ fn default_duration_tolerance_seconds() -> u32 {
 
 fn default_full_album_tag() -> String {
     "full album".to_string()
+}
+
+fn default_preferred_country() -> String {
+    "US".to_string()
+}
+
+fn default_preferred_status() -> String {
+    "Official".to_string()
+}
+
+fn default_album_completion_threshold() -> f32 {
+    90.0
+}
+
+fn default_prefer_complete_albums() -> bool {
+    true
+}
+
+fn default_max_album_suggestions() -> usize {
+    5
 }
 
 #[cfg(test)]

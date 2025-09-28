@@ -145,6 +145,9 @@ pub enum MusicBrainzCommands {
         /// Only scan songs missing specific metadata
         #[arg(long)]
         missing_metadata: Option<String>, // e.g., "genre", "album", "artist"
+        /// Use album-first processing instead of individual song lookup
+        #[arg(long)]
+        album_first: bool,
         /// Auto-apply high confidence matches without confirmation
         #[arg(long)]
         auto_apply: bool,
@@ -254,6 +257,7 @@ pub async fn handle_musicbrainz_command(
             artist,
             album,
             missing_metadata,
+            album_first,
             auto_apply,
             confidence_threshold,
             dry_run,
@@ -268,6 +272,7 @@ pub async fn handle_musicbrainz_command(
                 artist,
                 album,
                 missing_metadata,
+                album_first,
                 auto_apply,
                 confidence_threshold,
                 dry_run,

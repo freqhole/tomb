@@ -488,6 +488,35 @@ impl MusicRepository {
         }
     }
 
+    /// Update song's MusicBrainz metadata in the JSONB field, preserving other metadata
+    pub async fn update_song_musicbrainz_metadata(
+        &self,
+        song_id: Uuid,
+        musicbrainz_data: &serde_json::Value,
+    ) -> Result<Song> {
+        let song = sqlx::query_as::<_, Song>(
+            r#"
+            UPDATE songs
+            SET
+                metadata = jsonb_set(
+                    COALESCE(metadata, '{}'),
+                    '{musicbrainz}',
+                    $1
+                ),
+                updated_at = NOW()
+            WHERE id = $2 AND deleted_at IS NULL
+            RETURNING *
+            "#,
+        )
+        .bind(musicbrainz_data)
+        .bind(song_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(MusicRepositoryError::SongNotFound(song_id))?;
+
+        Ok(song)
+    }
+
     /// Search songs with user preferences included
     pub async fn search_songs_with_user_context(
         &self,
@@ -1638,12 +1667,117 @@ impl MusicRepository {
             r#"
             SELECT * FROM songs
             WHERE deleted_at IS NULL
-            ORDER BY created_at DESC
+            ORDER BY created_at ASC
             LIMIT $1 OFFSET $2
             "#,
         )
         .bind(limit)
         .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(songs)
+    }
+
+    /// Get songs for musicbrainz batch scanning with various filters
+    pub async fn get_songs_for_batch_scan(
+        &self,
+        limit: i64,
+        offset: i64,
+        unscanned_only: bool,
+        rescan_updated: bool,
+        force_rescan: bool,
+        artist: Option<&str>,
+        album: Option<&str>,
+        missing_metadata: Option<&str>,
+    ) -> Result<Vec<Song>> {
+        let mut sql = String::from("SELECT * FROM songs WHERE deleted_at IS NULL");
+        let mut params: Vec<String> = Vec::new();
+
+        // filter by scan status
+        if unscanned_only && !force_rescan {
+            sql.push_str(
+                " AND (metadata->>'musicbrainz' IS NULL OR metadata->>'musicbrainz' = '{}')",
+            );
+        } else if rescan_updated && !force_rescan {
+            // TODO: add logic to compare updated_at with last scan timestamp
+            sql.push_str(" AND updated_at > (metadata->'musicbrainz'->>'scanned_at')::timestamp");
+        }
+
+        // filter by artist
+        if let Some(artist_filter) = artist {
+            sql.push_str(" AND artist ILIKE $");
+            sql.push_str(&(params.len() + 1).to_string());
+            params.push(format!("%{}%", artist_filter));
+        }
+
+        // filter by album
+        if let Some(album_filter) = album {
+            sql.push_str(" AND album ILIKE $");
+            sql.push_str(&(params.len() + 1).to_string());
+            params.push(format!("%{}%", album_filter));
+        }
+
+        // filter by missing metadata
+        if let Some(metadata_field) = missing_metadata {
+            match metadata_field {
+                "artist" => sql.push_str(" AND (artist IS NULL OR artist = '')"),
+                "album" => sql.push_str(" AND (album IS NULL OR album = '')"),
+                "genre" => sql.push_str(" AND (genre IS NULL OR genre = '')"),
+                "title" => sql.push_str(" AND (title IS NULL OR title = '')"),
+                _ => {
+                    return Err(MusicRepositoryError::Validation(format!(
+                        "unsupported missing metadata field: {}",
+                        metadata_field
+                    )))
+                }
+            }
+        }
+
+        sql.push_str(" ORDER BY created_at ASC LIMIT $");
+        sql.push_str(&(params.len() + 1).to_string());
+        sql.push_str(" OFFSET $");
+        sql.push_str(&(params.len() + 2).to_string());
+
+        // execute the built query with parameters
+        let mut query = sqlx::query_as::<_, Song>(&sql);
+
+        // add string parameters in order
+        for param in params {
+            query = query.bind(param);
+        }
+
+        // add integer parameters at the end
+        query = query.bind(limit);
+        query = query.bind(offset);
+
+        let songs = query.fetch_all(&self.pool).await?;
+        Ok(songs)
+    }
+
+    /// Find songs by album name
+    pub async fn find_songs_by_album(&self, album: &str) -> Result<Vec<Song>> {
+        let songs = sqlx::query_as::<_, Song>(
+            "SELECT * FROM songs WHERE album ILIKE $1 AND deleted_at IS NULL ORDER BY track_number, title"
+        )
+        .bind(format!("%{}%", album))
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(songs)
+    }
+
+    /// Find songs by artist and album name
+    pub async fn find_songs_by_artist_and_album(
+        &self,
+        artist: &str,
+        album: &str,
+    ) -> Result<Vec<Song>> {
+        let songs = sqlx::query_as::<_, Song>(
+            "SELECT * FROM songs WHERE artist ILIKE $1 AND album ILIKE $2 AND deleted_at IS NULL ORDER BY track_number, title"
+        )
+        .bind(format!("%{}%", artist))
+        .bind(format!("%{}%", album))
         .fetch_all(&self.pool)
         .await?;
 
