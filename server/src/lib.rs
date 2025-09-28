@@ -7,6 +7,7 @@ pub mod jobs;
 pub mod logging;
 pub mod maintenance;
 pub mod media;
+pub mod musicbrainz;
 pub mod notifications;
 pub mod photos;
 pub mod routes;

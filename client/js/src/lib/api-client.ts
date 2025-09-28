@@ -33,6 +33,7 @@ import { FilterOptionsResponseSchema } from "./search/music/filter-types.js";
 import { searchValidation } from "./search/validation.js";
 import { musicApiMethods } from "./music/api-methods.js";
 import { musicAdminApiMethods } from "./music/api-admin-methods.js";
+import { musicBrainzApiMethods } from "./musicbrainz/api-methods.js";
 import type {
   ArtistsFilterRequest,
   AlbumsFilterRequest,
@@ -849,6 +850,35 @@ export class ApiClient {
       this,
       songId,
       rating === null ? 0 : rating
+    );
+  }
+
+  // musicbrainz methods
+  async getMusicBrainzConfig() {
+    return musicBrainzApiMethods.getMusicBrainzConfig.call(this);
+  }
+
+  async searchMusicBrainz(request: any) {
+    return musicBrainzApiMethods.searchMusicBrainz.call(this, request);
+  }
+
+  async getSongMatches(songIds: string[]) {
+    return musicBrainzApiMethods.getSongMatches.call(this, songIds);
+  }
+
+  async applyMusicBrainzMetadata(songIds: string[], match: any) {
+    return musicBrainzApiMethods.applyMusicBrainzMetadata.call(
+      this,
+      songIds,
+      match
+    );
+  }
+
+  async scanSongsForMatches(songIds: string[], options?: any) {
+    return musicBrainzApiMethods.scanSongsForMatches.call(
+      this,
+      songIds,
+      options
     );
   }
 

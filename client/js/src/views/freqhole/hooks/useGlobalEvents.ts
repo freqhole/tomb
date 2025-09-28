@@ -65,6 +65,8 @@ export interface FreqholeEvents {
   // UI events
   "modal:open": { modal: string; data?: any };
   "modal:close": { modal: string };
+  "musicbrainz-modal:open": { songs: any[] };
+  "musicbrainz-modal:close": {};
   "context-menu:open": { x: number; y: number; actions: any[] };
   "context-menu:close": {};
   "playlist-selector:open": { x: number; y: number; songs: any[] };

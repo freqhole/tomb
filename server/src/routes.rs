@@ -10,6 +10,7 @@ use crate::auth::{build_auth_routes, require_authentication};
 use crate::blobs::build_blob_routes;
 use crate::health::build_health_routes;
 use crate::media::build_media_routes;
+use crate::musicbrainz::create_musicbrainz_routes;
 use crate::photos::build_photos_routes;
 
 use crate::static_filez::{build_enhanced_private_routes, build_enhanced_public_routes};
@@ -30,6 +31,7 @@ pub fn build_routes(config: &AppConfig, connection_manager: ConnectionManager) -
         .merge(create_sync_routes())
         .merge(build_enhanced_private_routes(config))
         .merge(build_websocket_routes_with_manager(connection_manager))
+        .nest("/api", create_musicbrainz_routes())
         .layer(axum_middleware::from_fn(require_authentication));
 
     Router::new()
