@@ -10,7 +10,7 @@ import { ContextMenuManager } from "../ui/ContextMenuManager";
 import { FreqholeIcon, MenuIcon } from "../ui/icons";
 import { AuthModal } from "../auth/AuthModal";
 import { SongInfoModal } from "../modals/SongInfoModal";
-import { MusicBrainzModal } from "../modals/MusicBrainzModal";
+
 import type { Song } from "../../../../lib/music/schemas/song";
 import { UserMenu } from "../auth/UserMenu";
 import { useAuth } from "../../../../hooks/auth";
@@ -23,8 +23,7 @@ export function ThreeColumnLayout(props: any) {
   const [authOpen, setAuthOpen] = createSignal(false);
   const [songInfoOpen, setSongInfoOpen] = createSignal(false);
   const [songInfoData, setSongInfoData] = createSignal<Song[]>([]);
-  const [musicBrainzOpen, setMusicBrainzOpen] = createSignal(false);
-  const [musicBrainzData, setMusicBrainzData] = createSignal<Song[]>([]);
+
   const auth = useAuth();
 
   // Responsive layout logic
@@ -52,8 +51,8 @@ export function ThreeColumnLayout(props: any) {
       setSongInfoOpen(true);
     }
     if (modal === "musicbrainzModal" && data?.songs) {
-      setMusicBrainzData(data.songs);
-      setMusicBrainzOpen(true);
+      setSongInfoData(data.songs);
+      setSongInfoOpen(true);
     }
   });
 
@@ -62,19 +61,19 @@ export function ThreeColumnLayout(props: any) {
       setSongInfoOpen(false);
     }
     if (modal === "musicbrainzModal") {
-      setMusicBrainzOpen(false);
+      setSongInfoOpen(false);
     }
   });
 
   // Listen for musicbrainz modal events
   events.on("musicbrainz-modal:open", ({ songs }) => {
-    setMusicBrainzData(songs);
-    setMusicBrainzOpen(true);
+    setSongInfoData(songs);
+    setSongInfoOpen(true);
   });
 
   events.on("musicbrainz-modal:close", () => {
-    setMusicBrainzOpen(false);
-    setMusicBrainzData([]);
+    setSongInfoOpen(false);
+    setSongInfoData([]);
   });
 
   // Mobile navigation handlers
@@ -237,13 +236,6 @@ export function ThreeColumnLayout(props: any) {
         isOpen={songInfoOpen()}
         onClose={() => setSongInfoOpen(false)}
         songs={songInfoData()}
-      />
-
-      {/* musicbrainz modal */}
-      <MusicBrainzModal
-        isOpen={musicBrainzOpen()}
-        onClose={() => setMusicBrainzOpen(false)}
-        songs={musicBrainzData()}
       />
     </div>
   );

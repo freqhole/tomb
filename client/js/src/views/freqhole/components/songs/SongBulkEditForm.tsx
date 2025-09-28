@@ -10,6 +10,7 @@ interface SongBulkEditFormProps {
   songs: Song[];
   onFormChange: (changes: Partial<EditableSongFields>) => void;
   initialChanges?: Partial<EditableSongFields>;
+  hideHeader?: boolean;
 }
 
 export function SongBulkEditForm(props: SongBulkEditFormProps) {
@@ -37,23 +38,25 @@ export function SongBulkEditForm(props: SongBulkEditFormProps) {
   return (
     <div class="space-y-6">
       {/* bulk edit header */}
-      <div class="bg-gray-800/50 p-4 border border-gray-700">
-        <div class="font-medium text-white mb-1">
-          bulk editing: {props.songs.length} songs
-        </div>
-        <div class="text-sm text-gray-400">
-          fields showing "mixed values" contain different values across selected
-          songs
-        </div>
-
-        {formStore.isDirty() && (
-          <div class="text-xs text-magenta-400 mt-2 flex items-center gap-2">
-            <div class="w-2 h-2 bg-magenta-500"></div>
-            {Object.keys(formStore.changes()).length} field(s) will be updated
-            across all songs
+      {!props.hideHeader && (
+        <div class="bg-gray-800/50 p-4 border border-gray-700">
+          <div class="font-medium text-white mb-1">
+            bulk editing: {props.songs.length} songs
           </div>
-        )}
-      </div>
+          <div class="text-sm text-gray-400">
+            fields showing "mixed values" contain different values across
+            selected songs
+          </div>
+
+          {formStore.isDirty() && (
+            <div class="text-xs text-magenta-400 mt-2 flex items-center gap-2">
+              <div class="w-2 h-2 bg-magenta-500"></div>
+              {Object.keys(formStore.changes()).length} field(s) will be updated
+              across all songs
+            </div>
+          )}
+        </div>
+      )}
 
       {/* image carousel */}
       <ImageCarousel

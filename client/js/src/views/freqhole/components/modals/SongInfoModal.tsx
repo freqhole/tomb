@@ -35,9 +35,9 @@ export function SongInfoModal(props: SongInfoModalProps) {
   >({});
 
   // Tab state and MusicBrainz functionality
-  const [activeTab, setActiveTab] = createSignal<
-    "musicbrainz" | "edit" | "matches"
-  >("edit");
+  const [activeTab, setActiveTab] = createSignal<"edit" | "matches" | "search">(
+    "edit"
+  );
   const [matches, setMatches] = createSignal<MusicBrainzMatch[]>([]);
   const [searchResults, setSearchResults] = createSignal<MusicBrainzMatch[]>(
     []
@@ -46,8 +46,9 @@ export function SongInfoModal(props: SongInfoModalProps) {
     AlbumMatch[]
   >([]);
   const [searchQuery, setSearchQuery] = createSignal<MusicBrainzSearchRequest>({
-    limit: 25,
+    limit: 50,
   });
+  const [formKey, setFormKey] = createSignal(0);
 
   // MusicBrainz hook with event integration
   const musicBrainz = useMusicBrainz({
@@ -341,8 +342,12 @@ export function SongInfoModal(props: SongInfoModalProps) {
       artist: match.artist,
       album: match.album || undefined,
       year: match.year || undefined,
-      genre: match.genre || undefined,
     };
+
+    // only include genre if it has a value (skip for album matches in bulk mode)
+    if (match.genre) {
+      changes.genre = match.genre;
+    }
 
     // only include title and track/disc numbers in single mode (not bulk mode)
     if (!isBulkMode()) {
@@ -354,27 +359,28 @@ export function SongInfoModal(props: SongInfoModalProps) {
     return changes;
   };
 
-  const applyMatch = async (match: MusicBrainzMatch) => {
+  const applyMatch = (match: MusicBrainzMatch) => {
     try {
       setError(null);
-      musicBrainz.clearError();
 
-      const songsToProcess = isBulkMode() ? props.songs : [currentSong()!];
-      const success = await musicBrainz.applyMatch(songsToProcess, match);
+      // convert match data to form changes and switch to edit tab
+      const changes = matchToFormChanges(match);
+      setFormChanges(changes);
+      setFormKey((prev) => prev + 1); // force form remount
+      setActiveTab("edit");
 
-      if (success) {
-        // convert match data to form changes and switch to edit tab
-        const changes = matchToFormChanges(match);
-        setFormChanges(changes);
-        setActiveTab("edit");
-      }
+      // show success message
+      events.emit("notification:show", {
+        message: "match applied to form - review and save to apply changes",
+        type: "success",
+      });
     } catch (err) {
       console.error("failed to apply match:", err);
       setError(err instanceof Error ? err.message : "failed to apply metadata");
     }
   };
 
-  const applyAlbumMatch = async (album: AlbumMatch) => {
+  const applyAlbumMatch = (album: AlbumMatch) => {
     // Convert album data to match format (album-level metadata only)
     const match: MusicBrainzMatch = {
       id: album.id,
@@ -385,14 +391,14 @@ export function SongInfoModal(props: SongInfoModalProps) {
       track_number: null, // Don't apply track numbers from album search
       disc_number: null,
       duration_seconds: null,
-      genre: null, // Albums don't have genre info in this context
+      genre: undefined, // Don't override existing genre values for albums
       confidence: 100,
       mbid: album.mbid,
       recording_id: null,
       release_id: album.release_id,
     };
 
-    await applyMatch(match);
+    applyMatch(match);
   };
 
   // Initialize MusicBrainz data when modal opens
@@ -406,7 +412,7 @@ export function SongInfoModal(props: SongInfoModalProps) {
       // Pre-fill search form with song data
       const preFillValues = getSearchPreFillValues(props.songs);
       setSearchQuery({
-        limit: 25,
+        limit: 50,
         ...preFillValues,
       });
 
@@ -482,53 +488,426 @@ export function SongInfoModal(props: SongInfoModalProps) {
             </div>
           </Show>
 
-          {/* content */}
-          <div class="space-y-6">
+          {/* persistent header info */}
+          <div class="bg-gray-800/50 p-4 border border-gray-700 space-y-2">
             {isBulkMode() ? (
-              // bulk edit mode - uses schema-driven form
               <>
                 <div class="text-sm text-gray-400">
                   editing {totalSongs()} songs
                 </div>
-                {isEditing() ? (
-                  <SongBulkEditForm
-                    songs={props.songs}
-                    onFormChange={handleFormChange}
-                  />
-                ) : (
-                  <SongMetadataView
-                    songs={props.songs}
-                    currentSongIndex={0}
-                    isBulkMode={true}
-                  />
-                )}
+                <div class="font-medium text-white">
+                  bulk editing: {totalSongs()} songs
+                </div>
+                <div class="text-xs text-gray-400">
+                  fields showing "mixed values" contain different values across
+                  selected songs
+                </div>
               </>
             ) : (
-              // single song mode
               <>
-                {/* song content - uses schema-driven form */}
-                <Show when={currentSong()}>
-                  {isEditing() ? (
-                    <Show when={currentSong()?.id} keyed>
-                      <SongEditForm
-                        song={currentSong()!}
-                        songs={props.songs}
-                        currentIndex={currentSongIndex()}
-                        onFormChange={handleFormChange}
-                        onSongChange={(index) => setCurrentSongIndex(index)}
-                      />
-                    </Show>
-                  ) : (
-                    <SongMetadataView
-                      songs={props.songs}
-                      currentSongIndex={currentSongIndex()}
-                      onSongChange={(index) => setCurrentSongIndex(index)}
-                      isBulkMode={false}
-                    />
+                <div class="text-sm text-gray-400">
+                  editing: {currentSong()?.title} - {currentSong()?.artist}
+                </div>
+                <div class="text-sm text-gray-300">
+                  {currentSong()?.artist}
+                  {currentSong()?.album && (
+                    <span class="ml-2">• {currentSong()?.album}</span>
                   )}
-                </Show>
+                  {currentSong()?.track_number && (
+                    <span class="ml-2">({currentSong()?.track_number})</span>
+                  )}
+                  {currentSong()?.year && (
+                    <span class="ml-2">• {currentSong()?.year}</span>
+                  )}
+                </div>
               </>
             )}
+
+            {/* changes indicator */}
+            {hasChanges() && (
+              <div class="text-xs text-magenta-400 flex items-center gap-2">
+                <div class="w-2 h-2 bg-magenta-500"></div>
+                {Object.keys(formChanges()).length} field(s) will be updated
+                {isBulkMode() ? ` across ${totalSongs()} songs` : ""}
+              </div>
+            )}
+          </div>
+
+          {/* pagination for single edit mode with multiple songs */}
+          <Show when={!isBulkMode() && totalSongs() > 1 && isEditing()}>
+            <div class="flex items-center justify-between bg-gray-800/30 p-3 border border-gray-700">
+              <button
+                onClick={goToPrevious}
+                class="px-3 py-1 bg-gray-700 text-white hover:bg-gray-600 transition-colors disabled:opacity-50"
+                disabled={isLoading()}
+              >
+                ← previous
+              </button>
+              <span class="text-sm text-gray-400">
+                {currentSongIndex() + 1} of {totalSongs()}
+              </span>
+              <button
+                onClick={goToNext}
+                class="px-3 py-1 bg-gray-700 text-white hover:bg-gray-600 transition-colors disabled:opacity-50"
+                disabled={isLoading()}
+              >
+                next →
+              </button>
+            </div>
+          </Show>
+
+          {/* tabs */}
+          <Show when={isEditing()}>
+            <div class="flex border-b border-gray-700">
+              <button
+                onClick={() => setActiveTab("edit")}
+                class={`px-4 py-2 text-sm font-medium transition-colors ${
+                  activeTab() === "edit"
+                    ? "text-magenta-400 border-b-2 border-magenta-400"
+                    : "text-gray-400 hover:text-white"
+                }`}
+                disabled={isLoading()}
+              >
+                edit metadata
+              </button>
+              <button
+                onClick={() => setActiveTab("matches")}
+                class={`px-4 py-2 text-sm font-medium transition-colors ${
+                  activeTab() === "matches"
+                    ? "text-magenta-400 border-b-2 border-magenta-400"
+                    : "text-gray-400 hover:text-white"
+                }`}
+                disabled={isLoading()}
+              >
+                available matches
+              </button>
+              <button
+                onClick={() => setActiveTab("search")}
+                class={`px-4 py-2 text-sm font-medium transition-colors ${
+                  activeTab() === "search"
+                    ? "text-magenta-400 border-b-2 border-magenta-400"
+                    : "text-gray-400 hover:text-white"
+                }`}
+                disabled={isLoading()}
+              >
+                search musicbrainz
+              </button>
+            </div>
+          </Show>
+
+          {/* content */}
+          <div class="min-h-64">
+            {/* matches tab */}
+            <Show when={activeTab() === "matches" && isEditing()}>
+              <div class="space-y-4 py-4">
+                <Show when={matches().length === 0 && !isLoading()}>
+                  <div class="text-center text-gray-400 py-8">
+                    no musicbrainz matches found for selected songs
+                  </div>
+                </Show>
+
+                <For each={matches()}>
+                  {(match) => (
+                    <div class="p-4 bg-gray-800/30 border border-gray-700 hover:border-gray-600 transition-colors">
+                      <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                          <div class="font-medium text-white mb-1">
+                            {match.title}
+                            {match.track_number && (
+                              <span class="text-gray-400 ml-2">
+                                Track {match.track_number}
+                                {match.disc_number &&
+                                  match.disc_number > 1 &&
+                                  ` • Disc ${match.disc_number}`}
+                              </span>
+                            )}
+                          </div>
+                          <div class="text-sm text-gray-400 mb-2">
+                            {match.artist}
+                            {match.album && (
+                              <span class="ml-2">• {match.album}</span>
+                            )}
+                            {match.year && (
+                              <span class="ml-2">• {match.year}</span>
+                            )}
+                            {match.genre && (
+                              <span class="ml-2">• {match.genre}</span>
+                            )}
+                          </div>
+                          <div class="text-xs text-gray-500">
+                            Confidence: {match.confidence}%
+                            {match.mbid && (
+                              <span class="ml-2">
+                                • MBID: {match.mbid.slice(0, 8)}...
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => applyMatch(match)}
+                          class="ml-4 px-3 py-1 bg-magenta-600 text-white text-sm hover:bg-magenta-700 transition-colors"
+                          disabled={isLoading()}
+                        >
+                          apply
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+
+            {/* search tab */}
+            <Show when={activeTab() === "search" && isEditing()}>
+              <div class="space-y-4 py-4">
+                {/* search context hint */}
+                <div class="text-sm text-gray-400">
+                  {totalSongs() > 1
+                    ? "searching for albums (bulk mode)"
+                    : "searching for individual songs"}
+                </div>
+
+                {/* search form */}
+                <div class="space-y-4 p-4 bg-gray-800/30 border border-gray-700">
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-sm font-medium text-gray-300 mb-1">
+                        artist
+                      </label>
+                      <input
+                        type="text"
+                        value={searchQuery().artist || ""}
+                        onInput={(e) =>
+                          setSearchQuery((prev) => ({
+                            ...prev,
+                            artist: e.target.value || undefined,
+                          }))
+                        }
+                        class="w-full px-3 py-2 bg-gray-900 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-magenta-500"
+                        placeholder="artist name"
+                      />
+                    </div>
+
+                    <div>
+                      <label class="block text-sm font-medium text-gray-300 mb-1">
+                        {totalSongs() > 1 ? "album" : "title"}
+                      </label>
+                      <input
+                        type="text"
+                        value={
+                          totalSongs() > 1
+                            ? searchQuery().album || ""
+                            : searchQuery().title || ""
+                        }
+                        onInput={(e) =>
+                          setSearchQuery((prev) => ({
+                            ...prev,
+                            ...(totalSongs() > 1
+                              ? { album: e.target.value || undefined }
+                              : { title: e.target.value || undefined }),
+                          }))
+                        }
+                        class="w-full px-3 py-2 bg-gray-900 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-magenta-500"
+                        placeholder={
+                          totalSongs() > 1 ? "album name" : "song title"
+                        }
+                      />
+                    </div>
+
+                    <Show when={totalSongs() === 1}>
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">
+                          album
+                        </label>
+                        <input
+                          type="text"
+                          value={searchQuery().album || ""}
+                          onInput={(e) =>
+                            setSearchQuery((prev) => ({
+                              ...prev,
+                              album: e.target.value || undefined,
+                            }))
+                          }
+                          class="w-full px-3 py-2 bg-gray-900 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-magenta-500"
+                          placeholder="album name"
+                        />
+                      </div>
+                    </Show>
+                  </div>
+
+                  <button
+                    onClick={searchMusicBrainz}
+                    class="w-full px-4 py-2 bg-magenta-600 text-white hover:bg-magenta-700 transition-colors disabled:opacity-50"
+                    disabled={isLoading()}
+                  >
+                    {isLoading() ? "searching..." : "search"}
+                  </button>
+                </div>
+
+                {/* search results */}
+                <div class="space-y-2">
+                  {/* album results for bulk mode */}
+                  <Show when={albumSearchResults().length > 0}>
+                    <div class="text-sm font-medium text-gray-300 mb-2">
+                      album results ({albumSearchResults().length})
+                    </div>
+                    <For each={albumSearchResults()}>
+                      {(album) => (
+                        <div class="p-3 bg-gray-800/30 border border-gray-700 hover:border-gray-600 transition-colors">
+                          <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                              <div class="font-medium text-white">
+                                {album.title}
+                              </div>
+                              <div class="text-sm text-gray-400">
+                                {album.artist}
+                                {album.year && (
+                                  <span class="ml-2">• {album.year}</span>
+                                )}
+                                {album.track_count && (
+                                  <span class="ml-2">
+                                    • {album.track_count} tracks
+                                  </span>
+                                )}
+                              </div>
+                              <div class="text-xs text-gray-500 mt-1">
+                                MBID: {album.mbid?.slice(0, 8)}...
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => applyAlbumMatch(album)}
+                              class="ml-4 px-3 py-1 bg-magenta-600 text-white text-sm hover:bg-magenta-700 transition-colors"
+                              disabled={isLoading()}
+                            >
+                              apply album info
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </Show>
+
+                  {/* individual song results */}
+                  <Show when={searchResults().length > 0}>
+                    <div class="text-sm font-medium text-gray-300 mb-2">
+                      song results ({searchResults().length})
+                    </div>
+                    <For each={searchResults()}>
+                      {(result) => (
+                        <div class="p-3 bg-gray-800/30 border border-gray-700 hover:border-gray-600 transition-colors">
+                          <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                              <div class="font-medium text-white">
+                                {result.title}
+                                {result.track_number && (
+                                  <span class="text-gray-400 ml-2">
+                                    Track {result.track_number}
+                                    {result.disc_number &&
+                                      result.disc_number > 1 &&
+                                      ` • Disc ${result.disc_number}`}
+                                  </span>
+                                )}
+                              </div>
+                              <div class="text-sm text-gray-400">
+                                {result.artist}
+                                {result.album && (
+                                  <span class="ml-2">• {result.album}</span>
+                                )}
+                                {result.year && (
+                                  <span class="ml-2">• {result.year}</span>
+                                )}
+                              </div>
+                              <div class="text-xs text-gray-500 mt-1">
+                                Confidence: {result.confidence}%
+                                {result.mbid && (
+                                  <span class="ml-2">
+                                    • MBID: {result.mbid.slice(0, 8)}...
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => applyMatch(result)}
+                              class="ml-4 px-3 py-1 bg-magenta-600 text-white text-sm hover:bg-magenta-700 transition-colors"
+                              disabled={isLoading()}
+                            >
+                              apply
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </Show>
+
+                  <Show
+                    when={
+                      searchResults().length === 0 &&
+                      albumSearchResults().length === 0 &&
+                      !isLoading()
+                    }
+                  >
+                    <div class="text-center text-gray-400 py-4">
+                      no search results found
+                    </div>
+                  </Show>
+                </div>
+              </div>
+            </Show>
+
+            {/* edit tab */}
+            <Show when={activeTab() === "edit" || !isEditing()}>
+              <div class="space-y-6 py-4">
+                {isBulkMode() ? (
+                  // bulk edit mode - uses schema-driven form
+                  <>
+                    {isEditing() ? (
+                      <SongBulkEditForm
+                        key={formKey()}
+                        songs={props.songs}
+                        onFormChange={handleFormChange}
+                        initialChanges={formChanges()}
+                        hideHeader={true}
+                      />
+                    ) : (
+                      <SongMetadataView
+                        songs={props.songs}
+                        currentSongIndex={0}
+                        isBulkMode={true}
+                      />
+                    )}
+                  </>
+                ) : (
+                  // single song mode
+                  <>
+                    {/* song content - uses schema-driven form */}
+                    <Show when={currentSong()}>
+                      {isEditing() ? (
+                        <Show when={currentSong()?.id} keyed>
+                          <SongEditForm
+                            key={formKey()}
+                            song={currentSong()!}
+                            songs={props.songs}
+                            currentIndex={currentSongIndex()}
+                            onFormChange={handleFormChange}
+                            onSongChange={(index) => setCurrentSongIndex(index)}
+                            initialChanges={formChanges()}
+                            hideHeader={true}
+                            hidePagination={true}
+                          />
+                        </Show>
+                      ) : (
+                        <SongMetadataView
+                          songs={props.songs}
+                          currentSongIndex={currentSongIndex()}
+                          onSongChange={(index) => setCurrentSongIndex(index)}
+                          isBulkMode={false}
+                        />
+                      )}
+                    </Show>
+                  </>
+                )}
+              </div>
+            </Show>
           </div>
 
           {/* actions */}
@@ -542,19 +921,24 @@ export function SongInfoModal(props: SongInfoModalProps) {
               >
                 cancel
               </button>
-              <button
-                onClick={handleSave}
-                class="px-4 py-2 bg-magenta-600 text-white hover:bg-magenta-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={isLoading() || !hasChanges()}
+              {/* save button for edit tab */}
+              <Show
+                when={(activeTab() === "edit" || !isEditing()) && isEditing()}
               >
-                {isLoading()
-                  ? "saving..."
-                  : !isBulkMode() &&
-                      totalSongs() > 1 &&
-                      currentSongIndex() < totalSongs() - 1
-                    ? "save and next"
-                    : "save"}
-              </button>
+                <button
+                  onClick={handleSave}
+                  class="px-4 py-2 bg-magenta-600 text-white hover:bg-magenta-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isLoading() || !hasChanges()}
+                >
+                  {isLoading()
+                    ? "saving..."
+                    : !isBulkMode() &&
+                        totalSongs() > 1 &&
+                        currentSongIndex() < totalSongs() - 1
+                      ? "save and next"
+                      : "save"}
+                </button>
+              </Show>
             </Show>
 
             {/* close button for view-only mode */}

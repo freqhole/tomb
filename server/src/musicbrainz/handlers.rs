@@ -263,7 +263,7 @@ pub async fn search_musicbrainz(
     // Get actual MusicBrainz configuration from AppState
     let config = app_state.config.musicbrainz.clone();
 
-    // Build search query
+    // Build search query with include parameters for detailed track information
     let mut query = RecordingSearchQuery::new();
 
     if let Some(title) = &request.title {
@@ -276,14 +276,15 @@ pub async fn search_musicbrainz(
         query = query.release(album);
     }
 
-    query = query.limit(request.limit);
+    // Include releases with media information to get track numbers
+    query = query.param("inc", "releases+media").limit(request.limit);
 
     // Perform search using grimoire service
     // Use the config to create client directly
     let client = grimoire::musicbrainz::client::MusicBrainzClient::new(config)?;
     let search_result = client.search_recordings(&query).await?;
 
-    // Convert to API format
+    // Convert to API format with track number extraction
     let matches: Vec<MusicBrainzMatch> = search_result
         .results
         .into_iter()
@@ -300,7 +301,8 @@ pub async fn search_musicbrainz(
                 })
                 .unwrap_or_else(|| "Unknown Artist".to_string());
 
-            let (album, year, release_id) = recording
+            // Extract track and disc numbers by examining release media
+            let (album, year, release_id, track_number, disc_number) = recording
                 .releases
                 .as_ref()
                 .and_then(|releases| releases.first())
@@ -309,13 +311,58 @@ pub async fn search_musicbrainz(
                         .date
                         .as_ref()
                         .and_then(|date| date.split('-').next()?.parse::<u32>().ok());
+
+                    // Look for track numbers in the release media
+                    let (track_num, disc_num) = release
+                        .media
+                        .as_ref()
+                        .and_then(|media_list| {
+                            // Try to find exact match first
+                            for (disc_idx, medium) in media_list.iter().enumerate() {
+                                if let Some(tracks) = &medium.tracks {
+                                    for track in tracks {
+                                        // Check if this track references our recording by ID
+                                        if let Some(track_recording) = &track.recording {
+                                            if track_recording.id == recording.id {
+                                                let disc_number = if media_list.len() > 1 {
+                                                    Some(disc_idx as u32 + 1)
+                                                } else {
+                                                    None
+                                                };
+                                                return Some((track.position, disc_number));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // If no exact match found, use first track from first medium
+                            if let Some(first_medium) = media_list.first() {
+                                if let Some(tracks) = &first_medium.tracks {
+                                    if let Some(first_track) = tracks.first() {
+                                        let disc_number = if media_list.len() > 1 {
+                                            Some(1u32)
+                                        } else {
+                                            None
+                                        };
+                                        return Some((first_track.position, disc_number));
+                                    }
+                                }
+                            }
+
+                            None
+                        })
+                        .unwrap_or((None, None));
+
                     (
                         Some(release.title.clone()),
                         year,
                         Some(release.id.to_string()),
+                        track_num,
+                        disc_num,
                     )
                 })
-                .unwrap_or((None, None, None));
+                .unwrap_or((None, None, None, None, None));
 
             MusicBrainzMatch {
                 id: recording.id.to_string(),
@@ -323,8 +370,8 @@ pub async fn search_musicbrainz(
                 artist: artist_credit,
                 album,
                 year,
-                track_number: None, // Track number not available in search results
-                disc_number: None,  // Disc number not available in search results
+                track_number,
+                disc_number,
                 duration_seconds: recording.length.map(|ms| ms / 1000), // Convert ms to seconds
                 genre: recording
                     .tags
