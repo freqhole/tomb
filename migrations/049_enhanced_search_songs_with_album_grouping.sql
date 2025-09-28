@@ -1,10 +1,11 @@
--- Fix search_songs function to include search_vector in base query
--- The previous migration was missing search_vector in the SELECT clause
+-- Enhanced search_songs function with smart album grouping and proper sorting
+-- This replaces the original search_songs function with improved album-first sorting
+-- and smart album grouping for time-based sorts
 
 -- Drop the existing search_songs function
 DROP FUNCTION IF EXISTS search_songs CASCADE;
 
--- Recreate search_songs function with search_vector included in base query
+-- Recreate search_songs function with enhanced functionality
 CREATE OR REPLACE FUNCTION search_songs(params JSONB DEFAULT '{}'::JSONB)
 RETURNS TABLE(
     id UUID,
@@ -29,7 +30,7 @@ RETURNS TABLE(
     metadata JSONB,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ,
-    version INTEGER,
+    version BIGINT,
     search_rank REAL,
     total_count BIGINT
 ) AS $$
@@ -94,7 +95,6 @@ DECLARE
 
     -- computed variables
     is_asc BOOLEAN := LOWER(p_order_direction) = 'asc';
-    total_count_val BIGINT;
 BEGIN
     RETURN QUERY
     WITH base_query AS (
@@ -121,9 +121,23 @@ BEGIN
         WHERE s.deleted_at IS NULL
     ),
 
-    filtered_query AS (
-        SELECT bq.*, COUNT(*) OVER() as total_count
+    -- For time-based sorts, calculate album grouping timestamps
+    album_timestamps AS (
+        SELECT DISTINCT
+            bq.album,
+            bq.artist,
+            -- Use the latest created_at in each album as the album's timestamp
+            CASE WHEN p_order_by = 'created_at' THEN MAX(bq.created_at) OVER (PARTITION BY bq.album, bq.artist)
+                 WHEN p_order_by = 'updated_at' THEN MAX(bq.updated_at) OVER (PARTITION BY bq.album, bq.artist)
+                 ELSE MAX(bq.created_at) OVER (PARTITION BY bq.album, bq.artist)
+            END AS album_sort_timestamp
         FROM base_query bq
+    ),
+
+    filtered_query AS (
+        SELECT bq.*, COUNT(*) OVER() as total_count, at.album_sort_timestamp
+        FROM base_query bq
+        LEFT JOIN album_timestamps at ON bq.album = at.album AND bq.artist = at.artist
         WHERE
             -- FTS search conditions
             (p_search_query IS NULL OR
@@ -186,77 +200,64 @@ BEGIN
         fq.created_at, fq.updated_at, fq.version, fq.search_rank, fq.total_count
     FROM filtered_query fq
     ORDER BY
-        -- Primary sorting with album sorting always including disc_number and track_number as secondary
+        -- For time-based sorts: group by album timestamp first, then tracks within album
+        CASE WHEN p_order_by IN ('created_at', 'updated_at') AND NOT is_asc THEN fq.album_sort_timestamp END DESC NULLS LAST,
+        CASE WHEN p_order_by IN ('created_at', 'updated_at') AND is_asc THEN fq.album_sort_timestamp END ASC NULLS LAST,
+        CASE WHEN p_order_by IN ('created_at', 'updated_at') THEN fq.album END ASC NULLS LAST,
+        CASE WHEN p_order_by IN ('created_at', 'updated_at') THEN COALESCE(fq.disc_number, 1) END ASC,
+        CASE WHEN p_order_by IN ('created_at', 'updated_at') THEN COALESCE(fq.track_number, 999) END ASC,
+
+        -- For non-time sorts: primary field first, then album grouping as tie-breaker
         CASE WHEN p_order_by = 'title' AND is_asc THEN fq.title END ASC NULLS LAST,
         CASE WHEN p_order_by = 'title' AND NOT is_asc THEN fq.title END DESC NULLS LAST,
-        CASE WHEN p_order_by = 'title' THEN fq.album END ASC NULLS LAST,
-        CASE WHEN p_order_by = 'title' THEN COALESCE(fq.disc_number, 1) END ASC,
-        CASE WHEN p_order_by = 'title' THEN COALESCE(fq.track_number, 999) END ASC,
 
         CASE WHEN p_order_by = 'artist' AND is_asc THEN fq.artist END ASC NULLS LAST,
         CASE WHEN p_order_by = 'artist' AND NOT is_asc THEN fq.artist END DESC NULLS LAST,
-        CASE WHEN p_order_by = 'artist' THEN fq.album END ASC NULLS LAST,
-        CASE WHEN p_order_by = 'artist' THEN COALESCE(fq.disc_number, 1) END ASC,
-        CASE WHEN p_order_by = 'artist' THEN COALESCE(fq.track_number, 999) END ASC,
 
         CASE WHEN p_order_by = 'album' AND is_asc THEN fq.album END ASC NULLS LAST,
         CASE WHEN p_order_by = 'album' AND NOT is_asc THEN fq.album END DESC NULLS LAST,
-        CASE WHEN p_order_by = 'album' THEN COALESCE(fq.disc_number, 1) END ASC,
-        CASE WHEN p_order_by = 'album' THEN COALESCE(fq.track_number, 999) END ASC,
+
+        CASE WHEN p_order_by = 'album_artist' AND is_asc THEN fq.album_artist END ASC NULLS LAST,
+        CASE WHEN p_order_by = 'album_artist' AND NOT is_asc THEN fq.album_artist END DESC NULLS LAST,
 
         CASE WHEN p_order_by = 'year' AND is_asc THEN fq.year END ASC NULLS LAST,
         CASE WHEN p_order_by = 'year' AND NOT is_asc THEN fq.year END DESC NULLS LAST,
-        CASE WHEN p_order_by = 'year' THEN fq.album END ASC NULLS LAST,
-        CASE WHEN p_order_by = 'year' THEN COALESCE(fq.disc_number, 1) END ASC,
-        CASE WHEN p_order_by = 'year' THEN COALESCE(fq.track_number, 999) END ASC,
+
+        CASE WHEN p_order_by = 'genre' AND is_asc THEN fq.genre END ASC NULLS LAST,
+        CASE WHEN p_order_by = 'genre' AND NOT is_asc THEN fq.genre END DESC NULLS LAST,
 
         CASE WHEN p_order_by = 'rating' AND is_asc THEN fq.rating END ASC NULLS LAST,
         CASE WHEN p_order_by = 'rating' AND NOT is_asc THEN fq.rating END DESC NULLS LAST,
         CASE WHEN p_order_by = 'user_rating' AND is_asc THEN fq.rating END ASC NULLS LAST,
         CASE WHEN p_order_by = 'user_rating' AND NOT is_asc THEN fq.rating END DESC NULLS LAST,
-        CASE WHEN p_order_by IN ('rating', 'user_rating') THEN fq.album END ASC NULLS LAST,
-        CASE WHEN p_order_by IN ('rating', 'user_rating') THEN COALESCE(fq.disc_number, 1) END ASC,
-        CASE WHEN p_order_by IN ('rating', 'user_rating') THEN COALESCE(fq.track_number, 999) END ASC,
 
         CASE WHEN p_order_by IN ('user_is_favorite', 'is_favorite') AND NOT is_asc THEN fq.is_favorite END DESC,
         CASE WHEN p_order_by IN ('user_is_favorite', 'is_favorite') AND is_asc THEN fq.is_favorite END ASC,
-        CASE WHEN p_order_by IN ('user_is_favorite', 'is_favorite') THEN fq.album END ASC NULLS LAST,
-        CASE WHEN p_order_by IN ('user_is_favorite', 'is_favorite') THEN COALESCE(fq.disc_number, 1) END ASC,
-        CASE WHEN p_order_by IN ('user_is_favorite', 'is_favorite') THEN COALESCE(fq.track_number, 999) END ASC,
 
         CASE WHEN p_order_by = 'duration_seconds' AND is_asc THEN EXTRACT(EPOCH FROM fq.duration) END ASC NULLS LAST,
         CASE WHEN p_order_by = 'duration_seconds' AND NOT is_asc THEN EXTRACT(EPOCH FROM fq.duration) END DESC NULLS LAST,
-        CASE WHEN p_order_by = 'duration_seconds' THEN fq.album END ASC NULLS LAST,
-        CASE WHEN p_order_by = 'duration_seconds' THEN COALESCE(fq.disc_number, 1) END ASC,
-        CASE WHEN p_order_by = 'duration_seconds' THEN COALESCE(fq.track_number, 999) END ASC,
 
         CASE WHEN p_order_by = 'search_rank' AND is_asc THEN fq.search_rank END ASC NULLS LAST,
         CASE WHEN p_order_by = 'search_rank' AND NOT is_asc THEN fq.search_rank END DESC NULLS LAST,
-        CASE WHEN p_order_by = 'search_rank' THEN fq.album END ASC NULLS LAST,
-        CASE WHEN p_order_by = 'search_rank' THEN COALESCE(fq.disc_number, 1) END ASC,
-        CASE WHEN p_order_by = 'search_rank' THEN COALESCE(fq.track_number, 999) END ASC,
 
-        CASE WHEN p_order_by = 'created_at' AND is_asc THEN fq.created_at END ASC NULLS LAST,
-        CASE WHEN p_order_by = 'created_at' AND NOT is_asc THEN fq.created_at END DESC NULLS LAST,
-        CASE WHEN p_order_by = 'created_at' THEN fq.album END ASC NULLS LAST,
-        CASE WHEN p_order_by = 'created_at' THEN COALESCE(fq.disc_number, 1) END ASC,
-        CASE WHEN p_order_by = 'created_at' THEN COALESCE(fq.track_number, 999) END ASC,
+        -- Secondary sort: album grouping as tie-breaker (only for non-time sorts)
+        CASE WHEN p_order_by NOT IN ('created_at', 'updated_at', 'duration_seconds')
+             THEN fq.album END ASC NULLS LAST,
+        CASE WHEN p_order_by NOT IN ('created_at', 'updated_at', 'duration_seconds')
+             THEN COALESCE(fq.disc_number, 1) END ASC,
+        CASE WHEN p_order_by NOT IN ('created_at', 'updated_at', 'duration_seconds')
+             THEN COALESCE(fq.track_number, 999) END ASC,
 
-        CASE WHEN p_order_by = 'updated_at' AND is_asc THEN fq.updated_at END ASC NULLS LAST,
-        CASE WHEN p_order_by = 'updated_at' AND NOT is_asc THEN fq.updated_at END DESC NULLS LAST,
-        CASE WHEN p_order_by = 'updated_at' THEN fq.album END ASC NULLS LAST,
-        CASE WHEN p_order_by = 'updated_at' THEN COALESCE(fq.disc_number, 1) END ASC,
-        CASE WHEN p_order_by = 'updated_at' THEN COALESCE(fq.track_number, 999) END ASC,
+        -- Final tie-breaker
+        fq.id ASC
 
-        -- Default fallback with album sorting
-        fq.album ASC NULLS LAST,
-        COALESCE(fq.disc_number, 1) ASC,
-        COALESCE(fq.track_number, 999) ASC,
-        fq.created_at DESC
     LIMIT p_limit
     OFFSET p_offset;
 END;
 $$ LANGUAGE plpgsql;
 
 -- Add comment for updated function
-COMMENT ON FUNCTION search_songs IS 'Enhanced music search function with album-first sorting, fixed array parameter handling, and included search_vector in base query for FTS functionality';
+COMMENT ON FUNCTION search_songs IS 'Enhanced music search function with smart album grouping for time-based sorts, proper array parameter handling, and full-text search support';
+
+-- Force plan cache invalidation
+ANALYZE songs;
