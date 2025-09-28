@@ -1,6 +1,6 @@
 //! Album-centric processing logic for MusicBrainz batch operations
 
-use super::types::{AlbumContext, AlbumGroup, AlbumProcessingPriority, AlbumProcessingResult};
+use super::types::{AlbumContext, AlbumGroup, AlbumProcessingResult};
 use super::utils::{
     analyze_album_completeness_from_songs, analyze_metadata_changes, calculate_string_similarity,
     select_best_release, store_enrichment_data, store_enrichment_data_with_album_context,
@@ -28,23 +28,10 @@ pub fn group_songs_by_album(songs: Vec<Song>) -> Vec<AlbumGroup> {
     // convert to AlbumGroup structures
     album_map
         .into_iter()
-        .map(|((_artist, _album), songs)| {
-            let processing_priority = match songs.len() {
-                1 => AlbumProcessingPriority::SingleSong,
-                2..=4 => AlbumProcessingPriority::FewTracks,
-                5..=9 => AlbumProcessingPriority::PartialAlbum,
-                _ => AlbumProcessingPriority::CompleteAlbum,
-            };
-
-            AlbumGroup {
-                artist: songs[0].artist.clone().unwrap_or_default(),
-                album: songs[0].album.clone().unwrap_or_default(),
-                songs,
-                musicbrainz_release: None,
-                completion_percentage: 0.0,
-                is_complete_album: false,
-                processing_priority,
-            }
+        .map(|((_artist, _album), songs)| AlbumGroup {
+            artist: songs[0].artist.clone().unwrap_or_default(),
+            album: songs[0].album.clone().unwrap_or_default(),
+            songs,
         })
         .collect()
 }
@@ -61,7 +48,7 @@ pub async fn process_album_group(
     threshold: f32,
     config: &MusicBrainzConfig,
 ) -> Result<AlbumProcessingResult, Box<dyn std::error::Error>> {
-    let mut result = AlbumProcessingResult {
+    let result = AlbumProcessingResult {
         processed_count: 0,
         scanned_count: 0,
         updated_count: 0,
@@ -160,7 +147,7 @@ async fn process_album_with_release_data(
     dry_run: bool,
     auto_apply: bool,
     threshold: f32,
-    config: &MusicBrainzConfig,
+    _config: &MusicBrainzConfig,
 ) -> Result<AlbumProcessingResult, Box<dyn std::error::Error>> {
     let mut result = AlbumProcessingResult {
         processed_count: 0,

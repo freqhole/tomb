@@ -570,40 +570,6 @@ impl MusicBrainzService {
         metadata
     }
 
-    /// calculate metadata changes between current and proposed metadata
-    fn calculate_metadata_changes(
-        &self,
-        current: &HashMap<String, serde_json::Value>,
-        proposed: &HashMap<String, serde_json::Value>,
-    ) -> Vec<MetadataChange> {
-        let mut changes = Vec::new();
-
-        for (field, new_value) in proposed {
-            let old_value = current.get(field);
-
-            // only create change if values are different
-            if old_value != Some(new_value) {
-                let confidence = match field.as_str() {
-                    "title" | "artist" => 90.0,
-                    "album" | "album_artist" => 85.0,
-                    "musicbrainz_id" => 95.0,
-                    "year" | "genre" => 80.0,
-                    "track_number" | "disc_number" => 75.0,
-                    _ => 70.0,
-                };
-
-                changes.push(MetadataChange {
-                    field: field.clone(),
-                    old_value: old_value.cloned(),
-                    new_value: new_value.clone(),
-                    confidence,
-                });
-            }
-        }
-
-        changes
-    }
-
     /// Consolidated metadata enrichment logic - conservative approach
     pub fn analyze_metadata_changes_conservative(
         &self,

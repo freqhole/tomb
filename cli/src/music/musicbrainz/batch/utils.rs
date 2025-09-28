@@ -268,8 +268,6 @@ pub fn analyze_album_completeness_from_songs(
     super::types::AlbumCompletenessReport {
         total_mb_tracks: estimated_mb_tracks,
         matched_tracks,
-        missing_tracks: vec![], // TODO: implement detailed track-by-track comparison
-        extra_tracks: vec![],
         completion_percentage,
         confidence_boost,
     }

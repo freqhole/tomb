@@ -96,35 +96,6 @@ pub fn print_song_metadata(song: &grimoire::music::Song) {
     }
 }
 
-/// Format confidence score as percentage
-pub fn format_confidence(confidence: f32) -> String {
-    format!("{:.1}%", confidence * 100.0)
-}
-
-/// Format duration in a human-readable way
-pub fn format_duration_ms(duration_ms: Option<u32>) -> String {
-    match duration_ms {
-        Some(ms) => {
-            let seconds = ms / 1000;
-            let minutes = seconds / 60;
-            let remaining_seconds = seconds % 60;
-            format!("{}:{:02}", minutes, remaining_seconds)
-        }
-        None => "unknown".to_string(),
-    }
-}
-
-/// Validate song ID format
-pub fn validate_song_id(song_id: &str) -> Result<uuid::Uuid, String> {
-    uuid::Uuid::parse_str(song_id).map_err(|_| format!("invalid song id format: {}", song_id))
-}
-
-/// Validate MusicBrainz recording ID format
-pub fn validate_recording_id(recording_id: &str) -> Result<uuid::Uuid, String> {
-    uuid::Uuid::parse_str(recording_id)
-        .map_err(|_| format!("invalid musicbrainz recording id format: {}", recording_id))
-}
-
 /// Check if a confidence threshold is valid (0-100)
 pub fn validate_confidence_threshold(threshold: f32) -> Result<f32, String> {
     if threshold < 0.0 || threshold > 100.0 {

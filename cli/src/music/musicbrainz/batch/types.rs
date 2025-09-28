@@ -1,7 +1,7 @@
 //! Type definitions for batch processing operations
 
 use grimoire::music::Song;
-use grimoire::musicbrainz::{MusicBrainzMatch, Release};
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -57,19 +57,6 @@ pub struct AlbumGroup {
     pub artist: String,
     pub album: String,
     pub songs: Vec<Song>,
-    pub musicbrainz_release: Option<Release>,
-    pub completion_percentage: f32,
-    pub is_complete_album: bool,
-    pub processing_priority: AlbumProcessingPriority,
-}
-
-/// priority level for album processing
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum AlbumProcessingPriority {
-    CompleteAlbum, // 10+ tracks, likely complete
-    PartialAlbum,  // 5-9 tracks, partial album
-    FewTracks,     // 2-4 tracks, few songs from album
-    SingleSong,    // 1 track, standalone song
 }
 
 /// analysis of album completeness vs musicbrainz release
@@ -77,8 +64,6 @@ pub enum AlbumProcessingPriority {
 pub struct AlbumCompletenessReport {
     pub total_mb_tracks: usize,
     pub matched_tracks: usize,
-    pub missing_tracks: Vec<String>,
-    pub extra_tracks: Vec<String>,
     pub completion_percentage: f32,
     pub confidence_boost: f32,
 }

@@ -10,7 +10,6 @@ mod utils;
 
 pub use album::{group_songs_by_album, process_album_group};
 pub use database::get_songs_for_batch_scan;
-pub use types::*;
 
 use crate::music::musicbrainz::utils::{get_musicbrainz_config, validate_confidence_threshold};
 use grimoire::{
@@ -417,7 +416,7 @@ pub async fn handle_full_scan(
                 album_plan.songs.len()
             );
 
-            let result = process_complete_album(
+            let _result = process_complete_album(
                 &service,
                 &repository,
                 album_plan,
@@ -426,7 +425,7 @@ pub async fn handle_full_scan(
                 dry_run,
             )
             .await?;
-            stats.add_album_result(&result);
+            stats.add_album_result();
         }
 
         println!();
@@ -456,7 +455,7 @@ pub async fn handle_full_scan(
                 album_plan.songs.len()
             );
 
-            let result = process_partial_album(
+            let _result = process_partial_album(
                 &service,
                 &repository,
                 album_plan,
@@ -465,7 +464,7 @@ pub async fn handle_full_scan(
                 dry_run,
             )
             .await?;
-            stats.add_partial_album_result(&result);
+            stats.add_partial_album_result();
         }
 
         println!();
@@ -506,7 +505,7 @@ pub async fn handle_full_scan(
                     &song.title
                 );
 
-                let result = process_individual_song(
+                let _result = process_individual_song(
                     &service,
                     &repository,
                     song,
@@ -515,7 +514,7 @@ pub async fn handle_full_scan(
                     dry_run,
                 )
                 .await?;
-                stats.add_individual_result(&result);
+                stats.add_individual_result();
             }
             println!();
         }
@@ -608,36 +607,19 @@ impl ScanStatistics {
         }
     }
 
-    fn add_album_result(&mut self, _result: &AlbumProcessResult) {
+    fn add_album_result(&mut self) {
         self.albums_processed += 1;
         // Add more tracking as needed
     }
 
-    fn add_partial_album_result(&mut self, _result: &PartialAlbumResult) {
+    fn add_partial_album_result(&mut self) {
         // Add tracking for partial album results
     }
 
-    fn add_individual_result(&mut self, _result: &IndividualSongResult) {
+    fn add_individual_result(&mut self) {
         self.individual_songs_processed += 1;
         // Add more tracking as needed
     }
-}
-
-/// Result types for different processing phases
-#[derive(Debug)]
-struct AlbumProcessResult {
-    songs_processed: usize,
-    songs_updated: usize,
-}
-
-#[derive(Debug)]
-struct PartialAlbumResult {
-    songs_processed: usize,
-}
-
-#[derive(Debug)]
-struct IndividualSongResult {
-    processed: bool,
 }
 
 /// Create a comprehensive scan plan by analyzing the database
@@ -657,7 +639,7 @@ async fn create_scan_plan(
         "#
     } else {
         r#"
-        SELECT artist, album_artist, album, COUNT(*) as song_count
+        SELECT artist, album_artist, album
         FROM songs
         WHERE artist IS NOT NULL AND album IS NOT NULL
         AND trim(artist) != '' AND trim(album) != ''
@@ -677,7 +659,6 @@ async fn create_scan_plan(
         artist: Option<String>,
         album_artist: Option<String>,
         album: String,
-        song_count: i64,
     }
 
     let album_infos = sqlx::query_as::<_, AlbumInfo>(album_query)
@@ -821,50 +802,36 @@ async fn get_songs_for_album(
 async fn process_complete_album(
     _service: &MusicBrainzService,
     _repository: &Arc<MusicRepository>,
-    album_plan: &AlbumPlan,
+    _album_plan: &AlbumPlan,
     _auto_apply: bool,
     _threshold: f32,
     _dry_run: bool,
-) -> Result<AlbumProcessResult, Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("   🔍 searching for complete album release...");
 
     // Use existing album processing logic but with smarter artist selection
-    let album_group = AlbumGroup {
-        artist: album_plan.artist_key().to_string(),
-        album: album_plan.album.clone(),
-        songs: album_plan.songs.clone(),
-        musicbrainz_release: None,
-        completion_percentage: 0.0,
-        is_complete_album: true,
-        processing_priority: AlbumProcessingPriority::CompleteAlbum,
-    };
 
     // TODO: Implement actual processing
     println!("   ✅ processed complete album");
 
-    Ok(AlbumProcessResult {
-        songs_processed: album_plan.songs.len(),
-        songs_updated: 0,
-    })
+    Ok(())
 }
 
 /// Process a partial album (some songs missing or don't match release)
 async fn process_partial_album(
     _service: &MusicBrainzService,
     _repository: &Arc<MusicRepository>,
-    album_plan: &AlbumPlan,
+    _album_plan: &AlbumPlan,
     _auto_apply: bool,
     _threshold: f32,
     _dry_run: bool,
-) -> Result<PartialAlbumResult, Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("   🎵 processing as partial album...");
 
     // Process songs individually but with album context
     // TODO: Implement actual processing
 
-    Ok(PartialAlbumResult {
-        songs_processed: album_plan.songs.len(),
-    })
+    Ok(())
 }
 
 /// Process an individual song
@@ -873,13 +840,13 @@ async fn process_individual_song(
     _repository: &Arc<MusicRepository>,
     song: &grimoire::music::models::Song,
     _auto_apply: bool,
-    threshold: f32,
+    _threshold: f32,
     _dry_run: bool,
-) -> Result<IndividualSongResult, Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     // Check if should skip
     if grimoire::musicbrainz::batch::should_skip_song(song) {
         println!("   ⏭️  skipping - already processed");
-        return Ok(IndividualSongResult { processed: false });
+        return Ok(());
     }
 
     // Process individual song
@@ -910,53 +877,5 @@ async fn process_individual_song(
         }
     }
 
-    Ok(IndividualSongResult { processed: true })
-}
-
-/// Get album groups that need processing for full scan
-async fn get_album_groups_for_full_scan(
-    repository: &Arc<MusicRepository>,
-    limit: i64,
-    offset: i64,
-    force_rescan: bool,
-) -> Result<Vec<AlbumGroup>, Box<dyn std::error::Error>> {
-    let songs = grimoire::musicbrainz::batch::get_album_groups_for_full_scan(
-        repository,
-        limit,
-        offset,
-        force_rescan,
-    )
-    .await?;
-    Ok(group_songs_by_album(songs))
-}
-
-/// Get remaining individual songs for full scan (not part of complete albums)
-async fn get_remaining_songs_for_full_scan(
-    repository: &Arc<MusicRepository>,
-    limit: i64,
-    offset: i64,
-    force_rescan: bool,
-) -> Result<Vec<grimoire::music::models::Song>, Box<dyn std::error::Error>> {
-    let songs = grimoire::musicbrainz::batch::get_remaining_songs_for_full_scan(
-        repository,
-        limit,
-        offset,
-        force_rescan,
-    )
-    .await?;
-    Ok(songs)
-}
-
-/// Check if an album group should be skipped based on scan timestamps
-fn should_skip_album_group(album_group: &AlbumGroup) -> bool {
-    // Skip if all songs in the album have been user-reviewed and not updated since
-    album_group
-        .songs
-        .iter()
-        .all(|song| grimoire::musicbrainz::batch::should_skip_song(song))
-}
-
-/// Check if an individual song should be skipped based on scan timestamps
-fn should_skip_song(song: &grimoire::music::models::Song) -> bool {
-    grimoire::musicbrainz::batch::should_skip_song(song)
+    Ok(())
 }

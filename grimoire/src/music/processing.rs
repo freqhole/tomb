@@ -164,8 +164,8 @@ pub async fn get_processing_progress(pool: &PgPool) -> Result<ProcessingProgress
 /// get albums for processing with optional filters
 pub async fn get_albums_for_processing(
     pool: &PgPool,
-    filter_status: Option<ProcessingStatus>,
-    artist_filter: Option<&str>,
+    _filter_status: Option<ProcessingStatus>,
+    _artist_filter: Option<&str>,
     limit: Option<i32>,
     offset: Option<i32>,
 ) -> Result<Vec<AlbumProcessingInfo>, sqlx::Error> {
