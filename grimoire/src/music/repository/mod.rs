@@ -1049,6 +1049,8 @@ impl MusicRepository {
                     is_favorite: row.get("is_favorite"),
                     tags: row.get("tags"),
                     metadata: row.get("metadata"),
+                    processing_status: row.get("processing_status"),
+                    processing_notes: row.get("processing_notes"),
                     deleted_at: row.get("deleted_at"),
                     deleted_by: row.get("deleted_by"),
                     created_at: row.get("created_at"),

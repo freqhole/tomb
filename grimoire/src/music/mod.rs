@@ -55,6 +55,7 @@ pub mod jobs;
 pub mod metadata;
 pub mod models;
 pub mod playlist_service;
+pub mod processing;
 pub mod repository;
 pub mod scanner;
 pub mod service;
@@ -84,6 +85,11 @@ pub use models::{
     SongQuery, UpdatePlaylist,
 };
 pub use playlist_service::{PlaylistService, PlaylistServiceError};
+pub use processing::{
+    get_album_songs_with_status, get_albums_for_processing, get_next_unprocessed_album,
+    get_processing_progress, mark_album_status, mark_song_status, AlbumProcessingInfo,
+    ProcessingProgress, ProcessingStatus,
+};
 pub use repository::{MusicRepository, MusicRepositoryError};
 pub use scanner::{ConsoleScanProgress, ScanProgress, Scanner, ScannerConfig};
 pub use service::{

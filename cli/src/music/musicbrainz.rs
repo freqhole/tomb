@@ -128,6 +128,15 @@ pub enum MusicBrainzCommands {
         #[arg(short, long)]
         force: bool,
     },
+    /// show processing status and progress
+    Status {
+        /// show detailed progress information
+        #[arg(short, long)]
+        detailed: bool,
+        /// filter by processing status
+        #[arg(short, long)]
+        filter: Option<String>,
+    },
 }
 
 pub async fn handle_musicbrainz_command(
@@ -188,6 +197,9 @@ pub async fn handle_musicbrainz_command(
         }
         MusicBrainzCommands::UpdateSong { song, force } => {
             handle_update_song(&song, force, config).await
+        }
+        MusicBrainzCommands::Status { detailed, filter } => {
+            handle_status(detailed, filter.as_deref(), config).await
         }
     }
 }
@@ -1068,6 +1080,72 @@ async fn handle_update_song(
         .apply_metadata(&song.id.to_string(), &preview.changes)
         .await?;
     println!("✓ metadata updated successfully");
+
+    Ok(())
+}
+
+async fn handle_status(
+    detailed: bool,
+    filter_status: Option<&str>,
+    config: &AppConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use grimoire::database::DatabaseConnection;
+    use grimoire::music::{get_albums_for_processing, get_processing_progress, ProcessingStatus};
+
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = DatabaseConnection::new(pool);
+
+    println!("musicbrainz processing status:");
+    println!();
+
+    // get overall progress
+    let progress = get_processing_progress(db.pool()).await?;
+
+    println!("overall progress:");
+    println!("  total songs: {}", progress.total_songs.unwrap_or(0));
+    println!("  processed: {}", progress.processed_songs.unwrap_or(0));
+    println!("  skipped: {}", progress.skipped_songs.unwrap_or(0));
+    println!("  unprocessed: {}", progress.unprocessed_songs.unwrap_or(0));
+    println!(
+        "  review needed: {}",
+        progress.review_needed_songs.unwrap_or(0)
+    );
+    println!("  duplicates: {}", progress.duplicate_songs.unwrap_or(0));
+    println!("  progress: {:.1}%", progress.songs_processed_percentage());
+    println!();
+
+    if detailed {
+        // parse filter status
+        let status_filter = filter_status.and_then(|s| match s {
+            "unprocessed" => Some(ProcessingStatus::Unprocessed),
+            "processed" => Some(ProcessingStatus::Processed),
+            "skip" => Some(ProcessingStatus::Skip),
+            "review_needed" => Some(ProcessingStatus::ReviewNeeded),
+            "duplicate" => Some(ProcessingStatus::Duplicate),
+            _ => None,
+        });
+
+        println!("albums:");
+        let albums =
+            get_albums_for_processing(db.pool(), status_filter, None, Some(20), Some(0)).await?;
+
+        for album in albums {
+            println!(
+                "  {} - {}",
+                album.artist_name.as_deref().unwrap_or("unknown"),
+                album.album_name.as_deref().unwrap_or("unknown")
+            );
+            println!(
+                "    songs: {} (processed: {})",
+                album.song_count, album.processed_count
+            );
+            println!("    status: {}", album.status);
+            if let Some(notes) = &album.notes {
+                println!("    notes: {}", notes);
+            }
+            println!();
+        }
+    }
 
     Ok(())
 }

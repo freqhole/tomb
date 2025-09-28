@@ -1,0 +1,68 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM get_processing_progress()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_songs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "unprocessed_songs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "processed_songs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "skipped_songs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "review_needed_songs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "duplicate_songs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "total_albums",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "unprocessed_albums",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "processed_albums",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "076ae9221bded031f4684ddebb4f2e53a6a724e3c843eef8a9d91361bd2bb843"
+}
