@@ -15,23 +15,9 @@
 
 ## Current Status
 
-**✅ COMPLETED**: CLI implementation with comprehensive scanning, album-first processing, and metadata management. See `musicbrainz-integration-plan-completed.md` for full details.
+**✅ COMPLETED**: CLI implementation with comprehensive scanning, album-first processing, and metadata management. See [`docs/musicbrainz-integration-plan-completed.md`](./musicbrainz-integration-plan-completed.md) for full details.
 
-**🎯 NEXT**: Simplified server API layer and Web UI implementation that extends existing song management functionality.
-
-## Phase 0: Cleanup Rust Warnings 🔄 FIRST
-
-**Priority**: High - clean codebase before frontend work
-**Estimated Time**: 1-2 hours
-
-clean up all rust compiler warnings by removing unused code, fixing mutable variables, and removing dead imports. delete code that was experimental but never used rather than keeping it around.
-
-**Tasks**:
-
-- [ ] remove unused variables, imports, and dead code
-- [ ] fix unnecessary mutable variable declarations
-- [ ] run `cargo check --workspace` and fix all warnings
-- [ ] keep only code that's actually used in the cli implementation
+**🎯 NEXT**: MusicBrainz Modal Component implementation (Phase 2.2) - server APIs and context menu integration completed.
 
 ## Implementation Overview
 
@@ -43,222 +29,24 @@ clean up all rust compiler warnings by removing unused code, fixing mutable vari
 - **Fix album sorting**: ensure songs always sort by disc_number then track_number
 - **Admin-only feature**: only available when user is admin and server has musicbrainz enabled
 
-## Phase 1: Server API Improvements 🔄 NEXT
+## ✅ COMPLETED WORK
 
-### 1.1 Fix Album Sorting in Search API
+See [`docs/musicbrainz-integration-plan-completed.md`](./musicbrainz-integration-plan-completed.md) for detailed implementation notes.
 
-**Problem**: songs should always be grouped by album and sorted by disc_number then track_number.
+- **Phase 1**: Server API improvements (album sorting, POST album tracks API, song deletion API)
+- **Phase 2.1**: Frontend context menu integration (MusicBrainz lookup, delete songs, API client methods)
+- **Phase 0**: Rust warnings cleanup
+- **CLI Implementation**: Full MusicBrainz scanning and metadata management
 
-**Solution**: modify existing `/api/media/search` post endpoint to include proper album sorting.
+**Current Status**: Context menus emit "musicbrainzModal" events, server APIs ready, delete functionality working.
 
-```rust
-// In server/src/media/search.rs
-// Modify the ORDER BY clause to always include album sorting as secondary sort
-let order_clause = match sort_by.as_deref() {
-    Some("title") => format!("s.title {}, s.album {}, s.disc_number ASC, s.track_number ASC", direction, direction),
-    Some("artist") => format!("s.artist {}, s.album {}, s.disc_number ASC, s.track_number ASC", direction, direction),
-    Some("album") => format!("s.album {}, s.disc_number ASC, s.track_number ASC", direction),
-    Some("year") => format!("s.year {}, s.album {}, s.disc_number ASC, s.track_number ASC", direction, direction),
-    _ => "s.album ASC, s.disc_number ASC, s.track_number ASC".to_string(),
-};
-```
+## Phase 2.2: MusicBrainz Modal Component 🔄 NEXT
 
-### 1.2 Add Album Tracks POST API
+### 2.2.1 Create MusicBrainz Modal Structure
 
-**Problem**: current album fetching in `albumUtils.ts` line 131 fetches 1000 songs and filters in js.
+**Current State**: Context menu integration completed. Events emit "musicbrainzModal" with song data.
 
-**Solution**: create new post endpoint `/api/media/albums/tracks` that accepts album name and optional artist in request body.
-
-```rust
-// In server/src/media/songs.rs - add new endpoint
-#[derive(Debug, Deserialize)]
-pub struct AlbumTracksRequest {
-    pub album: String,
-    pub artist: Option<String>,
-}
-
-pub async fn get_album_tracks_post(
-    Extension(db): Extension<DatabaseConnection>,
-    Json(request): Json<AlbumTracksRequest>,
-) -> Result<Json<AlbumTracksResponse>, WebauthnError> {
-    let repository = MusicRepository::new(db.pool().clone());
-    let service = PlaylistService::new(repository);
-
-    let tracks = service
-        .get_album_tracks(&request.album, request.artist.as_deref())
-        .await
-        .map_err(|e| WebauthnError::UnknownWebauthnError(format!("Failed to get album tracks: {}", e)))?;
-
-    Ok(Json(AlbumTracksResponse {
-        tracks,
-        album: request.album,
-        artist: request.artist,
-    }))
-}
-
-// Add route in create_routes()
-.route("/albums/tracks", post(get_album_tracks_post))
-```
-
-### 1.3 Add Song Deletion API
-
-**add admin-only soft delete functionality for songs.**
-
-```rust
-// In server/src/media/songs.rs - add delete endpoints
-#[derive(Debug, Deserialize)]
-pub struct DeleteSongsRequest {
-    pub song_ids: Vec<String>,
-}
-
-pub async fn delete_songs(
-    Extension(user): Extension<AuthenticatedUser>,
-    Extension(db): Extension<DatabaseConnection>,
-    Json(request): Json<DeleteSongsRequest>,
-) -> Result<Json<HashMap<String, serde_json::Value>>, WebauthnError> {
-    let repository = MusicRepository::new(db.pool().clone());
-
-    let mut deleted_count = 0;
-    for song_id in request.song_ids {
-        let uuid = Uuid::parse_str(&song_id)
-            .map_err(|_| WebauthnError::UnknownWebauthnError("invalid song id".to_string()))?;
-
-        if repository.delete_song(uuid, Some(user.id)).await? {
-            deleted_count += 1;
-        }
-    }
-
-    Ok(Json(HashMap::from([
-        ("deleted_count".to_string(), serde_json::Value::Number(deleted_count.into())),
-    ])))
-}
-
-// Add admin-only route
-.route("/songs/delete", post(delete_songs))
-.layer(middleware::from_fn(require_admin))
-```
-
-### 1.4 Add "Reviewed" Tag Configuration
-
-**server config**: add optional reviewed tag configuration.
-
-```rust
-// In grimoire/src/config.rs
-pub struct MusicBrainzConfig {
-    pub enabled: bool,
-    pub user_agent: String,
-    pub rate_limit_ms: u64,
-    pub reviewed_tag: Option<String>, // Default: "reviewed"
-}
-
-impl Default for MusicBrainzConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            user_agent: "tomb/1.0".to_string(),
-            rate_limit_ms: 1000,
-            reviewed_tag: Some("reviewed".to_string()),
-        }
-    }
-}
-```
-
-### 1.4 Simplified MusicBrainz API Routes
-
-**consolidate to minimal required endpoints**:
-
-```rust
-// In server/src/musicbrainz/routes.rs (new file)
-pub fn create_musicbrainz_routes() -> Router {
-    Router::new()
-        // Generic search endpoint for songs, albums, artists
-        .route("/api/musicbrainz/search", post(musicbrainz_search))
-        // Get MusicBrainz data for specific songs
-        .route("/api/musicbrainz/songs/matches", post(get_song_matches))
-        // Get server configuration
-        .route("/api/musicbrainz/config", get(get_musicbrainz_config))
-        .layer(middleware::from_fn(require_admin))
-        .layer(middleware::from_fn(require_musicbrainz_enabled))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MusicBrainzSearchRequest {
-    pub search_type: String, // "song", "album", "artist"
-    pub query: String,
-    pub artist: Option<String>, // For album/song searches
-    pub album: Option<String>,  // For song searches
-    pub limit: Option<u32>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SongMatchesRequest {
-    pub song_ids: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SongMatchesResponse {
-    pub songs: Vec<SongWithMatches>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SongWithMatches {
-    pub song_id: String,
-    pub current_metadata: SongMetadata,
-    pub musicbrainz_data: Option<serde_json::Value>, // From JSONB storage
-    pub enrichment_status: String,
-    pub available_matches: Vec<MusicBrainzMatch>,
-}
-```
-
-## Phase 2: Frontend Integration 🔄 NEXT
-
-### 2.1 Extend Existing Song Context Menu
-
-**File**: `client/js/src/views/freqhole/services/songInteractions.ts`
-
-add musicbrainz option to existing context menu:
-
-```typescript
-// add to existing context menu actions
-if (isAdmin && musicBrainzEnabled) {
-  actions.push({ type: "separator" });
-  actions.push({
-    label: "musicbrainz lookup",
-    icon: "brain", // 🧠 brain icon as simple svg
-    action: () => {
-      events.emit("modal:open", {
-        modal: "musicbrainzModal",
-        data: { songs: [song] },
-      });
-    },
-  });
-}
-
-// add delete option for admin users (works for single or multiple selected songs)
-if (isAdmin) {
-  const selectedSongs = getSelectedSongs(); // or however selection is accessed
-  const songCount = selectedSongs.length;
-  const label = songCount === 1 ? "delete song" : `delete ${songCount} songs`;
-  const confirmMessage =
-    songCount === 1
-      ? "are you sure you want to delete this song?"
-      : `are you sure you want to delete ${songCount} songs?`;
-
-  actions.push({
-    label,
-    icon: "trash",
-    destructive: true,
-    action: async () => {
-      if (confirm(confirmMessage)) {
-        await apiClient.deleteSongs(selectedSongs.map((s) => s.id));
-        // refresh song list or emit event to update ui
-      }
-    },
-  });
-}
-```
-
-### 2.2 Create MusicBrainz Modal Component
+**File**: `client/js/src/views/freqhole/components/modals/MusicBrainzModal.tsx`
 
 **File**: `client/js/src/views/freqhole/components/modals/MusicBrainzModal.tsx`
 
@@ -327,7 +115,15 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
 }
 ```
 
-### 2.3 Add Bulk Song Deletion in Edit Mode
+### 2.2.2 Add Modal Event Handling
+
+**File**: Modal system registration - handle "musicbrainzModal" event type
+
+### 2.2.3 Create MusicBrainz API Client Methods
+
+**File**: `client/js/src/lib/api-client.ts` or new `client/js/src/lib/musicbrainz/api-methods.ts`
+
+### 2.2.4 Add Bulk Song Deletion in Edit Mode
 
 **extend existing bulk edit functionality to support marking songs for deletion.**
 
@@ -412,11 +208,15 @@ export function useSongFormStore(
 }
 ```
 
-## Phase 3: API Client Integration 🔄 NEXT
+## Phase 2.3: MusicBrainz Server Integration 🔄 FUTURE
 
-### 3.1 Add MusicBrainz API Methods
+### 2.3.1 Add MusicBrainz Server Routes
 
-**File**: `client/js/src/lib/api-client.ts`
+**Note**: May need simplified MusicBrainz API routes for search and config endpoints.
+
+### 2.3.2 Add MusicBrainz Config Hook
+
+**File**: `client/js/src/hooks/music/admin/useMusicBrainzConfig.ts`
 
 ```typescript
 // add to existing apiClient class
@@ -450,7 +250,7 @@ class ApiClient {
 }
 ```
 
-### 3.2 Zod Schemas
+### 2.3.3 Zod Schemas
 
 **File**: `client/js/src/lib/music/schemas/musicbrainz-schemas.ts`
 
@@ -510,9 +310,13 @@ export type MusicBrainzSearchRequest = z.infer<
 >;
 ```
 
-## Phase 4: Reactive Hooks 🔄 NEXT
+## Phase 2.4: Advanced Features 🔄 FUTURE
 
-### 4.1 MusicBrainz Configuration Hook
+### 2.4.1 Album Tracks API Integration
+
+**Update albumUtils.ts to use new POST /api/media/albums/tracks endpoint**
+
+### 2.4.2 "Reviewed" Tag System Integration
 
 **File**: `client/js/src/hooks/music/admin/useMusicBrainzConfig.ts`
 

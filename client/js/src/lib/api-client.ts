@@ -953,6 +953,10 @@ export class ApiClient {
     return musicAdminApiMethods.replaceTagsForSongs.call(this, songIds, tags);
   }
 
+  async deleteSongs(songIds: string[]) {
+    return musicAdminApiMethods.deleteSongs.call(this, songIds);
+  }
+
   // Filter options methods
   async getFilterOptions(): Promise<FilterOptionsResponse> {
     try {

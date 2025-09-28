@@ -278,6 +278,38 @@ export function useSongInteractions() {
       });
     }
 
+    // Add musicbrainz and delete options for admin users
+    if (auth.isAdmin) {
+      actions.push({ type: "separator" });
+      actions.push({
+        label: "musicbrainz lookup",
+        icon: "brain",
+        action: () => {
+          events.emit("modal:open", {
+            modal: "musicbrainzModal",
+            data: { songs: [song] },
+          });
+        },
+      });
+
+      actions.push({
+        label: "delete song",
+        icon: "trash",
+        destructive: true,
+        action: async () => {
+          if (confirm("are you sure you want to delete this song?")) {
+            try {
+              await apiClient.deleteSongs([song.id]);
+              // refresh song list or emit event to update ui
+              events.emit("data:reload", { type: "songs" });
+            } catch (error) {
+              console.error("failed to delete song:", error);
+            }
+          }
+        },
+      });
+    }
+
     // Add info action
     actions.push({ type: "separator" });
     actions.push({
@@ -337,7 +369,7 @@ export function useSongInteractions() {
     const songCount = songs.length;
     const auth = useAuth();
 
-    const actions = [
+    const actions: (SongAction | SeparatorAction)[] = [
       {
         label: `play ${songCount} songs`,
         icon: "play",
@@ -408,6 +440,43 @@ export function useSongInteractions() {
             songs,
             mode: "manage",
           });
+        },
+      });
+    }
+
+    // Add bulk musicbrainz and delete options for admin users
+    if (auth.isAdmin) {
+      actions.push({ type: "separator" });
+      actions.push({
+        label: `musicbrainz lookup (${songCount} songs)`,
+        icon: "brain",
+        action: () => {
+          events.emit("modal:open", {
+            modal: "musicbrainzModal",
+            data: { songs },
+          });
+        },
+      });
+
+      actions.push({
+        label: `delete ${songCount} songs`,
+        icon: "trash",
+        destructive: true,
+        action: async () => {
+          const confirmMessage =
+            songCount === 1
+              ? "are you sure you want to delete this song?"
+              : `are you sure you want to delete ${songCount} songs?`;
+
+          if (confirm(confirmMessage)) {
+            try {
+              await apiClient.deleteSongs(songs.map((s) => s.id));
+              // refresh song list or emit event to update ui
+              events.emit("data:reload", { type: "songs" });
+            } catch (error) {
+              console.error("failed to delete songs:", error);
+            }
+          }
         },
       });
     }

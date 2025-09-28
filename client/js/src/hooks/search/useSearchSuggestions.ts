@@ -117,18 +117,40 @@ export function useSearchSuggestions(
           if (typeof suggestion === "object" && suggestion !== null) {
             if (suggestion.value) {
               return {
+                value: suggestion.value,
+                display: suggestion.display || suggestion.value,
+                highlight: suggestion.highlight || suggestion.value,
+                count: suggestion.count || 0,
+                suggestion_type: suggestion.suggestion_type || "general",
+                confidence: suggestion.confidence || 0.5,
                 text: suggestion.value,
                 category: suggestion.suggestion_type || "general",
               };
             } else if (suggestion.query) {
               return {
+                value: suggestion.query,
+                display: suggestion.query,
+                highlight: suggestion.query,
+                count: suggestion.count || 0,
+                suggestion_type: suggestion.suggestion_type || "general",
+                confidence: suggestion.confidence || 0.5,
                 text: suggestion.query,
                 category: suggestion.suggestion_type || "general",
               };
             }
           }
           // If suggestion is a plain string
-          return { text: String(suggestion), category: "general" };
+          const suggestionText = String(suggestion);
+          return {
+            value: suggestionText,
+            display: suggestionText,
+            highlight: suggestionText,
+            count: 0,
+            suggestion_type: "general",
+            confidence: 0.5,
+            text: suggestionText,
+            category: "general",
+          };
         });
 
         setSuggestions(processedSuggestions);

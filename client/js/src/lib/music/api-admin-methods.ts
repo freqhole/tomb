@@ -95,4 +95,28 @@ export const musicAdminApiMethods = {
       updates: { tags: { type: "Replace", tags } },
     });
   },
+
+  async deleteSongs(
+    this: ApiClient,
+    songIds: string[]
+  ): Promise<{ deleted_count: number }> {
+    return musicApiUtils.withErrorHandling(
+      async () => {
+        const response = await this.makeRequest<{ deleted_count: number }>(
+          "POST",
+          "/api/media/songs/delete",
+          {
+            data: { song_ids: songIds },
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+
+        return response;
+      },
+      "/api/media/songs/delete",
+      `delete ${songIds.length} songs`,
+      undefined,
+      { song_ids: songIds }
+    );
+  },
 };

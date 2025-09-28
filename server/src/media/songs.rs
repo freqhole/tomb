@@ -547,6 +547,13 @@ impl From<AlbumSummary> for AlbumSummaryResponse {
     }
 }
 
+/// Album tracks request for POST endpoint
+#[derive(Debug, Deserialize)]
+pub struct AlbumTracksRequest {
+    pub album: String,
+    pub artist: Option<String>,
+}
+
 /// Album tracks response
 #[derive(Debug, Serialize)]
 pub struct AlbumTracksResponse {
@@ -651,6 +658,12 @@ pub struct UpdateUserPreferenceRequest {
 pub struct BulkUpdateUserPreferencesRequest {
     pub song_ids: Vec<Uuid>,
     pub updates: UpdateUserPreferenceRequest,
+}
+
+/// Delete songs request
+#[derive(Debug, Deserialize)]
+pub struct DeleteSongsRequest {
+    pub song_ids: Vec<String>,
 }
 
 // user preference response types
@@ -1030,6 +1043,33 @@ pub async fn bulk_update_songs(
         updated_songs: response_songs,
         operations_summary: summary,
     }))
+}
+
+/// Delete songs (admin-only)
+pub async fn delete_songs(
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(db): Extension<DatabaseConnection>,
+    Json(request): Json<DeleteSongsRequest>,
+) -> Result<Json<HashMap<String, serde_json::Value>>, WebauthnError> {
+    let repository = MusicRepository::new(db.pool().clone());
+
+    let mut deleted_count = 0;
+    for song_id in request.song_ids {
+        let uuid = Uuid::parse_str(&song_id).map_err(|_| WebauthnError::BadRequest)?;
+
+        if repository
+            .delete_song(uuid, Some(user.user().id))
+            .await
+            .map_err(|_| WebauthnError::DatabaseError)?
+        {
+            deleted_count += 1;
+        }
+    }
+
+    Ok(Json(HashMap::from([(
+        "deleted_count".to_string(),
+        serde_json::Value::Number(deleted_count.into()),
+    )])))
 }
 
 /// List artists with summaries
@@ -1637,6 +1677,29 @@ pub async fn get_album_tracks(
     }))
 }
 
+/// Get album tracks via POST request
+pub async fn get_album_tracks_post(
+    Extension(db): Extension<DatabaseConnection>,
+    Json(request): Json<AlbumTracksRequest>,
+) -> Result<Json<AlbumTracksResponse>, WebauthnError> {
+    let repository = MusicRepository::new(db.pool().clone());
+    let service = PlaylistService::new(repository);
+
+    let tracks = service
+        .get_album_tracks(&request.album, request.artist.as_deref())
+        .await
+        .map_err(|_| WebauthnError::DatabaseError)?;
+
+    let track_responses: Vec<AlbumTrackResponse> =
+        tracks.into_iter().map(AlbumTrackResponse::from).collect();
+
+    Ok(Json(AlbumTracksResponse {
+        album: request.album,
+        artist: request.artist,
+        tracks: track_responses,
+    }))
+}
+
 /// Create playlist from album
 pub async fn create_playlist_from_album(
     Extension(db): Extension<DatabaseConnection>,
@@ -1967,6 +2030,7 @@ pub fn create_routes() -> Router {
         // Enhanced views and summaries
         .route("/playlists/summaries", get(get_playlist_summaries))
         .route("/albums", get(get_album_summaries).post(filter_albums))
+        .route("/albums/tracks", post(get_album_tracks_post))
         .route("/albums/{album}/tracks", get(get_album_tracks))
         .route(
             "/albums/{album}/create-playlist",
@@ -1981,6 +2045,11 @@ pub fn create_routes() -> Router {
         .route(
             "/songs/bulk",
             put(bulk_update_songs).layer(axum_middleware::from_fn(require_admin)),
+        )
+        // Delete songs route (admin-only)
+        .route(
+            "/songs/delete",
+            post(delete_songs).layer(axum_middleware::from_fn(require_admin)),
         )
 }
 

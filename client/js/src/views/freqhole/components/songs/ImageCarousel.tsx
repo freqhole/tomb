@@ -86,8 +86,8 @@ export function ImageCarousel(props: ImageCarouselProps) {
 
   // Watch for song changes and reset image index
   createEffect(() => {
-    const songId = currentSong()?.id;
-    const bulkMode = props.isBulkMode;
+    currentSong()?.id;
+    props.isBulkMode;
 
     // Reset image index when song or mode changes
     resetImageIndex();
