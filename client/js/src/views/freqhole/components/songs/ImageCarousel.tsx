@@ -10,6 +10,7 @@ interface ImageCarouselProps {
 
 export function ImageCarousel(props: ImageCarouselProps) {
   const [currentImageIndex, setCurrentImageIndex] = createSignal(0);
+  const [isCollapsed, setIsCollapsed] = createSignal(true);
 
   const currentSong = () => {
     if (props.isBulkMode || !props.songs.length) return null;
@@ -98,10 +99,18 @@ export function ImageCarousel(props: ImageCarouselProps) {
       <div class="space-y-4">
         {/* Header */}
         <div class="flex items-center justify-between">
-          <h3 class="text-lg font-medium text-gray-200">
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed())}
+            class="flex items-center gap-2 text-lg font-medium text-gray-200 hover:text-white transition-colors"
+          >
+            <span
+              class={`transition-transform ${isCollapsed() ? "" : "rotate-90"}`}
+            >
+              ▶
+            </span>
             {props.isBulkMode ? "images" : "song images"}
-          </h3>
-          <Show when={hasMultipleImages()}>
+          </button>
+          <Show when={!isCollapsed() && hasMultipleImages()}>
             <div class="text-sm text-gray-400">
               {currentImageIndex() + 1} of {imageBlobIds().length}
             </div>
@@ -109,69 +118,71 @@ export function ImageCarousel(props: ImageCarouselProps) {
         </div>
 
         {/* Image Display */}
-        <div class="flex items-center gap-4">
-          {/* Left arrow */}
-          <Show when={hasMultipleImages()}>
-            <button
-              onClick={goToPrevious}
-              class="bg-gray-700 hover:bg-gray-600 text-white p-2 transition-colors"
-              title="Previous image"
-            >
-              ←
-            </button>
-          </Show>
+        <Show when={!isCollapsed()}>
+          <div class="flex items-center gap-4">
+            {/* Left arrow */}
+            <Show when={hasMultipleImages()}>
+              <button
+                onClick={goToPrevious}
+                class="bg-gray-700 hover:bg-gray-600 text-white p-2 transition-colors"
+                title="Previous image"
+              >
+                ←
+              </button>
+            </Show>
 
-          {/* Image container */}
-          <div class="flex-1 overflow-hidden">
-            <Show when={currentBlobId()}>
-              <div class="aspect-square max-w-md mx-auto">
-                <img
-                  src={getImageUrl(currentBlobId()) || ""}
-                  alt={
-                    props.isBulkMode
-                      ? "Song image"
-                      : `${currentSong()?.title || "Song"} image`
-                  }
-                  class="w-full h-full object-cover"
-                  onError={(e) => {
-                    // Hide broken images
-                    const img = e.target as HTMLImageElement;
-                    img.style.display = "none";
-                  }}
-                />
-              </div>
+            {/* Image container */}
+            <div class="flex-1 overflow-hidden">
+              <Show when={currentBlobId()}>
+                <div class="aspect-square max-w-md mx-auto">
+                  <img
+                    src={getImageUrl(currentBlobId()) || ""}
+                    alt={
+                      props.isBulkMode
+                        ? "Song image"
+                        : `${currentSong()?.title || "Song"} image`
+                    }
+                    class="w-full h-full object-cover"
+                    onError={(e) => {
+                      // Hide broken images
+                      const img = e.target as HTMLImageElement;
+                      img.style.display = "none";
+                    }}
+                  />
+                </div>
+              </Show>
+            </div>
+
+            {/* Right arrow */}
+            <Show when={hasMultipleImages()}>
+              <button
+                onClick={goToNext}
+                class="bg-gray-700 hover:bg-gray-600 text-white p-2 transition-colors"
+                title="Next image"
+              >
+                →
+              </button>
             </Show>
           </div>
 
-          {/* Right arrow */}
+          {/* Image dots/indicators for multiple images */}
           <Show when={hasMultipleImages()}>
-            <button
-              onClick={goToNext}
-              class="bg-gray-700 hover:bg-gray-600 text-white p-2 transition-colors"
-              title="Next image"
-            >
-              →
-            </button>
+            <div class="flex justify-center gap-2">
+              <For each={imageBlobIds()}>
+                {(_, index) => (
+                  <button
+                    onClick={() => setCurrentImageIndex(index())}
+                    class={`w-2 h-2 rounded-full transition-colors ${
+                      index() === currentImageIndex()
+                        ? "bg-magenta-500"
+                        : "bg-gray-600 hover:bg-gray-500"
+                    }`}
+                    title={`Image ${index() + 1}`}
+                  />
+                )}
+              </For>
+            </div>
           </Show>
-        </div>
-
-        {/* Image dots/indicators for multiple images */}
-        <Show when={hasMultipleImages()}>
-          <div class="flex justify-center gap-2">
-            <For each={imageBlobIds()}>
-              {(_, index) => (
-                <button
-                  onClick={() => setCurrentImageIndex(index())}
-                  class={`w-2 h-2 rounded-full transition-colors ${
-                    index() === currentImageIndex()
-                      ? "bg-magenta-500"
-                      : "bg-gray-600 hover:bg-gray-500"
-                  }`}
-                  title={`Image ${index() + 1}`}
-                />
-              )}
-            </For>
-          </div>
         </Show>
       </div>
     </Show>

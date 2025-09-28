@@ -544,12 +544,16 @@ this plan maximizes code reuse, integrates seamlessly with existing functionalit
 
 ### Prerequisites Before Testing:
 
-1. **Fix schema mismatch**: Update frontend MusicBrainzConfigSchema `rate_limit_per_second` → `rate_limit_ms`
-2. **Fix search API**: Debug database scalar extraction error in `/api/music/search`
+1. ✅ **RESOLVED**: Fix schema mismatch - Updated frontend MusicBrainzConfigSchema `rate_limit_per_second` → `rate_limit_ms`
+2. ✅ **RESOLVED**: Fix search API - Database scalar extraction error in `/api/music/search` resolved
+3. ✅ **RESOLVED**: Fix configuration loading - Server handlers now use actual AppConfig instead of default MusicBrainzConfig
+4. ✅ **RESOLVED**: Fix schema validation - Updated MusicBrainzMatchSchema to use `.nullable()` instead of `.optional()` for fields that can be null
 
 ### Testing Checklist:
 
-- [ ] Fix immediate blockers above
+- [x] Fix immediate blockers above
+- [x] Configuration properly loaded from config.jsonc (fixed server handlers)
+- [x] Schema validation handles null values from MusicBrainz API
 - [ ] Right-click song → "musicbrainz lookup" opens modal
 - [ ] Modal loads with three tabs (matches, search, edit)
 - [ ] Admin-only access control works
@@ -561,3 +565,50 @@ this plan maximizes code reuse, integrates seamlessly with existing functionalit
 ### Expected Outcome:
 
 Fully functional MusicBrainz integration ready for production use.
+
+### 🔧 **CURRENT DEBUGGING STATUS**
+
+**Fixed Issues:**
+
+1. **Configuration Loading**: Modified `get_musicbrainz_config()` and `search_musicbrainz()` handlers to use `app_state.config.musicbrainz` instead of `MusicBrainzConfig::default()`
+2. **Schema Validation**: Changed `MusicBrainzMatchSchema` fields (`album`, `year`, `recording_id`, `release_id`) from `.optional()` to `.nullable()` to handle null values from API
+3. **Search Form Pre-fill**: Added intelligent pre-filling of search fields with song data, handling "mixed values" in bulk mode
+4. **Apply Button Behavior**: Fixed apply functionality to switch to edit tab and show applied changes instead of closing modal
+5. **Form State Management**: Added `initialChanges` prop to SongEditForm and SongBulkEditForm to properly populate applied MusicBrainz data
+6. **Image Carousel UI**: Converted song images section to collapsible accordion, starts collapsed by default
+7. **Enhanced MusicBrainz Fields**: Added track_number, disc_number, duration_seconds, and genre fields to match schema
+8. **Album-Based Search**: Implemented separate album search for bulk mode operations
+9. **Infinite Loop Fix**: Changed form initialization from createEffect to onMount to prevent reactivity loops
+
+**Recent UI Improvements:**
+
+- **Smart Search Pre-fill**: Search tab now auto-populates title, artist, and album from selected songs
+  - Single song: Uses all available fields
+  - Bulk mode: Only fills fields that are consistent across all songs (avoids "mixed values")
+- **Better Apply Workflow**: Apply button now switches to edit tab and shows MusicBrainz metadata changes with visual indicators
+- **Form Integration**: Applied changes integrate with existing form change tracking and reset functionality
+- **Collapsible Images**: Song images carousel now starts collapsed with accordion-style toggle for cleaner UI
+- **Enhanced Result Display**: Search results now show track numbers, disc numbers, duration, and genre for better match verification
+- **Context-Aware Search**: Different search modes based on selection:
+  - Single song: Individual recording search with full metadata
+  - Multiple songs: Album search with album-level metadata
+- **Smart Field Application**: Bulk mode excludes title/track/disc fields, single mode applies all available fields
+
+**Next Testing Steps:**
+
+- ✅ Verify search endpoint no longer returns "musicbrainz integration is disabled"
+- ✅ Confirm modal opens without schema validation errors
+- ✅ Test search form pre-filling with song data
+- ✅ Verify apply button switches to edit tab with changes
+- ✅ Fix form state to properly show applied MusicBrainz metadata
+- ✅ Improve image carousel UX (now collapsible)
+- ✅ Enhanced result display with track numbers, duration, and genre
+- ✅ Implement album search for multiple song selections
+- ✅ Fix infinite loop in form initialization
+- [ ] Test actual MusicBrainz API search functionality (individual songs)
+- [ ] Test album search functionality (multiple songs)
+- [ ] Verify single/bulk mode toggle works correctly
+- [ ] Test field exclusion in bulk mode (no title/track/disc changes)
+- [ ] Verify edit form visual indicators for changed fields
+- [ ] Test reset functionality for applied changes
+- [ ] Confirm all form interactions work correctly with applied metadata

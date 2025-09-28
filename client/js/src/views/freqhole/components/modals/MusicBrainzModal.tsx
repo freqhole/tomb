@@ -10,6 +10,8 @@ import type { EditableSongFields } from "../../../../lib/music/schemas/form-sche
 import type {
   MusicBrainzMatch,
   MusicBrainzSearchRequest,
+  AlbumMatch,
+  AlbumSearchRequest,
 } from "../../../../lib/musicbrainz/api-methods";
 import { apiClient } from "../../../../lib/api-client";
 
@@ -51,9 +53,47 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
   const [searchResults, setSearchResults] = createSignal<MusicBrainzMatch[]>(
     []
   );
+  const [albumSearchResults, setAlbumSearchResults] = createSignal<
+    AlbumMatch[]
+  >([]);
   const [searchQuery, setSearchQuery] = createSignal<MusicBrainzSearchRequest>({
     limit: 25,
   });
+
+  // helper function to get pre-fill values for search form
+  const getSearchPreFillValues = (
+    songs: Song[]
+  ): Partial<MusicBrainzSearchRequest> => {
+    if (songs.length === 0) return {};
+
+    // for single song, use all values
+    if (songs.length === 1) {
+      const song = songs[0];
+      return {
+        title: song?.title || undefined,
+        artist: song?.artist || undefined,
+        album: song?.album || undefined,
+      };
+    }
+
+    // for bulk mode, only use values that are consistent across all songs
+    const firstSong = songs[0];
+    if (!firstSong) return {};
+
+    const titles = new Set(songs.map((s) => s.title));
+    const artists = new Set(songs.map((s) => s.artist).filter(Boolean));
+    const albums = new Set(songs.map((s) => s.album).filter(Boolean));
+
+    return {
+      // only pre-fill title if all songs have the same title (rare but possible)
+      title: titles.size === 1 ? firstSong.title : undefined,
+      // pre-fill artist if all songs have the same artist
+      artist:
+        artists.size === 1 ? Array.from(artists)[0] || undefined : undefined,
+      // pre-fill album if all songs have the same album
+      album: albums.size === 1 ? Array.from(albums)[0] || undefined : undefined,
+    };
+  };
   const [formChanges, setFormChanges] = createSignal<
     Partial<EditableSongFields>
   >({});
@@ -80,7 +120,15 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
       setFormChanges({});
       setMatches([]);
       setSearchResults([]);
-      setSearchQuery({ limit: 25 });
+      setAlbumSearchResults([]);
+
+      // pre-fill search form with song data
+      const preFillValues = getSearchPreFillValues(props.songs);
+      setSearchQuery({
+        limit: 25,
+        ...preFillValues,
+      });
+
       setMarkAsReviewed(false);
 
       if (totalSongs() > 1 && auth.isAdmin) {
@@ -114,19 +162,56 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
     }
   };
 
-  // search musicbrainz
+  // search musicbrainz - use album search for multiple songs
   const searchMusicBrainz = async () => {
     try {
       setError(null);
       musicBrainz.clearError();
 
       const query = searchQuery();
-      const results = await musicBrainz.search(query);
-      setSearchResults(results);
+
+      // Use album search if we have multiple songs selected
+      if (totalSongs() > 1) {
+        const albumQuery: AlbumSearchRequest = {
+          artist: query.artist,
+          album: query.album,
+          limit: query.limit,
+        };
+        const albumResults = await musicBrainz.searchAlbums(albumQuery);
+        setAlbumSearchResults(albumResults);
+        setSearchResults([]); // Clear individual song results
+      } else {
+        const results = await musicBrainz.search(query);
+        setSearchResults(results);
+        setAlbumSearchResults([]); // Clear album results
+      }
     } catch (err) {
-      console.error("musicbrainz search failed:", err);
+      console.error("search failed:", err);
       setError(err instanceof Error ? err.message : "search failed");
+      setSearchResults([]);
+      setAlbumSearchResults([]);
     }
+  };
+
+  // helper function to convert MusicBrainz match to editable form fields
+  const matchToFormChanges = (
+    match: MusicBrainzMatch
+  ): Partial<EditableSongFields> => {
+    const changes: Partial<EditableSongFields> = {
+      artist: match.artist,
+      album: match.album || undefined,
+      year: match.year || undefined,
+      genre: match.genre || undefined,
+    };
+
+    // only include title and track/disc numbers in single mode (not bulk mode)
+    if (!isBulkMode()) {
+      changes.title = match.title;
+      changes.track_number = match.track_number || undefined;
+      changes.disc_number = match.disc_number || undefined;
+    }
+
+    return changes;
   };
 
   // apply match to current song(s)
@@ -139,12 +224,37 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
       const success = await musicBrainz.applyMatch(songsToProcess, match);
 
       if (success) {
-        props.onClose();
+        // convert match data to form changes and switch to edit tab
+        const changes = matchToFormChanges(match);
+        setFormChanges(changes);
+        setActiveTab("edit");
       }
     } catch (err) {
       console.error("failed to apply match:", err);
       setError(err instanceof Error ? err.message : "failed to apply metadata");
     }
+  };
+
+  // apply album match (convert to MusicBrainzMatch format)
+  const applyAlbumMatch = async (album: AlbumMatch) => {
+    // Convert album data to match format (album-level metadata only)
+    const match: MusicBrainzMatch = {
+      id: album.id,
+      title: "", // Don't apply album title to songs
+      artist: album.artist,
+      album: album.title,
+      year: album.year || null,
+      track_number: null, // Don't apply track numbers from album search
+      disc_number: null,
+      duration_seconds: null,
+      genre: null, // Albums don't have genre info in this context
+      confidence: 100,
+      mbid: album.mbid,
+      recording_id: null,
+      release_id: album.release_id,
+    };
+
+    await applyMatch(match);
   };
 
   // form change handler for edit tab
@@ -404,12 +514,34 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
                         <div class="flex-1">
                           <div class="font-medium text-white mb-1">
                             {match.title}
+                            {match.track_number && (
+                              <span class="text-gray-400 ml-2">
+                                Track {match.track_number}
+                                {match.disc_number &&
+                                  match.disc_number > 1 &&
+                                  ` (Disc ${match.disc_number})`}
+                              </span>
+                            )}
                           </div>
                           <div class="text-sm text-gray-400">
                             {match.artist}
                             {match.album && ` • ${match.album}`}
                             {match.year && ` • ${match.year}`}
                           </div>
+                          {(match.duration_seconds || match.genre) && (
+                            <div class="text-xs text-gray-500 mt-1">
+                              {match.duration_seconds && (
+                                <span>
+                                  {Math.floor(match.duration_seconds / 60)}:
+                                  {(match.duration_seconds % 60)
+                                    .toString()
+                                    .padStart(2, "0")}
+                                </span>
+                              )}
+                              {match.duration_seconds && match.genre && " • "}
+                              {match.genre && <span>{match.genre}</span>}
+                            </div>
+                          )}
                           <div class="text-xs text-magenta-400 mt-2">
                             confidence: {Math.round(match.confidence)}%
                           </div>
@@ -431,6 +563,21 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
             {/* search tab */}
             <Show when={activeTab() === "search"}>
               <div class="space-y-4">
+                {/* search context hint */}
+                <div class="text-sm text-gray-400 bg-gray-800/30 p-3 border border-gray-700">
+                  {totalSongs() > 1 ? (
+                    <span>
+                      searching for albums (multiple songs selected) - results
+                      will show album-level metadata
+                    </span>
+                  ) : (
+                    <span>
+                      searching for individual songs - results will show
+                      track-level metadata
+                    </span>
+                  )}
+                </div>
+
                 {/* search form */}
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
@@ -498,12 +645,19 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
                 </button>
 
                 {/* search results */}
-                <Show when={searchResults().length === 0 && !isLoading()}>
+                <Show
+                  when={
+                    (searchResults()?.length || 0) === 0 &&
+                    (albumSearchResults()?.length || 0) === 0 &&
+                    !isLoading()
+                  }
+                >
                   <div class="text-center text-gray-400 py-8">
                     enter search terms and click search
                   </div>
                 </Show>
 
+                {/* Individual song results (single song selected) */}
                 <For each={searchResults()}>
                   {(result) => (
                     <div class="p-4 bg-gray-800/30 border border-gray-700 hover:border-gray-600 transition-colors">
@@ -511,12 +665,34 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
                         <div class="flex-1">
                           <div class="font-medium text-white mb-1">
                             {result.title}
+                            {result.track_number && (
+                              <span class="text-gray-400 ml-2">
+                                Track {result.track_number}
+                                {result.disc_number &&
+                                  result.disc_number > 1 &&
+                                  ` (Disc ${result.disc_number})`}
+                              </span>
+                            )}
                           </div>
                           <div class="text-sm text-gray-400">
                             {result.artist}
                             {result.album && ` • ${result.album}`}
                             {result.year && ` • ${result.year}`}
                           </div>
+                          {(result.duration_seconds || result.genre) && (
+                            <div class="text-xs text-gray-500 mt-1">
+                              {result.duration_seconds && (
+                                <span>
+                                  {Math.floor(result.duration_seconds / 60)}:
+                                  {(result.duration_seconds % 60)
+                                    .toString()
+                                    .padStart(2, "0")}
+                                </span>
+                              )}
+                              {result.duration_seconds && result.genre && " • "}
+                              {result.genre && <span>{result.genre}</span>}
+                            </div>
+                          )}
                         </div>
                         <button
                           onClick={() => applyMatch(result)}
@@ -524,6 +700,34 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
                           disabled={isLoading()}
                         >
                           apply
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </For>
+
+                {/* Album results (multiple songs selected) */}
+                <For each={albumSearchResults()}>
+                  {(album) => (
+                    <div class="p-4 bg-gray-800/30 border border-gray-700 hover:border-gray-600 transition-colors">
+                      <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                          <div class="font-medium text-white mb-1">
+                            {album.title}
+                          </div>
+                          <div class="text-sm text-gray-400">
+                            {album.artist}
+                            {album.year && ` • ${album.year}`}
+                            {album.track_count &&
+                              ` • ${album.track_count} tracks`}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => applyAlbumMatch(album)}
+                          class="px-3 py-1 text-sm bg-magenta-600 text-white hover:bg-magenta-700 transition-colors"
+                          disabled={isLoading()}
+                        >
+                          apply album info
                         </button>
                       </div>
                     </div>
@@ -539,6 +743,7 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
                   <SongBulkEditForm
                     songs={props.songs}
                     onFormChange={handleFormChange}
+                    initialChanges={formChanges()}
                   />
                 ) : (
                   <Show when={currentSong()}>
@@ -548,6 +753,7 @@ export function MusicBrainzModal(props: MusicBrainzModalProps) {
                       currentIndex={currentSongIndex()}
                       onFormChange={handleFormChange}
                       onSongChange={setCurrentSongIndex}
+                      initialChanges={formChanges()}
                     />
                   </Show>
                 )}

@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthenticatedUser;
 use crate::musicbrainz::{MusicBrainzApiError, MusicBrainzResult};
+use crate::startup::AppState;
 
 // Add error conversion for serde_json
 impl From<serde_json::Error> for MusicBrainzApiError {
@@ -51,17 +52,49 @@ pub struct MusicBrainzSearchResponse {
 }
 
 /// MusicBrainz match data
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MusicBrainzMatch {
     pub id: String,
     pub title: String,
     pub artist: String,
     pub album: Option<String>,
     pub year: Option<u32>,
+    pub track_number: Option<u32>,
+    pub disc_number: Option<u32>,
+    pub duration_seconds: Option<u32>,
+    pub genre: Option<String>,
     pub confidence: f64,
     pub mbid: String,
     pub recording_id: Option<String>,
     pub release_id: Option<String>,
+}
+
+/// Request body for album search
+#[derive(Debug, Deserialize)]
+pub struct AlbumSearchRequest {
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub year: Option<u32>,
+    pub limit: u32,
+}
+
+/// Album match from MusicBrainz search
+#[derive(Debug, Serialize)]
+pub struct AlbumMatch {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub year: Option<u32>,
+    pub track_count: Option<u32>,
+    pub mbid: String,
+    pub release_id: String,
+}
+
+/// Response for album search
+#[derive(Debug, Serialize)]
+pub struct AlbumSearchResponse {
+    pub total: u32,
+    pub results: Vec<AlbumMatch>,
 }
 
 /// Request body for getting song matches
@@ -118,22 +151,106 @@ fn default_confidence_threshold() -> f64 {
 pub async fn get_musicbrainz_config(
     Extension(user): Extension<AuthenticatedUser>,
     Extension(_db): Extension<DatabaseConnection>,
+    Extension(app_state): Extension<AppState>,
 ) -> MusicBrainzResult<ResponseJson<MusicBrainzConfig>> {
     // Check if user is admin
     if !user.user().is_admin() {
         return Err(MusicBrainzApiError::Unauthorized);
     }
 
-    // Get configuration from grimoire - return default config for now
-    let config = MusicBrainzConfig::default();
+    // Get actual MusicBrainz configuration from AppState
+    let config = app_state.config.musicbrainz.clone();
 
     Ok(ResponseJson(config))
+}
+
+/// Search MusicBrainz for albums
+pub async fn search_albums(
+    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(app_state): Extension<AppState>,
+    Json(request): Json<AlbumSearchRequest>,
+) -> MusicBrainzResult<ResponseJson<AlbumSearchResponse>> {
+    // Validate request
+    if request.artist.is_none() && request.album.is_none() {
+        return Err(MusicBrainzApiError::ValidationError(
+            "At least one search field (artist or album) is required".to_string(),
+        ));
+    }
+
+    // Get actual MusicBrainz configuration from AppState
+    let config = app_state.config.musicbrainz.clone();
+
+    // Build search query
+    let mut query = grimoire::musicbrainz::queries::ReleaseSearchQuery::new();
+
+    if let Some(artist) = &request.artist {
+        query = query.artist(artist);
+    }
+    if let Some(album) = &request.album {
+        query = query.release(album);
+    }
+    if let Some(year) = request.year {
+        query = query.date(&year.to_string());
+    }
+
+    query = query.limit(request.limit);
+
+    // Perform search using grimoire service
+    let client = grimoire::musicbrainz::client::MusicBrainzClient::new(config)?;
+    let search_result = client.search_releases(&query).await?;
+
+    // Convert to API format
+    let matches: Vec<AlbumMatch> = search_result
+        .results
+        .into_iter()
+        .map(|release| {
+            let artist_credit = release
+                .artist_credit
+                .as_ref()
+                .map(|credits| {
+                    credits
+                        .iter()
+                        .map(|credit| credit.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_else(|| "Unknown Artist".to_string());
+
+            let year = release
+                .date
+                .as_ref()
+                .and_then(|date| date.split('-').next()?.parse::<u32>().ok());
+
+            let track_count = release
+                .media
+                .as_ref()
+                .map(|media| media.iter().map(|m| m.track_count.unwrap_or(0)).sum());
+
+            AlbumMatch {
+                id: release.id.to_string(),
+                title: release.title,
+                artist: artist_credit,
+                year,
+                track_count,
+                mbid: release.id.to_string(),
+                release_id: release.id.to_string(),
+            }
+        })
+        .collect();
+
+    let response = AlbumSearchResponse {
+        total: matches.len() as u32,
+        results: matches,
+    };
+
+    Ok(ResponseJson(response))
 }
 
 /// Search MusicBrainz database
 pub async fn search_musicbrainz(
     Extension(_user): Extension<AuthenticatedUser>,
     Extension(_db): Extension<DatabaseConnection>,
+    Extension(app_state): Extension<AppState>,
     Json(request): Json<MusicBrainzSearchRequest>,
 ) -> MusicBrainzResult<ResponseJson<MusicBrainzSearchResponse>> {
     // Validate request
@@ -143,8 +260,8 @@ pub async fn search_musicbrainz(
         ));
     }
 
-    // Create MusicBrainz config and client
-    let config = MusicBrainzConfig::default();
+    // Get actual MusicBrainz configuration from AppState
+    let config = app_state.config.musicbrainz.clone();
 
     // Build search query
     let mut query = RecordingSearchQuery::new();
@@ -206,6 +323,13 @@ pub async fn search_musicbrainz(
                 artist: artist_credit,
                 album,
                 year,
+                track_number: None, // Track number not available in search results
+                disc_number: None,  // Disc number not available in search results
+                duration_seconds: recording.length.map(|ms| ms / 1000), // Convert ms to seconds
+                genre: recording
+                    .tags
+                    .as_ref()
+                    .and_then(|tags| tags.first().map(|tag| tag.name.clone())), // Use first tag as genre
                 confidence: 100.0, // Default confidence for search results
                 mbid: recording.id.to_string(),
                 recording_id: Some(recording.id.to_string()),
@@ -411,6 +535,14 @@ pub async fn scan_songs_for_matches(
                     artist,
                     album,
                     year,
+                    track_number: None, // Track number not available in scan results
+                    disc_number: None,  // Disc number not available in scan results
+                    duration_seconds: mb_match.recording.length.map(|ms| ms / 1000),
+                    genre: mb_match
+                        .recording
+                        .tags
+                        .as_ref()
+                        .and_then(|tags| tags.first().map(|tag| tag.name.clone())),
                     confidence: mb_match.confidence_score as f64,
                     mbid: mb_match.recording.id.to_string(),
                     recording_id: Some(mb_match.recording.id.to_string()),
@@ -523,6 +655,10 @@ fn extract_match_from_json(
         artist,
         album,
         year,
+        track_number: None,     // Track number not stored in metadata format
+        disc_number: None,      // Disc number not stored in metadata format
+        duration_seconds: None, // Duration not stored in metadata format
+        genre: None,            // Genre not stored in metadata format
         confidence,
         mbid: recording_id.clone(),
         recording_id: Some(recording_id),

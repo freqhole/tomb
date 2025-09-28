@@ -1,4 +1,4 @@
-import { createEffect, For } from "solid-js";
+import { createEffect, For, onMount } from "solid-js";
 import { useSongFormStore } from "../../../../hooks/forms/useFormStore";
 import { SongFormField } from "../forms/SongFormField";
 import { FormFieldConfig } from "../../../../lib/music/schemas/form-schemas";
@@ -9,10 +9,25 @@ import { ImageCarousel } from "./ImageCarousel";
 interface SongBulkEditFormProps {
   songs: Song[];
   onFormChange: (changes: Partial<EditableSongFields>) => void;
+  initialChanges?: Partial<EditableSongFields>;
 }
 
 export function SongBulkEditForm(props: SongBulkEditFormProps) {
   const formStore = useSongFormStore(props.songs); // pass array for bulk mode
+
+  // apply initial changes if provided (run only once on mount)
+  onMount(() => {
+    if (props.initialChanges) {
+      Object.entries(props.initialChanges).forEach(([field, value]) => {
+        if (value !== undefined) {
+          formStore.updateField(
+            field as keyof EditableSongFields,
+            value as any
+          );
+        }
+      });
+    }
+  });
 
   // only send changes to parent (not the full mixed state)
   createEffect(() => {

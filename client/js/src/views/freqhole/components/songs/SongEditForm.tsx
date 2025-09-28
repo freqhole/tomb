@@ -1,4 +1,4 @@
-import { createEffect, For } from "solid-js";
+import { createEffect, For, onMount } from "solid-js";
 import { useSongFormStore } from "../../../../hooks/forms/useFormStore";
 import { SongFormField } from "../forms/SongFormField";
 import { FormFieldConfig } from "../../../../lib/music/schemas/form-schemas";
@@ -12,10 +12,25 @@ interface SongEditFormProps {
   currentIndex?: number;
   onFormChange: (changes: Partial<EditableSongFields>) => void;
   onSongChange?: (index: number) => void;
+  initialChanges?: Partial<EditableSongFields>;
 }
 
 export function SongEditForm(props: SongEditFormProps) {
   const formStore = useSongFormStore(props.song);
+
+  // apply initial changes if provided (run only once on mount)
+  onMount(() => {
+    if (props.initialChanges) {
+      Object.entries(props.initialChanges).forEach(([field, value]) => {
+        if (value !== undefined) {
+          formStore.updateField(
+            field as keyof EditableSongFields,
+            value as any
+          );
+        }
+      });
+    }
+  });
 
   // automatically notify parent when changes occur
   createEffect(() => {

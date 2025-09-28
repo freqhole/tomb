@@ -26,12 +26,38 @@ export const MusicBrainzMatchSchema = z.object({
   id: z.string(),
   title: z.string(),
   artist: z.string(),
-  album: z.string().optional(),
-  year: z.number().optional(),
+  album: z.string().nullable(),
+  year: z.number().nullable(),
+  track_number: z.number().nullable(),
+  disc_number: z.number().nullable(),
+  duration_seconds: z.number().nullable(),
+  genre: z.string().nullable(),
   confidence: z.number(),
   mbid: z.string(),
-  recording_id: z.string().optional(),
-  release_id: z.string().optional(),
+  recording_id: z.string().nullable(),
+  release_id: z.string().nullable(),
+});
+
+export const AlbumSearchRequestSchema = z.object({
+  artist: z.string().optional(),
+  album: z.string().optional(),
+  year: z.number().optional(),
+  limit: z.number().optional().default(25),
+});
+
+export const AlbumMatchSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  artist: z.string(),
+  year: z.number().nullable(),
+  track_count: z.number().nullable(),
+  mbid: z.string(),
+  release_id: z.string(),
+});
+
+export const AlbumSearchResponseSchema = z.object({
+  results: z.array(AlbumMatchSchema),
+  total: z.number(),
 });
 
 export const SongWithMatchesSchema = z.object({
@@ -69,6 +95,9 @@ export type MusicBrainzSearchRequest = z.infer<
 export type MusicBrainzSearchResponse = z.infer<
   typeof MusicBrainzSearchResponseSchema
 >;
+export type AlbumSearchRequest = z.infer<typeof AlbumSearchRequestSchema>;
+export type AlbumMatch = z.infer<typeof AlbumMatchSchema>;
+export type AlbumSearchResponse = z.infer<typeof AlbumSearchResponseSchema>;
 
 // api methods for musicbrainz integration
 export const musicBrainzApiMethods = {
@@ -82,6 +111,24 @@ export const musicBrainzApiMethods = {
     );
 
     return MusicBrainzConfigSchema.parse(response);
+  },
+
+  /**
+   * search musicbrainz for albums
+   */
+  async searchAlbums(
+    this: ApiClient,
+    request: AlbumSearchRequest
+  ): Promise<AlbumSearchResponse> {
+    const validatedRequest = AlbumSearchRequestSchema.parse(request);
+
+    const response = await this.makeRequest<unknown>(
+      "POST",
+      "/api/musicbrainz/search/albums",
+      { data: validatedRequest }
+    );
+
+    return AlbumSearchResponseSchema.parse(response);
   },
 
   /**

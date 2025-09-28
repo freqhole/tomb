@@ -5,6 +5,8 @@ import type {
   MusicBrainzMatch,
   MusicBrainzSearchRequest,
   SongWithMatches,
+  AlbumSearchRequest,
+  AlbumMatch,
 } from "../../../lib/musicbrainz/api-methods";
 
 export interface UseMusicBrainzOptions {
@@ -34,12 +36,13 @@ export function useMusicBrainz(options: UseMusicBrainzOptions = {}) {
       setIsLoading(true);
       setError(null);
 
-      const songIds = songs.map(s => s.id);
+      const songIds = songs.map((s) => s.id);
       const response = await apiClient.getSongMatches(songIds);
 
       return response.songs;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "failed to load matches";
+      const errorMessage =
+        err instanceof Error ? err.message : "failed to load matches";
       setError(errorMessage);
       options.onError?.(errorMessage);
       return [];
@@ -49,32 +52,65 @@ export function useMusicBrainz(options: UseMusicBrainzOptions = {}) {
   };
 
   // search musicbrainz
-  const search = async (query: MusicBrainzSearchRequest): Promise<MusicBrainzMatch[]> => {
+  const search = async (
+    query: MusicBrainzSearchRequest
+  ): Promise<MusicBrainzMatch[]> => {
     if (!query.title && !query.artist && !query.album) {
       const errorMessage = "please provide at least one search term";
       setError(errorMessage);
       options.onError?.(errorMessage);
-      return [];
+      throw new Error(errorMessage);
     }
 
-    try {
-      setIsLoading(true);
-      setError(null);
+    setIsLoading(true);
+    setError(null);
 
-      const response = await apiClient.searchMusicBrainz(query);
-      return response.results;
+    try {
+      const result = await apiClient.searchMusicBrainz(query);
+      return result.results;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "search failed";
       setError(errorMessage);
       options.onError?.(errorMessage);
-      return [];
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // search musicbrainz for albums
+  const searchAlbums = async (
+    query: AlbumSearchRequest
+  ): Promise<AlbumMatch[]> => {
+    if (!query.artist && !query.album) {
+      const errorMessage = "please provide at least artist or album name";
+      setError(errorMessage);
+      options.onError?.(errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const result = await apiClient.searchMusicBrainzAlbums(query);
+      return result.results;
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "album search failed";
+      setError(errorMessage);
+      options.onError?.(errorMessage);
+      throw err;
     } finally {
       setIsLoading(false);
     }
   };
 
   // apply match to songs
-  const applyMatch = async (songs: Song[], match: MusicBrainzMatch): Promise<boolean> => {
+  const applyMatch = async (
+    songs: Song[],
+    match: MusicBrainzMatch
+  ): Promise<boolean> => {
     if (songs.length === 0) {
       const errorMessage = "no songs provided";
       setError(errorMessage);
@@ -86,14 +122,15 @@ export function useMusicBrainz(options: UseMusicBrainzOptions = {}) {
       setIsLoading(true);
       setError(null);
 
-      const songIds = songs.map(s => s.id);
+      const songIds = songs.map((s) => s.id);
       await apiClient.applyMusicBrainzMetadata(songIds, match);
 
       const successMessage = `applied musicbrainz metadata to ${songIds.length} song${songIds.length === 1 ? "" : "s"}`;
       options.onSuccess?.(successMessage);
       return true;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "failed to apply metadata";
+      const errorMessage =
+        err instanceof Error ? err.message : "failed to apply metadata";
       setError(errorMessage);
       options.onError?.(errorMessage);
       return false;
@@ -116,8 +153,11 @@ export function useMusicBrainz(options: UseMusicBrainzOptions = {}) {
       setIsLoading(true);
       setError(null);
 
-      const songIds = songs.map(s => s.id);
-      const response = await apiClient.scanSongsForMatches(songIds, scanOptions);
+      const songIds = songs.map((s) => s.id);
+      const response = await apiClient.scanSongsForMatches(
+        songIds,
+        scanOptions
+      );
 
       return response.songs;
     } catch (err) {
@@ -142,6 +182,7 @@ export function useMusicBrainz(options: UseMusicBrainzOptions = {}) {
     // actions
     getMatches,
     search,
+    searchAlbums,
     applyMatch,
     scanForMatches,
     clearError,

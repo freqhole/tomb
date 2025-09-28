@@ -6,10 +6,16 @@ export {
   SongMatchesResponseSchema,
   MusicBrainzSearchRequestSchema,
   MusicBrainzSearchResponseSchema,
+  AlbumSearchRequestSchema,
+  AlbumMatchSchema,
+  AlbumSearchResponseSchema,
   type MusicBrainzConfig,
   type MusicBrainzMatch,
   type SongWithMatches,
   type SongMatchesResponse,
   type MusicBrainzSearchRequest,
   type MusicBrainzSearchResponse,
-} from "./api-methods";
+  type AlbumSearchRequest,
+  type AlbumMatch,
+  type AlbumSearchResponse,
+} from "./api-methods.js";

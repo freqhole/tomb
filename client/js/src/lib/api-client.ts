@@ -35,6 +35,11 @@ import { musicApiMethods } from "./music/api-methods.js";
 import { musicAdminApiMethods } from "./music/api-admin-methods.js";
 import { musicBrainzApiMethods } from "./musicbrainz/api-methods.js";
 import type {
+  MusicBrainzSearchRequest,
+  AlbumSearchRequest,
+  AlbumSearchResponse,
+} from "./musicbrainz/api-methods.js";
+import type {
   ArtistsFilterRequest,
   AlbumsFilterRequest,
 } from "./music/schemas/index.js";
@@ -858,8 +863,14 @@ export class ApiClient {
     return musicBrainzApiMethods.getMusicBrainzConfig.call(this);
   }
 
-  async searchMusicBrainz(request: any) {
+  async searchMusicBrainz(request: MusicBrainzSearchRequest) {
     return musicBrainzApiMethods.searchMusicBrainz.call(this, request);
+  }
+
+  async searchMusicBrainzAlbums(
+    request: AlbumSearchRequest
+  ): Promise<AlbumSearchResponse> {
+    return musicBrainzApiMethods.searchAlbums.call(this, request);
   }
 
   async getSongMatches(songIds: string[]) {
