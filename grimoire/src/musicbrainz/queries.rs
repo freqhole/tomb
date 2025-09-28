@@ -193,6 +193,11 @@ impl RecordingSearchQuery {
 
     /// create query from song metadata
     pub fn from_song(song: &Song) -> Self {
+        Self::from_song_with_options(song, true)
+    }
+
+    /// create query from song metadata with configurable album inclusion
+    pub fn from_song_with_options(song: &Song, include_album: bool) -> Self {
         // clean up title for better matching
         let clean_title = clean_search_text(&song.title);
         let mut query = Self::new().title(&clean_title).limit(25); // reasonable default for song searches
@@ -202,9 +207,12 @@ impl RecordingSearchQuery {
             query = query.artist(&clean_artist);
         }
 
-        if let Some(ref album) = song.album {
-            let clean_album = clean_search_text(album);
-            query = query.release(&clean_album);
+        // only include album if requested - helps with bootleg albums
+        if include_album {
+            if let Some(ref album) = song.album {
+                let clean_album = clean_search_text(album);
+                query = query.release(&clean_album);
+            }
         }
 
         // skip duration for now as it might be too strict for live recordings
@@ -214,6 +222,11 @@ impl RecordingSearchQuery {
         // }
 
         query
+    }
+
+    /// create fallback query without album for bootleg compatibility
+    pub fn from_song_no_album(song: &Song) -> Self {
+        Self::from_song_with_options(song, false)
     }
 }
 

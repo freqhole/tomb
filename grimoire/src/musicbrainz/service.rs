@@ -37,8 +37,27 @@ impl MusicBrainzService {
 
     /// search for musicbrainz matches for a single song
     pub async fn search_for_song(&self, song: &Song) -> Result<Vec<MusicBrainzMatch>> {
+        // first try with album included
         let query = RecordingSearchQuery::from_song(song);
         let search_result = self.client.search_recordings(&query).await?;
+
+        debug!(
+            "found {} recordings for song '{}' (with album)",
+            search_result.results.len(),
+            song.title
+        );
+
+        // if no results and we have an album, try without album (bootleg compatibility)
+        let search_result = if search_result.results.is_empty() && song.album.is_some() {
+            debug!(
+                "retrying search without album for song '{}' (bootleg compatibility)",
+                song.title
+            );
+            let fallback_query = RecordingSearchQuery::from_song_no_album(song);
+            self.client.search_recordings(&fallback_query).await?
+        } else {
+            search_result
+        };
 
         debug!(
             "found {} recordings for song '{}'",

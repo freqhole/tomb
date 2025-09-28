@@ -5,7 +5,7 @@
 
 use crate::musicbrainz::{
     config::MusicBrainzConfig,
-    models::{CoverArt, Recording, Release, ReleaseGroup, SearchResult},
+    models::{CoverArt, CoverArtResponse, Recording, Release, ReleaseGroup, SearchResult},
     queries::{RecordingSearchQuery, ReleaseGroupSearchQuery, ReleaseSearchQuery},
     rate_limiter::RateLimiter,
     MusicBrainzError, Result,
@@ -125,7 +125,8 @@ impl MusicBrainzClient {
             .await
             .map_err(MusicBrainzError::HttpError)?;
 
-        self.handle_response(response).await
+        let cover_art_response: CoverArtResponse = self.handle_response(response).await?;
+        Ok(cover_art_response.images)
     }
 
     /// execute a request with rate limiting and error handling

@@ -749,7 +749,7 @@ MusicBrainz Release -> Cover Art Archive -> Download Images -> Upload to Blob St
 
 - [x] CLI command for single song MusicBrainz search (`music musicbrainz search-song`)
 - [x] CLI command for flexible search (optional title/artist/album/duration)
-- [ ] CLI command for album/release search (`music musicbrainz search-album`) - **PARTIALLY IMPLEMENTED**
+- [x] CLI command for album/release search (`music musicbrainz search-album`) - **COMPLETED**
 - [x] CLI command for database song search with confidence scoring
 - [x] CLI command for metadata preview and application
 - [x] CLI command for direct metadata application (test helper)
@@ -757,30 +757,140 @@ MusicBrainz Release -> Cover Art Archive -> Download Images -> Upload to Blob St
 - [x] Integration with existing song repository and BulkSongUpdates
 - [x] Validate rate limiting and error handling (1 second between requests)
 - [x] Test various search strategies and edge cases
+- [x] **NEW**: Batch album processing command (`music musicbrainz batch-album`)
+- [x] **NEW**: Guided single song update command (`music musicbrainz update-song`)
+- [ ] **NEW**: Interactive CLI workflows for database management
+- [ ] Fix confidence scoring for bootleg/live album matching
+- [ ] Song marking system (skip, processed, needs review)
+- [ ] Duplicate detection and removal tools
 
-**CURRENT STATUS**: Mid-testing phase. All core CLI commands implemented and tested with live MusicBrainz API. Discovered important UX considerations around live vs studio recordings and metadata accuracy.
+**CURRENT STATUS**: Core API integration complete. Basic CLI workflows functional. Need to fix confidence scoring for bootleg albums and implement interactive workflows for bulk database processing.
 
 **KEY FINDINGS**:
 
-- MusicBrainz API integration working correctly
-- Rate limiting properly implemented (1s between requests)
-- Configuration system working (enabled/disabled states)
-- Query building and result parsing functional
-- Confidence scoring needs refinement for live recordings
-- Need album-focused search for finding specific live performances
-- Metadata application workflow needs careful review to avoid corrupting good existing data
+- ✅ MusicBrainz API integration working correctly
+- ✅ Rate limiting properly implemented (1s between requests)
+- ✅ Configuration system working (enabled/disabled states)
+- ✅ Query building and result parsing functional
+- ✅ **Selective metadata updates working** - preserves bootleg album names while updating artist/title casing
+- ✅ **Metadata tracking system working** - stores confidence scores and change history
+- ⚠️ **Confidence scoring too strict** - not finding matches for known good songs
+- ⚠️ **Album mismatch penalty too harsh** - bootleg albums rejected even with exact title/artist matches
+- ⚠️ **Bulk workflows need UX improvements** - need interactive selection and review processes
 
-**TEST RESULTS**:
+**SUCCESSFUL TEST CASES**:
 
-- ✅ Basic API connectivity and authentication
-- ✅ Song search with various artists (Nirvana, Lizzo, deadmau5, Amy Winehouse)
-- ✅ Flexible search parameters (title, artist, album, duration optional)
-- ✅ Rate limiting compliance
-- ✅ JSON parsing and data model handling
-- ✅ Configuration validation and defaults
-- 🔄 Album search for "live at north sea jazz festival" recordings
-- 🔄 Confidence scoring accuracy for live vs studio versions
-- 🔄 Metadata preview and application workflow
+- ✅ "Stronger Than Me" by Amy Winehouse: `amy winehouse` → `Amy Winehouse`, `stronger than me` → `Stronger Than Me`
+- ✅ "Take the Box" by Amy Winehouse: Added `blues` genre, fixed casing, preserved `live at some jazz festival` album
+- ✅ "Brother" by Amy Winehouse: Fixed artist casing, preserved bootleg context
+- ✅ MusicBrainz metadata tracking with confidence scores stored in JSON field
+- ✅ Rate limiting compliance during bulk operations
+- ✅ Selective field updates (artist/title) while preserving context (album names, track numbers)
+
+**WORKFLOW PATTERNS IDENTIFIED**:
+
+1. **Bootleg Album Pattern**: Update artist/title casing + genre, preserve album name + track numbering
+2. **Studio Album Pattern**: Update all metadata fields from MusicBrainz
+3. **Live Recording Pattern**: Handle duration differences, preserve venue/date context
+4. **Manual Cleanup Pattern**: Need to skip songs that are already perfect or mark as "do not process"
+
+**IMMEDIATE ISSUES TO FIX**:
+
+- 🔧 `MusicBrainzService::search_for_song()` not finding obvious matches
+- 🔧 Confidence algorithm needs bootleg album exception handling
+- 🔧 Need interactive CLI for album-by-album processing workflow
+- 🔧 Need song/album marking system to track processing state
+
+#### Phase 2.5: Interactive CLI Workflows 🔄 STARTING
+
+**Goal**: Create intuitive, interactive CLI tools for efficiently processing thousands of songs with proper review workflows.
+
+**Core Interactive Commands Needed**:
+
+1. **Album Processor** (`cli music process albums --interactive`)
+   - Browse database albums with pagination
+   - Show album info: artist, title, song count, processing status
+   - Preview MusicBrainz matches for entire album
+   - Bulk review and apply changes with confirmation
+   - Mark albums with processing status (processed/skip/review_needed)
+
+2. **Song Batch Editor** (`cli music process songs --interactive`)
+   - Search songs with flexible filters (artist, album, unprocessed, etc.)
+   - Build "working set" of songs for batch operations
+   - Manual metadata editing for common fields
+   - Preview all changes before applying to database
+   - Support for bootleg album workflows (preserve album names)
+
+3. **Database Status Manager** (`cli music status`)
+   - Show processing progress (X processed, Y skipped, Z remaining)
+   - Filter views by processing status
+   - Mark songs/albums for skip/review/duplicate
+   - Progress tracking through entire database
+
+4. **Duplicate Manager** (`cli music duplicates`)
+   - Detect potential duplicate songs by metadata similarity
+   - Interactive review and marking for removal
+   - Merge metadata from duplicates before deletion
+
+**Required Data Model Extensions**:
+
+```sql
+-- Song processing status tracking
+ALTER TABLE songs ADD COLUMN processing_status VARCHAR(20) DEFAULT 'unprocessed';
+ALTER TABLE songs ADD COLUMN processing_notes TEXT;
+
+-- Album-level processing tracking
+CREATE TABLE album_processing_status (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    album_name VARCHAR(255) NOT NULL,
+    artist_name VARCHAR(255),
+    status VARCHAR(20) DEFAULT 'unprocessed',
+    notes TEXT,
+    song_count INTEGER,
+    processed_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+**Interactive UX Patterns**:
+
+- Clear prompts with multiple options: `(y)es/(n)o/(s)kip/(q)uit/(a)ll/(r)eview`
+- Progress indicators: `Processing album 15/127 (12%)`
+- Confirmation summaries: `Apply 23 changes to 8 songs? (y/n)`
+- Undo warnings: `This will modify database permanently. Continue? (y/n)`
+- Status persistence: Resume exactly where left off in multi-session processing
+
+**Workflow Examples**:
+
+```bash
+# Start album-by-album processing from beginning
+cli music process albums --interactive --start-from-beginning
+
+# Continue processing unprocessed albums
+cli music process albums --interactive --filter unprocessed
+
+# Process specific artist's albums only
+cli music process albums --interactive --artist "amy winehouse"
+
+# Manual batch editing workflow
+cli music process songs --interactive --search "bootleg OR live"
+
+# Check overall progress
+cli music status --show-progress --detailed
+
+# Mark problematic items for later review
+cli music mark album "corrupted files vol 1" --status skip --note "bad rips"
+cli music mark song a1b2c3d4 --status duplicate --note "same as song e5f6g7h8"
+```
+
+**Implementation Priority**:
+
+1. **First**: Album processor with basic navigation and MusicBrainz integration
+2. **Second**: Song marking system and status persistence
+3. **Third**: Batch song editor with working sets
+4. **Fourth**: Duplicate detection and management
+5. **Fifth**: Advanced filtering and progress restoration
 
 #### Phase 3: Server API Layer ⏳ PENDING
 
@@ -813,40 +923,119 @@ MusicBrainz Release -> Cover Art Archive -> Download Images -> Upload to Blob St
 
 ## 🎯 NEXT STEPS (for continuation)
 
-### Immediate Tasks:
+### Immediate Technical Tasks:
 
-1. **Complete CLI album search** - Finish implementing `search-album` command to find "live at north sea jazz festival"
-2. **Test complete metadata workflow** - Find correct Amy Winehouse live album and test full update process
-3. **Refine confidence scoring** - Improve matching algorithm to handle live vs studio recordings better
-4. **Document metadata safety guidelines** - Create guidelines for when to apply vs skip metadata updates
+1. **Fix confidence scoring algorithm** - Handle bootleg albums that have exact title/artist matches but different album names
+2. **Implement song/album processing status tracking** - Add database fields and CLI commands for marking processing state
+3. **Create interactive album processor** - Start with basic album browsing and MusicBrainz batch lookup
+4. **Add album mismatch bypass** - Option to ignore album differences for bootleg workflow
+5. **Test batch processing** with interactive workflows once search logic is fixed
 
-### Key Questions to Resolve:
+### Interactive CLI Workflow Requirements:
 
-1. **Metadata Safety**: How to avoid corrupting good existing data with incorrect MusicBrainz matches?
-2. **Live Recording Handling**: Should live recordings be treated differently in matching algorithm?
-3. **Selective Updates**: Which metadata fields should be updateable vs preserved (e.g., preserve album names for live recordings)?
-4. **User Workflow**: What's the ideal UX for reviewing and approving metadata changes?
+1. **Album-by-Album Processing Mode**:
+   - Browse albums in database with pagination
+   - Preview all songs in album with current metadata
+   - Bulk search MusicBrainz for entire album
+   - Review all proposed changes before applying
+   - Mark albums as "processed", "skip", or "needs manual review"
 
-### Testing Priorities:
+2. **Song Selection and Batch Edit Workflow**:
+   - Search for songs by artist/album/title patterns
+   - Add/remove songs to a "working set" for batch operations
+   - Preview all changes across the working set
+   - Manual metadata editing (e.g., fix album name for bootleg)
+   - Apply changes to entire working set at once
 
-1. Find Amy Winehouse "Live at North Sea Jazz Festival" in MusicBrainz
-2. Test metadata preview and application with correct live recording
-3. Validate MusicBrainz metadata tracking in JSON field
-4. Test cover art retrieval functionality
-5. Validate confidence scoring improvements
+3. **Database Management Tools**:
+   - Mark songs/albums with processing status (processed, skip, review_needed, duplicate)
+   - Filter views to show only unprocessed items
+   - Progress tracking through entire database
+   - Duplicate detection and marking for removal
+   - Undo/rollback functionality for metadata changes
 
-### Configuration Status:
+4. **Enhanced User Experience**:
+   - Interactive prompts with clear options (y/n/skip/quit/mark)
+   - Progress indicators for bulk operations
+   - Summary reports of changes made
+   - Confidence thresholds with user override options
+   - Preview mode for all operations before committing
 
-- ✅ App config integration complete
-- ✅ Serde defaults implemented
-- ✅ Enabled/disabled states working
-- ✅ Config files updated (main + example)
+### Key Workflow Use Cases to Support:
 
-### Current Test Database:
+1. **Bootleg Album Cleanup**: Fix artist/title casing, add genres, preserve album context
+2. **Studio Album Enhancement**: Full MusicBrainz metadata application
+3. **Live Recording Processing**: Handle duration differences, preserve venue/date info
+4. **Duplicate Cleanup**: Find and mark duplicate songs for removal
+5. **Quality Control**: Review and approve/reject bulk changes before database updates
+6. **Progress Tracking**: Work through thousands of songs systematically without losing place
 
-- Amy Winehouse live jazz festival recordings (need MusicBrainz enrichment)
-- CONTAINER/YACKER album (already has good metadata - skip)
-- Connection: `postgresql://postgres:supersecret@localhost:5432/webauthn_db`
+### Data Model Extensions Needed:
+
+```sql
+-- Song processing status tracking
+ALTER TABLE songs ADD COLUMN processing_status VARCHAR(20);
+-- Values: 'unprocessed', 'processed', 'skip', 'review_needed', 'duplicate'
+
+ALTER TABLE songs ADD COLUMN processing_notes TEXT;
+-- User notes about why song was skipped or needs review
+
+-- Album-level processing tracking
+CREATE TABLE album_processing_status (
+    album_name VARCHAR(255),
+    artist_name VARCHAR(255),
+    status VARCHAR(20), -- 'unprocessed', 'processed', 'skip', 'review_needed'
+    notes TEXT,
+    processed_at TIMESTAMP,
+    PRIMARY KEY (album_name, artist_name)
+);
+```
+
+### CLI Command Structure to Implement:
+
+```bash
+# Interactive album-by-album processor (PRIORITY 1)
+cli music process albums --interactive
+cli music process albums --interactive --filter unprocessed
+
+# Mark albums/songs with status (PRIORITY 2)
+cli music mark album "live at some jazz festival" --status skip --note "bootleg, already cleaned up"
+cli music mark song <id> --status duplicate
+
+# Show processing progress (PRIORITY 2)
+cli music status --show-progress --filter unprocessed
+cli music status --albums --detailed
+
+# Interactive song search and batch edit (PRIORITY 3)
+cli music process songs --interactive --search "amy winehouse"
+cli music batch add-songs --search "artist:amy AND album:live"
+cli music batch preview-changes
+cli music batch apply-changes
+cli music batch clear
+
+# Duplicate management (PRIORITY 4)
+cli music duplicates --interactive
+cli music duplicates --mark-only --threshold 0.9
+```
+
+### Current Test Database Status:
+
+- ✅ Amy Winehouse bootleg album partially processed (3 songs updated)
+- ✅ MusicBrainz metadata tracking working correctly
+- ✅ Selective update patterns validated
+- ✅ Confidence scoring issues identified (too strict for bootleg albums)
+- 🔄 Need to implement processing status tracking in database schema
+- 🔄 Need interactive CLI for album-by-album workflow
+- 🔄 Need to fix search algorithm before bulk processing
+- 🔄 Need to process remaining 11 songs in bootleg album once CLI is ready
+- 🔄 Need duplicate detection testing
+
+### Implementation Order:
+
+**Week 1**: Fix confidence scoring + add processing status tracking
+**Week 2**: Interactive album processor CLI
+**Week 3**: Song marking and progress tracking
+**Week 4**: Batch song editor and duplicate detection
 
 ### 12. Configuration Examples
 

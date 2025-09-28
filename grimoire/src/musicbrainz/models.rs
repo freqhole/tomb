@@ -240,6 +240,16 @@ pub struct TextRepresentation {
     pub script: Option<String>,
 }
 
+/// cover art archive response wrapper
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoverArtResponse {
+    /// array of cover art images
+    pub images: Vec<CoverArt>,
+
+    /// release url
+    pub release: String,
+}
+
 /// cover art image from cover art archive
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoverArt {
@@ -247,10 +257,11 @@ pub struct CoverArt {
     pub id: String,
 
     /// image url (full size)
+    #[serde(rename = "image")]
     pub image_url: String,
 
-    /// thumbnail url (250px)
-    pub thumbnail_url: String,
+    /// thumbnail urls
+    pub thumbnails: Option<CoverArtThumbnails>,
 
     /// image types (front, back, booklet, etc.)
     pub types: Vec<String>,
@@ -269,6 +280,50 @@ pub struct CoverArt {
 
     /// comment about this image
     pub comment: Option<String>,
+}
+
+/// cover art thumbnail urls
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoverArtThumbnails {
+    /// small thumbnail (250px)
+    pub small: Option<String>,
+
+    /// large thumbnail (500px)
+    pub large: Option<String>,
+
+    /// 250px thumbnail (alternative key)
+    #[serde(rename = "250")]
+    pub thumb_250: Option<String>,
+
+    /// 500px thumbnail (alternative key)
+    #[serde(rename = "500")]
+    pub thumb_500: Option<String>,
+
+    /// 1200px thumbnail
+    #[serde(rename = "1200")]
+    pub thumb_1200: Option<String>,
+}
+
+impl CoverArt {
+    /// get thumbnail url (preferring small size)
+    pub fn thumbnail_url(&self) -> String {
+        if let Some(ref thumbnails) = self.thumbnails {
+            if let Some(ref small) = thumbnails.small {
+                return small.clone();
+            }
+            if let Some(ref thumb_250) = thumbnails.thumb_250 {
+                return thumb_250.clone();
+            }
+            if let Some(ref large) = thumbnails.large {
+                return large.clone();
+            }
+            if let Some(ref thumb_500) = thumbnails.thumb_500 {
+                return thumb_500.clone();
+            }
+        }
+        // fallback to main image url
+        self.image_url.clone()
+    }
 }
 
 /// search result wrapper

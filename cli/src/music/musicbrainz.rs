@@ -7,7 +7,7 @@ use clap::{Args, Subcommand};
 use grimoire::{
     config::AppConfig,
     database::DatabaseConnection,
-    music::{repository::MusicRepository, Song},
+    music::repository::MusicRepository,
     musicbrainz::{
         MusicBrainzClient, MusicBrainzConfig, MusicBrainzMatch, MusicBrainzService,
         RecordingSearchQuery, ReleaseSearchQuery,
@@ -48,7 +48,7 @@ pub enum MusicBrainzCommands {
         #[arg(short, long)]
         artist: Option<String>,
         /// album/release title (optional)
-        #[arg(short, long)]
+        #[arg(short = 'l', long)]
         album: Option<String>,
         /// release date (optional, format: YYYY or YYYY-MM or YYYY-MM-DD)
         #[arg(short, long)]
@@ -103,6 +103,31 @@ pub enum MusicBrainzCommands {
         /// musicbrainz recording id
         recording_id: String,
     },
+    /// batch process songs from an album with guided workflow
+    BatchAlbum {
+        /// album name to search for in database
+        album: String,
+        /// artist name to filter by (optional)
+        #[arg(short, long)]
+        artist: Option<String>,
+        /// auto-apply high confidence matches without confirmation
+        #[arg(long)]
+        auto_apply: bool,
+        /// minimum confidence threshold for auto-apply (0-100)
+        #[arg(long, default_value = "85")]
+        confidence_threshold: f32,
+        /// dry run mode - show changes without applying
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// guided workflow for single song metadata update
+    UpdateSong {
+        /// song id or search term
+        song: String,
+        /// skip confirmation prompts
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 pub async fn handle_musicbrainz_command(
@@ -144,6 +169,26 @@ pub async fn handle_musicbrainz_command(
             song_id,
             recording_id,
         } => handle_apply_direct(song_id, recording_id, config).await,
+        MusicBrainzCommands::BatchAlbum {
+            album,
+            artist,
+            auto_apply,
+            confidence_threshold,
+            dry_run,
+        } => {
+            handle_batch_album(
+                &album,
+                artist.as_deref(),
+                auto_apply,
+                confidence_threshold,
+                dry_run,
+                config,
+            )
+            .await
+        }
+        MusicBrainzCommands::UpdateSong { song, force } => {
+            handle_update_song(&song, force, config).await
+        }
     }
 }
 
@@ -734,7 +779,301 @@ async fn handle_apply_direct(
     Ok(())
 }
 
-fn print_song_metadata(song: &Song) {
+async fn handle_batch_album(
+    album_name: &str,
+    artist_filter: Option<&str>,
+    auto_apply: bool,
+    confidence_threshold: f32,
+    dry_run: bool,
+    config: &AppConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use grimoire::database::DatabaseConnection;
+    use grimoire::music::repository::MusicRepository;
+    use std::io::{self, Write};
+    use std::sync::Arc;
+
+    let musicbrainz_config = get_musicbrainz_config(config)?;
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = DatabaseConnection::new(pool);
+    let repository = Arc::new(MusicRepository::new(db.pool().clone()));
+    let service =
+        grimoire::musicbrainz::MusicBrainzService::new(musicbrainz_config, repository.clone())?;
+
+    // search for songs in this album
+    let mut query_builder = sqlx::QueryBuilder::new("SELECT * FROM songs WHERE album ILIKE ");
+    query_builder.push_bind(format!("%{}%", album_name));
+
+    if let Some(artist) = artist_filter {
+        query_builder.push(" AND artist ILIKE ");
+        query_builder.push_bind(format!("%{}%", artist));
+    }
+
+    query_builder.push(" ORDER BY track_number, title");
+
+    let songs: Vec<grimoire::music::Song> =
+        query_builder.build_query_as().fetch_all(db.pool()).await?;
+
+    if songs.is_empty() {
+        println!("no songs found for album: {}", album_name);
+        return Ok(());
+    }
+
+    println!("found {} songs in album '{}'", songs.len(), album_name);
+    if dry_run {
+        println!("(dry run mode - no changes will be applied)");
+    }
+    println!();
+
+    let mut total_processed = 0;
+    let mut total_updated = 0;
+    let mut total_skipped = 0;
+
+    for (i, song) in songs.iter().enumerate() {
+        println!(
+            "{}. {} - {}",
+            i + 1,
+            song.artist.as_deref().unwrap_or("unknown artist"),
+            song.title
+        );
+
+        // search for musicbrainz matches
+        let matches = service.search_for_song(song).await?;
+
+        if matches.is_empty() {
+            println!("   no musicbrainz matches found");
+            total_skipped += 1;
+            println!();
+            continue;
+        }
+
+        // find best match
+        let best_match = &matches[0];
+        println!(
+            "   best match: {} - {} (confidence: {:.1}%)",
+            best_match
+                .recording
+                .primary_artist_name()
+                .unwrap_or_default(),
+            best_match.recording.title,
+            best_match.confidence_score
+        );
+
+        // preview changes
+        let preview = service
+            .preview_metadata_changes(&song.id.to_string(), best_match)
+            .await?;
+
+        if preview.changes.is_empty() {
+            println!("   no changes needed");
+            total_skipped += 1;
+            println!();
+            continue;
+        }
+
+        // show proposed changes
+        println!("   proposed changes:");
+        for change in &preview.changes {
+            println!(
+                "     {}: {} -> {} (confidence: {:.1}%)",
+                change.field,
+                change
+                    .old_value
+                    .as_ref()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("none"),
+                change.new_value.as_str().unwrap_or("invalid"),
+                change.confidence
+            );
+        }
+
+        let should_apply = if auto_apply && best_match.confidence_score >= confidence_threshold {
+            println!(
+                "   auto-applying (confidence >= {:.1}%)",
+                confidence_threshold
+            );
+            true
+        } else if dry_run {
+            false
+        } else {
+            print!("   apply changes? (y/n/a/q): ");
+            io::stdout().flush()?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            match input.trim().to_lowercase().as_str() {
+                "y" | "yes" => true,
+                "a" | "all" => {
+                    println!("   applying remaining songs automatically...");
+                    // set auto_apply for remaining songs
+                    true
+                }
+                "q" | "quit" => {
+                    println!("   stopping batch process");
+                    break;
+                }
+                _ => false,
+            }
+        };
+
+        if should_apply && !dry_run {
+            service
+                .apply_metadata(&song.id.to_string(), &preview.changes)
+                .await?;
+            println!("   ✓ metadata updated");
+            total_updated += 1;
+        } else {
+            println!("   skipped");
+            total_skipped += 1;
+        }
+
+        total_processed += 1;
+        println!();
+    }
+
+    println!("batch processing complete:");
+    println!("  processed: {}", total_processed);
+    println!("  updated: {}", total_updated);
+    println!("  skipped: {}", total_skipped);
+
+    Ok(())
+}
+
+async fn handle_update_song(
+    song_input: &str,
+    force: bool,
+    config: &AppConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use grimoire::database::DatabaseConnection;
+    use grimoire::music::repository::MusicRepository;
+    use std::io::{self, Write};
+    use std::sync::Arc;
+    use uuid::Uuid;
+
+    let musicbrainz_config = get_musicbrainz_config(config)?;
+    let pool = sqlx::PgPool::connect(&config.database_url()).await?;
+    let db = DatabaseConnection::new(pool);
+    let repository = Arc::new(MusicRepository::new(db.pool().clone()));
+    let service = grimoire::musicbrainz::MusicBrainzService::new(
+        musicbrainz_config.clone(),
+        repository.clone(),
+    )?;
+    let _client = grimoire::musicbrainz::MusicBrainzClient::new(musicbrainz_config)?;
+
+    // try to parse as UUID first, otherwise search
+    let song = if let Ok(uuid) = Uuid::parse_str(song_input) {
+        repository.get_song(uuid).await?
+    } else {
+        // search for song by title/artist
+        let query = sqlx::query_as::<_, grimoire::music::Song>(
+            "SELECT * FROM songs WHERE title ILIKE $1 OR artist ILIKE $1 LIMIT 1",
+        )
+        .bind(format!("%{}%", song_input));
+
+        match query.fetch_optional(db.pool()).await? {
+            Some(song) => song,
+            None => {
+                println!("song not found: {}", song_input);
+                return Ok(());
+            }
+        }
+    };
+
+    println!(
+        "song: {} - {}",
+        song.artist.as_deref().unwrap_or("unknown artist"),
+        song.title
+    );
+    print_song_metadata(&song);
+    println!();
+
+    // search for musicbrainz matches
+    println!("searching musicbrainz...");
+    let matches = service.search_for_song(&song).await?;
+
+    if matches.is_empty() {
+        println!("no musicbrainz matches found");
+        return Ok(());
+    }
+
+    println!("found {} matches:", matches.len());
+    for (i, mb_match) in matches.iter().take(5).enumerate() {
+        println!(
+            "  {}. {} - {} (confidence: {:.1}%)",
+            i + 1,
+            mb_match.recording.primary_artist_name().unwrap_or_default(),
+            mb_match.recording.title,
+            mb_match.confidence_score
+        );
+    }
+    println!();
+
+    let selected_match = if force && !matches.is_empty() {
+        &matches[0]
+    } else {
+        print!("select match (1-{}, 0 to skip): ", matches.len().min(5));
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        match input.trim().parse::<usize>() {
+            Ok(0) => {
+                println!("skipped");
+                return Ok(());
+            }
+            Ok(n) if n > 0 && n <= matches.len().min(5) => &matches[n - 1],
+            _ => {
+                println!("invalid selection");
+                return Ok(());
+            }
+        }
+    };
+
+    // preview changes
+    let preview = service
+        .preview_metadata_changes(&song.id.to_string(), selected_match)
+        .await?;
+
+    if preview.changes.is_empty() {
+        println!("no changes needed");
+        return Ok(());
+    }
+
+    println!("proposed changes:");
+    for change in &preview.changes {
+        println!(
+            "  {}: {} -> {} (confidence: {:.1}%)",
+            change.field,
+            change
+                .old_value
+                .as_ref()
+                .and_then(|v| v.as_str())
+                .unwrap_or("none"),
+            change.new_value.as_str().unwrap_or("invalid"),
+            change.confidence
+        );
+    }
+    println!();
+
+    if !force {
+        print!("apply changes? (y/n): ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+            println!("skipped");
+            return Ok(());
+        }
+    }
+
+    service
+        .apply_metadata(&song.id.to_string(), &preview.changes)
+        .await?;
+    println!("✓ metadata updated successfully");
+
+    Ok(())
+}
+
+fn print_song_metadata(song: &grimoire::music::Song) {
+    println!("  id: {}", song.id);
     println!("  title: {}", song.title);
     if let Some(ref artist) = song.artist {
         println!("  artist: {}", artist);
