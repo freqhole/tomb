@@ -131,7 +131,7 @@ impl SearchService {
             "limit": limit,
             "offset": offset,
             "order_by": sort_by,
-            "sort_direction": sort_direction
+            "order_direction": sort_direction
         })
     }
 

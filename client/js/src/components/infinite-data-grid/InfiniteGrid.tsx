@@ -183,7 +183,8 @@ export function InfiniteGrid<T>(props: InfiniteGridProps<T>) {
 
   // render only visible items for performance
   const visibleItems = createMemo(() => {
-    const data = sortedData();
+    // Use original data when server-side sorting is enabled to avoid client-side re-sorting
+    const data = isServerSideSorting() ? props.data : sortedData();
     const range = visibleRange();
 
     if (data.length === 0) {

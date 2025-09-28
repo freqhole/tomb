@@ -4,8 +4,22 @@ import type { ApiClient } from "../api-client";
 // zod schemas for musicbrainz data validation
 export const MusicBrainzConfigSchema = z.object({
   enabled: z.boolean(),
+  user_agent: z.string(),
+  rate_limit_ms: z.number(),
   base_url: z.string(),
-  rate_limit_per_second: z.number(),
+  cover_art_url: z.string(),
+  timeout_seconds: z.number(),
+  max_concurrent_requests: z.number(),
+  cache_ttl_hours: z.number(),
+  max_retries: z.number(),
+  duration_tolerance_seconds: z.number(),
+  enable_duration_matching: z.boolean(),
+  full_album_tag: z.string(),
+  preferred_country: z.string(),
+  preferred_status: z.string(),
+  album_completion_threshold: z.number(),
+  prefer_complete_albums: z.boolean(),
+  max_album_suggestions: z.number(),
 });
 
 export const MusicBrainzMatchSchema = z.object({
