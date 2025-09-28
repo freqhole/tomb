@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            album_name,\n            artist_name,\n            song_count,\n            processed_count,\n            status,\n            notes,\n            updated_at\n        FROM get_albums_for_processing($1, $2, $3, $4)\n        WHERE album_name IS NOT NULL AND artist_name IS NOT NULL\n        ",
+  "query": "\n        SELECT DISTINCT\n            s.album as album_name,\n            s.artist as artist_name,\n            COUNT(*) as song_count,\n            0::INTEGER as processed_count,\n            'unprocessed'::TEXT as status,\n            NULL::TEXT as notes,\n            NOW() as updated_at\n        FROM songs s\n        WHERE s.album IS NOT NULL AND s.artist IS NOT NULL\n        GROUP BY s.album, s.artist\n        ORDER BY updated_at DESC\n        LIMIT $1::BIGINT\n        OFFSET $2::BIGINT\n        ",
   "describe": {
     "columns": [
       {
@@ -36,20 +36,18 @@
       {
         "ordinal": 6,
         "name": "updated_at",
-        "type_info": "Timestamp"
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
-        "Int4",
-        "Int4"
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
-      null,
-      null,
+      true,
+      true,
       null,
       null,
       null,
@@ -57,5 +55,5 @@
       null
     ]
   },
-  "hash": "1686c966035d9557e91eca0e8e3bc02dc18764bd6d3e0061e1d2ef440fef0da2"
+  "hash": "0d292fc64fcaa23751e89456b40ddaaba0086c1e028b58e6f290dc1d9839eeac"
 }

@@ -45,6 +45,18 @@ pub struct MusicBrainzConfig {
     /// maximum retry attempts for failed requests
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
+
+    /// duration tolerance in seconds for matching (±tolerance)
+    #[serde(default = "default_duration_tolerance_seconds")]
+    pub duration_tolerance_seconds: u32,
+
+    /// whether to include duration constraints in queries (can be too restrictive)
+    #[serde(default)]
+    pub enable_duration_matching: bool,
+
+    /// tag name to apply to complete albums
+    #[serde(default = "default_full_album_tag")]
+    pub full_album_tag: String,
 }
 
 impl Default for MusicBrainzConfig {
@@ -60,6 +72,9 @@ impl Default for MusicBrainzConfig {
             max_concurrent_requests: 1, // conservative default for rate limiting
             cache_ttl_hours: 24,
             max_retries: 3,
+            duration_tolerance_seconds: 5,
+            enable_duration_matching: false, // disabled by default as it can be too restrictive
+            full_album_tag: "full album".to_string(),
         }
     }
 }
@@ -144,6 +159,14 @@ fn default_cache_ttl_hours() -> u64 {
 
 fn default_max_retries() -> u32 {
     3
+}
+
+fn default_duration_tolerance_seconds() -> u32 {
+    5
+}
+
+fn default_full_album_tag() -> String {
+    "full album".to_string()
 }
 
 #[cfg(test)]

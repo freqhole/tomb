@@ -3,7 +3,7 @@
 //! provides structures for musicbrainz api responses including recordings,
 //! releases, artists, and cover art metadata.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 
 use uuid::Uuid;
@@ -253,7 +253,8 @@ pub struct CoverArtResponse {
 /// cover art image from cover art archive
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoverArt {
-    /// unique image id
+    /// unique image id (can be string or number from MusicBrainz)
+    #[serde(deserialize_with = "deserialize_id_as_string")]
     pub id: String,
 
     /// image url (full size)
@@ -424,6 +425,20 @@ impl Recording {
     /// get duration in seconds
     pub fn duration_seconds(&self) -> Option<u32> {
         self.length.map(|ms| ms / 1000)
+    }
+}
+
+/// Custom deserializer to handle ID fields that can be either string or integer
+fn deserialize_id_as_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde_json::Value;
+    let value = Value::deserialize(deserializer)?;
+    match value {
+        Value::String(s) => Ok(s),
+        Value::Number(n) => Ok(n.to_string()),
+        _ => Err(serde::de::Error::custom("expected string or number")),
     }
 }
 

@@ -11,6 +11,7 @@ use crate::musicbrainz::{
     queries::{RecordingSearchQuery, ReleaseSearchQuery},
     MusicBrainzError, Result,
 };
+
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,20 +26,32 @@ pub struct MusicBrainzService {
 
     /// music repository for database operations
     repository: Arc<MusicRepository>,
+
+    /// musicbrainz configuration
+    config: MusicBrainzConfig,
 }
 
 impl MusicBrainzService {
     /// create new musicbrainz service
     pub fn new(config: MusicBrainzConfig, repository: Arc<MusicRepository>) -> Result<Self> {
-        let client = MusicBrainzClient::new(config)?;
+        let client = MusicBrainzClient::new(config.clone())?;
 
-        Ok(Self { client, repository })
+        Ok(Self {
+            client,
+            repository,
+            config,
+        })
     }
 
     /// search for musicbrainz matches for a single song
     pub async fn search_for_song(&self, song: &Song) -> Result<Vec<MusicBrainzMatch>> {
         // first try with album included
-        let query = RecordingSearchQuery::from_song(song);
+        let query = RecordingSearchQuery::from_song(
+            song,
+            true,
+            self.config.duration_tolerance_seconds,
+            self.config.enable_duration_matching,
+        );
         let search_result = self.client.search_recordings(&query).await?;
 
         debug!(
@@ -53,7 +66,11 @@ impl MusicBrainzService {
                 "retrying search without album for song '{}' (bootleg compatibility)",
                 song.title
             );
-            let fallback_query = RecordingSearchQuery::from_song_no_album(song);
+            let fallback_query = RecordingSearchQuery::from_song_no_album(
+                song,
+                self.config.duration_tolerance_seconds,
+                self.config.enable_duration_matching,
+            );
             self.client.search_recordings(&fallback_query).await?
         } else {
             search_result
@@ -189,7 +206,8 @@ impl MusicBrainzService {
         let proposed_metadata =
             self.recording_to_metadata_map(&mb_match.recording, mb_match.release.as_ref());
 
-        let changes = self.calculate_metadata_changes(&current_metadata, &proposed_metadata);
+        // Use consolidated conservative enrichment logic
+        let changes = self.analyze_metadata_changes_conservative(&song, mb_match);
 
         // get cover art options if available
         let cover_art_options = if let Some(ref release) = mb_match.release {
@@ -579,6 +597,91 @@ impl MusicBrainzService {
         }
 
         changes
+    }
+
+    /// Consolidated metadata enrichment logic - conservative approach
+    pub fn analyze_metadata_changes_conservative(
+        &self,
+        song: &crate::music::Song,
+        mb_match: &MusicBrainzMatch,
+    ) -> Vec<MetadataChange> {
+        let mut proposed_changes = Vec::new();
+
+        // 1. Add missing artist
+        if song.artist.is_none() {
+            if let Some(mb_artist) = mb_match.recording.primary_artist_name() {
+                if !mb_artist.is_empty() {
+                    proposed_changes.push(MetadataChange {
+                        field: "artist".to_string(),
+                        old_value: None,
+                        new_value: serde_json::Value::String(mb_artist),
+                        confidence: mb_match.confidence_score,
+                    });
+                }
+            }
+        }
+
+        // 2. Add missing genre from MusicBrainz tags (only if missing)
+        if song.genre.is_none() {
+            if let Some(ref tags) = mb_match.recording.tags {
+                if let Some(first_tag) = tags.first() {
+                    proposed_changes.push(MetadataChange {
+                        field: "genre".to_string(),
+                        old_value: None,
+                        new_value: serde_json::Value::String(first_tag.name.clone()),
+                        confidence: mb_match.confidence_score * 0.7,
+                    });
+                }
+            }
+        }
+
+        // 3. Add missing year from release date (only if missing)
+        if song.year.is_none() {
+            if let Some(ref release) = mb_match.release {
+                if let Some(ref date) = release.date {
+                    // Extract year from date (YYYY-MM-DD format)
+                    if let Some(year_str) = date.split('-').next() {
+                        if let Ok(year) = year_str.parse::<i32>() {
+                            proposed_changes.push(MetadataChange {
+                                field: "year".to_string(),
+                                old_value: None,
+                                new_value: serde_json::Value::Number(serde_json::Number::from(
+                                    year,
+                                )),
+                                confidence: mb_match.confidence_score * 0.9,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Clean contaminated titles (remove artist suffixes)
+        let current_title = &song.title;
+        if let Some(ref artist) = song.artist {
+            let artist_lower = artist.to_lowercase();
+            let title_lower = current_title.to_lowercase();
+
+            // Check if title ends with " - {artist}" pattern
+            let suffix = format!(" - {}", artist_lower);
+            if title_lower.ends_with(&suffix) {
+                let clean_title = current_title[..current_title.len() - suffix.len()].to_string();
+                if !clean_title.is_empty() && clean_title != *current_title {
+                    proposed_changes.push(MetadataChange {
+                        field: "title".to_string(),
+                        old_value: Some(serde_json::Value::String(current_title.clone())),
+                        new_value: serde_json::Value::String(clean_title),
+                        confidence: mb_match.confidence_score * 0.95,
+                    });
+                }
+            }
+        }
+
+        // 5. Only suggest album changes for very specific cases (removed hardcoded string matching)
+        // For now, skip album suggestions entirely to be conservative
+        // TODO: Implement smarter album matching logic based on MusicBrainz release types
+
+        proposed_changes
     }
 }
 

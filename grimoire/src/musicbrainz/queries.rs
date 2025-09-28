@@ -119,6 +119,20 @@ impl RecordingSearchQuery {
         self
     }
 
+    /// set duration with tolerance range
+    pub fn duration_with_tolerance(mut self, duration_ms: u32, tolerance_seconds: u32) -> Self {
+        let duration_sec = duration_ms / 1000;
+        let min_duration = duration_sec.saturating_sub(tolerance_seconds);
+        let max_duration = duration_sec + tolerance_seconds;
+        // Store as formatted range string and clear any existing duration
+        self.duration = None; // clear single duration to avoid conflicts
+        self.extra_params.insert(
+            "dur_range".to_string(),
+            format!("[{} TO {}]", min_duration, max_duration),
+        );
+        self
+    }
+
     /// set result limit
     pub fn limit(mut self, limit: u32) -> Self {
         self.limit = Some(limit);
@@ -157,11 +171,15 @@ impl RecordingSearchQuery {
         }
 
         if let Some(duration) = self.duration {
-            // allow +/- 2 seconds for duration matching
-            let duration_sec = duration / 1000;
-            let min_duration = duration_sec.saturating_sub(2);
-            let max_duration = duration_sec + 2;
-            lucene_query.push(format!("dur:[{} TO {}]", min_duration, max_duration));
+            // single duration value (exact match)
+            lucene_query.push(format!("dur:{}", duration / 1000)); // convert ms to seconds
+        }
+
+        // check for duration range from extra params (takes precedence over single duration)
+        if let Some(dur_range) = self.extra_params.get("dur_range") {
+            // remove single duration if range is specified
+            lucene_query.retain(|q| !q.starts_with("dur:"));
+            lucene_query.push(format!("dur:{}", dur_range));
         }
 
         if !lucene_query.is_empty() {
@@ -191,15 +209,15 @@ impl RecordingSearchQuery {
             .finish()
     }
 
-    /// create query from song metadata
-    pub fn from_song(song: &Song) -> Self {
-        Self::from_song_with_options(song, true)
-    }
-
-    /// create query from song metadata with configurable album inclusion
-    pub fn from_song_with_options(song: &Song, include_album: bool) -> Self {
-        // clean up title for better matching
-        let clean_title = clean_search_text(&song.title);
+    /// create query from song metadata with full configuration
+    pub fn from_song(
+        song: &Song,
+        include_album: bool,
+        duration_tolerance_seconds: u32,
+        enable_duration_matching: bool,
+    ) -> Self {
+        // clean up title for better matching - remove artist names if present
+        let clean_title = clean_title_with_artist_context(&song.title, song.artist.as_deref());
         let mut query = Self::new().title(&clean_title).limit(25); // reasonable default for song searches
 
         if let Some(ref artist) = song.artist {
@@ -215,18 +233,29 @@ impl RecordingSearchQuery {
             }
         }
 
-        // skip duration for now as it might be too strict for live recordings
-        // if let Some(duration_interval) = song.duration {
-        //     let duration_ms = (duration_interval.microseconds / 1000) as u32;
-        //     query = query.duration(duration_ms);
-        // }
+        // include duration for better matching (with configurable tolerance)
+        if enable_duration_matching {
+            if let Some(duration_interval) = song.duration {
+                let duration_ms = (duration_interval.microseconds / 1000) as u32;
+                query = query.duration_with_tolerance(duration_ms, duration_tolerance_seconds);
+            }
+        }
 
         query
     }
 
-    /// create fallback query without album for bootleg compatibility
-    pub fn from_song_no_album(song: &Song) -> Self {
-        Self::from_song_with_options(song, false)
+    /// convenience method: create query without album (for bootleg compatibility)
+    pub fn from_song_no_album(
+        song: &Song,
+        duration_tolerance_seconds: u32,
+        enable_duration_matching: bool,
+    ) -> Self {
+        Self::from_song(
+            song,
+            false,
+            duration_tolerance_seconds,
+            enable_duration_matching,
+        )
     }
 }
 
@@ -448,6 +477,54 @@ fn clean_search_text(input: &str) -> String {
         .replace("  ", " ") // collapse multiple spaces
         .trim()
         .to_string()
+}
+
+/// clean title text with artist context to remove artist names from contaminated titles
+fn clean_title_with_artist_context(title: &str, artist: Option<&str>) -> String {
+    let title_lower = title.to_lowercase();
+
+    // if we have an artist, try to remove it from the title
+    if let Some(artist) = artist {
+        let artist_lower = artist.to_lowercase();
+
+        // common patterns where artist appears in title:
+        // "Song Name - Artist"
+        // "Song Name - Artist Name"
+        // "Artist - Song Name"
+        // "Artist Name - Song Name"
+
+        // try pattern: "title - artist" (most common)
+        if let Some(dash_pos) = title_lower.find(" - ") {
+            let before_dash = &title_lower[..dash_pos].trim();
+            let after_dash = &title_lower[dash_pos + 3..].trim();
+
+            // if after dash matches artist, use before dash as title
+            if after_dash == &artist_lower {
+                return clean_search_text(before_dash);
+            }
+
+            // if before dash matches artist, use after dash as title
+            if before_dash == &artist_lower {
+                return clean_search_text(after_dash);
+            }
+        }
+
+        // try pattern: title contains artist at end
+        if title_lower.ends_with(&artist_lower) {
+            let title_without_artist = &title_lower[..title_lower.len() - artist_lower.len()];
+            if title_without_artist.ends_with(" - ") || title_without_artist.ends_with(" ") {
+                let cleaned = title_without_artist
+                    .trim_end_matches(" - ")
+                    .trim_end_matches(" ");
+                if !cleaned.is_empty() {
+                    return clean_search_text(cleaned);
+                }
+            }
+        }
+    }
+
+    // fallback to normal cleaning if no artist context or no patterns matched
+    clean_search_text(title)
 }
 
 /// escape special characters in lucene queries
