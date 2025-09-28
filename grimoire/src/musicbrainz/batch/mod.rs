@@ -30,13 +30,9 @@ pub async fn get_album_groups_for_full_scan(
         LIMIT $1 OFFSET $2
         "#
     } else {
-        // Smart scan: prioritize albums that haven't been fully processed
+        // Smart scan: get albums that need processing (distinct albums, then get all songs)
         r#"
-        SELECT id, media_blob_id, thumbnail_blob_id, waveform_blob_id, thumbnail_blob_ids,
-               title, artist, album, album_artist, track_number, disc_number,
-               duration, genre, year, bpm, key_signature, rating, is_favorite,
-               tags, metadata, processing_status, processing_notes,
-               deleted_at, deleted_by, created_at, updated_at, version
+        SELECT DISTINCT artist, album
         FROM songs
         WHERE artist IS NOT NULL AND album IS NOT NULL
         AND trim(artist) != '' AND trim(album) != ''
@@ -45,18 +41,45 @@ pub async fn get_album_groups_for_full_scan(
             OR metadata->'musicbrainz'->>'status' != 'user_reviewed'
             OR (metadata->'musicbrainz'->>'scanned_at')::bigint < extract(epoch from updated_at)
         )
-        ORDER BY artist, album, track_number
+        ORDER BY artist, album
         LIMIT $1 OFFSET $2
         "#
     };
 
     let songs = sqlx::query_as::<_, Song>(&query)
-        .bind(limit * 20) // Get more songs to form album groups
-        .bind(offset * 20)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(repository.pool())
         .await?;
 
-    Ok(songs)
+    // If we're doing smart scan, we need to get all songs for the selected albums
+    if !force_rescan && !songs.is_empty() {
+        // Get all songs for these albums
+        let mut all_songs = Vec::new();
+        for song in songs {
+            let album_songs = sqlx::query_as::<_, Song>(
+                r#"
+                SELECT id, media_blob_id, thumbnail_blob_id, waveform_blob_id, thumbnail_blob_ids,
+                       title, artist, album, album_artist, track_number, disc_number,
+                       duration, genre, year, bpm, key_signature, rating, is_favorite,
+                       tags, metadata, processing_status, processing_notes,
+                       deleted_at, deleted_by, created_at, updated_at, version
+                FROM songs
+                WHERE artist = $1 AND album = $2
+                ORDER BY track_number
+                "#,
+            )
+            .bind(&song.artist)
+            .bind(&song.album)
+            .fetch_all(repository.pool())
+            .await?;
+
+            all_songs.extend(album_songs);
+        }
+        Ok(all_songs)
+    } else {
+        Ok(songs)
+    }
 }
 
 /// Get remaining individual songs for full scan (not part of complete albums)
