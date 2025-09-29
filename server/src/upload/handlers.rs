@@ -12,9 +12,11 @@ use tracing::{error, info, warn};
 use crate::auth::AuthenticatedUser;
 use crate::error::AppError;
 use crate::media::models::{CreateMediaBlob, MediaBlob};
+use crate::media::music_jobs;
 use crate::media::repository::MediaRepository;
 use crate::startup::AppState;
 use grimoire::auth::User;
+use grimoire::media::MediaTypeDetector;
 use grimoire::AppConfig;
 use grimoire::DatabaseConnection;
 
@@ -30,6 +32,8 @@ pub async fn upload_large_file(
 ) -> Result<Json<UploadResponse>, AppError> {
     let upload_config = UploadConfig {
         upload_directory: config.static_files.upload_directory.clone().into(),
+        min_file_size: 0,                  // Allow any file size for music uploads
+        max_file_size: 1024 * 1024 * 1024, // 1GB max for music uploads
         ..Default::default()
     };
 
@@ -182,7 +186,7 @@ pub async fn upload_large_file(
         local_path: Some(relative_path.clone()),
         parent_blob_id: None, // This is an original file, not a thumbnail
         blob_type: Some("original".to_string()),
-        metadata: upload_request.metadata,
+        metadata: upload_request.metadata.clone(),
     };
 
     let repo = MediaRepository::new(&db);
@@ -205,6 +209,51 @@ pub async fn upload_large_file(
         "Successfully uploaded large file: {} (ID: {})",
         upload_request.filename, media_blob.id
     );
+
+    // Check if this is an audio file and create music job if needed
+    let type_detector = MediaTypeDetector::from_config(&config);
+    let job_id = if type_detector
+        .is_audio_file(&upload_request.filename)
+        .unwrap_or(false)
+    {
+        info!(
+            "Detected audio file, creating music processing job for: {}",
+            upload_request.filename
+        );
+
+        // Get original filename from metadata or use uploaded filename
+        let original_filename = upload_request
+            .metadata
+            .get("original_filename")
+            .and_then(|v| v.as_str())
+            .or(Some(&upload_request.filename));
+
+        match music_jobs::create_music_job(
+            &db,
+            &media_blob.id,
+            &file_path.to_string_lossy(),
+            original_filename,
+        )
+        .await
+        {
+            Ok(job_id) => {
+                info!(
+                    "Created music processing job {} for file: {}",
+                    job_id, upload_request.filename
+                );
+                Some(job_id)
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to create music job for {}: {}",
+                    upload_request.filename, e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // Auto-enqueue thumbnail jobs if enabled
     if config.media.thumbnails.enabled {
@@ -240,6 +289,7 @@ pub async fn upload_large_file(
         size: upload_request.size,
         mime_type: media_blob.mime,
         created_at: media_blob.created_at,
+        job_id,
     };
 
     Ok(Json(response))

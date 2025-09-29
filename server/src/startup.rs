@@ -1,4 +1,4 @@
-use crate::jobs::ThumbnailJobQueue;
+use crate::jobs::{MusicJobQueue, ThumbnailJobQueue};
 use crate::maintenance::{MaintenanceConfig, MaintenanceScheduler};
 use crate::notifications::NotificationInfrastructure;
 use crate::storage::SessionStore;
@@ -41,6 +41,8 @@ pub struct AppState {
     pub config: AppConfig,
     // Thumbnail job queue for background processing
     pub thumbnail_queue: Arc<tokio::sync::Mutex<ThumbnailJobQueue>>,
+    // Music job queue for background processing
+    pub music_queue: Arc<tokio::sync::Mutex<MusicJobQueue>>,
     // WebSocket connection manager for real-time notifications
     pub connection_manager: ConnectionManager,
     // Maintenance scheduler for cleanup tasks
@@ -177,7 +179,7 @@ impl AppState {
         let mut thumbnail_queue = ThumbnailJobQueue::new_with_notifications(
             database.clone(),
             thumbnail_config,
-            notification_tx,
+            notification_tx.clone(),
         );
 
         // Start workers if thumbnail generation is enabled
@@ -191,6 +193,22 @@ impl AppState {
                     tracing::error!("❌ Failed to start thumbnail workers: {}", e);
                     tracing::warn!("Thumbnail generation will not be available");
                 }
+            }
+        }
+
+        // Initialize music job queue with notification support
+        let mut music_queue =
+            MusicJobQueue::new_with_notifications(database.clone(), notification_tx);
+
+        // Start music workers (always enabled for music processing)
+        let music_worker_count = 2; // Default to 2 workers for music processing
+        match music_queue.start_workers(music_worker_count).await {
+            Ok(_) => {
+                tracing::info!("✅ Started {} music job workers", music_worker_count);
+            }
+            Err(e) => {
+                tracing::error!("❌ Failed to start music workers: {}", e);
+                tracing::warn!("Music processing will not be available");
             }
         }
 
@@ -243,6 +261,7 @@ impl AppState {
             session_store,
             config,
             thumbnail_queue: Arc::new(tokio::sync::Mutex::new(thumbnail_queue)),
+            music_queue: Arc::new(tokio::sync::Mutex::new(music_queue)),
             connection_manager,
             maintenance_scheduler,
             notification_infrastructure,

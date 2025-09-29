@@ -109,8 +109,10 @@ pub async fn handle_search(
                 if let Some(rating) = song.rating {
                     println!("   📊 Rating: {}/5", rating);
                 }
-                if !song.tags.is_empty() {
-                    println!("   🏷️  Tags: {}", song.tags.join(", "));
+                if let Some(ref tags) = song.tags {
+                    if !tags.is_empty() {
+                        println!("   🏷️  Tags: {}", tags.join(", "));
+                    }
                 }
                 println!("   🆔 ID: {}", song.id);
                 println!();

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE music_jobs\n        SET\n            status = 'cancelled',\n            updated_at = NOW()\n        WHERE id = $1\n        AND status IN ('pending', 'in_progress')\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f5f92ec5213d832058c08feadd1d8f0fc4a18881b3290d614c28c2f3264f747a"
+}

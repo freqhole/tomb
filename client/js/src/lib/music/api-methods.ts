@@ -55,6 +55,25 @@ import type {
  */
 export const musicApiMethods = {
   // Songs API methods
+  async getSong(this: ApiClient, songId: string): Promise<Song> {
+    return musicApiUtils.withErrorHandling(
+      async () => {
+        const response = await this.makeRequest<unknown>(
+          "GET",
+          `/api/media/songs/${songId}`
+        );
+
+        return musicValidation.validateResponse(
+          SongSchema,
+          response,
+          "Song"
+        ) as Song;
+      },
+      `/api/media/songs/${songId}`,
+      "getSong",
+      { songId }
+    );
+  },
 
   // Artists API methods
   async getArtists(

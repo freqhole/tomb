@@ -164,6 +164,30 @@ export const InfoIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+export const UploadIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Upload"}>
+    <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+  </BaseIcon>
+);
+
+export const CheckIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Check"}>
+    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+  </BaseIcon>
+);
+
+export const XIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Close"}>
+    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+  </BaseIcon>
+);
+
+export const AlertTriangleIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Warning"}>
+    <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+  </BaseIcon>
+);
+
 // Freqhole Brand Icon
 export const FreqholeIcon = (props: IconProps & { class?: string }) => (
   <svg
@@ -254,6 +278,10 @@ export const IconRegistry = {
   // System
   settings: SettingsIcon,
   info: InfoIcon,
+  upload: UploadIcon,
+  check: CheckIcon,
+  x: XIcon,
+  alertTriangle: AlertTriangleIcon,
 
   // Brand
   freqhole: FreqholeIcon,

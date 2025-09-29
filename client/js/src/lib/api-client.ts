@@ -630,6 +630,9 @@ export class ApiClient {
   }
 
   // Music API methods - Songs
+  async getSong(songId: string) {
+    return musicApiMethods.getSong.call(this, songId);
+  }
 
   // Music API methods - Artists
   async getArtists(options?: {

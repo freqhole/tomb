@@ -97,7 +97,7 @@ impl From<SongWithUserPrefs> for SongResponse {
             key_signature: song.key_signature,
             user_rating: song.rating,
             user_is_favorite: song.is_favorite,
-            tags: song.tags,
+            tags: song.tags.unwrap_or_default(),
             display_title,
             detailed_display_title,
             created_at: song.created_at.format(&Rfc3339).unwrap_or_default(),
@@ -133,7 +133,7 @@ impl From<Song> for SongResponse {
             key_signature: song.key_signature,
             user_rating: None,
             user_is_favorite: false,
-            tags: song.tags,
+            tags: song.tags.unwrap_or_default(),
             display_title,
             detailed_display_title,
             created_at: song

@@ -609,7 +609,7 @@ pub async fn search_music(
                 key_signature: result.key_signature,
                 user_rating: result.rating,
                 user_is_favorite: result.is_favorite,
-                tags: result.tags,
+                tags: result.tags.unwrap_or_default(),
                 display_title,
                 detailed_display_title,
                 created_at: result

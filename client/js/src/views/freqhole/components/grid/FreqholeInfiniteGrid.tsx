@@ -3,6 +3,7 @@ import type { GridColumn } from "../../../../components/infinite-data-grid/types
 import type { Song } from "../../../../lib/music/schemas/song";
 import { SongFavoriteHeart, SongStarRatingCompact } from "../ui";
 import { FavoriteToggle } from "../../../../components/filters/FavoriteToggle";
+import { DefaultSortToggle } from "../../../../components/filters/DefaultSortToggle";
 
 export interface FreqholeInfiniteGridProps<T = any> {
   data: T[];
@@ -53,6 +54,7 @@ export function FreqholeInfiniteGrid<T = any>(
       width: 60,
       sortable: false,
       headerClassName: "flex justify-center",
+      renderHeader: () => <DefaultSortToggle />,
       render: (song) => (
         <div class="flex items-center justify-center text-gray-400 text-sm">
           {song.track_number}

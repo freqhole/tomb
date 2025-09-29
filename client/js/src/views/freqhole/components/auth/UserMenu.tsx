@@ -1,7 +1,8 @@
 import { createSignal, Show } from "solid-js";
 import { useAuth } from "../../../../hooks/auth";
+import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { Popover } from "../ui/Modal";
-import { UserIcon, LogoutIcon } from "../icons";
+import { UserIcon, LogoutIcon, MusicIcon } from "../icons";
 
 export interface UserMenuProps {
   onLogout?: () => void;
@@ -10,6 +11,7 @@ export interface UserMenuProps {
 export const UserMenu = (props: UserMenuProps) => {
   const [isOpen, setIsOpen] = createSignal(false);
   const auth = useAuth();
+  const events = useGlobalEvents();
 
   const isAdmin = () => auth.role === "admin";
 
@@ -65,19 +67,21 @@ export const UserMenu = (props: UserMenuProps) => {
 
             {/* Menu Actions */}
             <div class="py-2">
-              {/* <Show when={isAdmin()}>
+              <Show when={isAdmin()}>
                 <button
                   onClick={() => {
-                    // TODO: Navigate to admin panel
-                    console.log("Navigate to admin panel");
+                    events.emit("modal:open", {
+                      modal: "addMusicModal",
+                      data: {},
+                    });
                     setIsOpen(false);
                   }}
                   class="w-full px-4 py-2 text-left text-gray-300 hover:text-white hover:bg-gray-800 transition-colors duration-200 flex items-center gap-3"
                 >
-                  <SettingsIcon size={16} />
-                  <span class="text-sm">admin panel</span>
+                  <MusicIcon size={16} />
+                  <span class="text-sm">add music</span>
                 </button>
-              </Show> */}
+              </Show>
               <button
                 onClick={handleLogout}
                 disabled={auth.isLoading}

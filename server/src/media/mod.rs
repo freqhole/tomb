@@ -10,6 +10,7 @@
 
 pub mod filters;
 pub mod models;
+pub mod music_jobs;
 pub mod playlists;
 pub mod repository;
 pub mod search;

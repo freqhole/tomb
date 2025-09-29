@@ -31,7 +31,7 @@ pub struct Song {
     pub key_signature: Option<String>,
     pub rating: Option<i32>,
     pub is_favorite: bool,
-    pub tags: Vec<String>,
+    pub tags: Option<Vec<String>>,
     pub metadata: serde_json::Value,
     pub processing_status: Option<String>,
     pub processing_notes: Option<String>,
@@ -616,9 +616,9 @@ impl PlaylistSongDetail {
 /// Parameters for creating a new song
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSong {
-    pub media_blob_id: Uuid,
-    pub thumbnail_blob_id: Option<Uuid>,
-    pub waveform_blob_id: Option<Uuid>,
+    pub media_blob_id: String,
+    pub thumbnail_blob_id: Option<String>,
+    pub waveform_blob_id: Option<String>,
     pub title: String,
     pub artist: Option<String>,
     pub album: Option<String>,
@@ -1284,7 +1284,7 @@ pub struct SongWithUserPreferences {
     pub key_signature: Option<String>,
     pub rating: Option<i32>, // legacy rating for backward compatibility
     pub is_favorite: bool,   // legacy favorite for backward compatibility
-    pub tags: Vec<String>,
+    pub tags: Option<Vec<String>>,
     pub metadata: serde_json::Value,
     pub deleted_at: Option<OffsetDateTime>,
     pub deleted_by: Option<Uuid>,
@@ -1381,7 +1381,7 @@ pub struct SongWithUserPrefs {
     pub year: Option<i32>,
     pub bpm: Option<i32>,
     pub key_signature: Option<String>,
-    pub tags: Vec<String>,
+    pub tags: Option<Vec<String>>,
     pub metadata: serde_json::Value,
     pub deleted_at: Option<OffsetDateTime>,
     pub deleted_by: Option<Uuid>,

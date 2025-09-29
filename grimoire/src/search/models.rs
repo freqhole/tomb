@@ -250,7 +250,7 @@ pub struct SongSearchResult {
     pub key_signature: Option<String>,
     pub rating: Option<i32>,
     pub is_favorite: bool,
-    pub tags: Vec<String>,
+    pub tags: Option<Vec<String>>,
     pub metadata: Option<serde_json::Value>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,

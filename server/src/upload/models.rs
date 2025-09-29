@@ -38,6 +38,9 @@ pub struct UploadResponse {
     /// Upload timestamp
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: time::OffsetDateTime,
+    /// Music processing job ID (for audio files)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<String>,
 }
 
 /// Upload validation error types

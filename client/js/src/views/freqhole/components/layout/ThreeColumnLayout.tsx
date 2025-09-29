@@ -10,6 +10,7 @@ import { ContextMenuManager } from "../ui/ContextMenuManager";
 import { FreqholeIcon, MenuIcon } from "../ui/icons";
 import { AuthModal } from "../auth/AuthModal";
 import { SongInfoModal } from "../modals/SongInfoModal";
+import { AddMusicModal } from "../modals/AddMusicModal";
 
 import type { Song } from "../../../../lib/music/schemas/song";
 import { UserMenu } from "../auth/UserMenu";
@@ -23,6 +24,7 @@ export function ThreeColumnLayout(props: any) {
   const [authOpen, setAuthOpen] = createSignal(false);
   const [songInfoOpen, setSongInfoOpen] = createSignal(false);
   const [songInfoData, setSongInfoData] = createSignal<Song[]>([]);
+  const [addMusicOpen, setAddMusicOpen] = createSignal(false);
 
   const auth = useAuth();
 
@@ -54,6 +56,9 @@ export function ThreeColumnLayout(props: any) {
       setSongInfoData(data.songs);
       setSongInfoOpen(true);
     }
+    if (modal === "addMusicModal") {
+      setAddMusicOpen(true);
+    }
   });
 
   events.on("modal:close", ({ modal }) => {
@@ -62,6 +67,9 @@ export function ThreeColumnLayout(props: any) {
     }
     if (modal === "musicbrainzModal") {
       setSongInfoOpen(false);
+    }
+    if (modal === "addMusicModal") {
+      setAddMusicOpen(false);
     }
   });
 
@@ -236,6 +244,12 @@ export function ThreeColumnLayout(props: any) {
         isOpen={songInfoOpen()}
         onClose={() => setSongInfoOpen(false)}
         songs={songInfoData()}
+      />
+
+      {/* add music modal */}
+      <AddMusicModal
+        isOpen={addMusicOpen()}
+        onClose={() => setAddMusicOpen(false)}
       />
     </div>
   );

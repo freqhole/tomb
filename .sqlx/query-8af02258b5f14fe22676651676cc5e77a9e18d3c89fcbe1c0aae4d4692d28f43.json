@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                COUNT(*) as total_jobs,\n                COUNT(*) FILTER (WHERE status = 'pending') as pending_jobs,\n                COUNT(*) FILTER (WHERE status = 'in_progress') as in_progress_jobs,\n                COUNT(*) FILTER (WHERE status = 'completed') as completed_jobs,\n                COUNT(*) FILTER (WHERE status = 'failed') as failed_jobs,\n                CASE\n                    WHEN COUNT(*) > 0 THEN\n                        COUNT(*) FILTER (WHERE status = 'completed')::float / COUNT(*)::float * 100.0\n                    ELSE 0.0\n                END as success_rate\n            FROM music_jobs\n            WHERE created_at > NOW() - INTERVAL '24 hours'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_jobs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "pending_jobs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "in_progress_jobs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "completed_jobs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "failed_jobs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "success_rate",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "8af02258b5f14fe22676651676cc5e77a9e18d3c89fcbe1c0aae4d4692d28f43"
+}
