@@ -404,11 +404,21 @@ impl<'a> ThumbnailService<'a> {
             // File is stored on disk, construct full path from relative database path
             let relative_path = media_info.local_path.as_ref().unwrap();
             // Database stores relative paths like "private/uploads/filename"
-            // We need to prepend "assets/" to get the full path
-            let full_path = if relative_path.starts_with("assets/") {
+            // We need to construct the full path using the configured upload directory
+            let full_path = if relative_path.starts_with(&self.config.upload_directory) {
                 relative_path.clone()
             } else {
-                format!("assets/{}", relative_path)
+                // If the stored path is relative, prepend the upload directory
+                if relative_path.starts_with("private/uploads/")
+                    || relative_path.starts_with("uploads/")
+                {
+                    // Legacy path format - use the configured upload directory
+                    let filename = relative_path.split('/').last().unwrap();
+                    format!("{}/{}", self.config.upload_directory, filename)
+                } else {
+                    // Assume it's already relative to upload directory
+                    format!("{}/{}", self.config.upload_directory, relative_path)
+                }
             };
 
             if !Path::new(&full_path).exists() {

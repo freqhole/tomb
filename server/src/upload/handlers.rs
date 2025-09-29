@@ -233,6 +233,7 @@ pub async fn upload_large_file(
             &media_blob.id,
             &file_path.to_string_lossy(),
             original_filename,
+            Some(&upload_request.metadata),
         )
         .await
         {

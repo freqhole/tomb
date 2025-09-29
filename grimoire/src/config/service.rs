@@ -459,6 +459,7 @@ impl ConfigService {
             ffmpeg_path: config_thumbnails.ffmpeg_path.clone(),
             max_concurrent_jobs: config_thumbnails.max_concurrent_jobs,
             storage_path: config_thumbnails.storage_path.clone(),
+            upload_directory: app_config.static_files.upload_directory.clone(),
             default_dimensions: crate::thumbnails::ThumbnailDimensions {
                 width: config_thumbnails.default_dimensions.width,
                 height: config_thumbnails.default_dimensions.height,

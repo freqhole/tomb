@@ -418,6 +418,13 @@ impl MusicJobQueue {
         // Create song record
         let music_repo = MusicRepository::new(db.pool().clone());
 
+        // Check if this is a web upload that should have defaults applied
+        let is_web_upload = job
+            .parameters
+            .get("web_upload")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         let song_params = CreateSong {
             media_blob_id: job.media_blob_id.clone(),
             thumbnail_blob_id: None,
@@ -426,13 +433,25 @@ impl MusicJobQueue {
                 original_filename
                     .and_then(|f| Path::new(f).file_stem())
                     .and_then(|s| s.to_str())
-                    .unwrap_or("Unknown Title")
+                    .unwrap_or("unknown title")
                     .to_string()
             }),
-            artist: metadata_result.artist,
-            album: metadata_result.album,
+            artist: if is_web_upload && metadata_result.artist.is_none() {
+                Some("unknown artist".to_string())
+            } else {
+                metadata_result.artist
+            },
+            album: if is_web_upload && metadata_result.album.is_none() {
+                Some("unknown album".to_string())
+            } else {
+                metadata_result.album
+            },
             album_artist: metadata_result.album_artist,
-            track_number: metadata_result.track_number.map(|n| n as i32),
+            track_number: if is_web_upload && metadata_result.track_number.is_none() {
+                Some(0)
+            } else {
+                metadata_result.track_number.map(|n| n as i32)
+            },
             disc_number: metadata_result.disc_number.map(|n| n as i32),
             duration: metadata_result.duration_seconds.map(|d| {
                 // Convert seconds to PgInterval

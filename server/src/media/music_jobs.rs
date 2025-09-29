@@ -261,6 +261,7 @@ pub async fn create_music_job(
     media_blob_id: &str,
     file_path: &str,
     original_filename: Option<&str>,
+    upload_metadata: Option<&serde_json::Value>,
 ) -> Result<String, AppError> {
     let job_id = Uuid::new_v4();
 
@@ -271,6 +272,17 @@ pub async fn create_music_job(
             "original_filename".to_string(),
             serde_json::Value::String(filename.to_string()),
         );
+    }
+
+    // Check if this upload came from the web modal and should have defaults applied
+    if let Some(metadata) = upload_metadata {
+        if metadata
+            .get("process_music")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            parameters.insert("web_upload".to_string(), serde_json::Value::Bool(true));
+        }
     }
 
     let params_json = serde_json::Value::Object(parameters);

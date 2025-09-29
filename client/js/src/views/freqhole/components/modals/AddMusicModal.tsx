@@ -527,15 +527,15 @@ export function AddMusicModal(props: AddMusicModalProps) {
       ).length;
       const completedCount = completedUploads().length;
 
-      let message = "Start a new upload session?\n\n";
+      let message = "start a new upload session?\n\n";
 
       if (processingCount > 0) {
-        message += `⏳ ${processingCount} file(s) still processing - they will be cancelled\n`;
+        message += `${processingCount} file(s) still processing - they will be cancelled\n`;
       }
       if (completedCount > 0) {
-        message += `✅ ${completedCount} completed upload(s) will be cleared\n`;
+        message += `${completedCount} completed upload(s) will be cleared\n`;
       }
-      message += "\nThis action cannot be undone.";
+      message += "\nthis action cannot be undone.";
 
       if (confirm(message)) {
         resetUploads();
