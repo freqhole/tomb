@@ -1,5 +1,7 @@
 import { createResource, Show, For } from "solid-js";
 import { useSongInteractions } from "../../../../services/songInteractions";
+import { useAuth } from "../../../../../../hooks/auth";
+import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 import { isMobile } from "../../../../../../lib/format-utils";
 import { apiClient } from "../../../../../../lib/api-client";
 import type { ArtistSummary, Song } from "../../../../../../lib/music/schemas";
@@ -23,6 +25,8 @@ const getImageUrl = (blobId: string | null) => {
 
 export function ArtistDetailPanel(props: ArtistDetailPanelProps) {
   const songInteractions = useSongInteractions();
+  const auth = useAuth();
+  const events = useGlobalEvents();
 
   // Fetch tracks for selected artist
   const [artistSongsResource] = createResource(
@@ -154,6 +158,38 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps) {
     songInteractions.smartQueueSongs(album.songs);
   };
 
+  const handleEditAlbum = (album: AlbumGroup) => {
+    if (album.songs.length > 0) {
+      events.emit("modal:open", {
+        modal: "songInfoModal",
+        data: { songs: album.songs },
+      });
+    }
+  };
+
+  const handleAlbumGroupRightClick = async (
+    event: MouseEvent,
+    album: AlbumGroup
+  ) => {
+    event.preventDefault();
+
+    // Create a mock Album object for the context menu
+    const albumObj = {
+      album: album.album,
+      artist: props.artist.artist,
+      album_thumbnail_id: album.albumThumbnailId,
+      track_count: album.songs.length,
+      disc_count: 1,
+      total_duration: null,
+      genres: null,
+      avg_rating: null,
+      favorite_count: 0,
+      year: null,
+    };
+
+    await songInteractions.handleAlbumRightClick(event, albumObj);
+  };
+
   const loading = () => artistSongsResource.loading;
 
   return (
@@ -241,7 +277,10 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps) {
               {(album) => (
                 <div class="space-y-4">
                   {/* Album Header */}
-                  <div class="flex items-center gap-4 p-4 bg-magenta-950/20 rounded-lg">
+                  <div
+                    class="flex items-center gap-4 p-4 bg-magenta-950/20 rounded-lg cursor-pointer hover:bg-magenta-950/30 transition-colors"
+                    onContextMenu={(e) => handleAlbumGroupRightClick(e, album)}
+                  >
                     {/* Album Artwork */}
                     <div class="w-16 h-16 bg-magenta-950/50 rounded-lg flex-shrink-0 overflow-hidden">
                       <Show
@@ -319,6 +358,30 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps) {
                           />
                         </svg>
                       </button>
+                      <Show when={auth.isAdmin}>
+                        <button
+                          class="p-2 text-magenta-400 hover:text-magenta-300 transition-colors rounded-full hover:bg-magenta-600/20"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditAlbum(album);
+                          }}
+                          title="Edit album"
+                        >
+                          <svg
+                            class="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                            />
+                          </svg>
+                        </button>
+                      </Show>
                     </div>
                   </div>
 

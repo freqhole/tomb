@@ -2,6 +2,7 @@ import { Show, createResource, createEffect } from "solid-js";
 import { useParams, useNavigate } from "@solidjs/router";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { storeActions } from "../../../store";
+import { useAuth } from "../../../../../hooks/auth";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Album } from "../../../../../lib/music/schemas";
 import { AlbumTrackList } from "./albums/AlbumTrackList";
@@ -22,6 +23,7 @@ export function AlbumDetailView(
 ) {
   const params = useParams();
   const events = useGlobalEvents();
+  const auth = useAuth();
 
   // Get album info from params - handle both single and dual parameter routes
   const albumName = () => {
@@ -90,6 +92,16 @@ export function AlbumDetailView(
   const handleAddToQueue = () => {
     const tracks = albumTracksResource() || [];
     addAlbumToQueue(tracks);
+  };
+
+  const handleEditAlbum = () => {
+    const tracks = albumTracksResource() || [];
+    if (tracks.length > 0) {
+      events.emit("modal:open", {
+        modal: "songInfoModal",
+        data: { songs: tracks },
+      });
+    }
   };
 
   // Update store and emit events when album changes
@@ -235,6 +247,17 @@ export function AlbumDetailView(
                     <span class="hidden md:inline">add to queue</span>
                     <span class="md:hidden">queue</span>
                   </button>
+                  <Show when={auth.isAdmin}>
+                    <button
+                      class="px-6 py-2 bg-magenta-950/50 hover:bg-magenta-600/30 border border-transparent hover:border-magenta-400 rounded text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={handleEditAlbum}
+                      disabled={
+                        loadingTracks() || !albumTracksResource()?.length
+                      }
+                    >
+                      edit
+                    </button>
+                  </Show>
                 </div>
               </div>
             )}

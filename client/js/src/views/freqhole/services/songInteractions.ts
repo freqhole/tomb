@@ -1,6 +1,7 @@
 import { useGlobalEvents } from "../hooks/useGlobalEvents";
 import { storeActions, useStore } from "../store";
 import type { Song } from "../../../lib/music/schemas/song";
+import type { Album } from "../../../lib/music/schemas/album";
 import { apiClient } from "../../../lib/api-client";
 import { useAuth } from "../../../hooks/auth";
 
@@ -491,6 +492,86 @@ export function useSongInteractions() {
     });
   };
 
+  const createAlbumContextMenuActions = async (album: Album) => {
+    const auth = useAuth();
+    const actions: MenuAction[] = [];
+
+    try {
+      // Get all tracks for the album to use in context menu actions
+      const tracks = await apiClient.getAlbumTracks(
+        album.album || "",
+        album.artist || undefined
+      );
+
+      if (tracks.length > 0) {
+        actions.push(
+          {
+            label: "play album",
+            icon: "play",
+            action: () => smartQueueSongs(tracks),
+          },
+          {
+            label: "add album to queue",
+            icon: "queue-add",
+            action: () => {
+              tracks.forEach((track) => queueSong(track));
+            },
+          },
+          { type: "separator" },
+          {
+            label: "add album to playlist...",
+            icon: "playlist-add",
+            action: () => {
+              events.emit("playlist-selector:open", {
+                x: lastContextMenuPosition.x,
+                y: lastContextMenuPosition.y,
+                songs: tracks,
+              });
+            },
+          }
+        );
+
+        // Add admin actions
+        if (auth.isAdmin) {
+          actions.push(
+            { type: "separator" },
+            {
+              label: "edit album",
+              icon: "info",
+              action: () => {
+                events.emit("modal:open", {
+                  modal: "songInfoModal",
+                  data: { songs: tracks },
+                });
+              },
+            }
+          );
+        }
+      }
+    } catch (error) {
+      console.error("failed to load album tracks for context menu:", error);
+    }
+
+    return actions;
+  };
+
+  const handleAlbumRightClick = async (event: MouseEvent, album: Album) => {
+    event.preventDefault();
+
+    // Store position for potential playlist selector
+    lastContextMenuPosition = { x: event.clientX, y: event.clientY };
+
+    const actions = await createAlbumContextMenuActions(album);
+
+    if (actions.length > 0) {
+      events.emit("context-menu:open", {
+        x: event.clientX,
+        y: event.clientY,
+        actions,
+      });
+    }
+  };
+
   // Listen for global song events and handle them
   events.on("song:play", ({ song, replaceQueue }) => {
     playSong(song, replaceQueue);
@@ -524,9 +605,11 @@ export function useSongInteractions() {
     // UI helpers
     createContextMenuActions,
     createBulkContextMenuActions,
+    createAlbumContextMenuActions,
     handleDoubleClick,
     handleRightClick,
     handleBulkRightClick,
+    handleAlbumRightClick,
     handlePlaylistSelectorClick,
 
     // Utilities

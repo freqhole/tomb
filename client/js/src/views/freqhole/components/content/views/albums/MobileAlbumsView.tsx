@@ -8,6 +8,7 @@ import { storeActions } from "../../../../store";
 import { saveScrollStateSecurely } from "../../../../../../lib/navigation";
 import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
+import { useSongInteractions } from "../../../../services/songInteractions";
 import type { Album } from "../../../../../../lib/music/schemas";
 import type { SortField } from "../../../../../../components/search/SearchSortControls";
 
@@ -30,6 +31,7 @@ const formatAlbumDuration = (durationString: string | null) => {
 export function MobileAlbumsView(props: MobileAlbumsViewProps) {
   const navigate = useNavigate();
   const events = useGlobalEvents();
+  const songInteractions = useSongInteractions();
 
   // Use modern reactive store instead of legacy hook
   const reactiveActions = useReactiveActions();
@@ -252,6 +254,9 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
                     <div
                       class="group cursor-pointer transition-all hover:scale-105"
                       onClick={() => handleAlbumClick(album)}
+                      onContextMenu={(e) =>
+                        songInteractions.handleAlbumRightClick(e, album)
+                      }
                     >
                       {/* Album Artwork */}
                       <div class="w-full aspect-square bg-magenta-800/30 rounded-lg mb-3 overflow-hidden relative">
