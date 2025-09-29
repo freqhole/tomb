@@ -115,9 +115,8 @@ export function DesktopSongsView(
 
   // Reload functionality - reactive store handles this automatically
   const reloadSongs = () => {
-    console.log("FFF RELOAD DEM SONGZ gonna refreshAll!");
-    reactiveActions.refreshSongs();
-    // TODO: Add manual refresh capability to reactive store if needed
+    // TODO: calling reactiveActions.refreshSongs() here causes the click and double click handers to break and all kindz of other screwy stuff 😩
+    // reactiveActions.refreshSongs();
   };
 
   // Handle sort changes - unified with mobile view
@@ -134,20 +133,18 @@ export function DesktopSongsView(
   createEffect(() => {
     events.on("data:reload", (data) => {
       if (data.type === "songs") {
-        console.log("FFF RELOAD DEM SONGZ");
         reloadSongs();
       }
     });
 
     // Listen for targeted song updates - more efficient than full reload
     events.on("songs:updated", (data) => {
-      console.log(`desktop: received ${data.songs.length} updated songs`);
       // Update reactive store directly for immediate UI refresh
       reactiveActions.updateSongsInPlace(data.songs);
     });
   });
 
-  const handleSongClick = (_song: Song) => {
+  const handleSongClick = (song: Song) => {
     // Single click behavior - could expand for future features
   };
 
@@ -240,6 +237,15 @@ export function DesktopSongsView(
             }
             return `${songList.length} songs`;
           })()}
+
+          <button
+            class="mx-4 px-1 py-1 bg-black-200 hover:bg-magenta-500 border border-transparent hover:border-magenta-400 rounded text-white font-small text-xs transition-all"
+            onClick={() => {
+              reactiveActions.refreshSongs();
+            }}
+          >
+            refresh
+          </button>
         </p>
       </div>
 

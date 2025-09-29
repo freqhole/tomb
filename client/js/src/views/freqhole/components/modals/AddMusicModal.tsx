@@ -5,15 +5,16 @@ import { MusicIcon, CheckIcon, XIcon, AlertTriangleIcon } from "../icons";
 import { apiClient } from "../../../../lib/api-client";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import type { Song } from "../../../../lib/music/schemas/song";
+// import { useReactiveActions } from "../../store";
 
 interface AddMusicModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const handleModalClose = (props: AddMusicModalProps, events: any) => {
+const handleModalClose = (props: AddMusicModalProps) => {
   // Emit data reload event to refresh the songs list
-  events.emit("data:reload", { type: "songs" });
+  // events.emit("data:reload", { type: "songs" });
   props.onClose();
 };
 
@@ -69,6 +70,7 @@ interface DownloadUrlsResponse {
 
 export function AddMusicModal(props: AddMusicModalProps) {
   const events = useGlobalEvents();
+  // const reactiveActions = useReactiveActions();
   const [uploads, setUploads] = createSignal<UploadItem[]>([]);
   const [downloads, setDownloads] = createSignal<DownloadItem[]>([]);
   const [isDragOver, setIsDragOver] = createSignal(false);
@@ -471,8 +473,9 @@ export function AddMusicModal(props: AddMusicModalProps) {
         // Fetch the song data
         const song = await apiClient.getSong(songId);
 
+        // reactiveActions.refreshSongs();
         // Close this modal and open the song info modal with the song data
-        handleModalClose(props, events);
+        handleModalClose(props);
 
         // Open song edit modal
         events.emit("modal:open", {
@@ -502,8 +505,9 @@ export function AddMusicModal(props: AddMusicModalProps) {
         }
       }
 
+      // reactiveActions.refreshSongs();
       // Close this modal and open the song info modal with all songs
-      handleModalClose(props, events);
+      handleModalClose(props);
 
       // Open song edit modal in bulk mode
       events.emit("modal:open", {
@@ -517,9 +521,8 @@ export function AddMusicModal(props: AddMusicModalProps) {
 
   const navigateToSong = (songId?: string) => {
     if (songId) {
-      // Navigate to song
-      console.log("Navigate to song:", songId);
-      handleModalClose(props, events);
+      // reactiveActions.refreshSongs();
+      handleModalClose(props);
     }
   };
 
@@ -788,7 +791,10 @@ export function AddMusicModal(props: AddMusicModalProps) {
   return (
     <Modal
       isOpen={props.isOpen}
-      onClose={() => handleModalClose(props, events)}
+      onClose={() => {
+        // reactiveActions.refreshSongs();
+        handleModalClose(props);
+      }}
       title="add music"
       size="lg"
     >
