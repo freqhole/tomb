@@ -144,7 +144,7 @@ export function DesktopSongsView(
     });
   });
 
-  const handleSongClick = (song: Song) => {
+  const handleSongClick = (_song: Song) => {
     // Single click behavior - could expand for future features
   };
 
