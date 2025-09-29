@@ -193,6 +193,9 @@ pub struct MediaConfig {
     /// Audio playback configuration
     #[serde(default)]
     pub playback: AudioPlaybackConfig,
+    /// URL download configuration
+    #[serde(default)]
+    pub downloads: DownloadConfig,
 }
 
 /// Thumbnail generation configuration
@@ -319,6 +322,30 @@ impl Default for AudioPlaybackConfig {
             player_path: None,
             player_command: default_audio_player(),
             player_args: default_audio_player_args(),
+        }
+    }
+}
+
+/// URL download configuration using yt-dlp
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DownloadConfig {
+    /// Enable URL downloads
+    #[serde(default = "default_false")]
+    pub enabled: bool,
+    /// Path to yt-dlp binary (leave empty to use system PATH)
+    #[serde(default)]
+    pub ytdlp_path: Option<String>,
+    /// yt-dlp command to use
+    #[serde(default = "default_ytdlp_command")]
+    pub ytdlp_command: String,
+}
+
+impl Default for DownloadConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ytdlp_path: None,
+            ytdlp_command: default_ytdlp_command(),
         }
     }
 }
@@ -672,6 +699,14 @@ fn default_audio_player_args() -> Vec<String> {
     ]
 }
 
+fn default_false() -> bool {
+    false
+}
+
+fn default_ytdlp_command() -> String {
+    "yt-dlp".to_string()
+}
+
 fn default_true() -> bool {
     true
 }
@@ -776,6 +811,7 @@ impl AppConfig {
                 supported_audio_formats: default_supported_audio_formats(),
                 thumbnails: ThumbnailConfig::default(),
                 playback: AudioPlaybackConfig::default(),
+                downloads: DownloadConfig::default(),
             },
             musicbrainz: crate::musicbrainz::MusicBrainzConfig {
                 enabled: true, // enabled by default for generated configs
@@ -1029,6 +1065,7 @@ impl Default for AppConfig {
                 supported_audio_formats: default_supported_audio_formats(),
                 thumbnails: ThumbnailConfig::default(),
                 playback: AudioPlaybackConfig::default(),
+                downloads: DownloadConfig::default(),
             },
             musicbrainz: crate::musicbrainz::MusicBrainzConfig {
                 enabled: false, // disabled by default

@@ -11,6 +11,12 @@ interface AddMusicModalProps {
   onClose: () => void;
 }
 
+const handleModalClose = (props: AddMusicModalProps, events: any) => {
+  // Emit data reload event to refresh the songs list
+  events.emit("data:reload", { type: "songs" });
+  props.onClose();
+};
+
 interface UploadItem {
   id: string;
   file: File;
@@ -34,10 +40,44 @@ interface UploadItem {
   albumArtFor?: string;
 }
 
+interface DownloadItem {
+  id: string;
+  url: string;
+  status: "queued" | "downloading" | "completed" | "error";
+  progress: number;
+  error?: string;
+}
+
+interface DownloadJobStatusResponse {
+  job_id: string;
+  url: string;
+  status: string;
+  download_path?: string;
+  error_message?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DownloadUrlsResponse {
+  message: string;
+  download_jobs: Array<{
+    job_id: string;
+    url: string;
+    status: string;
+  }>;
+}
+
 export function AddMusicModal(props: AddMusicModalProps) {
   const events = useGlobalEvents();
   const [uploads, setUploads] = createSignal<UploadItem[]>([]);
+  const [downloads, setDownloads] = createSignal<DownloadItem[]>([]);
   const [isDragOver, setIsDragOver] = createSignal(false);
+  const [uploadMode, setUploadMode] = createSignal<"files" | "urls">("files");
+  const [urlsText, setUrlsText] = createSignal("");
+  const [isSubmittingUrls, setIsSubmittingUrls] = createSignal(false);
+  const [urlDownloadError, setUrlDownloadError] = createSignal<string | null>(
+    null
+  );
 
   let fileInputRef: HTMLInputElement | undefined;
 
@@ -432,7 +472,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
         const song = await apiClient.getSong(songId);
 
         // Close this modal and open the song info modal with the song data
-        props.onClose();
+        handleModalClose(props, events);
 
         // Open song edit modal
         events.emit("modal:open", {
@@ -463,7 +503,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
       }
 
       // Close this modal and open the song info modal with all songs
-      props.onClose();
+      handleModalClose(props, events);
 
       // Open song edit modal in bulk mode
       events.emit("modal:open", {
@@ -479,7 +519,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
     if (songId) {
       // Navigate to song
       console.log("Navigate to song:", songId);
-      props.onClose();
+      handleModalClose(props, events);
     }
   };
 
@@ -489,8 +529,128 @@ export function AddMusicModal(props: AddMusicModalProps) {
       (upload) => upload.status === "completed" && upload.songId
     );
 
+  // Compute completed downloads
+  const completedDownloads = () =>
+    downloads().filter((download) => download.status === "completed");
+
   // Check if any uploads have started
-  const hasStartedUploads = () => uploads().length > 0;
+  const hasStartedUploads = () =>
+    uploads().length > 0 || downloads().length > 0;
+
+  // Submit URLs for download
+  const submitUrls = async () => {
+    const urlsToDownload = urlsText()
+      .split("\n")
+      .map((url) => url.trim())
+      .filter((url) => url.length > 0);
+
+    if (urlsToDownload.length === 0) {
+      return;
+    }
+
+    setIsSubmittingUrls(true);
+    setUrlDownloadError(null); // Clear any previous errors
+
+    try {
+      const response = await apiClient.makeRequest(
+        "POST",
+        "/api/media/download-urls",
+        {
+          data: { urls: urlsToDownload },
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+
+      console.log("URL download jobs created:", response);
+
+      // Add download jobs to tracking
+      const downloadItems: DownloadItem[] = (
+        response as DownloadUrlsResponse
+      ).download_jobs.map((job) => ({
+        id: job.job_id,
+        url: job.url,
+        status: "queued" as const,
+        progress: 0,
+      }));
+      setDownloads(downloadItems);
+
+      // Start polling for download status
+      downloadItems.forEach((item) => {
+        pollDownloadStatus(item.id);
+      });
+
+      // Clear the textarea and stay in URL mode to show progress
+      setUrlsText("");
+    } catch (error) {
+      console.error("Failed to submit URLs for download:", error);
+      setUrlDownloadError("onoz! server gave an error! ...try again?");
+    } finally {
+      setIsSubmittingUrls(false);
+    }
+  };
+
+  // Poll download job status
+  const pollDownloadStatus = async (jobId: string) => {
+    try {
+      const response = await fetch(
+        `${apiClient.getBaseUrl()}/api/media/download-job-status/${jobId}`,
+        {
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to get download job status");
+      }
+
+      const status = (await response.json()) as DownloadJobStatusResponse;
+
+      setDownloads((prev) =>
+        prev.map((download) => {
+          if (download.id !== jobId) return download;
+
+          const newStatus =
+            status.status === "in_progress"
+              ? ("downloading" as const)
+              : status.status === "completed"
+                ? ("completed" as const)
+                : status.status === "failed"
+                  ? ("error" as const)
+                  : ("queued" as const);
+
+          return {
+            ...download,
+            status: newStatus,
+            progress:
+              status.status === "completed"
+                ? 100
+                : status.status === "in_progress"
+                  ? 50
+                  : 0,
+            error: status.error_message,
+          };
+        })
+      );
+
+      // Continue polling if still processing
+      if (status.status === "queued" || status.status === "in_progress") {
+        setTimeout(() => pollDownloadStatus(jobId), 2000);
+      }
+    } catch (error) {
+      console.error("Failed to poll download status:", error);
+      setDownloads((prev) =>
+        prev.map((download) =>
+          download.id === jobId
+            ? {
+                ...download,
+                status: "error" as const,
+                error: "Failed to track download status",
+              }
+            : download
+        )
+      );
+    }
+  };
 
   // Check if there are any uploads still processing
   const hasProcessingUploads = () =>
@@ -511,6 +671,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
   // Reset upload state for new uploads
   const resetUploads = () => {
     setUploads([]);
+    setDownloads([]);
   };
 
   // Handle "add more music" with confirmation if needed
@@ -525,15 +686,22 @@ export function AddMusicModal(props: AddMusicModalProps) {
           u.status === "uploading" ||
           u.status === "processing"
       ).length;
-      const completedCount = completedUploads().length;
+      const downloadingCount = downloads().filter(
+        (d) => d.status === "queued" || d.status === "downloading"
+      ).length;
+      const completedCount =
+        completedUploads().length + completedDownloads().length;
 
       let message = "start a new upload session?\n\n";
 
       if (processingCount > 0) {
-        message += `${processingCount} file(s) still processing - they will be cancelled\n`;
+        message += `⏳ ${processingCount} file(s) still processing - they will be cancelled\n`;
+      }
+      if (downloadingCount > 0) {
+        message += `⬇️ ${downloadingCount} download(s) still in progress - they will be cancelled\n`;
       }
       if (completedCount > 0) {
-        message += `${completedCount} completed upload(s) will be cleared\n`;
+        message += `✅ ${completedCount} completed item(s) will be cleared\n`;
       }
       message += "\nthis action cannot be undone.";
 
@@ -620,13 +788,39 @@ export function AddMusicModal(props: AddMusicModalProps) {
   return (
     <Modal
       isOpen={props.isOpen}
-      onClose={props.onClose}
+      onClose={() => handleModalClose(props, events)}
       title="add music"
       size="lg"
     >
       <div class="space-y-6">
-        {/* File Selection Area */}
+        {/* Upload Mode Toggle */}
         <Show when={!hasStartedUploads()}>
+          <div class="flex items-center justify-center space-x-4 pb-4 border-b border-gray-700">
+            <button
+              class={`px-4 py-2 text-sm transition-colors ${
+                uploadMode() === "files"
+                  ? "bg-magenta-600 text-white"
+                  : "text-gray-400 hover:text-gray-200"
+              }`}
+              onClick={() => setUploadMode("files")}
+            >
+              Upload Files
+            </button>
+            <button
+              class={`px-4 py-2 text-sm transition-colors ${
+                uploadMode() === "urls"
+                  ? "bg-magenta-600 text-white"
+                  : "text-gray-400 hover:text-gray-200"
+              }`}
+              onClick={() => setUploadMode("urls")}
+            >
+              Download URLs
+            </button>
+          </div>
+        </Show>
+
+        {/* File Selection Area */}
+        <Show when={!hasStartedUploads() && uploadMode() === "files"}>
           <div
             class={`border-2 border-dashed p-8 text-center transition-colors ${
               isDragOver()
@@ -665,9 +859,46 @@ export function AddMusicModal(props: AddMusicModalProps) {
           </div>
         </Show>
 
+        {/* URL Download Area */}
+        <Show when={!hasStartedUploads() && uploadMode() === "urls"}>
+          <div class="space-y-4">
+            <div class="text-center">
+              <h3 class="text-lg font-semibold mb-2">download from urls</h3>
+              <p class="text-gray-400 mb-4">
+                enter youtube, soundcloud, or other supported urls (one per
+                line)
+              </p>
+            </div>
+
+            <textarea
+              class="w-full h-32 p-3 bg-gray-800 border border-gray-600 text-white placeholder-gray-400 resize-none focus:outline-none focus:border-magenta-500"
+              placeholder="https://www.youtube.com/watch?v=..."
+              value={urlsText()}
+              onInput={(e) => setUrlsText(e.currentTarget.value)}
+            />
+
+            <div class="flex flex-col items-center">
+              <button
+                class="px-6 py-2 bg-magenta-600 hover:bg-magenta-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={submitUrls}
+                disabled={isSubmittingUrls() || urlsText().trim().length === 0}
+              >
+                {isSubmittingUrls() ? "submitting..." : "download"}
+              </button>
+
+              <Show when={urlDownloadError()}>
+                <div class="mt-2 text-sm text-red-400 text-center">
+                  {urlDownloadError()}
+                </div>
+              </Show>
+            </div>
+          </div>
+        </Show>
+
         {/* Upload Progress List */}
-        <Show when={uploads().length > 0}>
+        <Show when={uploads().length > 0 || downloads().length > 0}>
           <div class="space-y-4 max-h-96 overflow-y-auto">
+            {/* File Uploads */}
             <For each={uploads()}>
               {(upload) => (
                 <div class="p-4 border border-gray-700 bg-gray-800/30">
@@ -815,6 +1046,45 @@ export function AddMusicModal(props: AddMusicModalProps) {
               )}
             </For>
 
+            {/* URL Downloads */}
+            <For each={downloads()}>
+              {(download) => (
+                <div class="p-4 border border-gray-700 bg-gray-800/30">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="font-medium truncate flex-1 mr-4">
+                      {download.url}
+                    </span>
+                    <div
+                      class={`px-2 py-1 text-xs rounded ${
+                        download.status === "completed"
+                          ? "bg-green-600/20 text-green-400"
+                          : download.status === "error"
+                            ? "bg-red-600/20 text-red-400"
+                            : "bg-blue-600/20 text-blue-400"
+                      }`}
+                    >
+                      {download.status}
+                    </div>
+                  </div>
+
+                  <Show when={download.status === "downloading"}>
+                    <div class="w-full bg-gray-700 h-2">
+                      <div
+                        class="bg-magenta-600 h-2 transition-all duration-300"
+                        style={{ width: `${download.progress}%` }}
+                      />
+                    </div>
+                  </Show>
+
+                  <Show when={download.status === "error"}>
+                    <div class="mt-2 text-sm text-red-400">
+                      {download.error || "Download failed"}
+                    </div>
+                  </Show>
+                </div>
+              )}
+            </For>
+
             {/* Bulk edit button for multiple completed uploads */}
             <Show when={completedUploads().length > 1}>
               <div class="mt-4 p-4 border-t border-gray-700">
@@ -828,6 +1098,23 @@ export function AddMusicModal(props: AddMusicModalProps) {
                   >
                     edit all metadata
                   </button>
+                </div>
+              </div>
+            </Show>
+
+            {/* Download status summary */}
+            <Show when={downloads().length > 0}>
+              <div class="mt-4 p-4 border-t border-gray-700">
+                <div class="text-sm text-gray-400">
+                  {downloads().length} download(s) •
+                  {downloads().filter((d) => d.status === "completed").length}{" "}
+                  completed •
+                  {
+                    downloads().filter(
+                      (d) => d.status === "queued" || d.status === "downloading"
+                    ).length
+                  }{" "}
+                  in progress
                 </div>
               </div>
             </Show>

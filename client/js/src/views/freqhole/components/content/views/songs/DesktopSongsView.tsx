@@ -115,6 +115,8 @@ export function DesktopSongsView(
 
   // Reload functionality - reactive store handles this automatically
   const reloadSongs = () => {
+    console.log("FFF RELOAD DEM SONGZ gonna refreshAll!");
+    reactiveActions.refreshSongs();
     // TODO: Add manual refresh capability to reactive store if needed
   };
 
@@ -132,6 +134,7 @@ export function DesktopSongsView(
   createEffect(() => {
     events.on("data:reload", (data) => {
       if (data.type === "songs") {
+        console.log("FFF RELOAD DEM SONGZ");
         reloadSongs();
       }
     });

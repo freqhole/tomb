@@ -1,6 +1,7 @@
 pub mod analytics;
 pub mod auth;
 pub mod blobs;
+pub mod download;
 pub mod error;
 pub mod health;
 pub mod jobs;

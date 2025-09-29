@@ -93,6 +93,11 @@
     "playback": {
       "player_command": "mpv",
       "player_args": ["--no-video", "--term-osd-bar"]
+    },
+    // URL download configuration using yt-dlp
+    "downloads": {
+      "enabled": true,
+      "ytdlp_command": "yt-dlp"
     }
   },
   "musicbrainz": {

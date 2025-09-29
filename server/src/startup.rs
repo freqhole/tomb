@@ -1,3 +1,4 @@
+use crate::download::DownloadJobQueue;
 use crate::jobs::{MusicJobQueue, ThumbnailJobQueue};
 use crate::maintenance::{MaintenanceConfig, MaintenanceScheduler};
 use crate::notifications::NotificationInfrastructure;
@@ -43,6 +44,8 @@ pub struct AppState {
     pub thumbnail_queue: Arc<tokio::sync::Mutex<ThumbnailJobQueue>>,
     // Music job queue for background processing
     pub music_queue: Arc<tokio::sync::Mutex<MusicJobQueue>>,
+    // Download job queue for URL-based downloads
+    pub download_queue: Arc<tokio::sync::Mutex<DownloadJobQueue>>,
     // WebSocket connection manager for real-time notifications
     pub connection_manager: ConnectionManager,
     // Maintenance scheduler for cleanup tasks
@@ -198,7 +201,7 @@ impl AppState {
 
         // Initialize music job queue with notification support
         let mut music_queue =
-            MusicJobQueue::new_with_notifications(database.clone(), notification_tx);
+            MusicJobQueue::new_with_notifications(database.clone(), notification_tx.clone());
 
         // Start music workers (always enabled for music processing)
         let music_worker_count = 2; // Default to 2 workers for music processing
@@ -210,6 +213,41 @@ impl AppState {
                 tracing::error!("❌ Failed to start music workers: {}", e);
                 tracing::warn!("Music processing will not be available");
             }
+        }
+
+        // Initialize download job queue with notification support (if enabled)
+        let download_dir = format!("{}/downloads", config.static_files.upload_directory);
+        let ytdlp_command = config.media.downloads.ytdlp_command.clone();
+        let mut download_queue = DownloadJobQueue::new_with_notifications(
+            database.clone(),
+            download_dir,
+            ytdlp_command,
+            notification_tx,
+        );
+
+        // Start download workers only if downloads are enabled
+        if config.media.downloads.enabled {
+            // Check if yt-dlp is available
+            if DownloadJobQueue::check_ytdlp_available(&config.media.downloads.ytdlp_command).await
+            {
+                let download_worker_count = 1;
+                match download_queue.start_workers(download_worker_count).await {
+                    Ok(_) => {
+                        tracing::info!("✅ Started {} download job workers", download_worker_count);
+                    }
+                    Err(e) => {
+                        tracing::error!("❌ Failed to start download workers: {}", e);
+                        tracing::warn!("URL download will not be available");
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    "⚠️  yt-dlp not found at '{}' - URL downloads disabled",
+                    config.media.downloads.ytdlp_command
+                );
+            }
+        } else {
+            tracing::info!("🔕 URL downloads are disabled in configuration");
         }
 
         // Initialize maintenance scheduler
@@ -262,6 +300,7 @@ impl AppState {
             config,
             thumbnail_queue: Arc::new(tokio::sync::Mutex::new(thumbnail_queue)),
             music_queue: Arc::new(tokio::sync::Mutex::new(music_queue)),
+            download_queue: Arc::new(tokio::sync::Mutex::new(download_queue)),
             connection_manager,
             maintenance_scheduler,
             notification_infrastructure,

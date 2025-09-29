@@ -120,7 +120,13 @@
   // Media and file upload configuration
   "media": {
     "max_blob_file_size": 10485760, // Maximum size for blobs in database (10MB = 10 * 1024 * 1024 bytes)
-    "max_fs_file_size": 1073741824 // Maximum size for files on filesystem (1GB = 1024 * 1024 * 1024 bytes)
+    "max_fs_file_size": 1073741824, // Maximum size for files on filesystem (1GB = 1024 * 1024 * 1024 bytes)
+
+    // URL download configuration using yt-dlp
+    "downloads": {
+      "enabled": false, // Enable URL downloads (requires yt-dlp)
+      "ytdlp_command": "yt-dlp" // Command to use for yt-dlp (can be full path if not in PATH)
+    }
   },
 
   // MusicBrainz integration configuration

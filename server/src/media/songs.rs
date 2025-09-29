@@ -4,6 +4,7 @@
 
 use crate::auth::require_admin;
 use crate::auth::AuthenticatedUser;
+use crate::download::routes::{download_urls, get_download_job_status};
 use axum::{
     extract::{DefaultBodyLimit, Extension, Multipart, Path, Query},
     http::StatusCode,
@@ -2050,6 +2051,15 @@ pub fn create_routes() -> Router {
         .route(
             "/songs/delete",
             post(delete_songs).layer(axum_middleware::from_fn(require_admin)),
+        )
+        // Download routes
+        .route(
+            "/download-urls",
+            post(download_urls).layer(axum_middleware::from_fn(require_admin)),
+        )
+        .route(
+            "/download-job-status/{job_id}",
+            get(get_download_job_status),
         )
 }
 
