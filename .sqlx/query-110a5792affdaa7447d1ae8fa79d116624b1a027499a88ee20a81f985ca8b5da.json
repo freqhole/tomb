@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, job_type, file_path, media_blob_id, song_id, parameters, retry_count, max_retries\n            FROM claim_music_jobs($1, 1, NULL)\n            ",
+  "query": "\n            SELECT id, job_type, file_path, media_blob_id, parameters, retry_count, max_retries\n            FROM claim_music_jobs($1, 1, NULL)\n            ",
   "describe": {
     "columns": [
       {
@@ -25,21 +25,16 @@
       },
       {
         "ordinal": 4,
-        "name": "song_id",
-        "type_info": "Uuid"
-      },
-      {
-        "ordinal": 5,
         "name": "parameters",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "retry_count",
         "type_info": "Int4"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "max_retries",
         "type_info": "Int4"
       }
@@ -56,9 +51,8 @@
       null,
       null,
       null,
-      null,
       null
     ]
   },
-  "hash": "9fa11b3ef9e7568f38cafb1d85d52881f89703df521b0fabea507e2f049c5821"
+  "hash": "110a5792affdaa7447d1ae8fa79d116624b1a027499a88ee20a81f985ca8b5da"
 }
