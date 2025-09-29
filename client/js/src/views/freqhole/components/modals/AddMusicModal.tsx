@@ -492,6 +492,59 @@ export function AddMusicModal(props: AddMusicModalProps) {
   // Check if any uploads have started
   const hasStartedUploads = () => uploads().length > 0;
 
+  // Check if there are any uploads still processing
+  const hasProcessingUploads = () =>
+    uploads().some(
+      (upload) =>
+        upload.status === "pending" ||
+        upload.status === "uploading" ||
+        upload.status === "processing"
+    );
+
+  // Check if user has interacted with completed uploads (e.g., edited metadata)
+  const hasUntouchedCompletedUploads = () => {
+    const completed = completedUploads();
+    // Consider uploads "untouched" if they exist and user hasn't used edit functionality
+    return completed.length > 0;
+  };
+
+  // Reset upload state for new uploads
+  const resetUploads = () => {
+    setUploads([]);
+  };
+
+  // Handle "add more music" with confirmation if needed
+  const handleAddMoreMusic = () => {
+    const needsConfirmation =
+      hasProcessingUploads() || hasUntouchedCompletedUploads();
+
+    if (needsConfirmation) {
+      const processingCount = uploads().filter(
+        (u) =>
+          u.status === "pending" ||
+          u.status === "uploading" ||
+          u.status === "processing"
+      ).length;
+      const completedCount = completedUploads().length;
+
+      let message = "Start a new upload session?\n\n";
+
+      if (processingCount > 0) {
+        message += `⏳ ${processingCount} file(s) still processing - they will be cancelled\n`;
+      }
+      if (completedCount > 0) {
+        message += `✅ ${completedCount} completed upload(s) will be cleared\n`;
+      }
+      message += "\nThis action cannot be undone.";
+
+      if (confirm(message)) {
+        resetUploads();
+      }
+    } else {
+      resetUploads();
+    }
+  };
+
   const StatusBadge = (props: { status: UploadItem["status"] }) => {
     const getStatusColor = () => {
       switch (props.status) {
@@ -774,6 +827,20 @@ export function AddMusicModal(props: AddMusicModalProps) {
                     onClick={openBulkEditModal}
                   >
                     edit all metadata
+                  </button>
+                </div>
+              </div>
+            </Show>
+
+            {/* Add more music button */}
+            <Show when={hasStartedUploads()}>
+              <div class="mt-6 pt-4 border-t border-gray-700">
+                <div class="flex items-center justify-center">
+                  <button
+                    class="px-6 py-2 text-sm bg-gray-700 hover:bg-gray-600 border border-gray-600 hover:border-gray-500 transition-colors rounded-md"
+                    onClick={handleAddMoreMusic}
+                  >
+                    + add more music
                   </button>
                 </div>
               </div>
