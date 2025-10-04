@@ -398,7 +398,7 @@ mod tests {
     async fn test_ytdlp_check() {
         // This test might fail if yt-dlp is not installed
         // That's expected behavior
-        let _available = DownloadJobQueue::check_ytdlp_available().await;
+        let _available = DownloadJobQueue::check_ytdlp_available("yt-dlp").await;
         // Just check that the function runs without panicking
     }
 }

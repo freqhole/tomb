@@ -4,6 +4,7 @@
 //! metadata extraction, song creation, thumbnail generation, and waveform creation.
 //! It follows the same pattern as the thumbnail job queue system.
 
+use crate::jobs::ThumbnailJobQueue;
 use grimoire::DatabaseConnection;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
@@ -30,6 +31,7 @@ pub struct MusicJobQueue {
     shutdown_tx: Option<broadcast::Sender<()>>,
     stats: Arc<RwLock<QueueStats>>,
     notification_tx: Option<broadcast::Sender<String>>,
+    thumbnail_queue: Option<Arc<tokio::sync::Mutex<ThumbnailJobQueue>>>,
 }
 
 /// Queue statistics
@@ -133,6 +135,7 @@ impl MusicJobQueue {
             shutdown_tx: None,
             stats: Arc::new(RwLock::new(QueueStats::new())),
             notification_tx: None,
+            thumbnail_queue: None,
         }
     }
 
@@ -147,7 +150,16 @@ impl MusicJobQueue {
             shutdown_tx: None,
             stats: Arc::new(RwLock::new(QueueStats::new())),
             notification_tx: Some(notification_tx),
+            thumbnail_queue: None,
         }
+    }
+
+    /// Set the thumbnail queue for auto-enqueueing thumbnail jobs
+    pub fn set_thumbnail_queue(
+        &mut self,
+        thumbnail_queue: Arc<tokio::sync::Mutex<ThumbnailJobQueue>>,
+    ) {
+        self.thumbnail_queue = Some(thumbnail_queue);
     }
 
     /// Start worker pool to process jobs
@@ -167,6 +179,7 @@ impl MusicJobQueue {
             let mut shutdown_rx = shutdown_tx.subscribe();
             let stats = self.stats.clone();
             let notification_tx = self.notification_tx.clone();
+            let thumbnail_queue = self.thumbnail_queue.clone();
             let worker_id_str = format!("music_worker_{}", worker_id);
 
             let handle = tokio::spawn(async move {
@@ -188,7 +201,19 @@ impl MusicJobQueue {
                     }
 
                     // Try to claim and process a job
-                    match Self::claim_and_process_job(&db, &worker_id_str, &notification_tx).await {
+                    let thumbnail_queue_ref = if let Some(ref tq) = thumbnail_queue {
+                        Some(tq.clone())
+                    } else {
+                        None
+                    };
+                    match Self::claim_and_process_job(
+                        &db,
+                        &worker_id_str,
+                        &notification_tx,
+                        thumbnail_queue_ref.as_ref(),
+                    )
+                    .await
+                    {
                         Ok(Some(result)) => {
                             // Update stats
                             let mut stats_guard = stats.write().await;
@@ -258,6 +283,7 @@ impl MusicJobQueue {
         db: &DatabaseConnection,
         worker_id: &str,
         notification_tx: &Option<broadcast::Sender<String>>,
+        thumbnail_queue: Option<&Arc<tokio::sync::Mutex<ThumbnailJobQueue>>>,
     ) -> Result<Option<JobExecutionResult>, MusicJobQueueError> {
         let start_time = std::time::Instant::now();
 
@@ -303,7 +329,12 @@ impl MusicJobQueue {
         let mut result = JobExecutionResult::new(job.id);
 
         // Process the job
-        match Self::process_music_job(db, &job).await {
+        let thumbnail_queue_guard = if let Some(tq) = thumbnail_queue {
+            Some(tq.lock().await)
+        } else {
+            None
+        };
+        match Self::process_music_job(db, &job, thumbnail_queue_guard.as_deref()).await {
             Ok(song_id) => {
                 let duration_ms = start_time.elapsed().as_millis() as i64;
                 result.mark_success(duration_ms);
@@ -393,8 +424,12 @@ impl MusicJobQueue {
     async fn process_music_job(
         db: &DatabaseConnection,
         job: &MusicJob,
+        thumbnail_queue: Option<&ThumbnailJobQueue>,
     ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
+        use grimoire::media::{CreateMediaBlob, MediaBlobRepository, MediaBlobService};
+        use grimoire::music::thumbnail::extract_thumbnail;
         use grimoire::music::{extract_standard_fields, CreateSong, MusicRepository};
+        use sha2::{Digest, Sha256};
         use std::path::Path;
 
         info!(
@@ -483,6 +518,131 @@ impl MusicJobQueue {
             title = %song.title,
             "Successfully created song from music job"
         );
+
+        // Extract embedded album art if present
+        let mut embedded_thumbnail_id: Option<String> = None;
+        match extract_thumbnail(file_path).await {
+            Ok(Some(extracted_image)) => {
+                info!(
+                    job_id = %job.id,
+                    song_id = %song.id,
+                    "Found embedded album art, creating thumbnail blob"
+                );
+
+                // Calculate hash for the image data
+                let mut hasher = Sha256::new();
+                hasher.update(&extracted_image.data);
+                let thumbnail_hash = format!("{:x}", hasher.finalize());
+
+                // Create media blob for the embedded album art
+                let thumbnail_blob = CreateMediaBlob {
+                    data: Some(extracted_image.data.clone()),
+                    sha256: thumbnail_hash,
+                    size: Some(extracted_image.data.len() as i64),
+                    mime: Some(extracted_image.format.content_type().to_string()),
+                    source_client_id: Some("music_job_embedded_art".to_string()),
+                    local_path: None, // Store in database
+                    parent_blob_id: Some(job.media_blob_id.clone()),
+                    blob_type: Some("thumbnail".to_string()),
+                    metadata: serde_json::json!({
+                        "source": "embedded_album_art",
+                        "extracted_from": job.file_path,
+                        "song_id": song.id.to_string()
+                    }),
+                };
+
+                // Create the thumbnail media blob
+                let media_blob_repo = MediaBlobRepository::new(db.pool().clone());
+                let media_blob_service = MediaBlobService::new(media_blob_repo);
+
+                match media_blob_service.create_media_blob(thumbnail_blob).await {
+                    Ok(thumbnail_media_blob) => {
+                        embedded_thumbnail_id = Some(thumbnail_media_blob.id.clone());
+
+                        // Update song with embedded thumbnail
+                        if let Err(e) = music_repo
+                            .update_song_thumbnail_blob_id_if_null(
+                                song.id,
+                                &thumbnail_media_blob.id,
+                            )
+                            .await
+                        {
+                            warn!(
+                                job_id = %job.id,
+                                song_id = %song.id,
+                                thumbnail_id = %thumbnail_media_blob.id,
+                                error = %e,
+                                "Failed to link embedded thumbnail to song"
+                            );
+                        } else {
+                            info!(
+                                job_id = %job.id,
+                                song_id = %song.id,
+                                thumbnail_id = %thumbnail_media_blob.id,
+                                "Linked embedded album art to song"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            job_id = %job.id,
+                            song_id = %song.id,
+                            error = %e,
+                            "Failed to create media blob for embedded album art"
+                        );
+                    }
+                }
+            }
+            Ok(None) => {
+                info!(
+                    job_id = %job.id,
+                    song_id = %song.id,
+                    "No embedded album art found"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    job_id = %job.id,
+                    song_id = %song.id,
+                    error = %e,
+                    "Failed to extract embedded album art (non-critical)"
+                );
+            }
+        }
+
+        // Auto-enqueue thumbnail jobs for the media blob
+        if let Some(queue) = thumbnail_queue {
+            match queue.auto_enqueue_for_media_blob(&job.media_blob_id).await {
+                Ok(job_ids) => {
+                    info!(
+                        song_id = %song.id,
+                        media_blob_id = %job.media_blob_id,
+                        thumbnail_jobs = ?job_ids,
+                        embedded_thumbnail = ?embedded_thumbnail_id,
+                        "Auto-enqueued {} thumbnail jobs for music (plus embedded art: {})",
+                        job_ids.len(),
+                        embedded_thumbnail_id.is_some()
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        song_id = %song.id,
+                        media_blob_id = %job.media_blob_id,
+                        error = %e,
+                        "Failed to auto-enqueue thumbnail jobs for music"
+                    );
+                    // Don't fail the music job if thumbnail enqueueing fails
+                }
+            }
+        } else {
+            info!(
+                song_id = %song.id,
+                media_blob_id = %job.media_blob_id,
+                embedded_thumbnail = ?embedded_thumbnail_id,
+                "No thumbnail queue available - skipping waveform generation (embedded art: {})",
+                embedded_thumbnail_id.is_some()
+            );
+        }
 
         Ok(song.id)
     }

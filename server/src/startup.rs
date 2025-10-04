@@ -203,6 +203,12 @@ impl AppState {
         let mut music_queue =
             MusicJobQueue::new_with_notifications(database.clone(), notification_tx.clone());
 
+        // Create thumbnail queue Arc for sharing with music queue
+        let thumbnail_queue_arc = Arc::new(tokio::sync::Mutex::new(thumbnail_queue));
+
+        // Connect thumbnail queue to music queue for auto-enqueueing
+        music_queue.set_thumbnail_queue(thumbnail_queue_arc.clone());
+
         // Start music workers (always enabled for music processing)
         let music_worker_count = 2; // Default to 2 workers for music processing
         match music_queue.start_workers(music_worker_count).await {
@@ -298,7 +304,7 @@ impl AppState {
             analytics_config,
             session_store,
             config,
-            thumbnail_queue: Arc::new(tokio::sync::Mutex::new(thumbnail_queue)),
+            thumbnail_queue: thumbnail_queue_arc,
             music_queue: Arc::new(tokio::sync::Mutex::new(music_queue)),
             download_queue: Arc::new(tokio::sync::Mutex::new(download_queue)),
             connection_manager,

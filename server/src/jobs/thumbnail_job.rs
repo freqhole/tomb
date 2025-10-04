@@ -83,6 +83,21 @@ impl ThumbnailJobProcessor {
                             "Thumbnail stored successfully"
                         );
 
+                        // Link thumbnail to song if this is a music thumbnail
+                        if let Err(e) = self
+                            .link_thumbnail_to_song(&job.media_blob_id, &thumbnail_id)
+                            .await
+                        {
+                            tracing::warn!(
+                                job_id = %job.id,
+                                thumbnail_id = %thumbnail_id,
+                                media_blob_id = %job.media_blob_id,
+                                error = %e,
+                                "Failed to link thumbnail to song (non-critical)"
+                            );
+                            // Don't fail the job if linking fails
+                        }
+
                         // Update job status to completed
                         if let Err(e) = service
                             .update_job_status(
@@ -168,6 +183,43 @@ impl ThumbnailJobProcessor {
                     .await
             }
         }
+    }
+
+    /// Link a thumbnail to a song if the media blob belongs to a song
+    async fn link_thumbnail_to_song(
+        &self,
+        media_blob_id: &str,
+        thumbnail_id: &str,
+    ) -> Result<(), ThumbnailJobError> {
+        use grimoire::music::MusicRepository;
+
+        let music_repo = MusicRepository::new(self.db.pool().clone());
+
+        match music_repo
+            .link_thumbnail_to_song_by_media_blob(media_blob_id, thumbnail_id)
+            .await
+        {
+            Ok(Some(song_id)) => {
+                tracing::info!(
+                    song_id = %song_id,
+                    media_blob_id = %media_blob_id,
+                    thumbnail_id = %thumbnail_id,
+                    "Linked thumbnail to song"
+                );
+            }
+            Ok(None) => {
+                tracing::debug!(
+                    media_blob_id = %media_blob_id,
+                    thumbnail_id = %thumbnail_id,
+                    "Media blob does not belong to a song or song already has thumbnail"
+                );
+            }
+            Err(e) => {
+                return Err(ThumbnailJobError::Database(e.to_string()));
+            }
+        }
+
+        Ok(())
     }
 
     /// Handle job failure with appropriate status update

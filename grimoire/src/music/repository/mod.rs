@@ -2016,6 +2016,34 @@ impl MusicRepository {
 
         Ok(media_blob_id)
     }
+
+    /// Find song by media blob ID and update its thumbnail if null
+    pub async fn link_thumbnail_to_song_by_media_blob(
+        &self,
+        media_blob_id: &str,
+        thumbnail_id: &str,
+    ) -> Result<Option<Uuid>> {
+        let song_result = sqlx::query!(
+            "SELECT id FROM songs WHERE media_blob_id = $1 AND thumbnail_blob_id IS NULL LIMIT 1",
+            media_blob_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(song_row) = song_result {
+            sqlx::query!(
+                "UPDATE songs SET thumbnail_blob_id = $1, updated_at = NOW() WHERE id = $2",
+                thumbnail_id,
+                song_row.id
+            )
+            .execute(&self.pool)
+            .await?;
+
+            Ok(Some(song_row.id))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]

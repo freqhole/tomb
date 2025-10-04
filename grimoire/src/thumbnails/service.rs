@@ -401,23 +401,26 @@ impl<'a> ThumbnailService<'a> {
         media_info: &MediaBlobInfo,
     ) -> Result<String, ThumbnailError> {
         if media_info.is_large_file() {
-            // File is stored on disk, construct full path from relative database path
-            let relative_path = media_info.local_path.as_ref().unwrap();
-            // Database stores relative paths like "private/uploads/filename"
-            // We need to construct the full path using the configured upload directory
-            let full_path = if relative_path.starts_with(&self.config.upload_directory) {
-                relative_path.clone()
+            // File is stored on disk, get the file path
+            let stored_path = media_info.local_path.as_ref().unwrap();
+
+            let full_path = if Path::new(stored_path).is_absolute() {
+                // Path is already absolute (e.g., from download system)
+                stored_path.clone()
+            } else if stored_path.starts_with(&self.config.upload_directory) {
+                // Path already includes upload directory
+                stored_path.clone()
             } else {
-                // If the stored path is relative, prepend the upload directory
-                if relative_path.starts_with("private/uploads/")
-                    || relative_path.starts_with("uploads/")
+                // Relative path - construct full path using upload directory
+                if stored_path.starts_with("private/uploads/")
+                    || stored_path.starts_with("uploads/")
                 {
                     // Legacy path format - use the configured upload directory
-                    let filename = relative_path.split('/').last().unwrap();
+                    let filename = stored_path.split('/').last().unwrap();
                     format!("{}/{}", self.config.upload_directory, filename)
                 } else {
-                    // Assume it's already relative to upload directory
-                    format!("{}/{}", self.config.upload_directory, relative_path)
+                    // Assume it's relative to upload directory
+                    format!("{}/{}", self.config.upload_directory, stored_path)
                 }
             };
 
