@@ -1,3 +1,4 @@
+import { onCleanup } from "solid-js";
 import { useGlobalEvents } from "../hooks/useGlobalEvents";
 import { storeActions, useStore } from "../store";
 import type { Song } from "../../../lib/music/schemas/song";
@@ -571,15 +572,6 @@ export function useSongInteractions() {
       });
     }
   };
-
-  // Listen for global song events and handle them
-  events.on("song:play", ({ song, replaceQueue }) => {
-    playSong(song, replaceQueue);
-  });
-
-  events.on("song:queue", ({ song }) => {
-    queueSong(song);
-  });
 
   // Remove these event listeners to prevent double API calls
   // The SongFavoriteHeart component already handles the API calls

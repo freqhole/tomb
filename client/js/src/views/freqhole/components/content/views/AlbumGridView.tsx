@@ -1,6 +1,7 @@
 import { Show } from "solid-js";
 import { DesktopAlbumsView } from "./albums/DesktopAlbumsView";
 import { MobileAlbumsView } from "./albums/MobileAlbumsView";
+import { useLayout } from "../../../store";
 import type { RouteSectionProps } from "@solidjs/router";
 
 interface AlbumGridViewProps {
@@ -10,20 +11,20 @@ interface AlbumGridViewProps {
 export function AlbumGridView(
   props: RouteSectionProps<unknown> & AlbumGridViewProps = {} as any
 ) {
+  const [layout] = useLayout();
+
   return (
     <div class={`h-full w-full ${props.class || ""}`}>
       {/* Desktop View */}
-      <Show when={true}>
-        <div class="hidden md:block h-full">
-          <DesktopAlbumsView {...props} />
-        </div>
+      <Show when={layout.breakpoint === "desktop"}>
+        <DesktopAlbumsView {...props} />
       </Show>
 
       {/* Mobile View */}
-      <Show when={true}>
-        <div class="md:hidden h-full">
-          <MobileAlbumsView {...props} />
-        </div>
+      <Show
+        when={layout.breakpoint === "mobile" || layout.breakpoint === "tablet"}
+      >
+        <MobileAlbumsView {...props} />
       </Show>
     </div>
   );

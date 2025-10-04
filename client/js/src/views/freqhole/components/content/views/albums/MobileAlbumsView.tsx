@@ -138,6 +138,7 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
 
   const handleAlbumPlay = async (album: Album, event: MouseEvent) => {
     event.stopPropagation();
+
     try {
       if (!album.album) {
         console.error("album name is null, cannot play album");

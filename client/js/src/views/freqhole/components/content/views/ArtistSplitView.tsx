@@ -1,5 +1,7 @@
+import { Show } from "solid-js";
 import { DesktopArtistsView } from "./artists/DesktopArtistsView";
 import { MobileArtistsView } from "./artists/MobileArtistsView";
+import { useLayout } from "../../../store";
 import type { RouteSectionProps } from "@solidjs/router";
 
 interface ArtistSplitViewProps {
@@ -9,17 +11,21 @@ interface ArtistSplitViewProps {
 export function ArtistSplitView(
   props: RouteSectionProps<unknown> & ArtistSplitViewProps = {} as any
 ) {
+  const [layout] = useLayout();
+
   return (
     <div class={`h-full ${props.class || ""}`}>
       {/* Desktop View */}
-      <div class="hidden md:block h-full">
+      <Show when={layout.breakpoint === "desktop"}>
         <DesktopArtistsView class={props.class} />
-      </div>
+      </Show>
 
       {/* Mobile View */}
-      <div class="md:hidden h-full">
+      <Show
+        when={layout.breakpoint === "mobile" || layout.breakpoint === "tablet"}
+      >
         <MobileArtistsView class={props.class} />
-      </div>
+      </Show>
     </div>
   );
 }

@@ -139,6 +139,7 @@ export function DesktopAlbumsView(props: DesktopAlbumsViewProps) {
 
   const handleAlbumPlay = async (album: Album, event: MouseEvent) => {
     event.stopPropagation();
+
     try {
       if (!album.album) {
         console.error("album name is null, cannot play album");
@@ -151,6 +152,7 @@ export function DesktopAlbumsView(props: DesktopAlbumsViewProps) {
       if (Array.isArray(tracks) && tracks.length > 0) {
         // Play first track and queue the rest
         events.emit("song:play", { song: tracks[0], replaceQueue: true });
+
         tracks.slice(1).forEach((track) => {
           events.emit("song:queue", { song: track });
         });

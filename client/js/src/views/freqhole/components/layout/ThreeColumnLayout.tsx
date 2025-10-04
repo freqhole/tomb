@@ -1,5 +1,5 @@
-import { Show, createSignal } from "solid-js";
-import { useLayout, storeActions } from "../../store";
+import { Show, createSignal, createEffect, onCleanup } from "solid-js";
+import { useLayout, storeActions, useStore } from "../../store";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { Navigation } from "../navigation/Navigation";
 import { Content } from "../content/Content";
@@ -27,6 +27,83 @@ export function ThreeColumnLayout(props: any) {
   const [addMusicOpen, setAddMusicOpen] = createSignal(false);
 
   const auth = useAuth();
+
+  // Handle window resize to update breakpoint
+  createEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const updateBreakpoint = () => {
+      const width = window.innerWidth;
+      if (width < 768) {
+        storeActions.setBreakpoint("mobile");
+      } else if (width < 1024) {
+        storeActions.setBreakpoint("tablet");
+      } else {
+        storeActions.setBreakpoint("desktop");
+      }
+    };
+
+    // Set initial breakpoint
+    updateBreakpoint();
+
+    // Add resize listener
+    window.addEventListener("resize", updateBreakpoint);
+
+    onCleanup(() => {
+      window.removeEventListener("resize", updateBreakpoint);
+    });
+  });
+
+  // Global song event listeners setup (only once in the app)
+  const [store] = useStore();
+
+  const playSong = (song: any, replaceQueue: boolean = true) => {
+    storeActions.playSong(song);
+
+    if (replaceQueue) {
+      storeActions.clearQueue();
+      storeActions.addToQueue(song);
+      storeActions.setCurrentIndex(0);
+    } else {
+      if (store.player.currentSong?.id !== song.id) {
+        storeActions.addToQueue(song);
+      }
+    }
+  };
+
+  const queueSong = (song: any) => {
+    storeActions.addToQueue(song);
+
+    events.emit("notification:show", {
+      message: `added "${song.display_title}" to queue`,
+      type: "success",
+    });
+  };
+
+  // Set up global event listeners once
+  createEffect(() => {
+    const playHandler = ({
+      song,
+      replaceQueue,
+    }: {
+      song: any;
+      replaceQueue?: boolean;
+    }) => {
+      playSong(song, replaceQueue);
+    };
+
+    const queueHandler = ({ song }: { song: any }) => {
+      queueSong(song);
+    };
+
+    events.on("song:play", playHandler);
+    events.on("song:queue", queueHandler);
+
+    onCleanup(() => {
+      events.off("song:play", playHandler);
+      events.off("song:queue", queueHandler);
+    });
+  });
 
   // Responsive layout logic
   const columnClasses = () => {
