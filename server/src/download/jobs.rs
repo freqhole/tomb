@@ -183,8 +183,12 @@ pub async fn download_with_ytdlp(
         .arg("0") // Best quality
         .arg("--add-metadata")
         .arg("--embed-thumbnail")
+        .arg("--no-overwrites") // Prevent overwriting existing files
         .arg("--output")
-        .arg(format!("{}/%(title)s.%(ext)s", download_dir))
+        .arg(format!(
+            "{}/%(uploader)s - %(title)s [%(id)s].%(ext)s",
+            download_dir
+        ))
         .arg("--print")
         .arg("after_move:filepath") // This will print the final file path
         .arg("--")
