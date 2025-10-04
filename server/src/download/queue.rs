@@ -163,10 +163,25 @@ impl DownloadJobQueue {
                                     "Download job completed successfully"
                                 );
 
+                                // Re-fetch job to get updated content_id
+                                let updated_job = match super::jobs::get_job_by_id(db, job.id).await
+                                {
+                                    Ok(updated) => updated,
+                                    Err(e) => {
+                                        warn!(
+                                            job_id = %job.id,
+                                            error = %e,
+                                            "Failed to re-fetch job, using original"
+                                        );
+                                        job.clone()
+                                    }
+                                };
+
                                 // Process downloaded files directly
                                 for file_path in &downloaded_files {
                                     if let Err(e) =
-                                        Self::process_downloaded_file(db, job, &file_path).await
+                                        Self::process_downloaded_file(db, &updated_job, &file_path)
+                                            .await
                                     {
                                         warn!(
                                             job_id = %job.id,
@@ -271,7 +286,7 @@ impl DownloadJobQueue {
             local_path: Some(absolute_path),
             parent_blob_id: None,
             blob_type: Some("original".to_string()),
-            content_id: job.content_id.clone(),
+            content_id: Self::extract_track_content_id(job, filename),
             metadata: serde_json::json!({
                 "source": "url_download",
                 "original_filename": filename,
@@ -294,6 +309,19 @@ impl DownloadJobQueue {
         let media_blob = match media_repository.create(create_blob, &media_config).await {
             Ok(blob) => blob,
             Err(e) => {
+                // Check if this is a content_id duplicate error
+                let error_string = e.to_string();
+                if error_string.contains("idx_media_blobs_content_id") {
+                    // This content already exists, find the existing media blob
+                    if let Some(content_id) = job.content_id.as_ref() {
+                        info!(
+                            file_path = %file_path,
+                            content_id = %content_id,
+                            "Content already exists, skipping duplicate processing"
+                        );
+                        return Ok(());
+                    }
+                }
                 error!("Failed to create media blob for downloaded file: {}", e);
                 return Err(AppError::InternalServerError(
                     "Failed to create media blob".to_string(),
@@ -357,6 +385,29 @@ impl DownloadJobQueue {
         self.shutdown_tx = None;
         info!("Download job workers stopped");
         Ok(())
+    }
+
+    /// Extract track-specific content_id from job and filename
+    fn extract_track_content_id(job: &super::jobs::DownloadJob, filename: &str) -> Option<String> {
+        if let Some(album_content_id) = &job.content_id {
+            // Extract track ID from filename like "Artist - Title [track_id].mp3"
+            if let Some(start) = filename.rfind('[') {
+                if let Some(end) = filename.rfind(']') {
+                    if start < end {
+                        let track_id = &filename[start + 1..end];
+                        return Some(format!("{}:track:{}", album_content_id, track_id));
+                    }
+                }
+            }
+            // Fallback: use album content_id + filename hash if no track ID found
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            filename.hash(&mut hasher);
+            Some(format!("{}:file:{:x}", album_content_id, hasher.finish()))
+        } else {
+            None
+        }
     }
 
     /// Get queue statistics

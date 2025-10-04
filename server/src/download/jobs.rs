@@ -263,7 +263,11 @@ pub async fn extract_metadata_only(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let metadata: Value = serde_json::from_str(&stdout)
+
+    // yt-dlp may return multiple JSON objects (one per line), we want the first one
+    let first_line = stdout.lines().next().ok_or("No output from yt-dlp")?;
+
+    let metadata: Value = serde_json::from_str(first_line)
         .map_err(|e| format!("Failed to parse yt-dlp metadata JSON: {}", e))?;
 
     // Extract platform from URL or extractor name
@@ -294,6 +298,47 @@ pub async fn extract_metadata_only(
         url: url.to_string(),
         raw_metadata: metadata,
     })
+}
+
+/// Get a single download job by ID
+pub async fn get_job_by_id(db: &DatabaseConnection, job_id: Uuid) -> Result<DownloadJob, AppError> {
+    let row = sqlx::query!(
+        r#"
+        SELECT id, url, status, download_path, error_message, retry_count, max_retries, content_id, created_at, updated_at
+        FROM download_jobs
+        WHERE id = $1
+        "#,
+        job_id
+    )
+    .fetch_optional(db.pool())
+    .await
+    .map_err(|e| {
+        error!("Failed to fetch download job by ID: {}", e);
+        AppError::InternalServerError("Failed to fetch download job".to_string())
+    })?;
+
+    match row {
+        Some(row) => Ok(DownloadJob {
+            id: row.id,
+            url: row.url,
+            status: match row.status.as_str() {
+                "queued" => DownloadJobStatus::Queued,
+                "in_progress" => DownloadJobStatus::InProgress,
+                "completed" => DownloadJobStatus::Completed,
+                "failed" => DownloadJobStatus::Failed,
+                "cancelled" => DownloadJobStatus::Cancelled,
+                _ => DownloadJobStatus::Queued,
+            },
+            download_path: row.download_path,
+            error_message: row.error_message,
+            retry_count: row.retry_count,
+            max_retries: row.max_retries,
+            content_id: row.content_id,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }),
+        None => Err(AppError::NotFound("Download job not found".to_string())),
+    }
 }
 
 /// Download a file using yt-dlp
@@ -493,7 +538,11 @@ pub async fn process_download_job(
     }
 
     // Step 5: Proceed with actual download
-    match download_with_ytdlp(job, download_dir, ytdlp_command).await {
+    // Create updated job struct with content_id for passing to subsequent functions
+    let mut updated_job = job.clone();
+    updated_job.content_id = Some(content_id.clone());
+
+    match download_with_ytdlp(&updated_job, download_dir, ytdlp_command).await {
         Ok(downloaded_files) => {
             let download_path = if downloaded_files.len() == 1 {
                 Some(downloaded_files[0].clone())

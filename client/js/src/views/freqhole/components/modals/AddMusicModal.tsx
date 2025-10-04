@@ -881,6 +881,11 @@ export function AddMusicModal(props: AddMusicModalProps) {
               placeholder="https://www.youtube.com/watch?v=..."
               value={urlsText()}
               onInput={(e) => setUrlsText(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.stopImmediatePropagation();
+                }
+              }}
             />
 
             <div class="flex flex-col items-center">
