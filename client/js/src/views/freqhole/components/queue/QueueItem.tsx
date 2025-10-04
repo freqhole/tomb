@@ -1,4 +1,5 @@
 import { storeActions } from "../../store";
+import { useSongInteractions } from "../../services/songInteractions";
 
 interface QueueItemProps {
   song: any;
@@ -8,6 +9,8 @@ interface QueueItemProps {
 }
 
 export function QueueItem(props: QueueItemProps) {
+  const songInteractions = useSongInteractions();
+
   // Detect if we're on mobile
   const isMobile = () => {
     return window.innerWidth <= 768 || "ontouchstart" in window;
@@ -44,6 +47,9 @@ export function QueueItem(props: QueueItemProps) {
           handleAdvanceToSong();
         }
       }}
+      onContextMenu={(e) =>
+        songInteractions.handleQueueRightClick(e, props.song, props.index)
+      }
       title={
         props.isCurrentlyPlaying
           ? "currently playing"

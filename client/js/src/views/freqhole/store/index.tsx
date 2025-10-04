@@ -318,6 +318,8 @@ export const storeActions = {
     setStore("queue", "items", (prev) => prev.filter((_, i) => i !== index)),
   clearQueue: () => setStore("queue", "items", []),
   setCurrentIndex: (index: number) => setStore("queue", "currentIndex", index),
+  updateQueueItem: (index: number, updatedSong: any) =>
+    setStore("queue", "items", index, updatedSong),
 
   // search actions
   setSearchQuery: (query: string) => {

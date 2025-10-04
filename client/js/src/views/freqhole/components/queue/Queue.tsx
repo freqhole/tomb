@@ -26,6 +26,18 @@ export function Queue() {
     songs.forEach((song) => storeActions.addToQueue(song));
   });
 
+  // Listen for favorite updates to queue items
+  events.on("queue:update-favorite", ({ songId, isFavorite }) => {
+    const queueIndex = queue.items.findIndex((item) => item.id === songId);
+    if (queueIndex !== -1) {
+      const updatedSong = {
+        ...queue.items[queueIndex],
+        user_is_favorite: isFavorite,
+      };
+      storeActions.updateQueueItem(queueIndex, updatedSong);
+    }
+  });
+
   events.on("song:play", ({ song, replaceQueue }) => {
     if (replaceQueue) {
       storeActions.clearQueue();

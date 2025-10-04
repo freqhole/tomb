@@ -16,9 +16,10 @@ export interface FreqholeEvents {
   "queue:add": { song: any };
   "queue:remove": { index: number };
   "queue:clear": {};
+  "queue:replace": { songs: any[] };
   "queue:toggle": {};
   "queue:reorder": { oldIndex: number; newIndex: number };
-  "queue:replace": { songs: any[] };
+  "queue:update-favorite": { songId: string; isFavorite: boolean };
   "queue:next": {};
   "queue:previous": {};
 

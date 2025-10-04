@@ -1,10 +1,10 @@
-import { onCleanup } from "solid-js";
 import { useGlobalEvents } from "../hooks/useGlobalEvents";
 import { storeActions, useStore } from "../store";
 import type { Song } from "../../../lib/music/schemas/song";
 import type { Album } from "../../../lib/music/schemas/album";
 import { apiClient } from "../../../lib/api-client";
 import { useAuth } from "../../../hooks/auth";
+import { useSongState } from "./songState";
 
 interface SongAction {
   label: string;
@@ -26,6 +26,7 @@ type MenuAction = SongAction | SeparatorAction;
 export function useSongInteractions() {
   const [store] = useStore();
   const events = useGlobalEvents();
+  const songState = useSongState();
 
   // Track last context menu position for playlist selector
   let lastContextMenuPosition = { x: 0, y: 0 };
@@ -102,23 +103,38 @@ export function useSongInteractions() {
 
   const toggleFavorite = async (song: Song) => {
     try {
-      const newFavoriteStatus = !song.user_is_favorite;
+      // Get current favorite status from songState service
+      const currentFavoriteStatus = songState.isFavorite(song.id);
+      const newFavoriteStatus = !currentFavoriteStatus;
 
-      // Use the correct API method
+      // Optimistic update through state service
+      songState.updateSong(song.id, { user_is_favorite: newFavoriteStatus });
+
       await apiClient.toggleSongFavorite(song.id, newFavoriteStatus);
 
-      // Show notification
-      events.emit("notification:show", {
-        message: newFavoriteStatus
-          ? `added "${song.display_title}" to favorites`
-          : `removed "${song.display_title}" from favorites`,
-        type: "success",
+      // Emit global events for state synchronization
+      if (newFavoriteStatus) {
+        events.emit("song:favorite", { song });
+      } else {
+        events.emit("song:unfavorite", { song });
+      }
+
+      // Also emit songs:updated event for components that listen to that
+      const updatedSong = { ...song, user_is_favorite: newFavoriteStatus };
+      events.emit("songs:updated", {
+        songs: [updatedSong],
+        operation: "single-update",
       });
 
-      // Trigger data reload to refresh the UI
-      events.emit("data:reload", { type: "songs" });
+      // Update queue items immediately for instant feedback
+      events.emit("queue:update-favorite", {
+        songId: song.id,
+        isFavorite: newFavoriteStatus,
+      });
     } catch (error) {
       console.error("failed to toggle favorite:", error);
+      // Revert optimistic update on error
+      songState.updateSong(song.id, { user_is_favorite: !newFavoriteStatus });
       events.emit("notification:show", {
         message: `failed to update favorite status`,
         type: "error",
@@ -202,10 +218,10 @@ export function useSongInteractions() {
       },
       { type: "separator" },
       {
-        label: song.user_is_favorite
+        label: songState.isFavorite(song.id)
           ? "remove from favorites"
           : "add to favorites",
-        icon: song.user_is_favorite ? "heart-filled" : "heart",
+        icon: songState.isFavorite(song.id) ? "heart-filled" : "heart",
         action: () => toggleFavorite(song),
       },
       {
@@ -308,7 +324,7 @@ export function useSongInteractions() {
               // refresh song list or emit event to update ui
               events.emit("data:reload", { type: "songs" });
               // clear selection
-              events.emit("selection:clear");
+              events.emit("selection:clear", {});
             } catch (error) {
               console.error("failed to delete song:", error);
             }
@@ -470,7 +486,7 @@ export function useSongInteractions() {
               // refresh song list or emit event to update ui
               events.emit("data:reload", { type: "songs" });
               // clear selection
-              events.emit("selection:clear");
+              events.emit("selection:clear", {});
             } catch (error) {
               console.error("failed to delete songs:", error);
             }
@@ -577,6 +593,149 @@ export function useSongInteractions() {
     }
   };
 
+  // Queue-specific context menu actions
+  const createQueueContextMenuActions = (
+    song: Song,
+    queueIndex: number
+  ): MenuAction[] => {
+    const auth = useAuth();
+    const actions: MenuAction[] = [];
+
+    // Remove from queue (queue-specific action)
+    actions.push({
+      label: "remove from queue",
+      icon: "queue-remove",
+      action: () => {
+        events.emit("queue:remove", { index: queueIndex });
+      },
+    });
+
+    actions.push({ type: "separator" });
+
+    // Favorite/unfavorite - use songState service for current status
+    const isFavorite = songState.isFavorite(song.id);
+    actions.push({
+      label: isFavorite ? "remove from favorites" : "add to favorites",
+      icon: isFavorite ? "heart-filled" : "heart",
+      action: () => toggleFavorite(song),
+    });
+
+    // Add to playlist
+    actions.push({
+      label: "add to playlist...",
+      icon: "playlist-add",
+      action: () => {
+        events.emit("playlist-selector:open", {
+          x: lastContextMenuPosition.x,
+          y: lastContextMenuPosition.y,
+          songs: [song],
+        });
+      },
+    });
+
+    // Add navigation actions if available
+    const hasNavActions = song.artist || song.album;
+
+    if (hasNavActions) {
+      actions.push({ type: "separator" });
+
+      if (song.artist) {
+        actions.push({
+          label: "view artist",
+          icon: "artist",
+          action: () => viewArtist(song),
+        });
+      }
+
+      if (song.album) {
+        actions.push({
+          label: "view album",
+          icon: "album",
+          action: () => viewAlbum(song),
+        });
+      }
+    }
+
+    // Add tag management actions (admin only)
+    if (auth.isAdmin) {
+      actions.push({ type: "separator" });
+      actions.push({
+        label: "tags",
+        icon: "tag",
+        action: () => {
+          events.emit("tag-selector:open", {
+            x: lastContextMenuPosition.x,
+            y: lastContextMenuPosition.y,
+            songs: [song],
+            mode: "manage",
+          });
+        },
+      });
+    }
+
+    // Add info action
+    actions.push({ type: "separator" });
+    actions.push({
+      label: "song info",
+      icon: "info",
+      action: () => {
+        // Open song info modal
+        events.emit("modal:open", {
+          modal: "songInfoModal",
+          data: { songs: [song] },
+        });
+      },
+    });
+
+    // Add delete option for admin users (at the end)
+    if (auth.isAdmin) {
+      actions.push({ type: "separator" });
+      actions.push({
+        label: "delete song",
+        icon: "trash",
+        destructive: true,
+        action: async () => {
+          if (confirm("are you sure you want to delete this song?")) {
+            try {
+              await apiClient.deleteSongs([song.id]);
+              // refresh song list or emit event to update ui
+              events.emit("data:reload", { type: "songs" });
+              // clear selection
+              events.emit("selection:clear", {});
+            } catch (error) {
+              console.error("failed to delete song:", error);
+            }
+          }
+        },
+      });
+    }
+
+    return actions;
+  };
+
+  // Handle queue item right-click
+  const handleQueueRightClick = (
+    event: MouseEvent,
+    song: Song,
+    queueIndex: number
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    // Store position for potential playlist selector
+    lastContextMenuPosition = { x: event.clientX, y: event.clientY };
+
+    const actions = createQueueContextMenuActions(song, queueIndex);
+
+    if (actions.length > 0) {
+      events.emit("context-menu:open", {
+        x: event.clientX,
+        y: event.clientY,
+        actions,
+      });
+    }
+  };
+
   // Remove these event listeners to prevent double API calls
   // The SongFavoriteHeart component already handles the API calls
   // events.on("song:favorite", ({ song }) => {
@@ -602,10 +761,12 @@ export function useSongInteractions() {
     createContextMenuActions,
     createBulkContextMenuActions,
     createAlbumContextMenuActions,
+    createQueueContextMenuActions,
     handleDoubleClick,
     handleRightClick,
     handleBulkRightClick,
     handleAlbumRightClick,
+    handleQueueRightClick,
     handlePlaylistSelectorClick,
 
     // Utilities
