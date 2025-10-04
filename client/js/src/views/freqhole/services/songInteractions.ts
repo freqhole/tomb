@@ -307,6 +307,8 @@ export function useSongInteractions() {
               await apiClient.deleteSongs([song.id]);
               // refresh song list or emit event to update ui
               events.emit("data:reload", { type: "songs" });
+              // clear selection
+              events.emit("selection:clear");
             } catch (error) {
               console.error("failed to delete song:", error);
             }
@@ -467,6 +469,8 @@ export function useSongInteractions() {
               await apiClient.deleteSongs(songs.map((s) => s.id));
               // refresh song list or emit event to update ui
               events.emit("data:reload", { type: "songs" });
+              // clear selection
+              events.emit("selection:clear");
             } catch (error) {
               console.error("failed to delete songs:", error);
             }

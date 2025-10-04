@@ -115,8 +115,7 @@ export function DesktopSongsView(
 
   // Reload functionality - reactive store handles this automatically
   const reloadSongs = () => {
-    // TODO: calling reactiveActions.refreshSongs() here causes the click and double click handers to break and all kindz of other screwy stuff 😩
-    // reactiveActions.refreshSongs();
+    reactiveActions.refreshSongs();
   };
 
   // Handle sort changes - unified with mobile view
