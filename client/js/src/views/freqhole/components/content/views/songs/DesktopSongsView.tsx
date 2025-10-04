@@ -347,10 +347,10 @@ export function DesktopSongsView(
             </button>
 
             <button
-              class="px-3 py-1 bg-red-400 hover:bg-red-500 rounded text-sm transition-colors"
+              class="px-3 py-1 bg-gray-900 hover:bg-gray-700 rounded text-sm transition-colors"
               onClick={() => selection.clearSelection()}
             >
-              &times;
+              clear
             </button>
           </div>
         </div>

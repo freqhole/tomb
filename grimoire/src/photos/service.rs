@@ -327,6 +327,7 @@ impl PhotoService {
             local_path: None, // Thumbnails are stored in database
             parent_blob_id: Some(parent_blob_id.to_string()),
             blob_type: Some("thumbnail".to_string()),
+            content_id: None,
             metadata: serde_json::json!({
                 "width": thumb_width,
                 "height": thumb_height,

@@ -186,6 +186,7 @@ pub async fn upload_large_file(
         local_path: Some(relative_path.clone()),
         parent_blob_id: None, // This is an original file, not a thumbnail
         blob_type: Some("original".to_string()),
+        content_id: None,
         metadata: upload_request.metadata.clone(),
     };
 

@@ -544,6 +544,7 @@ impl MusicJobQueue {
                     local_path: None, // Store in database
                     parent_blob_id: Some(job.media_blob_id.clone()),
                     blob_type: Some("thumbnail".to_string()),
+                    content_id: None,
                     metadata: serde_json::json!({
                         "source": "embedded_album_art",
                         "extracted_from": job.file_path,

@@ -102,6 +102,7 @@ impl VideoRepository {
             local_path: Some(file_path.to_string()),
             parent_blob_id: None,
             blob_type: Some("original".to_string()),
+            content_id: None,
             metadata: serde_json::json!({}),
         };
 

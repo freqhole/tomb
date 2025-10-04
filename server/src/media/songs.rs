@@ -4,7 +4,7 @@
 
 use crate::auth::require_admin;
 use crate::auth::AuthenticatedUser;
-use crate::download::routes::{download_urls, get_download_job_status};
+use crate::download::routes::{download_urls, get_job_status};
 use axum::{
     extract::{DefaultBodyLimit, Extension, Multipart, Path, Query},
     http::StatusCode,
@@ -1932,6 +1932,7 @@ pub async fn upload_media_blob(
         local_path: None,
         parent_blob_id: None,
         blob_type: Some("original".to_string()),
+        content_id: None,
         metadata: metadata.unwrap_or_else(|| {
             serde_json::json!({
                 "filename": filename,
@@ -2057,10 +2058,7 @@ pub fn create_routes() -> Router {
             "/download-urls",
             post(download_urls).layer(axum_middleware::from_fn(require_admin)),
         )
-        .route(
-            "/download-job-status/{job_id}",
-            get(get_download_job_status),
-        )
+        .route("/download-job-status/{job_id}", get(get_job_status))
 }
 
 #[cfg(test)]

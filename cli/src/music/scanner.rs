@@ -448,6 +448,7 @@ async fn process_audio_file(
         local_path: Some(file_path.to_string_lossy().to_string()),
         parent_blob_id: None, // This is an original audio file, not a thumbnail
         blob_type: Some("original".to_string()),
+        content_id: None,
         metadata: serde_json::json!({
             "audio_metadata": metadata,
             "scan_source": "cli",
@@ -476,6 +477,7 @@ async fn process_audio_file(
                 local_path: None,
                 parent_blob_id: Some(media_blob.id.clone()),
                 blob_type: Some("thumbnail".to_string()),
+                content_id: None,
                 metadata: serde_json::json!({
                     "thumbnail_source": "embedded_album_art",
                     "extracted_from": file_path.to_string_lossy(),
@@ -677,6 +679,7 @@ async fn process_directory_album_art(
                     local_path: None,
                     parent_blob_id: Some(first_song_media_blob_id.clone()),
                     blob_type: Some("thumbnail".to_string()),
+                    content_id: None,
                     metadata: serde_json::json!({
                         "thumbnail_source": "directory_album_art",
                         "source_directory": directory.to_string_lossy(),
@@ -843,6 +846,7 @@ async fn generate_waveform_for_audio_file(
         local_path: None, // Store in database, not filesystem
         parent_blob_id: Some(audio_blob_id.to_string()),
         blob_type: Some("waveform".to_string()),
+        content_id: None,
         metadata: serde_json::json!({
             "waveform_source": "scan_process",
             "original_audio": file_path.to_string_lossy(),

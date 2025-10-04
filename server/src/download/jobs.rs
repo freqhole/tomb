@@ -2,10 +2,12 @@
 
 use grimoire::DatabaseConnection;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::types::Uuid;
 use std::process::Command;
 use time::OffsetDateTime;
 use tokio::fs;
+use tokio::process::Command as AsyncCommand;
 use tracing::{error, info, warn};
 
 use crate::error::AppError;
@@ -224,6 +226,76 @@ pub async fn check_content_exists_in_media_blobs(
     Ok(row.map(|r| r.id))
 }
 
+/// Content metadata extracted from yt-dlp
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentMetadata {
+    pub platform: String,
+    pub content_id: String,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub uploader: Option<String>,
+    pub duration_seconds: Option<i64>,
+    pub url: String,
+    pub raw_metadata: Value,
+}
+
+/// Extract metadata from URL without downloading
+pub async fn extract_metadata_only(
+    url: &str,
+    ytdlp_command: &str,
+) -> Result<ContentMetadata, String> {
+    info!("Extracting metadata for URL: {}", url);
+
+    // Use yt-dlp to extract metadata only
+    let output = AsyncCommand::new(ytdlp_command)
+        .arg("--print-json")
+        .arg("--no-download")
+        .arg("--no-playlist")
+        .arg("--")
+        .arg(url)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute yt-dlp for metadata: {}", e))?;
+
+    if !output.status.success() {
+        let error_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("yt-dlp metadata extraction failed: {}", error_msg));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let metadata: Value = serde_json::from_str(&stdout)
+        .map_err(|e| format!("Failed to parse yt-dlp metadata JSON: {}", e))?;
+
+    // Extract platform from URL or extractor name
+    let platform = metadata["extractor"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_lowercase();
+
+    // Get content ID
+    let content_id = metadata["id"]
+        .as_str()
+        .ok_or("No content ID found in metadata")?
+        .to_string();
+
+    // Extract other fields
+    let title = metadata["title"].as_str().map(String::from);
+    let artist = metadata["artist"].as_str().map(String::from);
+    let uploader = metadata["uploader"].as_str().map(String::from);
+    let duration_seconds = metadata["duration"].as_i64();
+
+    Ok(ContentMetadata {
+        platform,
+        content_id,
+        title,
+        artist,
+        uploader,
+        duration_seconds,
+        url: url.to_string(),
+        raw_metadata: metadata,
+    })
+}
+
 /// Download a file using yt-dlp
 pub async fn download_with_ytdlp(
     job: &DownloadJob,
@@ -322,7 +394,7 @@ pub async fn process_download_job(
                 job.id,
                 DownloadJobStatus::Failed,
                 None,
-                Some(&error_msg),
+                Some(error_msg.clone()),
             )
             .await
             {
@@ -341,7 +413,7 @@ pub async fn process_download_job(
             job.id,
             DownloadJobStatus::Failed,
             None,
-            Some(&error_msg),
+            Some(error_msg.clone()),
         )
         .await
         {
@@ -361,7 +433,7 @@ pub async fn process_download_job(
                 "Skipping duplicate content - already being processed"
             );
             if let Err(e) =
-                update_job_status(db, job.id, DownloadJobStatus::Completed, None, Some(&msg)).await
+                update_job_status(db, job.id, DownloadJobStatus::Completed, None, Some(msg)).await
             {
                 error!("Failed to update job status: {}", e);
             }
@@ -374,7 +446,7 @@ pub async fn process_download_job(
                 job.id,
                 DownloadJobStatus::Failed,
                 None,
-                Some(&error_msg),
+                Some(error_msg.clone()),
             )
             .await
             {
@@ -396,7 +468,7 @@ pub async fn process_download_job(
                 "Skipping duplicate content - already exists in media blobs"
             );
             if let Err(e) =
-                update_job_status(db, job.id, DownloadJobStatus::Completed, None, Some(&msg)).await
+                update_job_status(db, job.id, DownloadJobStatus::Completed, None, Some(msg)).await
             {
                 error!("Failed to update job status: {}", e);
             }
@@ -409,7 +481,7 @@ pub async fn process_download_job(
                 job.id,
                 DownloadJobStatus::Failed,
                 None,
-                Some(&error_msg),
+                Some(error_msg.clone()),
             )
             .await
             {
@@ -433,7 +505,7 @@ pub async fn process_download_job(
                 db,
                 job.id,
                 DownloadJobStatus::Completed,
-                download_path.as_deref(),
+                download_path,
                 None,
             )
             .await
@@ -457,7 +529,7 @@ pub async fn process_download_job(
                 job.id,
                 DownloadJobStatus::Failed,
                 None,
-                Some(&full_error),
+                Some(full_error.clone()),
             )
             .await
             {

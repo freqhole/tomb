@@ -55,9 +55,9 @@ impl MediaBlobRepository {
 
         let row = sqlx::query!(
             r#"
-            INSERT INTO media_blobs (data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data
+            INSERT INTO media_blobs (data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, content_id, metadata, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, content_id, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data
             "#,
             create_blob.data,
             create_blob.sha256,
@@ -67,6 +67,7 @@ impl MediaBlobRepository {
             create_blob.local_path,
             create_blob.parent_blob_id,
             create_blob.blob_type.unwrap_or_else(|| "original".to_string()),
+            create_blob.content_id,
             create_blob.metadata,
             OffsetDateTime::now_utc(),
             OffsetDateTime::now_utc()
@@ -85,6 +86,7 @@ impl MediaBlobRepository {
             local_path: row.local_path,
             parent_blob_id: row.parent_blob_id,
             blob_type: row.blob_type,
+            content_id: row.content_id,
             metadata: row.metadata.unwrap_or_else(|| serde_json::json!({})),
             created_at: row.created_at.unwrap(),
             updated_at: row.updated_at.unwrap(),
@@ -94,7 +96,7 @@ impl MediaBlobRepository {
     /// Find a media blob by ID
     pub async fn find_by_id(&self, id: &str) -> Result<MediaBlob, MediaRepositoryError> {
         let row = sqlx::query!(
-            "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE id = $1",
+            "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, content_id, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE id = $1",
             id
         )
         .fetch_optional(&self.pool)
@@ -112,6 +114,7 @@ impl MediaBlobRepository {
                 local_path: row.local_path,
                 parent_blob_id: row.parent_blob_id,
                 blob_type: row.blob_type,
+                content_id: row.content_id,
                 metadata: row.metadata.unwrap_or_else(|| serde_json::json!({})),
                 created_at: row.created_at.unwrap(),
                 updated_at: row.updated_at.unwrap(),
@@ -126,7 +129,7 @@ impl MediaBlobRepository {
         id: &str,
     ) -> Result<MediaBlob, MediaRepositoryError> {
         let row = sqlx::query!(
-            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE id = $1",
+            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, content_id, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE id = $1",
             id
         )
         .fetch_optional(&self.pool)
@@ -144,6 +147,7 @@ impl MediaBlobRepository {
                 local_path: row.local_path,
                 parent_blob_id: row.parent_blob_id,
                 blob_type: row.blob_type,
+                content_id: row.content_id,
                 metadata: row.metadata.unwrap_or_else(|| serde_json::json!({})),
                 created_at: row.created_at.unwrap(),
                 updated_at: row.updated_at.unwrap(),
@@ -155,7 +159,7 @@ impl MediaBlobRepository {
     /// Find a media blob by SHA256 hash
     pub async fn find_by_sha256(&self, sha256: &str) -> Result<MediaBlob, MediaRepositoryError> {
         let row = sqlx::query!(
-            "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE sha256 = $1",
+            "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, content_id, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE sha256 = $1",
             sha256
         )
         .fetch_optional(&self.pool)
@@ -173,6 +177,7 @@ impl MediaBlobRepository {
                 local_path: row.local_path,
                 parent_blob_id: row.parent_blob_id,
                 blob_type: row.blob_type,
+                content_id: row.content_id,
                 metadata: row.metadata.unwrap_or_else(|| serde_json::json!({})),
                 created_at: row.created_at.unwrap(),
                 updated_at: row.updated_at.unwrap(),
@@ -210,7 +215,7 @@ impl MediaBlobRepository {
 
         // Build the SQL query
         let mut sql = String::from(
-            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE 1=1"
+            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, content_id, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE 1=1"
         );
         let mut param_count = 0;
         // Add cursor condition
@@ -326,6 +331,7 @@ impl MediaBlobRepository {
                 local_path: row.get("local_path"),
                 parent_blob_id: row.get("parent_blob_id"),
                 blob_type: row.get::<String, _>("blob_type"),
+                content_id: row.get("content_id"),
                 metadata: row
                     .get::<Option<serde_json::Value>, _>("metadata")
                     .unwrap_or_else(|| serde_json::json!({})),
@@ -384,7 +390,7 @@ impl MediaBlobRepository {
 
         // Build the query for items
         let mut sql = String::from(
-            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE 1=1"
+            "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, content_id, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE 1=1"
         );
         let mut count_sql = String::from("SELECT COUNT(*) FROM media_blobs WHERE 1=1");
         let mut param_count = 0;
@@ -499,6 +505,7 @@ impl MediaBlobRepository {
                 local_path: row.get("local_path"),
                 parent_blob_id: row.get("parent_blob_id"),
                 blob_type: row.get::<String, _>("blob_type"),
+                content_id: row.get("content_id"),
                 metadata: row
                     .get::<Option<serde_json::Value>, _>("metadata")
                     .unwrap_or_else(|| serde_json::json!({})),
@@ -536,7 +543,7 @@ impl MediaBlobRepository {
         let updated_at = OffsetDateTime::now_utc();
 
         let row = sqlx::query!(
-            "UPDATE media_blobs SET metadata = $1, updated_at = $2 WHERE id = $3 RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data",
+            "UPDATE media_blobs SET metadata = $1, updated_at = $2 WHERE id = $3 RETURNING id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, content_id, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data",
             metadata,
             updated_at,
             id
@@ -556,6 +563,7 @@ impl MediaBlobRepository {
                 local_path: row.local_path,
                 parent_blob_id: row.parent_blob_id,
                 blob_type: row.blob_type,
+                content_id: row.content_id,
                 metadata: row.metadata.unwrap_or_else(|| serde_json::json!({})),
                 created_at: row.created_at.unwrap(),
                 updated_at: row.updated_at.unwrap(),

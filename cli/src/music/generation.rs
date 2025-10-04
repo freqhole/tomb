@@ -448,6 +448,7 @@ async fn generate_waveform_for_song(
         local_path: None, // Store in database, not filesystem
         parent_blob_id: Some(song.media_blob_id.clone()),
         blob_type: Some("waveform".to_string()),
+        content_id: None,
         metadata: serde_json::json!({
             "waveform_source": "grimoire_waveform_generator",
             "original_audio": audio_path,
@@ -530,6 +531,7 @@ async fn generate_directory_art_for_song(
             local_path: None, // Store in database, not filesystem
             parent_blob_id: Some(song.media_blob_id.clone()),
             blob_type: Some("thumbnail".to_string()),
+            content_id: None,
             metadata: serde_json::json!({
                 "art_source": "directory_art_detector",
                 "original_audio": audio_path,

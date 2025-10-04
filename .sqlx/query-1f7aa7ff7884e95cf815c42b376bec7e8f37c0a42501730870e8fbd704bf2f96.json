@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE id = $1",
+  "query": "SELECT id, data, sha256, size, mime, source_client_id, local_path, parent_blob_id, blob_type, content_id, metadata, created_at, updated_at, (data IS NOT NULL) as has_binary_data FROM media_blobs WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -10,56 +10,66 @@
       },
       {
         "ordinal": 1,
+        "name": "data",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
         "name": "sha256",
         "type_info": "Bpchar"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "size",
         "type_info": "Int8"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "mime",
         "type_info": "Text"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "source_client_id",
         "type_info": "Text"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "local_path",
         "type_info": "Text"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "parent_blob_id",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "blob_type",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
+        "name": "content_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
         "name": "metadata",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 12,
         "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 11,
+        "ordinal": 13,
         "name": "has_binary_data",
         "type_info": "Bool"
       }
@@ -71,18 +81,20 @@
     },
     "nullable": [
       false,
-      false,
-      true,
-      true,
-      true,
-      true,
       true,
       false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
       true,
       true,
       true,
       null
     ]
   },
-  "hash": "1d16867d2b1ccef8ceae67e99f22dd7312f74e6e8fab8d6d54fba084419c2fef"
+  "hash": "1f7aa7ff7884e95cf815c42b376bec7e8f37c0a42501730870e8fbd704bf2f96"
 }

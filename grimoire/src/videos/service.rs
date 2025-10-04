@@ -539,6 +539,7 @@ impl VideoService {
             local_path: None,
             parent_blob_id: Some(parent_blob_id.to_string()),
             blob_type: Some("thumbnail".to_string()),
+            content_id: None,
             metadata: serde_json::json!({
                 "width": 320,
                 "height": 240,
@@ -632,6 +633,7 @@ impl VideoService {
             local_path: None,
             parent_blob_id: Some(parent_blob_id.to_string()),
             blob_type: Some("thumbnail".to_string()),
+            content_id: None,
             metadata: serde_json::json!({
                 "width": 320,
                 "height": 240,
