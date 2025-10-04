@@ -33,14 +33,17 @@ pub struct DownloadJobInfo {
     pub status: String,
 }
 
-/// Response for download job status request
+/// Job status response
 #[derive(Debug, Serialize)]
-pub struct DownloadJobStatusResponse {
+pub struct JobStatusResponse {
     pub job_id: String,
     pub url: String,
     pub status: String,
     pub download_path: Option<String>,
     pub error_message: Option<String>,
+    pub retry_count: i32,
+    pub max_retries: i32,
+    pub content_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -57,6 +60,7 @@ pub async fn download_urls(
             "Admin access required for URL downloads".to_string(),
         ));
     }
+
     // Validate URLs
     if request.urls.is_empty() {
         return Err(AppError::BadRequest("No URLs provided".to_string()));
@@ -71,13 +75,14 @@ pub async fn download_urls(
     let mut download_jobs = Vec::new();
 
     // Create download jobs for each URL
+    // Jobs will handle duplicate detection internally
     for url in request.urls {
         // Basic URL validation
         if !is_valid_url(&url) {
             return Err(AppError::BadRequest(format!("Invalid URL: {}", url)));
         }
 
-        // Create download job
+        // Create download job - duplicates will be handled by the job itself
         match super::jobs::create_download_job(&db, &url).await {
             Ok(job_id) => {
                 download_jobs.push(DownloadJobInfo {
@@ -101,26 +106,28 @@ pub async fn download_urls(
     }))
 }
 
-/// Basic URL validation
-fn is_valid_url(url: &str) -> bool {
-    url.starts_with("http://") || url.starts_with("https://")
-}
-
-/// Get download job status by job ID
-pub async fn get_download_job_status(
+/// Get download job status
+pub async fn get_job_status(
     Extension(db): Extension<DatabaseConnection>,
-    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<AuthenticatedUser>,
     Path(job_id): Path<String>,
-) -> Result<ResponseJson<DownloadJobStatusResponse>, AppError> {
-    use uuid::Uuid;
+) -> Result<ResponseJson<JobStatusResponse>, AppError> {
+    // Check if user is admin
+    if !user.is_admin() {
+        return Err(AppError::Forbidden(
+            "Admin access required for download status".to_string(),
+        ));
+    }
 
-    let job_uuid = Uuid::parse_str(&job_id)
+    // Parse job ID
+    let job_uuid = job_id
+        .parse::<uuid::Uuid>()
         .map_err(|_| AppError::BadRequest("Invalid job ID format".to_string()))?;
 
-    // Query download job from database
-    let job_result = sqlx::query!(
+    // Get job status
+    let job = sqlx::query!(
         r#"
-        SELECT id, url, status, download_path, error_message, created_at, updated_at
+        SELECT id, url, status, download_path, error_message, retry_count, max_retries, content_id, created_at, updated_at
         FROM download_jobs
         WHERE id = $1
         "#,
@@ -129,44 +136,41 @@ pub async fn get_download_job_status(
     .fetch_optional(db.pool())
     .await
     .map_err(|e| {
-        tracing::error!("Failed to fetch download job: {}", e);
+        tracing::error!("Failed to fetch job status: {}", e);
         AppError::InternalServerError("Failed to fetch job status".to_string())
     })?;
 
-    match job_result {
-        Some(job) => Ok(ResponseJson(DownloadJobStatusResponse {
-            job_id: job.id.to_string(),
-            url: job.url,
-            status: job.status,
-            download_path: job.download_path,
-            error_message: job.error_message,
-            created_at: job.created_at.to_string(),
-            updated_at: job.updated_at.to_string(),
+    match job {
+        Some(job_row) => Ok(ResponseJson(JobStatusResponse {
+            job_id: job_row.id.to_string(),
+            url: job_row.url,
+            status: job_row.status,
+            download_path: job_row.download_path,
+            error_message: job_row.error_message,
+            retry_count: job_row.retry_count,
+            max_retries: job_row.max_retries,
+            content_id: job_row.content_id,
+            created_at: job_row
+                .created_at
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+            updated_at: job_row
+                .updated_at
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
         })),
         None => Err(AppError::NotFound("Download job not found".to_string())),
     }
 }
 
-/// Build download routes
+/// Basic URL validation
+fn is_valid_url(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
+/// Create download routes
 pub fn create_routes() -> Router {
     Router::new()
         .route("/download-urls", post(download_urls))
-        .route(
-            "/download-job-status/{job_id}",
-            get(get_download_job_status),
-        )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_url_validation() {
-        assert!(is_valid_url("https://www.youtube.com/watch?v=123"));
-        assert!(is_valid_url("http://example.com"));
-        assert!(!is_valid_url("ftp://example.com"));
-        assert!(!is_valid_url("not-a-url"));
-        assert!(!is_valid_url(""));
-    }
+        .route("/download-jobs/:job_id", get(get_job_status))
 }

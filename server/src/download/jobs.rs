@@ -42,6 +42,7 @@ pub struct DownloadJob {
     pub error_message: Option<String>,
     pub retry_count: i32,
     pub max_retries: i32,
+    pub content_id: Option<String>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }
@@ -86,7 +87,7 @@ pub async fn get_pending_jobs(
 ) -> Result<Vec<DownloadJob>, AppError> {
     let rows = sqlx::query!(
         r#"
-        SELECT id, url, status, download_path, error_message, retry_count, max_retries, created_at, updated_at
+        SELECT id, url, status, download_path, error_message, retry_count, max_retries, content_id, created_at, updated_at
         FROM download_jobs
         WHERE status = 'queued'
         ORDER BY created_at ASC
@@ -118,6 +119,7 @@ pub async fn get_pending_jobs(
             error_message: row.error_message,
             retry_count: row.retry_count,
             max_retries: row.max_retries,
+            content_id: row.content_id,
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
@@ -153,6 +155,73 @@ pub async fn update_job_status(
     })?;
 
     Ok(())
+}
+
+/// Update download job with content_id
+pub async fn update_job_content_id(
+    db: &DatabaseConnection,
+    job_id: Uuid,
+    content_id: &str,
+) -> Result<(), AppError> {
+    sqlx::query!(
+        "UPDATE download_jobs SET content_id = $1, updated_at = NOW() WHERE id = $2",
+        content_id,
+        job_id
+    )
+    .execute(db.pool())
+    .await
+    .map_err(|e| {
+        error!("Failed to update job content_id: {}", e);
+        AppError::InternalServerError("Failed to update job".to_string())
+    })?;
+
+    Ok(())
+}
+
+/// Check for conflicting jobs with same content_id
+pub async fn check_content_conflicts(
+    db: &DatabaseConnection,
+    content_id: &str,
+    current_job_id: Uuid,
+) -> Result<Vec<Uuid>, AppError> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT id FROM download_jobs
+        WHERE content_id = $1
+        AND status IN ('queued', 'in_progress')
+        AND id != $2
+        ORDER BY created_at ASC
+        "#,
+        content_id,
+        current_job_id
+    )
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| {
+        error!("Failed to check content conflicts: {}", e);
+        AppError::InternalServerError("Failed to check conflicts".to_string())
+    })?;
+
+    Ok(rows.into_iter().map(|row| row.id).collect())
+}
+
+/// Check if content already exists in media_blobs
+pub async fn check_content_exists_in_media_blobs(
+    db: &DatabaseConnection,
+    content_id: &str,
+) -> Result<Option<String>, AppError> {
+    let row = sqlx::query!(
+        "SELECT id FROM media_blobs WHERE content_id = $1 LIMIT 1",
+        content_id
+    )
+    .fetch_optional(db.pool())
+    .await
+    .map_err(|e| {
+        error!("Failed to check media blob content existence: {}", e);
+        AppError::InternalServerError("Database error".to_string())
+    })?;
+
+    Ok(row.map(|r| r.id))
 }
 
 /// Download a file using yt-dlp
@@ -229,7 +298,7 @@ pub async fn download_with_ytdlp(
     Ok(downloaded_files)
 }
 
-/// Process a download job
+/// Process a download job with metadata-first workflow
 pub async fn process_download_job(
     db: &DatabaseConnection,
     job: &DownloadJob,
@@ -243,45 +312,166 @@ pub async fn process_download_job(
         return Err(error_msg);
     }
 
-    // Download the files
+    // Step 1: Extract metadata first
+    let metadata = match extract_metadata_only(&job.url, ytdlp_command).await {
+        Ok(metadata) => metadata,
+        Err(e) => {
+            let error_msg = format!("Failed to extract metadata: {}", e);
+            if let Err(update_err) = update_job_status(
+                db,
+                job.id,
+                DownloadJobStatus::Failed,
+                None,
+                Some(&error_msg),
+            )
+            .await
+            {
+                error!("Failed to update job status: {}", update_err);
+            }
+            return Err(error_msg);
+        }
+    };
+
+    // Step 2: Update job with content_id
+    let content_id = format!("{}:{}", metadata.platform, metadata.content_id);
+    if let Err(e) = update_job_content_id(db, job.id, &content_id).await {
+        let error_msg = format!("Failed to update job content_id: {}", e);
+        if let Err(update_err) = update_job_status(
+            db,
+            job.id,
+            DownloadJobStatus::Failed,
+            None,
+            Some(&error_msg),
+        )
+        .await
+        {
+            error!("Failed to update job status: {}", update_err);
+        }
+        return Err(error_msg);
+    }
+
+    // Step 3: Check for conflicts with other jobs
+    match check_content_conflicts(db, &content_id, job.id).await {
+        Ok(conflicts) if !conflicts.is_empty() => {
+            let msg = format!("Content already being processed by job: {:?}", conflicts[0]);
+            info!(
+                job_id = %job.id,
+                content_id = %content_id,
+                conflict_jobs = ?conflicts,
+                "Skipping duplicate content - already being processed"
+            );
+            if let Err(e) =
+                update_job_status(db, job.id, DownloadJobStatus::Completed, None, Some(&msg)).await
+            {
+                error!("Failed to update job status: {}", e);
+            }
+            return Ok(vec![]);
+        }
+        Err(e) => {
+            let error_msg = format!("Failed to check conflicts: {}", e);
+            if let Err(update_err) = update_job_status(
+                db,
+                job.id,
+                DownloadJobStatus::Failed,
+                None,
+                Some(&error_msg),
+            )
+            .await
+            {
+                error!("Failed to update job status: {}", update_err);
+            }
+            return Err(error_msg);
+        }
+        _ => {} // No conflicts, continue
+    }
+
+    // Step 4: Check if content already exists in media blobs
+    match check_content_exists_in_media_blobs(db, &content_id).await {
+        Ok(Some(existing_blob_id)) => {
+            let msg = format!("Content already exists as media blob: {}", existing_blob_id);
+            info!(
+                job_id = %job.id,
+                content_id = %content_id,
+                existing_blob_id = %existing_blob_id,
+                "Skipping duplicate content - already exists in media blobs"
+            );
+            if let Err(e) =
+                update_job_status(db, job.id, DownloadJobStatus::Completed, None, Some(&msg)).await
+            {
+                error!("Failed to update job status: {}", e);
+            }
+            return Ok(vec![]);
+        }
+        Err(e) => {
+            let error_msg = format!("Failed to check existing content: {}", e);
+            if let Err(update_err) = update_job_status(
+                db,
+                job.id,
+                DownloadJobStatus::Failed,
+                None,
+                Some(&error_msg),
+            )
+            .await
+            {
+                error!("Failed to update job status: {}", update_err);
+            }
+            return Err(error_msg);
+        }
+        _ => {} // Content doesn't exist, continue with download
+    }
+
+    // Step 5: Proceed with actual download
     match download_with_ytdlp(job, download_dir, ytdlp_command).await {
         Ok(downloaded_files) => {
-            // Update status to completed
             let download_path = if downloaded_files.len() == 1 {
                 Some(downloaded_files[0].clone())
             } else {
-                Some(format!("{} files downloaded", downloaded_files.len()))
+                None
             };
 
             if let Err(e) = update_job_status(
                 db,
                 job.id,
                 DownloadJobStatus::Completed,
-                download_path,
+                download_path.as_deref(),
                 None,
             )
             .await
             {
-                warn!("Failed to update job status to completed: {}", e);
+                error!("Failed to update job status to completed: {}", e);
             }
+
+            info!(
+                job_id = %job.id,
+                content_id = %content_id,
+                file_count = downloaded_files.len(),
+                "Download completed successfully"
+            );
 
             Ok(downloaded_files)
         }
         Err(error_msg) => {
-            // Update status to failed
+            let full_error = format!("Download failed: {}", error_msg);
             if let Err(e) = update_job_status(
                 db,
                 job.id,
                 DownloadJobStatus::Failed,
                 None,
-                Some(error_msg.clone()),
+                Some(&full_error),
             )
             .await
             {
-                warn!("Failed to update job status to failed: {}", e);
+                error!("Failed to update job status to failed: {}", e);
             }
 
-            Err(error_msg)
+            error!(
+                job_id = %job.id,
+                content_id = %content_id,
+                error = %error_msg,
+                "Download failed, job marked as failed"
+            );
+
+            Err(full_error)
         }
     }
 }

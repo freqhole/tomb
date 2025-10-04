@@ -166,7 +166,7 @@ impl DownloadJobQueue {
                                 // Process downloaded files directly
                                 for file_path in &downloaded_files {
                                     if let Err(e) =
-                                        Self::process_downloaded_file(db, &file_path).await
+                                        Self::process_downloaded_file(db, job, &file_path).await
                                     {
                                         warn!(
                                             job_id = %job.id,
@@ -222,6 +222,7 @@ impl DownloadJobQueue {
     /// Create music job for downloaded file (reuse existing system)
     async fn process_downloaded_file(
         db: &DatabaseConnection,
+        job: &super::jobs::DownloadJob,
         file_path: &str,
     ) -> Result<(), AppError> {
         use crate::media::music_jobs;
@@ -270,9 +271,12 @@ impl DownloadJobQueue {
             local_path: Some(absolute_path),
             parent_blob_id: None,
             blob_type: Some("original".to_string()),
+            content_id: job.content_id.clone(),
             metadata: serde_json::json!({
                 "source": "url_download",
-                "original_filename": filename
+                "original_filename": filename,
+                "download_job_id": job.id.to_string(),
+                "original_url": job.url
             }),
         };
 
