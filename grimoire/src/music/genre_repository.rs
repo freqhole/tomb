@@ -128,8 +128,46 @@ impl GenreRepository {
             }
         }
 
+        if let Some(tags) = &request.tags {
+            if !tags.is_empty() {
+                let tag_conditions: Vec<String> = tags
+                    .iter()
+                    .map(|_| {
+                        param_count += 1;
+                        format!("${} = ANY(s.tags)", param_count)
+                    })
+                    .collect();
+                query_parts.push(format!("AND ({})", tag_conditions.join(" OR ")));
+                for tag in tags {
+                    bind_values.push(tag.clone());
+                }
+            }
+        }
+
         query_parts.push("GROUP BY s.artist".to_string());
-        query_parts.push("ORDER BY s.artist ASC".to_string());
+
+        // Handle sorting
+        let sort_column = match request.sort_by.as_deref() {
+            Some("song_count") => "COUNT(DISTINCT s.id)",
+            Some("album_count") => "COUNT(DISTINCT s.album)",
+            Some("total_duration") => "SUM(s.duration)",
+            Some("avg_rating") => "AVG(s.rating)",
+            Some("favorite_count") => "COUNT(CASE WHEN s.is_favorite THEN 1 END)",
+            _ => "s.artist",
+        };
+
+        let sort_direction = match request.sort_direction.as_deref() {
+            Some("desc") => "DESC",
+            _ => "ASC",
+        };
+
+        // Add secondary sort by artist name for consistent ordering when primary values are equal
+        let order_clause = if sort_column == "s.artist" {
+            format!("ORDER BY {} {}", sort_column, sort_direction)
+        } else {
+            format!("ORDER BY {} {}, s.artist ASC", sort_column, sort_direction)
+        };
+        query_parts.push(order_clause);
 
         param_count += 1;
         let limit_param = param_count;
@@ -197,7 +235,13 @@ impl GenreRepository {
                 EXTRACT(EPOCH FROM SUM(s.duration))::text as total_duration,
                 s.genre as genres,
                 AVG(s.rating)::float8 as avg_rating,
-                COUNT(CASE WHEN s.is_favorite THEN 1 END) as favorite_count
+                COUNT(CASE WHEN s.is_favorite THEN 1 END) as favorite_count,
+                (SELECT thumbnail_blob_id FROM songs s2
+                 WHERE s2.album = s.album
+                 AND s2.thumbnail_blob_id IS NOT NULL
+                 AND s2.deleted_at IS NULL
+                 ORDER BY disc_number NULLS LAST, track_number NULLS LAST
+                 LIMIT 1) as album_thumbnail_id
             FROM songs s
             WHERE s.deleted_at IS NULL
         "#
@@ -228,8 +272,48 @@ impl GenreRepository {
             }
         }
 
+        if let Some(tags) = &request.tags {
+            if !tags.is_empty() {
+                let tag_conditions: Vec<String> = tags
+                    .iter()
+                    .map(|_| {
+                        param_count += 1;
+                        format!("${} = ANY(s.tags)", param_count)
+                    })
+                    .collect();
+                query_parts.push(format!("AND ({})", tag_conditions.join(" OR ")));
+                for tag in tags {
+                    bind_values.push(tag.clone());
+                }
+            }
+        }
+
         query_parts.push("GROUP BY s.album, s.artist, s.year, s.genre".to_string());
-        query_parts.push("ORDER BY s.album ASC".to_string());
+
+        // Handle sorting
+        let sort_column = match request.sort_by.as_deref() {
+            Some("track_count") => "COUNT(DISTINCT s.id)",
+            Some("year") => "MIN(s.year)",
+            Some("album") => "s.album",
+            Some("artist") => "s.artist",
+            Some("total_duration") => "SUM(s.duration)",
+            Some("avg_rating") => "AVG(s.rating)",
+            Some("favorite_count") => "COUNT(CASE WHEN s.is_favorite THEN 1 END)",
+            _ => "s.album",
+        };
+
+        let sort_direction = match request.sort_direction.as_deref() {
+            Some("desc") => "DESC",
+            _ => "ASC",
+        };
+
+        // Add secondary sort by album name for consistent ordering when primary values are equal
+        let order_clause = if sort_column == "s.album" {
+            format!("ORDER BY {} {}", sort_column, sort_direction)
+        } else {
+            format!("ORDER BY {} {}, s.album ASC", sort_column, sort_direction)
+        };
+        query_parts.push(order_clause);
 
         param_count += 1;
         let limit_param = param_count;
@@ -260,7 +344,7 @@ impl GenreRepository {
                 genres: row.get("genres"),
                 avg_rating: row.get("avg_rating"),
                 favorite_count: row.get("favorite_count"),
-                album_thumbnail_id: None, // TODO: implement album thumbnails
+                album_thumbnail_id: row.get("album_thumbnail_id"),
             })
             .collect();
 

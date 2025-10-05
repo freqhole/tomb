@@ -6,12 +6,16 @@ import type { GenreArtist } from "../../../../../../lib/music/schemas/genre";
 interface GenreArtistRowProps {
   artist: GenreArtist;
   genreName: string;
+  forceExpanded?: boolean;
   class?: string;
 }
 
 export function GenreArtistRow(props: GenreArtistRowProps) {
   const reactiveActions = useReactiveActions();
   const [expanded, setExpanded] = createSignal(false);
+
+  // Use forceExpanded or local expanded state
+  const isExpanded = () => props.forceExpanded || expanded();
 
   // format duration helper
   const formatDuration = (seconds: number | string): string => {
@@ -40,7 +44,7 @@ export function GenreArtistRow(props: GenreArtistRowProps) {
   // fetch albums when expanded
   const [albumsResource] = createResource(
     () =>
-      expanded()
+      isExpanded()
         ? { genre: props.genreName, artist: props.artist.artist }
         : false,
     async (params) => {
@@ -65,7 +69,10 @@ export function GenreArtistRow(props: GenreArtistRowProps) {
   );
 
   const handleToggleExpand = () => {
-    setExpanded(!expanded());
+    // Only allow manual toggle if not force expanded
+    if (!props.forceExpanded) {
+      setExpanded(!expanded());
+    }
   };
 
   const albums = () => albumsResource() || [];
@@ -85,7 +92,7 @@ export function GenreArtistRow(props: GenreArtistRowProps) {
               {/* Expand/collapse chevron */}
               <div
                 class={`text-gray-400 transition-transform duration-200 ${
-                  expanded() ? "rotate-90" : ""
+                  isExpanded() ? "rotate-90" : ""
                 }`}
               >
                 <svg
@@ -163,13 +170,13 @@ export function GenreArtistRow(props: GenreArtistRowProps) {
 
           {/* Expand indicator */}
           <div class="flex-shrink-0 ml-3 text-xs text-gray-500">
-            {expanded() ? "collapse" : "expand"}
+            {isExpanded() ? "collapse" : "expand"}
           </div>
         </div>
       </div>
 
       {/* Expanded albums section */}
-      <Show when={expanded()}>
+      <Show when={isExpanded()}>
         <div class="bg-gray-900/30 border-t border-gray-800/30">
           <Show when={albumsError()}>
             <div class="p-6 text-center">

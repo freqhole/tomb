@@ -1,4 +1,4 @@
-import { Show, For } from "solid-js";
+import { Show, For, createSignal } from "solid-js";
 import { GenreArtistRow } from "./GenreArtistRow";
 import type {
   GenreStat,
@@ -14,6 +14,8 @@ interface GenreDetailPanelProps {
 }
 
 export function GenreDetailPanel(props: GenreDetailPanelProps) {
+  // State for expand all toggle
+  const [expandAll, setExpandAll] = createSignal(false);
   // Format duration helper
   const formatDuration = (seconds: number | string): string => {
     const secs = typeof seconds === "string" ? parseFloat(seconds) : seconds;
@@ -86,6 +88,16 @@ export function GenreDetailPanel(props: GenreDetailPanelProps) {
               <span>{formatDuration(props.genre.total_duration)}</span>
             </div>
           </div>
+
+          {/* Expand/Collapse All Button */}
+          <Show when={artists().length > 0}>
+            <button
+              class="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
+              onClick={() => setExpandAll(!expandAll())}
+            >
+              {expandAll() ? "collapse all" : "expand all"}
+            </button>
+          </Show>
         </div>
       </div>
 
@@ -117,7 +129,11 @@ export function GenreDetailPanel(props: GenreDetailPanelProps) {
               }
             >
               {(artist) => (
-                <GenreArtistRow artist={artist} genreName={props.genre.name} />
+                <GenreArtistRow
+                  artist={artist}
+                  genreName={props.genre.name}
+                  forceExpanded={expandAll()}
+                />
               )}
             </For>
           </div>

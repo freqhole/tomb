@@ -224,24 +224,41 @@ export function createStoreActions(
   const [genreDetailsResource, { refetch: refetchGenreDetails }] =
     createResource(
       () => {
-        // Simple dependency tracking - just return selectedGenre directly
+        // Track all dependencies for proper reactivity
         const selectedGenre = store.genres.selectedGenre;
-        return selectedGenre;
+        const query = store.search.query?.trim() || "";
+        const sortField = store.sort.field;
+        const sortDirection = store.sort.direction;
+        const tags = [...store.filters.tags];
+        const currentPage = store.genres.currentPage;
+
+        // Return null if no genre selected, otherwise return dependency object
+        return selectedGenre
+          ? {
+              selectedGenre,
+              query,
+              sortField,
+              sortDirection,
+              tagsKey: tags.join(","), // Convert array to string for better comparison
+              currentPage,
+            }
+          : null;
       },
-      async (selectedGenre) => {
-        if (!selectedGenre) {
+      async (params) => {
+        if (!params || !params.selectedGenre) {
           return null;
         }
 
         try {
           const searchRequest = {
-            genre: selectedGenre,
-            q: store.search.query?.trim() || undefined,
-            tags:
-              store.filters.tags.length > 0 ? store.filters.tags : undefined,
-            sort_by: store.sort.field,
-            sort_direction: store.sort.direction,
-            page: store.genres.currentPage,
+            genre: params.selectedGenre,
+            q: params.query || undefined,
+            tags: params.tagsKey
+              ? params.tagsKey.split(",").filter(Boolean)
+              : undefined,
+            sort_by: params.sortField,
+            sort_direction: params.sortDirection,
+            page: params.currentPage,
             page_size: 50,
           };
 

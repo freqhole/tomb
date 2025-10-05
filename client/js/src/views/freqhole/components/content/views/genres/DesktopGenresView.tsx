@@ -139,17 +139,11 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
   });
 
   // Debug effect to track genre details resource state
-  createEffect(() => {
-    const selected = selectedGenre();
-    const details = genreDetails();
-    const detailsLoading = genreDetailsLoading();
-
-    console.log("Genre details resource state:", {
-      selectedGenre: selected?.name || "none",
-      hasDetails: !!details,
-      detailsLoading,
-    });
-  });
+  // createEffect(() => {
+  //   const selected = selectedGenre();
+  //   const details = genreDetails();
+  //   const detailsLoading = genreDetailsLoading();
+  // });
 
   return (
     <div
