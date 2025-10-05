@@ -1,0 +1,446 @@
+import { For, Show, createSignal, createEffect } from "solid-js";
+import { useReactiveActions } from "../../../../store";
+import { useDataSections } from "../../../../store/hooks";
+// import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
+import { GenreAlbumGrid } from "./GenreAlbumGrid";
+import type {
+  GenreStat,
+  GenreArtist,
+  GenreAlbum,
+} from "../../../../../../lib/music/schemas/genre";
+// import type { SortField } from "../../../../../../components/search/SearchSortControls";
+
+interface SimpleMobileGenresViewProps {
+  class?: string;
+}
+
+interface ArtistWithAlbums extends GenreArtist {
+  albums: GenreAlbum[];
+  albumsLoading: boolean;
+  albumsLoaded: boolean;
+}
+
+interface GenreWithArtists extends GenreStat {
+  artists: ArtistWithAlbums[];
+  loading: boolean;
+  loaded: boolean;
+}
+
+export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
+  const reactiveActions = useReactiveActions();
+  // const [sortState] = useSort();
+  const dataSections = useDataSections();
+
+  // Main genres list
+  const genres = () => {
+    const result = dataSections.genres.data() as
+      | { genres: GenreStat[]; total: number }
+      | undefined;
+    return result?.genres || [];
+  };
+  const loading = () => dataSections.genres.loading || false;
+  const error = () => dataSections.genres.error;
+
+  // Track which genres have loaded their artists
+  const [genresWithArtists, setGenresWithArtists] = createSignal<
+    GenreWithArtists[]
+  >([]);
+
+  // Expand/collapse all state
+  const [expandAll, setExpandAll] = createSignal(false);
+
+  // Individual genre expanded state
+  const [expandedGenres, setExpandedGenres] = createSignal<Set<string>>(
+    new Set()
+  );
+
+  // Sort fields for genres - keep existing working fields and add updated_at
+  // const sortFields: SortField[] = [
+  //   {
+  //     value: "updated_at",
+  //     label: "recent",
+  //     description: "sort by most recent",
+  //   },
+  //   { value: "genre", label: "name", description: "sort by genre name" },
+  //   { value: "song_count", label: "songs", description: "sort by song count" },
+  //   {
+  //     value: "artist_count",
+  //     label: "artists",
+  //     description: "sort by artist count",
+  //   },
+  //   {
+  //     value: "album_count",
+  //     label: "albums",
+  //     description: "sort by album count",
+  //   },
+  //   {
+  //     value: "total_duration",
+  //     label: "duration",
+  //     description: "sort by total duration",
+  //   },
+  // ];
+
+  // Set default sort to updated_at desc if not set, fallback to genre name
+  // const currentSortField = sortState.field;
+  // const validSortFields = sortFields.map((f) => f.value);
+  // if (!validSortFields.includes(currentSortField)) {
+  //   reactiveActions.setSort("genre", "asc");
+  // }
+
+  // Handle sort changes
+  // const handleSortChange = (
+  //   field: string,
+  //   direction: "asc" | "desc" | null
+  // ) => {
+  //   if (direction === null) {
+  //     reactiveActions.setSort(field, "desc");
+  //   } else {
+  //     reactiveActions.setSort(field, direction);
+  //   }
+  // };
+
+  // Format count helper
+  const formatCount = (count: number): string => {
+    if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return count.toString();
+  };
+
+  // Toggle individual genre expand/collapse
+  const toggleGenre = (genreName: string) => {
+    setExpandedGenres((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(genreName)) {
+        newSet.delete(genreName);
+      } else {
+        newSet.add(genreName);
+      }
+      return newSet;
+    });
+  };
+
+  // Check if genre is expanded (either individually or via expand all)
+  const isGenreExpanded = (genreName: string) => {
+    return expandAll() || expandedGenres().has(genreName);
+  };
+
+  // Auto-load albums when a genre is expanded
+  createEffect(() => {
+    const expanded = expandAll();
+    const individuallyExpanded = expandedGenres();
+
+    genresWithArtists().forEach((genre) => {
+      const isExpanded = expanded || individuallyExpanded.has(genre.name);
+
+      if (isExpanded && genre.loaded && genre.artists.length > 0) {
+        // Load albums for unloaded artists in expanded genres
+        genre.artists.forEach((artist) => {
+          if (!artist.albumsLoaded && !artist.albumsLoading) {
+            loadArtistAlbums(genre.name, artist.artist);
+          }
+        });
+      }
+    });
+  });
+
+  // Load artists for a specific genre
+  const loadGenreArtists = async (genreName: string) => {
+    try {
+      // Use the existing genre search to get artists
+      const response = await reactiveActions.searchGenres({
+        genre: genreName,
+        page: 1,
+        page_size: 20, // Load first 20 artists per genre
+      });
+
+      if (response && "artists" in response) {
+        const artistsWithAlbums: ArtistWithAlbums[] = response.artists.map(
+          (artist) => ({
+            ...artist,
+            albums: [],
+            albumsLoading: false,
+            albumsLoaded: false,
+          })
+        );
+
+        setGenresWithArtists((prev) =>
+          prev.map((g) =>
+            g.name === genreName
+              ? {
+                  ...g,
+                  artists: artistsWithAlbums,
+                  loading: false,
+                  loaded: true,
+                }
+              : g
+          )
+        );
+
+        // Load albums for first few artists immediately
+        const firstArtists = artistsWithAlbums.slice(0, 3);
+        firstArtists.forEach((artist) => {
+          loadArtistAlbums(genreName, artist.artist);
+        });
+      }
+    } catch (err) {
+      console.error(`failed to load artists for genre ${genreName}:`, err);
+      setGenresWithArtists((prev) =>
+        prev.map((g) =>
+          g.name === genreName ? { ...g, loading: false, loaded: false } : g
+        )
+      );
+    }
+  };
+
+  // Load albums for a specific artist within a genre
+  const loadArtistAlbums = async (genreName: string, artistName: string) => {
+    try {
+      setGenresWithArtists((prev) =>
+        prev.map((g) =>
+          g.name === genreName
+            ? {
+                ...g,
+                artists: g.artists.map((a) =>
+                  a.artist === artistName ? { ...a, albumsLoading: true } : a
+                ),
+              }
+            : g
+        )
+      );
+
+      const response = await reactiveActions.searchGenres({
+        genre: genreName,
+        artist: artistName,
+        page: 1,
+        page_size: 50,
+      });
+
+      if (response && "albums" in response) {
+        setGenresWithArtists((prev) =>
+          prev.map((g) =>
+            g.name === genreName
+              ? {
+                  ...g,
+                  artists: g.artists.map((a) =>
+                    a.artist === artistName
+                      ? {
+                          ...a,
+                          albums: response.albums,
+                          albumsLoading: false,
+                          albumsLoaded: true,
+                        }
+                      : a
+                  ),
+                }
+              : g
+          )
+        );
+      }
+    } catch (err) {
+      console.error(
+        `failed to load albums for artist ${artistName} in genre ${genreName}:`,
+        err
+      );
+      setGenresWithArtists((prev) =>
+        prev.map((g) =>
+          g.name === genreName
+            ? {
+                ...g,
+                artists: g.artists.map((a) =>
+                  a.artist === artistName
+                    ? { ...a, albumsLoading: false, albumsLoaded: false }
+                    : a
+                ),
+              }
+            : g
+        )
+      );
+    }
+  };
+
+  // Initialize genres with artists when main genres load
+  createEffect(() => {
+    const currentGenres = genres();
+    if (currentGenres.length > 0) {
+      const initialized = currentGenres.map((genre) => ({
+        ...genre,
+        artists: [],
+        loading: false,
+        loaded: false,
+      }));
+      setGenresWithArtists(initialized);
+
+      // Load artists for first few genres immediately
+      const firstGenres = currentGenres.slice(0, 2);
+      firstGenres.forEach((genre) => {
+        setGenresWithArtists((prev) =>
+          prev.map((g) => (g.name === genre.name ? { ...g, loading: true } : g))
+        );
+        loadGenreArtists(genre.name);
+      });
+    }
+  });
+
+  // Intersection observer for lazy loading
+  const setupLazyLoading = (element: HTMLElement, genreName: string) => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry && entry.isIntersecting) {
+          const genre = genresWithArtists().find((g) => g.name === genreName);
+          if (genre && !genre.loaded && !genre.loading) {
+            setGenresWithArtists((prev) =>
+              prev.map((g) =>
+                g.name === genreName ? { ...g, loading: true } : g
+              )
+            );
+            loadGenreArtists(genreName);
+          }
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(element);
+  };
+
+  return (
+    <div
+      class={`h-full flex flex-col bg-black text-white ${props.class || ""}`}
+    >
+      {/* Header */}
+      <div class="flex-shrink-0 p-3 border-b border-gray-800/50">
+        <div class="flex items-center justify-between">
+          <div>
+            <h1 class="text-xl font-semibold text-white mb-1">genres</h1>
+            <Show when={!loading() && !error()}>
+              <p class="text-gray-300 text-sm">
+                {genresWithArtists().length} genre
+                {genresWithArtists().length !== 1 ? "s" : ""}
+              </p>
+            </Show>
+            <Show when={loading() && genresWithArtists().length === 0}>
+              <p class="text-gray-300 text-sm">loading genres...</p>
+            </Show>
+          </div>
+
+          {/* Expand/Collapse All Button */}
+          <Show when={genresWithArtists().length > 0}>
+            <button
+              class="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
+              onClick={() => setExpandAll(!expandAll())}
+            >
+              {expandAll() ? "collapse all" : "expand all"}
+            </button>
+          </Show>
+        </div>
+
+        {/* Sort Controls */}
+        {/* <div class="mb-2">
+          <SearchSortControls
+            sortBy={sortState.field}
+            sortDirection={sortState.direction}
+            onSortChange={handleSortChange}
+            sortFields={sortFields}
+            directionStyle="arrows"
+            class="w-full"
+          />
+        </div> */}
+      </div>
+
+      {/* Error State */}
+      <Show when={error()}>
+        <div class="p-4 text-center">
+          <div class="text-red-400 text-sm mb-2">failed to load genres</div>
+          <button
+            class="text-magenta-400 hover:text-magenta-300 text-sm transition-colors"
+            onClick={() => reactiveActions.refreshAll()}
+          >
+            try again
+          </button>
+        </div>
+      </Show>
+
+      {/* Content */}
+      <Show when={!error()}>
+        <div class="flex-1 overflow-y-auto">
+          <Show
+            when={!loading() || genresWithArtists().length > 0}
+            fallback={
+              <div class="flex-1 flex items-center justify-center p-8">
+                <div class="text-magenta-400">loading genres...</div>
+              </div>
+            }
+          >
+            <For each={genresWithArtists()}>
+              {(genre) => (
+                <div
+                  ref={(el) => setupLazyLoading(el, genre.name)}
+                  class="mb-6"
+                >
+                  {/* Genre Header */}
+                  <div
+                    class="sticky top-0 bg-black border-b border-magenta-600 z-10 p-4 cursor-pointer hover:bg-gray-900/50 transition-colors"
+                    onClick={() => toggleGenre(genre.name)}
+                  >
+                    <h2 class="text-lg font-semibold text-white mb-1">
+                      {genre.name}
+                    </h2>
+                    <div class="flex items-center gap-4 text-sm text-gray-400">
+                      <span>{formatCount(genre.song_count)} songs</span>
+                      <span>{formatCount(genre.artist_count)} artists</span>
+                      <span>{formatCount(genre.album_count)} albums</span>
+                    </div>
+                  </div>
+
+                  {/* Artists */}
+                  <Show when={isGenreExpanded(genre.name)}>
+                    <div class="px-4 py-4">
+                      <Show when={genre.loading}>
+                        <div class="py-6 text-center">
+                          <div class="text-gray-400 text-sm">
+                            loading albums...
+                          </div>
+                        </div>
+                      </Show>
+
+                      <Show when={genre.loaded && genre.artists.length > 0}>
+                        <GenreAlbumGrid
+                          albums={genre.artists.flatMap(
+                            (artist) => artist.albums
+                          )}
+                          loading={genre.artists.some(
+                            (artist) => artist.albumsLoading
+                          )}
+                          class=""
+                        />
+                      </Show>
+
+                      <Show when={genre.loaded && genre.artists.length === 0}>
+                        <div class="py-6 text-center">
+                          <div class="text-gray-500 text-sm">
+                            no albums found
+                          </div>
+                        </div>
+                      </Show>
+                    </div>
+                  </Show>
+                </div>
+              )}
+            </For>
+
+            {/* Loading indicator */}
+            <Show when={loading()}>
+              <div class="text-center py-8">
+                <div class="text-magenta-400 text-sm">
+                  loading more genres...
+                </div>
+              </div>
+            </Show>
+          </Show>
+        </div>
+      </Show>
+    </div>
+  );
+}

@@ -44,7 +44,7 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
     props.onAlbumDoubleClick?.(album);
   };
 
-  const handleAlbumPlay = async (album: Album, event: MouseEvent) => {
+  const handleAlbumPlay = async (album: GenreAlbum, event: MouseEvent) => {
     event.stopPropagation();
 
     try {
