@@ -102,11 +102,11 @@ export function useSongInteractions() {
   };
 
   const toggleFavorite = async (song: Song) => {
-    try {
-      // Get current favorite status from songState service
-      const currentFavoriteStatus = songState.isFavorite(song.id);
-      const newFavoriteStatus = !currentFavoriteStatus;
+    // Get current favorite status from songState service
+    const currentFavoriteStatus = songState.isFavorite(song.id);
+    const newFavoriteStatus = !currentFavoriteStatus;
 
+    try {
       // Optimistic update through state service
       songState.updateSong(song.id, { user_is_favorite: newFavoriteStatus });
 

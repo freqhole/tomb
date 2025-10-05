@@ -53,6 +53,14 @@ export const AlbumTracksResponseSchema = z.object({
       track_display: z.string(),
     })
   ),
+  year: z.number().nullable(),
+  track_count: z.number(),
+  disc_count: z.number(),
+  total_duration: z.string().nullable(),
+  genres: z.string().nullable(),
+  avg_rating: z.number().nullable(),
+  favorite_count: z.number(),
+  album_thumbnail_id: z.string().nullable(),
 });
 
 export type AlbumTracksResponse = z.infer<typeof AlbumTracksResponseSchema>;

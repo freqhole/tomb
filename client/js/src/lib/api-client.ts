@@ -771,6 +771,10 @@ export class ApiClient {
     return musicApiMethods.getAlbumTracks.call(this, album, artist);
   }
 
+  async getAlbumByName(albumName: string, artistName?: string) {
+    return musicApiMethods.getAlbumByName.call(this, albumName, artistName);
+  }
+
   // Music API methods - Playlists
   async getPlaylists(options?: {
     limit?: number;

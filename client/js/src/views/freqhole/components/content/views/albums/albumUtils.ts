@@ -128,15 +128,11 @@ export function useAlbumLoader() {
     artistName?: string | null
   ): Promise<Album | null> => {
     try {
-      // #TODO: use a better api client method that can pass album + artist (optional) and get back a single album
-      // rather than searching the first 1k :/
-      const response = await apiClient.getAlbums({ page: 1, page_size: 1000 });
-      const album = response.albums.find((a) => {
-        const albumMatch = a.album === albumName;
-        if (!artistName) return albumMatch;
-        return albumMatch && a.artist === artistName;
-      });
-      return album || null;
+      const album = await apiClient.getAlbumByName(
+        albumName,
+        artistName || undefined
+      );
+      return album;
     } catch (error) {
       console.error("failed to load album summary:", error);
       return null;

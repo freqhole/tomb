@@ -434,6 +434,54 @@ export const musicApiMethods = {
     );
   },
 
+  async getAlbumByName(
+    this: ApiClient,
+    albumName: string,
+    artistName?: string
+  ): Promise<Album | null> {
+    try {
+      const response = await this.makeRequest<unknown>(
+        "POST",
+        "/api/media/albums/tracks",
+        {
+          data: {
+            album: albumName,
+            artist: artistName || null,
+          },
+        }
+      );
+
+      const validatedResponse = musicValidation.validateResponse(
+        AlbumTracksResponseSchema,
+        response,
+        "Album Tracks"
+      );
+
+      if (!validatedResponse.tracks || validatedResponse.tracks.length === 0) {
+        return null;
+      }
+
+      // Construct Album object from response data
+      const album: Album = {
+        album: validatedResponse.album,
+        artist: validatedResponse.artist,
+        year: validatedResponse.year,
+        track_count: validatedResponse.track_count,
+        disc_count: validatedResponse.disc_count,
+        total_duration: validatedResponse.total_duration,
+        genres: validatedResponse.genres,
+        avg_rating: validatedResponse.avg_rating,
+        favorite_count: validatedResponse.favorite_count,
+        album_thumbnail_id: validatedResponse.album_thumbnail_id,
+      };
+
+      return album;
+    } catch (error) {
+      console.error("Failed to get album by name:", error);
+      return null;
+    }
+  },
+
   // Playlists API methods
   async getPlaylists(
     this: ApiClient,

@@ -561,6 +561,14 @@ pub struct AlbumTracksResponse {
     pub album: String,
     pub artist: Option<String>,
     pub tracks: Vec<AlbumTrackResponse>,
+    pub year: Option<i32>,
+    pub track_count: i64,
+    pub disc_count: i64,
+    pub total_duration: Option<String>,
+    pub genres: Option<String>,
+    pub avg_rating: Option<f64>,
+    pub favorite_count: i64,
+    pub album_thumbnail_id: Option<String>,
 }
 
 /// Album track response
@@ -1671,10 +1679,64 @@ pub async fn get_album_tracks(
     let track_responses: Vec<AlbumTrackResponse> =
         tracks.into_iter().map(AlbumTrackResponse::from).collect();
 
+    // Calculate album summary statistics from tracks
+    let track_count = track_responses.len() as i64;
+    let disc_count = track_responses
+        .iter()
+        .map(|t| t.disc_number.unwrap_or(1))
+        .max()
+        .unwrap_or(1) as i64;
+
+    let total_duration_seconds: i64 = track_responses
+        .iter()
+        .map(|t| t.duration.unwrap_or(0))
+        .sum();
+
+    let total_duration = if total_duration_seconds > 0 {
+        let hours = total_duration_seconds / 3600;
+        let minutes = (total_duration_seconds % 3600) / 60;
+        let seconds = total_duration_seconds % 60;
+        Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds))
+    } else {
+        None
+    };
+
+    let ratings: Vec<i32> = track_responses.iter().filter_map(|t| t.rating).collect();
+    let avg_rating = if !ratings.is_empty() {
+        Some(ratings.iter().sum::<i32>() as f64 / ratings.len() as f64)
+    } else {
+        None
+    };
+
+    let favorite_count = track_responses.iter().filter(|t| t.is_favorite).count() as i64;
+
+    let year = track_responses
+        .iter()
+        .find_map(|t| t.year)
+        .or_else(|| track_responses.first().and_then(|t| t.year));
+
+    let genres = track_responses
+        .iter()
+        .find_map(|t| t.genre.as_ref())
+        .map(|g| g.clone());
+
+    let album_thumbnail_id = track_responses
+        .iter()
+        .find_map(|t| t.thumbnail_id.as_ref())
+        .map(|id| id.clone());
+
     Ok(Json(AlbumTracksResponse {
         album: album.clone(),
         artist: artist.map(|s| s.to_string()),
         tracks: track_responses,
+        year,
+        track_count,
+        disc_count,
+        total_duration,
+        genres,
+        avg_rating,
+        favorite_count,
+        album_thumbnail_id,
     }))
 }
 
@@ -1694,10 +1756,64 @@ pub async fn get_album_tracks_post(
     let track_responses: Vec<AlbumTrackResponse> =
         tracks.into_iter().map(AlbumTrackResponse::from).collect();
 
+    // Calculate album summary statistics from tracks
+    let track_count = track_responses.len() as i64;
+    let disc_count = track_responses
+        .iter()
+        .map(|t| t.disc_number.unwrap_or(1))
+        .max()
+        .unwrap_or(1) as i64;
+
+    let total_duration_seconds: i64 = track_responses
+        .iter()
+        .map(|t| t.duration.unwrap_or(0))
+        .sum();
+
+    let total_duration = if total_duration_seconds > 0 {
+        let hours = total_duration_seconds / 3600;
+        let minutes = (total_duration_seconds % 3600) / 60;
+        let seconds = total_duration_seconds % 60;
+        Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds))
+    } else {
+        None
+    };
+
+    let ratings: Vec<i32> = track_responses.iter().filter_map(|t| t.rating).collect();
+    let avg_rating = if !ratings.is_empty() {
+        Some(ratings.iter().sum::<i32>() as f64 / ratings.len() as f64)
+    } else {
+        None
+    };
+
+    let favorite_count = track_responses.iter().filter(|t| t.is_favorite).count() as i64;
+
+    let year = track_responses
+        .iter()
+        .find_map(|t| t.year)
+        .or_else(|| track_responses.first().and_then(|t| t.year));
+
+    let genres = track_responses
+        .iter()
+        .find_map(|t| t.genre.as_ref())
+        .map(|g| g.clone());
+
+    let album_thumbnail_id = track_responses
+        .iter()
+        .find_map(|t| t.thumbnail_id.as_ref())
+        .map(|id| id.clone());
+
     Ok(Json(AlbumTracksResponse {
         album: request.album,
         artist: request.artist,
         tracks: track_responses,
+        year,
+        track_count,
+        disc_count,
+        total_duration,
+        genres,
+        avg_rating,
+        favorite_count,
+        album_thumbnail_id,
     }))
 }
 
