@@ -395,6 +395,12 @@ pub enum MusicCommands {
         limit: u32,
     },
 
+    /// List all distinct song genres in alphabetical order
+    Genres,
+
+    /// List all distinct song sub-genres in alphabetical order (from array columns)
+    Subgenres,
+
     /// MusicBrainz integration commands
     Musicbrainz {
         #[command(flatten)]

@@ -222,6 +222,8 @@ impl MusicCommands {
             Self::Suggest { query, limit } => {
                 search::handle_suggest(&service, query.clone(), *limit).await
             }
+            Self::Genres => library::handle_genres(&service).await,
+            Self::Subgenres => library::handle_subgenres(&service).await,
             Self::Musicbrainz { args } => {
                 musicbrainz::handle_musicbrainz_command((*args).clone(), &config).await
             }

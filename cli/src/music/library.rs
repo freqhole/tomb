@@ -1,6 +1,7 @@
 //! Music library operations and management
 
 use grimoire::music::{MusicRepository, MusicService, SongQuery};
+use sqlx::Row;
 use std::io::{self, Write};
 use uuid::Uuid;
 
@@ -405,6 +406,58 @@ pub async fn handle_interactive_play(
         }
     } else {
         println!("❌ Invalid input");
+    }
+
+    Ok(())
+}
+
+/// Handle genres command - list all distinct song genres in alphabetical order
+pub async fn handle_genres(service: &MusicService<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🎵 Listing all distinct song genres in alphabetical order...");
+
+    // Query to get distinct genres ordered alphabetically
+    let query = "SELECT DISTINCT genre FROM songs WHERE genre IS NOT NULL AND genre != '' ORDER BY genre ASC";
+    let rows = sqlx::query(query).fetch_all(service.db().pool()).await?;
+
+    if rows.is_empty() {
+        println!("No genres found.");
+        return Ok(());
+    }
+
+    println!("📋 Found {} distinct genres:", rows.len());
+    for row in rows {
+        let genre: String = row.get("genre");
+        println!("  • {}", genre);
+    }
+
+    Ok(())
+}
+
+/// Handle subgenres command - list all distinct song sub-genres from array columns
+pub async fn handle_subgenres(
+    service: &MusicService<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🎼 Listing all distinct song sub-genres in alphabetical order...");
+
+    // Query to get all sub_genres arrays, unnest them, and get distinct values
+    let query = "
+        SELECT DISTINCT unnest(sub_genres) as subgenre
+        FROM songs
+        WHERE sub_genres IS NOT NULL
+        AND array_length(sub_genres, 1) > 0
+        ORDER BY subgenre ASC
+    ";
+    let rows = sqlx::query(query).fetch_all(service.db().pool()).await?;
+
+    if rows.is_empty() {
+        println!("No sub-genres found.");
+        return Ok(());
+    }
+
+    println!("📋 Found {} distinct sub-genres:", rows.len());
+    for row in rows {
+        let subgenre: String = row.get("subgenre");
+        println!("  • {}", subgenre);
     }
 
     Ok(())
