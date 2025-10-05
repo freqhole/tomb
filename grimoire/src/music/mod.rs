@@ -50,6 +50,9 @@
 //! ```
 
 pub mod directory_art;
+pub mod genre_models;
+pub mod genre_repository;
+pub mod genre_service;
 pub mod hasher;
 pub mod jobs;
 pub mod metadata;

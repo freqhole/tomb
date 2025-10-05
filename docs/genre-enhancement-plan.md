@@ -24,6 +24,7 @@
 ### Phase 2: Backend API
 
 - [x] update song schema with sub_genres
+- [x] create genre models, repository, and service in grimoire
 - [ ] implement GET /api/music/genres endpoint
 - [ ] implement POST /api/music/genres endpoint
 - [ ] add comma-separated input parsing

@@ -304,6 +304,7 @@ impl DownloadJobQueue {
             thumbnails: grimoire::config::app_config::ThumbnailConfig::default(),
             playback: grimoire::config::app_config::AudioPlaybackConfig::default(),
             downloads: grimoire::config::app_config::DownloadConfig::default(),
+            genres: None,
         };
 
         let media_blob = match media_repository.create(create_blob, &media_config).await {

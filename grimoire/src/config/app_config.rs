@@ -196,6 +196,9 @@ pub struct MediaConfig {
     /// URL download configuration
     #[serde(default)]
     pub downloads: DownloadConfig,
+    /// Predefined genres for song categorization
+    #[serde(default)]
+    pub genres: Option<Vec<String>>,
 }
 
 /// Thumbnail generation configuration
@@ -812,6 +815,7 @@ impl AppConfig {
                 thumbnails: ThumbnailConfig::default(),
                 playback: AudioPlaybackConfig::default(),
                 downloads: DownloadConfig::default(),
+                genres: None,
             },
             musicbrainz: crate::musicbrainz::MusicBrainzConfig {
                 enabled: true, // enabled by default for generated configs
@@ -1066,6 +1070,7 @@ impl Default for AppConfig {
                 thumbnails: ThumbnailConfig::default(),
                 playback: AudioPlaybackConfig::default(),
                 downloads: DownloadConfig::default(),
+                genres: None,
             },
             musicbrainz: crate::musicbrainz::MusicBrainzConfig {
                 enabled: false, // disabled by default
