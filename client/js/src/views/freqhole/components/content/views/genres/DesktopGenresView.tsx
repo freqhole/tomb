@@ -43,47 +43,6 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
   const genreDetailsLoading = () => dataSections.genreDetails.loading || false;
   const genreDetailsError = () => dataSections.genreDetails.error;
 
-  // Sort fields for genres
-  const sortFields: SortField[] = [
-    { value: "name", label: "name", description: "sort by genre name" },
-    {
-      value: "song_count",
-      label: "songs",
-      description: "sort by song count",
-    },
-    {
-      value: "album_count",
-      label: "albums",
-      description: "sort by album count",
-    },
-    {
-      value: "artist_count",
-      label: "artists",
-      description: "sort by artist count",
-    },
-  ];
-
-  // Set valid default for genres if current sort field is invalid
-  const currentSortField = sortState.field;
-  const validSortFields = sortFields.map((f) => f.value);
-  if (!validSortFields.includes(currentSortField)) {
-    // Set to "name" as default for genres
-    reactiveActions.setSort("name", "asc");
-  }
-
-  // Handle sort changes
-  const handleSortChange = (
-    field: string,
-    direction: "asc" | "desc" | null
-  ) => {
-    if (direction === null) {
-      // Handle null direction case - use default
-      reactiveActions.setSort(field, "asc");
-    } else {
-      reactiveActions.setSort(field, direction);
-    }
-  };
-
   // Genre selection state
   const [selectedGenre, setSelectedGenre] = createSignal<GenreStat | null>(
     null
@@ -167,14 +126,6 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
                 </p>
               </Show>
             </div>
-            <SearchSortControls
-              sortBy={sortState.field}
-              sortDirection={sortState.direction}
-              onSortChange={handleSortChange}
-              sortFields={sortFields}
-              directionStyle="arrows"
-              class="flex-shrink-0"
-            />
           </div>
           <div class="flex items-center">
             <TagFilterControls compact={true} />

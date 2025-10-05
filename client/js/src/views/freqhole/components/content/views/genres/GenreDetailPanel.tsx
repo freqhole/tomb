@@ -1,10 +1,13 @@
 import { Show, For, createSignal } from "solid-js";
+import { useReactiveActions, useSort } from "../../../../store";
+import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
 import { GenreArtistRow } from "./GenreArtistRow";
 import type {
   GenreStat,
   GenreSearchResponse,
   GenreArtist,
 } from "../../../../../../lib/music/schemas/genre";
+import type { SortField } from "../../../../../../components/search/SearchSortControls";
 
 interface GenreDetailPanelProps {
   genre: GenreStat;
@@ -14,8 +17,62 @@ interface GenreDetailPanelProps {
 }
 
 export function GenreDetailPanel(props: GenreDetailPanelProps) {
+  const reactiveActions = useReactiveActions();
+  const [sortState] = useSort();
+
   // State for expand all toggle
   const [expandAll, setExpandAll] = createSignal(false);
+
+  // Sort fields for artists within genre
+  const sortFields: SortField[] = [
+    { value: "artist", label: "name", description: "sort by artist name" },
+    {
+      value: "song_count",
+      label: "songs",
+      description: "sort by song count",
+    },
+    {
+      value: "album_count",
+      label: "albums",
+      description: "sort by album count",
+    },
+    {
+      value: "total_duration",
+      label: "duration",
+      description: "sort by total duration",
+    },
+    {
+      value: "avg_rating",
+      label: "rating",
+      description: "sort by average rating",
+    },
+    {
+      value: "favorite_count",
+      label: "favorites",
+      description: "sort by favorite count",
+    },
+  ];
+
+  // Set valid default for artist sorting if current sort field is invalid
+  const currentSortField = sortState.field;
+  const validSortFields = sortFields.map((f) => f.value);
+  if (!validSortFields.includes(currentSortField)) {
+    // Set to "artist" as default for artist sorting
+    reactiveActions.setSort("artist", "asc");
+  }
+
+  // Handle sort changes
+  const handleSortChange = (
+    field: string,
+    direction: "asc" | "desc" | null
+  ) => {
+    if (direction === null) {
+      // Handle null direction case - use default
+      reactiveActions.setSort(field, "asc");
+    } else {
+      reactiveActions.setSort(field, direction);
+    }
+  };
   // Format duration helper
   const formatDuration = (seconds: number | string): string => {
     const secs = typeof seconds === "string" ? parseFloat(seconds) : seconds;
@@ -89,15 +146,31 @@ export function GenreDetailPanel(props: GenreDetailPanelProps) {
             </div>
           </div>
 
-          {/* Expand/Collapse All Button */}
-          <Show when={artists().length > 0}>
-            <button
-              class="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
-              onClick={() => setExpandAll(!expandAll())}
-            >
-              {expandAll() ? "collapse all" : "expand all"}
-            </button>
-          </Show>
+          <div class="flex-row">
+            {/* Sort Controls */}
+            <Show when={artists().length > 0}>
+              <SearchSortControls
+                sortBy={sortState.field}
+                sortDirection={sortState.direction}
+                onSortChange={handleSortChange}
+                sortFields={sortFields}
+                directionStyle="arrows"
+                class="flex-shrink-0"
+              />
+            </Show>
+
+            {/* Expand/Collapse All Button */}
+            <Show when={artists().length > 0}>
+              <div class="mt-2 w-full flex justify-end">
+                <button
+                  class="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
+                  onClick={() => setExpandAll(!expandAll())}
+                >
+                  {expandAll() ? "collapse all" : "expand all"}
+                </button>
+              </div>
+            </Show>
+          </div>
         </div>
       </div>
 
