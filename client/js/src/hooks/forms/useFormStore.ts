@@ -83,8 +83,15 @@ export function useSongFormStore(
     return result;
   };
 
-  const [originalData] = createSignal(initializeFormData());
-  const [currentData, setCurrentData] = createSignal(initializeFormData());
+  const initialData = initializeFormData();
+  console.log("initializeFormData RESULT:", {
+    subGenres: initialData.sub_genres,
+    subGenresType: typeof initialData.sub_genres,
+    subGenresIsArray: Array.isArray(initialData.sub_genres),
+  });
+
+  const [originalData] = createSignal(initialData);
+  const [currentData, setCurrentData] = createSignal(initialData);
 
   // computed values using schema keys
   const changes = createMemo(() => {
@@ -152,6 +159,13 @@ export function useSongFormStore(
     // helpers
     getDisplayValue: (field: keyof EditableSongFields) => {
       const value = currentData()[field];
+      if (field === "sub_genres") {
+        console.log("getDisplayValue for sub_genres:", {
+          value,
+          valueType: typeof value,
+          isArray: Array.isArray(value),
+        });
+      }
       return value === "mixed" ? "" : (value ?? "");
     },
     getPlaceholder: (field: keyof EditableSongFields) => {

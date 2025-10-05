@@ -44,6 +44,7 @@ export const AlbumTracksResponseSchema = z.object({
       track_number: z.number().nullable(),
       duration: z.number().nullable(),
       genre: z.string().nullable(),
+      sub_genres: z.array(z.string()).nullish().default([]),
       year: z.number().nullable(),
       rating: z.number().nullable(),
       is_favorite: z.boolean(),

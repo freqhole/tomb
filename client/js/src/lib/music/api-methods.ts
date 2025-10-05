@@ -406,6 +406,7 @@ export const musicApiMethods = {
           disc_number: track.disc_number,
           duration_seconds: track.duration,
           genre: track.genre,
+          sub_genres: track.sub_genres || [],
           year: track.year,
           bpm: null,
           key_signature: null,
