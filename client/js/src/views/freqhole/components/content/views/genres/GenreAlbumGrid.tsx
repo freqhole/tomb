@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, createSignal, onMount } from "solid-js";
 import { apiClient } from "../../../../../../lib/api-client";
 import type { GenreAlbum } from "../../../../../../lib/music/schemas/genre";
 import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
@@ -13,6 +13,81 @@ interface GenreAlbumGridProps {
 
 export function GenreAlbumGrid(props: GenreAlbumGridProps) {
   const events = useGlobalEvents();
+
+  // Marquee animation component
+  const MarqueeText = (props: {
+    text: string;
+    class?: string;
+    title?: string;
+  }) => {
+    const [shouldMarquee, setShouldMarquee] = createSignal(false);
+    let containerRef: HTMLDivElement;
+    let textRef: HTMLSpanElement;
+
+    onMount(() => {
+      // Add CSS keyframes for marquee animation
+      if (!document.querySelector("#marquee-styles")) {
+        const style = document.createElement("style");
+        style.id = "marquee-styles";
+        style.textContent = `
+          @keyframes marquee-bounce {
+            0%, 25% { transform: translateX(0%); }
+            50%, 75% { transform: translateX(calc(-100% + var(--container-width))); }
+            100% { transform: translateX(0%); }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      // Check if text overflows
+      const checkOverflow = () => {
+        if (containerRef && textRef) {
+          const containerWidth = containerRef.offsetWidth;
+          const textWidth = textRef.scrollWidth;
+          setShouldMarquee(textWidth > containerWidth);
+
+          if (textWidth > containerWidth) {
+            containerRef.style.setProperty(
+              "--container-width",
+              `${containerWidth}px`
+            );
+          }
+        }
+      };
+
+      // Check on mount and resize
+      setTimeout(checkOverflow, 10); // Small delay to ensure layout is complete
+      window.addEventListener("resize", checkOverflow);
+
+      return () => window.removeEventListener("resize", checkOverflow);
+    });
+
+    return (
+      <div
+        ref={containerRef!}
+        class={`relative overflow-hidden ${props.class || ""}`}
+        title={props.title || props.text}
+      >
+        <span
+          ref={textRef!}
+          class={
+            shouldMarquee()
+              ? "inline-block whitespace-nowrap"
+              : "truncate block"
+          }
+          style={
+            shouldMarquee()
+              ? {
+                  animation: "marquee-bounce 4s ease-in-out infinite",
+                }
+              : {}
+          }
+        >
+          {props.text}
+        </span>
+      </div>
+    );
+  };
 
   // Helper function for getting album image URLs
   const getAlbumImageUrl = (albumThumbnailId: string | null) => {
@@ -133,19 +208,15 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
 
                   {/* Album info */}
                   <div class="space-y-1">
-                    <h4
-                      class="text-white font-medium text-sm truncate"
-                      title={album.album || "untitled"}
-                    >
-                      {album.album || "untitled"}
-                    </h4>
+                    <MarqueeText
+                      text={album.album || "untitled"}
+                      class="text-white font-medium text-sm"
+                    />
 
-                    <div
-                      class="text-xs text-gray-400 truncate"
-                      title={album.artist || undefined}
-                    >
-                      {album.artist || "unknown artist"}
-                    </div>
+                    <MarqueeText
+                      text={album.artist || "unknown artist"}
+                      class="text-xs text-gray-400"
+                    />
 
                     <div class="text-xs text-gray-500">
                       <Show when={album.year}>
