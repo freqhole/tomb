@@ -226,7 +226,6 @@ export function createStoreActions(
       () => {
         // Simple dependency tracking - just return selectedGenre directly
         const selectedGenre = store.genres.selectedGenre;
-        console.log("Genre details resource key:", selectedGenre);
         return selectedGenre;
       },
       async (selectedGenre) => {
@@ -246,7 +245,6 @@ export function createStoreActions(
             page_size: 50,
           };
 
-          console.log("Fetching genre details for:", selectedGenre);
           return await apiClient.searchGenres(searchRequest);
         } catch (error) {
           console.error("failed to fetch genre details:", error);

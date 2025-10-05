@@ -1,6 +1,7 @@
 import { For, Show } from "solid-js";
 import { apiClient } from "../../../../../../lib/api-client";
 import type { GenreAlbum } from "../../../../../../lib/music/schemas/genre";
+import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
 
 interface GenreAlbumGridProps {
   albums: GenreAlbum[];
@@ -11,6 +12,8 @@ interface GenreAlbumGridProps {
 }
 
 export function GenreAlbumGrid(props: GenreAlbumGridProps) {
+  const events = useGlobalEvents();
+
   // Helper function for getting album image URLs
   const getAlbumImageUrl = (albumThumbnailId: string | null) => {
     if (!albumThumbnailId) return null;
@@ -39,6 +42,31 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
 
   const handleAlbumDoubleClick = (album: GenreAlbum) => {
     props.onAlbumDoubleClick?.(album);
+  };
+
+  const handleAlbumPlay = async (album: Album, event: MouseEvent) => {
+    event.stopPropagation();
+
+    try {
+      if (!album.album) {
+        console.error("album name is null, cannot play album");
+        return;
+      }
+      const tracks = await apiClient.getAlbumTracks(
+        album.album,
+        album.artist || undefined
+      );
+      if (Array.isArray(tracks) && tracks.length > 0) {
+        // Play first track and queue the rest
+        events.emit("song:play", { song: tracks[0], replaceQueue: true });
+
+        tracks.slice(1).forEach((track) => {
+          events.emit("song:queue", { song: track });
+        });
+      }
+    } catch (error) {
+      console.error("failed to play album:", error);
+    }
   };
 
   return (
@@ -90,11 +118,7 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
                     <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         class="w-12 h-12 bg-magenta-600 text-white flex items-center justify-center hover:bg-magenta-500 transition-colors"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // TODO: implement play album functionality
-                          console.log("play album:", album.album);
-                        }}
+                        onClick={(e) => handleAlbumPlay(album, e)}
                       >
                         <svg
                           class="w-6 h-6 ml-1"

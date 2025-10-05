@@ -133,7 +133,6 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
     if (availableGenres.length > 0 && !storeSelectedGenre) {
       const firstGenre = availableGenres[0];
       if (firstGenre) {
-        console.log("Auto-selecting first genre:", firstGenre.name);
         reactiveActions.selectGenre(firstGenre.name);
       }
     }
