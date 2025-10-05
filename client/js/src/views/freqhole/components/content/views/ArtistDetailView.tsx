@@ -23,6 +23,12 @@ const getImageUrl = (blobId: string | null) => {
   return `${apiClient.getBaseUrl()}/api/blobs/${blobId}`;
 };
 
+// Helper function to format artist genres
+const formatArtistGenres = (genres: string[]): string => {
+  if (!genres || genres.length === 0) return "—";
+  return genres.slice(0, 3).join(", ");
+};
+
 interface ArtistDetailViewProps {
   class?: string;
 }
@@ -339,6 +345,14 @@ export function ArtistDetailView(
                         : "—"}
                     </div>
                   </div>
+                  <Show when={artist().genres && artist().genres.length > 0}>
+                    <div class="bg-magenta-950/30 rounded-lg p-3">
+                      <div class="text-magenta-300 text-sm mb-1">genres</div>
+                      <div class="text-white text-xl font-semibold">
+                        {formatArtistGenres(artist().genres)}
+                      </div>
+                    </div>
+                  </Show>
                 </div>
 
                 {/* Quick Actions */}

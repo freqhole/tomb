@@ -1115,7 +1115,7 @@ pub async fn list_artists(
             COALESCE(SUM(EXTRACT(EPOCH FROM s.duration)), 0) as total_duration,
             AVG(s.rating) as avg_rating,
             COUNT(CASE WHEN s.is_favorite THEN 1 END) as favorite_count,
-            ARRAY_AGG(DISTINCT s.genre) FILTER (WHERE s.genre IS NOT NULL) as genres
+            ARRAY_AGG(DISTINCT LOWER(s.genre)) FILTER (WHERE s.genre IS NOT NULL) as genres
         FROM songs s
         WHERE s.artist IS NOT NULL
         GROUP BY s.artist
@@ -1131,19 +1131,37 @@ pub async fn list_artists(
 
     let artists: Vec<ArtistSummary> = artists_data
         .into_iter()
-        .map(|row| ArtistSummary {
-            artist: row.artist.unwrap_or_default(),
-            song_count: row.song_count.unwrap_or(0),
-            album_count: row.album_count.unwrap_or(0),
-            total_duration: row
-                .total_duration
-                .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0) as i64)
-                .unwrap_or(0),
-            genres: row.genres.unwrap_or_default(),
-            avg_rating: row
-                .avg_rating
-                .map(|r| r.to_string().parse::<f64>().unwrap_or(0.0)),
-            favorite_count: row.favorite_count.unwrap_or(0),
+        .map(|row| {
+            // Capitalize first letter of each genre for display
+            let genres = row
+                .genres
+                .unwrap_or_default()
+                .into_iter()
+                .map(|mut g| {
+                    if let Some(first_char) = g.chars().next() {
+                        g.replace_range(
+                            0..first_char.len_utf8(),
+                            &first_char.to_uppercase().to_string(),
+                        );
+                    }
+                    g
+                })
+                .collect();
+
+            ArtistSummary {
+                artist: row.artist.unwrap_or_default(),
+                song_count: row.song_count.unwrap_or(0),
+                album_count: row.album_count.unwrap_or(0),
+                total_duration: row
+                    .total_duration
+                    .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0) as i64)
+                    .unwrap_or(0),
+                genres,
+                avg_rating: row
+                    .avg_rating
+                    .map(|r| r.to_string().parse::<f64>().unwrap_or(0.0)),
+                favorite_count: row.favorite_count.unwrap_or(0),
+            }
         })
         .collect();
 
@@ -1877,7 +1895,7 @@ pub async fn get_artist_by_name(
             COALESCE(SUM(EXTRACT(EPOCH FROM s.duration)), 0) as total_duration,
             AVG(s.rating) as avg_rating,
             COUNT(CASE WHEN s.is_favorite THEN 1 END) as favorite_count,
-            ARRAY_AGG(DISTINCT s.genre) FILTER (WHERE s.genre IS NOT NULL) as genres
+            ARRAY_AGG(DISTINCT LOWER(s.genre)) FILTER (WHERE s.genre IS NOT NULL) as genres
         FROM songs s
         WHERE s.artist = $1 AND s.deleted_at IS NULL
         GROUP BY s.artist
@@ -1890,6 +1908,22 @@ pub async fn get_artist_by_name(
 
     match artist_data {
         Some(row) => {
+            // Capitalize first letter of each genre for display
+            let genres = row
+                .genres
+                .unwrap_or_default()
+                .into_iter()
+                .map(|mut g| {
+                    if let Some(first_char) = g.chars().next() {
+                        g.replace_range(
+                            0..first_char.len_utf8(),
+                            &first_char.to_uppercase().to_string(),
+                        );
+                    }
+                    g
+                })
+                .collect();
+
             let artist = ArtistSummary {
                 artist: row.artist.unwrap_or_default(),
                 song_count: row.song_count.unwrap_or(0),
@@ -1898,7 +1932,7 @@ pub async fn get_artist_by_name(
                     .total_duration
                     .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0) as i64)
                     .unwrap_or(0),
-                genres: row.genres.unwrap_or_default(),
+                genres,
                 avg_rating: row
                     .avg_rating
                     .map(|r| r.to_string().parse::<f64>().unwrap_or(0.0)),
