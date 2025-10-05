@@ -51,13 +51,13 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
   // Handle genre selection
   const handleGenreClick = (genre: GenreStat) => {
     setSelectedGenre(genre);
-    reactiveActions.selectGenre(genre.name);
+    reactiveActions.selectGenre(genre.slug);
     // events.emit("genre:selected", { genre });
   };
 
   // Handle genre double-click - navigate to standalone genre view
   const handleGenreDoubleClick = (genre: GenreStat) => {
-    const encodedGenre = encodeURIComponent(genre.name);
+    const encodedGenre = encodeURIComponent(genre.slug);
     navigate(`/genre/${encodedGenre}`);
   };
 
@@ -74,7 +74,7 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
 
     if (storeSelectedGenre) {
       const genreData = availableGenres.find(
-        (g) => g.name === storeSelectedGenre
+        (g) => g.slug === storeSelectedGenre
       );
       if (genreData) {
         setSelectedGenre(genreData);
@@ -92,7 +92,7 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
     if (availableGenres.length > 0 && !storeSelectedGenre) {
       const firstGenre = availableGenres[0];
       if (firstGenre) {
-        reactiveActions.selectGenre(firstGenre.name);
+        reactiveActions.selectGenre(firstGenre.slug);
       }
     }
   });

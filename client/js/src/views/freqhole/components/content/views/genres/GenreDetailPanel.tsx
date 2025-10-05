@@ -241,6 +241,7 @@ export function GenreDetailPanel(props: GenreDetailPanelProps) {
                 <GenreArtistRow
                   artist={artist}
                   genreName={props.genre.name}
+                  genreSlug={props.genre.slug}
                   forceExpanded={expandAll()}
                 />
               )}

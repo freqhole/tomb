@@ -6,7 +6,7 @@ import {
 import { SongRatingField } from "./SongRatingField.js";
 import { SongFavoriteField } from "./SongFavoriteField.js";
 import { SongImageField } from "./SongImageField.js";
-import { GenreSelect } from "./GenreSelect.js";
+import { GenreInput } from "./GenreInput";
 import { SubGenresInput } from "./SubGenresInput.js";
 
 interface SongFormFieldProps {
@@ -87,17 +87,6 @@ export function SongFormField(props: SongFormFieldProps) {
           />
         );
 
-      case "select":
-        return (
-          <GenreSelect
-            value={props.value}
-            isDirty={props.isDirty}
-            disabled={props.disabled}
-            onUpdate={props.onUpdate}
-            onReset={props.onReset}
-          />
-        );
-
       case "sub_genres":
         return (
           <SubGenresInput
@@ -151,15 +140,31 @@ export function SongFormField(props: SongFormFieldProps) {
     }
   };
 
-  // rating, favorite, image, select, and sub_genres components handle their own layout
+  // rating, favorite, image, and sub_genres components handle their own layout
   if (
     config.type === "rating" ||
     config.type === "favorite" ||
     config.type === "image" ||
-    config.type === "select" ||
     config.type === "sub_genres"
   ) {
     return renderInput();
+  }
+
+  // Special handling for genre field (uses autocomplete input)
+  if (props.field === "genre") {
+    return (
+      <GenreInput
+        value={props.value}
+        isDirty={props.isDirty}
+        disabled={props.disabled}
+        onUpdate={(value: any) => {
+          // Trim whitespace when updating
+          const trimmedValue = value ? value.trim() : value;
+          props.onUpdate(trimmedValue === "" ? null : trimmedValue);
+        }}
+        onReset={props.onReset}
+      />
+    );
   }
 
   return (

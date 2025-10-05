@@ -198,7 +198,18 @@ pub struct MediaConfig {
     pub downloads: DownloadConfig,
     /// Predefined genres for song categorization
     #[serde(default)]
-    pub genres: Option<Vec<String>>,
+    pub genres: Option<Vec<GenreConfig>>,
+}
+
+/// Genre configuration with display name, slug, and genre list
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GenreConfig {
+    /// Display name for the UI
+    pub display: String,
+    /// URL-friendly slug for queries and URLs
+    pub slug: String,
+    /// List of genre strings to match against
+    pub genres: Vec<String>,
 }
 
 /// Thumbnail generation configuration

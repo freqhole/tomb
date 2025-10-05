@@ -175,21 +175,21 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
   };
 
   // Toggle individual genre expand/collapse
-  const toggleGenre = (genreName: string) => {
+  const toggleGenre = (genreSlug: string) => {
     setExpandedGenres((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(genreName)) {
-        newSet.delete(genreName);
+      if (newSet.has(genreSlug)) {
+        newSet.delete(genreSlug);
       } else {
-        newSet.add(genreName);
+        newSet.add(genreSlug);
       }
       return newSet;
     });
   };
 
   // Check if genre is expanded (either individually or via expand all)
-  const isGenreExpanded = (genreName: string) => {
-    return expandAll() || expandedGenres().has(genreName);
+  const isGenreExpanded = (genreSlug: string) => {
+    return expandAll() || expandedGenres().has(genreSlug);
   };
 
   // Auto-load albums when a genre is expanded
@@ -198,20 +198,15 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
     const individuallyExpanded = expandedGenres();
 
     genresWithArtists().forEach((genre) => {
-      const isExpanded = expanded || individuallyExpanded.has(genre.name);
+      const isExpanded = expanded || individuallyExpanded.has(genre.slug);
 
       if (isExpanded && genre.loaded && genre.artists.length > 0) {
         // Load albums for unloaded artists in expanded genres
         genre.artists.forEach((artist) => {
           if (!artist.albumsLoaded && !artist.albumsLoading) {
-            loadArtistAlbums(genre.name, artist.artist);
+            loadArtistAlbums(genre.slug, artist.artist);
           }
         });
-      }
-
-      // Persist loaded genre data
-      if (genre.loaded) {
-        globalGenreState.setLoadedGenre(genre.name, genre);
       }
     });
   });
@@ -305,11 +300,11 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
   };
 
   // Load artists for a specific genre
-  const loadGenreArtists = async (genreName: string) => {
+  const loadGenreArtists = async (genreSlug: string) => {
     try {
       // Use the existing genre search to get artists
       const response = await reactiveActions.searchGenres({
-        genre: genreName,
+        genre_slug: genreSlug,
         page: 1,
         page_size: 20, // Load first 20 artists per genre
       });
@@ -326,7 +321,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
 
         setGenresWithArtists((prev) =>
           prev.map((g) => {
-            if (g.name === genreName) {
+            if (g.slug === genreSlug) {
               const updatedGenre = {
                 ...g,
                 artists: artistsWithAlbums,
@@ -357,8 +352,8 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
     }
   };
 
-  // Load albums for a specific artist within a genre
-  const loadArtistAlbums = async (genreName: string, artistName: string) => {
+  // Load albums for a specific artist in a genre
+  const loadArtistAlbums = async (genreSlug: string, artistName: string) => {
     try {
       setGenresWithArtists((prev) =>
         prev.map((g) =>
@@ -374,7 +369,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
       );
 
       const response = await reactiveActions.searchGenres({
-        genre: genreName,
+        genre_slug: genreSlug,
         artist: artistName,
         page: 1,
         page_size: 50,
@@ -383,7 +378,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
       if (response && "albums" in response) {
         setGenresWithArtists((prev) =>
           prev.map((g) => {
-            if (g.name === genreName) {
+            if (g.slug === genreSlug) {
               const updatedGenre = {
                 ...g,
                 artists: g.artists.map((a) =>
@@ -433,7 +428,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
     if (currentGenres.length > 0) {
       const initialized = currentGenres.map((genre) => {
         // Check if we have previously loaded data for this genre
-        const loadedGenre = globalGenreState.getLoadedGenre(genre.name);
+        const loadedGenre = globalGenreState.getLoadedGenre(genre.slug);
         if (loadedGenre) {
           return { ...genre, ...loadedGenre };
         }
@@ -450,7 +445,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
       const genresToLoad = initialized.filter((genre) => {
         const isExpanded =
           globalGenreState.expandAll ||
-          globalGenreState.expandedGenres.has(genre.name);
+          globalGenreState.expandedGenres.has(genre.slug);
         const isUnloaded = !genre.loaded && !genre.loading;
         const isFirstFew = initialized.indexOf(genre) < 2;
         return (isExpanded || isFirstFew) && isUnloaded;
@@ -458,9 +453,9 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
 
       genresToLoad.forEach((genre) => {
         setGenresWithArtists((prev) =>
-          prev.map((g) => (g.name === genre.name ? { ...g, loading: true } : g))
+          prev.map((g) => (g.slug === genre.slug ? { ...g, loading: true } : g))
         );
-        loadGenreArtists(genre.name);
+        loadGenreArtists(genre.slug);
       });
     }
   });
@@ -475,10 +470,10 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
           if (genre && !genre.loaded && !genre.loading) {
             setGenresWithArtists((prev) =>
               prev.map((g) =>
-                g.name === genreName ? { ...g, loading: true } : g
+                g.slug === genre.slug ? { ...g, loading: true } : g
               )
             );
-            loadGenreArtists(genreName);
+            loadGenreArtists(genre.slug);
           }
           observer.disconnect();
         }
@@ -569,13 +564,13 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
           >
             <For each={genresWithArtists()}>
               {(genre) => (
-                <div ref={(el) => setupLazyLoading(el, genre.name)}>
+                <div ref={(el) => setupLazyLoading(el, genre.slug)}>
                   {/* Genre Header */}
                   <div class="sticky top-0 bg-black border-l border-magenta-600 z-10 p-4 hover:bg-gray-900/50 transition-colors">
                     <div class="flex items-center justify-between">
                       <div
                         class="flex-1 cursor-pointer"
-                        onClick={() => toggleGenre(genre.name)}
+                        onClick={() => toggleGenre(genre.slug)}
                       >
                         <h2 class="text-lg font-semibold text-white mb-1">
                           {genre.name}
@@ -593,7 +588,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
                           class="w-8 h-8 rounded-full bg-magenta-600 hover:bg-magenta-500 flex items-center justify-center transition-colors"
                           onClick={(e) => {
                             e.stopPropagation();
-                            playGenre(genre.name, false);
+                            playGenre(genre.slug, false);
                           }}
                           title="play all songs in genre"
                         >
@@ -609,7 +604,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
                           class="w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors"
                           onClick={(e) => {
                             e.stopPropagation();
-                            playGenre(genre.name, true);
+                            playGenre(genre.slug, true);
                           }}
                           title="shuffle all songs in genre"
                         >
@@ -626,7 +621,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
                   </div>
 
                   {/* Artists */}
-                  <Show when={isGenreExpanded(genre.name)}>
+                  <Show when={isGenreExpanded(genre.slug)}>
                     <div class="px-4 py-4">
                       <Show when={genre.loading}>
                         <div class="py-6 text-center">

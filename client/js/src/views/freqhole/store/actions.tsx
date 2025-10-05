@@ -251,7 +251,7 @@ export function createStoreActions(
 
         try {
           const searchRequest = {
-            genre: params.selectedGenre,
+            genre_slug: params.selectedGenre,
             q: params.query || undefined,
             tags: params.tagsKey
               ? params.tagsKey.split(",").filter(Boolean)

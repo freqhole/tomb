@@ -46,7 +46,7 @@ export const FormFieldConfig = {
     album_artist: { label: "album artist", type: "text" as const },
     track_number: { label: "track number", type: "number" as const },
     disc_number: { label: "disc number", type: "number" as const },
-    genre: { label: "genre", type: "select" as const },
+    genre: { label: "genre", type: "text" as const },
     sub_genres: { label: "sub genres", type: "sub_genres" as const },
     year: { label: "year", type: "number" as const },
     bpm: { label: "bpm", type: "number" as const },

@@ -12,9 +12,11 @@ use axum::{
     routing::{get, post},
     Json as JsonExtractor, Router,
 };
+use grimoire::config::app_config::GenreConfig;
 use grimoire::music::genre_models::{GenreSearchBody, GenreSearchRequest, GenreStatsResponse};
 use grimoire::{database::DatabaseConnection, music::genre_service::GenreService, AppConfig};
 use serde::Deserialize;
+use serde::Serialize;
 
 /// Query parameters for GET /api/music/genres
 #[derive(Debug, Deserialize)]
@@ -22,6 +24,12 @@ pub struct GenreStatsQuery {
     /// Include only genres with songs (default: false, shows all predefined genres)
     #[serde(default)]
     pub with_songs_only: bool,
+}
+
+/// Response for individual genres autocomplete
+#[derive(Debug, Serialize)]
+pub struct GenreAutocompleteResponse {
+    pub genres: Vec<String>,
 }
 
 /// GET /api/music/genres - get all predefined genres with statistics
@@ -32,11 +40,25 @@ pub async fn get_genres(
     Query(query): Query<GenreStatsQuery>,
 ) -> Result<Json<GenreStatsResponse>, StatusCode> {
     // Get predefined genres from config
-    let predefined_genres = config
-        .media
-        .genres
-        .clone()
-        .unwrap_or_else(|| vec!["rock".to_string(), "pop".to_string(), "jazz".to_string()]);
+    let predefined_genres = config.media.genres.clone().unwrap_or_else(|| {
+        vec![
+            GenreConfig {
+                display: "Rock".to_string(),
+                slug: "rock".to_string(),
+                genres: vec!["rock".to_string()],
+            },
+            GenreConfig {
+                display: "Pop".to_string(),
+                slug: "pop".to_string(),
+                genres: vec!["pop".to_string()],
+            },
+            GenreConfig {
+                display: "Jazz".to_string(),
+                slug: "jazz".to_string(),
+                genres: vec!["jazz".to_string()],
+            },
+        ]
+    });
 
     if predefined_genres.is_empty() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
@@ -56,16 +78,81 @@ pub async fn get_genres(
     }
 }
 
+/// GET /api/music/genres/autocomplete - get all individual genres for autocomplete
+pub async fn get_genre_autocomplete(
+    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(config): Extension<AppConfig>,
+) -> Result<Json<GenreAutocompleteResponse>, StatusCode> {
+    // Get predefined genres from config
+    let predefined_genres = config.media.genres.clone().unwrap_or_else(|| {
+        vec![
+            GenreConfig {
+                display: "Rock".to_string(),
+                slug: "rock".to_string(),
+                genres: vec!["rock".to_string()],
+            },
+            GenreConfig {
+                display: "Pop".to_string(),
+                slug: "pop".to_string(),
+                genres: vec!["pop".to_string()],
+            },
+            GenreConfig {
+                display: "Jazz".to_string(),
+                slug: "jazz".to_string(),
+                genres: vec!["jazz".to_string()],
+            },
+        ]
+    });
+
+    if predefined_genres.is_empty() {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    // Parse individual genres directly from config
+    let mut all_genres = Vec::new();
+    for group in &predefined_genres {
+        all_genres.extend(group.genres.clone());
+    }
+
+    // Sort alphabetically and remove duplicates
+    all_genres.sort();
+    all_genres.dedup();
+
+    Ok(Json(GenreAutocompleteResponse { genres: all_genres }))
+}
+
 /// POST /api/music/genres - search/filter within genres with pagination
 pub async fn search_genres(
     Extension(_user): Extension<AuthenticatedUser>,
     Extension(db): Extension<DatabaseConnection>,
+    Extension(config): Extension<AppConfig>,
     JsonExtractor(body): JsonExtractor<GenreSearchBody>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let request: GenreSearchRequest = body.into();
     let service = GenreService::new(db.pool().clone());
 
-    match service.search_genres(request).await {
+    // Get predefined genres from config
+    let predefined_genres = config.media.genres.clone().unwrap_or_else(|| {
+        vec![
+            GenreConfig {
+                display: "Rock".to_string(),
+                slug: "rock".to_string(),
+                genres: vec!["rock".to_string()],
+            },
+            GenreConfig {
+                display: "Pop".to_string(),
+                slug: "pop".to_string(),
+                genres: vec!["pop".to_string()],
+            },
+            GenreConfig {
+                display: "Jazz".to_string(),
+                slug: "jazz".to_string(),
+                genres: vec!["jazz".to_string()],
+            },
+        ]
+    });
+
+    match service.search_genres(request, &predefined_genres).await {
         Ok(response) => Ok(Json(response)),
         Err(e) => {
             tracing::error!("failed to search genres: {}", e);
@@ -94,6 +181,7 @@ pub fn create_genre_routes() -> Router {
     Router::new()
         .route("/genres", get(get_genres))
         .route("/genres", post(search_genres))
+        .route("/genres/autocomplete", get(get_genre_autocomplete))
 }
 
 #[cfg(test)]

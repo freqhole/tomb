@@ -662,6 +662,12 @@ export class ApiClient {
     return GenreSearchResponseSchema.parse(response);
   }
 
+  async getGenreAutocomplete() {
+    const url = this.buildUrl("/api/music/genres/autocomplete");
+    const response = await this.makeRequest<any>("GET", url);
+    return response;
+  }
+
   // Music API methods - Artists
   async getArtists(options?: {
     limit?: number;

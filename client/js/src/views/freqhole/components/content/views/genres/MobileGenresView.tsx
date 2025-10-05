@@ -44,11 +44,15 @@ export function MobileGenresView(props: MobileGenresViewProps) {
   const genreDetailsError = () => dataSections.genreDetails.error;
 
   // Mobile state management
-  const [selectedGenre, setSelectedGenre] = createSignal<GenreStat | null>(null);
+  const [selectedGenre, setSelectedGenre] = createSignal<GenreStat | null>(
+    null
+  );
   const [showGenreDetail, setShowGenreDetail] = createSignal(false);
 
   // Scroll restoration state
-  const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(null);
+  const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
+    null
+  );
 
   // Get scroll state from browser history
   const getSavedScrollTop = (): number => {
@@ -79,7 +83,7 @@ export function MobileGenresView(props: MobileGenresViewProps) {
   // Handle genre selection
   const handleGenreClick = (genre: GenreStat) => {
     setSelectedGenre(genre);
-    reactiveActions.selectGenre(genre.name);
+    reactiveActions.selectGenre(genre.slug);
     setShowGenreDetail(true);
   };
 
@@ -92,7 +96,7 @@ export function MobileGenresView(props: MobileGenresViewProps) {
 
   // Handle genre double-click - navigate to standalone genre view
   const handleGenreDoubleClick = (genre: GenreStat) => {
-    const encodedGenre = encodeURIComponent(genre.name);
+    const encodedGenre = encodeURIComponent(genre.slug);
     navigate(`/genre/${encodedGenre}`);
   };
 
@@ -100,7 +104,7 @@ export function MobileGenresView(props: MobileGenresViewProps) {
   createEffect(() => {
     const storeSelectedGenre = genresState.selectedGenre;
     if (storeSelectedGenre) {
-      const genreData = genres().find((g) => g.name === storeSelectedGenre);
+      const genreData = genres().find((g) => g.slug === storeSelectedGenre);
       if (genreData) {
         setSelectedGenre(genreData);
         setShowGenreDetail(true);
@@ -116,10 +120,14 @@ export function MobileGenresView(props: MobileGenresViewProps) {
     const availableGenres = genres();
     const storeSelectedGenre = genresState.selectedGenre;
 
-    if (availableGenres.length > 0 && !storeSelectedGenre && !showGenreDetail()) {
+    if (
+      availableGenres.length > 0 &&
+      !storeSelectedGenre &&
+      !showGenreDetail()
+    ) {
       const firstGenre = availableGenres[0];
       if (firstGenre) {
-        reactiveActions.selectGenre(firstGenre.name);
+        reactiveActions.selectGenre(firstGenre.slug);
       }
     }
   });
@@ -141,7 +149,9 @@ export function MobileGenresView(props: MobileGenresViewProps) {
   };
 
   return (
-    <div class={`h-full flex flex-col bg-black text-white ${props.class || ""}`}>
+    <div
+      class={`h-full flex flex-col bg-black text-white ${props.class || ""}`}
+    >
       <Show
         when={!showGenreDetail()}
         fallback={
@@ -191,7 +201,9 @@ export function MobileGenresView(props: MobileGenresViewProps) {
               <h1 class="text-xl font-semibold text-white mb-2">genres</h1>
               <Show
                 when={!loading() && !error()}
-                fallback={<p class="text-gray-300 text-sm">loading genres...</p>}
+                fallback={
+                  <p class="text-gray-300 text-sm">loading genres...</p>
+                }
               >
                 <p class="text-gray-300 text-sm">
                   {totalCount()} genre{totalCount() !== 1 ? "s" : ""}

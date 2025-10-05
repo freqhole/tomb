@@ -6,6 +6,7 @@ import type { GenreArtist } from "../../../../../../lib/music/schemas/genre";
 interface GenreArtistRowProps {
   artist: GenreArtist;
   genreName: string;
+  genreSlug: string;
   forceExpanded?: boolean;
   class?: string;
 }
@@ -45,14 +46,14 @@ export function GenreArtistRow(props: GenreArtistRowProps) {
   const [albumsResource] = createResource(
     () =>
       isExpanded()
-        ? { genre: props.genreName, artist: props.artist.artist }
+        ? { genreSlug: props.genreSlug, artist: props.artist.artist }
         : false,
     async (params) => {
       if (!params) return null;
 
       try {
         const result = await reactiveActions.searchGenres({
-          genre: params.genre,
+          genre_slug: params.genreSlug,
           artist: params.artist,
           page_size: 50,
         });

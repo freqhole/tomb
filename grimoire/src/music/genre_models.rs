@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize)]
 pub struct GenreStat {
     pub name: String,
+    pub slug: String,
     pub song_count: i64,
     pub album_count: i64,
     pub artist_count: i64,
@@ -26,6 +27,7 @@ pub struct GenreStatsResponse {
 #[derive(Debug, Deserialize)]
 pub struct GenreSearchBody {
     pub genre: Option<String>,
+    pub genre_slug: Option<String>,
     pub artist: Option<String>,
     pub q: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -39,6 +41,8 @@ pub struct GenreSearchBody {
 #[derive(Debug)]
 pub struct GenreSearchRequest {
     pub genre: Option<String>,
+    pub genre_slug: Option<String>,
+    pub expanded_genres: Option<Vec<String>>,
     pub artist: Option<String>,
     pub q: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -52,6 +56,8 @@ impl From<GenreSearchBody> for GenreSearchRequest {
     fn from(body: GenreSearchBody) -> Self {
         Self {
             genre: body.genre,
+            genre_slug: body.genre_slug,
+            expanded_genres: None,
             artist: body.artist,
             q: body.q,
             tags: body.tags,

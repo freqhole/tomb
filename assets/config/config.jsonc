@@ -101,34 +101,111 @@
     },
     // Predefined genres for song categorization
     "genres": [
-      "rock",
-      "pop",
-      "jazz",
-      "classical",
-      "electronic",
-      "hip-hop",
-      "country",
-      "folk",
-      "blues",
-      "reggae",
-      "metal",
-      "punk",
-      "indie",
-      "alternative",
-      "experimental",
-      "ambient",
-      "techno",
-      "house",
-      "trance",
-      "drum-and-bass",
-      "dubstep",
-      "r-n-b",
-      "soul",
-      "funk",
-      "gospel",
-      "world",
-      "soundtrack",
-      "instrumental"
+      {
+        "display": "Rock",
+        "slug": "rock",
+        "genres": ["rock", "Rock", "classic rock", "alt rock", "indie rock"]
+      },
+      {
+        "display": "Pop",
+        "slug": "pop",
+        "genres": ["pop", "Pop"]
+      },
+      {
+        "display": "Electronic",
+        "slug": "electronic",
+        "genres": ["electronic", "Electronic", "Electronica", "Electronica & Dance", "Electronica/Dance", "techno", "trance", "house", "drum-and-bass", "dubstep", "idm"]
+      },
+      {
+        "display": "Metal",
+        "slug": "metal",
+        "genres": ["metal", "Metal", "death metal", "black metal", "doom metal", "grindcore"]
+      },
+      {
+        "display": "Hip-Hop",
+        "slug": "hip-hop",
+        "genres": ["hip-hop", "hip hop/rap", "rap"]
+      },
+      {
+        "display": "Punk",
+        "slug": "punk",
+        "genres": ["punk", "Alternative & Punk", "post-punk", "hardcore punk"]
+      },
+      {
+        "display": "No Wave / Dark Wave",
+        "slug": "no-wave",
+        "genres": ["no wave", "darkwave"]
+      },
+      {
+        "display": "Industrial",
+        "slug": "industrial",
+        "genres": ["industrial", "ebm"]
+      },
+      {
+        "display": "Jazz",
+        "slug": "jazz",
+        "genres": ["jazz"]
+      },
+      {
+        "display": "Classical",
+        "slug": "classical",
+        "genres": ["classical"]
+      },
+      {
+        "display": "Country",
+        "slug": "country",
+        "genres": ["country"]
+      },
+      {
+        "display": "Folk",
+        "slug": "folk",
+        "genres": ["folk"]
+      },
+      {
+        "display": "Blues",
+        "slug": "blues",
+        "genres": ["blues"]
+      },
+      {
+        "display": "Indie / Alternative",
+        "slug": "indie",
+        "genres": ["indie", "alternative"]
+      },
+      {
+        "display": "Experimental / Ambient",
+        "slug": "experimental",
+        "genres": ["experimental", "ambient"]
+      },
+      {
+        "display": "R&B / Soul",
+        "slug": "rnb",
+        "genres": ["r-n-b", "soul", "funk", "gospel", "reggae"]
+      },
+      {
+        "display": "World",
+        "slug": "world",
+        "genres": ["world"]
+      },
+      {
+        "display": "Soundtrack",
+        "slug": "soundtrack",
+        "genres": ["soundtrack"]
+      },
+      {
+        "display": "Instrumental",
+        "slug": "instrumental",
+        "genres": ["instrumental"]
+      },
+      {
+        "display": "Mixtape / Compilation",
+        "slug": "mixtape",
+        "genres": ["mixtape", "compilation"]
+      },
+      {
+        "display": "Noise / Misc",
+        "slug": "misc",
+        "genres": ["Noise", "misc", "easy listening"]
+      }
     ]
   },
   "musicbrainz": {

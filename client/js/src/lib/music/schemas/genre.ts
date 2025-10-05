@@ -3,6 +3,7 @@ import { z } from "zod";
 // Individual genre statistics
 export const GenreStatSchema = z.object({
   name: z.string(),
+  slug: z.string(),
   song_count: z.number(),
   album_count: z.number(),
   artist_count: z.number(),
@@ -22,6 +23,7 @@ export type GenreStatsResponse = z.infer<typeof GenreStatsResponseSchema>;
 // Request parameters for POST /api/music/genres
 export const GenreSearchRequestSchema = z.object({
   genre: z.string().optional(),
+  genre_slug: z.string().optional(),
   artist: z.string().optional(),
   q: z.string().optional(),
   tags: z.array(z.string()).optional(),

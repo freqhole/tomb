@@ -3,6 +3,7 @@
 //! This module contains the data access layer for genre operations,
 //! including statistics retrieval and search functionality.
 
+use crate::config::app_config::GenreConfig;
 use crate::music::genre_models::*;
 use sqlx::{PgPool, Row};
 
@@ -15,10 +16,130 @@ impl GenreRepository {
         Self { pool }
     }
 
-    /// Get all predefined genres with statistics
+    /// Get all predefined genres with statistics using grouping logic
+    pub async fn get_genre_stats_with_grouping(
+        &self,
+        predefined_genres: &[GenreConfig],
+        with_songs_only: bool,
+    ) -> Result<GenreStatsResponse, sqlx::Error> {
+        // Parse genre groups from config
+        let mut genre_groups = Vec::new();
+        for group in predefined_genres {
+            genre_groups.push((
+                group.display.clone(),
+                group.slug.clone(),
+                group.genres.clone(),
+            ));
+        }
+
+        // Build genre stats query using grouping logic
+        let mut genre_cases = Vec::new();
+        let mut bind_params = Vec::new();
+        let mut param_index = 1;
+
+        for (group_name, _group_slug, individual_genres) in &genre_groups {
+            let genre_conditions: Vec<String> = individual_genres
+                .iter()
+                .map(|_| {
+                    let condition = format!("LOWER(s.genre) = LOWER(${})", param_index);
+                    param_index += 1;
+                    condition
+                })
+                .collect();
+
+            let case_when = format!(
+                "WHEN {} THEN ${}",
+                genre_conditions.join(" OR "),
+                param_index
+            );
+            param_index += 1;
+
+            genre_cases.push(case_when);
+            bind_params.extend(individual_genres.clone());
+            bind_params.push(group_name.clone());
+        }
+
+        let sql_query = format!(
+            r#"
+            WITH genre_mapping AS (
+                SELECT
+                    s.id,
+                    s.album,
+                    s.artist,
+                    s.duration,
+                    CASE
+                        {}
+                        ELSE NULL
+                    END as genre_group
+                FROM songs s
+                WHERE s.deleted_at IS NULL
+            ),
+            genre_stats AS (
+                SELECT
+                    genre_group as name,
+                    COUNT(DISTINCT id) as song_count,
+                    COUNT(DISTINCT album) as album_count,
+                    COUNT(DISTINCT artist) as artist_count,
+                    COALESCE(SUM(EXTRACT(EPOCH FROM duration))::bigint, 0) as total_duration
+                FROM genre_mapping
+                WHERE genre_group IS NOT NULL
+                GROUP BY genre_group
+            )
+            SELECT
+                name,
+                song_count,
+                album_count,
+                artist_count,
+                total_duration
+            FROM genre_stats
+            ORDER BY name
+            "#,
+            genre_cases.join("\n                        ")
+        );
+
+        let mut query_builder = sqlx::query(&sql_query);
+        for param in bind_params {
+            query_builder = query_builder.bind(param);
+        }
+
+        let rows = query_builder.fetch_all(&self.pool).await?;
+
+        let mut genres: Vec<GenreStat> = rows
+            .into_iter()
+            .map(|row| {
+                let display_name: String = row.get("name");
+                // Find the slug for this display name
+                let slug = genre_groups
+                    .iter()
+                    .find(|(name, _slug, _genres)| name == &display_name)
+                    .map(|(_name, slug, _genres)| slug.clone())
+                    .unwrap_or_else(|| display_name.to_lowercase().replace(" ", "-"));
+
+                GenreStat {
+                    name: display_name,
+                    slug,
+                    song_count: row.get("song_count"),
+                    album_count: row.get("album_count"),
+                    artist_count: row.get("artist_count"),
+                    total_duration: row.get("total_duration"),
+                }
+            })
+            .collect();
+
+        // Filter to only genres with songs if requested
+        if with_songs_only {
+            genres.retain(|genre| genre.song_count > 0);
+        }
+
+        let total = genres.len() as i64;
+
+        Ok(GenreStatsResponse { genres, total })
+    }
+
+    /// Get all predefined genres with statistics (legacy method for backward compatibility)
     pub async fn get_genre_stats(
         &self,
-        predefined_genres: &[String],
+        predefined_genres: &[GenreConfig],
         with_songs_only: bool,
     ) -> Result<GenreStatsResponse, sqlx::Error> {
         // Build genre stats query using parameterized queries
@@ -62,19 +183,30 @@ impl GenreRepository {
 
         let mut query_builder = sqlx::query(&sql_query);
         for genre in predefined_genres {
-            query_builder = query_builder.bind(genre);
+            query_builder = query_builder.bind(&genre.display);
         }
 
         let rows = query_builder.fetch_all(&self.pool).await?;
 
         let mut genres: Vec<GenreStat> = rows
             .into_iter()
-            .map(|row| GenreStat {
-                name: row.get("name"),
-                song_count: row.get("song_count"),
-                album_count: row.get("album_count"),
-                artist_count: row.get("artist_count"),
-                total_duration: row.get("total_duration"),
+            .map(|row| {
+                let display_name: String = row.get("name");
+                // Find the slug for this display name from predefined genres
+                let slug = predefined_genres
+                    .iter()
+                    .find(|g| g.display == display_name)
+                    .map(|g| g.slug.clone())
+                    .unwrap_or_else(|| display_name.to_lowercase().replace(" ", "-"));
+
+                GenreStat {
+                    name: display_name,
+                    slug,
+                    song_count: row.get("song_count"),
+                    album_count: row.get("album_count"),
+                    artist_count: row.get("artist_count"),
+                    total_duration: row.get("total_duration"),
+                }
             })
             .collect();
 
@@ -114,7 +246,25 @@ impl GenreRepository {
         let mut bind_values: Vec<String> = vec![];
         let mut param_count = 0;
 
-        if let Some(genre) = &request.genre {
+        // Handle single genre or expanded genres (from slug lookup)
+        if let Some(expanded_genres) = &request.expanded_genres {
+            if !expanded_genres.is_empty() {
+                let genre_placeholders: Vec<String> = expanded_genres
+                    .iter()
+                    .map(|_| {
+                        param_count += 1;
+                        format!("${}", param_count)
+                    })
+                    .collect();
+                query_parts.push(format!(
+                    "AND s.genre IN ({})",
+                    genre_placeholders.join(", ")
+                ));
+                for genre in expanded_genres {
+                    bind_values.push(genre.clone());
+                }
+            }
+        } else if let Some(genre) = &request.genre {
             param_count += 1;
             query_parts.push(format!("AND s.genre = ${}", param_count));
             bind_values.push(genre.clone());
@@ -249,7 +399,25 @@ impl GenreRepository {
         let mut bind_values: Vec<String> = vec![];
         let mut param_count = 0;
 
-        if let Some(genre) = &request.genre {
+        // Handle single genre or expanded genres (from slug lookup)
+        if let Some(expanded_genres) = &request.expanded_genres {
+            if !expanded_genres.is_empty() {
+                let genre_placeholders: Vec<String> = expanded_genres
+                    .iter()
+                    .map(|_| {
+                        param_count += 1;
+                        format!("${}", param_count)
+                    })
+                    .collect();
+                query_parts.push(format!(
+                    "AND s.genre IN ({})",
+                    genre_placeholders.join(", ")
+                ));
+                for genre in expanded_genres {
+                    bind_values.push(genre.clone());
+                }
+            }
+        } else if let Some(genre) = &request.genre {
             param_count += 1;
             query_parts.push(format!("AND s.genre = ${}", param_count));
             bind_values.push(genre.clone());
