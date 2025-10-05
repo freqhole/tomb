@@ -21,12 +21,12 @@ export function GenreDetailPanel(props: GenreDetailPanelProps) {
   const [sortState] = useSort();
   const [layout] = useLayout();
 
-  // State for expand all toggle
-  const [expandAll, setExpandAll] = createSignal(false);
-
   // Check if mobile layout
   const isMobile = () =>
     layout.breakpoint === "mobile" || layout.breakpoint === "tablet";
+
+  // State for expand all toggle - default to expanded on desktop, collapsed on mobile
+  const [expandAll, setExpandAll] = createSignal(!isMobile());
 
   // Sort fields for artists within genre
   const sortFields: SortField[] = [

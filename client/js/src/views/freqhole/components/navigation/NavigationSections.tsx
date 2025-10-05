@@ -28,7 +28,7 @@ export function NavigationSections(props: NavigationSectionsProps) {
           <button
             class={`w-full text-left p-2 rounded-lg text-sm transition-all duration-200 ${
               props.currentPath === item.path ||
-              (props.currentPath === "/" && item.path === "/songs")
+              (props.currentPath === "/" && item.path === "/genres")
                 ? "bg-magenta-600/30 text-white"
                 : "text-white hover:bg-magenta-600/20"
             }`}

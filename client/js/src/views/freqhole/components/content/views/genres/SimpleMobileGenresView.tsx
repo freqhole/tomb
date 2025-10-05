@@ -1,6 +1,16 @@
-import { For, Show, createSignal, createEffect } from "solid-js";
+import {
+  For,
+  Show,
+  createSignal,
+  createEffect,
+  onMount,
+  onCleanup,
+} from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import { useReactiveActions } from "../../../../store";
 import { useDataSections } from "../../../../store/hooks";
+import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
+import { apiClient } from "../../../../../../lib/api-client";
 // import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
 import { GenreAlbumGrid } from "./GenreAlbumGrid";
 import type {
@@ -9,6 +19,29 @@ import type {
   GenreAlbum,
 } from "../../../../../../lib/music/schemas/genre";
 // import type { SortField } from "../../../../../../components/search/SearchSortControls";
+
+// Global state for expand/collapse, scroll position, and loaded data
+const globalGenreState = {
+  expandAll: false,
+  expandedGenres: new Set<string>(),
+  scrollTop: 0,
+  loadedGenres: new Map<string, GenreWithArtists>(),
+  setExpandAll: (value: boolean) => {
+    globalGenreState.expandAll = value;
+  },
+  setExpandedGenres: (genres: Set<string>) => {
+    globalGenreState.expandedGenres = genres;
+  },
+  setScrollTop: (value: number) => {
+    globalGenreState.scrollTop = value;
+  },
+  setLoadedGenre: (genreName: string, genre: GenreWithArtists) => {
+    globalGenreState.loadedGenres.set(genreName, genre);
+  },
+  getLoadedGenre: (genreName: string): GenreWithArtists | undefined => {
+    return globalGenreState.loadedGenres.get(genreName);
+  },
+};
 
 interface SimpleMobileGenresViewProps {
   class?: string;
@@ -27,6 +60,8 @@ interface GenreWithArtists extends GenreStat {
 }
 
 export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
+  const navigate = useNavigate();
+  const events = useGlobalEvents();
   const reactiveActions = useReactiveActions();
   // const [sortState] = useSort();
   const dataSections = useDataSections();
@@ -46,13 +81,45 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
     GenreWithArtists[]
   >([]);
 
-  // Expand/collapse all state
-  const [expandAll, setExpandAll] = createSignal(false);
-
-  // Individual genre expanded state
+  // Use global expand/collapse state
+  const [expandAll, setExpandAll] = createSignal(globalGenreState.expandAll);
   const [expandedGenres, setExpandedGenres] = createSignal<Set<string>>(
-    new Set()
+    globalGenreState.expandedGenres
   );
+  const [scrollElement, setScrollElement] = createSignal<HTMLElement | null>(
+    null
+  );
+
+  // Sync local state with global state
+  createEffect(() => {
+    globalGenreState.setExpandAll(expandAll());
+    globalGenreState.setExpandedGenres(expandedGenres());
+  });
+
+  // Restore scroll position on mount (with delay for content to load)
+  onMount(() => {
+    const element = scrollElement();
+    if (element && globalGenreState.scrollTop > 0) {
+      // Wait for content to be rendered before restoring scroll
+      setTimeout(() => {
+        if (element) {
+          element.scrollTop = globalGenreState.scrollTop;
+        }
+      }, 100);
+    }
+  });
+
+  // Save scroll position periodically
+  const saveScrollPosition = () => {
+    const element = scrollElement();
+    if (element) {
+      globalGenreState.setScrollTop(element.scrollTop);
+    }
+  };
+
+  onCleanup(() => {
+    saveScrollPosition();
+  });
 
   // Sort fields for genres - keep existing working fields and add updated_at
   // const sortFields: SortField[] = [
@@ -141,8 +208,101 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
           }
         });
       }
+
+      // Persist loaded genre data
+      if (genre.loaded) {
+        globalGenreState.setLoadedGenre(genre.name, genre);
+      }
     });
   });
+
+  // Play all songs in a genre
+  const playGenre = async (genreName: string, shuffle: boolean = false) => {
+    try {
+      console.log(
+        `attempting to play genre: ${genreName}, shuffle: ${shuffle}`
+      );
+
+      // Get all songs for this genre
+      const response = await apiClient.searchPost({
+        filters: {
+          genre: genreName,
+        },
+        page: 1,
+        page_size: 100, // API maximum
+      });
+
+      console.log("searchPost response:", response);
+
+      if (response.songs && response.songs.length > 0) {
+        console.log(
+          `found ${response.songs.length} songs for genre ${genreName}`
+        );
+        let allSongs = [...response.songs];
+
+        // If there are more songs available, get additional pages
+        if (response.has_next && response.songs.length === 100) {
+          console.log("fetching additional pages of songs...");
+          let currentPage = 2;
+          let hasMore = true;
+
+          while (hasMore && currentPage <= 10) {
+            // Limit to 10 pages (1000 songs max)
+            try {
+              const nextResponse = await apiClient.searchPost({
+                filters: {
+                  genre: genreName,
+                },
+                page: currentPage,
+                page_size: 100,
+              });
+
+              if (nextResponse.songs && nextResponse.songs.length > 0) {
+                allSongs = [...allSongs, ...nextResponse.songs];
+                hasMore = nextResponse.has_next;
+                currentPage++;
+              } else {
+                hasMore = false;
+              }
+            } catch (error) {
+              console.error(`failed to fetch page ${currentPage}:`, error);
+              hasMore = false;
+            }
+          }
+        }
+
+        console.log(`total songs collected: ${allSongs.length}`);
+
+        if (shuffle) {
+          // Shuffle the songs array
+          allSongs = [...allSongs].sort(() => Math.random() - 0.5);
+          console.log("shuffled songs");
+        }
+
+        // Play first song and queue the rest
+        console.log("emitting song:play for first song:", allSongs[0]);
+        events.emit("song:play", { song: allSongs[0], replaceQueue: true });
+
+        allSongs.slice(1).forEach((song: any) => {
+          events.emit("song:queue", { song });
+        });
+        console.log(`queued ${allSongs.length - 1} additional songs`);
+      } else {
+        console.log("no songs found for genre:", genreName);
+      }
+    } catch (error) {
+      console.error(`failed to play genre ${genreName}:`, error);
+    }
+  };
+
+  // Handle album click - navigate to album detail
+  const handleAlbumClick = (album: GenreAlbum) => {
+    if (album.album && album.artist) {
+      const encodedAlbum = encodeURIComponent(album.album);
+      const encodedArtist = encodeURIComponent(album.artist);
+      navigate(`/album/${encodedArtist}/${encodedAlbum}`);
+    }
+  };
 
   // Load artists for a specific genre
   const loadGenreArtists = async (genreName: string) => {
@@ -165,16 +325,20 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
         );
 
         setGenresWithArtists((prev) =>
-          prev.map((g) =>
-            g.name === genreName
-              ? {
-                  ...g,
-                  artists: artistsWithAlbums,
-                  loading: false,
-                  loaded: true,
-                }
-              : g
-          )
+          prev.map((g) => {
+            if (g.name === genreName) {
+              const updatedGenre = {
+                ...g,
+                artists: artistsWithAlbums,
+                loading: false,
+                loaded: true,
+              };
+              // Persist to global state
+              globalGenreState.setLoadedGenre(genreName, updatedGenre);
+              return updatedGenre;
+            }
+            return g;
+          })
         );
 
         // Load albums for first few artists immediately
@@ -218,23 +382,27 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
 
       if (response && "albums" in response) {
         setGenresWithArtists((prev) =>
-          prev.map((g) =>
-            g.name === genreName
-              ? {
-                  ...g,
-                  artists: g.artists.map((a) =>
-                    a.artist === artistName
-                      ? {
-                          ...a,
-                          albums: response.albums,
-                          albumsLoading: false,
-                          albumsLoaded: true,
-                        }
-                      : a
-                  ),
-                }
-              : g
-          )
+          prev.map((g) => {
+            if (g.name === genreName) {
+              const updatedGenre = {
+                ...g,
+                artists: g.artists.map((a) =>
+                  a.artist === artistName
+                    ? {
+                        ...a,
+                        albums: response.albums,
+                        albumsLoading: false,
+                        albumsLoaded: true,
+                      }
+                    : a
+                ),
+              };
+              // Persist to global state
+              globalGenreState.setLoadedGenre(genreName, updatedGenre);
+              return updatedGenre;
+            }
+            return g;
+          })
         );
       }
     } catch (err) {
@@ -263,17 +431,32 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
   createEffect(() => {
     const currentGenres = genres();
     if (currentGenres.length > 0) {
-      const initialized = currentGenres.map((genre) => ({
-        ...genre,
-        artists: [],
-        loading: false,
-        loaded: false,
-      }));
+      const initialized = currentGenres.map((genre) => {
+        // Check if we have previously loaded data for this genre
+        const loadedGenre = globalGenreState.getLoadedGenre(genre.name);
+        if (loadedGenre) {
+          return { ...genre, ...loadedGenre };
+        }
+        return {
+          ...genre,
+          artists: [],
+          loading: false,
+          loaded: false,
+        };
+      });
       setGenresWithArtists(initialized);
 
-      // Load artists for first few genres immediately
-      const firstGenres = currentGenres.slice(0, 2);
-      firstGenres.forEach((genre) => {
+      // Load artists for expanded genres or first few genres
+      const genresToLoad = initialized.filter((genre) => {
+        const isExpanded =
+          globalGenreState.expandAll ||
+          globalGenreState.expandedGenres.has(genre.name);
+        const isUnloaded = !genre.loaded && !genre.loading;
+        const isFirstFew = initialized.indexOf(genre) < 2;
+        return (isExpanded || isFirstFew) && isUnloaded;
+      });
+
+      genresToLoad.forEach((genre) => {
         setGenresWithArtists((prev) =>
           prev.map((g) => (g.name === genre.name ? { ...g, loading: true } : g))
         );
@@ -364,7 +547,18 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
 
       {/* Content */}
       <Show when={!error()}>
-        <div class="flex-1 overflow-y-auto">
+        <div
+          ref={setScrollElement}
+          class="flex-1 overflow-y-auto"
+          onScroll={() => {
+            // Throttled scroll saving
+            clearTimeout((window as any).scrollSaveTimer);
+            (window as any).scrollSaveTimer = setTimeout(
+              saveScrollPosition,
+              100
+            );
+          }}
+        >
           <Show
             when={!loading() || genresWithArtists().length > 0}
             fallback={
@@ -375,22 +569,59 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
           >
             <For each={genresWithArtists()}>
               {(genre) => (
-                <div
-                  ref={(el) => setupLazyLoading(el, genre.name)}
-                  class="mb-6"
-                >
+                <div ref={(el) => setupLazyLoading(el, genre.name)}>
                   {/* Genre Header */}
-                  <div
-                    class="sticky top-0 bg-black border-b border-magenta-600 z-10 p-4 cursor-pointer hover:bg-gray-900/50 transition-colors"
-                    onClick={() => toggleGenre(genre.name)}
-                  >
-                    <h2 class="text-lg font-semibold text-white mb-1">
-                      {genre.name}
-                    </h2>
-                    <div class="flex items-center gap-4 text-sm text-gray-400">
-                      <span>{formatCount(genre.song_count)} songs</span>
-                      <span>{formatCount(genre.artist_count)} artists</span>
-                      <span>{formatCount(genre.album_count)} albums</span>
+                  <div class="sticky top-0 bg-black border-l border-magenta-600 z-10 p-4 hover:bg-gray-900/50 transition-colors">
+                    <div class="flex items-center justify-between">
+                      <div
+                        class="flex-1 cursor-pointer"
+                        onClick={() => toggleGenre(genre.name)}
+                      >
+                        <h2 class="text-lg font-semibold text-white mb-1">
+                          {genre.name}
+                        </h2>
+                        <div class="flex items-center gap-4 text-sm text-gray-400">
+                          <span>{formatCount(genre.song_count)} songs</span>
+                          <span>{formatCount(genre.artist_count)} artists</span>
+                          <span>{formatCount(genre.album_count)} albums</span>
+                        </div>
+                      </div>
+
+                      {/* Play/Shuffle Buttons */}
+                      <div class="flex items-center gap-2 ml-4">
+                        <button
+                          class="w-8 h-8 rounded-full bg-magenta-600 hover:bg-magenta-500 flex items-center justify-center transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            playGenre(genre.name, false);
+                          }}
+                          title="play all songs in genre"
+                        >
+                          <svg
+                            class="w-4 h-4 text-white ml-0.5"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
+                        </button>
+                        <button
+                          class="w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            playGenre(genre.name, true);
+                          }}
+                          title="shuffle all songs in genre"
+                        >
+                          <svg
+                            class="w-4 h-4 text-white"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -413,6 +644,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
                           loading={genre.artists.some(
                             (artist) => artist.albumsLoading
                           )}
+                          onAlbumClick={handleAlbumClick}
                           class=""
                         />
                       </Show>
@@ -430,12 +662,10 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
               )}
             </For>
 
-            {/* Loading indicator */}
-            <Show when={loading()}>
+            {/* Loading indicator - only show when no genres are loaded yet */}
+            <Show when={loading() && genresWithArtists().length === 0}>
               <div class="text-center py-8">
-                <div class="text-magenta-400 text-sm">
-                  loading more genres...
-                </div>
+                <div class="text-magenta-400 text-sm">loading genres...</div>
               </div>
             </Show>
           </Show>

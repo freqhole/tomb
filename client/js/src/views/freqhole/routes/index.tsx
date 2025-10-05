@@ -11,7 +11,7 @@ import { AlbumDetailView } from "../components/content/views/AlbumDetailView";
 
 export const routes = (
   <Route path="/" component={ThreeColumnLayout}>
-    <Route path="/" component={SongTableView} />
+    <Route path="/" component={GenreSplitView} />
     <Route path="/songs" component={SongTableView} />
 
     <Route
