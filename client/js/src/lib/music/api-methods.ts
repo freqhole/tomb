@@ -128,6 +128,25 @@ export const musicApiMethods = {
       }));
   },
 
+  async getArtistByName(
+    this: ApiClient,
+    artistName: string
+  ): Promise<ArtistSummary> {
+    const encodedArtistName = encodeURIComponent(artistName);
+    const response = await this.makeRequest<unknown>(
+      "GET",
+      `/api/media/artists/${encodedArtistName}`
+    );
+
+    const validatedResponse = musicValidation.validateResponse(
+      ArtistSummarySchema,
+      response,
+      "Artist"
+    );
+
+    return validatedResponse as ArtistSummary;
+  },
+
   async getArtistSongs(
     this: ApiClient,
     artist: string,

@@ -648,6 +648,10 @@ export class ApiClient {
     return musicApiMethods.filterArtists.call(this, request);
   }
 
+  async getArtistByName(artistName: string) {
+    return musicApiMethods.getArtistByName.call(this, artistName);
+  }
+
   async getArtistSongs(
     artist: string,
     options?: {

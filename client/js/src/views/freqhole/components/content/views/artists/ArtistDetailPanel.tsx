@@ -203,7 +203,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps) {
         </h2>
 
         {/* Artist Info */}
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           <div class="bg-magenta-950/30 rounded-lg p-3">
             <div class="text-magenta-300 text-sm mb-1">songs</div>
             <div class="text-white text-xl font-semibold">
@@ -220,6 +220,14 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps) {
             <div class="text-magenta-300 text-sm mb-1">duration</div>
             <div class="text-white text-xl font-semibold">
               {formatAlbumDuration(props.artist.total_duration || 0)}
+            </div>
+          </div>
+          <div class="bg-magenta-950/30 rounded-lg p-3">
+            <div class="text-magenta-300 text-sm mb-1">avg rating</div>
+            <div class="text-white text-xl font-semibold">
+              {props.artist.avg_rating
+                ? props.artist.avg_rating.toFixed(1)
+                : "—"}
             </div>
           </div>
           <div class="bg-magenta-950/30 rounded-lg p-3">

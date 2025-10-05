@@ -72,13 +72,8 @@ export function ArtistDetailView(
       if (!name) return null;
 
       try {
-        // We'll need to get this from the artists list or create a separate endpoint
-        const response = await apiClient.getArtists({
-          page: 1,
-          page_size: 1000,
-        });
-        const artist = response.artists.find((a) => a.artist === name);
-        return artist || null;
+        const artist = await apiClient.getArtistByName(name);
+        return artist;
       } catch (error) {
         console.error("failed to load artist summary:", error);
         return null;
@@ -337,7 +332,9 @@ export function ArtistDetailView(
                   <div class="bg-magenta-950/30 rounded-lg p-3">
                     <div class="text-magenta-300 text-sm mb-1">duration</div>
                     <div class="text-white text-xl font-semibold">
-                      {artist().total_duration || "—"}
+                      {artist().total_duration
+                        ? formatAlbumDuration(artist().total_duration)
+                        : "—"}
                     </div>
                   </div>
                 </div>

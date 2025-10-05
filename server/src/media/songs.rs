@@ -1702,6 +1702,52 @@ pub async fn get_album_tracks_post(
 }
 
 /// Create playlist from album
+pub async fn get_artist_by_name(
+    Extension(db): Extension<DatabaseConnection>,
+    Path(artist_name): Path<String>,
+) -> Result<Json<ArtistSummary>, WebauthnError> {
+    let artist_data = sqlx::query!(
+        r#"
+        SELECT
+            s.artist,
+            COUNT(DISTINCT s.id) as song_count,
+            COUNT(DISTINCT s.album) as album_count,
+            COALESCE(SUM(EXTRACT(EPOCH FROM s.duration)), 0) as total_duration,
+            AVG(s.rating) as avg_rating,
+            COUNT(CASE WHEN s.is_favorite THEN 1 END) as favorite_count,
+            ARRAY_AGG(DISTINCT s.genre) FILTER (WHERE s.genre IS NOT NULL) as genres
+        FROM songs s
+        WHERE s.artist = $1 AND s.deleted_at IS NULL
+        GROUP BY s.artist
+        "#,
+        artist_name
+    )
+    .fetch_optional(db.pool())
+    .await
+    .map_err(|e| WebauthnError::SqlxError(e))?;
+
+    match artist_data {
+        Some(row) => {
+            let artist = ArtistSummary {
+                artist: row.artist.unwrap_or_default(),
+                song_count: row.song_count.unwrap_or(0),
+                album_count: row.album_count.unwrap_or(0),
+                total_duration: row
+                    .total_duration
+                    .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0) as i64)
+                    .unwrap_or(0),
+                genres: row.genres.unwrap_or_default(),
+                avg_rating: row
+                    .avg_rating
+                    .map(|r| r.to_string().parse::<f64>().unwrap_or(0.0)),
+                favorite_count: row.favorite_count.unwrap_or(0),
+            };
+            Ok(Json(artist))
+        }
+        None => Err(WebauthnError::UserNotFound),
+    }
+}
+
 pub async fn create_playlist_from_album(
     Extension(db): Extension<DatabaseConnection>,
     Path(album): Path<String>,
@@ -2008,6 +2054,7 @@ pub fn create_routes() -> Router {
         .route("/songs/preferences/bulk", put(bulk_update_user_preferences))
         // Artist routes
         .route("/artists", get(list_artists).post(filter_artists))
+        .route("/artists/{artist_name}", get(get_artist_by_name))
         .route("/artists/{artist}/songs", get(get_artist_songs))
         // Playlist routes
         .route("/playlists", get(list_playlists))
