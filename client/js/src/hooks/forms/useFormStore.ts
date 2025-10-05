@@ -17,14 +17,6 @@ export function useSongFormStore(
 ) {
   // extract editable fields from song(s)
   const extractEditableFields = (song: Song): EditableSongFields => {
-    console.log("extractEditableFields:", {
-      songId: song.id,
-      songTitle: song.title,
-      songSubGenres: song.sub_genres,
-      songSubGenresType: typeof song.sub_genres,
-      songSubGenresIsArray: Array.isArray(song.sub_genres),
-    });
-
     const extracted = EditableSongFieldsSchema.parse({
       title: song.title,
       artist: song.artist,
@@ -42,18 +34,27 @@ export function useSongFormStore(
       user_is_favorite: song.user_is_favorite,
     });
 
-    console.log("extractEditableFields result:", {
-      extractedSubGenres: extracted.sub_genres,
-      extractedSubGenresType: typeof extracted.sub_genres,
-    });
-
     return extracted;
   };
 
   // handle mixed values for bulk editing
   const getMixedOrValue = <T>(values: T[]): T | "mixed" => {
-    const unique = [...new Set(values)];
-    return unique.length === 1 ? unique[0]! : ("mixed" as T | "mixed");
+    if (values.length === 0) return "mixed" as T | "mixed";
+
+    const first = values[0];
+    const allSame = values.every((value) => {
+      // For arrays, compare by content
+      if (Array.isArray(first) && Array.isArray(value)) {
+        return (
+          first.length === value.length &&
+          first.every((item, index) => item === value[index])
+        );
+      }
+      // For other types, use normal comparison
+      return value === first;
+    });
+
+    return allSame ? first! : ("mixed" as T | "mixed");
   };
 
   const songs = Array.isArray(initialSong) ? initialSong : [initialSong];
@@ -84,11 +85,6 @@ export function useSongFormStore(
   };
 
   const initialData = initializeFormData();
-  console.log("initializeFormData RESULT:", {
-    subGenres: initialData.sub_genres,
-    subGenresType: typeof initialData.sub_genres,
-    subGenresIsArray: Array.isArray(initialData.sub_genres),
-  });
 
   const [originalData] = createSignal(initialData);
   const [currentData, setCurrentData] = createSignal(initialData);
@@ -159,13 +155,7 @@ export function useSongFormStore(
     // helpers
     getDisplayValue: (field: keyof EditableSongFields) => {
       const value = currentData()[field];
-      if (field === "sub_genres") {
-        console.log("getDisplayValue for sub_genres:", {
-          value,
-          valueType: typeof value,
-          isArray: Array.isArray(value),
-        });
-      }
+
       return value === "mixed" ? "" : (value ?? "");
     },
     getPlaceholder: (field: keyof EditableSongFields) => {

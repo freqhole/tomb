@@ -33,13 +33,6 @@ export function SubGenresInput(props: SubGenresInputProps) {
   onMount(() => {
     if (inputRef) {
       const formatted = formatValue(props.value);
-      console.log("SubGenresInput onMount:", {
-        propsValue: props.value,
-        propsValueType: typeof props.value,
-        isArray: Array.isArray(props.value),
-        isDirty: props.isDirty,
-        formatted,
-      });
       inputRef.value = formatted;
     }
   });
@@ -70,7 +63,6 @@ export function SubGenresInput(props: SubGenresInputProps) {
 
     // parse the input and update parent
     const parsed = parseValue(value);
-    console.log("SubGenresInput handleInput:", { value, parsed });
     props.onUpdate(parsed.length > 0 ? parsed : []);
   };
 
@@ -81,7 +73,6 @@ export function SubGenresInput(props: SubGenresInputProps) {
     // clean up formatting on blur
     const parsed = parseValue(value);
     const formatted = formatValue(parsed);
-    console.log("SubGenresInput handleBlur:", { value, parsed, formatted });
     if (value !== formatted) {
       target.value = formatted;
     }

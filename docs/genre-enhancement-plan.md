@@ -53,20 +53,32 @@
 
 ## 🚨 CRITICAL ISSUES TO FIX BEFORE CONTINUING
 
-### 1. Search Function Database Error
+### 1. Search Function Database Error ✅ FIXED
 
 **Error**: `Search service failed: Database error: error returned from database: cannot extract elements from a scalar`
-**Root Cause**: The `search_songs` PostgreSQL function has issues after migration 054 fixes
+**Root Cause**: The `search_songs` PostgreSQL function had tags array extraction issues after migration 054 fixes
 **Impact**: Basic song search is broken, affecting core functionality
-**Status**: Needs investigation and fix
+**Status**: ✅ Fixed with migration 055 - improved JSONB array handling and type checking
+**Fix**: Updated tags extraction logic to check for array type before calling `jsonb_array_elements_text()`
 
-### 2. Sub-Genres Not Persisting
+### 2. Sub-Genres Not Persisting ✅ FIXED
 
-**Error**: Sub-genres entered in form don't save to database
-**Root Cause**: Backend `bulk_update_metadata` function added sub_genres to SQL but parameter binding may be incorrect
-**Frontend Evidence**: Network requests show correct data: `{"updates":{"sub_genres":["test","hello"]}}`
-**Backend Evidence**: SQL query updated to include sub_genres field, but persistence still failing
-**Status**: Needs debugging of grimoire bulk update implementation
+**Error**: Sub-genres entered in form don't save to database, form fields always marked as "changed"
+**Root Cause**: Multiple issues in the data flow from API to form:
+
+1. `SongResponse` struct missing `sub_genres` field
+2. `AlbumTrackResponse` struct missing `sub_genres` field
+3. `get_album_tracks` PostgreSQL function missing `sub_genres` in return table
+4. `AlbumTracksResponseSchema` missing `sub_genres` field
+5. API client mapping dropping `sub_genres` during conversion
+   **Status**: ✅ Fixed with comprehensive updates across the stack
+   **Fixes**:
+
+- Migration 056: Updated `get_album_tracks` function to include `sub_genres`
+- Updated all response structs to include `sub_genres` field
+- Updated frontend schemas to expect `sub_genres`
+- Fixed API client mapping to preserve `sub_genres` data
+- Ensured consistent array format (`[]` vs `null`) to prevent dirty state issues
 
 ### 3. Genre Endpoint Type Mismatch
 
@@ -76,11 +88,11 @@
 
 ## NEXT STEPS
 
-1. **Priority 1**: Fix search_songs function to restore basic search functionality
-2. **Priority 2**: Debug sub_genres bulk update persistence in grimoire
-3. **Priority 3**: Fix genre endpoint SQL type casting
-4. **Priority 4**: Once persistence works, verify sub_genres display in forms
-5. **Priority 5**: Continue with Phase 4 (Genre Views Core)
+1. ✅ **COMPLETED**: Fix search_songs function to restore basic search functionality
+2. ✅ **COMPLETED**: Debug sub_genres bulk update persistence and form display
+3. **Priority 1**: Fix genre endpoint SQL type casting
+4. **Priority 2**: Continue with Phase 4 (Genre Views Core)
+5. **Priority 3**: Test and polish sub_genres functionality end-to-end
 
 ## DEBUGGING NOTES
 
