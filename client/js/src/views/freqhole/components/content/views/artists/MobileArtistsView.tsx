@@ -2,6 +2,8 @@ import { For, Show, createSignal, createEffect } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useReactiveActions, useSort } from "../../../../store";
 import { useDataSections } from "../../../../store/hooks";
+import { ArtistAlphabetNav } from "./ArtistAlphabetNav";
+import { useArtistNavigation } from "./useArtistNavigation";
 
 import { saveScrollStateSecurely } from "../../../../../../lib/navigation";
 import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
@@ -78,6 +80,90 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
     null
   );
 
+  // Load all artists up to a specific letter
+  const loadAllToLetter = async (targetLetter: string) => {
+    console.log("🔄 Loading artists up to letter:", targetLetter);
+
+    const maxAttempts = 100; // Safety limit
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      const currentResult = dataSections.artists.data() as
+        | { artists: any[]; pagination: any }
+        | undefined;
+
+      if (!currentResult) {
+        console.log("❌ No current result, breaking");
+        break;
+      }
+
+      const hasNext = currentResult.pagination?.has_next || false;
+      if (!hasNext) {
+        console.log("✅ No more pages to load");
+        break;
+      }
+
+      // Check if we have the target letter and some artists after it
+      const currentArtists = currentResult.artists;
+      let foundTargetLetter = false;
+      let foundLetterIndex = -1;
+
+      for (let i = 0; i < currentArtists.length; i++) {
+        const artist = currentArtists[i];
+        const normalized = artist.artist
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+        const firstChar = normalized.charAt(0);
+        const letter =
+          firstChar >= "a" && firstChar <= "z" ? firstChar.toUpperCase() : "#";
+
+        if (letter === targetLetter && !foundTargetLetter) {
+          foundTargetLetter = true;
+          foundLetterIndex = i;
+          console.log(
+            `✅ Found first ${targetLetter} artist at index ${i}: ${artist.artist}`
+          );
+        }
+      }
+
+      // If we found the letter and have at least a few artists loaded after it, we can stop
+      if (foundTargetLetter && foundLetterIndex < currentArtists.length - 10) {
+        console.log("✅ Have enough artists loaded for smooth scrolling");
+        break;
+      }
+
+      if (foundTargetLetter) {
+        console.log(
+          "⏳ Found target letter but loading a bit more for smooth scrolling..."
+        );
+      } else {
+        console.log(
+          `⏳ Target letter ${targetLetter} not found yet, loading more...`
+        );
+      }
+
+      await reactiveActions.loadMoreArtists();
+      attempts++;
+    }
+
+    if (attempts >= maxAttempts) {
+      console.log("⚠️ Reached max loading attempts");
+    }
+  };
+
+  // Artist navigation
+  const artistNav = useArtistNavigation({
+    artists: artists(),
+    onLoadAllToLetter: loadAllToLetter,
+    getLatestArtists: () => {
+      const result = dataSections.artists.data() as
+        | { artists: any[]; pagination: any }
+        | undefined;
+      return result?.artists || [];
+    },
+  });
+
   // Get scroll state from browser history
   const getSavedScrollTop = (): number => {
     const state = history.state;
@@ -113,8 +199,48 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
     navigate(`/artist/${encodedArtist}`);
   };
 
+  // Handle scroll to position for letter navigation
+  const handleScrollToPosition = (position: number) => {
+    const container = scrollElement();
+    if (container) {
+      // Calculate approximate scroll position based on item height
+      const itemHeight = 73; // Approximate height of each artist item on mobile
+      const scrollTop = position * itemHeight;
+      container.scrollTo({ top: scrollTop, behavior: "smooth" });
+    }
+  };
+
+  // Listen for scroll events from artist navigation
+  createEffect(() => {
+    const handleCustomScroll = (event: CustomEvent) => {
+      handleScrollToPosition(event.detail.position);
+    };
+
+    window.addEventListener(
+      "artistNavigation:scrollTo",
+      handleCustomScroll as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "artistNavigation:scrollTo",
+        handleCustomScroll as EventListener
+      );
+    };
+  });
+
   return (
-    <div class={`h-full flex flex-col w-full max-w-full ${props.class || ""}`}>
+    <div class={`h-full flex w-full max-w-full ${props.class || ""}`}>
+      {/* A-Z Navigation - only show when sorted by artist */}
+      <Show when={sortState.field === "artist"}>
+        <ArtistAlphabetNav
+          artists={artists()}
+          onLetterClick={artistNav.handleLetterClick}
+          currentLetter={artistNav.currentLetter() || undefined}
+          disabledLetters={artistNav.disabledLetters()}
+          sortDirection={sortState.direction}
+        />
+      </Show>
+
       <div class="flex-1 flex flex-col h-full overflow-hidden">
         <div class="p-3">
           <div class="flex items-center justify-between mb-2">
@@ -164,6 +290,11 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
                 reactiveActions.loadMoreArtists();
               }
             }
+
+            // Update current letter based on scroll position
+            const itemHeight = 73; // Mobile artist item height
+            const currentIndex = Math.floor(scrollTop / itemHeight);
+            artistNav.updateCurrentLetterFromPosition(currentIndex);
 
             // Debounced save of scroll state
             let saveTimer: ReturnType<typeof setTimeout> | undefined;

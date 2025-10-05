@@ -24,6 +24,8 @@ export interface FreqholeInfiniteGridProps<T = any> {
   onSort?: (field: string, direction: "asc" | "desc" | null) => void;
   showHeader?: boolean;
   class?: string;
+  scrollElementRef?: (element: HTMLElement | null) => void;
+  onScroll?: (scrollTop: number) => void;
 }
 
 /**
@@ -349,6 +351,24 @@ export function FreqholeInfiniteGrid<T = any>(
           getRowId={(item: any) =>
             item.id || item.artist || item.name || String(item)
           }
+          scrollElementRef={(el) => {
+            console.log(
+              "🔗 FreqholeInfiniteGrid scrollElementRef called with:",
+              el
+            );
+            if (props.scrollElementRef) {
+              console.log("✅ Passing scroll element to parent:", el);
+              props.scrollElementRef(el);
+            }
+            // Add scroll listener for onScroll callback
+            if (props.onScroll && el) {
+              console.log("📜 Setting up scroll listener on element:", el);
+              const handleScroll = () => {
+                props.onScroll!(el.scrollTop);
+              };
+              el.addEventListener("scroll", handleScroll);
+            }
+          }}
         />
       </div>
     </div>

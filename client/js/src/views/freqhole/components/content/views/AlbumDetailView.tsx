@@ -249,7 +249,7 @@ export function AlbumDetailView(
                         <div class="text-magenta-300 text-sm mb-1">genres</div>
                         <div
                           class="text-white text-xl font-semibold truncate"
-                          title={album().genres}
+                          title={album().genres || undefined}
                         >
                           {formatGenres(album().genres)}
                         </div>
