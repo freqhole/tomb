@@ -335,6 +335,7 @@ impl MusicRepository {
             || request.updates.track_number.is_some()
             || request.updates.disc_number.is_some()
             || request.updates.genre.is_some()
+            || request.updates.sub_genres.is_some()
             || request.updates.year.is_some()
             || request.updates.bpm.is_some()
             || request.updates.key_signature.is_some()
@@ -398,13 +399,14 @@ impl MusicRepository {
                 track_number = COALESCE($5, track_number),
                 disc_number = COALESCE($6, disc_number),
                 genre = COALESCE($7, genre),
-                year = COALESCE($8, year),
-                bpm = COALESCE($9, bpm),
-                key_signature = COALESCE($10, key_signature),
-                thumbnail_blob_id = COALESCE($11, thumbnail_blob_id),
-                metadata = COALESCE($12, metadata),
+                sub_genres = COALESCE($8, sub_genres),
+                year = COALESCE($9, year),
+                bpm = COALESCE($10, bpm),
+                key_signature = COALESCE($11, key_signature),
+                thumbnail_blob_id = COALESCE($12, thumbnail_blob_id),
+                metadata = COALESCE($13, metadata),
                 updated_at = NOW()
-            WHERE id = ANY($13)
+            WHERE id = ANY($14)
             RETURNING *
             "#,
         )
@@ -415,6 +417,7 @@ impl MusicRepository {
         .bind(updates.track_number)
         .bind(updates.disc_number)
         .bind(&updates.genre)
+        .bind(&updates.sub_genres)
         .bind(updates.year)
         .bind(updates.bpm)
         .bind(&updates.key_signature)

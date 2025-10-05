@@ -9,6 +9,7 @@
 //! and analytics systems to provide secure, trackable file sharing.
 
 pub mod filters;
+pub mod genres;
 pub mod models;
 pub mod music_jobs;
 pub mod playlists;
@@ -19,6 +20,7 @@ pub mod sorting;
 
 // Re-export commonly used types
 use crate::error::WebauthnError;
+use axum::Router;
 use grimoire::config::MediaConfig;
 pub use models::{CreateMediaBlob, MediaBlob, MediaBlobQuery, MediaBlobStats, PaginatedResult};
 pub use repository::{MediaError, MediaRepository};
@@ -101,10 +103,15 @@ impl<'a> MediaService<'a> {
 }
 
 /// Build media routes including songs and playlists
-pub fn build_media_routes() -> axum::Router {
-    axum::Router::new()
+pub fn build_media_routes() -> Router {
+    // Merge all music API routes first to avoid nesting conflicts
+    let music_routes = Router::new()
+        .merge(search::create_search_routes())
+        .merge(filters::create_filter_routes())
+        .merge(genres::create_genre_routes());
+
+    Router::new()
         .nest("/api/media", songs::create_routes())
         .merge(playlists::create_routes())
-        .nest("/api/music", search::create_search_routes())
-        .nest("/api/music", filters::create_filter_routes())
+        .nest("/api/music", music_routes)
 }

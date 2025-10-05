@@ -24,12 +24,18 @@ const getImageUrl = (blobId: string | null) => {
 };
 
 // Helper function to format artist genres
-const formatArtistGenres = (genres: string[]): string => {
+const formatArtistGenres = (genres: string[], mobile: boolean): string => {
   if (!genres || genres.length === 0) return "—";
-  // Show fewer genres on mobile to prevent overflow
-  const isMobileView = window.innerWidth < 768;
-  const maxGenres = isMobileView ? 2 : 3;
-  return genres.slice(0, maxGenres).join(", ");
+  // Only truncate on mobile to prevent overflow
+  if (mobile) {
+    const maxGenres = 2;
+    return (
+      genres.slice(0, maxGenres).join(", ") +
+      (genres.length > maxGenres ? "..." : "")
+    );
+  }
+  // On desktop, show all genres
+  return genres.join(", ");
 };
 
 interface ArtistDetailViewProps {
@@ -53,6 +59,16 @@ export function ArtistDetailView(
   const auth = useAuth();
 
   const [loadingArtistSongs, setLoadingArtistSongs] = createSignal(false);
+
+  // Reactive mobile detection
+  const [mobile, setMobile] = createSignal(isMobile());
+
+  // Update mobile state on window resize
+  createEffect(() => {
+    const handleResize = () => setMobile(isMobile());
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  });
 
   // Selection state
   const selection = useSelection({
@@ -352,10 +368,11 @@ export function ArtistDetailView(
                     <div class="bg-magenta-950/30 rounded-lg p-3">
                       <div class="text-magenta-300 text-sm mb-1">genres</div>
                       <div
-                        class="text-white text-xl font-semibold truncate"
+                        class="text-white text-xl font-semibold"
+                        classList={{ truncate: mobile() }}
                         title={artist().genres.join(", ")}
                       >
-                        {formatArtistGenres(artist().genres)}
+                        {formatArtistGenres(artist().genres, mobile())}
                       </div>
                     </div>
                   </Show>

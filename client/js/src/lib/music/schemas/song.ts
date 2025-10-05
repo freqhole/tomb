@@ -13,6 +13,7 @@ export const SongSchema = z.object({
   disc_number: z.number().nullable(),
   duration_seconds: z.number().nullable(),
   genre: z.string().nullable(),
+  sub_genres: z.array(z.string()).nullish().default([]),
   year: z.number().nullable(),
   bpm: z.number().nullable(),
   key_signature: z.string().nullable(),

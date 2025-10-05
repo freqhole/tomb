@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  GenreStatsResponseSchema,
+  GenreSearchRequestSchema,
+  GenreSearchResponseSchema,
+} from "./music/schemas/genre.js";
 import { API_SPEC } from "./api-spec.js";
 import type {
   RegisterStartResponse,
@@ -632,6 +637,29 @@ export class ApiClient {
   // Music API methods - Songs
   async getSong(songId: string) {
     return musicApiMethods.getSong.call(this, songId);
+  }
+
+  // Music API methods - Genres
+  async getGenres(options?: { with_songs_only?: boolean }) {
+    const queryParams: Record<string, unknown> = {};
+    if (options?.with_songs_only) {
+      queryParams.with_songs_only = "true";
+    }
+    const url = this.buildUrl("/api/music/genres", undefined, queryParams);
+    const response = await this.makeRequest<any>("GET", url);
+    return GenreStatsResponseSchema.parse(response);
+  }
+
+  async searchGenres(request: z.infer<typeof GenreSearchRequestSchema>) {
+    // validate request
+    const validatedRequest = GenreSearchRequestSchema.parse(request);
+
+    const url = this.buildUrl("/api/music/genres");
+    const response = await this.makeRequest<any>("POST", url, {
+      data: validatedRequest,
+    });
+
+    return GenreSearchResponseSchema.parse(response);
   }
 
   // Music API methods - Artists

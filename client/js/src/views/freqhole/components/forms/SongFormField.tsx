@@ -6,6 +6,8 @@ import {
 import { SongRatingField } from "./SongRatingField.js";
 import { SongFavoriteField } from "./SongFavoriteField.js";
 import { SongImageField } from "./SongImageField.js";
+import { GenreSelect } from "./GenreSelect.js";
+import { SubGenresInput } from "./SubGenresInput.js";
 
 interface SongFormFieldProps {
   field: keyof EditableSongFields;
@@ -85,6 +87,28 @@ export function SongFormField(props: SongFormFieldProps) {
           />
         );
 
+      case "select":
+        return (
+          <GenreSelect
+            value={props.value}
+            isDirty={props.isDirty}
+            disabled={props.disabled}
+            onUpdate={props.onUpdate}
+            onReset={props.onReset}
+          />
+        );
+
+      case "sub_genres":
+        return (
+          <SubGenresInput
+            value={props.value}
+            isDirty={props.isDirty}
+            disabled={props.disabled}
+            onUpdate={props.onUpdate}
+            onReset={props.onReset}
+          />
+        );
+
       case "rating":
         return (
           <SongRatingField
@@ -127,11 +151,13 @@ export function SongFormField(props: SongFormFieldProps) {
     }
   };
 
-  // rating, favorite, and image components handle their own layout
+  // rating, favorite, image, select, and sub_genres components handle their own layout
   if (
     config.type === "rating" ||
     config.type === "favorite" ||
-    config.type === "image"
+    config.type === "image" ||
+    config.type === "select" ||
+    config.type === "sub_genres"
   ) {
     return renderInput();
   }

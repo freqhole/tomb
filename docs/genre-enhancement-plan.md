@@ -25,15 +25,19 @@
 
 - [x] update song schema with sub_genres
 - [x] create genre models, repository, and service in grimoire
-- [ ] implement GET /api/music/genres endpoint
-- [ ] implement POST /api/music/genres endpoint
-- [ ] add comma-separated input parsing
+- [x] implement GET /api/music/genres endpoint
+- [🐛] implement POST /api/music/genres endpoint (simplified to GET only for now)
+- [x] add comma-separated input parsing
+- [🚨] **CRITICAL ISSUE**: search_songs function broken - "cannot extract elements from a scalar" error
+- [🚨] **CRITICAL ISSUE**: sub_genres not persisting in bulk_update_songs despite frontend sending correct data
 
 ### Phase 3: Form Components
 
-- [ ] create SubGenresInput component
-- [ ] update SongFormField.tsx with genre select and sub_genres input
-- [ ] add getGenres() API client method
+- [x] create SubGenresInput component
+- [x] update SongFormField.tsx with genre select and sub_genres input
+- [x] add getGenres() API client method
+- [x] add genre schema types and validation
+- [🐛] **ISSUE**: sub_genres not pre-populated when editing existing songs (related to backend persistence issue)
 
 ### Phase 4: Genre Views Core
 
@@ -46,6 +50,44 @@
 - [ ] implement artist row expansion
 - [ ] add mobile genre view
 - [ ] integrate routing and navigation
+
+## 🚨 CRITICAL ISSUES TO FIX BEFORE CONTINUING
+
+### 1. Search Function Database Error
+
+**Error**: `Search service failed: Database error: error returned from database: cannot extract elements from a scalar`
+**Root Cause**: The `search_songs` PostgreSQL function has issues after migration 054 fixes
+**Impact**: Basic song search is broken, affecting core functionality
+**Status**: Needs investigation and fix
+
+### 2. Sub-Genres Not Persisting
+
+**Error**: Sub-genres entered in form don't save to database
+**Root Cause**: Backend `bulk_update_metadata` function added sub_genres to SQL but parameter binding may be incorrect
+**Frontend Evidence**: Network requests show correct data: `{"updates":{"sub_genres":["test","hello"]}}`
+**Backend Evidence**: SQL query updated to include sub_genres field, but persistence still failing
+**Status**: Needs debugging of grimoire bulk update implementation
+
+### 3. Genre Endpoint Type Mismatch
+
+**Error**: `mismatched types; Rust type 'i64' (as SQL type 'INT8') is not compatible with SQL type 'NUMERIC'`
+**Root Cause**: PostgreSQL EXTRACT(EPOCH) casting issues in genre statistics query
+**Status**: Attempted fix with `::bigint` cast but still failing
+
+## NEXT STEPS
+
+1. **Priority 1**: Fix search_songs function to restore basic search functionality
+2. **Priority 2**: Debug sub_genres bulk update persistence in grimoire
+3. **Priority 3**: Fix genre endpoint SQL type casting
+4. **Priority 4**: Once persistence works, verify sub_genres display in forms
+5. **Priority 5**: Continue with Phase 4 (Genre Views Core)
+
+## DEBUGGING NOTES
+
+- Frontend form components working correctly (SubGenresInput, GenreSelect)
+- API client sending correct data format
+- Issue is in backend data persistence layer
+- Search function regression likely from migration parameter mismatches
 
 ## Overview
 

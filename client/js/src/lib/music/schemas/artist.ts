@@ -6,6 +6,7 @@ export const ArtistSummarySchema = z.object({
   album_count: z.number(),
   total_duration: z.number(),
   genres: z.array(z.string()),
+  sub_genres: z.array(z.string()).optional(),
   avg_rating: z.number().nullable(),
   favorite_count: z.number(),
 });
