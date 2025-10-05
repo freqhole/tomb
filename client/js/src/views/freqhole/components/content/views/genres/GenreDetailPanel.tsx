@@ -1,5 +1,5 @@
 import { Show, For, createSignal } from "solid-js";
-import { useReactiveActions, useSort } from "../../../../store";
+import { useReactiveActions, useSort, useLayout } from "../../../../store";
 import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
 import { GenreArtistRow } from "./GenreArtistRow";
 import type {
@@ -19,9 +19,14 @@ interface GenreDetailPanelProps {
 export function GenreDetailPanel(props: GenreDetailPanelProps) {
   const reactiveActions = useReactiveActions();
   const [sortState] = useSort();
+  const [layout] = useLayout();
 
   // State for expand all toggle
   const [expandAll, setExpandAll] = createSignal(false);
+
+  // Check if mobile layout
+  const isMobile = () =>
+    layout.breakpoint === "mobile" || layout.breakpoint === "tablet";
 
   // Sort fields for artists within genre
   const sortFields: SortField[] = [
@@ -73,6 +78,7 @@ export function GenreDetailPanel(props: GenreDetailPanelProps) {
       reactiveActions.setSort(field, direction);
     }
   };
+
   // Format duration helper
   const formatDuration = (seconds: number | string): string => {
     const secs = typeof seconds === "string" ? parseFloat(seconds) : seconds;
@@ -132,45 +138,75 @@ export function GenreDetailPanel(props: GenreDetailPanelProps) {
   return (
     <div class="flex-1 flex flex-col h-full">
       {/* Header */}
-      <div class="flex-shrink-0 p-6 border-b border-gray-800/50">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <h2 class="text-xl font-semibold text-white mb-1">
-              {props.genre.name}
-            </h2>
-            <div class="flex items-center gap-4 text-sm text-gray-400">
-              <span>{formatCount(props.genre.song_count)} songs</span>
-              <span>{formatCount(props.genre.artist_count)} artists</span>
-              <span>{formatCount(props.genre.album_count)} albums</span>
-              <span>{formatDuration(props.genre.total_duration)}</span>
-            </div>
+      <div
+        class={`flex-shrink-0 border-b border-gray-800/50 ${isMobile() ? "p-4" : "p-6"}`}
+      >
+        <div class={`${isMobile() ? "mb-3" : "mb-4"}`}>
+          <h2
+            class={`font-semibold text-white mb-1 ${isMobile() ? "text-lg" : "text-xl"}`}
+          >
+            {props.genre.name}
+          </h2>
+          <div
+            class={`flex items-center text-gray-400 ${isMobile() ? "flex-wrap gap-4 text-sm" : "space-x-6 text-sm"}`}
+          >
+            <span>{formatCount(props.genre.song_count)} songs</span>
+            <span>{formatCount(props.genre.artist_count)} artists</span>
+            <span>{formatCount(props.genre.album_count)} albums</span>
+            <span>{formatDuration(props.genre.total_duration)}</span>
           </div>
+        </div>
 
-          <div class="flex-row">
-            {/* Sort Controls */}
-            <Show when={artists().length > 0}>
-              <SearchSortControls
-                sortBy={sortState.field}
-                sortDirection={sortState.direction}
-                onSortChange={handleSortChange}
-                sortFields={sortFields}
-                directionStyle="arrows"
-                class="flex-shrink-0"
-              />
-            </Show>
-
-            {/* Expand/Collapse All Button */}
-            <Show when={artists().length > 0}>
-              <div class="mt-2 w-full flex justify-end">
-                <button
-                  class="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
-                  onClick={() => setExpandAll(!expandAll())}
-                >
-                  {expandAll() ? "collapse all" : "expand all"}
-                </button>
+        <div class="flex-row">
+          {/* Controls - Mobile: Stack vertically, Desktop: Right-aligned */}
+          <Show when={artists().length > 0}>
+            <Show
+              when={isMobile()}
+              fallback={
+                <>
+                  {/* Desktop: Right-aligned controls */}
+                  <div class="w-full flex justify-end">
+                    <SearchSortControls
+                      sortBy={sortState.field}
+                      sortDirection={sortState.direction}
+                      onSortChange={handleSortChange}
+                      sortFields={sortFields}
+                      directionStyle="arrows"
+                      class="flex-shrink-0"
+                    />
+                  </div>
+                  <div class="mt-2 w-full flex justify-end">
+                    <button
+                      class="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
+                      onClick={() => setExpandAll(!expandAll())}
+                    >
+                      {expandAll() ? "collapse all" : "expand all"}
+                    </button>
+                  </div>
+                </>
+              }
+            >
+              {/* Mobile: Full-width stacked controls */}
+              <div class="space-y-3">
+                <SearchSortControls
+                  sortBy={sortState.field}
+                  sortDirection={sortState.direction}
+                  onSortChange={handleSortChange}
+                  sortFields={sortFields}
+                  directionStyle="arrows"
+                  class="w-full"
+                />
+                <div class="flex justify-center">
+                  <button
+                    class="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
+                    onClick={() => setExpandAll(!expandAll())}
+                  >
+                    {expandAll() ? "collapse all" : "expand all"}
+                  </button>
+                </div>
               </div>
             </Show>
-          </div>
+          </Show>
         </div>
       </div>
 

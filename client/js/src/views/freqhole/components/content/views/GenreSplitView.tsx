@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import { DesktopGenresView } from "./genres/DesktopGenresView";
+import { MobileGenresView } from "./genres/MobileGenresView";
 import { useLayout } from "../../../store";
 import type { RouteSectionProps } from "@solidjs/router";
 
@@ -18,8 +19,7 @@ export function GenreSplitView(
         <DesktopGenresView class={props.class} />
       </Show>
       <Show when={layout.breakpoint !== "desktop"}>
-        {/* TODO: Implement MobileGenresView in Phase 5 */}
-        <DesktopGenresView class={props.class} />
+        <MobileGenresView class={props.class} />
       </Show>
     </div>
   );
