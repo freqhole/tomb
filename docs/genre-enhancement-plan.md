@@ -41,9 +41,13 @@
 
 ### Phase 4: Genre Views Core
 
-- [ ] create genre store and state management
-- [ ] implement DesktopGenresView component
-- [ ] create GenreList and GenreDetailPanel components
+- [x] create genre store and state management
+- [x] implement DesktopGenresView component
+- [x] create basic GenreList and GenreDetailPanel components
+- [ ] add infinite scroll to GenreList
+- [ ] implement artist row expansion in GenreDetailPanel
+- [ ] create GenreArtistRow component with accordion functionality
+- [ ] create GenreAlbumGrid component for expanded artist albums
 
 ### Phase 5: Genre Views Details
 
@@ -80,19 +84,74 @@
 - Fixed API client mapping to preserve `sub_genres` data
 - Ensured consistent array format (`[]` vs `null`) to prevent dirty state issues
 
-### 3. Genre Endpoint Type Mismatch
+### 3. Genre Endpoint Type Mismatch ✅ FIXED
 
 **Error**: `mismatched types; Rust type 'i64' (as SQL type 'INT8') is not compatible with SQL type 'NUMERIC'`
 **Root Cause**: PostgreSQL EXTRACT(EPOCH) casting issues in genre statistics query
-**Status**: Attempted fix with `::bigint` cast but still failing
+**Status**: ✅ Fixed with `::float8` casting and proper database schema usage
 
 ## NEXT STEPS
 
 1. ✅ **COMPLETED**: Fix search_songs function to restore basic search functionality
 2. ✅ **COMPLETED**: Debug sub_genres bulk update persistence and form display
-3. **Priority 1**: Fix genre endpoint SQL type casting
-4. **Priority 2**: Continue with Phase 4 (Genre Views Core)
-5. **Priority 3**: Test and polish sub_genres functionality end-to-end
+3. ✅ **COMPLETED**: Fix genre endpoint SQL type casting and database schema issues
+4. ✅ **COMPLETED**: Implement basic Phase 4 genre views with proper backend architecture
+5. **Priority 1**: Complete Phase 4 missing components (infinite scroll, artist expansion)
+6. **Priority 2**: Move to Phase 5 (mobile views, pagination)
+
+### Phase 4 Remaining Work - Detailed Context
+
+#### 1. Infinite Scroll for GenreList
+
+**Current State**: Basic GenreList component shows all genres in a simple list
+**Required**: Add infinite scrolling functionality similar to existing FreqholeInfiniteGrid pattern
+**Files to modify**:
+
+- `tomb/client/js/src/views/freqhole/components/content/views/genres/GenreList.tsx`
+- Genre store actions for pagination state management
+  **Implementation notes**:
+- Follow existing infinite scroll patterns from songs/artists/albums views
+- Use `onLoadMore` callback to fetch additional genres
+- Show loading states during pagination
+
+#### 2. Artist Row Expansion in GenreDetailPanel
+
+**Current State**: GenreDetailPanel has "artists/albums" toggle buttons that switch between flat lists
+**Required**: Replace with expandable artist rows where clicking an artist expands to show their albums
+**Files to modify**:
+
+- `tomb/client/js/src/views/freqhole/components/content/views/genres/GenreDetailPanel.tsx`
+- Remove view mode toggle, replace with artist list that calls `searchGenres()` with artist parameter when expanded
+  **Implementation notes**:
+- Track expanded artist state in component
+- Use `searchGenres({ genre: "rock", artist: "Queen" })` to fetch albums for expanded artist
+- Show loading state while fetching artist's albums
+
+#### 3. GenreArtistRow Component
+
+**Current State**: Does not exist
+**Required**: Create accordion-style component for each artist in genre
+**File to create**: `tomb/client/js/src/views/freqhole/components/content/views/genres/GenreArtistRow.tsx`
+**Features needed**:
+
+- Artist name, song count, album count, duration display
+- Expand/collapse button (chevron icon)
+- Expanded state shows album grid
+- Hover effects and click handlers
+- Loading state when fetching albums
+
+#### 4. GenreAlbumGrid Component
+
+**Current State**: Does not exist
+**Required**: Show albums when artist is expanded, reusing existing album grid patterns
+**File to create**: `tomb/client/js/src/views/freqhole/components/content/views/genres/GenreAlbumGrid.tsx`
+**Features needed**:
+
+- Reuse existing album display components from `FreqholeAlbumGrid`
+- Show album thumbnails, titles, year, track counts
+- Hover-to-play functionality
+- Context menu support
+- Handle empty states gracefully
 
 ## DEBUGGING NOTES
 

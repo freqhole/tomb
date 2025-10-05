@@ -794,6 +794,16 @@ export function createStoreActions(
       setStore("genres", "currentPage", page);
     },
 
+    // genre search method for fetching albums/artists within genres
+    searchGenres: async (request: any) => {
+      try {
+        return await apiClient.searchGenres(request);
+      } catch (error) {
+        console.error("failed to search genres:", error);
+        throw error;
+      }
+    },
+
     // force refresh all (only when needed)
     refreshAll: () => {
       batch(() => {

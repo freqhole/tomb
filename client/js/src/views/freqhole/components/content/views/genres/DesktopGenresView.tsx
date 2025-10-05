@@ -102,6 +102,12 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
     navigate(`/genre/${encodedGenre}`);
   };
 
+  // Handle load more for infinite scroll (placeholder for future pagination)
+  const handleLoadMore = async () => {
+    // TODO: implement when backend supports genre pagination
+    console.log("load more genres requested - not yet implemented");
+  };
+
   // Update local selectedGenre when store changes
   createEffect(() => {
     const storeSelectedGenre = genresState.selectedGenre;
@@ -114,11 +120,6 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
       setSelectedGenre(null);
     }
   });
-
-  // Handle view mode changes for genre details
-  const handleViewModeChange = (mode: "artists" | "albums") => {
-    reactiveActions.setGenreViewMode(mode);
-  };
 
   return (
     <div
@@ -179,6 +180,9 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
               onGenreDoubleClick={handleGenreDoubleClick}
               sortField={sortState.field}
               sortDirection={sortState.direction}
+              totalCount={totalCount()}
+              hasMore={false} // TODO: set to true when backend supports pagination
+              onLoadMore={handleLoadMore}
               class="h-full"
             />
           </Show>
@@ -211,8 +215,6 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
           genreDetails={genreDetails()}
           loading={genreDetailsLoading()}
           error={genreDetailsError()}
-          viewMode={genresState.viewMode}
-          onViewModeChange={handleViewModeChange}
         />
       </Show>
     </div>

@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, onMount, createSignal } from "solid-js";
 import type { GenreStat } from "../../../../../../lib/music/schemas/genre";
 
 interface GenreListProps {
@@ -9,10 +9,16 @@ interface GenreListProps {
   onGenreDoubleClick: (genre: GenreStat) => void;
   sortField: string;
   sortDirection: "asc" | "desc";
+  totalCount?: number;
+  hasMore?: boolean;
+  onLoadMore?: () => Promise<void>;
   class?: string;
 }
 
 export function GenreList(props: GenreListProps) {
+  const [scrollContainer, setScrollContainer] =
+    createSignal<HTMLElement | null>(null);
+  const [loadingMore, setLoadingMore] = createSignal(false);
   // Format duration from seconds to readable string
   const formatDuration = (seconds: number): string => {
     if (seconds < 3600) {
@@ -32,9 +38,40 @@ export function GenreList(props: GenreListProps) {
     return count.toString();
   };
 
+  // handle infinite scroll
+  const handleScroll = async (e: Event) => {
+    const target = e.target as HTMLElement;
+    if (!target || !props.onLoadMore || loadingMore()) return;
+
+    const scrollTop = target.scrollTop;
+    const scrollHeight = target.scrollHeight;
+    const clientHeight = target.clientHeight;
+
+    // trigger load more when near bottom (within 200px)
+    if (scrollHeight - scrollTop - clientHeight < 200 && props.hasMore) {
+      setLoadingMore(true);
+      try {
+        await props.onLoadMore();
+      } catch (error) {
+        console.error("failed to load more genres:", error);
+      } finally {
+        setLoadingMore(false);
+      }
+    }
+  };
+
+  onMount(() => {
+    const container = scrollContainer();
+    if (container) {
+      container.addEventListener("scroll", handleScroll);
+      return () => container.removeEventListener("scroll", handleScroll);
+    }
+    return undefined;
+  });
+
   return (
     <div class={`flex flex-col h-full ${props.class || ""}`}>
-      <div class="flex-1 overflow-y-auto">
+      <div class="flex-1 overflow-y-auto" ref={setScrollContainer}>
         <Show
           when={props.genres.length > 0}
           fallback={
@@ -82,9 +119,32 @@ export function GenreList(props: GenreListProps) {
           </For>
         </Show>
 
-        <Show when={props.loading}>
+        {/* Initial loading state */}
+        <Show when={props.loading && props.genres.length === 0}>
           <div class="p-6 text-center">
-            <div class="text-gray-400 text-sm">loading more genres...</div>
+            <div class="text-gray-400 text-sm">loading genres...</div>
+          </div>
+        </Show>
+
+        {/* Load more indicator */}
+        <Show
+          when={loadingMore() || (props.loading && props.genres.length > 0)}
+        >
+          <div class="p-4 text-center border-t border-gray-800/50">
+            <div class="text-gray-400 text-xs">loading more genres...</div>
+          </div>
+        </Show>
+
+        {/* End of list indicator */}
+        <Show
+          when={!props.hasMore && props.genres.length > 0 && !props.loading}
+        >
+          <div class="p-4 text-center border-t border-gray-800/50">
+            <div class="text-gray-500 text-xs">
+              {props.totalCount
+                ? `${props.totalCount} genres total`
+                : "end of list"}
+            </div>
           </div>
         </Show>
       </div>
