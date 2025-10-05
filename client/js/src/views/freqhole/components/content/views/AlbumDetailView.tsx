@@ -17,14 +17,16 @@ import {
 // Helper function to format genres
 const formatGenres = (genres: string | null): string => {
   if (!genres) return "—";
-  // Server now provides comma-separated genres, limit display to first 3
+  // Server now provides comma-separated genres, limit display based on screen size
   const genreList = genres
     .split(",")
     .map((g) => g.trim())
     .filter(Boolean);
   if (genreList.length === 0) return "—";
-  // Show up to 3 genres
-  return genreList.slice(0, 3).join(", ");
+  // Show fewer genres on mobile to prevent overflow
+  const isMobileView = window.innerWidth < 768;
+  const maxGenres = isMobileView ? 2 : 3;
+  return genreList.slice(0, maxGenres).join(", ");
 };
 
 interface AlbumDetailViewProps {
@@ -245,7 +247,10 @@ export function AlbumDetailView(
                     <Show when={album().genres && album().genres !== ""}>
                       <div class="bg-magenta-950/30 rounded-lg p-3">
                         <div class="text-magenta-300 text-sm mb-1">genres</div>
-                        <div class="text-white text-xl font-semibold">
+                        <div
+                          class="text-white text-xl font-semibold truncate"
+                          title={album().genres}
+                        >
                           {formatGenres(album().genres)}
                         </div>
                       </div>
