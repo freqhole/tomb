@@ -82,8 +82,6 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
 
   // Load all artists up to a specific letter
   const loadAllToLetter = async (targetLetter: string) => {
-    console.log("🔄 Loading artists up to letter:", targetLetter);
-
     const maxAttempts = 100; // Safety limit
     let attempts = 0;
 
@@ -93,13 +91,11 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
         | undefined;
 
       if (!currentResult) {
-        console.log("❌ No current result, breaking");
         break;
       }
 
       const hasNext = currentResult.pagination?.has_next || false;
       if (!hasNext) {
-        console.log("✅ No more pages to load");
         break;
       }
 
@@ -121,34 +117,16 @@ export function MobileArtistsView(props: MobileArtistsViewProps) {
         if (letter === targetLetter && !foundTargetLetter) {
           foundTargetLetter = true;
           foundLetterIndex = i;
-          console.log(
-            `✅ Found first ${targetLetter} artist at index ${i}: ${artist.artist}`
-          );
         }
       }
 
       // If we found the letter and have at least a few artists loaded after it, we can stop
       if (foundTargetLetter && foundLetterIndex < currentArtists.length - 10) {
-        console.log("✅ Have enough artists loaded for smooth scrolling");
         break;
-      }
-
-      if (foundTargetLetter) {
-        console.log(
-          "⏳ Found target letter but loading a bit more for smooth scrolling..."
-        );
-      } else {
-        console.log(
-          `⏳ Target letter ${targetLetter} not found yet, loading more...`
-        );
       }
 
       await reactiveActions.loadMoreArtists();
       attempts++;
-    }
-
-    if (attempts >= maxAttempts) {
-      console.log("⚠️ Reached max loading attempts");
     }
   };
 

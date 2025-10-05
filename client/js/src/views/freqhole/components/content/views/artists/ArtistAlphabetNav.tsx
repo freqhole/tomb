@@ -37,7 +37,7 @@ export function ArtistAlphabetNav(props: ArtistAlphabetNavProps) {
     <div
       class={`flex flex-col bg-black border-r border-magenta-800/30 w-10 md:w-8 h-full ${props.class || ""}`}
     >
-      <div class="flex flex-col items-center gap-2 overflow-y-auto flex-1 py-2 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-magenta-800/50">
+      <div class="flex flex-col items-center gap-2 overflow-y-auto flex-1 py-2 justify-end scrollbar-thin scrollbar-track-transparent scrollbar-thumb-magenta-800/50">
         <For each={allLetters()}>
           {(letter) => {
             const disabled = props.disabledLetters || new Set();

@@ -95,23 +95,8 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
   const [scrollContainer, setScrollContainer] =
     createSignal<HTMLElement | null>(null);
 
-  // Debug scroll container changes
-  createEffect(() => {
-    const container = scrollContainer();
-    console.log("📦 Scroll container changed:", container);
-    if (container) {
-      console.log(
-        "✅ Scroll container is set:",
-        container.tagName,
-        container.className
-      );
-    }
-  });
-
   // Load all artists up to a specific letter
   const loadAllToLetter = async (targetLetter: string) => {
-    console.log("🔄 Loading artists up to letter:", targetLetter);
-
     const maxAttempts = 100; // Safety limit
     let attempts = 0;
 
@@ -121,13 +106,11 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
         | undefined;
 
       if (!currentResult) {
-        console.log("❌ No current result, breaking");
         break;
       }
 
       const hasNext = currentResult.pagination?.has_next || false;
       if (!hasNext) {
-        console.log("✅ No more pages to load");
         break;
       }
 
@@ -149,34 +132,16 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
         if (letter === targetLetter && !foundTargetLetter) {
           foundTargetLetter = true;
           foundLetterIndex = i;
-          console.log(
-            `✅ Found first ${targetLetter} artist at index ${i}: ${artist.artist}`
-          );
         }
       }
 
       // If we found the letter and have at least a few artists loaded after it, we can stop
       if (foundTargetLetter && foundLetterIndex < currentArtists.length - 10) {
-        console.log("✅ Have enough artists loaded for smooth scrolling");
         break;
-      }
-
-      if (foundTargetLetter) {
-        console.log(
-          "⏳ Found target letter but loading a bit more for smooth scrolling..."
-        );
-      } else {
-        console.log(
-          `⏳ Target letter ${targetLetter} not found yet, loading more...`
-        );
       }
 
       await reactiveActions.loadMoreArtists();
       attempts++;
-    }
-
-    if (attempts >= maxAttempts) {
-      console.log("⚠️ Reached max loading attempts");
     }
   };
 
@@ -207,34 +172,22 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
 
   // Handle scroll to position for letter navigation
   const handleScrollToPosition = (position: number) => {
-    console.log("🎯 handleScrollToPosition called with position:", position);
     const container = scrollContainer();
-    console.log("📦 Scroll container:", container);
 
     if (container) {
       // Calculate approximate scroll position based on item height
       const itemHeight = 60; // Approximate height of each artist item
       const scrollTop = position * itemHeight;
-      console.log(
-        "📏 Calculated scrollTop:",
-        scrollTop,
-        "for position:",
-        position
-      );
       container.scrollTo({ top: scrollTop, behavior: "smooth" });
     } else {
-      console.log("❌ No scroll container available, trying fallback");
       // Fallback: try to find the scroll container by DOM query
       const fallbackContainer = document.querySelector(
         ".freqhole-infinite-grid .grid-container"
       ) as HTMLElement;
       if (fallbackContainer) {
-        console.log("✅ Found fallback container:", fallbackContainer);
         const itemHeight = 60;
         const scrollTop = position * itemHeight;
         fallbackContainer.scrollTo({ top: scrollTop, behavior: "smooth" });
-      } else {
-        console.log("❌ Fallback container also not found");
       }
     }
   };
@@ -242,17 +195,14 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
   // Listen for scroll events from artist navigation
   createEffect(() => {
     const handleCustomScroll = (event: CustomEvent) => {
-      console.log("🎧 Received scroll event:", event.detail.position);
       handleScrollToPosition(event.detail.position);
     };
 
-    console.log("📻 Adding scroll event listener");
     window.addEventListener(
       "artistNavigation:scrollTo",
       handleCustomScroll as EventListener
     );
     return () => {
-      console.log("🔇 Removing scroll event listener");
       window.removeEventListener(
         "artistNavigation:scrollTo",
         handleCustomScroll as EventListener

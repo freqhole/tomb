@@ -352,17 +352,11 @@ export function FreqholeInfiniteGrid<T = any>(
             item.id || item.artist || item.name || String(item)
           }
           scrollElementRef={(el) => {
-            console.log(
-              "🔗 FreqholeInfiniteGrid scrollElementRef called with:",
-              el
-            );
             if (props.scrollElementRef) {
-              console.log("✅ Passing scroll element to parent:", el);
               props.scrollElementRef(el);
             }
             // Add scroll listener for onScroll callback
             if (props.onScroll && el) {
-              console.log("📜 Setting up scroll listener on element:", el);
               const handleScroll = () => {
                 props.onScroll!(el.scrollTop);
               };

@@ -41,25 +41,12 @@ export function useArtistNavigation(props: UseArtistNavigationProps) {
   const artistsByLetter = createMemo(() => {
     const groups = new Map<string, ArtistSummary[]>();
 
-    console.log(
-      "🎵 Grouping artists by letter. Total artists:",
-      props.artists.length
-    );
-
-    props.artists.forEach((artist, index) => {
+    props.artists.forEach((artist) => {
       const letter = getFirstLetter(artist.artist);
-      if (index < 5) {
-        console.log(`🔤 Artist "${artist.artist}" → letter "${letter}"`);
-      }
       if (!groups.has(letter)) {
         groups.set(letter, []);
       }
       groups.get(letter)!.push(artist);
-    });
-
-    console.log("📊 Letters found:", Array.from(groups.keys()).sort());
-    groups.forEach((artists, letter) => {
-      console.log(`📝 Letter ${letter}: ${artists.length} artists`);
     });
 
     return groups;
@@ -102,72 +89,41 @@ export function useArtistNavigation(props: UseArtistNavigationProps) {
   // Find the position of the first artist with the given letter
   const findLetterPosition = (targetLetter: string): number => {
     const artists = props.getLatestArtists();
-    console.log(
-      `🔍 findLetterPosition: Looking for "${targetLetter}" in ${artists.length} artists`
-    );
 
     for (let i = 0; i < artists.length; i++) {
       const artist = artists[i];
       if (artist) {
         const letter = getFirstLetter(artist.artist);
-        if (i < 5 || letter === targetLetter) {
-          console.log(
-            `🔍 Artist ${i}: "${artist.artist}" → letter "${letter}"`
-          );
-        }
         if (letter === targetLetter) {
-          console.log(
-            `✅ Found first ${targetLetter} artist at position ${i}: "${artist.artist}"`
-          );
           return i;
         }
       }
     }
-    console.log(
-      `❌ No ${targetLetter} artists found in ${artists.length} artists`
-    );
     return -1;
   };
 
   // Handle letter click
   const handleLetterClick = async (letter: string) => {
-    console.log("🔤 Letter clicked:", letter);
-
     const disabled = disabledLetters();
     if (disabled.has(letter)) {
-      console.log("❌ Letter is disabled:", letter);
       return;
     }
 
     setCurrentLetter(letter);
 
     const position = findLetterPosition(letter);
-    console.log("📍 Found position for letter", letter, ":", position);
 
     if (position === -1) {
       // Letter not found in current data, need to load more
-      console.log("🔄 Loading more artists to find letter:", letter);
       setLoadingToLetter(letter);
 
       try {
         await props.onLoadAllToLetter(letter);
 
         // After loading, find the position again
-        console.log(
-          `🔄 After loading, total artists available: ${props.getLatestArtists().length}`
-        );
         const newPosition = findLetterPosition(letter);
-        console.log("📍 After loading, position for", letter, ":", newPosition);
         if (newPosition !== -1) {
           scrollToPosition(newPosition);
-        } else {
-          console.log(
-            `❌ Still couldn't find ${letter} after loading. Last few artists:`,
-            props
-              .getLatestArtists()
-              .slice(-5)
-              .map((a) => `"${a.artist}" → ${getFirstLetter(a.artist)}`)
-          );
         }
       } catch (error) {
         console.error("Failed to load artists for letter:", letter, error);
@@ -176,7 +132,6 @@ export function useArtistNavigation(props: UseArtistNavigationProps) {
       }
     } else {
       // Letter found, scroll to it
-      console.log("📜 Scrolling to position:", position);
       scrollToPosition(position);
     }
 
@@ -185,7 +140,6 @@ export function useArtistNavigation(props: UseArtistNavigationProps) {
 
   // Scroll to a specific position in the artist list
   const scrollToPosition = (position: number) => {
-    console.log("🎯 Dispatching scroll event for position:", position);
     // This will be implemented by the consuming component
     // We'll emit an event or use a callback
     const event = new CustomEvent("artistNavigation:scrollTo", {
