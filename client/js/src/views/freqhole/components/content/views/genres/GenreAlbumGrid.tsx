@@ -1,4 +1,5 @@
 import { For, Show } from "solid-js";
+import { apiClient } from "../../../../../../lib/api-client";
 import type { GenreAlbum } from "../../../../../../lib/music/schemas/genre";
 
 interface GenreAlbumGridProps {
@@ -10,6 +11,12 @@ interface GenreAlbumGridProps {
 }
 
 export function GenreAlbumGrid(props: GenreAlbumGridProps) {
+  // Helper function for getting album image URLs
+  const getAlbumImageUrl = (albumThumbnailId: string | null) => {
+    if (!albumThumbnailId) return null;
+    return `${apiClient.getBaseUrl()}/api/blobs/${albumThumbnailId}`;
+  };
+
   // format duration helper
   const formatDuration = (seconds: number | string): string => {
     const secs = typeof seconds === "string" ? parseFloat(seconds) : seconds;
@@ -24,14 +31,6 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
     const hours = Math.floor(secs / 3600);
     const mins = Math.floor((secs % 3600) / 60);
     return `${hours}h ${mins}m`;
-  };
-
-  // format count helper
-  const formatCount = (count: number): string => {
-    if (count >= 1000) {
-      return `${(count / 1000).toFixed(1)}k`;
-    }
-    return count.toString();
   };
 
   const handleAlbumClick = (album: GenreAlbum) => {
@@ -54,7 +53,7 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
           </Show>
         }
       >
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
           <For each={props.albums}>
             {(album) => (
               <div
@@ -62,16 +61,26 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
                 onClick={() => handleAlbumClick(album)}
                 onDblClick={() => handleAlbumDoubleClick(album)}
               >
-                <div class="bg-gray-800 hover:bg-gray-750 transition-colors">
+                <div class="transition-colors">
                   {/* Album artwork */}
-                  <div class="aspect-square bg-gray-700 flex items-center justify-center relative overflow-hidden">
+                  <div class="aspect-square bg-magenta-800/30 flex items-center justify-center relative overflow-hidden mb-2">
                     <Show
-                      when={album.album_thumbnail_id}
-                      fallback={<div class="text-4xl text-gray-500">♪</div>}
+                      when={getAlbumImageUrl(album.album_thumbnail_id)}
+                      fallback={
+                        <div class="w-full h-full flex items-center justify-center">
+                          <svg
+                            class="w-12 h-12 text-magenta-400"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                          </svg>
+                        </div>
+                      }
                     >
                       <img
-                        src={`/api/admin/images/${album.album_thumbnail_id}`}
-                        alt={album.album || "album"}
+                        src={getAlbumImageUrl(album.album_thumbnail_id)!}
+                        alt={`${album.album || "album"} by ${album.artist || "unknown artist"}`}
                         class="w-full h-full object-cover"
                         loading="lazy"
                       />
@@ -79,7 +88,14 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
 
                     {/* Hover overlay with play button */}
                     <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <div class="w-12 h-12 bg-magenta-600 text-white flex items-center justify-center hover:bg-magenta-500 transition-colors">
+                      <button
+                        class="w-12 h-12 bg-magenta-600 text-white flex items-center justify-center hover:bg-magenta-500 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // TODO: implement play album functionality
+                          console.log("play album:", album.album);
+                        }}
+                      >
                         <svg
                           class="w-6 h-6 ml-1"
                           fill="currentColor"
@@ -87,66 +103,41 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
                         >
                           <path d="M8 5v14l11-7z" />
                         </svg>
-                      </div>
+                      </button>
                     </div>
                   </div>
 
                   {/* Album info */}
-                  <div class="p-3">
-                    <div class="space-y-1">
-                      <h4
-                        class="text-white font-medium text-sm truncate"
-                        title={album.album || "untitled"}
-                      >
-                        {album.album || "untitled"}
-                      </h4>
+                  <div class="space-y-1">
+                    <h4
+                      class="text-white font-medium text-sm truncate"
+                      title={album.album || "untitled"}
+                    >
+                      {album.album || "untitled"}
+                    </h4>
 
-                      <Show when={album.artist}>
-                        <div
-                          class="text-xs text-gray-400 truncate"
-                          title={album.artist || undefined}
-                        >
-                          {album.artist}
-                        </div>
-                      </Show>
-
-                      <div class="flex items-center justify-between text-xs text-gray-500 mt-2">
-                        <div class="flex items-center gap-2">
-                          <span>
-                            {album.track_count || 0} track
-                            {album.track_count !== 1 ? "s" : ""}
-                          </span>
-                          <Show when={album.disc_count > 1}>
-                            <span>• {album.disc_count} discs</span>
-                          </Show>
-                        </div>
-                        <Show when={album.year}>
-                          <span>{album.year}</span>
-                        </Show>
-                      </div>
-
-                      <Show when={album.total_duration}>
-                        <div class="text-xs text-gray-500">
-                          {formatDuration(album.total_duration!)}
-                        </div>
-                      </Show>
-
-                      {/* Rating and favorites */}
-                      <div class="flex items-center justify-between text-xs">
-                        <div class="flex items-center gap-2">
-                          <Show when={album.avg_rating}>
-                            <span class="text-yellow-400">
-                              ★ {album.avg_rating!.toFixed(1)}
-                            </span>
-                          </Show>
-                          <Show when={album.favorite_count > 0}>
-                            <span class="text-red-400">
-                              ♥ {formatCount(album.favorite_count)}
-                            </span>
-                          </Show>
-                        </div>
-                      </div>
+                    <div
+                      class="text-xs text-gray-400 truncate"
+                      title={album.artist || undefined}
+                    >
+                      {album.artist || "unknown artist"}
                     </div>
+
+                    <div class="text-xs text-gray-500">
+                      <Show when={album.year}>
+                        <span>{album.year} • </span>
+                      </Show>
+                      <span>
+                        {album.track_count || 0} track
+                        {album.track_count !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+
+                    <Show when={album.total_duration}>
+                      <div class="text-xs text-gray-500">
+                        {formatDuration(album.total_duration!)}
+                      </div>
+                    </Show>
                   </div>
                 </div>
               </div>

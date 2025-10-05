@@ -224,33 +224,29 @@ export function createStoreActions(
   const [genreDetailsResource, { refetch: refetchGenreDetails }] =
     createResource(
       () => {
-        const deps = {
-          selectedGenre: store.genres.selectedGenre,
-          query: store.search.query?.trim() || "", // use global search state
-          viewMode: store.genres.viewMode,
-          currentPage: store.genres.currentPage,
-          sortField: store.sort.field,
-          sortDirection: store.sort.direction,
-          tags: [...store.filters.tags],
-        };
-        return deps;
+        // Simple dependency tracking - just return selectedGenre directly
+        const selectedGenre = store.genres.selectedGenre;
+        console.log("Genre details resource key:", selectedGenre);
+        return selectedGenre;
       },
-      async (params) => {
-        if (!params.selectedGenre) {
+      async (selectedGenre) => {
+        if (!selectedGenre) {
           return null;
         }
 
         try {
           const searchRequest = {
-            genre: params.selectedGenre,
-            q: params.query || undefined, // use global search query
-            tags: params.tags.length > 0 ? params.tags : undefined,
-            sort_by: params.sortField,
-            sort_direction: params.sortDirection,
-            page: params.currentPage,
+            genre: selectedGenre,
+            q: store.search.query?.trim() || undefined,
+            tags:
+              store.filters.tags.length > 0 ? store.filters.tags : undefined,
+            sort_by: store.sort.field,
+            sort_direction: store.sort.direction,
+            page: store.genres.currentPage,
             page_size: 50,
           };
 
+          console.log("Fetching genre details for:", selectedGenre);
           return await apiClient.searchGenres(searchRequest);
         } catch (error) {
           console.error("failed to fetch genre details:", error);
@@ -804,6 +800,10 @@ export function createStoreActions(
       }
     },
 
+    // selective refresh methods - components can call what they need
+    refreshGenres: () => refetchGenres(),
+    refreshGenreDetails: () => refetchGenreDetails(),
+
     // force refresh all (only when needed)
     refreshAll: () => {
       batch(() => {
@@ -813,6 +813,7 @@ export function createStoreActions(
         refetchPlaylists();
         refetchRecentPlaylists();
         refetchGenres();
+        refetchGenreDetails();
         // note: availableTags uses mutate pattern, doesn't need refetch
       });
     },

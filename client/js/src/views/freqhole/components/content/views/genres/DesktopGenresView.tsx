@@ -111,14 +111,45 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
   // Update local selectedGenre when store changes
   createEffect(() => {
     const storeSelectedGenre = genresState.selectedGenre;
+    const availableGenres = genres();
+
     if (storeSelectedGenre) {
-      const genreData = genres().find((g) => g.name === storeSelectedGenre);
+      const genreData = availableGenres.find(
+        (g) => g.name === storeSelectedGenre
+      );
       if (genreData) {
         setSelectedGenre(genreData);
       }
     } else {
       setSelectedGenre(null);
     }
+  });
+
+  // Auto-select first genre when genres are loaded but none is selected
+  createEffect(() => {
+    const availableGenres = genres();
+    const storeSelectedGenre = genresState.selectedGenre;
+
+    if (availableGenres.length > 0 && !storeSelectedGenre) {
+      const firstGenre = availableGenres[0];
+      if (firstGenre) {
+        console.log("Auto-selecting first genre:", firstGenre.name);
+        reactiveActions.selectGenre(firstGenre.name);
+      }
+    }
+  });
+
+  // Debug effect to track genre details resource state
+  createEffect(() => {
+    const selected = selectedGenre();
+    const details = genreDetails();
+    const detailsLoading = genreDetailsLoading();
+
+    console.log("Genre details resource state:", {
+      selectedGenre: selected?.name || "none",
+      hasDetails: !!details,
+      detailsLoading,
+    });
   });
 
   return (

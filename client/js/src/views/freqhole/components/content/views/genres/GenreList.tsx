@@ -19,16 +19,6 @@ export function GenreList(props: GenreListProps) {
   const [scrollContainer, setScrollContainer] =
     createSignal<HTMLElement | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
-  // Format duration from seconds to readable string
-  const formatDuration = (seconds: number): string => {
-    if (seconds < 3600) {
-      const mins = Math.floor(seconds / 60);
-      return `${mins}m`;
-    }
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${mins}m`;
-  };
 
   // Format count with abbreviations
   const formatCount = (count: number): string => {
@@ -103,14 +93,18 @@ export function GenreList(props: GenreListProps) {
                       {genre.name}
                     </h3>
                     <div class="flex items-center gap-3 mt-1 text-xs text-gray-400">
-                      <span>{formatCount(genre.song_count)} songs</span>
-                      <span>{formatCount(genre.artist_count)} artists</span>
-                      <span>{formatCount(genre.album_count)} albums</span>
-                    </div>
-                  </div>
-                  <div class="flex-shrink-0 ml-3">
-                    <div class="text-xs text-gray-500">
-                      {formatDuration(genre.total_duration)}
+                      <span>
+                        {formatCount(genre.song_count)} song
+                        {genre.song_count !== 1 ? "s" : ""}
+                      </span>
+                      <span>
+                        {formatCount(genre.artist_count)} artist
+                        {genre.artist_count !== 1 ? "s" : ""}
+                      </span>
+                      <span>
+                        {formatCount(genre.album_count)} album
+                        {genre.album_count !== 1 ? "s" : ""}
+                      </span>
                     </div>
                   </div>
                 </div>

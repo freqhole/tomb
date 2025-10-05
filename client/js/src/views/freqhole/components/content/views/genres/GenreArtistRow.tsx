@@ -105,8 +105,14 @@ export function GenreArtistRow(props: GenreArtistRowProps) {
                   {props.artist.artist}
                 </h3>
                 <div class="flex items-center gap-3 mt-1 text-xs text-gray-400">
-                  <span>{formatCount(props.artist.song_count)} songs</span>
-                  <span>{formatCount(props.artist.album_count)} albums</span>
+                  <span>
+                    {formatCount(props.artist.song_count)} song
+                    {props.artist.song_count !== 1 ? "s" : ""}
+                  </span>
+                  <span>
+                    {formatCount(props.artist.album_count)} album
+                    {props.artist.album_count !== 1 ? "s" : ""}
+                  </span>
                   <span>{formatDuration(props.artist.total_duration)}</span>
                   <Show when={props.artist.avg_rating}>
                     <span>★ {props.artist.avg_rating!.toFixed(1)}</span>
@@ -116,22 +122,36 @@ export function GenreArtistRow(props: GenreArtistRowProps) {
                   </Show>
                 </div>
 
-                {/* Genre tags */}
+                {/* Sub-genre tags - only show if different from main genre */}
                 <Show
-                  when={props.artist.genres && props.artist.genres.length > 0}
+                  when={props.artist.genres && props.artist.genres.length > 1}
                 >
                   <div class="mt-2">
                     <div class="flex flex-wrap gap-1">
-                      <For each={props.artist.genres.slice(0, 3)}>
-                        {(genre) => (
+                      <For
+                        each={props.artist.genres
+                          .filter((g) => g !== props.genreName)
+                          .slice(0, 3)}
+                      >
+                        {(subGenre) => (
                           <span class="text-xs px-2 py-1 bg-gray-800 text-gray-300">
-                            {genre}
+                            {subGenre}
                           </span>
                         )}
                       </For>
-                      <Show when={props.artist.genres.length > 3}>
+                      <Show
+                        when={
+                          props.artist.genres.filter(
+                            (g) => g !== props.genreName
+                          ).length > 3
+                        }
+                      >
                         <span class="text-xs text-gray-500">
-                          +{props.artist.genres.length - 3} more
+                          +
+                          {props.artist.genres.filter(
+                            (g) => g !== props.genreName
+                          ).length - 3}{" "}
+                          more
                         </span>
                       </Show>
                     </div>
