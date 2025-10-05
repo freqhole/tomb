@@ -35,7 +35,9 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps) {
       if (!artist?.artist) return { songs: [] };
 
       try {
-        const songs = await apiClient.getArtistSongs(artist.artist);
+        const songs = await apiClient.getArtistSongs(artist.artist, {
+          limit: 1000,
+        });
         return songs;
       } catch (error) {
         console.error("failed to load artist songs:", error);

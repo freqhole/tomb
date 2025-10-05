@@ -95,7 +95,7 @@ export function ArtistDetailView(
       setLoadingArtistSongs(true);
 
       try {
-        const songs = await apiClient.getArtistSongs(name);
+        const songs = await apiClient.getArtistSongs(name, { limit: 1000 });
         return songs;
       } catch (error) {
         console.error("failed to load artist songs:", error);
