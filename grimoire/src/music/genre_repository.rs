@@ -105,10 +105,9 @@ impl GenreRepository {
                 COUNT(DISTINCT s.album) as album_count,
                 EXTRACT(EPOCH FROM SUM(s.duration))::bigint as total_duration,
                 ARRAY_AGG(DISTINCT s.genre) FILTER (WHERE s.genre IS NOT NULL) as genres,
-                AVG(sp.rating) as avg_rating,
-                COUNT(sp.is_favorite) FILTER (WHERE sp.is_favorite = true) as favorite_count
+                AVG(s.rating)::float8 as avg_rating,
+                COUNT(CASE WHEN s.is_favorite THEN 1 END) as favorite_count
             FROM songs s
-            LEFT JOIN song_preferences sp ON s.id = sp.song_id
             WHERE s.deleted_at IS NULL AND s.artist IS NOT NULL
         "#
         .to_string()];
@@ -138,8 +137,6 @@ impl GenreRepository {
         let offset_param = param_count;
 
         query_parts.push(format!("LIMIT ${} OFFSET ${}", limit_param, offset_param));
-        bind_values.push(page_size.to_string());
-        bind_values.push(offset.to_string());
 
         let query_str = query_parts.join(" ");
         let mut query = sqlx::query(&query_str);
@@ -147,6 +144,7 @@ impl GenreRepository {
         for value in &bind_values {
             query = query.bind(value);
         }
+        query = query.bind(page_size).bind(offset);
 
         let rows = query.fetch_all(&self.pool).await?;
 
@@ -198,10 +196,9 @@ impl GenreRepository {
                 COUNT(DISTINCT s.disc_number) as disc_count,
                 EXTRACT(EPOCH FROM SUM(s.duration))::text as total_duration,
                 s.genre as genres,
-                AVG(sp.rating) as avg_rating,
-                COUNT(sp.is_favorite) FILTER (WHERE sp.is_favorite = true) as favorite_count
+                AVG(s.rating)::float8 as avg_rating,
+                COUNT(CASE WHEN s.is_favorite THEN 1 END) as favorite_count
             FROM songs s
-            LEFT JOIN song_preferences sp ON s.id = sp.song_id
             WHERE s.deleted_at IS NULL
         "#
         .to_string()];
@@ -240,8 +237,6 @@ impl GenreRepository {
         let offset_param = param_count;
 
         query_parts.push(format!("LIMIT ${} OFFSET ${}", limit_param, offset_param));
-        bind_values.push(page_size.to_string());
-        bind_values.push(offset.to_string());
 
         let query_str = query_parts.join(" ");
         let mut query = sqlx::query(&query_str);
@@ -249,6 +244,7 @@ impl GenreRepository {
         for value in &bind_values {
             query = query.bind(value);
         }
+        query = query.bind(page_size).bind(offset);
 
         let rows = query.fetch_all(&self.pool).await?;
 
