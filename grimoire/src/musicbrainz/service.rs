@@ -343,6 +343,7 @@ impl MusicBrainzService {
             track_number: song.track_number,
             disc_number: song.disc_number,
             genre: song.genre.clone(),
+            sub_genres: song.sub_genres.clone(),
             year: song.year,
             bpm: song.bpm,
             key_signature: song.key_signature.clone(),

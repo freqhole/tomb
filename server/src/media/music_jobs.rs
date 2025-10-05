@@ -374,6 +374,7 @@ pub async fn process_music_file_directly(
             }
         }),
         genre: metadata_result.genre,
+        sub_genres: None, // no sub_genres from metadata extraction
         year: metadata_result.year.map(|y| y as i32),
         bpm: None,
         key_signature: None,

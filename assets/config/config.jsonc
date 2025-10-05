@@ -98,7 +98,38 @@
     "downloads": {
       "enabled": true,
       "ytdlp_command": "yt-dlp"
-    }
+    },
+    // Predefined genres for song categorization
+    "genres": [
+      "rock",
+      "pop",
+      "jazz",
+      "classical",
+      "electronic",
+      "hip-hop",
+      "country",
+      "folk",
+      "blues",
+      "reggae",
+      "metal",
+      "punk",
+      "indie",
+      "alternative",
+      "experimental",
+      "ambient",
+      "techno",
+      "house",
+      "trance",
+      "drum-and-bass",
+      "dubstep",
+      "r-n-b",
+      "soul",
+      "funk",
+      "gospel",
+      "world",
+      "soundtrack",
+      "instrumental"
+    ]
   },
   "musicbrainz": {
     // Enable MusicBrainz integration for metadata enrichment

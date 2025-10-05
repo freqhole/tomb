@@ -1071,6 +1071,7 @@ impl MusicRepository {
                     disc_number: row.get("disc_number"),
                     duration: row.get("duration"),
                     genre: row.get("genre"),
+                    sub_genres: row.get("sub_genres"),
                     year: row.get("year"),
                     bpm: row.get("bpm"),
                     key_signature: row.get("key_signature"),

@@ -172,7 +172,7 @@ impl SearchService {
             SELECT
                 id, media_blob_id, thumbnail_blob_id, waveform_blob_id,
                 thumbnail_blob_ids, title, artist, album, album_artist,
-                track_number, disc_number, duration, genre, year, bpm,
+                track_number, disc_number, duration, genre, sub_genres, year, bpm,
                 key_signature, rating, is_favorite, tags, metadata,
                 created_at, updated_at, version, search_rank, total_count
             FROM search_songs($1)
@@ -207,6 +207,7 @@ impl SearchService {
                     time::Duration::microseconds(pg_interval.microseconds)
                 }),
                 genre: row.genre,
+                sub_genres: row.sub_genres,
                 year: row.year,
                 bpm: row.bpm,
                 key_signature: row.key_signature,
@@ -424,7 +425,7 @@ impl SearchService {
             SELECT
                 id, media_blob_id, thumbnail_blob_id, waveform_blob_id,
                 thumbnail_blob_ids, title, artist, album, album_artist,
-                track_number, disc_number, duration, genre, year, bpm,
+                track_number, disc_number, duration, genre, sub_genres, year, bpm,
                 key_signature, rating, is_favorite, tags, metadata,
                 created_at, updated_at, version, 0.0 as search_rank,
                 0 as total_count
@@ -459,6 +460,7 @@ impl SearchService {
                     time::Duration::microseconds(pg_interval.microseconds)
                 }),
                 genre: row.genre,
+                sub_genres: row.sub_genres,
                 year: row.year,
                 bpm: row.bpm,
                 key_signature: row.key_signature,

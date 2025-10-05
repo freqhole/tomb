@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id, media_blob_id, thumbnail_blob_id, waveform_blob_id,\n                thumbnail_blob_ids, title, artist, album, album_artist,\n                track_number, disc_number, duration, genre, year, bpm,\n                key_signature, rating, is_favorite, tags, metadata,\n                created_at, updated_at, version, search_rank, total_count\n            FROM search_songs($1)\n            ",
+  "query": "\n            SELECT\n                id, media_blob_id, thumbnail_blob_id, waveform_blob_id,\n                thumbnail_blob_ids, title, artist, album, album_artist,\n                track_number, disc_number, duration, genre, sub_genres, year, bpm,\n                key_signature, rating, is_favorite, tags, metadata,\n                created_at, updated_at, version, search_rank, total_count\n            FROM search_songs($1)\n            ",
   "describe": {
     "columns": [
       {
@@ -70,61 +70,66 @@
       },
       {
         "ordinal": 13,
+        "name": "sub_genres",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 14,
         "name": "year",
         "type_info": "Int4"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "bpm",
         "type_info": "Int4"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "key_signature",
         "type_info": "Text"
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "rating",
         "type_info": "Int4"
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "is_favorite",
         "type_info": "Bool"
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "tags",
         "type_info": "TextArray"
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "metadata",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "version",
         "type_info": "Int8"
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "search_rank",
         "type_info": "Float4"
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "total_count",
         "type_info": "Int8"
       }
@@ -159,8 +164,9 @@
       null,
       null,
       null,
+      null,
       null
     ]
   },
-  "hash": "b686c28538de1700e7bf619d7be4bb6a92fc5091b56b946bb280031b0a1ed309"
+  "hash": "7a3f54b691d55da9f65d7d5b88902a2d03c07eb816af80d8ab99192f9177c0da"
 }

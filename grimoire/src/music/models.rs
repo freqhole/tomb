@@ -26,6 +26,7 @@ pub struct Song {
     #[serde(skip)]
     pub duration: Option<PgInterval>,
     pub genre: Option<String>,
+    pub sub_genres: Option<Vec<String>>,
     pub year: Option<i32>,
     pub bpm: Option<i32>,
     pub key_signature: Option<String>,
@@ -439,6 +440,7 @@ pub struct SongWithMedia {
     #[serde(skip)]
     pub duration: Option<PgInterval>,
     pub genre: Option<String>,
+    pub sub_genres: Option<Vec<String>>,
     pub year: Option<i32>,
     pub is_favorite: bool,
     pub rating: Option<i32>,
@@ -628,6 +630,7 @@ pub struct CreateSong {
     #[serde(skip)]
     pub duration: Option<PgInterval>,
     pub genre: Option<String>,
+    pub sub_genres: Option<Vec<String>>,
     pub year: Option<i32>,
     pub bpm: Option<i32>,
     pub key_signature: Option<String>,
@@ -1236,6 +1239,7 @@ pub struct BulkSongUpdates {
     pub track_number: Option<i32>,
     pub disc_number: Option<i32>,
     pub genre: Option<String>,
+    pub sub_genres: Option<Vec<String>>,
     pub year: Option<i32>,
     pub bpm: Option<i32>,
     pub key_signature: Option<String>,
@@ -1279,6 +1283,7 @@ pub struct SongWithUserPreferences {
     #[serde(skip)]
     pub duration: Option<PgInterval>,
     pub genre: Option<String>,
+    pub sub_genres: Option<Vec<String>>,
     pub year: Option<i32>,
     pub bpm: Option<i32>,
     pub key_signature: Option<String>,
@@ -1345,6 +1350,7 @@ impl SongWithUserPreferences {
             disc_number: self.disc_number,
             duration: self.duration,
             genre: self.genre.clone(),
+            sub_genres: self.sub_genres.clone(),
             year: self.year,
             bpm: self.bpm,
             key_signature: self.key_signature.clone(),
@@ -1378,6 +1384,7 @@ pub struct SongWithUserPrefs {
     pub disc_number: Option<i32>,
     pub duration_seconds: Option<i64>,
     pub genre: Option<String>,
+    pub sub_genres: Option<Vec<String>>,
     pub year: Option<i32>,
     pub bpm: Option<i32>,
     pub key_signature: Option<String>,

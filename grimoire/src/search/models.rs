@@ -245,6 +245,7 @@ pub struct SongSearchResult {
     pub disc_number: Option<i32>,
     pub duration: Option<time::Duration>,
     pub genre: Option<String>,
+    pub sub_genres: Option<Vec<String>>,
     pub year: Option<i32>,
     pub bpm: Option<i32>,
     pub key_signature: Option<String>,
