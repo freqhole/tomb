@@ -1715,10 +1715,33 @@ pub async fn get_album_tracks(
         .find_map(|t| t.year)
         .or_else(|| track_responses.first().and_then(|t| t.year));
 
-    let genres = track_responses
-        .iter()
-        .find_map(|t| t.genre.as_ref())
-        .map(|g| g.clone());
+    let genres = {
+        let unique_genres: std::collections::HashSet<String> = track_responses
+            .iter()
+            .filter_map(|t| t.genre.as_ref())
+            .map(|g| g.to_lowercase())
+            .collect();
+        if unique_genres.is_empty() {
+            None
+        } else {
+            let mut genre_vec: Vec<String> = unique_genres.into_iter().collect();
+            genre_vec.sort();
+            // Capitalize first letter of each genre for display
+            genre_vec = genre_vec
+                .into_iter()
+                .map(|mut g| {
+                    if let Some(first_char) = g.chars().next() {
+                        g.replace_range(
+                            0..first_char.len_utf8(),
+                            &first_char.to_uppercase().to_string(),
+                        );
+                    }
+                    g
+                })
+                .collect();
+            Some(genre_vec.join(", "))
+        }
+    };
 
     let album_thumbnail_id = track_responses
         .iter()
@@ -1792,10 +1815,33 @@ pub async fn get_album_tracks_post(
         .find_map(|t| t.year)
         .or_else(|| track_responses.first().and_then(|t| t.year));
 
-    let genres = track_responses
-        .iter()
-        .find_map(|t| t.genre.as_ref())
-        .map(|g| g.clone());
+    let genres = {
+        let unique_genres: std::collections::HashSet<String> = track_responses
+            .iter()
+            .filter_map(|t| t.genre.as_ref())
+            .map(|g| g.to_lowercase())
+            .collect();
+        if unique_genres.is_empty() {
+            None
+        } else {
+            let mut genre_vec: Vec<String> = unique_genres.into_iter().collect();
+            genre_vec.sort();
+            // Capitalize first letter of each genre for display
+            genre_vec = genre_vec
+                .into_iter()
+                .map(|mut g| {
+                    if let Some(first_char) = g.chars().next() {
+                        g.replace_range(
+                            0..first_char.len_utf8(),
+                            &first_char.to_uppercase().to_string(),
+                        );
+                    }
+                    g
+                })
+                .collect();
+            Some(genre_vec.join(", "))
+        }
+    };
 
     let album_thumbnail_id = track_responses
         .iter()

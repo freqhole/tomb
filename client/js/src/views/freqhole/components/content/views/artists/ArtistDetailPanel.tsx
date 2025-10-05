@@ -203,7 +203,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps) {
         </h2>
 
         {/* Artist Info */}
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
           <div class="bg-magenta-950/30 rounded-lg p-3">
             <div class="text-magenta-300 text-sm mb-1">songs</div>
             <div class="text-white text-xl font-semibold">
@@ -222,20 +222,22 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps) {
               {formatAlbumDuration(props.artist.total_duration || 0)}
             </div>
           </div>
-          <div class="bg-magenta-950/30 rounded-lg p-3">
-            <div class="text-magenta-300 text-sm mb-1">avg rating</div>
-            <div class="text-white text-xl font-semibold">
-              {props.artist.avg_rating
-                ? props.artist.avg_rating.toFixed(1)
-                : "—"}
+          <Show when={props.artist.avg_rating !== null}>
+            <div class="bg-magenta-950/30 rounded-lg p-3">
+              <div class="text-magenta-300 text-sm mb-1">avg rating</div>
+              <div class="text-white text-xl font-semibold">
+                {props.artist.avg_rating!.toFixed(1)}
+              </div>
             </div>
-          </div>
-          <div class="bg-magenta-950/30 rounded-lg p-3">
-            <div class="text-magenta-300 text-sm mb-1">genres</div>
-            <div class="text-white text-xl font-semibold">
-              {formatGenres(props.artist.genres || [])}
+          </Show>
+          <Show when={props.artist.genres && props.artist.genres.length > 0}>
+            <div class="bg-magenta-950/30 rounded-lg p-3">
+              <div class="text-magenta-300 text-sm mb-1">genres</div>
+              <div class="text-white text-xl font-semibold">
+                {formatGenres(props.artist.genres)}
+              </div>
             </div>
-          </div>
+          </Show>
         </div>
 
         {/* Quick Actions */}

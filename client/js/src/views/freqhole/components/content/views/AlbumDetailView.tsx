@@ -14,6 +14,19 @@ import {
   useAlbumLoader,
 } from "./albums/albumUtils";
 
+// Helper function to format genres
+const formatGenres = (genres: string | null): string => {
+  if (!genres) return "—";
+  // Server now provides comma-separated genres, limit display to first 3
+  const genreList = genres
+    .split(",")
+    .map((g) => g.trim())
+    .filter(Boolean);
+  if (genreList.length === 0) return "—";
+  // Show up to 3 genres
+  return genreList.slice(0, 3).join(", ");
+};
+
 interface AlbumDetailViewProps {
   class?: string;
 }
@@ -200,7 +213,7 @@ export function AlbumDetailView(
                   </div>
 
                   {/* Album Stats */}
-                  <div class="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div class="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                     <div class="bg-magenta-950/30 rounded-lg p-3">
                       <div class="text-magenta-300 text-sm mb-1">tracks</div>
                       <div class="text-white text-xl font-semibold">
@@ -219,6 +232,24 @@ export function AlbumDetailView(
                         {album().year || "—"}
                       </div>
                     </div>
+                    <Show when={album().avg_rating !== null}>
+                      <div class="bg-magenta-950/30 rounded-lg p-3">
+                        <div class="text-magenta-300 text-sm mb-1">
+                          avg rating
+                        </div>
+                        <div class="text-white text-xl font-semibold">
+                          {album().avg_rating!.toFixed(1)}
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={album().genres && album().genres !== ""}>
+                      <div class="bg-magenta-950/30 rounded-lg p-3">
+                        <div class="text-magenta-300 text-sm mb-1">genres</div>
+                        <div class="text-white text-xl font-semibold">
+                          {formatGenres(album().genres)}
+                        </div>
+                      </div>
+                    </Show>
                   </div>
                 </div>
 

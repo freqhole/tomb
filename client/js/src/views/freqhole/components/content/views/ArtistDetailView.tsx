@@ -308,7 +308,7 @@ export function ArtistDetailView(
           <Show when={artistSummaryResource()}>
             {(artist) => (
               <div class="p-6">
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
                   <div class="bg-magenta-950/30 rounded-lg p-3">
                     <div class="text-magenta-300 text-sm mb-1">songs</div>
                     <div class="text-white text-xl font-semibold">
@@ -321,14 +321,16 @@ export function ArtistDetailView(
                       {artist().album_count || 0}
                     </div>
                   </div>
-                  <div class="bg-magenta-950/30 rounded-lg p-3">
-                    <div class="text-magenta-300 text-sm mb-1">avg rating</div>
-                    <div class="text-white text-xl font-semibold">
-                      {artist().avg_rating
-                        ? artist().avg_rating!.toFixed(1)
-                        : "—"}
+                  <Show when={artist().avg_rating !== null}>
+                    <div class="bg-magenta-950/30 rounded-lg p-3">
+                      <div class="text-magenta-300 text-sm mb-1">
+                        avg rating
+                      </div>
+                      <div class="text-white text-xl font-semibold">
+                        {artist().avg_rating!.toFixed(1)}
+                      </div>
                     </div>
-                  </div>
+                  </Show>
                   <div class="bg-magenta-950/30 rounded-lg p-3">
                     <div class="text-magenta-300 text-sm mb-1">duration</div>
                     <div class="text-white text-xl font-semibold">
