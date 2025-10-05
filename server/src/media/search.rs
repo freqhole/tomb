@@ -604,6 +604,7 @@ pub async fn search_music(
                 disc_number: result.disc_number,
                 duration_seconds,
                 genre: result.genre,
+                sub_genres: result.sub_genres.unwrap_or_default(),
                 year: result.year,
                 bpm: result.bpm,
                 key_signature: result.key_signature,

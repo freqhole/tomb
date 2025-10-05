@@ -17,7 +17,15 @@ export function useSongFormStore(
 ) {
   // extract editable fields from song(s)
   const extractEditableFields = (song: Song): EditableSongFields => {
-    return EditableSongFieldsSchema.parse({
+    console.log("extractEditableFields:", {
+      songId: song.id,
+      songTitle: song.title,
+      songSubGenres: song.sub_genres,
+      songSubGenresType: typeof song.sub_genres,
+      songSubGenresIsArray: Array.isArray(song.sub_genres),
+    });
+
+    const extracted = EditableSongFieldsSchema.parse({
       title: song.title,
       artist: song.artist,
       album: song.album,
@@ -25,6 +33,7 @@ export function useSongFormStore(
       track_number: song.track_number,
       disc_number: song.disc_number,
       genre: song.genre,
+      sub_genres: song.sub_genres,
       year: song.year,
       bpm: song.bpm,
       key_signature: song.key_signature,
@@ -32,6 +41,13 @@ export function useSongFormStore(
       user_rating: song.user_rating,
       user_is_favorite: song.user_is_favorite,
     });
+
+    console.log("extractEditableFields result:", {
+      extractedSubGenres: extracted.sub_genres,
+      extractedSubGenresType: typeof extracted.sub_genres,
+    });
+
+    return extracted;
   };
 
   // handle mixed values for bulk editing

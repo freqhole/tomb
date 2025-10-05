@@ -35,6 +35,9 @@ export function SubGenresInput(props: SubGenresInputProps) {
       const formatted = formatValue(props.value);
       console.log("SubGenresInput onMount:", {
         propsValue: props.value,
+        propsValueType: typeof props.value,
+        isArray: Array.isArray(props.value),
+        isDirty: props.isDirty,
         formatted,
       });
       inputRef.value = formatted;

@@ -522,6 +522,7 @@ pub struct AlbumTrack {
     #[serde(skip)]
     pub duration: Option<PgInterval>,
     pub genre: Option<String>,
+    pub sub_genres: Option<Vec<String>>,
     pub year: Option<i32>,
     pub rating: Option<i32>,
     pub is_favorite: bool,
