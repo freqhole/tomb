@@ -29,6 +29,48 @@ const formatGenres = (genres: string | null): string => {
   return genreList.slice(0, maxGenres).join(", ");
 };
 
+// Helper function to collect sub-genres from track list
+const getSubGenres = (tracks: any[]): string[] => {
+  if (!tracks || tracks.length === 0) return [];
+
+  // Collect all unique sub-genres from all tracks
+  const allSubGenres = new Set<string>();
+  tracks.forEach((track) => {
+    if (track.sub_genres && Array.isArray(track.sub_genres)) {
+      track.sub_genres.forEach((subGenre: string) => {
+        if (subGenre && subGenre.trim()) {
+          allSubGenres.add(subGenre.trim());
+        }
+      });
+    }
+  });
+
+  return Array.from(allSubGenres).sort();
+};
+
+// Helper function to format genres with sub-genres
+const formatGenresWithSub = (
+  genres: string | null,
+  subGenres: string[],
+  isDesktop: boolean
+): string => {
+  const mainGenres = genres
+    ? genres
+        .split(",")
+        .map((g) => g.trim())
+        .filter(Boolean)
+    : [];
+
+  // On desktop, include sub-genres; on mobile, skip them
+  const allGenres = isDesktop ? [...mainGenres, ...subGenres] : mainGenres;
+
+  if (allGenres.length === 0) return "—";
+
+  // On desktop, show more genres since we have 3 lines; on mobile, limit for single line
+  const maxGenres = isDesktop ? 12 : 2;
+  return allGenres.slice(0, maxGenres).join(", ");
+};
+
 interface AlbumDetailViewProps {
   class?: string;
 }
@@ -248,10 +290,39 @@ export function AlbumDetailView(
                       <div class="bg-magenta-950/30 rounded-lg p-3">
                         <div class="text-magenta-300 text-sm mb-1">genres</div>
                         <div
-                          class="text-white text-xl font-semibold truncate"
-                          title={album().genres || undefined}
+                          class={`text-white text-xl font-semibold ${
+                            window.innerWidth >= 768
+                              ? "line-clamp-3"
+                              : "truncate"
+                          }`}
+                          title={(() => {
+                            const isDesktop = window.innerWidth >= 768;
+                            const subGenres = getSubGenres(
+                              albumTracksResource() || []
+                            );
+                            const mainGenres = album().genres
+                              ? album()
+                                  .genres.split(",")
+                                  .map((g: string) => g.trim())
+                                  .filter(Boolean)
+                              : [];
+                            const allGenres = isDesktop
+                              ? [...mainGenres, ...subGenres]
+                              : mainGenres;
+                            return allGenres.join(", ");
+                          })()}
                         >
-                          {formatGenres(album().genres)}
+                          {(() => {
+                            const isDesktop = window.innerWidth >= 768;
+                            const subGenres = getSubGenres(
+                              albumTracksResource() || []
+                            );
+                            return formatGenresWithSub(
+                              album().genres,
+                              subGenres,
+                              isDesktop
+                            );
+                          })()}
                         </div>
                       </div>
                     </Show>

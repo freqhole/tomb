@@ -105,12 +105,38 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps) {
     return `${minutes}m`;
   };
 
-  const formatGenres = (genres: string[]) => {
-    if (!genres || genres.length === 0) return "unknown";
-    // Show fewer genres on mobile to prevent overflow
-    const isMobileView = window.innerWidth < 768;
-    const maxGenres = isMobileView ? 2 : 3;
-    return genres.slice(0, maxGenres).join(", ");
+  // Helper function to collect sub-genres from all songs
+  const getSubGenres = (songs: any[]): string[] => {
+    if (!songs || songs.length === 0) return [];
+
+    // Collect all unique sub-genres from all songs
+    const allSubGenres = new Set<string>();
+    songs.forEach((song) => {
+      if (song.sub_genres && Array.isArray(song.sub_genres)) {
+        song.sub_genres.forEach((subGenre: string) => {
+          if (subGenre && subGenre.trim()) {
+            allSubGenres.add(subGenre.trim());
+          }
+        });
+      }
+    });
+
+    return Array.from(allSubGenres).sort();
+  };
+
+  const formatGenres = (genres: string[], subGenres: string[] = []) => {
+    const isDesktop = window.innerWidth >= 768;
+
+    // On desktop, include sub-genres; on mobile, skip them
+    const allGenres = isDesktop
+      ? [...(genres || []), ...subGenres]
+      : genres || [];
+
+    if (allGenres.length === 0) return "unknown";
+
+    // On desktop, show more genres since we have 3 lines; on mobile, limit for single line
+    const maxGenres = isDesktop ? 12 : 2;
+    return allGenres.slice(0, maxGenres).join(", ");
   };
 
   const handlePlayAll = () => {
@@ -237,10 +263,24 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps) {
             <div class="bg-magenta-950/30 rounded-lg p-3">
               <div class="text-magenta-300 text-sm mb-1">genres</div>
               <div
-                class="text-white text-xl font-semibold truncate"
-                title={props.artist.genres.join(", ")}
+                class={`text-white text-xl font-semibold ${
+                  window.innerWidth >= 768 ? "line-clamp-3" : "truncate"
+                }`}
+                title={(() => {
+                  const subGenres = getSubGenres(
+                    artistSongsResource()?.songs || []
+                  );
+                  const isDesktop = window.innerWidth >= 768;
+                  const allGenres = isDesktop
+                    ? [...(props.artist.genres || []), ...subGenres]
+                    : props.artist.genres || [];
+                  return allGenres.join(", ");
+                })()}
               >
-                {formatGenres(props.artist.genres)}
+                {formatGenres(
+                  props.artist.genres,
+                  getSubGenres(artistSongsResource()?.songs || [])
+                )}
               </div>
             </div>
           </Show>
