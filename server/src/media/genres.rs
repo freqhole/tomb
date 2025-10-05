@@ -9,12 +9,12 @@ use axum::{
     extract::{Extension, Query},
     http::StatusCode,
     response::Json,
-    routing::get,
-    Router,
+    routing::{get, post},
+    Json as JsonExtractor, Router,
 };
-use grimoire::{database::DatabaseConnection, AppConfig};
-use serde::{Deserialize, Serialize};
-use sqlx::Row;
+use grimoire::music::genre_models::{GenreSearchBody, GenreSearchRequest, GenreStatsResponse};
+use grimoire::{database::DatabaseConnection, music::genre_service::GenreService, AppConfig};
+use serde::Deserialize;
 
 /// Query parameters for GET /api/music/genres
 #[derive(Debug, Deserialize)]
@@ -22,23 +22,6 @@ pub struct GenreStatsQuery {
     /// Include only genres with songs (default: false, shows all predefined genres)
     #[serde(default)]
     pub with_songs_only: bool,
-}
-
-/// Individual genre statistics
-#[derive(Debug, Serialize)]
-pub struct GenreStat {
-    pub name: String,
-    pub song_count: i64,
-    pub album_count: i64,
-    pub artist_count: i64,
-    pub total_duration: i64,
-}
-
-/// Response for GET /api/music/genres
-#[derive(Debug, Serialize)]
-pub struct GenreStatsResponse {
-    pub genres: Vec<GenreStat>,
-    pub total: i64,
 }
 
 /// GET /api/music/genres - get all predefined genres with statistics
@@ -59,74 +42,36 @@ pub async fn get_genres(
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    // Build genre stats query using direct SQL
-    let genre_placeholders: Vec<String> = predefined_genres
-        .iter()
-        .enumerate()
-        .map(|(i, _)| format!("${}", i + 1))
-        .collect();
+    let service = GenreService::new(db.pool().clone());
 
-    let sql_query = format!(
-        r#"
-        WITH predefined_genres(name) AS (
-            VALUES {}
-        ),
-        genre_stats AS (
-            SELECT
-                pg.name,
-                COALESCE(COUNT(DISTINCT s.id), 0) as song_count,
-                COALESCE(COUNT(DISTINCT s.album), 0) as album_count,
-                COALESCE(COUNT(DISTINCT s.artist), 0) as artist_count,
-                COALESCE(SUM(EXTRACT(EPOCH FROM s.duration))::bigint, 0) as total_duration
-            FROM predefined_genres pg
-            LEFT JOIN songs s ON s.genre = pg.name AND s.deleted_at IS NULL
-            GROUP BY pg.name
-        )
-        SELECT
-            name,
-            song_count,
-            album_count,
-            artist_count,
-            total_duration
-        FROM genre_stats
-        ORDER BY name
-        "#,
-        genre_placeholders
-            .iter()
-            .map(|p| format!("({})", p))
-            .collect::<Vec<_>>()
-            .join(",")
-    );
-
-    let mut query_builder = sqlx::query(&sql_query);
-    for genre in &predefined_genres {
-        query_builder = query_builder.bind(genre);
+    match service
+        .get_genre_stats(&predefined_genres, query.with_songs_only)
+        .await
+    {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => {
+            tracing::error!("failed to fetch genre stats: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
+}
 
-    let rows = query_builder.fetch_all(db.pool()).await.map_err(|e| {
-        tracing::error!("failed to fetch genre stats: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+/// POST /api/music/genres - search/filter within genres with pagination
+pub async fn search_genres(
+    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(db): Extension<DatabaseConnection>,
+    JsonExtractor(body): JsonExtractor<GenreSearchBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let request: GenreSearchRequest = body.into();
+    let service = GenreService::new(db.pool().clone());
 
-    let mut genres: Vec<GenreStat> = rows
-        .into_iter()
-        .map(|row| GenreStat {
-            name: row.get("name"),
-            song_count: row.get("song_count"),
-            album_count: row.get("album_count"),
-            artist_count: row.get("artist_count"),
-            total_duration: row.get("total_duration"),
-        })
-        .collect();
-
-    // Filter to only genres with songs if requested
-    if query.with_songs_only {
-        genres.retain(|genre| genre.song_count > 0);
+    match service.search_genres(request).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => {
+            tracing::error!("failed to search genres: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
-
-    let total = genres.len() as i64;
-
-    Ok(Json(GenreStatsResponse { genres, total }))
 }
 
 /// Helper function to parse comma-separated sub-genres input
@@ -146,7 +91,9 @@ pub fn format_sub_genres_display(sub_genres: &[String]) -> String {
 
 /// Create genre routes
 pub fn create_genre_routes() -> Router {
-    Router::new().route("/genres", get(get_genres))
+    Router::new()
+        .route("/genres", get(get_genres))
+        .route("/genres", post(search_genres))
 }
 
 #[cfg(test)]
@@ -177,32 +124,5 @@ mod tests {
         let empty: Vec<String> = vec![];
         let result = format_sub_genres_display(&empty);
         assert_eq!(result, "");
-    }
-
-    #[test]
-    fn test_genre_search_body_conversion() {
-        let body = GenreSearchBody {
-            genre: Some("rock".to_string()),
-            artist: Some("artist name".to_string()),
-            q: Some("search term".to_string()),
-            tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
-            sort_by: Some("songs".to_string()),
-            sort_direction: Some("desc".to_string()),
-            page: Some(2),
-            page_size: Some(25),
-        };
-
-        let request: GenreSearchRequest = body.into();
-        assert_eq!(request.genre, Some("rock".to_string()));
-        assert_eq!(request.artist, Some("artist name".to_string()));
-        assert_eq!(request.q, Some("search term".to_string()));
-        assert_eq!(
-            request.tags,
-            Some(vec!["tag1".to_string(), "tag2".to_string()])
-        );
-        assert_eq!(request.sort_by, Some("songs".to_string()));
-        assert_eq!(request.sort_direction, Some("desc".to_string()));
-        assert_eq!(request.page, Some(2));
-        assert_eq!(request.page_size, Some(25));
     }
 }

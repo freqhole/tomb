@@ -11,10 +11,11 @@ export interface FreqholeStore {
     sidebarCollapsed: boolean;
   };
   navigation: {
-    currentView: "songs" | "artists" | "albums" | "playlists";
+    currentView: "songs" | "artists" | "albums" | "playlists" | "genres";
     selectedArtist: any | null;
     selectedAlbum: any | null;
     selectedPlaylist: any | null;
+    selectedGenre: string | null;
   };
   player: {
     currentSong: any | null;
@@ -43,6 +44,12 @@ export interface FreqholeStore {
   filters: {
     tags: string[];
     favoritesOnly: boolean;
+  };
+  genres: {
+    selectedGenre: string | null;
+    viewMode: "artists" | "albums";
+    currentPage: number;
+    loading: boolean;
   };
   sort: {
     field: string;
@@ -88,6 +95,7 @@ const initialState: FreqholeStore = {
     selectedArtist: null,
     selectedAlbum: null,
     selectedPlaylist: null,
+    selectedGenre: null,
   },
   player: {
     currentSong: null,
@@ -116,6 +124,12 @@ const initialState: FreqholeStore = {
   filters: {
     tags: [],
     favoritesOnly: false,
+  },
+  genres: {
+    selectedGenre: null,
+    viewMode: "artists",
+    currentPage: 1,
+    loading: false,
   },
   sort: {
     field: "created_at",
@@ -265,6 +279,14 @@ export const useFilters = () => {
   ] as const;
 };
 
+export const useGenres = () => {
+  const [store] = useStore();
+  return [
+    store.genres,
+    (updates: Partial<FreqholeStore["genres"]>) => setStore("genres", updates),
+  ] as const;
+};
+
 export const useAuth = () => {
   const [store] = useStore();
   return [
@@ -297,6 +319,8 @@ export const storeActions = {
   selectAlbum: (album: any) => setStore("navigation", "selectedAlbum", album),
   selectPlaylist: (playlist: any) =>
     setStore("navigation", "selectedPlaylist", playlist),
+  selectGenre: (genre: string | null) =>
+    setStore("navigation", "selectedGenre", genre),
 
   // player actions
   playSong: (song: any) => {

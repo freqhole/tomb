@@ -161,6 +161,16 @@ export const useDataSections = () => {
       loading: reactiveActions.resources?.playlists?.loading,
       error: reactiveActions.resources?.playlists?.error,
     },
+    genres: {
+      data: reactiveActions.resources?.genres,
+      loading: reactiveActions.resources?.genres?.loading,
+      error: reactiveActions.resources?.genres?.error,
+    },
+    genreDetails: {
+      data: reactiveActions.resources?.genreDetails,
+      loading: reactiveActions.resources?.genreDetails?.loading,
+      error: reactiveActions.resources?.genreDetails?.error,
+    },
   };
 };
 

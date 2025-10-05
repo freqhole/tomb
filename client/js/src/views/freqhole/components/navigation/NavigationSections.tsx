@@ -13,6 +13,7 @@ export function NavigationSections(props: NavigationSectionsProps) {
     { path: "/songs", label: "songs" },
     { path: "/artists", label: "artists" },
     { path: "/albums", label: "albums" },
+    { path: "/genres", label: "genres" },
   ];
 
   const handleNavClick = (path: string, label: string) => {

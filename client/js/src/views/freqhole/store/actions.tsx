@@ -12,6 +12,8 @@ export interface BasicStoreResources {
   playlists: any;
   recentPlaylists: any;
   availableTags: any;
+  genres: any;
+  genreDetails: any;
 }
 
 // store actions factory with reactive primitives
@@ -152,6 +154,111 @@ export function createStoreActions(
     }
   );
 
+  // genre list resource - shows all genres with stats, integrates with global search
+  const [genresResource, { refetch: refetchGenres }] = createResource(
+    () => {
+      const deps = {
+        tags: [...store.filters.tags], // spread to track changes properly
+        query: store.search.query?.trim() || "",
+        sortField: store.sort.field,
+        sortDirection: store.sort.direction,
+        with_songs_only: true, // filter out genres with zero counts
+      };
+      return deps;
+    },
+    async (params) => {
+      try {
+        // For genres, we use getGenres for basic listing
+        // and searchGenres for when there's a query or filters
+        if (params.query || params.tags.length > 0) {
+          const searchRequest = {
+            q: params.query || undefined,
+            tags: params.tags.length > 0 ? params.tags : undefined,
+            sort_by: params.sortField,
+            sort_direction: params.sortDirection,
+            page: 1,
+            page_size: 100,
+          };
+          const result = await apiClient.searchGenres(searchRequest);
+          // Convert search result to genre stats format
+          if ("artists" in result) {
+            // Extract unique genres from artist results
+            const genreMap = new Map();
+            result.artists.forEach((artist) => {
+              artist.genres.forEach((genreName) => {
+                if (!genreMap.has(genreName)) {
+                  genreMap.set(genreName, {
+                    name: genreName,
+                    song_count: 0,
+                    album_count: 0,
+                    artist_count: 0,
+                    total_duration: 0,
+                  });
+                }
+                const genre = genreMap.get(genreName);
+                genre.song_count += artist.song_count;
+                genre.album_count += artist.album_count;
+                genre.artist_count += 1;
+                genre.total_duration += artist.total_duration;
+              });
+            });
+            return {
+              genres: Array.from(genreMap.values()),
+              total: genreMap.size,
+            };
+          }
+          return { genres: [], total: 0 };
+        } else {
+          return await apiClient.getGenres({
+            with_songs_only: params.with_songs_only,
+          });
+        }
+      } catch (error) {
+        console.error("failed to fetch genres:", error);
+        return { genres: [], total: 0 };
+      }
+    }
+  );
+
+  // genre details resource - shows artists/albums for selected genre
+  const [genreDetailsResource, { refetch: refetchGenreDetails }] =
+    createResource(
+      () => {
+        const deps = {
+          selectedGenre: store.genres.selectedGenre,
+          query: store.search.query?.trim() || "", // use global search state
+          viewMode: store.genres.viewMode,
+          currentPage: store.genres.currentPage,
+          sortField: store.sort.field,
+          sortDirection: store.sort.direction,
+          tags: [...store.filters.tags],
+        };
+        return deps;
+      },
+      async (params) => {
+        if (!params.selectedGenre) {
+          return null;
+        }
+
+        try {
+          const searchRequest = {
+            genre: params.selectedGenre,
+            q: params.query || undefined, // use global search query
+            tags: params.tags.length > 0 ? params.tags : undefined,
+            sort_by: params.sortField,
+            sort_direction: params.sortDirection,
+            page: params.currentPage,
+            page_size: 50,
+          };
+
+          return await apiClient.searchGenres(searchRequest);
+        } catch (error) {
+          console.error("failed to fetch genre details:", error);
+          return null;
+        }
+      }
+    );
+
   return {
     // resources for components to consume
     resources: {
@@ -162,6 +269,8 @@ export function createStoreActions(
       recentPlaylists: recentPlaylistsResource,
       availableTags: availableTagsResource,
       suggestions: suggestionsResource,
+      genres: genresResource,
+      genreDetails: genreDetailsResource,
     },
 
     // expose mutate functions for coordinated updates
@@ -661,6 +770,30 @@ export function createStoreActions(
       }
     },
 
+    // genre actions
+    selectGenre: (genreName: string | null) => {
+      batch(() => {
+        setStore("genres", "selectedGenre", genreName);
+        setStore("navigation", "selectedGenre", genreName);
+        // reset to first page when changing genre
+        if (genreName !== store.genres.selectedGenre) {
+          setStore("genres", "currentPage", 1);
+        }
+      });
+    },
+
+    setGenreViewMode: (mode: "artists" | "albums") => {
+      batch(() => {
+        setStore("genres", "viewMode", mode);
+        // reset to first page when changing view mode
+        setStore("genres", "currentPage", 1);
+      });
+    },
+
+    setGenrePage: (page: number) => {
+      setStore("genres", "currentPage", page);
+    },
+
     // force refresh all (only when needed)
     refreshAll: () => {
       batch(() => {
@@ -669,6 +802,7 @@ export function createStoreActions(
         refetchAlbums();
         refetchPlaylists();
         refetchRecentPlaylists();
+        refetchGenres();
         // note: availableTags uses mutate pattern, doesn't need refetch
       });
     },
