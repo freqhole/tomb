@@ -8,6 +8,13 @@ import type {
 } from "../../lib/search/types.js";
 import type { MediaBlob } from "../../lib/websocket-types.js";
 
+// Helper function to normalize songs for SearchItem compatibility
+const normalizeSong = (song: any): SongSearchResult => ({
+  ...song,
+  sub_genres: song.sub_genres ?? null,
+  preference_updated_at: song.preference_updated_at ?? null,
+});
+
 // Union type for all search result items
 type SearchItem = SearchResultItem | SongSearchResult;
 
@@ -79,7 +86,7 @@ export function useSearchData(props: UseSearchDataProps): SearchDataReturn {
     }
 
     if (songsResults?.songs) {
-      items.push(...songsResults.songs);
+      items.push(...songsResults.songs.map(normalizeSong));
     }
 
     return items;

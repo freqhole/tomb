@@ -21,8 +21,8 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
     title?: string;
   }) => {
     const [shouldMarquee, setShouldMarquee] = createSignal(false);
-    let containerRef: HTMLDivElement;
-    let textRef: HTMLSpanElement;
+    let containerRef: HTMLDivElement | undefined;
+    let textRef: HTMLSpanElement | undefined;
 
     onMount(() => {
       // Add CSS keyframes for marquee animation

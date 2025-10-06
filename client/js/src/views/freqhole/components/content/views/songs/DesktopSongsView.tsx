@@ -15,6 +15,15 @@ interface DesktopSongsViewProps {
   class?: string;
 }
 
+// Helper function to normalize songs for components that expect full Song type
+const normalizeSong = (song: any): Song => ({
+  ...song,
+  sub_genres: song.sub_genres ?? null,
+  preference_updated_at: song.preference_updated_at ?? null,
+});
+
+const normalizeSongs = (songs: any[]): Song[] => songs.map(normalizeSong);
+
 export function DesktopSongsView(
   props: RouteSectionProps<unknown> & DesktopSongsViewProps = {} as any
 ) {
@@ -99,7 +108,7 @@ export function DesktopSongsView(
     const songList = result?.songs || [];
 
     if (songList.length > 0) {
-      songState.setSongList(songList);
+      songState.setSongList(normalizeSongs(songList));
     }
     return songList;
   };
@@ -154,7 +163,7 @@ export function DesktopSongsView(
 
   const handleContextMenu = (event: MouseEvent, song: Song) => {
     // Check if we should show bulk or single context menu
-    const selectedSongs = selection.getSelectedSongs(songs());
+    const selectedSongs = selection.getSelectedSongs(normalizeSongs(songs()));
 
     if (selectedSongs.length > 1 && selection.isSelected(song.id)) {
       // Show bulk context menu
@@ -181,7 +190,7 @@ export function DesktopSongsView(
       return;
     }
 
-    const selectedSongs = selection.getSelectedSongs(songs());
+    const selectedSongs = selection.getSelectedSongs(normalizeSongs(songs()));
     if (selectedSongs.length === 0) return;
 
     // Handle rating shortcuts (1-5)
@@ -280,7 +289,7 @@ export function DesktopSongsView(
       {(!error() || songs().length > 0) && (
         <div class="flex-1 min-h-0">
           <FreqholeInfiniteGrid
-            data={songs()}
+            data={normalizeSongs(songs())}
             totalCount={totalCount()}
             onLoadMore={reactiveActions.loadMoreSongs}
             renderMode="songs"
@@ -313,7 +322,9 @@ export function DesktopSongsView(
             <button
               class="px-3 py-1 bg-magenta-700 hover:bg-magenta-800 rounded text-sm transition-colors"
               onClick={() => {
-                const selectedSongs = selection.getSelectedSongs(songs());
+                const selectedSongs = selection.getSelectedSongs(
+                  normalizeSongs(songs())
+                );
                 events.emit("modal:open", {
                   modal: "songInfoModal",
                   data: { songs: selectedSongs },
@@ -327,7 +338,9 @@ export function DesktopSongsView(
             <button
               class="px-3 py-1 bg-magenta-700 hover:bg-magenta-800 rounded text-sm transition-colors"
               onClick={() => {
-                const selectedSongs = selection.getSelectedSongs(songs());
+                const selectedSongs = selection.getSelectedSongs(
+                  normalizeSongs(songs())
+                );
                 songInteractions.smartQueueSongs(selectedSongs);
                 selection.clearSelection();
               }}
@@ -338,7 +351,9 @@ export function DesktopSongsView(
             <button
               class="px-3 py-1 bg-magenta-700 hover:bg-magenta-800 rounded text-sm transition-colors"
               onClick={(e) => {
-                const selectedSongs = selection.getSelectedSongs(songs());
+                const selectedSongs = selection.getSelectedSongs(
+                  normalizeSongs(songs())
+                );
                 songInteractions.handlePlaylistSelectorClick(e, selectedSongs);
               }}
             >

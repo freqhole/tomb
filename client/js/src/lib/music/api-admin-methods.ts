@@ -29,7 +29,7 @@ export const musicAdminApiMethods = {
           "bulk update songs request"
         );
 
-        const response = await this.makeRequest<unknown>(
+        const rawResponse = await this.makeRequest<any>(
           "PUT",
           "/api/media/songs/bulk",
           {
@@ -38,11 +38,22 @@ export const musicAdminApiMethods = {
           }
         );
 
+        // Normalize songs before validation to ensure they match the expected schema
+        const normalizedResponse = {
+          message: rawResponse.message,
+          operations_summary: rawResponse.operations_summary,
+          updated_songs: (rawResponse.updated_songs || []).map((song: any) => ({
+            ...song,
+            sub_genres: song.sub_genres ?? null,
+            preference_updated_at: song.preference_updated_at ?? null,
+          })),
+        };
+
         return musicValidation.validateResponse(
           BulkUpdateSongsResponseSchema,
-          response,
+          normalizedResponse,
           "bulk update songs response"
-        );
+        ) as BulkUpdateSongsResponse;
       },
       "/api/media/songs/bulk",
       "bulkUpdateSongs",

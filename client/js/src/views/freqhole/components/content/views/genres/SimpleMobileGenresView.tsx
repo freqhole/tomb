@@ -271,7 +271,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
             try {
               const nextResponse = await apiClient.searchPost({
                 filters: {
-                  genre: genreName,
+                  genres: Array.from(individualGenres),
                 },
                 page: currentPage,
                 page_size: 100,

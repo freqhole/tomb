@@ -2,12 +2,11 @@ import { createSignal, createEffect, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useReactiveActions, useSort, useGenres } from "../../../../store";
 import { useDataSections } from "../../../../store/hooks";
-import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
+
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
 import { GenreList } from "./GenreList";
 import { GenreDetailPanel } from "./GenreDetailPanel";
 import type { GenreStat } from "../../../../../../lib/music/schemas/genre";
-import type { SortField } from "../../../../../../components/search/SearchSortControls";
 
 interface DesktopGenresViewProps {
   class?: string;

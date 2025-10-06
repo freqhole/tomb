@@ -1,13 +1,12 @@
 import { For, Show, createSignal, createEffect } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { useReactiveActions, useSort, useGenres } from "../../../../store";
+import { useReactiveActions, useGenres } from "../../../../store";
 import { useDataSections } from "../../../../store/hooks";
 import { saveScrollStateSecurely } from "../../../../../../lib/navigation";
-import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
+
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
 import { GenreDetailPanel } from "./GenreDetailPanel";
 import type { GenreStat } from "../../../../../../lib/music/schemas/genre";
-import type { SortField } from "../../../../../../components/search/SearchSortControls";
 
 interface MobileGenresViewProps {
   class?: string;
@@ -18,7 +17,7 @@ export function MobileGenresView(props: MobileGenresViewProps) {
 
   // Use modern reactive store
   const reactiveActions = useReactiveActions();
-  const [sortState] = useSort();
+
   const [genresState] = useGenres();
   const dataSections = useDataSections();
 
@@ -141,7 +140,7 @@ export function MobileGenresView(props: MobileGenresViewProps) {
   };
 
   // Handle scroll for scroll restoration
-  const handleScroll = (event: Event) => {
+  const handleScroll = () => {
     // Debounced save of scroll state
     let saveTimer: ReturnType<typeof setTimeout> | undefined;
     if (saveTimer) clearTimeout(saveTimer);

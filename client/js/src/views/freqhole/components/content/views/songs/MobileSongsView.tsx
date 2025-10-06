@@ -19,6 +19,15 @@ interface MobileSongsViewProps {
   class?: string;
 }
 
+// Helper function to normalize songs for components that expect full Song type
+const normalizeSong = (song: any): Song => ({
+  ...song,
+  sub_genres: song.sub_genres ?? null,
+  preference_updated_at: song.preference_updated_at ?? null,
+});
+
+const normalizeSongs = (songs: any[]): Song[] => songs.map(normalizeSong);
+
 export function MobileSongsView(props: MobileSongsViewProps) {
   const [] = useStore();
   const songState = useSongState();
@@ -57,7 +66,7 @@ export function MobileSongsView(props: MobileSongsViewProps) {
     const songList = result?.songs || [];
 
     if (songList.length > 0) {
-      songState.setSongList(songList);
+      songState.setSongList(normalizeSongs(songList));
     }
     return songList;
   };
@@ -227,7 +236,7 @@ export function MobileSongsView(props: MobileSongsViewProps) {
       {(!error() || songs().length > 0) && (
         <div class="flex-1 min-h-0">
           <FreqholeInfiniteGrid
-            data={songs()}
+            data={normalizeSongs(songs())}
             totalCount={totalCount()}
             onLoadMore={reactiveActions.loadMoreSongs}
             renderMode="songs-mobile"

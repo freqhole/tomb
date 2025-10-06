@@ -14,21 +14,6 @@ import {
   useAlbumLoader,
 } from "./albums/albumUtils";
 
-// Helper function to format genres
-const formatGenres = (genres: string | null): string => {
-  if (!genres) return "—";
-  // Server now provides comma-separated genres, limit display based on screen size
-  const genreList = genres
-    .split(",")
-    .map((g) => g.trim())
-    .filter(Boolean);
-  if (genreList.length === 0) return "—";
-  // Show fewer genres on mobile to prevent overflow
-  const isMobileView = window.innerWidth < 768;
-  const maxGenres = isMobileView ? 2 : 3;
-  return genreList.slice(0, maxGenres).join(", ");
-};
-
 // Helper function to collect sub-genres from track list
 const getSubGenres = (tracks: any[]): string[] => {
   if (!tracks || tracks.length === 0) return [];
@@ -300,16 +285,18 @@ export function AlbumDetailView(
                             const subGenres = getSubGenres(
                               albumTracksResource() || []
                             );
-                            const mainGenres = album().genres
-                              ? album()
-                                  .genres.split(",")
+                            const mainGenres = album()?.genres
+                              ? album()!
+                                  .genres!.split(",")
                                   .map((g: string) => g.trim())
                                   .filter(Boolean)
                               : [];
                             const allGenres = isDesktop
-                              ? [...mainGenres, ...subGenres]
-                              : mainGenres;
-                            return allGenres.join(", ");
+                              ? [...(mainGenres || []), ...(subGenres || [])]
+                              : mainGenres || [];
+                            return allGenres.length > 0
+                              ? allGenres.join(", ")
+                              : "—";
                           })()}
                         >
                           {(() => {
