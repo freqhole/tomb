@@ -35,11 +35,11 @@ const globalGenreState = {
   setScrollTop: (value: number) => {
     globalGenreState.scrollTop = value;
   },
-  setLoadedGenre: (genreName: string, genre: GenreWithArtists) => {
-    globalGenreState.loadedGenres.set(genreName, genre);
+  setLoadedGenre: (genreSlug: string, genre: GenreWithArtists) => {
+    globalGenreState.loadedGenres.set(genreSlug, genre);
   },
-  getLoadedGenre: (genreName: string): GenreWithArtists | undefined => {
-    return globalGenreState.loadedGenres.get(genreName);
+  getLoadedGenre: (genreSlug: string): GenreWithArtists | undefined => {
+    return globalGenreState.loadedGenres.get(genreSlug);
   },
 };
 
@@ -212,26 +212,51 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
   });
 
   // Play all songs in a genre
-  const playGenre = async (genreName: string, shuffle: boolean = false) => {
+  const playGenre = async (genreSlug: string, shuffle: boolean = false) => {
     try {
       console.log(
-        `attempting to play genre: ${genreName}, shuffle: ${shuffle}`
+        `attempting to play genre: ${genreSlug}, shuffle: ${shuffle}`
       );
 
-      // Get all songs for this genre
+      // Get individual genres for this slug by using the genre search API
+      const genreResponse = await reactiveActions.searchGenres({
+        genre_slug: genreSlug,
+        page: 1,
+        page_size: 1,
+      });
+
+      if (!genreResponse || !("artists" in genreResponse)) {
+        console.error(`Could not get genre info for slug: ${genreSlug}`);
+        return;
+      }
+
+      // Extract unique individual genre names from all artists in this genre group
+      const individualGenres = new Set<string>();
+      genreResponse.artists.forEach((artist) => {
+        artist.genres.forEach((genre) => {
+          individualGenres.add(genre);
+        });
+      });
+
+      if (individualGenres.size === 0) {
+        console.error(`No individual genres found for slug: ${genreSlug}`);
+        return;
+      }
+
+      // Use searchPost to get songs for all individual genres in this group
       const response = await apiClient.searchPost({
         filters: {
-          genre: genreName,
+          genres: Array.from(individualGenres),
         },
         page: 1,
-        page_size: 100, // API maximum
+        page_size: 100,
       });
 
       console.log("searchPost response:", response);
 
       if (response.songs && response.songs.length > 0) {
         console.log(
-          `found ${response.songs.length} songs for genre ${genreName}`
+          `found ${response.songs.length} songs for genre ${genreSlug}`
         );
         let allSongs = [...response.songs];
 
@@ -283,10 +308,10 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
         });
         console.log(`queued ${allSongs.length - 1} additional songs`);
       } else {
-        console.log("no songs found for genre:", genreName);
+        console.log("no songs found for genre:", genreSlug);
       }
     } catch (error) {
-      console.error(`failed to play genre ${genreName}:`, error);
+      console.error(`failed to play genre ${genreSlug}:`, error);
     }
   };
 
@@ -329,7 +354,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
                 loaded: true,
               };
               // Persist to global state
-              globalGenreState.setLoadedGenre(genreName, updatedGenre);
+              globalGenreState.setLoadedGenre(genreSlug, updatedGenre);
               return updatedGenre;
             }
             return g;
@@ -339,14 +364,14 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
         // Load albums for first few artists immediately
         const firstArtists = artistsWithAlbums.slice(0, 3);
         firstArtists.forEach((artist) => {
-          loadArtistAlbums(genreName, artist.artist);
+          loadArtistAlbums(genreSlug, artist.artist);
         });
       }
     } catch (err) {
-      console.error(`failed to load artists for genre ${genreName}:`, err);
+      console.error(`failed to load artists for genre ${genreSlug}:`, err);
       setGenresWithArtists((prev) =>
         prev.map((g) =>
-          g.name === genreName ? { ...g, loading: false, loaded: false } : g
+          g.slug === genreSlug ? { ...g, loading: false, loaded: false } : g
         )
       );
     }
@@ -357,7 +382,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
     try {
       setGenresWithArtists((prev) =>
         prev.map((g) =>
-          g.name === genreName
+          g.slug === genreSlug
             ? {
                 ...g,
                 artists: g.artists.map((a) =>
@@ -393,7 +418,7 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
                 ),
               };
               // Persist to global state
-              globalGenreState.setLoadedGenre(genreName, updatedGenre);
+              globalGenreState.setLoadedGenre(g.slug, updatedGenre);
               return updatedGenre;
             }
             return g;
@@ -402,12 +427,12 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
       }
     } catch (err) {
       console.error(
-        `failed to load albums for artist ${artistName} in genre ${genreName}:`,
+        `failed to load albums for artist ${artistName} in genre ${genreSlug}:`,
         err
       );
       setGenresWithArtists((prev) =>
         prev.map((g) =>
-          g.name === genreName
+          g.slug === genreSlug
             ? {
                 ...g,
                 artists: g.artists.map((a) =>
@@ -461,12 +486,12 @@ export function SimpleMobileGenresView(props: SimpleMobileGenresViewProps) {
   });
 
   // Intersection observer for lazy loading
-  const setupLazyLoading = (element: HTMLElement, genreName: string) => {
+  const setupLazyLoading = (element: HTMLElement, genreSlug: string) => {
     const observer = new IntersectionObserver(
       (entries) => {
-        const entry = entries[0];
+        const [entry] = entries;
         if (entry && entry.isIntersecting) {
-          const genre = genresWithArtists().find((g) => g.name === genreName);
+          const genre = genresWithArtists().find((g) => g.slug === genreSlug);
           if (genre && !genre.loaded && !genre.loading) {
             setGenresWithArtists((prev) =>
               prev.map((g) =>
