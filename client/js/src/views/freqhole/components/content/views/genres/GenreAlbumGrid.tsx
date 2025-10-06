@@ -166,7 +166,7 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
               >
                 <div class="transition-colors">
                   {/* Album artwork */}
-                  <div class="aspect-square bg-magenta-800/30 flex items-center justify-center relative overflow-hidden mb-2">
+                  <div class="aspect-square bg-magenta-800/30 flex items-center justify-center relative overflow-hidden">
                     <Show
                       when={getAlbumImageUrl(album.album_thumbnail_id)}
                       fallback={
@@ -207,7 +207,7 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
                   </div>
 
                   {/* Album info */}
-                  <div class="space-y-1">
+                  <div class="group relative -top-9 bg-gradient-to-b from-black/50 to-black/90 hover:bg-black hover:bg-none">
                     <MarqueeText
                       text={album.album || "untitled"}
                       class="text-white font-medium text-sm"
@@ -215,10 +215,10 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
 
                     <MarqueeText
                       text={album.artist || "unknown artist"}
-                      class="text-xs text-gray-400"
+                      class="text-xs text-gray-200 group-hover:text-white"
                     />
 
-                    <div class="text-xs text-gray-500">
+                    <div class="text-xs text-gray-400 group-hover:text-white">
                       <Show when={album.year}>
                         <span>{album.year} • </span>
                       </Show>
@@ -228,11 +228,20 @@ export function GenreAlbumGrid(props: GenreAlbumGridProps) {
                       </span>
                     </div>
 
-                    <Show when={album.total_duration}>
-                      <div class="text-xs text-gray-500">
-                        {formatDuration(album.total_duration!)}
-                      </div>
-                    </Show>
+                    <div class="flex items-center justify-between">
+                      <Show when={album.total_duration}>
+                        <span class="text-xs text-gray-500 group-hover:text-white">
+                          {formatDuration(album.total_duration!)}
+                        </span>
+                      </Show>
+
+                      <Show when={album.genres}>
+                        <MarqueeText
+                          text={album.genres || ""}
+                          class="text-xs text-gray-500 group-hover:text-white inline-block bg-black/90 px-1 py-1 ml-1"
+                        />
+                      </Show>
+                    </div>
                   </div>
                 </div>
               </div>
