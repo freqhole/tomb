@@ -1,0 +1,68 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            id, title, description, song_count, is_public,\n            thumbnail_blob_id, created_at, search_rank\n        FROM get_playlist_search_results($1, $2, $3, $4, $5)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "song_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_public",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "thumbnail_blob_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "search_rank",
+        "type_info": "Float4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Bool",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e706bd16703284354f9f9481b890306b9100f07cc5b938fd86653942a8d54b19"
+}

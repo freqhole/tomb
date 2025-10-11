@@ -112,7 +112,7 @@ BEGIN
         p.id,
         p.title,
         p.description,
-        COALESCE(p.song_count, 0) as song_count,
+        COALESCE(song_counts.song_count, 0) as song_count,
         p.is_public,
         p.thumbnail_blob_id,
         p.created_at,
@@ -128,12 +128,12 @@ BEGIN
             ELSE 1.0
         END as search_rank
     FROM playlists p
+    LEFT JOIN (
+        SELECT playlist_id, COUNT(*) as song_count
+        FROM playlist_songs
+        GROUP BY playlist_id
+    ) song_counts ON p.id = song_counts.playlist_id
     WHERE p.deleted_at IS NULL
-      -- Privacy filter
-      AND (
-          p.is_public = true OR
-          (p_include_private = true AND p.created_by = p_user_id)
-      )
       -- Search filter if provided
       AND (
           p_search_query IS NULL OR p_search_query = '' OR
@@ -144,7 +144,7 @@ BEGIN
     ORDER BY
         CASE WHEN p_search_query IS NOT NULL AND p_search_query != ''
              THEN search_rank
-             ELSE p.created_at
+             ELSE EXTRACT(EPOCH FROM p.created_at)::REAL
         END DESC,
         p.title ASC
     LIMIT p_limit OFFSET p_offset;
