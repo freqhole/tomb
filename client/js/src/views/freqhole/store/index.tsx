@@ -2,6 +2,7 @@ import { createStore } from "solid-js/store";
 import { createContext, useContext, ParentComponent, JSX } from "solid-js";
 import { apiClient } from "../../../lib/api-client";
 import { createStoreActions } from "./actions";
+import { createSearchActions } from "./search-actions";
 
 // define the main store interface
 export interface FreqholeStore {
@@ -37,9 +38,27 @@ export interface FreqholeStore {
       songs: any[];
       artists: any[];
       albums: any[];
+      genres?: any[];
+      playlists?: any[];
+    };
+    params: {
+      include_genres: boolean;
+      include_playlists: boolean;
+      page: number;
+      page_size: number;
+      sort_by?: string;
+      sort_direction?: "asc" | "desc";
+    };
+    pagination: {
+      total_count: number;
+      total_pages: number;
+      has_next: boolean;
+      has_prev: boolean;
+      current_page: number;
     };
     isActive: boolean;
     loading: boolean;
+    query_time_ms?: number;
   };
   filters: {
     tags: string[];
@@ -117,9 +136,27 @@ const initialState: FreqholeStore = {
       songs: [],
       artists: [],
       albums: [],
+      genres: [],
+      playlists: [],
+    },
+    params: {
+      include_genres: false,
+      include_playlists: false,
+      page: 1,
+      page_size: 20,
+      sort_by: "created_at",
+      sort_direction: "desc" as const,
+    },
+    pagination: {
+      total_count: 0,
+      total_pages: 0,
+      has_next: false,
+      has_prev: false,
+      current_page: 1,
     },
     isActive: false,
     loading: false,
+    query_time_ms: 0,
   },
   filters: {
     tags: [],
@@ -167,7 +204,12 @@ export const [store, setStore] = createStore(initialState);
 // store context with both basic and reactive actions
 const StoreContext =
   createContext<
-    [FreqholeStore, typeof storeActions, ReturnType<typeof createStoreActions>]
+    [
+      FreqholeStore,
+      typeof storeActions,
+      ReturnType<typeof createStoreActions>,
+      ReturnType<typeof createSearchActions>,
+    ]
   >();
 
 export interface StoreProviderProps {
@@ -183,10 +225,19 @@ export const StoreProvider: ParentComponent<StoreProviderProps> = (props) => {
     apiClient
   );
 
-  const value = [store, storeActions, reactiveActionsInstance] as [
+  // create search actions instance
+  const searchActionsInstance = createSearchActions(store, setStore, apiClient);
+
+  const value = [
+    store,
+    storeActions,
+    reactiveActionsInstance,
+    searchActionsInstance,
+  ] as [
     typeof store,
     typeof storeActions,
     typeof reactiveActionsInstance,
+    typeof searchActionsInstance,
   ];
   return (
     <StoreContext.Provider value={value}>
@@ -211,6 +262,15 @@ export const useReactiveActions = () => {
     throw new Error("useReactiveActions must be used within a StoreProvider");
   }
   return context[2];
+};
+
+// hook to get search actions
+export const useSearchActions = () => {
+  const context = useContext(StoreContext);
+  if (!context) {
+    throw new Error("useSearchActions must be used within a StoreProvider");
+  }
+  return context[3];
 };
 
 // hook specifically for store actions
@@ -356,9 +416,38 @@ export const storeActions = {
     setStore("search", {
       query: "",
       isActive: false,
-      results: { songs: [], artists: [], albums: [] },
+      results: {
+        songs: [],
+        artists: [],
+        albums: [],
+        genres: [],
+        playlists: [],
+      },
+      pagination: {
+        total_count: 0,
+        total_pages: 0,
+        has_next: false,
+        has_prev: false,
+        current_page: 1,
+      },
     });
   },
+
+  // search parameter actions for genre/playlist grouping
+  setSearchParams: (params: Partial<FreqholeStore["search"]["params"]>) =>
+    setStore("search", "params", params),
+  enableGenreGrouping: () =>
+    setStore("search", "params", "include_genres", true),
+  disableGenreGrouping: () =>
+    setStore("search", "params", "include_genres", false),
+  enablePlaylistGrouping: () =>
+    setStore("search", "params", "include_playlists", true),
+  disablePlaylistGrouping: () =>
+    setStore("search", "params", "include_playlists", false),
+  toggleGenreGrouping: () =>
+    setStore("search", "params", "include_genres", (prev) => !prev),
+  togglePlaylistGrouping: () =>
+    setStore("search", "params", "include_playlists", (prev) => !prev),
 
   // auth actions
   login: (user: any, token: string) => {

@@ -312,6 +312,10 @@ export const PostSearchRequestSchema = z.object({
   sort_by: z.string().optional(),
   sort_direction: SortDirectionSchema.optional(),
 
+  // Result grouping options
+  include_genres: z.boolean().optional(),
+  include_playlists: z.boolean().optional(),
+
   // Filters
   filters: z
     .object({
@@ -344,18 +348,53 @@ export const PostSearchRequestSchema = z.object({
     .optional(),
 });
 
+// Genre group result schema for search responses
+export const GenreGroupResultSchema = z.object({
+  genre: z.string(),
+  song_count: z.number(),
+  artist_count: z.number(),
+  representative_song_id: z.string().nullable(),
+  representative_thumbnail: z.string().nullable(),
+  avg_rating: z.number().nullable(),
+  search_rank: z.number(),
+});
+
+// Playlist group result schema for search responses
+export const PlaylistGroupResultSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  song_count: z.number(),
+  is_public: z.boolean(),
+  thumbnail_blob_id: z.string().nullable(),
+  created_at: z.object({
+    secs_since_epoch: z.number(),
+    nanos_since_epoch: z.number(),
+  }),
+  search_rank: z.number(),
+});
+
 // POST search response schema
 export const PostSearchResponseSchema = z.object({
   // Results
   songs: SongSearchResultsSchema,
-  total: z.number(),
+  genres: z.array(GenreGroupResultSchema).nullish(),
+  playlists: z.array(PlaylistGroupResultSchema).nullish(),
+
+  // Counts - backend returns total_count, not total
+  total_count: z.number(),
 
   // Pagination
-  page: z.number().optional(),
-  page_size: z.number().optional(),
-  total_pages: z.number().optional(),
+  page: z.number(),
+  page_size: z.number(),
+  total_pages: z.number(),
   has_next: z.boolean(),
   has_prev: z.boolean(),
+
+  // Performance and metadata
+  query_time_ms: z.number().nullish(),
+  applied_filters: z.any().nullish(),
+  sort_applied: z.any().nullish(),
 });
 
 // Suggestions response schema with graceful collection parsing
@@ -387,6 +426,8 @@ export type UnifiedSearchResult = z.infer<typeof UnifiedSearchResultSchema>;
 export type SearchResultItem = z.infer<typeof SearchResultItemSchema>;
 export type SongSearchResult = z.infer<typeof SongSchema>;
 export type SearchSuggestion = z.infer<typeof SearchSuggestionSchema>;
+export type GenreGroupResult = z.infer<typeof GenreGroupResultSchema>;
+export type PlaylistGroupResult = z.infer<typeof PlaylistGroupResultSchema>;
 
 // Search client configuration
 export interface SearchClientConfig {

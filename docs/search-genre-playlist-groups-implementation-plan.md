@@ -25,23 +25,23 @@
 
 ### Phase 2: Frontend Store Extensions
 
-- [ ] 2.1 Update Global Store Interface
-- [ ] 2.2 Create Enhanced Search Store Actions
-- [ ] **Status**: In Progress 🔄
-- [ ] **Ready for Review**: No
+- [x] 2.1 Update Global Store Interface
+- [x] 2.2 Create Enhanced Search Store Actions
+- [x] **Status**: Complete ✅
+- [x] **Ready for Review**: Yes - Store extended with genre/playlist support
 
 ### Phase 3: Zod Schema Extensions
 
-- [ ] 3.1 Create Enhanced Search Schemas
-- [ ] **Status**: Not Started
-- [ ] **Ready for Review**: No
+- [x] 3.1 Create Enhanced Search Schemas
+- [x] **Status**: Complete ✅ (Done as part of Phase 2)
+- [x] **Ready for Review**: Yes - Schemas updated in search/types.ts
 
 ### Phase 4: UI Components
 
 - [ ] 4.1 Create Genre Results Component
 - [ ] 4.2 Create Playlist Results Component
 - [ ] 4.3 Update SearchResultsView
-- [ ] **Status**: Not Started
+- [ ] **Status**: In Progress 🔄
 - [ ] **Ready for Review**: No
 
 ## Overview
