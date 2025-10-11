@@ -38,10 +38,18 @@
 
 ### Phase 4: UI Components
 
-- [ ] 4.1 Create Genre Results Component
-- [ ] 4.2 Create Playlist Results Component
-- [ ] 4.3 Update SearchResultsView
-- [ ] **Status**: In Progress 🔄
+- [x] 4.1 Create Genre Results Component
+- [x] 4.2 Create Playlist Results Component
+- [x] 4.3 Update SearchResultsView
+- [x] **Status**: Complete ✅
+- [x] **Ready for Review**: Yes - UI supports genre/playlist display
+
+### Phase 5: Search Suggestions Enhancement
+
+- [ ] 5.1 Extend Backend Suggestions API
+- [ ] 5.2 Update Suggestions Response Schema
+- [ ] 5.3 Enhance Frontend Suggestions Display
+- [ ] **Status**: Not Started
 - [ ] **Ready for Review**: No
 
 ## Overview
@@ -978,6 +986,241 @@ export function SearchResultsView(props: SearchResultsViewProps) {
 - **Component Reuse**: Reuse existing song/artist/album display logic
 - **Lazy Loading**: Load full results only when specific tabs are selected
 - **Memory Management**: Clear old results when new searches execute
+
+### Phase 5: Search Suggestions Enhancement
+
+#### 5.1 Extend Existing Suggestions API
+
+The current suggestions API at `/api/music/suggestions` only returns song/artist/album suggestions. We need to extend the existing endpoint to include genres and playlists by default.
+
+**Current API:**
+
+- Endpoint: `GET /api/music/suggestions` (keep existing)
+- Parameters: `field`, `partial`, `page_size` (keep existing)
+- Returns: `SuggestionsResult` with suggestions (extend schema)
+
+**Extend Existing Handler:**
+
+```rust
+// In server/src/media/search.rs - extend existing get_music_suggestions handler
+pub async fn get_music_suggestions(
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(db): Extension<DatabaseConnection>,
+    Query(params): Query<SuggestionsRequest>,
+) -> Result<Json<SuggestionsResponse>, StatusCode> {
+    let start_time = std::time::Instant::now();
+
+    // get existing song/artist/album suggestions
+    let music_suggestions = get_music_suggestions_base(&db, &params).await?;
+
+    // get genre suggestions
+    let genre_suggestions = get_genre_suggestions(&db, &params).await?;
+
+    // get playlist suggestions
+    let playlist_suggestions = get_playlist_suggestions(&db, &user.0.id, &params).await?;
+
+    // combine and rank all suggestions
+    let all_suggestions = combine_suggestions(
+        music_suggestions,
+        genre_suggestions,
+        playlist_suggestions,
+        params.page_size.unwrap_or(25)
+    );
+
+    Ok(Json(SuggestionsResponse {
+        suggestions: all_suggestions,
+        query_time_ms: Some(start_time.elapsed().as_millis() as u64),
+    }))
+}
+```
+
+**Extend Database Functions (add to existing file):**
+
+```sql
+-- extend existing suggestions with genre matches
+CREATE OR REPLACE FUNCTION get_genre_suggestions(
+    p_query TEXT,
+    p_limit INTEGER DEFAULT 3
+)
+RETURNS TABLE(
+    value TEXT,
+    display TEXT,
+    highlight TEXT,
+    count INTEGER,
+    suggestion_type TEXT,
+    confidence REAL
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        s.genre as value,
+        s.genre as display,
+        s.genre as highlight,
+        COUNT(*)::INTEGER as count,
+        'genre'::TEXT as suggestion_type,
+        ts_rank(
+            to_tsvector('english', s.genre),
+            websearch_to_tsquery('english', p_query)
+        ) as confidence
+    FROM songs s
+    WHERE s.deleted_at IS NULL
+      AND s.genre IS NOT NULL
+      AND s.genre ILIKE '%' || p_query || '%'
+    GROUP BY s.genre
+    ORDER BY confidence DESC, count DESC
+    LIMIT p_limit;
+END;
+$$ LANGUAGE plpgsql;
+
+-- extend existing suggestions with playlist matches
+CREATE OR REPLACE FUNCTION get_playlist_suggestions(
+    p_query TEXT,
+    p_user_id UUID,
+    p_limit INTEGER DEFAULT 3
+)
+RETURNS TABLE(
+    value TEXT,
+    display TEXT,
+    highlight TEXT,
+    count INTEGER,
+    suggestion_type TEXT,
+    confidence REAL
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        p.title as value,
+        p.title as display,
+        p.title as highlight,
+        COALESCE(p.song_count, 0)::INTEGER as count,
+        'playlist'::TEXT as suggestion_type,
+        ts_rank(
+            to_tsvector('english', COALESCE(p.title, '') || ' ' || COALESCE(p.description, '')),
+            websearch_to_tsquery('english', p_query)
+        ) as confidence
+    FROM playlists p
+    LEFT JOIN playlist_ownership po ON p.id = po.playlist_id
+    WHERE p.deleted_at IS NULL
+      AND (p.is_public = true OR po.owner_user_id = p_user_id)
+      AND (p.title ILIKE '%' || p_query || '%' OR p.description ILIKE '%' || p_query || '%')
+    ORDER BY confidence DESC
+    LIMIT p_limit;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+#### 5.2 Extend Existing Suggestions Schema
+
+**Frontend Schema Updates:**
+
+```typescript
+// In client/js/src/lib/search/types.ts - extend existing SearchSuggestionSchema
+export const SearchSuggestionSchema = z.object({
+  // existing fields (keep unchanged)
+  value: z.string(),
+  display: z.string(),
+  highlight: z.string(),
+  count: z.number(),
+  suggestion_type: z.string(),
+  confidence: z.number(),
+
+  // extend with new optional suggestion type field
+  suggestion_type: z
+    .enum(["song", "artist", "album", "genre", "playlist"])
+    .default("song"),
+
+  // optional metadata for additional context
+  metadata: z
+    .object({
+      playlist_id: z.string().optional(),
+      genre_name: z.string().optional(),
+    })
+    .optional(),
+});
+
+// existing SuggestionsResultSchema stays the same - just gets more suggestion types
+export const SuggestionsResultSchema = z.object({
+  suggestions: createPartialArraySchema(
+    SearchSuggestionSchema,
+    DEFAULT_ZOD_CONFIG,
+  ),
+  query_time_ms: z.number().optional(),
+  total_count: z.number().optional(),
+  count: z.number().optional(),
+  page: z.number().optional(),
+  page_size: z.number().optional(),
+  total_pages: z.number().optional(),
+  has_next: z.boolean().optional(),
+  has_prev: z.boolean().optional(),
+});
+```
+
+#### 5.3 Extend Frontend Suggestions Display
+
+**No API Client Changes Needed:**
+The existing `getMusicSuggestions` method will automatically return genre and playlist suggestions with the backend changes.
+
+**Suggestions UI Extension:**
+
+```typescript
+// In SearchInput.tsx, extend the suggestions display
+const renderSuggestion = (suggestion: SearchSuggestion, index: number) => {
+  const getTypeIndicator = () => {
+    switch (suggestion.suggestion_type) {
+      case 'genre': return 'genre';
+      case 'playlist': return 'playlist';
+      case 'artist': return 'artist';
+      case 'album': return 'album';
+      case 'song': return 'song';
+      default: return 'result';
+    }
+  };
+
+  return (
+    <div
+      class={`px-4 py-2 cursor-pointer hover:bg-magenta-600/20 transition-colors ${
+        index === selectedIndex() ? 'bg-magenta-600/30' : ''
+      }`}
+      onClick={() => handleSuggestionSelect(suggestion.value)}
+    >
+      <div class="flex items-center gap-2">
+        <div class="flex-1 min-w-0">
+          <div class="text-white truncate">
+            {suggestion.highlight || suggestion.display}
+          </div>
+          <div class="text-xs text-magenta-400">
+            {getTypeIndicator()}
+            {suggestion.count > 0 && (
+              <span class="ml-2">
+                ({suggestion.count} {suggestion.suggestion_type === 'genre' ? 'songs' : 'items'})
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+```
+
+**Store Integration:**
+No changes needed - existing suggestions resource will automatically include genres and playlists.
+
+**Suggestion Selection Behavior:**
+
+- **genre suggestions**: navigate to `/genre/{genreName}`
+- **playlist suggestions**: navigate to `/playlist/{playlistId}`
+- **existing suggestions**: existing behavior (search execution)
+
+**Simple Mixed Display:**
+Show all suggestion types together, sorted by relevance:
+
+```
+electronic (genre, 46 songs)
+electronic music (artist)
+electronic dreams (playlist, 12 songs)
+electronic symphony (song)
+```
 
 ### Genre Configuration Integration
 
