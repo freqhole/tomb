@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, onMount } from "solid-js";
 import { useNavigate, useSearchParams, useLocation } from "@solidjs/router";
 import { useSearch } from "../../../store/hooks";
+import { useStore, useSearchActions } from "../../../store/index";
 import { useSongInteractions } from "../../../services/songInteractions";
 import type { RouteSectionProps } from "@solidjs/router";
 import type { Song } from "../../../../../lib/music/schemas/song";
@@ -17,7 +18,13 @@ interface SearchResultsViewProps {
   class?: string;
 }
 
-type ResultTab = "all" | "songs" | "artists" | "albums" | "playlists";
+type ResultTab =
+  | "all"
+  | "songs"
+  | "artists"
+  | "albums"
+  | "playlists"
+  | "genres";
 
 export function SearchResultsView(
   props: RouteSectionProps<unknown> & SearchResultsViewProps = {} as any
@@ -25,8 +32,13 @@ export function SearchResultsView(
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const songInteractions = useSongInteractions();
+  const [store] = useStore();
   const search = useSearch();
+  const searchActions = useSearchActions();
   const location = useLocation();
+
+  // Local tab state for enhanced search
+  const [activeTab, setActiveTab] = createSignal<ResultTab>("all");
 
   // Router-aware scroll restoration
   const [initialScrollTop, setInitialScrollTop] = createSignal(0);
@@ -41,7 +53,17 @@ export function SearchResultsView(
 
     if (urlQuery && !hasRun) {
       hasRun = true;
-      search.setSearchQuery(urlQuery, true);
+      search.setSearchQuery(urlQuery, false); // don't use old search
+      // Trigger enhanced search with grouping by default
+      performSearchWithGrouping();
+    }
+  });
+
+  // Auto-trigger enhanced search whenever query changes
+  createEffect(() => {
+    const query = search.searchQuery();
+    if (query && query.trim().length > 0) {
+      performSearchWithGrouping();
     }
   });
 
@@ -50,11 +72,8 @@ export function SearchResultsView(
     const routerState = location.state as ScrollRestorationState | undefined;
     if (routerState && routerState.scrollTop) {
       setInitialScrollTop(routerState.scrollTop);
-      if (
-        routerState.activeTab &&
-        routerState.activeTab !== search.activeTab()
-      ) {
-        search.setActiveTab(routerState.activeTab as any);
+      if (routerState.activeTab && routerState.activeTab !== activeTab()) {
+        setActiveTab(routerState.activeTab as ResultTab);
       }
     }
   });
@@ -82,7 +101,7 @@ export function SearchResultsView(
   };
 
   const handleTabChange = (tab: ResultTab) => {
-    search.setActiveTab(tab);
+    setActiveTab(tab);
   };
 
   const handleSongClick = (song: Song) => {
@@ -103,6 +122,27 @@ export function SearchResultsView(
     }
   };
 
+  const handleGenreClick = (genre: any) => {
+    if (genre.genre) {
+      const encodedGenre = encodeURIComponent(genre.genre);
+      navigate(`/genre/${encodedGenre}`);
+    }
+  };
+
+  const handlePlaylistClick = (playlist: any) => {
+    navigate(`/playlist/${playlist.id}`);
+  };
+
+  // enhanced search with grouping as default
+  const performSearchWithGrouping = async () => {
+    if (search.searchQuery()) {
+      await searchActions.performSearch({
+        include_genres: true,
+        include_playlists: true,
+      });
+    }
+  };
+
   const getTabCount = (tab: ResultTab) => {
     switch (tab) {
       case "all":
@@ -113,8 +153,10 @@ export function SearchResultsView(
         return search.artists().length;
       case "albums":
         return search.albums().length;
-      // case "playlists":
-      //   return search.playlists().length;
+      case "playlists":
+        return store.search.results.playlists?.length || 0;
+      case "genres":
+        return store.search.results.genres?.length || 0;
       default:
         return 0;
     }
@@ -150,6 +192,11 @@ export function SearchResultsView(
             <Show when={search.totalCount() > 0}>
               <div class="text-magenta-400">
                 {search.totalCount()} results found
+                <Show when={store.search.query_time_ms}>
+                  <span class="text-magenta-500 ml-2">
+                    ({store.search.query_time_ms}ms)
+                  </span>
+                </Show>
               </div>
             </Show>
           </div>
@@ -162,13 +209,14 @@ export function SearchResultsView(
                 { id: "songs" as const, label: "songs" },
                 { id: "artists" as const, label: "artists" },
                 { id: "albums" as const, label: "albums" },
-                // { id: "playlists" as const, label: "playlists" }, // Commented out until server API supports it
+                { id: "genres" as const, label: "genres" },
+                { id: "playlists" as const, label: "playlists" },
               ]}
             >
               {(tab) => (
                 <button
                   class={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
-                    search.activeTab() === tab.id
+                    activeTab() === tab.id
                       ? "bg-magenta-600 text-white"
                       : "bg-magenta-950/30 text-magenta-300 hover:bg-magenta-600/30 hover:text-white"
                   }`}
@@ -214,9 +262,85 @@ export function SearchResultsView(
             }
           >
             {/* All Tab - Show everything */}
-            <Show when={search.activeTab() === "all"}>
+            <Show when={activeTab() === "all"}>
               <div class="space-y-8">
-                {/* Artists Section - Show first with highest ranking */}
+                {/* Genres Section - Show first */}
+                <Show when={(store.search.results.genres?.length || 0) > 0}>
+                  <div>
+                    <h2 class="text-xl font-semibold text-white mb-4">
+                      genres ({store.search.results.genres?.length || 0})
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <For
+                        each={store.search.results.genres?.slice(0, 6) || []}
+                      >
+                        {(genre) => (
+                          <div
+                            class="p-4 bg-magenta-950/30 rounded-lg hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                            onClick={() => handleGenreClick(genre)}
+                          >
+                            <div class="text-white font-medium truncate">
+                              {genre.genre}
+                            </div>
+                            <div class="text-magenta-400 text-sm">
+                              {genre.song_count} songs • {genre.artist_count}{" "}
+                              artists
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                    <Show when={(store.search.results.genres?.length || 0) > 6}>
+                      <button
+                        class="w-full py-2 mt-4 text-magenta-400 hover:text-magenta-300 transition-colors"
+                        onClick={() => handleTabChange("genres")}
+                      >
+                        view all {store.search.results.genres?.length} genres →
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
+
+                {/* Playlists Section - Show second */}
+                <Show when={(store.search.results.playlists?.length || 0) > 0}>
+                  <div>
+                    <h2 class="text-xl font-semibold text-white mb-4">
+                      playlists ({store.search.results.playlists?.length || 0})
+                    </h2>
+                    <div class="space-y-2">
+                      <For
+                        each={store.search.results.playlists?.slice(0, 5) || []}
+                      >
+                        {(playlist) => (
+                          <div
+                            class="p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                            onClick={() => handlePlaylistClick(playlist)}
+                          >
+                            <div class="text-white font-medium truncate">
+                              {playlist.title}
+                            </div>
+                            <div class="text-magenta-400 text-sm">
+                              {playlist.song_count || 0} songs
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                    <Show
+                      when={(store.search.results.playlists?.length || 0) > 5}
+                    >
+                      <button
+                        class="w-full py-2 mt-4 text-magenta-400 hover:text-magenta-300 transition-colors"
+                        onClick={() => handleTabChange("playlists")}
+                      >
+                        view all {store.search.results.playlists?.length}{" "}
+                        playlists →
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
+
+                {/* Artists Section - Show third */}
                 <Show when={search.artists().length > 0}>
                   <div>
                     <h2 class="text-xl font-semibold text-white mb-4">
@@ -250,7 +374,7 @@ export function SearchResultsView(
                   </div>
                 </Show>
 
-                {/* Albums Section - Show second with highest ranking */}
+                {/* Albums Section - Show fourth */}
                 <Show when={search.albums().length > 0}>
                   <div>
                     <h2 class="text-xl font-semibold text-white mb-4">
@@ -284,7 +408,7 @@ export function SearchResultsView(
                   </div>
                 </Show>
 
-                {/* Songs Section - Show third */}
+                {/* Songs Section - Show last */}
                 <Show when={search.songs().length > 0}>
                   <div>
                     <h2 class="text-xl font-semibold text-white mb-4">
@@ -324,46 +448,11 @@ export function SearchResultsView(
                     </div>
                   </div>
                 </Show>
-
-                {/* Playlists Section */}
-                {/* Playlists Section - Commented out until server API supports it */}
-                {/* <Show when={search.playlists().length > 0}>
-                  <div>
-                    <h2 class="text-xl font-semibold text-white mb-4">
-                      playlists ({search.playlists().length})
-                    </h2>
-                    <div class="space-y-2">
-                      <For each={search.playlists().slice(0, 5)}>
-                        {(playlist) => (
-                          <div
-                            class="p-3 rounded hover:bg-magenta-600/20 transition-colors cursor-pointer"
-                            onClick={() => handlePlaylistClick(playlist)}
-                          >
-                            <div class="text-white font-medium truncate">
-                              {playlist.title}
-                            </div>
-                            <div class="text-magenta-400 text-sm">
-                              {playlist.song_count || 0} songs
-                            </div>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                    <Show when={search.playlists().length > 5}>
-                      <button
-                        class="w-full py-2 mt-4 text-magenta-400 hover:text-magenta-300 transition-colors"
-                        onClick={() => handleTabChange("playlists")}
-                      >
-                        view all {search.playlists().length} playlists →
-                      </button>
-                    </Show>
-                  </div>
-                </Show> */}
               </div>
             </Show>
 
             {/* Songs Tab */}
-            <Show when={search.activeTab() === "songs"}>
+            <Show when={activeTab() === "songs"}>
               <div class="space-y-1">
                 <For each={search.songs()}>
                   {(song) => (
@@ -394,7 +483,7 @@ export function SearchResultsView(
             </Show>
 
             {/* Artists Tab */}
-            <Show when={search.activeTab() === "artists"}>
+            <Show when={activeTab() === "artists"}>
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 <For each={search.artists()}>
                   {(artist) => (
@@ -415,7 +504,7 @@ export function SearchResultsView(
             </Show>
 
             {/* Albums Tab */}
-            <Show when={search.activeTab() === "albums"}>
+            <Show when={activeTab() === "albums"}>
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 <For each={search.albums()}>
                   {(album) => (
@@ -440,10 +529,41 @@ export function SearchResultsView(
               </div>
             </Show>
 
-            {/* Playlists Tab - Commented out until server API supports it */}
-            {/* <Show when={search.activeTab() === "playlists"}>
+            {/* Genres Tab */}
+            <Show when={activeTab() === "genres"}>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <For each={store.search.results.genres || []}>
+                  {(genre) => (
+                    <div
+                      class="p-4 bg-magenta-950/30 rounded-lg hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                      onClick={() => handleGenreClick(genre)}
+                    >
+                      <div class="text-white font-medium truncate">
+                        {genre.genre}
+                      </div>
+                      <div class="text-magenta-400 text-sm">
+                        {genre.song_count} songs • {genre.artist_count} artists
+                      </div>
+                      <Show
+                        when={
+                          genre.avg_rating !== null &&
+                          genre.avg_rating !== undefined
+                        }
+                      >
+                        <div class="text-yellow-400 text-sm mt-1">
+                          ★ {genre.avg_rating?.toFixed(1)}
+                        </div>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+
+            {/* Playlists Tab */}
+            <Show when={activeTab() === "playlists"}>
               <div class="space-y-2">
-                <For each={search.playlists()}>
+                <For each={store.search.results.playlists || []}>
                   {(playlist) => (
                     <div
                       class="p-4 bg-magenta-950/30 rounded-lg hover:bg-magenta-600/20 transition-colors cursor-pointer"
@@ -453,7 +573,8 @@ export function SearchResultsView(
                         {playlist.title}
                       </div>
                       <div class="text-magenta-400 text-sm">
-                        {playlist.song_count || 0} songs
+                        {playlist.song_count || 0} songs •{" "}
+                        {playlist.is_public ? "public" : "private"}
                       </div>
                       <Show when={playlist.description}>
                         <div class="text-gray-400 text-sm mt-1 truncate">
@@ -464,7 +585,7 @@ export function SearchResultsView(
                   )}
                 </For>
               </div>
-            </Show> */}
+            </Show>
 
             {/* Load More Button */}
             <Show when={search.pagination().hasNext}>
