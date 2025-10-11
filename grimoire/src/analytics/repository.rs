@@ -1,3 +1,6 @@
+use super::media_events::{
+    MediaAnalyticsError, MediaEvent, MediaEventType, PlayAnalytics, UserListeningHistory,
+};
 use super::models::{
     AnalyticsError, PathMetric, RequestAnalytics, RequestMetrics, TimeSeriesPoint,
 };
@@ -288,5 +291,244 @@ impl<'a> AnalyticsRepository<'a> {
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    /// Record a media event
+    pub async fn record_media_event(&self, event: &MediaEvent) -> Result<(), MediaAnalyticsError> {
+        // Convert event_data to JSON
+        let event_data_json = serde_json::to_value(&event.event_data)
+            .map_err(|e| MediaAnalyticsError::Serialization(e))?;
+
+        sqlx::query!(
+            r#"
+            INSERT INTO media_events (
+                id, media_blob_id, user_id, event_type, event_data,
+                session_id, user_agent, client_id,
+                domain_type, domain_id, created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            "#,
+            event.id,
+            event.media_blob_id,
+            event.user_id,
+            event.event_type.to_string(),
+            event_data_json,
+            event.session_id,
+            event.user_agent,
+            event.client_id,
+            event.domain_type.as_ref().map(|d| d.to_string()),
+            event.domain_id,
+            event.created_at
+        )
+        .execute(self.db.pool())
+        .await?;
+
+        Ok(())
+    }
+
+    /// Record multiple media events in a batch
+    pub async fn record_media_events_batch(
+        &self,
+        events: &[MediaEvent],
+    ) -> Result<usize, MediaAnalyticsError> {
+        if events.is_empty() {
+            return Ok(0);
+        }
+
+        let mut tx = self.db.pool().begin().await?;
+        let mut processed = 0;
+
+        for event in events {
+            let event_data_json = serde_json::to_value(&event.event_data)
+                .map_err(|e| MediaAnalyticsError::Serialization(e))?;
+
+            let result = sqlx::query!(
+                r#"
+                INSERT INTO media_events (
+                    id, media_blob_id, user_id, event_type, event_data,
+                    session_id, user_agent, client_id,
+                    domain_type, domain_id, created_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                "#,
+                event.id,
+                event.media_blob_id,
+                event.user_id,
+                event.event_type.to_string(),
+                event_data_json,
+                event.session_id,
+                event.user_agent,
+                event.client_id,
+                event.domain_type.as_ref().map(|d| d.to_string()),
+                event.domain_id,
+                event.created_at
+            )
+            .execute(&mut *tx)
+            .await;
+
+            match result {
+                Ok(_) => processed += 1,
+                Err(e) => {
+                    tracing::warn!("Failed to insert media event {}: {}", event.id, e);
+                    // Continue processing other events
+                }
+            }
+        }
+
+        tx.commit().await?;
+        Ok(processed)
+    }
+
+    /// Get media events for a specific session
+    pub async fn get_media_events_for_session(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Vec<MediaEvent>, MediaAnalyticsError> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT id, media_blob_id, user_id, event_type, event_data,
+                   session_id, user_agent, client_id,
+                   domain_type, domain_id, created_at
+            FROM media_events
+            WHERE session_id = $1
+            ORDER BY created_at ASC
+            "#,
+            session_id
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let mut events = Vec::new();
+        for row in rows {
+            let event_type = MediaEventType::try_from(row.event_type.as_str())
+                .map_err(|_| MediaAnalyticsError::InvalidEventType(row.event_type.clone()))?;
+
+            let event_data = serde_json::from_value(row.event_data.unwrap_or_default())
+                .map_err(|e| MediaAnalyticsError::Serialization(e))?;
+
+            let domain_type = row
+                .domain_type
+                .map(|dt| serde_json::from_str(&format!("\"{}\"", dt)))
+                .transpose()
+                .map_err(|e| MediaAnalyticsError::Serialization(e))?;
+
+            events.push(MediaEvent {
+                id: row.id,
+                media_blob_id: row.media_blob_id,
+                user_id: row.user_id,
+                event_type,
+                event_data,
+                session_id: row.session_id,
+                user_agent: row.user_agent,
+                client_id: row.client_id,
+                domain_type: domain_type.flatten(),
+                domain_id: row.domain_id,
+                created_at: row.created_at,
+            });
+        }
+
+        Ok(events)
+    }
+
+    /// Get play analytics for a specific media blob
+    pub async fn get_song_play_analytics(
+        &self,
+        media_blob_id: &str,
+    ) -> Result<PlayAnalytics, MediaAnalyticsError> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                COUNT(*) FILTER (WHERE event_type = 'play') as total_plays,
+                COUNT(*) FILTER (WHERE event_type = 'complete' OR
+                    (event_type = 'play' AND (event_data->>'progress')::FLOAT >= 0.9)) as complete_plays,
+                COUNT(*) FILTER (WHERE event_type = 'pause' OR event_type = 'stop' OR
+                    (event_type = 'play' AND (event_data->>'progress')::FLOAT < 0.9)) as partial_plays,
+                COUNT(DISTINCT user_id) as unique_users,
+                COUNT(DISTINCT session_id) as unique_sessions,
+                AVG(CASE
+                    WHEN event_type = 'complete' THEN 1.0
+                    WHEN event_type = 'play' AND event_data->>'progress' IS NOT NULL
+                    THEN (event_data->>'progress')::FLOAT
+                    ELSE 0.0
+                END) as avg_completion_rate,
+                MIN(created_at) as first_played_at,
+                MAX(created_at) as last_played_at
+            FROM media_events
+            WHERE media_blob_id = $1
+            "#,
+            media_blob_id
+        )
+        .fetch_one(self.db.pool())
+        .await?;
+
+        Ok(PlayAnalytics {
+            media_blob_id: media_blob_id.to_string(),
+            total_plays: row.total_plays.unwrap_or(0),
+            complete_plays: row.complete_plays.unwrap_or(0),
+            partial_plays: row.partial_plays.unwrap_or(0),
+            unique_users: row.unique_users.unwrap_or(0),
+            unique_sessions: row.unique_sessions.unwrap_or(0),
+            avg_completion_rate: row
+                .avg_completion_rate
+                .and_then(|d| d.to_f64())
+                .unwrap_or(0.0),
+            total_play_time_seconds: 0, // TODO: Calculate from event data
+            last_played_at: row.last_played_at,
+            first_played_at: row.first_played_at,
+        })
+    }
+
+    /// Get user listening history
+    pub async fn get_user_listening_history(
+        &self,
+        user_id: Uuid,
+        limit: Option<i32>,
+        offset: Option<i32>,
+    ) -> Result<Vec<UserListeningHistory>, MediaAnalyticsError> {
+        let limit = limit.unwrap_or(50);
+        let offset = offset.unwrap_or(0);
+
+        let rows = sqlx::query!(
+            r#"
+            SELECT media_blob_id, event_type, event_data, domain_type,
+                   domain_id, session_id, created_at
+            FROM media_events
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+            user_id,
+            limit as i64,
+            offset as i64
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let mut history = Vec::new();
+        for row in rows {
+            let event_type = MediaEventType::try_from(row.event_type.as_str())
+                .map_err(|_| MediaAnalyticsError::InvalidEventType(row.event_type.clone()))?;
+
+            let event_data = serde_json::from_value(row.event_data.unwrap_or_default())
+                .map_err(|e| MediaAnalyticsError::Serialization(e))?;
+
+            let domain_type = row
+                .domain_type
+                .map(|dt| serde_json::from_str(&format!("\"{}\"", dt)))
+                .transpose()
+                .map_err(|e| MediaAnalyticsError::Serialization(e))?;
+
+            history.push(UserListeningHistory {
+                media_blob_id: row.media_blob_id,
+                event_type,
+                event_data,
+                domain_type: domain_type.flatten(),
+                domain_id: row.domain_id,
+                session_id: row.session_id,
+                created_at: row.created_at,
+            });
+        }
+
+        Ok(history)
     }
 }

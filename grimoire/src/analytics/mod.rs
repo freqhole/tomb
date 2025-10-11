@@ -5,6 +5,7 @@
 
 pub mod cli_service;
 pub mod cli_types;
+pub mod media_events;
 pub mod models;
 pub mod repository;
 pub mod service;
@@ -12,6 +13,13 @@ pub mod service;
 // Re-export core analytics types
 pub use models::{
     AnalyticsConfig, AnalyticsError, RequestAnalytics, RequestMetrics, TimeSeriesPoint,
+};
+
+// Re-export media events types
+pub use media_events::{
+    DomainType, MediaAnalyticsError, MediaEvent, MediaEventBatchRequest, MediaEventBatchResponse,
+    MediaEventData, MediaEventRequest, MediaEventResponse, MediaEventType, PlayAnalytics,
+    UserListeningHistory,
 };
 pub use repository::AnalyticsRepository;
 pub use service::{AnalyticsService, RequestAnalyticsBuilder};

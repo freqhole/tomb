@@ -3,6 +3,9 @@
 //! This module provides high-level analytics services that handle business logic,
 //! validation, and data operations for analytics functionality.
 
+use super::media_events::{
+    MediaAnalyticsError, MediaEvent, MediaEventRequest, PlayAnalytics, UserListeningHistory,
+};
 use super::models::{
     AnalyticsConfig, AnalyticsError, RequestAnalytics, RequestMetrics, TimeSeriesPoint,
 };
@@ -163,6 +166,102 @@ impl<'a> AnalyticsService<'a> {
     /// Parse user ID from string
     pub fn parse_user_id(user_id_str: &str) -> Result<Uuid, AnalyticsError> {
         Uuid::parse_str(user_id_str).map_err(|_| AnalyticsError::InvalidTimeRange)
+    }
+
+    /// Record a media event
+    pub async fn record_media_event(&self, event: MediaEvent) -> Result<(), MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Ok(()); // Silently ignore if analytics disabled
+        }
+
+        self.repo.record_media_event(&event).await
+    }
+
+    /// Record multiple media events in a batch
+    pub async fn record_media_events_batch(
+        &self,
+        events: Vec<MediaEvent>,
+    ) -> Result<usize, MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Ok(0); // Silently ignore if analytics disabled
+        }
+
+        if events.is_empty() {
+            return Ok(0);
+        }
+
+        self.repo.record_media_events_batch(&events).await
+    }
+
+    /// Create media event from request and user context
+    pub fn create_media_event_from_request(
+        &self,
+        request: MediaEventRequest,
+        user_id: Option<Uuid>,
+        session_id: Option<Uuid>,
+        user_agent: Option<String>,
+    ) -> MediaEvent {
+        let mut event = MediaEvent::new(request.media_blob_id, request.event_type, user_id);
+
+        if let Some(data) = request.event_data {
+            event.event_data = data;
+        }
+
+        event
+            .with_session(session_id.or(request.session_id))
+            .with_client_info(user_agent, None)
+            .with_domain(
+                request
+                    .domain_type
+                    .unwrap_or(super::media_events::DomainType::Song),
+                request.domain_id,
+            )
+    }
+
+    /// Get media events for a session
+    pub async fn get_media_events_for_session(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Vec<MediaEvent>, MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Err(MediaAnalyticsError::InvalidEventData(
+                "Analytics disabled".to_string(),
+            ));
+        }
+
+        self.repo.get_media_events_for_session(session_id).await
+    }
+
+    /// Get play analytics for a song
+    pub async fn get_song_play_analytics(
+        &self,
+        media_blob_id: &str,
+    ) -> Result<PlayAnalytics, MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Err(MediaAnalyticsError::InvalidEventData(
+                "Analytics disabled".to_string(),
+            ));
+        }
+
+        self.repo.get_song_play_analytics(media_blob_id).await
+    }
+
+    /// Get user listening history
+    pub async fn get_user_listening_history(
+        &self,
+        user_id: Uuid,
+        limit: Option<i32>,
+        offset: Option<i32>,
+    ) -> Result<Vec<UserListeningHistory>, MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Err(MediaAnalyticsError::InvalidEventData(
+                "Analytics disabled".to_string(),
+            ));
+        }
+
+        self.repo
+            .get_user_listening_history(user_id, limit, offset)
+            .await
     }
 
     /// Helper method to determine if a path represents a static file

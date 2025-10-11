@@ -21,6 +21,7 @@ import { useGlobalEvents } from "../../hooks/useGlobalEvents";
 import { apiClient } from "../../../../lib/api-client";
 import { SongFavoriteHeart } from "../ui";
 import { useSongState } from "../../services/songState";
+import { useMusicAnalytics } from "../../../../hooks/music/useMusicAnalytics";
 
 // Media Session API helper
 const updateMediaSession = (song: any, isPlaying: boolean) => {
@@ -59,6 +60,10 @@ export const Player = () => {
   const [layout] = useLayout();
   const events = useGlobalEvents();
   const songState = useSongState();
+  const analytics = useMusicAnalytics({ enableDebugLogs: true });
+
+  // Configure analytics with proper base URL
+  analytics.initializeSession(apiClient.getBaseUrl());
 
   // Audio element and state
   const [audioElement, setAudioElement] = createSignal<HTMLAudioElement | null>(
@@ -112,10 +117,42 @@ export const Player = () => {
   };
 
   const playNext = () => {
+    // Track partial play before switching songs
+    const song = currentSong();
+    const audio = audioElement();
+    if (song && audio) {
+      analytics.trackPlayPartial(
+        song.media_blob_id,
+        {
+          isPlaying: isPlaying(),
+          currentTime: audio.currentTime,
+          duration: audio.duration,
+          volume: audio.volume,
+          progress: audio.duration > 0 ? audio.currentTime / audio.duration : 0,
+        },
+        song.id
+      );
+    }
     events.emit("queue:next", {});
   };
 
   const playPrevious = () => {
+    // Track partial play before switching songs
+    const song = currentSong();
+    const audio = audioElement();
+    if (song && audio) {
+      analytics.trackPlayPartial(
+        song.media_blob_id,
+        {
+          isPlaying: isPlaying(),
+          currentTime: audio.currentTime,
+          duration: audio.duration,
+          volume: audio.volume,
+          progress: audio.duration > 0 ? audio.currentTime / audio.duration : 0,
+        },
+        song.id
+      );
+    }
     events.emit("queue:previous", {});
   };
 
@@ -148,7 +185,15 @@ export const Player = () => {
     const audio = audioElement();
     if (!audio || !duration()) return;
 
+    const oldTime = audio.currentTime;
     const newTime = (percentage / 100) * duration();
+
+    // Track seek event
+    const song = currentSong();
+    if (song) {
+      analytics.trackSeek(song.media_blob_id, oldTime, newTime, song.id);
+    }
+
     audio.currentTime = newTime;
     storeActions.setCurrentTime(newTime);
   };
@@ -156,6 +201,14 @@ export const Player = () => {
   const seekToTime = (time: number) => {
     const audio = audioElement();
     if (!audio) return;
+
+    const oldTime = audio.currentTime;
+
+    // Track seek event
+    const song = currentSong();
+    if (song) {
+      analytics.trackSeek(song.media_blob_id, oldTime, time, song.id);
+    }
 
     audio.currentTime = time;
     storeActions.setCurrentTime(time);
@@ -178,10 +231,35 @@ export const Player = () => {
 
     audio.addEventListener("timeupdate", () => {
       storeActions.setCurrentTime(audio.currentTime);
+      // Add analytics progress tracking
+      const song = currentSong();
+      if (song) {
+        analytics.trackProgress(
+          song.media_blob_id,
+          audio.currentTime,
+          audio.duration
+        );
+      }
     });
 
     audio.addEventListener("ended", () => {
       storeActions.setPlayerState({ isPlaying: false });
+      // Track completion before moving to next song
+      const song = currentSong();
+      if (song) {
+        analytics.trackPlayComplete(
+          song.media_blob_id,
+          {
+            isPlaying: false,
+            currentTime: audio.currentTime,
+            duration: audio.duration,
+            volume: audio.volume,
+            progress:
+              audio.duration > 0 ? audio.currentTime / audio.duration : 0,
+          },
+          song.id
+        );
+      }
       playNext(); // Auto-play next song
     });
 
@@ -263,10 +341,26 @@ export const Player = () => {
         audio.addEventListener(
           "canplay",
           () => {
-            audio.play().catch((err) => {
-              console.error("failed to play audio:", err);
-              storeActions.setPlayerState({ isPlaying: false });
-            });
+            audio
+              .play()
+              .then(() => {
+                // Track play start when audio actually starts
+                analytics.trackPlayStart(
+                  song.media_blob_id,
+                  {
+                    isPlaying: true,
+                    currentTime: audio.currentTime,
+                    duration: audio.duration,
+                    volume: audio.volume,
+                    progress: 0,
+                  },
+                  song.id
+                );
+              })
+              .catch((err) => {
+                console.error("failed to play audio:", err);
+                storeActions.setPlayerState({ isPlaying: false });
+              });
           },
           { once: true }
         );
@@ -290,11 +384,41 @@ export const Player = () => {
     if (audio.src && audio.src.includes(song.media_blob_id)) {
       if (playing && audio.paused) {
         // Resume from current position, don't restart
-        audio.play().catch((err) => {
-          console.error("failed to play audio:", err);
-          storeActions.setPlayerState({ isPlaying: false });
-        });
+        audio
+          .play()
+          .then(() => {
+            // Track play start when resuming
+            analytics.trackPlayStart(
+              song.media_blob_id,
+              {
+                isPlaying: true,
+                currentTime: audio.currentTime,
+                duration: audio.duration,
+                volume: audio.volume,
+                progress:
+                  audio.duration > 0 ? audio.currentTime / audio.duration : 0,
+              },
+              song.id
+            );
+          })
+          .catch((err) => {
+            console.error("failed to play audio:", err);
+            storeActions.setPlayerState({ isPlaying: false });
+          });
       } else if (!playing && !audio.paused) {
+        // Track partial play when pausing
+        analytics.trackPlayPartial(
+          song.media_blob_id,
+          {
+            isPlaying: false,
+            currentTime: audio.currentTime,
+            duration: audio.duration,
+            volume: audio.volume,
+            progress:
+              audio.duration > 0 ? audio.currentTime / audio.duration : 0,
+          },
+          song.id
+        );
         audio.pause();
       }
     }

@@ -2,8 +2,15 @@
 //!
 //! This module contains all analytics and metrics related routes.
 
-use axum::{middleware as axum_middleware, routing::get, Router};
+use axum::{
+    middleware as axum_middleware,
+    routing::{get, post},
+    Router,
+};
 
+use super::media_handlers::{
+    admin_analytics_query, get_song_plays, get_user_history, record_events,
+};
 use super::{get_metrics, get_prometheus_metrics};
 use crate::auth::{require_admin, require_authentication};
 use crate::health::health_check;
@@ -13,11 +20,21 @@ use grimoire::AppConfig;
 pub fn build_analytics_routes(config: &AppConfig) -> Router {
     let mut analytics_routes = Router::new();
 
-    // Admin-only metrics endpoint
-    analytics_routes = analytics_routes
+    // Protected routes (require authentication)
+    let protected_routes = Router::new()
+        .route("/api/analytics/events", post(record_events))
+        .route("/api/analytics/songs/{song_id}/plays", get(get_song_plays))
+        .route("/api/analytics/history", get(get_user_history))
+        .layer(axum_middleware::from_fn(require_authentication));
+
+    // Admin routes (require admin role)
+    let admin_routes = Router::new()
+        .route("/api/admin/analytics/query", post(admin_analytics_query))
         .route("/api/admin/metrics", get(get_metrics))
         .layer(axum_middleware::from_fn(require_admin))
         .layer(axum_middleware::from_fn(require_authentication));
+
+    analytics_routes = analytics_routes.merge(protected_routes).merge(admin_routes);
 
     // Public metrics endpoints (if enabled)
     if config.analytics.metrics.enabled {
@@ -26,8 +43,7 @@ pub fn build_analytics_routes(config: &AppConfig) -> Router {
             .route(
                 &config.analytics.metrics.prometheus_endpoint,
                 get(get_prometheus_metrics),
-            )
-            .route("/api/metrics", get(get_metrics));
+            );
     }
 
     analytics_routes

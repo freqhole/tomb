@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, media_blob_id, user_id, event_type, event_data,\n                   session_id, user_agent, client_id,\n                   domain_type, domain_id, created_at\n            FROM media_events\n            WHERE session_id = $1\n            ORDER BY created_at ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "media_blob_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "event_data",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "session_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "user_agent",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "client_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "domain_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "domain_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "aec70b91e1c609158059e0b7c2fda67c9ce2abd3a11b1b131ccc592545d40a59"
+}
