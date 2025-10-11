@@ -11,7 +11,38 @@
 7. **Domain Separation**: Keep admin logic generic in views/admin/, music-specific code in lib/music/ and hooks/music/
 8. **Generic Library Focus**: Build reusable patterns in `client/js/src/lib/`
 9. **LEGACY CODE MARKING**: When implementing new better patterns, clearly mark old code as `@deprecated`, `// LEGACY:`, or `// TODO: migrate to X` so we know which system to use and can clean up later. This prevents confusion between "this is broken and needs debugging now" vs "this works but should be migrated as part of the plan"
-10. **MAXIMUM CODE REUSE**: Reuse existing song edit forms, bulk operations, filtering APIs, and modal systems. Build MusicBrainz as modular extensions to existing functionality.
+10. **MAXIMUM CODE REUSE**: Reuse existing song edit forms, bulk operations, filtering APIs, and modal systems.
+
+## Work Progress Tracking
+
+### Phase 1: Backend API Extensions
+
+- [ ] 1.1 Extend PostSearchRequest to Support Result Grouping
+- [ ] 1.2 Extend Database Search Function
+- [ ] 1.3 Update search_music_post Handler
+- [ ] **Status**: Not Started
+- [ ] **Ready for Review**: No
+
+### Phase 2: Frontend Store Extensions
+
+- [ ] 2.1 Update Global Store Interface
+- [ ] 2.2 Create Enhanced Search Store Actions
+- [ ] **Status**: Not Started
+- [ ] **Ready for Review**: No
+
+### Phase 3: Zod Schema Extensions
+
+- [ ] 3.1 Create Enhanced Search Schemas
+- [ ] **Status**: Not Started
+- [ ] **Ready for Review**: No
+
+### Phase 4: UI Components
+
+- [ ] 4.1 Create Genre Results Component
+- [ ] 4.2 Create Playlist Results Component
+- [ ] 4.3 Update SearchResultsView
+- [ ] **Status**: Not Started
+- [ ] **Ready for Review**: No
 
 ## Overview
 
