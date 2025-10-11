@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT value, display, highlight, count, suggestion_type, confidence\n                FROM get_genre_suggestions($1, 3)\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "display",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "highlight",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "suggestion_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "confidence",
+        "type_info": "Float4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "cacd23efd22fdde3f50a20137eeac2fa03109fa768ea356c90ea4315104924c2"
+}

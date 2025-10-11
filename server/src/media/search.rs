@@ -1472,7 +1472,7 @@ pub async fn get_filter_options(
 
 /// Search suggestions endpoint with pagination
 pub async fn get_suggestions(
-    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<AuthenticatedUser>,
     Extension(db): Extension<DatabaseConnection>,
     Query(params): Query<SuggestionsParams>,
 ) -> Result<Json<SuggestionResponse>, StatusCode> {
@@ -1582,6 +1582,53 @@ pub async fn get_suggestions(
                     count: 1,
                     suggestion_type: "title".to_string(),
                     confidence: calculate_confidence(&title, &partial),
+                });
+            }
+
+            // Get genre suggestions
+            let genres = sqlx::query!(
+                r#"
+                SELECT value, display, highlight, count, suggestion_type, confidence
+                FROM get_genre_suggestions($1, 3)
+                "#,
+                &partial
+            )
+            .fetch_all(db.pool())
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            for genre in genres {
+                all_suggestions.push(Suggestion {
+                    value: genre.value.unwrap_or_default(),
+                    display: format!("{} (genre)", genre.display.unwrap_or_default()),
+                    highlight: genre.highlight.unwrap_or_default(),
+                    count: genre.count.unwrap_or(0) as u32,
+                    suggestion_type: "genre".to_string(),
+                    confidence: genre.confidence.unwrap_or(0.0),
+                });
+            }
+
+            // Get playlist suggestions
+            let playlists = sqlx::query!(
+                r#"
+                SELECT value, display, highlight, count, suggestion_type, confidence
+                FROM get_playlist_suggestions($1, $2, 3)
+                "#,
+                &partial,
+                user.0.id
+            )
+            .fetch_all(db.pool())
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            for playlist in playlists {
+                all_suggestions.push(Suggestion {
+                    value: playlist.value.unwrap_or_default(),
+                    display: format!("{} (playlist)", playlist.display.unwrap_or_default()),
+                    highlight: playlist.highlight.unwrap_or_default(),
+                    count: playlist.count.unwrap_or(0) as u32,
+                    suggestion_type: "playlist".to_string(),
+                    confidence: playlist.confidence.unwrap_or(0.0),
                 });
             }
 

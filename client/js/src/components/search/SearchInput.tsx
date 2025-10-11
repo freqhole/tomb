@@ -3,9 +3,12 @@ import { createSignal, createEffect, onMount, Show, For } from "solid-js";
 import type { JSX } from "solid-js";
 
 export interface SearchSuggestion {
-  text: string;
-  category?: string;
-  highlight?: string;
+  value: string;
+  display: string;
+  highlight: string;
+  count: number;
+  suggestion_type: string;
+  confidence: number;
 }
 
 export interface SearchInputProps {
@@ -63,71 +66,9 @@ export function SearchInput(props: SearchInputProps) {
   // get current value
   const currentValue = () => props.value ?? internalValue();
 
-  // get current suggestions - normalize external suggestions to prevent [object Object] rendering
+  // get current suggestions from props or internal state
   const currentSuggestions = () => {
-    const external = props.suggestions;
-    console.log(
-      "SearchInput: currentSuggestions() called, external:",
-      external
-    );
-
-    if (external && Array.isArray(external)) {
-      console.log(
-        "SearchInput: processing external array of length:",
-        external.length
-      );
-      const result = external.map((suggestion: any, index: number) => {
-        console.log(
-          `SearchInput: processing suggestion[${index}]:`,
-          suggestion,
-          typeof suggestion
-        );
-
-        // handle both string arrays and object arrays
-        if (typeof suggestion === "string") {
-          const normalized = {
-            text: suggestion,
-            category: "suggestion",
-          };
-          console.log(
-            `SearchInput: string suggestion[${index}] normalized:`,
-            normalized
-          );
-          return normalized;
-        } else if (suggestion && typeof suggestion === "object") {
-          const normalized = {
-            text:
-              suggestion.text ||
-              suggestion.value ||
-              suggestion.query ||
-              String(suggestion),
-            category: suggestion.category || "suggestion",
-            highlight: suggestion.highlight,
-          };
-          console.log(
-            `SearchInput: object suggestion[${index}] normalized:`,
-            normalized
-          );
-          return normalized;
-        } else {
-          const normalized = {
-            text: String(suggestion || ""),
-            category: "suggestion",
-          };
-          console.log(
-            `SearchInput: fallback suggestion[${index}] normalized:`,
-            normalized
-          );
-          return normalized;
-        }
-      });
-      console.log("SearchInput: final normalized result:", result);
-      return result;
-    }
-
-    const internal = internalSuggestions();
-    console.log("SearchInput: using internal suggestions:", internal);
-    return internal;
+    return props.suggestions || internalSuggestions();
   };
 
   // handle input change
@@ -243,7 +184,7 @@ export function SearchInput(props: SearchInputProps) {
         ) {
           const selected = suggestionsList[selectedIndex()];
           if (selected) {
-            handleSuggestionSelect(selected.text);
+            handleSuggestionSelect(selected.value);
           }
         } else {
           // handle regular search using input value
@@ -422,20 +363,20 @@ export function SearchInput(props: SearchInputProps) {
                     : "hover:bg-gray-800"
                 }`}
                 onClick={() => {
-                  console.log("SearchInput: clicked suggestion:", suggestion);
-                  handleSuggestionSelect(suggestion.text);
+                  handleSuggestionSelect(suggestion.value);
                 }}
               >
-                <span class="text-white text-sm">
-                  {typeof suggestion.text === "string"
-                    ? suggestion.text
-                    : `[DEBUG: ${typeof suggestion.text}] ${JSON.stringify(suggestion)}`}
-                </span>
-                {suggestion.category && (
+                <span class="text-white text-sm">{suggestion.display}</span>
+                <div class="flex items-center gap-2">
                   <span class="text-gray-400 text-xs bg-gray-600 px-2 py-1">
-                    {suggestion.category}
+                    {suggestion.suggestion_type}
                   </span>
-                )}
+                  {suggestion.count > 0 && (
+                    <span class="text-gray-500 text-xs">
+                      ({suggestion.count})
+                    </span>
+                  )}
+                </div>
               </div>
             )}
           </For>

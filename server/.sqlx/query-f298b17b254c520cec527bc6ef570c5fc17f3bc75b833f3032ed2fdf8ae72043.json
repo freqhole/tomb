@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT value, display, highlight, count, suggestion_type, confidence\n                FROM get_playlist_suggestions($1, $2, 3)\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "display",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "highlight",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "suggestion_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "confidence",
+        "type_info": "Float4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "f298b17b254c520cec527bc6ef570c5fc17f3bc75b833f3032ed2fdf8ae72043"
+}
