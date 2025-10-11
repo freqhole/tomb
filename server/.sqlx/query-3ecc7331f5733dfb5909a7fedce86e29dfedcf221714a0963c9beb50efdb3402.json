@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, media_blob_id, job_type, status, target_width, target_height,\n                   retry_count, max_retries, error_message, worker_id, metadata,\n                   created_at, updated_at, scheduled_at, started_at, completed_at\n            FROM thumbnail_jobs\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "media_blob_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "job_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "target_width",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "target_height",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "retry_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "max_retries",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "error_message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "worker_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "scheduled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "completed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "3ecc7331f5733dfb5909a7fedce86e29dfedcf221714a0963c9beb50efdb3402"
+}

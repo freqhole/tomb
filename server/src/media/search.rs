@@ -563,6 +563,7 @@ pub struct Suggestion {
     pub count: u32,
     pub suggestion_type: String,
     pub confidence: f32,
+    pub metadata: Option<serde_json::Value>,
 }
 
 // Default values
@@ -1527,17 +1528,20 @@ pub async fn get_suggestions(
                     count: count as u32,
                     suggestion_type: "artist".to_string(),
                     confidence: calculate_confidence(&value, &partial),
+                    metadata: None,
                 });
             }
 
             // Get top albums
-            let albums = sqlx::query_as::<_, (String, i64)>(
-                "SELECT s.album, COUNT(*) as song_count
+            let albums = sqlx::query_as::<_, (String, String, i64)>(
+                "SELECT s.album,
+                        COALESCE(s.album_artist, s.artist, 'unknown artist') as artist,
+                        COUNT(*) as song_count
                  FROM songs s
                  WHERE s.album IS NOT NULL
                    AND LOWER(s.album) LIKE '%' || $1 || '%'
                    AND s.deleted_at IS NULL
-                 GROUP BY s.album
+                 GROUP BY s.album, COALESCE(s.album_artist, s.artist, 'unknown artist')
                  ORDER BY song_count DESC, s.album ASC
                  LIMIT 3",
             )
@@ -1546,14 +1550,19 @@ pub async fn get_suggestions(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-            for (value, count) in albums {
+            for (album, artist, count) in albums {
+                let metadata = serde_json::json!({
+                    "artist": artist,
+                    "album": album.clone()
+                });
                 all_suggestions.push(Suggestion {
-                    value: value.clone(),
-                    display: format!("{} (album)", value),
-                    highlight: highlight_match(&value, &partial),
+                    value: album.clone(),
+                    display: format!("{} - {} (album)", album, artist),
+                    highlight: highlight_match(&album, &partial),
                     count: count as u32,
                     suggestion_type: "album".to_string(),
-                    confidence: calculate_confidence(&value, &partial),
+                    confidence: calculate_confidence(&album, &partial),
+                    metadata: Some(metadata),
                 });
             }
 
@@ -1582,6 +1591,7 @@ pub async fn get_suggestions(
                     count: 1,
                     suggestion_type: "title".to_string(),
                     confidence: calculate_confidence(&title, &partial),
+                    metadata: None,
                 });
             }
 
@@ -1605,13 +1615,14 @@ pub async fn get_suggestions(
                     count: genre.count.unwrap_or(0) as u32,
                     suggestion_type: "genre".to_string(),
                     confidence: genre.confidence.unwrap_or(0.0),
+                    metadata: None,
                 });
             }
 
             // Get playlist suggestions
             let playlists = sqlx::query!(
                 r#"
-                SELECT value, display, highlight, count, suggestion_type, confidence
+                SELECT value, display, highlight, count, suggestion_type, confidence, playlist_id
                 FROM get_playlist_suggestions($1, $2, 3)
                 "#,
                 &partial,
@@ -1622,6 +1633,10 @@ pub async fn get_suggestions(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
             for playlist in playlists {
+                let playlist_id = playlist.playlist_id.unwrap_or_default();
+                let metadata = serde_json::json!({
+                    "playlist_id": playlist_id.to_string()
+                });
                 all_suggestions.push(Suggestion {
                     value: playlist.value.unwrap_or_default(),
                     display: format!("{} (playlist)", playlist.display.unwrap_or_default()),
@@ -1629,6 +1644,7 @@ pub async fn get_suggestions(
                     count: playlist.count.unwrap_or(0) as u32,
                     suggestion_type: "playlist".to_string(),
                     confidence: playlist.confidence.unwrap_or(0.0),
+                    metadata: Some(metadata),
                 });
             }
 
@@ -1668,17 +1684,20 @@ pub async fn get_suggestions(
                     count: count as u32,
                     suggestion_type: "artist".to_string(),
                     confidence: calculate_confidence(&value, &partial),
+                    metadata: None,
                 })
                 .collect()
         }
         "album" => {
-            let query = sqlx::query_as::<_, (String, i64)>(
-                "SELECT s.album, COUNT(*) as song_count
+            let query = sqlx::query_as::<_, (String, String, i64)>(
+                "SELECT s.album,
+                        COALESCE(s.album_artist, s.artist, 'unknown artist') as artist,
+                        COUNT(*) as song_count
                  FROM songs s
                  WHERE s.album IS NOT NULL
                    AND LOWER(s.album) LIKE '%' || $1 || '%'
                    AND s.deleted_at IS NULL
-                 GROUP BY s.album
+                 GROUP BY s.album, COALESCE(s.album_artist, s.artist, 'unknown artist')
                  ORDER BY song_count DESC, s.album ASC
                  LIMIT $2 OFFSET $3",
             )
@@ -1691,13 +1710,20 @@ pub async fn get_suggestions(
 
             query
                 .into_iter()
-                .map(|(value, count)| Suggestion {
-                    value: value.clone(),
-                    display: value.clone(),
-                    highlight: highlight_match(&value, &partial),
-                    count: count as u32,
-                    suggestion_type: "album".to_string(),
-                    confidence: calculate_confidence(&value, &partial),
+                .map(|(album, artist, count)| {
+                    let metadata = serde_json::json!({
+                        "artist": artist,
+                        "album": album.clone()
+                    });
+                    Suggestion {
+                        value: album.clone(),
+                        display: format!("{} - {}", album, artist),
+                        highlight: highlight_match(&album, &partial),
+                        count: count as u32,
+                        suggestion_type: "album".to_string(),
+                        confidence: calculate_confidence(&album, &partial),
+                        metadata: Some(metadata),
+                    }
                 })
                 .collect()
         }
@@ -1729,6 +1755,7 @@ pub async fn get_suggestions(
                     count: 1,
                     suggestion_type: "title".to_string(),
                     confidence: calculate_confidence(&title, &partial),
+                    metadata: None,
                 })
                 .collect()
         }
@@ -1759,6 +1786,7 @@ pub async fn get_suggestions(
                     count: count as u32,
                     suggestion_type: "genre".to_string(),
                     confidence: calculate_confidence(&value, &partial),
+                    metadata: None,
                 })
                 .collect()
         }

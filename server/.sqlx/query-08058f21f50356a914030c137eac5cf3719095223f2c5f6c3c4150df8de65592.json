@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO music_scan_sessions (\n                id, base_path, session_name, status, total_files,\n                initiated_by_user_id, configuration\n            ) VALUES ($1, $2, $3, $4, $5, $6, $7)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Varchar",
+        "Int4",
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "08058f21f50356a914030c137eac5cf3719095223f2c5f6c3c4150df8de65592"
+}

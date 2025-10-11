@@ -1,0 +1,206 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO videos (\n                id, media_blob_id, thumbnail_blob_id, thumbnail_blob_ids,\n                title, description, duration, width_px, height_px, fps,\n                video_codec, audio_codec, bitrate, container_format,\n                is_hdr, color_profile, metadata\n            ) VALUES (\n                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17\n            ) RETURNING *\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "media_blob_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "thumbnail_blob_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "duration",
+        "type_info": "Interval"
+      },
+      {
+        "ordinal": 6,
+        "name": "width_px",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "height_px",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "fps",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 9,
+        "name": "bitrate",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "video_codec",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "audio_codec",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "container_format",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "is_hdr",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
+        "name": "color_profile",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "audio_channels",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 16,
+        "name": "audio_sample_rate",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 17,
+        "name": "subtitles_available",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 18,
+        "name": "watch_progress",
+        "type_info": "Interval"
+      },
+      {
+        "ordinal": 19,
+        "name": "rating",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 20,
+        "name": "is_favorite",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 21,
+        "name": "tags",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 22,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 23,
+        "name": "deleted_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 24,
+        "name": "deleted_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 25,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 26,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 27,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 28,
+        "name": "thumbnail_blob_ids",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Varchar",
+        "TextArray",
+        "Text",
+        "Text",
+        "Interval",
+        "Int4",
+        "Int4",
+        "Numeric",
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "Bool",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "5c7d0b0526138e3d66cedb383d07924fe7f0634aa4e20ba11b13ff3b000a7566"
+}

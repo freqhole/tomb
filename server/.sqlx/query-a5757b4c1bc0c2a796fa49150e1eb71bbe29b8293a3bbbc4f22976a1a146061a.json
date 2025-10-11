@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                DATE_TRUNC('minute', timestamp) +\n                (EXTRACT(MINUTE FROM timestamp)::INTEGER / $3) * INTERVAL '1 minute' * $3 as time_bucket,\n                COUNT(*) as request_count\n            FROM request_analytics\n            WHERE timestamp >= $1 AND timestamp <= $2\n            GROUP BY time_bucket\n            ORDER BY time_bucket\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "time_bucket",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "request_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "a5757b4c1bc0c2a796fa49150e1eb71bbe29b8293a3bbbc4f22976a1a146061a"
+}

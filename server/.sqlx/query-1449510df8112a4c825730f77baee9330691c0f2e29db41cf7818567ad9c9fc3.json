@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(*) FROM videos v\n            JOIN video_playlist_items vpi ON v.id = vpi.video_id\n            WHERE vpi.playlist_id = $1 AND v.deleted_at IS NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1449510df8112a4c825730f77baee9330691c0f2e29db41cf7818567ad9c9fc3"
+}

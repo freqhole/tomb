@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                path,\n                COUNT(*) as request_count,\n                AVG(duration_ms) as avg_response_time,\n                COUNT(CASE WHEN status_code >= 400 THEN 1 END) as error_count\n            FROM request_analytics\n            WHERE timestamp >= $1 AND timestamp <= $2\n            GROUP BY path\n            ORDER BY request_count DESC\n            LIMIT 10\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "request_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "avg_response_time",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 3,
+        "name": "error_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "3dd8daacfd405b1c20430d04f4ca21c75766fa6d8ce641ba64dcdd2f87f30baa"
+}

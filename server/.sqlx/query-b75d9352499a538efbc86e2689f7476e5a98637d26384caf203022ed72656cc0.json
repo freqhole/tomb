@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM photo_galleries WHERE gallery_id = $1 AND photo_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b75d9352499a538efbc86e2689f7476e5a98637d26384caf203022ed72656cc0"
+}

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT mark_song_status($1, $2, $3) as success",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "success",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "348975b80dbee42ae3708f396527b0914bcc9a2ddd6eb70ec2a7da565b6e5629"
+}

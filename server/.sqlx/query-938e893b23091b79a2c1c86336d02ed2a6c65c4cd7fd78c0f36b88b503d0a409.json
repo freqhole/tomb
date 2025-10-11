@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO webauthn_credentials (user_id, credential_id, credential_data)\n            VALUES ($1, $2, $3)\n            ON CONFLICT (credential_id)\n            DO UPDATE SET credential_data = $3, last_used_at = NOW()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "938e893b23091b79a2c1c86336d02ed2a6c65c4cd7fd78c0f36b88b503d0a409"
+}

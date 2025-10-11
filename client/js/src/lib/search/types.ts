@@ -204,6 +204,8 @@ export const SearchSuggestionSchema = z.object({
   count: z.number(),
   suggestion_type: z.string(),
   confidence: z.number(),
+  // Metadata for additional context (e.g., playlist IDs)
+  metadata: z.any().optional(),
   // Legacy client fields (optional for compatibility)
   text: z.string().optional(),
   category: z.string().optional(),

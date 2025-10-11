@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM request_analytics\n            WHERE timestamp < $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e884d98bf2f24e0c1ad0563b8dba94d0c936a2932c22227593b5117e306e961f"
+}

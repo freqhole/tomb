@@ -49,7 +49,8 @@ RETURNS TABLE(
     highlight TEXT,
     count INTEGER,
     suggestion_type TEXT,
-    confidence REAL
+    confidence REAL,
+    playlist_id UUID
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -64,12 +65,13 @@ BEGIN
                 COALESCE(p.title, '') || ' ' || COALESCE(p.description, '')
             ),
             websearch_to_tsquery('english', p_query)
-        ) as confidence
+        ) as confidence,
+        p.id as playlist_id
     FROM playlists p
     LEFT JOIN (
-        SELECT playlist_id, COUNT(*) as song_count
-        FROM playlist_songs
-        GROUP BY playlist_id
+        SELECT ps.playlist_id, COUNT(*) as song_count
+        FROM playlist_songs ps
+        GROUP BY ps.playlist_id
     ) song_counts ON p.id = song_counts.playlist_id
     WHERE p.deleted_at IS NULL
       AND (p.title ILIKE '%' || p_query || '%' OR p.description ILIKE '%' || p_query || '%')

@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO request_analytics (\n                request_id, timestamp, user_id, method, path, status_code,\n                duration_ms, user_agent, ip_address, request_data, response_size,\n                error_message, trace_id, span_id\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Timestamptz",
+        "Uuid",
+        "Varchar",
+        "Text",
+        "Int4",
+        "Int4",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8",
+        "Text",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bd384497614fa3404b1590f1da0bebe8f3ab2c6f66dfd4f8f34391be04b02f0b"
+}

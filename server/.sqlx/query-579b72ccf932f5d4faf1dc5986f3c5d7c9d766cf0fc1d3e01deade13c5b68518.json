@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT\n                mb.id,\n                mb.local_path,\n                mb.data,\n                mb.mime,\n                mb.size,\n                mb.metadata,\n                CASE mb.blob_type\n                    WHEN 'thumbnail' THEN 1\n                    WHEN 'preview' THEN 2\n                    WHEN 'waveform' THEN 3\n                    ELSE 4\n                END as priority_order,\n                mb.created_at\n            FROM media_blobs mb\n            WHERE (\n                -- Direct children (old approach)\n                (mb.parent_blob_id = $1 AND mb.deleted_at IS NULL AND mb.blob_type IN ('thumbnail', 'waveform', 'preview'))\n                OR\n                -- Songs' thumbnail_blob_ids array (new approach)\n                (mb.id = ANY(\n                    SELECT unnest(s.thumbnail_blob_ids)\n                    FROM songs s\n                    WHERE s.media_blob_id = $1 AND s.deleted_at IS NULL\n                ))\n            )\n            ORDER BY priority_order, mb.created_at DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "local_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "data",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "mime",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "priority_order",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true
+    ]
+  },
+  "hash": "579b72ccf932f5d4faf1dc5986f3c5d7c9d766cf0fc1d3e01deade13c5b68518"
+}

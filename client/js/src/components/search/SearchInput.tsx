@@ -1,5 +1,6 @@
 /* @jsxImportSource solid-js */
 import { createSignal, createEffect, onMount, Show, For } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import type { JSX } from "solid-js";
 
 export interface SearchSuggestion {
@@ -40,6 +41,8 @@ export interface SearchInputProps {
   suggestions?: SearchSuggestion[];
   /** Callback when suggestion is selected */
   onSuggestionSelect?: (suggestion: string) => void;
+  /** Callback to play a song and add to queue */
+  onPlaySong?: (songTitle: string, artist: string) => void;
   /** Max suggestions to show */
   maxSuggestions?: number;
   /** Callback when search is cleared */
@@ -49,6 +52,7 @@ export interface SearchInputProps {
 }
 
 export function SearchInput(props: SearchInputProps) {
+  const navigate = useNavigate();
   const [inputRef, setInputRef] = createSignal<HTMLInputElement>();
   const [searchTimeout, setSearchTimeout] = createSignal<number | undefined>();
   const [internalSuggestions, setInternalSuggestions] = createSignal<
@@ -237,20 +241,74 @@ export function SearchInput(props: SearchInputProps) {
   };
 
   // handle suggestion selection
-  const handleSuggestionSelect = (suggestion: string) => {
-    const suggestionText =
-      typeof suggestion === "string" ? suggestion : String(suggestion || "");
+  const handleSuggestionSelect = (suggestion: SearchSuggestion | string) => {
+    if (typeof suggestion === "string") {
+      // fallback for string suggestions
+      setInternalValue(suggestion);
+      props.onInput?.(suggestion);
+      setShowDropdown(false);
+      setSelectedIndex(-1);
+      setSuppressSuggestions(true);
+      setPreviousQuery(suggestion);
+      props.onSuggestionSelect?.(suggestion);
+      inputRef()?.blur();
+      return;
+    }
 
-    setInternalValue(suggestionText);
-    props.onInput?.(suggestionText);
+    // handle smart navigation based on suggestion type
+    const suggestionObj = suggestion as SearchSuggestion;
+
+    switch (suggestionObj.suggestion_type) {
+      case "playlist":
+        // navigate to playlist page - extract playlist ID from backend if available
+        // for now, search for playlist by title as fallback
+        props.onSuggestionSelect?.(suggestionObj.value);
+        break;
+
+      case "artist":
+        // navigate to artist page
+        const encodedArtist = encodeURIComponent(suggestionObj.value);
+        navigate(`/artist/${encodedArtist}`);
+        break;
+
+      case "album":
+        // navigate to album page - need artist info, use search fallback for now
+        props.onSuggestionSelect?.(suggestionObj.value);
+        break;
+
+      case "title":
+      case "song":
+        // play song and add to queue
+        if (props.onPlaySong) {
+          // extract artist from display if available
+          const displayParts = suggestionObj.display.split(" - ");
+          const songTitle = suggestionObj.value;
+          const artist =
+            displayParts.length > 1
+              ? displayParts[1].replace(" (song)", "")
+              : "";
+          props.onPlaySong(songTitle, artist);
+        } else {
+          props.onSuggestionSelect?.(suggestionObj.value);
+        }
+        break;
+
+      case "genre":
+      default:
+        // default behavior - trigger search
+        setInternalValue(suggestionObj.value);
+        props.onInput?.(suggestionObj.value);
+        props.onSuggestionSelect?.(suggestionObj.value);
+        break;
+    }
+
     setShowDropdown(false);
     setSelectedIndex(-1);
     setSuppressSuggestions(true);
-    setPreviousQuery(suggestionText);
-    props.onSuggestionSelect?.(suggestionText);
+    setPreviousQuery(suggestionObj.value);
     inputRef()?.blur();
 
-    // reset suppression after a delay to allow for new searches
+    // reset suppression after delay
     setTimeout(() => {
       setSuppressSuggestions(false);
       setPreviousQuery("");

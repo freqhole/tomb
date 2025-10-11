@@ -46,10 +46,69 @@ export function NavigationHeader() {
     }
   };
 
-  const handleSuggestionSelect = (suggestion: string) => {
-    setInputValue(suggestion);
-    search.onSuggestionSelect(suggestion);
-    handleSearch(suggestion);
+  const handleSuggestionSelect = (suggestion: string | any) => {
+    // handle smart navigation based on suggestion type
+    if (typeof suggestion === "object" && suggestion.suggestion_type) {
+      const suggestionObj = suggestion;
+
+      switch (suggestionObj.suggestion_type) {
+        case "playlist":
+          // navigate to playlist page using metadata playlist_id
+          if (suggestionObj.metadata?.playlist_id) {
+            navigate(`/playlist/${suggestionObj.metadata.playlist_id}`);
+          } else {
+            // fallback to search if no playlist id
+            setInputValue(suggestionObj.value);
+            search.onSuggestionSelect(suggestionObj.value);
+          }
+          break;
+
+        case "artist":
+          // navigate to artist page
+          const encodedArtist = encodeURIComponent(suggestionObj.value);
+          navigate(`/artist/${encodedArtist}`);
+          break;
+
+        case "album":
+          // navigate to album page using artist and album from metadata
+          if (suggestionObj.metadata?.artist && suggestionObj.metadata?.album) {
+            const encodedArtist = encodeURIComponent(
+              suggestionObj.metadata.artist
+            );
+            const encodedAlbum = encodeURIComponent(
+              suggestionObj.metadata.album
+            );
+            navigate(`/album/${encodedArtist}/${encodedAlbum}`);
+          } else {
+            // fallback to search if no metadata
+            setInputValue(suggestionObj.value);
+            search.onSuggestionSelect(suggestionObj.value);
+          }
+          break;
+
+        case "title":
+        case "song":
+          // for songs, trigger search to show song results
+          setInputValue(suggestionObj.value);
+          search.onSuggestionSelect(suggestionObj.value);
+          handleSearch(suggestionObj.value);
+          break;
+
+        case "genre":
+        default:
+          // default behavior - trigger search
+          setInputValue(suggestionObj.value);
+          search.onSuggestionSelect(suggestionObj.value);
+          break;
+      }
+    } else {
+      // fallback for string suggestions
+      const suggestionText =
+        typeof suggestion === "string" ? suggestion : String(suggestion);
+      setInputValue(suggestionText);
+      search.onSuggestionSelect(suggestionText);
+    }
+
     setShowSuggestions(false);
   };
 

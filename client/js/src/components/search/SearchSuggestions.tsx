@@ -12,7 +12,7 @@ export interface SearchSuggestionsProps {
   /** Current search query */
   query: string;
   /** Callback when a suggestion is selected */
-  onSuggestionSelect?: (suggestion: string) => void;
+  onSuggestionSelect?: (suggestion: string | any) => void;
   /** External suggestions array */
   suggestions?: any[];
   /** Whether suggestions are loading */
@@ -40,7 +40,7 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
 
     return props.suggestions.map((suggestion: any) => {
       if (typeof suggestion === "string") {
-        return { text: suggestion, category: "general" };
+        return { text: suggestion, category: "general", original: suggestion };
       }
 
       if (typeof suggestion === "object" && suggestion !== null) {
@@ -56,10 +56,15 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
           category:
             suggestion.suggestion_type || suggestion.category || "general",
           highlight: suggestion.highlight,
+          original: suggestion, // preserve original suggestion data
         };
       }
 
-      return { text: String(suggestion), category: "general" };
+      return {
+        text: String(suggestion),
+        category: "general",
+        original: suggestion,
+      };
     });
   };
 
@@ -140,7 +145,9 @@ export function SearchSuggestions(props: SearchSuggestionsProps) {
 
   // handle suggestion click
   const handleSuggestionClick = (suggestion: any) => {
-    props.onSuggestionSelect?.(suggestion.text);
+    // pass original suggestion data if available, otherwise fall back to text
+    const suggestionToPass = suggestion.original || suggestion.text;
+    props.onSuggestionSelect?.(suggestionToPass);
     setSelectedIndex(-1);
     setIsVisible(false);
     props.onBlur?.();

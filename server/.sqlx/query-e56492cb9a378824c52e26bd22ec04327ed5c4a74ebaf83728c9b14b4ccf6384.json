@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT complete_scan_session($1, $2, $3) as success",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "success",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e56492cb9a378824c52e26bd22ec04327ed5c4a74ebaf83728c9b14b4ccf6384"
+}

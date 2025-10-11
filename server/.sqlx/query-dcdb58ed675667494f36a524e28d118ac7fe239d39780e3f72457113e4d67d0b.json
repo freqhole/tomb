@@ -1,0 +1,108 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, request_id, timestamp, user_id, method, path, status_code,\n                   duration_ms, user_agent, ip_address, request_data, response_size,\n                   error_message, trace_id, span_id\n            FROM request_analytics\n            WHERE user_id = $1 AND timestamp >= $2 AND timestamp <= $3\n            ORDER BY timestamp DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "request_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "method",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "status_code",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "duration_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "user_agent",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "ip_address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "request_data",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "response_size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "error_message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "trace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "span_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "dcdb58ed675667494f36a524e28d118ac7fe239d39780e3f72457113e4d67d0b"
+}
