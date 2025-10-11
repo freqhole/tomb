@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id FROM download_jobs\n        WHERE content_id = $1\n        AND status IN ('queued', 'in_progress')\n        AND id != $2\n        ORDER BY created_at ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e9d0ea1ce09d0bde024776c296e8e37183d623e5b06edad13548c773fd6b6c04"
+}

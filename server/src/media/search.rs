@@ -1,7 +1,7 @@
 //! Unified music search API endpoints
 
 use crate::auth::AuthenticatedUser;
-use crate::media::songs::{SongListResponse, SongResponse};
+use crate::media::songs::SongResponse;
 
 use axum::{
     extract::{Extension, Query},
@@ -36,6 +36,10 @@ pub struct PostSearchRequest {
     // Sorting
     pub sort_by: Option<String>,
     pub sort_direction: Option<String>,
+
+    // Result grouping options
+    pub include_genres: Option<bool>,
+    pub include_playlists: Option<bool>,
 
     // Filters
     pub filters: Option<PostSearchFilters>,
@@ -74,6 +78,8 @@ pub struct PostSearchFilters {
 #[derive(Debug, Serialize)]
 pub struct PostSearchResponse {
     pub songs: Vec<SongResponse>,
+    pub genres: Option<Vec<GenreGroupResult>>,
+    pub playlists: Option<Vec<PlaylistGroupResult>>,
     pub total_count: u64,
     pub page: u32,
     pub page_size: u32,
@@ -83,6 +89,29 @@ pub struct PostSearchResponse {
     pub query_time_ms: Option<u64>,
     pub applied_filters: Option<AppliedFiltersInfo>,
     pub sort_applied: Option<SortAppliedInfo>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GenreGroupResult {
+    pub genre: String,
+    pub song_count: u64,
+    pub artist_count: u64,
+    pub representative_song_id: Option<uuid::Uuid>,
+    pub representative_thumbnail: Option<String>,
+    pub avg_rating: Option<f64>,
+    pub search_rank: f32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlaylistGroupResult {
+    pub id: uuid::Uuid,
+    pub title: String,
+    pub description: Option<String>,
+    pub song_count: u64,
+    pub is_public: bool,
+    pub thumbnail_blob_id: Option<String>,
+    pub created_at: std::time::SystemTime,
+    pub search_rank: f32,
 }
 
 #[derive(Debug, Serialize)]
@@ -666,11 +695,13 @@ pub async fn search_music_post(
     Extension(user): Extension<AuthenticatedUser>,
     Extension(db): Extension<DatabaseConnection>,
     Json(request): Json<PostSearchRequest>,
-) -> Result<Json<SongListResponse>, StatusCode> {
-    let _start_time = std::time::Instant::now();
+) -> Result<Json<PostSearchResponse>, StatusCode> {
+    let start_time = std::time::Instant::now();
 
     // Clone values we need to use later
-    let _query_clone = request.query.clone();
+    let query_clone = request.query.clone();
+    let user_clone = user.clone();
+    let db_clone = db.clone();
     let _sort_by_clone = request.sort_by.clone();
     let _sort_direction_clone = request.sort_direction.clone();
 
@@ -791,24 +822,61 @@ pub async fn search_music_post(
     let search_result = search_music(Extension(user), Extension(db), Query(params)).await?;
     let response_data = search_result.0;
 
-    // Convert to SongListResponse format (same as GET songs endpoint)
+    // Calculate pagination values
     let total_pages = if response_data.total_count == 0 {
         0
     } else {
-        (response_data.total_count as f64 / request.page_size as f64).ceil() as i32
+        (response_data.total_count as f64 / request.page_size as f64).ceil() as u32
     };
 
-    let song_list_response = SongListResponse {
+    // Get genre aggregations if requested
+    let genres = if request.include_genres.unwrap_or(false) {
+        let genre_results = get_genre_aggregations(
+            &db_clone,
+            Some(user_clone.0.id),
+            query_clone.as_deref(),
+            10, // limit to 10 genre results
+            0,  // no offset for genres in this context
+        )
+        .await?;
+        Some(genre_results)
+    } else {
+        None
+    };
+
+    // Get playlist search results if requested
+    let playlists = if request.include_playlists.unwrap_or(false) {
+        let playlist_results = get_playlist_search_results(
+            &db_clone,
+            Some(user_clone.0.id),
+            query_clone.as_deref(),
+            true, // include private playlists for authenticated user
+            10,   // limit to 10 playlist results
+            0,    // no offset for playlists in this context
+        )
+        .await?;
+        Some(playlist_results)
+    } else {
+        None
+    };
+
+    // Build PostSearchResponse
+    let post_search_response = PostSearchResponse {
         songs: response_data.songs,
-        total: response_data.total_count as i64,
-        page: Some(request.page as i32),
-        page_size: Some(request.page_size as i32),
-        total_pages: Some(total_pages),
-        has_next: request.page < total_pages as u32,
+        genres,
+        playlists,
+        total_count: response_data.total_count,
+        page: request.page,
+        page_size: request.page_size,
+        total_pages,
+        has_next: request.page < total_pages,
         has_prev: request.page > 1,
+        query_time_ms: Some(start_time.elapsed().as_millis() as u64),
+        applied_filters: None, // TODO: implement applied filters info
+        sort_applied: None,    // TODO: implement sort applied info
     };
 
-    Ok(Json(song_list_response))
+    Ok(Json(post_search_response))
 }
 
 /// Convert UnifiedSearchParams to SearchQuery
@@ -1701,8 +1769,93 @@ fn calculate_confidence(text: &str, partial: &str) -> f32 {
     } else if lower_text.contains(&lower_partial) {
         0.7
     } else {
-        0.5
+        0.1
     }
+}
+
+/// Get genre aggregations for search results
+async fn get_genre_aggregations(
+    db: &DatabaseConnection,
+    user_id: Option<uuid::Uuid>,
+    search_query: Option<&str>,
+    limit: i32,
+    offset: i32,
+) -> Result<Vec<GenreGroupResult>, StatusCode> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            genre, song_count, artist_count, representative_song_id,
+            representative_thumbnail, avg_rating, search_rank
+        FROM get_genre_aggregations($1, $2, $3, $4)
+        "#,
+        search_query,
+        user_id,
+        limit,
+        offset
+    )
+    .fetch_all(db.pool())
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let results = rows
+        .into_iter()
+        .map(|row| GenreGroupResult {
+            genre: row.genre.unwrap_or_default(),
+            song_count: row.song_count.unwrap_or(0) as u64,
+            artist_count: row.artist_count.unwrap_or(0) as u64,
+            representative_song_id: row.representative_song_id,
+            representative_thumbnail: row.representative_thumbnail,
+            avg_rating: row
+                .avg_rating
+                .map(|r| r.to_string().parse::<f64>().unwrap_or(0.0)),
+            search_rank: row.search_rank.unwrap_or(1.0),
+        })
+        .collect();
+
+    Ok(results)
+}
+
+/// Get playlist search results for search results
+async fn get_playlist_search_results(
+    db: &DatabaseConnection,
+    user_id: Option<uuid::Uuid>,
+    search_query: Option<&str>,
+    include_private: bool,
+    limit: i32,
+    offset: i32,
+) -> Result<Vec<PlaylistGroupResult>, StatusCode> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            id, title, description, song_count, is_public,
+            thumbnail_blob_id, created_at, search_rank
+        FROM get_playlist_search_results($1, $2, $3, $4, $5)
+        "#,
+        search_query,
+        user_id,
+        include_private,
+        limit,
+        offset
+    )
+    .fetch_all(db.pool())
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let results = rows
+        .into_iter()
+        .map(|row| PlaylistGroupResult {
+            id: row.id.unwrap(),
+            title: row.title.unwrap_or_default(),
+            description: row.description,
+            song_count: row.song_count.unwrap_or(0) as u64,
+            is_public: row.is_public.unwrap_or(false),
+            thumbnail_blob_id: row.thumbnail_blob_id,
+            created_at: row.created_at.unwrap().into(),
+            search_rank: row.search_rank.unwrap_or(1.0),
+        })
+        .collect();
+
+    Ok(results)
 }
 
 /// Create search routes

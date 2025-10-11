@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            s.artist,\n            COUNT(DISTINCT s.id) as song_count,\n            COUNT(DISTINCT s.album) as album_count,\n            COALESCE(SUM(EXTRACT(EPOCH FROM s.duration)), 0) as total_duration,\n            AVG(s.rating) as avg_rating,\n            COUNT(CASE WHEN s.is_favorite THEN 1 END) as favorite_count,\n            ARRAY_AGG(DISTINCT LOWER(s.genre)) FILTER (WHERE s.genre IS NOT NULL) as genres\n        FROM songs s\n        WHERE s.artist = $1 AND s.deleted_at IS NULL\n        GROUP BY s.artist\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "artist",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "song_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "album_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "total_duration",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 4,
+        "name": "avg_rating",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 5,
+        "name": "favorite_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "genres",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "34aff02c82d63fc8e55c004269c7e74b04c574ebf732363f0122896e73b63b1c"
+}
