@@ -109,11 +109,22 @@ export const MediaEventResponseSchema = z.object({
   status: z.string(),
 });
 
+export const ProcessedEventSchema = z.object({
+  client_id: z.string(),
+  event_id: z.string(),
+});
+
+export const FailedEventSchema = z.object({
+  client_id: z.string(),
+  error: z.string(),
+  error_code: z.string(),
+});
+
 export const MediaEventBatchResponseSchema = z.object({
-  processed: z.number(),
-  failed: z.number(),
-  events: z.array(MediaEventResponseSchema),
-  errors: z.array(z.string()),
+  processed: z.array(ProcessedEventSchema),
+  failed: z.array(FailedEventSchema),
+  total_count: z.number(),
+  success_count: z.number(),
 });
 
 // Type exports
@@ -125,6 +136,8 @@ export type MediaEventBatchRequest = z.infer<
   typeof MediaEventBatchRequestSchema
 >;
 export type MediaEventResponse = z.infer<typeof MediaEventResponseSchema>;
+export type ProcessedEvent = z.infer<typeof ProcessedEventSchema>;
+export type FailedEvent = z.infer<typeof FailedEventSchema>;
 export type MediaEventBatchResponse = z.infer<
   typeof MediaEventBatchResponseSchema
 >;
@@ -173,10 +186,10 @@ export class AnalyticsClient {
   ): Promise<MediaEventBatchResponse> {
     if (events.length === 0) {
       return {
-        processed: 0,
-        failed: 0,
-        events: [],
-        errors: [],
+        processed: [],
+        failed: [],
+        total_count: 0,
+        success_count: 0,
       };
     }
 
@@ -191,7 +204,7 @@ export class AnalyticsClient {
     // Parse and validate response
     const parsed = MediaEventBatchResponseSchema.parse(response);
     this.debugLog(
-      `batch submitted: ${parsed.processed} processed, ${parsed.failed} failed`
+      `batch submitted: ${parsed.success_count} processed, ${parsed.failed.length} failed`
     );
 
     return parsed;

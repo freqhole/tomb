@@ -211,6 +211,7 @@ impl<'a> AnalyticsService<'a> {
         event
             .with_session(session_id.or(request.session_id))
             .with_client_info(user_agent, None)
+            .with_client_timestamp(request.client_timestamp)
             .with_domain_ids(
                 request
                     .domain_type

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, media_blob_id, user_id, event_type, event_data,\n                   session_id, user_agent, client_id,\n                   domain_type, domain_ids, created_at\n            FROM media_events\n            WHERE session_id = $1\n            ORDER BY created_at ASC\n            ",
+  "query": "\n            SELECT id, media_blob_id, user_id, event_type, event_data,\n                   session_id, user_agent, client_id,\n                   domain_type, domain_ids, created_at, client_timestamp\n            FROM media_events\n            WHERE session_id = $1\n            ORDER BY created_at ASC\n            ",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,11 @@
         "ordinal": 10,
         "name": "created_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "client_timestamp",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -75,8 +80,9 @@
       true,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "b427f810981baef643da81c045888a2d1195d4b4e0ef15ebc6e91033270e2814"
+  "hash": "4fc34654de642ba0d80a530701490db77ee7315f5a7e3f16cacc69756b3cb10b"
 }

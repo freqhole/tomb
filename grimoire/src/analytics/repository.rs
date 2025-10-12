@@ -305,9 +305,9 @@ impl<'a> AnalyticsRepository<'a> {
             INSERT INTO media_events (
                 id, media_blob_id, user_id, event_type, event_data,
                 session_id, user_agent, client_id,
-                domain_type, domain_ids, created_at
+                domain_type, domain_ids, created_at, client_timestamp
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             "#,
             event.id,
             event.media_blob_id,
@@ -319,7 +319,8 @@ impl<'a> AnalyticsRepository<'a> {
             event.client_id,
             event.domain_type.as_ref().map(|d| d.to_string()),
             event.domain_ids.as_ref().map(|ids| ids.as_slice()),
-            event.created_at
+            event.created_at,
+            event.client_timestamp
         )
         .execute(self.db.pool())
         .await?;
@@ -348,9 +349,9 @@ impl<'a> AnalyticsRepository<'a> {
                 INSERT INTO media_events (
                     id, media_blob_id, user_id, event_type, event_data,
                     session_id, user_agent, client_id,
-                    domain_type, domain_ids, created_at
+                    domain_type, domain_ids, created_at, client_timestamp
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 "#,
                 event.id,
                 event.media_blob_id,
@@ -362,7 +363,8 @@ impl<'a> AnalyticsRepository<'a> {
                 event.client_id,
                 event.domain_type.as_ref().map(|d| d.to_string()),
                 event.domain_ids.as_ref().map(|ids| ids.as_slice()),
-                event.created_at
+                event.created_at,
+                event.client_timestamp
             )
             .execute(&mut *tx)
             .await;
@@ -389,7 +391,7 @@ impl<'a> AnalyticsRepository<'a> {
             r#"
             SELECT id, media_blob_id, user_id, event_type, event_data,
                    session_id, user_agent, client_id,
-                   domain_type, domain_ids, created_at
+                   domain_type, domain_ids, created_at, client_timestamp
             FROM media_events
             WHERE session_id = $1
             ORDER BY created_at ASC
@@ -425,6 +427,7 @@ impl<'a> AnalyticsRepository<'a> {
                 domain_type: domain_type.flatten(),
                 domain_ids: row.domain_ids,
                 created_at: row.created_at,
+                client_timestamp: row.client_timestamp,
             });
         }
 

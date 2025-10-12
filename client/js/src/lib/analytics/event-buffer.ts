@@ -6,7 +6,12 @@
  * and provides page unload event draining.
  */
 
-import { analyticsClient, type MediaEventRequest } from "./analytics-client";
+import {
+  analyticsClient,
+  type MediaEventRequest,
+  type ProcessedEvent,
+  type FailedEvent,
+} from "./analytics-client";
 
 export interface EventBufferConfig {
   /** Maximum number of events to buffer before auto-sending */
@@ -19,12 +24,20 @@ export interface EventBufferConfig {
   enableDebugLogs?: boolean;
   /** Base URL for API requests */
   baseUrl?: string;
+  /** Maximum retry attempts per event */
+  maxRetries?: number;
+}
+
+interface BufferedEvent {
+  event: MediaEventRequest;
+  retryCount: number;
+  lastAttempt: number;
 }
 
 export class EventBuffer {
-  private buffer: MediaEventRequest[] = [];
+  private buffer: BufferedEvent[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
-  private config: Required<EventBufferConfig>;
+  private config: Required<EventBufferConfig & { maxRetries: number }>;
   private isDestroyed = false;
   private unloadListener: (() => void) | null = null;
   private baseUrl: string;
@@ -37,6 +50,7 @@ export class EventBuffer {
       unloadTimeout: config.unloadTimeout || 2000, // 2 seconds
       enableDebugLogs: config.enableDebugLogs || false,
       baseUrl: config.baseUrl || window.location.origin,
+      maxRetries: config.maxRetries || 3,
     };
     this.sessionClientId = this.generateSessionClientId();
 
@@ -67,7 +81,13 @@ export class EventBuffer {
       client_id: event.client_id || this.sessionClientId,
     };
 
-    this.buffer.push(eventWithClientId);
+    const bufferedEvent: BufferedEvent = {
+      event: eventWithClientId,
+      retryCount: 0,
+      lastAttempt: 0,
+    };
+
+    this.buffer.push(bufferedEvent);
     this.debugLog(
       `event added to buffer (${this.buffer.length}/${this.config.maxBufferSize})`,
       { client_id: eventWithClientId.client_id }
@@ -103,31 +123,86 @@ export class EventBuffer {
       return;
     }
 
-    const eventsToSend = [...this.buffer];
-    this.debugLog(`flushing ${eventsToSend.length} events`);
+    // Filter out events that have exceeded max retries
+    const now = Date.now();
+    const eventsToSend = this.buffer.filter((bufferedEvent) => {
+      if (bufferedEvent.retryCount >= this.config.maxRetries) {
+        this.debugLog(
+          `dropping event after ${this.config.maxRetries} failed attempts`,
+          {
+            client_id: bufferedEvent.event.client_id,
+            retryCount: bufferedEvent.retryCount,
+          }
+        );
+        return false;
+      }
+      return true;
+    });
+
+    // Remove dropped events from buffer
+    this.buffer = this.buffer.filter(
+      (bufferedEvent) => bufferedEvent.retryCount < this.config.maxRetries
+    );
+
+    if (eventsToSend.length === 0) {
+      this.debugLog("no events to send after filtering");
+      return;
+    }
+
+    // Update retry tracking for events being sent
+    eventsToSend.forEach((bufferedEvent) => {
+      bufferedEvent.retryCount++;
+      bufferedEvent.lastAttempt = now;
+    });
+
+    const events = eventsToSend.map((bufferedEvent) => bufferedEvent.event);
+    this.debugLog(`flushing ${events.length} events`);
 
     try {
-      const result = await analyticsClient.submitBatch(eventsToSend);
+      const result = await analyticsClient.submitBatch(events);
+
+      // Create lookup map for faster processing
+      const eventsByClientId = new Map<string, BufferedEvent>();
+      eventsToSend.forEach((bufferedEvent) => {
+        if (bufferedEvent.event.client_id) {
+          eventsByClientId.set(bufferedEvent.event.client_id, bufferedEvent);
+        }
+      });
 
       // Remove successfully processed events
-      if (result.processed > 0) {
-        this.buffer.splice(0, result.processed);
+      const processedClientIds = new Set<string>();
+      result.processed.forEach((processed: ProcessedEvent) => {
+        processedClientIds.add(processed.client_id);
+      });
+
+      // Remove successful events from buffer
+      this.buffer = this.buffer.filter((bufferedEvent) => {
+        if (
+          bufferedEvent.event.client_id &&
+          processedClientIds.has(bufferedEvent.event.client_id)
+        ) {
+          return false; // Remove successful event
+        }
+        return true; // Keep failed/unprocessed events
+      });
+
+      this.debugLog(
+        `${result.success_count} events sent successfully, ${this.buffer.length} remaining in buffer`
+      );
+
+      // Log failed events
+      if (result.failed.length > 0) {
         this.debugLog(
-          `${result.processed} events sent successfully, ${this.buffer.length} remaining in buffer`
+          `${result.failed.length} events failed:`,
+          result.failed.map((f: FailedEvent) => ({
+            client_id: f.client_id,
+            error_code: f.error_code,
+          }))
         );
       }
-
-      // Log any failures
-      if (result.failed > 0) {
-        this.debugLog(`${result.failed} events failed to send, kept in buffer`);
-      }
-
-      if (result.errors.length > 0) {
-        this.debugLog("batch errors:", result.errors);
-      }
     } catch (error) {
-      // Keep events in buffer on network failure
-      this.debugLog("flush failed, events kept in buffer", {
+      // On network failure, events stay in buffer with updated retry count
+      this.debugLog("flush failed, events kept in buffer for retry", {
         error: error instanceof Error ? error.message : String(error),
         bufferSize: this.buffer.length,
       });
@@ -216,8 +291,9 @@ export class EventBuffer {
       );
 
       // Use sendBeacon for reliability during page unload
+      const events = this.buffer.map((bufferedEvent) => bufferedEvent.event);
       try {
-        const payload = JSON.stringify({ events: this.buffer });
+        const payload = JSON.stringify({ events });
         const success = navigator.sendBeacon(
           `${this.baseUrl}/api/analytics/events`,
           new Blob([payload], { type: "application/json" })
@@ -237,7 +313,7 @@ export class EventBuffer {
           void fetch(`${this.baseUrl}/api/analytics/events`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ events: this.buffer }),
+            body: JSON.stringify({ events }),
             credentials: "include",
             keepalive: true,
           });

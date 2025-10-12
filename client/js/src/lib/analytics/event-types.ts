@@ -75,6 +75,7 @@ export class MusicEventBuilder {
       session_id: this.context.sessionId,
       domain_type: "song",
       domain_ids: this.context.songId ? [this.context.songId] : undefined,
+      client_timestamp: new Date().toISOString(),
     };
   }
 
@@ -94,6 +95,7 @@ export class MusicEventBuilder {
       session_id: this.context.sessionId,
       domain_type: "song",
       domain_ids: this.context.songId ? [this.context.songId] : undefined,
+      client_timestamp: new Date().toISOString(),
     };
   }
 
@@ -118,6 +120,7 @@ export class MusicEventBuilder {
       session_id: this.context.sessionId,
       domain_type: "song",
       domain_ids: this.context.songId ? [this.context.songId] : undefined,
+      client_timestamp: new Date().toISOString(),
     };
   }
 
@@ -136,6 +139,7 @@ export class MusicEventBuilder {
       session_id: this.context.sessionId,
       domain_type: "song",
       domain_ids: this.context.songId ? [this.context.songId] : undefined,
+      client_timestamp: new Date().toISOString(),
     };
   }
 
@@ -153,6 +157,7 @@ export class MusicEventBuilder {
       session_id: this.context.sessionId,
       domain_type: "song",
       domain_ids: this.context.songId ? [this.context.songId] : undefined,
+      client_timestamp: new Date().toISOString(),
     };
   }
 
@@ -167,6 +172,7 @@ export class MusicEventBuilder {
       session_id: this.context.sessionId,
       domain_type: "song",
       domain_ids: this.context.songId ? [this.context.songId] : undefined,
+      client_timestamp: new Date().toISOString(),
     };
   }
 

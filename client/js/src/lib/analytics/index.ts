@@ -16,6 +16,8 @@ export {
   MediaEventBatchRequestSchema,
   MediaEventResponseSchema,
   MediaEventBatchResponseSchema,
+  ProcessedEventSchema,
+  FailedEventSchema,
 } from "./analytics-client";
 
 export type {
@@ -26,6 +28,8 @@ export type {
   MediaEventBatchRequest,
   MediaEventResponse,
   MediaEventBatchResponse,
+  ProcessedEvent,
+  FailedEvent,
   AnalyticsClientConfig,
 } from "./analytics-client";
 
@@ -37,9 +41,7 @@ export {
   flushEvents,
 } from "./event-buffer";
 
-export type {
-  EventBufferConfig,
-} from "./event-buffer";
+export type { EventBufferConfig } from "./event-buffer";
 
 // Session management
 export {
@@ -49,9 +51,7 @@ export {
   updateSessionActivity,
 } from "./session-manager";
 
-export type {
-  SessionManagerConfig,
-} from "./session-manager";
+export type { SessionManagerConfig } from "./session-manager";
 
 // Event types and builders
 export {
@@ -74,9 +74,7 @@ export type {
 } from "./event-types";
 
 // Music analytics hook
-export {
-  useMusicAnalytics,
-} from "../../hooks/music/useMusicAnalytics";
+export { useMusicAnalytics } from "../../hooks/music/useMusicAnalytics";
 
 export type {
   UseMusicAnalyticsConfig,
@@ -84,15 +82,26 @@ export type {
 } from "../../hooks/music/useMusicAnalytics";
 
 // Convenience functions for common use cases
-export function createQuickPlayEvent(mediaBlobId: string, position: string, progress?: number) {
+export function createQuickPlayEvent(
+  mediaBlobId: string,
+  position: string,
+  progress?: number
+) {
   return AnalyticsClient.createPlayEvent(mediaBlobId, position, progress);
 }
 
-export function createQuickCompleteEvent(mediaBlobId: string, finalPosition: string) {
+export function createQuickCompleteEvent(
+  mediaBlobId: string,
+  finalPosition: string
+) {
   return AnalyticsClient.createCompleteEvent(mediaBlobId, finalPosition);
 }
 
-export function createQuickPauseEvent(mediaBlobId: string, position: string, progress?: number) {
+export function createQuickPauseEvent(
+  mediaBlobId: string,
+  position: string,
+  progress?: number
+) {
   return AnalyticsClient.createPauseEvent(mediaBlobId, position, progress);
 }
 

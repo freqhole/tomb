@@ -281,6 +281,7 @@ pub struct MediaEvent {
     pub domain_type: Option<DomainType>,
     pub domain_ids: Option<Vec<String>>,
     pub created_at: OffsetDateTime,
+    pub client_timestamp: Option<OffsetDateTime>,
 }
 
 impl MediaEvent {
@@ -302,6 +303,7 @@ impl MediaEvent {
             domain_type: None,
             domain_ids: None,
             created_at: OffsetDateTime::now_utc(),
+            client_timestamp: None,
         }
     }
 
@@ -329,6 +331,7 @@ impl MediaEvent {
             domain_type: Some(DomainType::Song),
             domain_ids: None,
             created_at: OffsetDateTime::now_utc(),
+            client_timestamp: None,
         }
     }
 
@@ -354,6 +357,7 @@ impl MediaEvent {
             domain_type: Some(DomainType::Song),
             domain_ids: None,
             created_at: OffsetDateTime::now_utc(),
+            client_timestamp: None,
         }
     }
 
@@ -379,6 +383,7 @@ impl MediaEvent {
             domain_type: Some(DomainType::Song),
             domain_ids: None,
             created_at: OffsetDateTime::now_utc(),
+            client_timestamp: None,
         }
     }
 
@@ -396,6 +401,12 @@ impl MediaEvent {
     ) -> Self {
         self.user_agent = user_agent;
         self.client_id = client_id;
+        self
+    }
+
+    /// Set client timestamp
+    pub fn with_client_timestamp(mut self, client_timestamp: Option<OffsetDateTime>) -> Self {
+        self.client_timestamp = client_timestamp;
         self
     }
 
@@ -462,6 +473,7 @@ pub struct MediaEventRequest {
     pub session_id: Option<Uuid>,
     pub domain_type: Option<DomainType>,
     pub domain_ids: Option<Vec<String>>,
+    pub client_timestamp: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
