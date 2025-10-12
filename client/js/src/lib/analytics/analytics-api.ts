@@ -1,3 +1,4 @@
+import { ApiClient } from "../api-client";
 import { z } from "zod";
 
 // Analytics API schemas - timestamps come as ISO strings from server
@@ -424,9 +425,7 @@ export interface AnalyticsDashboardState {
 }
 
 // Analytics API client function that takes an ApiClient instance
-export const createAnalyticsApi = (
-  apiClient: () => import("../api-client.js").ApiClient
-) => {
+export const createAnalyticsApi = (apiClient: () => ApiClient) => {
   const makeRequest = async <T>(
     query: AdminAnalyticsQuery,
     schema: z.ZodSchema<T>

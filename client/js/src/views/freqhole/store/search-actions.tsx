@@ -1,12 +1,13 @@
 import { batch } from "solid-js";
 import type { FreqholeStore } from "./index";
 import type { SetStoreFunction } from "solid-js/store";
+import { type ApiClient } from "../../../lib";
 
 // search actions for genre and playlist grouping
 export function createSearchActions(
   store: FreqholeStore,
   setStore: SetStoreFunction<FreqholeStore>,
-  apiClient: typeof import("../../../lib/api-client").apiClient
+  apiClient: ApiClient
 ) {
   return {
     // main enhanced search function

@@ -3,6 +3,7 @@ import { produce } from "solid-js/store";
 import type { FreqholeStore } from "./index";
 import type { SetStoreFunction } from "solid-js/store";
 import { eventBus } from "../hooks/useGlobalEvents";
+import { type ApiClient } from "../../../lib";
 
 // basic resources without view coupling
 export interface BasicStoreResources {
@@ -20,7 +21,7 @@ export interface BasicStoreResources {
 export function createStoreActions(
   store: FreqholeStore,
   setStore: SetStoreFunction<FreqholeStore>,
-  apiClient: typeof import("../../../lib/api-client").apiClient
+  apiClient: ApiClient
 ) {
   // Loading guard to prevent duplicate pagination requests
   let isLoadingMore = false;
