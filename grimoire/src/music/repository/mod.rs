@@ -754,9 +754,9 @@ impl MusicRepository {
         exact_match: bool,
     ) -> Result<Vec<Playlist>> {
         let sql = if exact_match {
-            "SELECT * FROM playlists WHERE title = $1 AND deleted_at IS NULL ORDER BY created_at DESC"
+            "SELECT * FROM playlists WHERE title = $1 AND deleted_at IS NULL ORDER BY updated_at DESC"
         } else {
-            "SELECT * FROM playlists WHERE title ILIKE $1 AND deleted_at IS NULL ORDER BY created_at DESC"
+            "SELECT * FROM playlists WHERE title ILIKE $1 AND deleted_at IS NULL ORDER BY updated_at DESC"
         };
 
         let bind_value = if exact_match {
@@ -813,7 +813,7 @@ impl MusicRepository {
         }
 
         // GROUP BY
-        sql.push_str(" GROUP BY p.id ORDER BY p.created_at DESC");
+        sql.push_str(" GROUP BY p.id ORDER BY p.updated_at DESC");
 
         if let Some(limit) = query.limit {
             bind_count += 1;

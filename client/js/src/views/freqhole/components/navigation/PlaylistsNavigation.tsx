@@ -42,6 +42,10 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
     events.on("playlist:song-added", () => {
       setRefreshPlaylists(refreshPlaylists() + 1);
     });
+
+    events.on("playlist:updated", () => {
+      setRefreshPlaylists(refreshPlaylists() + 1);
+    });
   });
 
   // Fetch recent playlists from API (25 most recent)
@@ -54,10 +58,10 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
       try {
         const response = await apiClient.getPlaylists({ page_size: 25 });
 
-        // Sort by created_at descending (most recent first)
+        // Sort by updated_at descending (most recent first)
         const sortedPlaylists = response.playlists.sort((a, b) => {
-          const dateA = new Date(a.created_at).getTime();
-          const dateB = new Date(b.created_at).getTime();
+          const dateA = new Date(a.updated_at || a.created_at).getTime();
+          const dateB = new Date(b.updated_at || b.created_at).getTime();
           return dateB - dateA; // Most recent first
         });
 
@@ -231,10 +235,15 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
                       </div>
                       <div class="text-xs text-gray-400">
                         {formatSongCount(playlist.song_count || 0)}
-                        {playlist.created_at &&
-                          formatCompactRelativeDate(playlist.created_at) && (
+                        {(playlist.updated_at || playlist.created_at) &&
+                          formatCompactRelativeDate(
+                            playlist.updated_at || playlist.created_at
+                          ) && (
                             <span class="ml-2">
-                              • {formatCompactRelativeDate(playlist.created_at)}
+                              •{" "}
+                              {formatCompactRelativeDate(
+                                playlist.updated_at || playlist.created_at
+                              )}
                             </span>
                           )}
                       </div>

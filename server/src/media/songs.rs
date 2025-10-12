@@ -163,7 +163,10 @@ pub struct PlaylistResponse {
     pub is_collaborative: bool,
     pub song_count: Option<i64>,
     pub visibility: String,
-    pub created_at: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
     pub media_blob_id: Option<String>,
     pub thumbnail_blob_id: Option<String>,
 }
@@ -177,9 +180,10 @@ impl From<Playlist> for PlaylistResponse {
             description: playlist.description,
             is_public: playlist.is_public,
             is_collaborative: playlist.is_collaborative,
-            song_count: None,
+            song_count: None, // Will be set separately if needed
             visibility,
-            created_at: playlist.created_at.to_string(),
+            created_at: playlist.created_at,
+            updated_at: playlist.updated_at,
             media_blob_id: playlist.media_blob_id,
             thumbnail_blob_id: playlist.thumbnail_blob_id,
         }
