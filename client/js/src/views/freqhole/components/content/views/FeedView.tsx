@@ -9,13 +9,13 @@ import {
 } from "solid-js";
 import { createAnalyticsApi } from "../../../../../lib/analytics/analytics-api";
 import { apiClient } from "../../../../../lib/api-client";
-import { CollectionCard } from "../../shared/CollectionCard";
-import type { CollectionCardData } from "../../shared/CollectionCard";
+import { TimelineCard } from "../../timeline/TimelineCard";
+import type { FeedItem } from "../../../../../lib/analytics/analytics-api";
 
 import { isMobile } from "../../../../../lib/format-utils";
 
 export function FeedView() {
-  const [allItems, setAllItems] = createSignal<any[]>([]);
+  const [allItems, setAllItems] = createSignal<FeedItem[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [hasMore, setHasMore] = createSignal(true);
   const [mobile, setMobile] = createSignal(isMobile());
@@ -267,35 +267,9 @@ export function FeedView() {
             }
           >
             {/* feed grid */}
-            <div class={gridClasses()}>
+            <div class="timeline-container">
               <For each={allItems()}>
-                {(item) => (
-                  <CollectionCard
-                    collection={
-                      {
-                        id: item.domain_id || crypto.randomUUID(),
-                        title: item.title,
-                        subtitle: item.subtitle,
-                        domain_type: item.domain_type || "album",
-                        domain_id: item.domain_id,
-                        image_url: item.image_url,
-                        track_count: item.metadata?.total_songs || 0,
-                        item_type: item.item_type,
-                        last_played_at: item.last_played_at,
-                        created_at: item.created_at,
-                        // Extract album/artist info from metadata for better handling
-                        album: item.metadata?.album_name || item.title,
-                        artist: item.metadata?.artist_name,
-                      } as CollectionCardData
-                    }
-                    size="medium"
-                    enableNavigation={true}
-                    enableContextMenu={true}
-                    showYear={false}
-                    showDuration={false}
-                    showGenres={false}
-                  />
-                )}
+                {(item) => <TimelineCard event={item} />}
               </For>
             </div>
 

@@ -2446,6 +2446,47 @@ this phase transforms the feed from a "recent content view" into a true social t
 **approach**: implement user attribution and smart event grouping
 **dependencies**: analytics dashboard must be working first
 
+## CLI Tools for Analytics Data Management
+
+### Analytics Legacy Data Cleanup Tool
+
+**purpose**: clean up legacy analytics data that uses composite string hacks and synthetic IDs
+
+**commands**:
+
+```bash
+# Analyze current analytics data and show legacy issues
+cargo run --bin tomb-cli analytics legacy-report
+
+# Drop all analytics events (useful for development reset)
+cargo run --bin tomb-cli analytics drop-all --confirm
+
+# Drop all analytics events before current time (clean slate)
+cargo run --bin tomb-cli analytics drop-before-now --confirm
+
+# Drop analytics events before specific date
+cargo run --bin tomb-cli analytics drop-before --date=2025-10-12 --confirm
+
+# Fix legacy domain_ids to use proper song IDs (dry run)
+cargo run --bin tomb-cli analytics fix-legacy-events --dry-run
+
+# Apply legacy data fixes
+cargo run --bin tomb-cli analytics fix-legacy-events --apply
+```
+
+**implementation approach**:
+
+- create new cli subcommand in `cli/src/commands/analytics.rs`
+- add validation and confirmation prompts for destructive operations
+- support both dry-run and apply modes for data transformations
+- provide detailed reporting on what will be changed/removed
+
+**use cases**:
+
+- **development**: quick reset of analytics data when testing
+- **production**: clean up legacy composite string domain_ids
+- **migration**: transition deployed servers from legacy to clean analytics
+
 ### **🗃️ READY FOR DEVELOPMENT**
 
 **database foundation**: ✅ complete and tested

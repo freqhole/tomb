@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM media_events WHERE created_at < NOW()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "f2a61ad2ff0c3ad4dbb6a8c9df045a696e27476786764740c7690723386671a1"
+}

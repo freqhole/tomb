@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FeedItem {
@@ -16,6 +17,8 @@ pub struct FeedItem {
     pub last_played_at: Option<OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    pub user_id: Option<Uuid>,
+    pub username: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,6 +28,10 @@ pub enum FeedItemType {
     RecentPlaylist,
     UserActivityGroup,
     TrendingCollection,
+    UserPlayedAlbum,
+    UserPlayedPlaylist,
+    UserPlayedArtist,
+    UserPlayedGenre,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -83,7 +90,9 @@ pub async fn get_social_feed(
             play_count,
             last_played_at,
             score,
-            created_at
+            created_at,
+            user_id,
+            username
         FROM get_social_feed_items($1, $2, INTERVAL '1 day' * $3)
         "#,
         limit,
@@ -110,6 +119,10 @@ pub async fn get_social_feed(
                 "recent_playlist" => FeedItemType::RecentPlaylist,
                 "user_activity_group" => FeedItemType::UserActivityGroup,
                 "trending_collection" => FeedItemType::TrendingCollection,
+                "user_played_album" => FeedItemType::UserPlayedAlbum,
+                "user_played_playlist" => FeedItemType::UserPlayedPlaylist,
+                "user_played_artist" => FeedItemType::UserPlayedArtist,
+                "user_played_genre" => FeedItemType::UserPlayedGenre,
                 _ => FeedItemType::RecentAlbum, // fallback
             };
 
@@ -183,6 +196,8 @@ pub async fn get_social_feed(
                 play_count: row.play_count,
                 last_played_at: row.last_played_at,
                 created_at: row.created_at.unwrap_or_else(|| OffsetDateTime::now_utc()),
+                user_id: row.user_id,
+                username: row.username,
             }
         })
         .collect();

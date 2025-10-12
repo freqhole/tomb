@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM media_events WHERE EXISTS (SELECT 1 FROM unnest(domain_ids) AS d WHERE d ~ '.*:.*')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6ec399307820d97399b667b44c4a0fb92e42261a6c370ae6fca62fae828f16ef"
+}

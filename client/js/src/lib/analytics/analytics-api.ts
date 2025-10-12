@@ -265,6 +265,10 @@ export const FeedItemSchema = z.object({
     "recent_playlist",
     "user_activity_group",
     "trending_collection",
+    "user_played_album",
+    "user_played_playlist",
+    "user_played_artist",
+    "user_played_genre",
   ]),
   domain_type: z.enum(["album", "playlist", "artist", "genre"]).nullable(),
   domain_ids: z.array(z.string()).nullable(),
@@ -275,6 +279,8 @@ export const FeedItemSchema = z.object({
   play_count: z.number().nullable(),
   last_played_at: z.string().nullable(),
   created_at: z.string(),
+  user_id: z.string().nullable(),
+  username: z.string().nullable(),
 });
 
 export const FeedResponseSchema = z.object({

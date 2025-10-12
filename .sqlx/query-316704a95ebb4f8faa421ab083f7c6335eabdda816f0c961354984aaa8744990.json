@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            item_type,\n            domain_type,\n            domain_ids,\n            title,\n            subtitle,\n            image_url,\n            metadata,\n            play_count,\n            last_played_at,\n            score,\n            created_at\n        FROM get_social_feed_items($1, $2, INTERVAL '1 day' * $3)\n        ",
+  "query": "\n        SELECT\n            item_type,\n            domain_type,\n            domain_ids,\n            title,\n            subtitle,\n            image_url,\n            metadata,\n            play_count,\n            last_played_at,\n            score,\n            created_at,\n            user_id,\n            username\n        FROM get_social_feed_items($1, $2, INTERVAL '1 day' * $3)\n        ",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,16 @@
         "ordinal": 10,
         "name": "created_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 12,
+        "name": "username",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -77,8 +87,10 @@
       null,
       null,
       null,
+      null,
+      null,
       null
     ]
   },
-  "hash": "cf1b3872de06bd463878cbce12046481ae8f4f0e5455cd0acc94640fbc39ae06"
+  "hash": "316704a95ebb4f8faa421ab083f7c6335eabdda816f0c961354984aaa8744990"
 }

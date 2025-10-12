@@ -39,6 +39,20 @@ pub enum AnalyticsCommands {
         #[arg(long)]
         execute: bool,
     },
+    /// Report on legacy media events data
+    LegacyReport,
+    /// Drop all media events (development reset)
+    DropAll {
+        /// Confirm the destructive operation
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Drop all media events before current time
+    DropBeforeNow {
+        /// Confirm the destructive operation
+        #[arg(long)]
+        confirm: bool,
+    },
 }
 
 impl AnalyticsCommands {
@@ -54,6 +68,13 @@ impl AnalyticsCommands {
             }
             AnalyticsCommands::CleanupAnalytics { days, execute } => {
                 Self::cleanup_analytics(&analytics_service, *days, *execute).await
+            }
+            AnalyticsCommands::LegacyReport => Self::legacy_report(db).await,
+            AnalyticsCommands::DropAll { confirm } => {
+                Self::drop_all_media_events(db, *confirm).await
+            }
+            AnalyticsCommands::DropBeforeNow { confirm } => {
+                Self::drop_media_events_before_now(db, *confirm).await
             }
         }
     }
@@ -151,6 +172,92 @@ impl AnalyticsCommands {
             }
         }
 
+        Ok(())
+    }
+
+    async fn legacy_report(db: &DatabaseConnection) -> Result<(), Box<dyn std::error::Error>> {
+        let total_events = sqlx::query_scalar!("SELECT COUNT(*) FROM media_events")
+            .fetch_one(db.pool())
+            .await?
+            .unwrap_or(0);
+
+        let legacy_events = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM media_events WHERE array_length(domain_ids, 1) = 1 AND domain_ids[1] ~ '^[0-9a-f-]+$'"
+        )
+        .fetch_one(db.pool())
+        .await?
+        .unwrap_or(0);
+
+        let composite_events = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM media_events WHERE EXISTS (SELECT 1 FROM unnest(domain_ids) AS d WHERE d ~ '.*:.*')"
+        )
+        .fetch_one(db.pool())
+        .await?
+        .unwrap_or(0);
+
+        println!("📊 Media Events Legacy Report");
+        println!("═══════════════════════════");
+        println!("Total media events: {}", total_events);
+        println!("Legacy UUID events: {}", legacy_events);
+        println!("Composite string events: {}", composite_events);
+        println!(
+            "Clean events: {}",
+            total_events - legacy_events - composite_events
+        );
+
+        if legacy_events > 0 || composite_events > 0 {
+            println!("\n⚠️  Legacy data detected! Consider running cleanup commands.");
+        } else {
+            println!("\n✅ All events use proper format!");
+        }
+
+        Ok(())
+    }
+
+    async fn drop_all_media_events(
+        db: &DatabaseConnection,
+        confirm: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !confirm {
+            println!("⚠️  This will delete ALL media events data!");
+            println!("Run with --confirm to proceed.");
+            return Ok(());
+        }
+
+        let count = sqlx::query_scalar!("SELECT COUNT(*) FROM media_events")
+            .fetch_one(db.pool())
+            .await?
+            .unwrap_or(0);
+
+        sqlx::query!("DELETE FROM media_events")
+            .execute(db.pool())
+            .await?;
+
+        println!("🗑️  Deleted {} media events", count);
+        Ok(())
+    }
+
+    async fn drop_media_events_before_now(
+        db: &DatabaseConnection,
+        confirm: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !confirm {
+            println!("⚠️  This will delete all media events before current time!");
+            println!("Run with --confirm to proceed.");
+            return Ok(());
+        }
+
+        let count =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM media_events WHERE created_at < NOW()")
+                .fetch_one(db.pool())
+                .await?
+                .unwrap_or(0);
+
+        sqlx::query!("DELETE FROM media_events WHERE created_at < NOW()")
+            .execute(db.pool())
+            .await?;
+
+        println!("🗑️  Deleted {} media events before current time", count);
         Ok(())
     }
 }
