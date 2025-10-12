@@ -86,6 +86,7 @@ export const UserMenu = (props: UserMenuProps) => {
                 <button
                   onClick={() => {
                     navigate("/admin/analytics");
+                    setIsOpen(false);
                   }}
                   class="w-full px-4 py-2 text-left text-gray-300 hover:text-white hover:bg-gray-800 transition-colors duration-200 flex items-center gap-3"
                 >

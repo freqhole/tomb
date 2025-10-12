@@ -89,9 +89,7 @@ export function AnalyticsDashboard() {
       <div class="mb-6">
         <div class="flex items-center justify-between">
           <div>
-            <h1 class="text-2xl font-bold text-white mb-2">
-              analytics dashboard
-            </h1>
+            <h1 class="text-2xl font-bold text-white mb-2">ANAL! y? tics.</h1>
             <p class="text-gray-400 text-sm">
               last updated: {lastUpdated().toLocaleTimeString()}
             </p>
