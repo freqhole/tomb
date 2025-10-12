@@ -171,8 +171,17 @@ BEGIN
                     WHEN 'unfavorite' THEN 3
                     ELSE 4
                 END, pg.created_at DESC))[1] as latest_event_data,
-            -- Collection grid temporarily disabled to fix migration
-            NULL as collection_grid,
+            -- Collection grid with simplified aggregation
+            CASE
+                WHEN pg.grouping_level != 'individual' THEN
+                    jsonb_build_object(
+                        'total_collections', COUNT(DISTINCT pg.collection_name),
+                        'collections', string_agg(DISTINCT pg.collection_name, ', ' ORDER BY pg.collection_name),
+                        'domain_types', string_agg(DISTINCT pg.domain_type, ', ' ORDER BY pg.domain_type),
+                        'grouping_level', pg.grouping_level
+                    )
+                ELSE NULL
+            END as collection_grid,
             MIN(pg.age_minutes) as min_age_minutes
         FROM progressive_groups pg
         GROUP BY pg.grouping_key, pg.grouping_level, pg.user_id
