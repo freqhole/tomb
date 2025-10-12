@@ -1,15 +1,20 @@
 import { JSX, Show, For } from "solid-js";
+import { useNavigate } from "@solidjs/router";
+import { apiClient } from "../../../../lib/api-client";
+import { MarqueeText } from "../shared/MarqueeText";
+import { useCollectionInteractions } from "../../services/collectionInteractions";
+import { useSongInteractions } from "../../services/songInteractions";
 import type { FeedItem } from "../../../../lib/analytics/analytics-api";
-import {
-  CollectionCard,
-  type CollectionCardData,
-} from "../shared/CollectionCard";
+import type { CollectionCardData } from "../shared/CollectionCard";
 
 interface TimelineCardProps {
   event: FeedItem;
 }
 
 export function TimelineCard(props: TimelineCardProps): JSX.Element {
+  const navigate = useNavigate();
+  const collectionInteractions = useCollectionInteractions();
+  const songInteractions = useSongInteractions();
   const getActionText = (event: FeedItem): string => {
     switch (event.item_type) {
       case "user_played_album":
@@ -87,14 +92,75 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
     return {
       id: song.id,
       title: song.title,
-      subtitle: song.artist ? `by ${song.artist}` : null,
-      domain_type: song.domain_type,
+      subtitle: song.artist || null,
+      domain_type: "song" as const,
       artist: song.artist,
       album: song.album,
       year: song.year,
       thumbnail_blob_id: song.thumbnail_blob_id,
-      // We could add more metadata here if needed
+      track_count: 1,
+      total_duration: song.duration,
+      genres: song.genre,
+      tags: song.tags?.join(", ") || null,
     };
+  };
+
+  const handleSongClick = (song: any) => {
+    // Navigate to album page when clicking the song card
+    if (song.album && song.artist) {
+      const encodedAlbum = encodeURIComponent(song.album);
+      const encodedArtist = encodeURIComponent(song.artist);
+      navigate(`/album/${encodedArtist}/${encodedAlbum}`);
+    }
+  };
+
+  const handleSongPlay = (song: any, event: MouseEvent) => {
+    event.stopPropagation();
+    // Play individual song using songInteractions for proper queue management
+    if (song.id) {
+      const songData = {
+        id: song.id,
+        media_blob_id: song.id,
+        title: song.title || "Unknown Song",
+        artist: song.artist || "Unknown Artist",
+        album: song.album || "Unknown Album",
+        year: song.year,
+        genre: song.genre,
+        duration: song.duration,
+        sub_genres: song.sub_genres || [],
+        tags: song.tags || [],
+      };
+
+      // Use songInteractions for proper queue management and analytics
+      songInteractions.playSong(songData, true);
+    }
+  };
+
+  const handleSongContextMenu = (song: any, event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    // Use songInteractions for full context menu with all song actions
+    if (song.id) {
+      const songData = {
+        id: song.id,
+        media_blob_id: song.id,
+        title: song.title || "Unknown Song",
+        artist: song.artist || "Unknown Artist",
+        album: song.album || "Unknown Album",
+        year: song.year,
+        genre: song.genre,
+        duration: song.duration,
+        sub_genres: song.sub_genres || [],
+        tags: song.tags || [],
+      };
+
+      // Use full song context menu with all actions
+      songInteractions.handleRightClick(event, songData, {
+        hideViewArtist: !song.artist,
+        hideViewAlbum: !song.album,
+      });
+    }
   };
 
   const getCardBorderColor = () => {
@@ -216,13 +282,88 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
                 <div class="collections-grid grid grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
                   <For each={grid().songs.slice(0, 12)}>
                     {(song) => (
-                      <CollectionCard
-                        collection={createCollectionCardData(song)}
-                        size="small"
-                        enableNavigation={false}
-                        enableContextMenu={false}
-                        class="opacity-80 hover:opacity-100 transition-all duration-200 hover:scale-[1.01] text-xs"
-                      />
+                      <div
+                        class="group cursor-pointer"
+                        onClick={() => handleSongClick(song)}
+                        onContextMenu={(e) => handleSongContextMenu(song, e)}
+                      >
+                        {/* Song Cover */}
+                        <div class="aspect-square bg-magenta-800/30 rounded-lg overflow-hidden mb-2 transition-transform hover:scale-105 relative">
+                          <Show
+                            when={song.thumbnail_blob_id}
+                            fallback={
+                              <div class="w-full h-full flex items-center justify-center">
+                                <svg
+                                  class="w-6 h-6 text-magenta-400"
+                                  fill="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                                </svg>
+                              </div>
+                            }
+                          >
+                            <img
+                              src={`${apiClient.getBaseUrl()}/api/blobs/${song.thumbnail_blob_id}`}
+                              alt={`${song.title} by ${song.artist}`}
+                              class="w-full h-full object-cover"
+                              loading="lazy"
+                            />
+                          </Show>
+
+                          {/* Hover overlay with play button */}
+                          <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <button
+                              class="w-8 h-8 bg-magenta-600 hover:bg-magenta-500 rounded-full flex items-center justify-center transition-colors cursor-pointer"
+                              onClick={(e) => handleSongPlay(song, e)}
+                              title="play song"
+                            >
+                              <svg
+                                class="w-4 h-4 text-white ml-0.5"
+                                fill="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path d="M8 5v14l11-7z" />
+                              </svg>
+                            </button>
+                          </div>
+
+                          {/* Favorite heart icon */}
+                          <Show when={song.is_favorite}>
+                            <div class="absolute top-1 right-1 text-magenta-400">
+                              <svg
+                                class="w-3 h-3 fill-current"
+                                viewBox="0 0 24 24"
+                              >
+                                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                              </svg>
+                            </div>
+                          </Show>
+                        </div>
+
+                        {/* Song Info */}
+                        <div class="space-y-0.5">
+                          <MarqueeText
+                            text={song.title || "unknown song"}
+                            class="text-white font-medium text-xs group-hover:text-magenta-300 transition-colors"
+                          />
+                          <MarqueeText
+                            text={song.artist || "unknown artist"}
+                            class="text-magenta-400 text-xs"
+                          />
+                          <div class="text-magenta-500 text-xs truncate">
+                            {song.year && `${song.year} · `}
+                            {song.duration || "unknown"}
+                            {song.genre && ` · ${song.genre}`}
+                          </div>
+                          <Show when={song.tags && song.tags.length > 0}>
+                            <MarqueeText
+                              text={song.tags.join(", ")}
+                              class="text-gray-500 text-xs bg-black/30 px-1 py-0.5 rounded"
+                            />
+                          </Show>
+                        </div>
+                      </div>
                     )}
                   </For>
                 </div>
