@@ -268,8 +268,10 @@ export const FeedItemMetadataSchema = z.object({
       action_type: z.string(),
       frequency: z.number(),
       is_trending: z.boolean(),
+      rating: z.number().nullable().optional(),
     })
-    .nullable(),
+    .nullable()
+    .optional(),
 });
 
 export const FeedItemSchema = z.object({
@@ -282,8 +284,16 @@ export const FeedItemSchema = z.object({
     "user_played_playlist",
     "user_played_artist",
     "user_played_genre",
+    "user_played_song",
+    "user_favorited_album",
+    "user_favorited_playlist",
+    "user_favorited_song",
+    "user_unfavorited_song",
+    "user_rated_song",
   ]),
-  domain_type: z.enum(["album", "playlist", "artist", "genre"]).nullable(),
+  domain_type: z
+    .enum(["album", "playlist", "artist", "genre", "song"])
+    .nullable(),
   domain_ids: z.array(z.string()).nullable(),
   title: z.string(),
   subtitle: z.string().nullable(),

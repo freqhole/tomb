@@ -32,6 +32,12 @@ pub enum FeedItemType {
     UserPlayedPlaylist,
     UserPlayedArtist,
     UserPlayedGenre,
+    UserPlayedSong,
+    UserFavoritedAlbum,
+    UserFavoritedPlaylist,
+    UserFavoritedSong,
+    UserUnfavoritedSong,
+    UserRatedSong,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,6 +48,15 @@ pub struct FeedItemMetadata {
     pub playlist_name: Option<String>,
     pub genre_name: Option<String>,
     pub user_activity: Option<UserActivitySummary>,
+    pub social_context: Option<SocialContext>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SocialContext {
+    pub action_type: String,
+    pub frequency: i64,
+    pub is_trending: bool,
+    pub rating: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -123,6 +138,12 @@ pub async fn get_social_feed(
                 "user_played_playlist" => FeedItemType::UserPlayedPlaylist,
                 "user_played_artist" => FeedItemType::UserPlayedArtist,
                 "user_played_genre" => FeedItemType::UserPlayedGenre,
+                "user_played_song" => FeedItemType::UserPlayedSong,
+                "user_favorited_album" => FeedItemType::UserFavoritedAlbum,
+                "user_favorited_playlist" => FeedItemType::UserFavoritedPlaylist,
+                "user_favorited_song" => FeedItemType::UserFavoritedSong,
+                "user_unfavorited_song" => FeedItemType::UserUnfavoritedSong,
+                "user_rated_song" => FeedItemType::UserRatedSong,
                 _ => FeedItemType::RecentAlbum, // fallback
             };
 
@@ -142,6 +163,7 @@ pub async fn get_social_feed(
                                 playlist_name: None,
                                 genre_name: None,
                                 user_activity: Some(activity),
+                                social_context: None,
                             },
                             Err(_) => FeedItemMetadata {
                                 total_songs: None,
@@ -150,6 +172,7 @@ pub async fn get_social_feed(
                                 playlist_name: None,
                                 genre_name: None,
                                 user_activity: None,
+                                social_context: None,
                             },
                         }
                     } else {
@@ -157,6 +180,15 @@ pub async fn get_social_feed(
                     }
                 } else {
                     // Handle regular collection metadata
+                    let social_context = meta_json.get("social_context").and_then(|sc| {
+                        Some(SocialContext {
+                            action_type: sc.get("action_type")?.as_str()?.to_string(),
+                            frequency: sc.get("frequency")?.as_i64()?,
+                            is_trending: sc.get("is_trending")?.as_bool()?,
+                            rating: sc.get("rating").and_then(|v| v.as_i64()).map(|v| v as i32),
+                        })
+                    });
+
                     FeedItemMetadata {
                         total_songs: meta_json
                             .get("total_songs")
@@ -179,6 +211,7 @@ pub async fn get_social_feed(
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
                         user_activity: None,
+                        social_context,
                     }
                 }
             } else {
@@ -222,6 +255,7 @@ impl Default for FeedItemMetadata {
             playlist_name: None,
             genre_name: None,
             user_activity: None,
+            social_context: None,
         }
     }
 }
