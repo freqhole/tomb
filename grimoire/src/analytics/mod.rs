@@ -5,6 +5,7 @@
 
 pub mod cli_service;
 pub mod cli_types;
+pub mod feed;
 pub mod media_events;
 pub mod models;
 pub mod repository;

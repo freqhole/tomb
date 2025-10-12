@@ -9,7 +9,7 @@ use axum::{
 };
 
 use super::media_handlers::{
-    admin_analytics_query, get_song_plays, get_user_history, record_events,
+    admin_analytics_query, get_song_plays, get_user_history, record_events, social_feed_handler,
 };
 use super::{get_metrics, get_prometheus_metrics};
 use crate::auth::{require_admin, require_authentication};
@@ -25,6 +25,7 @@ pub fn build_analytics_routes(config: &AppConfig) -> Router {
         .route("/api/analytics/events", post(record_events))
         .route("/api/analytics/songs/{song_id}/plays", get(get_song_plays))
         .route("/api/analytics/history", get(get_user_history))
+        .route("/api/feed", get(social_feed_handler))
         .layer(axum_middleware::from_fn(require_authentication));
 
     // Admin routes (require admin role)

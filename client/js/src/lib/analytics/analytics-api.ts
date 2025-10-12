@@ -229,6 +229,63 @@ export type UserHistoryResponse = z.infer<typeof UserHistoryResponseSchema>;
 export type UserStreaksResponse = z.infer<typeof UserStreaksResponseSchema>;
 export type GenrePatternsResponse = z.infer<typeof GenrePatternsResponseSchema>;
 
+// Feed schemas
+export const ActivityTileSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  subtitle: z.string().nullable(),
+  image_url: z.string().nullable(),
+  domain_type: z.enum(["album", "playlist", "song", "artist", "genre"]),
+});
+
+export const UserActivitySummarySchema = z.object({
+  recent_albums: z.array(ActivityTileSchema),
+  recent_playlists: z.array(ActivityTileSchema),
+  recent_songs: z.array(ActivityTileSchema),
+  period_description: z.string(),
+});
+
+export const FeedItemMetadataSchema = z.object({
+  total_songs: z.number().nullable(),
+  artist_name: z.string().nullable(),
+  album_name: z.string().nullable(),
+  playlist_name: z.string().nullable(),
+  genre_name: z.string().nullable(),
+  user_activity: UserActivitySummarySchema.nullable(),
+});
+
+export const FeedItemSchema = z.object({
+  item_type: z.enum([
+    "recent_album",
+    "recent_playlist",
+    "user_activity_group",
+    "trending_collection",
+  ]),
+  domain_type: z.enum(["album", "playlist", "artist", "genre"]).nullable(),
+  domain_id: z.string().nullable(),
+  title: z.string(),
+  subtitle: z.string().nullable(),
+  image_url: z.string().nullable(),
+  metadata: FeedItemMetadataSchema,
+  play_count: z.number().nullable(),
+  last_played_at: z.string().nullable(),
+  created_at: z.string(),
+});
+
+export const FeedResponseSchema = z.object({
+  items: z.array(FeedItemSchema),
+  has_more: z.boolean(),
+  total_count: z.number(),
+  limit: z.number(),
+  offset: z.number(),
+});
+
+export type ActivityTile = z.infer<typeof ActivityTileSchema>;
+export type UserActivitySummary = z.infer<typeof UserActivitySummarySchema>;
+export type FeedItemMetadata = z.infer<typeof FeedItemMetadataSchema>;
+export type FeedItem = z.infer<typeof FeedItemSchema>;
+export type FeedResponse = z.infer<typeof FeedResponseSchema>;
+
 // Collection analytics schemas
 export const CollectionItemSchema = z.object({
   domain_type: z.string(),
@@ -464,8 +521,26 @@ export const createAnalyticsApi = (
             days: daysBack,
           },
         },
-        CollectionOverviewResponseSchema
+        SongAnalyticsResponseSchema
       );
+    },
+
+    async getSocialFeed(
+      limit: number = 20,
+      offset: number = 0,
+      daysBack: number = 7
+    ): Promise<FeedResponse> {
+      const client = apiClient();
+      const url = `${client.getBaseUrl()}/api/feed`;
+      const response = await client.makeRequest("GET", url, {
+        params: {
+          limit,
+          offset,
+          days: daysBack,
+        },
+      });
+
+      return FeedResponseSchema.parse(response);
     },
   };
 };

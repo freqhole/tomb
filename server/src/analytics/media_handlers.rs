@@ -9,12 +9,14 @@ use axum::{
     response::IntoResponse,
 };
 use grimoire::analytics::{
+    feed::{get_social_feed, FeedResponse},
     AnalyticsService, MediaAnalyticsError, MediaEventBatchRequest, MediaEventBatchResponse,
     MediaEventRequest, MediaEventResponse, PlayAnalytics,
 };
 use grimoire::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashMap;
 use tower_sessions::Session;
 use uuid::Uuid;
 
@@ -605,6 +607,41 @@ async fn handle_collection_overview_query(
             tracing::error!("Failed to get collection overview: {:?}", e);
             Err(AppError::InternalServerError(format!(
                 "Failed to get collection overview: {}",
+                e
+            )))
+        }
+    }
+}
+
+/// Get social feed with recent content and user activity
+pub async fn social_feed_handler(
+    Query(params): Query<HashMap<String, String>>,
+    Extension(database): Extension<DatabaseConnection>,
+    _user: Extension<AuthenticatedUser>, // authentication required but feed shows all user activity
+) -> Result<Json<FeedResponse>, AppError> {
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20)
+        .min(100); // max 100 items per request
+
+    let offset = params
+        .get("offset")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    let days_back = params
+        .get("days")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(7)
+        .min(90); // max 90 days back
+
+    match get_social_feed(database.pool(), limit, offset, days_back).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => {
+            tracing::error!("failed to get social feed: {}", e);
+            Err(AppError::InternalServerError(format!(
+                "failed to fetch social feed: {}",
                 e
             )))
         }

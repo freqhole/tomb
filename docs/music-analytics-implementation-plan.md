@@ -731,3 +731,883 @@ following critical rules:
 7. integrate with background analytics jobs
 
 this extends the solid analytics foundation to provide comprehensive insights into both individual song consumption and collection-level listening patterns, giving a complete picture of user music behavior.
+
+## phase 8: feed view with server-side aggregation - NEW
+
+create a unified social feed view that combines recent content creation (albums, playlists by created_at) with aggregated user activity across all users. this becomes the new default landing page, showing "what's happening" in the music library with visual tiles and intelligent grouping.
+
+### current state
+
+- collection analytics (phase 7) tracks album/artist/genre/playlist plays across all users
+- user history api provides chronological event data for individual users
+- existing ui components for albums, artists, playlists (grid and detail views)
+- context menu systems for collection interactions (add to playlist, tag, edit, favorite)
+- no unified social feed view or server-side aggregation endpoint
+- current default route is album grid view
+
+### 8.1 server-side feed aggregation endpoint
+
+create new rust endpoint for intelligent feed aggregation:
+
+```rust
+// tomb/grimoire/src/analytics/feed.rs
+use sqlx::PgPool;
+use serde::{Deserialize, Serialize};
+use crate::analytics::media_events::DomainType;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FeedItem {
+    pub item_type: FeedItemType,
+    pub domain_type: Option<DomainType>,
+    pub domain_id: Option<String>,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub image_url: Option<String>, // album art, playlist cover, etc.
+    pub metadata: FeedItemMetadata,
+    pub play_count: Option<i64>,
+    pub last_played_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedItemType {
+    RecentAlbum,        // new album by created_at
+    RecentPlaylist,     // new playlist by created_at
+    UserActivityGroup,  // aggregated user listening activity (visual tiles)
+    TrendingCollection, // popular across all users
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FeedItemMetadata {
+    pub total_songs: Option<i32>,
+    pub artist_name: Option<String>,
+    pub album_name: Option<String>,
+    pub playlist_name: Option<String>,
+    pub genre_name: Option<String>,
+    pub user_activity: Option<UserActivitySummary>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserActivitySummary {
+    pub recent_albums: Vec<ActivityTile>,
+    pub recent_playlists: Vec<ActivityTile>,
+    pub recent_songs: Vec<ActivityTile>,
+    pub period_description: String, // "last week", "last 3 days"
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ActivityTile {
+    pub id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub image_url: Option<String>,
+    pub domain_type: DomainType,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FeedResponse {
+    pub items: Vec<FeedItem>,
+    pub has_more: bool,
+    pub total_count: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+pub async fn get_user_feed(
+    pool: &PgPool,
+    user_id: &str,
+    limit: i64,
+    offset: i64,
+    days_back: i32,
+) -> Result<FeedResponse, sqlx::Error> {
+    // complex sql aggregation query combining:
+    // - recent collection plays
+    // - user activity summaries
+    // - trending collections
+    // - intelligent deduplication and scoring
+}
+```
+
+**feed aggregation sql logic**:
+
+```sql
+-- tomb/migrations/xxx_create_feed_views.sql
+CREATE OR REPLACE FUNCTION get_social_feed_items(
+    p_limit bigint,
+    p_offset bigint,
+    p_days_back interval DEFAULT '7 days'
+)
+RETURNS TABLE (
+    item_type text,
+    domain_type domain_type,
+    domain_id text,
+    title text,
+    subtitle text,
+    image_url text,
+    metadata jsonb,
+    play_count bigint,
+    last_played_at timestamptz,
+    score float,
+    created_at timestamptz
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH recent_albums AS (
+        -- recent albums by created_at (content creation, not plays)
+        SELECT DISTINCT
+            'recent_album'::text as item_type,
+            'album'::domain_type,
+            s.album as domain_id,
+            s.album as title,
+            s.album_artist || ' • ' || COUNT(s.id)::text || ' songs' as subtitle,
+            NULL::text as image_url, -- TODO: album art lookup
+            jsonb_build_object(
+                'total_songs', COUNT(s.id),
+                'artist_name', s.album_artist,
+                'album_name', s.album
+            ) as metadata,
+            NULL::bigint as play_count,
+            MAX(s.created_at) as last_played_at,
+            100.0 as score, -- high priority for new content
+            MAX(s.created_at) as created_at
+        FROM songs s
+        WHERE s.created_at >= NOW() - p_days_back
+          AND s.album IS NOT NULL
+          AND s.album_artist IS NOT NULL
+        GROUP BY s.album, s.album_artist
+    ),
+    recent_playlists AS (
+        -- recent playlists by created_at
+        SELECT
+            'recent_playlist'::text as item_type,
+            'playlist'::domain_type,
+            p.id::text as domain_id,
+            p.name as title,
+            'playlist • ' || COALESCE(song_count.count, 0)::text || ' songs' as subtitle,
+            NULL::text as image_url, -- TODO: playlist cover lookup
+            jsonb_build_object(
+                'total_songs', COALESCE(song_count.count, 0),
+                'playlist_name', p.name
+            ) as metadata,
+            NULL::bigint as play_count,
+            p.created_at as last_played_at,
+            90.0 as score,
+            p.created_at as created_at
+        FROM playlists p
+        LEFT JOIN (
+            SELECT playlist_id, COUNT(*) as count
+            FROM playlist_songs
+            GROUP BY playlist_id
+        ) song_count ON p.id = song_count.playlist_id
+        WHERE p.created_at >= NOW() - p_days_back
+    ),
+    user_activity_groups AS (
+        -- aggregated user activity with visual tiles
+        SELECT
+            'user_activity_group'::text as item_type,
+            NULL::domain_type,
+            NULL::text as domain_id,
+            'recent listening activity' as title,
+            NULL::text as subtitle,
+            NULL::text as image_url,
+            jsonb_build_object(
+                'user_activity', jsonb_build_object(
+                    'recent_albums', recent_album_tiles.tiles,
+                    'recent_playlists', recent_playlist_tiles.tiles,
+                    'recent_songs', recent_song_tiles.tiles,
+                    'period_description', 'last week'
+                )
+            ) as metadata,
+            NULL::bigint as play_count,
+            activity_summary.latest_activity as last_played_at,
+            75.0 as score,
+            activity_summary.latest_activity as created_at
+        FROM (
+            SELECT MAX(created_at) as latest_activity
+            FROM media_events
+            WHERE created_at >= NOW() - p_days_back
+        ) activity_summary
+        CROSS JOIN (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'id', album_stats.album,
+                    'title', album_stats.album,
+                    'subtitle', album_stats.artist,
+                    'image_url', NULL,
+                    'domain_type', 'album'
+                )
+            ) as tiles
+            FROM (
+                SELECT DISTINCT
+                    me.domain_id as album,
+                    s.album_artist as artist,
+                    COUNT(*) as plays
+                FROM media_events me
+                JOIN songs s ON s.album = me.domain_id
+                WHERE me.domain_type = 'album'
+                  AND me.event_type = 'play'
+                  AND me.created_at >= NOW() - p_days_back
+                GROUP BY me.domain_id, s.album_artist
+                ORDER BY plays DESC
+                LIMIT 4
+            ) album_stats
+        ) recent_album_tiles
+        CROSS JOIN (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'id', playlist_stats.playlist_id,
+                    'title', playlist_stats.name,
+                    'subtitle', 'playlist',
+                    'image_url', NULL,
+                    'domain_type', 'playlist'
+                )
+            ) as tiles
+            FROM (
+                SELECT DISTINCT
+                    me.domain_id as playlist_id,
+                    p.name,
+                    COUNT(*) as plays
+                FROM media_events me
+                JOIN playlists p ON p.id::text = me.domain_id
+                WHERE me.domain_type = 'playlist'
+                  AND me.event_type = 'play'
+                  AND me.created_at >= NOW() - p_days_back
+                GROUP BY me.domain_id, p.name
+                ORDER BY plays DESC
+                LIMIT 2
+            ) playlist_stats
+        ) recent_playlist_tiles
+        CROSS JOIN (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'id', song_stats.song_id,
+                    'title', song_stats.title,
+                    'subtitle', song_stats.artist,
+                    'image_url', NULL,
+                    'domain_type', 'song'
+                )
+            ) as tiles
+            FROM (
+                SELECT DISTINCT
+                    me.media_blob_id as song_id,
+                    s.title,
+                    s.artist,
+                    COUNT(*) as plays
+                FROM media_events me
+                JOIN songs s ON s.media_blob_id = me.media_blob_id
+                WHERE me.domain_type = 'song'
+                  AND me.event_type = 'play'
+                  AND me.created_at >= NOW() - p_days_back
+                  AND me.media_blob_id IS NOT NULL
+                GROUP BY me.media_blob_id, s.title, s.artist
+                ORDER BY plays DESC
+                LIMIT 2
+            ) song_stats
+        ) recent_song_tiles
+        WHERE activity_summary.latest_activity IS NOT NULL
+    )
+    SELECT
+        ra.item_type, ra.domain_type, ra.domain_id, ra.title, ra.subtitle,
+        ra.image_url, ra.metadata, ra.play_count, ra.last_played_at, ra.score, ra.created_at
+    FROM recent_albums ra
+    UNION ALL
+    SELECT
+        rp.item_type, rp.domain_type, rp.domain_id, rp.title, rp.subtitle,
+        rp.image_url, rp.metadata, rp.play_count, rp.last_played_at, rp.score, rp.created_at
+    FROM recent_playlists rp
+    UNION ALL
+    SELECT
+        uag.item_type, uag.domain_type, uag.domain_id, uag.title, uag.subtitle,
+        uag.image_url, uag.metadata, uag.play_count, uag.last_played_at, uag.score, uag.created_at
+    FROM user_activity_groups uag
+    ORDER BY score DESC, created_at DESC
+    LIMIT p_limit
+    OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 8.2 server endpoint implementation
+
+add feed endpoint to existing analytics routes:
+
+```rust
+// tomb/server/src/routes/analytics.rs (extend existing file)
+use crate::grimoire::analytics::feed::{get_user_feed, FeedResponse};
+
+pub async fn social_feed_handler(
+    Query(params): Query<HashMap<String, String>>,
+    Extension(pool): Extension<PgPool>,
+    _user: AuthenticatedUser, // authentication required but feed shows all user activity
+) -> Result<Json<FeedResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20)
+        .min(100); // max 100 items per request
+
+    let offset = params
+        .get("offset")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    let days_back = params
+        .get("days")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(7)
+        .min(90); // max 90 days back
+
+    match get_social_feed(&pool, limit, offset, days_back).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => {
+            tracing::error!("failed to get social feed: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "failed to fetch social feed".to_string(),
+                }),
+            ))
+        }
+    }
+}
+
+// add to router configuration
+app.route("/api/feed", get(social_feed_handler))
+```
+
+### 8.3 client-side feed api integration
+
+extend analytics api client:
+
+```typescript
+// tomb/client/js/src/lib/analytics/analytics-api.ts (extend existing)
+export const ActivityTileSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  subtitle: z.string().nullable(),
+  image_url: z.string().nullable(),
+  domain_type: z.enum(["album", "playlist", "song", "artist", "genre"]),
+});
+
+export const UserActivitySummarySchema = z.object({
+  recent_albums: z.array(ActivityTileSchema),
+  recent_playlists: z.array(ActivityTileSchema),
+  recent_songs: z.array(ActivityTileSchema),
+  period_description: z.string(),
+});
+
+export const FeedItemMetadataSchema = z.object({
+  total_songs: z.number().nullable(),
+  artist_name: z.string().nullable(),
+  album_name: z.string().nullable(),
+  playlist_name: z.string().nullable(),
+  genre_name: z.string().nullable(),
+  user_activity: UserActivitySummarySchema.nullable(),
+});
+
+export const FeedItemSchema = z.object({
+  item_type: z.enum([
+    "recent_album",
+    "recent_playlist",
+    "user_activity_group",
+    "trending_collection",
+  ]),
+  domain_type: z.enum(["album", "playlist", "artist", "genre"]).nullable(),
+  domain_id: z.string().nullable(),
+  title: z.string(),
+  subtitle: z.string().nullable(),
+  image_url: z.string().nullable(),
+  metadata: FeedItemMetadataSchema,
+  play_count: z.number().nullable(),
+  last_played_at: z.string().nullable(),
+  created_at: z.string(),
+});
+
+export const FeedResponseSchema = z.object({
+  items: z.array(FeedItemSchema),
+  has_more: z.boolean(),
+  total_count: z.number(),
+  limit: z.number(),
+  offset: z.number(),
+});
+
+export type FeedItem = z.infer<typeof FeedItemSchema>;
+export type FeedResponse = z.infer<typeof FeedResponseSchema>;
+
+// add to createAnalyticsApi function (follows existing patterns)
+async getSocialFeed(
+  limit: number = 20,
+  offset: number = 0,
+  daysBack: number = 7
+): Promise<FeedResponse> {
+  const client = apiClient();
+  const url = `${client.getBaseUrl()}/api/feed`;
+  const response = await client.makeRequest(
+    "GET",
+    url,
+    {
+      params: {
+        limit,
+        offset,
+        days: daysBack,
+      }
+    }
+  );
+
+  return FeedResponseSchema.parse(response);
+},
+```
+
+### 8.4 feed view component implementation
+
+create new solidjs feed view:
+
+```typescript
+// tomb/client/js/src/views/freqhole/components/content/views/FeedView.tsx
+import { createSignal, createResource, For, Show } from "solid-js";
+import { createAnalyticsApi } from "../../../../../lib/analytics/analytics-api";
+import { apiClient } from "../../../../../lib/api-client";
+import type { FeedItem } from "../../../../../lib/analytics/analytics-api";
+import { FeedItemCard } from "./feed/FeedItemCard";
+import { UserActivityGroupCard } from "./feed/UserActivityGroupCard";
+
+export function FeedView() {
+  const [offset, setOffset] = createSignal(0);
+  const [daysBack, setDaysBack] = createSignal(7);
+  const analyticsApi = createAnalyticsApi(() => apiClient());
+
+  const [feedData] = createResource(
+    () => ({ offset: offset(), days: daysBack() }),
+    async ({ offset, days }) => {
+      try {
+        return await analyticsApi.getSocialFeed(20, offset, days);
+      } catch (error) {
+        console.error("failed to load social feed:", error);
+        return null;
+      }
+    }
+  );
+
+  const loadMore = () => {
+    const current = feedData();
+    if (current?.has_more) {
+      setOffset(offset() + 20);
+    }
+  };
+
+  return (
+    <div class="p-6 text-white">
+      {/* feed header */}
+      <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold">music feed</h1>
+
+        {/* time period filter */}
+        <div class="flex gap-2">
+          <button
+            onClick={() => setDaysBack(7)}
+            class={`px-3 py-1 text-sm ${
+              daysBack() === 7
+                ? "bg-magenta-600 text-white"
+                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+            }`}
+          >
+            last week
+          </button>
+          <button
+            onClick={() => setDaysBack(30)}
+            class={`px-3 py-1 text-sm ${
+              daysBack() === 30
+                ? "bg-magenta-600 text-white"
+                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+            }`}
+          >
+            last month
+          </button>
+        </div>
+      </div>
+
+      {/* feed content */}
+      <Show
+        when={!feedData.loading}
+        fallback={
+          <div class="text-center py-12">
+            <div class="text-gray-500">loading your music feed...</div>
+          </div>
+        }
+      >
+        <Show
+          when={feedData()?.items?.length > 0}
+          fallback={
+            <div class="text-center py-12">
+              <div class="text-gray-500">no recent activity found</div>
+              <div class="text-sm text-gray-600 mt-2">
+                start playing some music to see your feed
+              </div>
+            </div>
+          }
+        >
+          {/* feed grid - responsive like existing album grids */}
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <For each={feedData()?.items}>
+              {(item) => (
+                <Show
+                  when={item.item_type === "user_activity_group"}
+                  fallback={<FeedItemCard item={item} />}
+                >
+                  <UserActivityGroupCard item={item} />
+                </Show>
+              )}
+            </For>
+          </div>
+
+          {/* load more */}
+          <Show when={feedData()?.has_more}>
+            <div class="text-center mt-8">
+              <button
+                onClick={loadMore}
+                class="px-6 py-2 bg-gray-800 text-white hover:bg-gray-700 transition-colors"
+              >
+                load more
+              </button>
+            </div>
+          </Show>
+        </Show>
+      </Show>
+    </div>
+  );
+}
+```
+
+### 8.5 feed item card components
+
+visual tile-based components following existing patterns:
+
+```typescript
+// tomb/client/js/src/views/freqhole/components/content/views/feed/FeedItemCard.tsx
+import { For, Show } from "solid-js";
+import type { FeedItem, ActivityTile } from "../../../../../../lib/analytics/analytics-api";
+import { useCollectionInteractions } from "../../../services/collectionInteractions";
+import { formatDistanceToNow } from "date-fns";
+import { apiClient } from "../../../../../../lib/api-client";
+
+interface FeedItemCardProps {
+  item: FeedItem;
+}
+
+export function FeedItemCard(props: FeedItemCardProps) {
+  const { playCollection, showCollectionContextMenu } = useCollectionInteractions();
+
+  const handlePlay = () => {
+    if (props.item.domain_type && props.item.domain_id) {
+      const metadata = props.item.metadata;
+      playCollection(
+        props.item.domain_type,
+        props.item.domain_id,
+        {
+          total_songs: metadata.total_songs || 0,
+          shuffle_enabled: false,
+          play_source: "feed",
+        }
+      );
+    }
+  };
+
+  const handleContextMenu = (e: MouseEvent) => {
+    e.preventDefault();
+    if (props.item.domain_type && props.item.domain_id) {
+      // reuse existing context menu patterns (add to playlist, tag, edit, favorite, etc.)
+      showCollectionContextMenu(
+        e,
+        props.item.domain_type,
+        props.item.domain_id,
+        props.item.title
+      );
+    }
+  };
+
+  return (
+    <div
+      class="bg-black aspect-square p-4 hover:bg-magenta-600/10 transition-colors cursor-pointer group flex flex-col"
+      onClick={handlePlay}
+      onContextMenu={handleContextMenu}
+    >
+      {/* image/artwork area */}
+      <div class="flex-1 flex items-center justify-center mb-3 bg-gray-900">
+        {props.item.image_url ? (
+          <img
+            src={`${apiClient().getBaseUrl()}${props.item.image_url}`}
+            alt={props.item.title}
+            class="w-full h-full object-cover"
+          />
+        ) : (
+          <div class="text-4xl text-gray-600">
+            {props.item.domain_type === "album" ? "♪" :
+             props.item.domain_type === "playlist" ? "♭" : "♪"}
+          </div>
+        )}
+      </div>
+
+      {/* title and subtitle */}
+      <div class="text-center">
+        <h3 class="font-medium text-white text-sm truncate group-hover:text-magenta-400 transition-colors">
+          {props.item.title}
+        </h3>
+        {props.item.subtitle && (
+          <p class="text-xs text-gray-400 truncate mt-1">{props.item.subtitle}</p>
+        )}
+      </div>
+
+      {/* type indicator */}
+      <div class="text-center mt-2">
+        <span class="text-xs text-gray-500 uppercase">
+          {props.item.item_type.replace("recent_", "")}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// User activity group component showing visual tiles
+export function UserActivityGroupCard(props: { item: FeedItem }) {
+  const activity = props.item.metadata.user_activity;
+  if (!activity) return null;
+
+  return (
+    <div class="bg-black p-4 col-span-2 md:col-span-2 lg:col-span-3">
+      <h3 class="text-white font-medium mb-4">{props.item.title}</h3>
+
+      {/* recent albums tiles */}
+      {activity.recent_albums.length > 0 && (
+        <div class="mb-4">
+          <h4 class="text-sm text-gray-400 mb-2">recent albums</h4>
+          <div class="grid grid-cols-4 gap-2">
+            <For each={activity.recent_albums}>
+              {(tile) => (
+                <ActivityTileComponent tile={tile} />
+              )}
+            </For>
+          </div>
+        </div>
+      )}
+
+      {/* recent playlists tiles */}
+      {activity.recent_playlists.length > 0 && (
+        <div class="mb-4">
+          <h4 class="text-sm text-gray-400 mb-2">recent playlists</h4>
+          <div class="grid grid-cols-2 gap-2">
+            <For each={activity.recent_playlists}>
+              {(tile) => (
+                <ActivityTileComponent tile={tile} />
+              )}
+            </For>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Individual activity tile component
+function ActivityTileComponent(props: { tile: ActivityTile }) {
+  const { playCollection } = useCollectionInteractions();
+
+  const handlePlay = () => {
+    if (props.tile.domain_type === "song") {
+      // handle individual song play
+    } else {
+      playCollection(
+        props.tile.domain_type,
+        props.tile.id,
+        {
+          total_songs: 0,
+          shuffle_enabled: false,
+          play_source: "feed_tile",
+        }
+      );
+    }
+  };
+
+  return (
+    <div
+      class="bg-gray-900 aspect-square p-2 hover:bg-magenta-600/10 transition-colors cursor-pointer"
+      onClick={handlePlay}
+    >
+      {props.tile.image_url ? (
+        <img
+          src={`${apiClient().getBaseUrl()}${props.tile.image_url}`}
+          alt={props.tile.title}
+          class="w-full h-full object-cover mb-1"
+        />
+      ) : (
+        <div class="w-full h-full flex items-center justify-center bg-gray-800 mb-1">
+          <span class="text-gray-500 text-sm">
+            {props.tile.domain_type === "album" ? "♪" :
+             props.tile.domain_type === "playlist" ? "♭" :
+             props.tile.domain_type === "song" ? "♫" : "♪"}
+          </span>
+        </div>
+      )}
+      <div class="text-xs text-white truncate">{props.tile.title}</div>
+      {props.tile.subtitle && (
+        <div class="text-xs text-gray-400 truncate">{props.tile.subtitle}</div>
+      )}
+    </div>
+  );
+}
+```
+
+### 8.6 route integration
+
+add feed as default route and alternative route:
+
+```typescript
+// tomb/client/js/src/views/freqhole/routes/index.tsx (extend existing)
+import { FeedView } from "../components/content/views/FeedView";
+
+// update routes - feed becomes default landing page
+<Route path="/" component={ThreeColumnLayout}>
+    <Route path="/" component={FeedView} />  {/* NEW DEFAULT */}
+    <Route path="/feed" component={FeedView} />  {/* ALTERNATIVE PATH */}
+    <Route path="/albums" component={AlbumGridView} />  {/* MOVED FROM DEFAULT */}
+    <Route path="/songs" component={SongTableView} />
+    {/* ... rest of routes */}
+</Route>
+```
+
+### 8.7 navigation integration
+
+add feed link prominently in existing navigation:
+
+```typescript
+// tomb/client/js/src/views/freqhole/components/layout/sidebar/SidebarNavigation.tsx
+// add feed navigation item at top, alongside albums, artists, etc.
+<A
+  href="/feed"
+  class="flex items-center px-4 py-2 text-gray-300 hover:text-white hover:bg-magenta-600/20 transition-colors"
+  activeClass="text-magenta-400 bg-magenta-600/20"
+>
+  feed
+</A>
+<A
+  href="/albums"
+  class="flex items-center px-4 py-2 text-gray-300 hover:text-white hover:bg-magenta-600/20 transition-colors"
+  activeClass="text-magenta-400 bg-magenta-600/20"
+>
+  albums
+</A>
+```
+
+### 8.8 mobile responsiveness
+
+follow existing patterns with isMobile() hooks:
+
+```typescript
+// tomb/client/js/src/views/freqhole/components/content/views/FeedView.tsx
+import { isMobile } from "../../../../../lib/utils/responsive";
+
+// in FeedView component
+const [mobile] = isMobile();
+
+return (
+  <Show
+    when={!mobile()}
+    fallback={<MobileFeedView feedData={feedData} />}
+  >
+    <DesktopFeedView feedData={feedData} />
+  </Show>
+);
+
+// separate mobile component with different grid layout
+function MobileFeedView(props: { feedData: Accessor<FeedResponse | null> }) {
+  return (
+    <div class="p-4">
+      <div class="grid grid-cols-2 gap-3"> {/* mobile: 2 columns */}
+        <For each={props.feedData()?.items}>
+          {(item) => <MobileFeedItemCard item={item} />}
+        </For>
+      </div>
+    </div>
+  );
+}
+```
+
+### 8.9 performance optimizations
+
+database and query optimization strategies:
+
+```sql
+-- tomb/migrations/xxx_create_feed_indexes.sql
+-- indexes for feed performance
+CREATE INDEX idx_songs_created_at_album ON songs (created_at DESC, album, album_artist)
+WHERE album IS NOT NULL AND album_artist IS NOT NULL;
+
+CREATE INDEX idx_playlists_created_at ON playlists (created_at DESC);
+
+CREATE INDEX idx_media_events_feed_lookup ON media_events
+(created_at DESC, domain_type, event_type, domain_id)
+WHERE event_type = 'play' AND domain_type IN ('album', 'playlist', 'song');
+
+-- consider materialized view for expensive aggregations
+CREATE MATERIALIZED VIEW recent_activity_summary AS
+SELECT
+    date_trunc('hour', created_at) as hour_bucket,
+    domain_type,
+    domain_id,
+    COUNT(*) as play_count,
+    COUNT(DISTINCT user_id) as unique_users
+FROM media_events
+WHERE created_at >= NOW() - INTERVAL '7 days'
+  AND event_type = 'play'
+  AND domain_type IN ('album', 'playlist', 'song')
+GROUP BY date_trunc('hour', created_at), domain_type, domain_id;
+
+CREATE INDEX idx_activity_summary_lookup
+ON recent_activity_summary (hour_bucket DESC, domain_type, play_count DESC);
+```
+
+### 8.10 implementation approach
+
+following critical rules:
+
+1. **no emojis**: text-based icons (♪♫♬♭), lowercase text
+2. **file size limit**: split feed components into separate files
+3. **dark theme**: black background, white text, magenta accents, no borders
+4. **modular architecture**: solidjs createResource, reuse existing context patterns
+5. **data validation**: zod schemas for all feed data
+6. **code reuse**: leverage existing collection interactions, analytics api patterns
+7. **domain separation**: feed logic in lib/analytics/, music integration in hooks/
+8. **generic library focus**: build reusable feed item patterns
+9. **legacy code marking**: mark any old activity patterns as @deprecated
+10. **maximum code reuse**: extend existing analytics infrastructure, ui components
+
+**testing approach**:
+
+- verify feed endpoint returns appropriate aggregated data
+- test pagination and filtering (days back)
+- check context menus work for feed items
+- validate performance with large user histories
+- test caching behavior and invalidation
+
+### dependencies
+
+- extends existing analytics infrastructure (phases 1-7)
+- requires user authentication for personalized feeds
+- leverages existing collection interaction patterns
+- uses existing ui components (grids, context menus)
+- optional redis caching for performance
+
+### rollout strategy
+
+1. implement server-side social feed aggregation sql functions with proper joins
+2. add feed endpoint to analytics routes (removes user-specific param)
+3. extend client analytics api with social feed methods
+4. create feed view components with visual tiles and responsive grid layout
+5. update routing to make feed the default landing page (/ and /feed)
+6. add prominent navigation integration
+7. implement mobile/desktop responsive patterns following existing isMobile() hooks
+8. add context menu integration following existing patterns (add to playlist, tag, edit, favorite)
+9. create performance indexes and consider materialized views
+10. test with various content creation and user activity patterns
+
+this creates a social, discovery-oriented landing page that combines recent content creation with aggregated user activity, transforming the app from personal music management to a more engaging, community-driven music discovery experience while leveraging all existing infrastructure.

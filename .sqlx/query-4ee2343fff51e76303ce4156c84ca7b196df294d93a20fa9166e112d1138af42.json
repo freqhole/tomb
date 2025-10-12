@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT get_social_feed_count(INTERVAL '1 day' * $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "get_social_feed_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4ee2343fff51e76303ce4156c84ca7b196df294d93a20fa9166e112d1138af42"
+}
