@@ -480,7 +480,32 @@ impl<'a> AnalyticsRepository<'a> {
     ) -> Result<Vec<TrendingSong>, MediaAnalyticsError> {
         let rows = sqlx::query!(
             r#"
-            SELECT * FROM get_trending_songs($1, $2, $3)
+            SELECT
+                ts.media_blob_id,
+                ts.domain_id,
+                ts.current_period_plays,
+                ts.previous_period_plays,
+                ts.trend_score,
+                ts.velocity_score,
+                ts.unique_users,
+                ts.completion_rate,
+                s.id as song_id,
+                s.title,
+                s.artist,
+                s.album,
+                s.album_artist,
+                s.track_number,
+                s.disc_number,
+                EXTRACT(epoch FROM s.duration)::integer as duration_seconds,
+                s.genre,
+                s.year,
+                s.bpm,
+                s.key_signature,
+                s.thumbnail_blob_id,
+                s.waveform_blob_id,
+                s.created_at as song_created_at
+            FROM get_trending_songs($1, $2, $3) ts
+            LEFT JOIN songs s ON s.media_blob_id = ts.media_blob_id
             "#,
             time_period_hours,
             limit_count,
@@ -500,6 +525,21 @@ impl<'a> AnalyticsRepository<'a> {
                 velocity_score: row.velocity_score.and_then(|d| d.to_f64()).unwrap_or(0.0),
                 unique_users: row.unique_users.unwrap_or(0),
                 completion_rate: row.completion_rate.and_then(|d| d.to_f64()).unwrap_or(0.0),
+                song_id: row.song_id,
+                title: row.title,
+                artist: row.artist,
+                album: row.album,
+                album_artist: row.album_artist,
+                track_number: row.track_number,
+                disc_number: row.disc_number,
+                duration_seconds: row.duration_seconds,
+                genre: row.genre,
+                year: row.year,
+                bpm: row.bpm,
+                key_signature: row.key_signature,
+                thumbnail_blob_id: row.thumbnail_blob_id,
+                waveform_blob_id: row.waveform_blob_id,
+                song_created_at: row.song_created_at,
             })
             .collect();
 
@@ -608,7 +648,7 @@ impl<'a> AnalyticsRepository<'a> {
         Ok(periods)
     }
 
-    /// Get popular songs by time period with momentum calculation
+    /// Get popular songs by time period with momentum calculation and song details
     pub async fn get_popular_songs_by_period(
         &self,
         period_hours: i32,
@@ -617,7 +657,32 @@ impl<'a> AnalyticsRepository<'a> {
     ) -> Result<Vec<PopularSong>, MediaAnalyticsError> {
         let rows = sqlx::query!(
             r#"
-            SELECT * FROM get_popular_songs_by_period($1, $2, $3)
+            SELECT
+                ps.media_blob_id,
+                ps.domain_id,
+                ps.play_count,
+                ps.unique_users,
+                ps.completion_rate,
+                ps.momentum_score,
+                ps.first_play_at,
+                ps.latest_play_at,
+                s.id as song_id,
+                s.title,
+                s.artist,
+                s.album,
+                s.album_artist,
+                s.track_number,
+                s.disc_number,
+                EXTRACT(epoch FROM s.duration)::integer as duration_seconds,
+                s.genre,
+                s.year,
+                s.bpm,
+                s.key_signature,
+                s.thumbnail_blob_id,
+                s.waveform_blob_id,
+                s.created_at as song_created_at
+            FROM get_popular_songs_by_period($1, $2, $3) ps
+            LEFT JOIN songs s ON s.media_blob_id = ps.media_blob_id
             "#,
             period_hours,
             limit_count,
@@ -641,6 +706,21 @@ impl<'a> AnalyticsRepository<'a> {
                 latest_play_at: row
                     .latest_play_at
                     .unwrap_or_else(|| OffsetDateTime::now_utc()),
+                song_id: row.song_id,
+                title: row.title,
+                artist: row.artist,
+                album: row.album,
+                album_artist: row.album_artist,
+                track_number: row.track_number,
+                disc_number: row.disc_number,
+                duration_seconds: row.duration_seconds,
+                genre: row.genre,
+                year: row.year,
+                bpm: row.bpm,
+                key_signature: row.key_signature,
+                thumbnail_blob_id: row.thumbnail_blob_id,
+                waveform_blob_id: row.waveform_blob_id,
+                song_created_at: row.song_created_at,
             })
             .collect();
 

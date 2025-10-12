@@ -465,6 +465,7 @@ pub struct MediaEventBatchResponse {
 }
 
 /// Play analytics summary
+/// Song play analytics aggregated data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayAnalytics {
     pub media_blob_id: String,
@@ -476,7 +477,9 @@ pub struct PlayAnalytics {
     pub avg_completion_rate: f64,
     pub total_play_time_seconds: i64,
     pub avg_play_time_seconds: f64,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub last_played_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub first_played_at: Option<OffsetDateTime>,
     pub play_count_last_24h: i64,
     pub play_count_last_7d: i64,
@@ -492,10 +495,11 @@ pub struct UserListeningHistory {
     pub domain_type: Option<DomainType>,
     pub domain_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
 
-/// Trending song analytics
+/// Trending song analytics with song details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrendingSong {
     pub media_blob_id: String,
@@ -506,6 +510,23 @@ pub struct TrendingSong {
     pub velocity_score: f64,
     pub unique_users: i64,
     pub completion_rate: f64,
+    // Song details
+    pub song_id: Option<Uuid>,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<i32>,
+    pub disc_number: Option<i32>,
+    pub duration_seconds: Option<i32>,
+    pub genre: Option<String>,
+    pub year: Option<i32>,
+    pub bpm: Option<i32>,
+    pub key_signature: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
+    pub waveform_blob_id: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub song_created_at: Option<OffsetDateTime>,
 }
 
 /// User listening streak analytics
@@ -535,9 +556,12 @@ pub struct GenreListeningPattern {
 }
 
 /// User listening time by period
+/// Listening time period analytics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListeningTimePeriod {
+    #[serde(with = "time::serde::rfc3339")]
     pub period_start: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub period_end: OffsetDateTime,
     pub total_listening_seconds: i64,
     pub unique_songs_played: i64,
@@ -545,7 +569,7 @@ pub struct ListeningTimePeriod {
     pub avg_session_length_minutes: f64,
 }
 
-/// Popular song metrics
+/// Popular song metrics with song details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PopularSong {
     pub media_blob_id: String,
@@ -554,8 +578,27 @@ pub struct PopularSong {
     pub unique_users: i64,
     pub completion_rate: f64,
     pub momentum_score: f64,
+    #[serde(with = "time::serde::rfc3339")]
     pub first_play_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub latest_play_at: OffsetDateTime,
+    // Song details
+    pub song_id: Option<Uuid>,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<i32>,
+    pub disc_number: Option<i32>,
+    pub duration_seconds: Option<i32>,
+    pub genre: Option<String>,
+    pub year: Option<i32>,
+    pub bpm: Option<i32>,
+    pub key_signature: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
+    pub waveform_blob_id: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub song_created_at: Option<OffsetDateTime>,
 }
 
 #[cfg(test)]

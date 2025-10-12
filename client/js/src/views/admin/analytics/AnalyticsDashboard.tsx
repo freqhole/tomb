@@ -15,6 +15,7 @@ import {
   getTrendColor,
 } from "../../../lib/analytics/analytics-api.js";
 import { apiClient } from "../../../lib/api-client.js";
+import { SongRow } from "./SongRow.js";
 
 export function AnalyticsDashboard() {
   const analyticsApi = createAnalyticsApi(() => apiClient);
@@ -148,32 +149,16 @@ export function AnalyticsDashboard() {
           </h2>
           <Show when={topSongsData()} fallback={<TableSkeleton />}>
             {(topSongs) => (
-              <div class="space-y-2">
+              <div class="space-y-1">
                 <For each={topSongs().songs}>
                   {(song, index) => (
-                    <div class="flex items-center justify-between py-2 px-3 bg-gray-800 hover:bg-gray-700 transition-colors">
-                      <div class="flex items-center space-x-3">
-                        <span class="text-gray-400 text-sm font-mono w-6">
-                          #{index() + 1}
-                        </span>
-                        <div>
-                          <div class="text-white text-sm font-medium">
-                            {song.media_blob_id}
-                          </div>
-                          <div class="text-gray-400 text-xs">
-                            {formatNumber(song.unique_users)} users
-                          </div>
-                        </div>
-                      </div>
-                      <div class="text-right">
-                        <div class="text-white text-sm font-medium">
-                          {formatNumber(song.play_count)} plays
-                        </div>
-                        <div class="text-gray-400 text-xs">
-                          {formatPercentage(song.completion_rate)} completion
-                        </div>
-                      </div>
-                    </div>
+                    <SongRow
+                      song={song}
+                      rank={index() + 1}
+                      showPlayCount={true}
+                      showCompletionRate={true}
+                      showMomentum={true}
+                    />
                   )}
                 </For>
               </div>
@@ -188,37 +173,15 @@ export function AnalyticsDashboard() {
           </h2>
           <Show when={trendingData()} fallback={<TableSkeleton />}>
             {(trending) => (
-              <div class="space-y-2">
+              <div class="space-y-1">
                 <For each={trending().trending_songs}>
                   {(song, index) => (
-                    <div class="flex items-center justify-between py-2 px-3 bg-gray-800 hover:bg-gray-700 transition-colors">
-                      <div class="flex items-center space-x-3">
-                        <span class="text-gray-400 text-sm font-mono w-6">
-                          #{index() + 1}
-                        </span>
-                        <div>
-                          <div class="text-white text-sm font-medium">
-                            {song.media_blob_id}
-                          </div>
-                          <div class="text-gray-400 text-xs">
-                            {formatNumber(song.unique_users)} users
-                          </div>
-                        </div>
-                      </div>
-                      <div class="text-right">
-                        <div class="text-white text-sm font-medium flex items-center space-x-1">
-                          <span>
-                            {formatNumber(song.current_period_plays)} plays
-                          </span>
-                          <span class="text-green-400">
-                            ↗ {song.trend_score.toFixed(1)}x
-                          </span>
-                        </div>
-                        <div class="text-gray-400 text-xs">
-                          velocity: {song.velocity_score.toFixed(2)}/h
-                        </div>
-                      </div>
-                    </div>
+                    <SongRow
+                      song={song}
+                      rank={index() + 1}
+                      showTrendInfo={true}
+                      showCompletionRate={true}
+                    />
                   )}
                 </For>
               </div>

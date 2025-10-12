@@ -1,29 +1,6 @@
 import { z } from "zod";
 
-// Helper function to convert timestamp arrays to ISO strings
-const convertTimestamp = (val: string | number[] | null): string | null => {
-  if (val === null) return null;
-  if (Array.isArray(val)) {
-    // Convert array timestamp to ISO string
-    const [year, dayOfYear, hour, minute, second, nanosecond] = val;
-    const date = new Date(year, 0, dayOfYear);
-    date.setHours(hour, minute, second, Math.floor(nanosecond / 1000000));
-    return date.toISOString();
-  }
-  return val;
-};
-
-// Helper function for non-nullable timestamps
-const convertTimestampNonNull = (val: string | number[]): string => {
-  if (Array.isArray(val)) {
-    // Convert array timestamp to ISO string
-    const [year, dayOfYear, hour, minute, second, nanosecond] = val;
-    const date = new Date(year, 0, dayOfYear);
-    date.setHours(hour, minute, second, Math.floor(nanosecond / 1000000));
-    return date.toISOString();
-  }
-  return val;
-};
+// Analytics API schemas - timestamps come as ISO strings from server
 
 // Analytics API schemas following existing patterns
 export const PlayAnalyticsSchema = z.object({
@@ -35,21 +12,19 @@ export const PlayAnalyticsSchema = z.object({
   unique_sessions: z.number(),
   avg_completion_rate: z.number(),
   total_play_time_seconds: z.number(),
-  avg_play_time_seconds: z.number(),
-  last_played_at: z
-    .union([z.string(), z.array(z.number())])
-    .nullable()
-    .transform(convertTimestamp),
-  first_played_at: z
-    .union([z.string(), z.array(z.number())])
-    .nullable()
-    .transform(convertTimestamp),
-  play_count_last_24h: z.number(),
+  first_played_at: z.string().nullable(),
+  last_played_at: z.string().nullable(),
   play_count_last_7d: z.number(),
   play_count_last_30d: z.number(),
 });
 
 export type PlayAnalytics = z.infer<typeof PlayAnalyticsSchema>;
+
+export const SongAnalyticsResponseSchema = z.object({
+  song_analytics: PlayAnalyticsSchema,
+});
+
+export type SongAnalyticsResponse = z.infer<typeof SongAnalyticsResponseSchema>;
 
 export const TrendingSongSchema = z.object({
   media_blob_id: z.string(),
@@ -60,6 +35,22 @@ export const TrendingSongSchema = z.object({
   velocity_score: z.number(),
   unique_users: z.number(),
   completion_rate: z.number(),
+  // Song details
+  song_id: z.string().uuid().nullable(),
+  title: z.string().nullable(),
+  artist: z.string().nullable(),
+  album: z.string().nullable(),
+  album_artist: z.string().nullable(),
+  track_number: z.number().nullable(),
+  disc_number: z.number().nullable(),
+  duration_seconds: z.number().nullable(),
+  genre: z.string().nullable(),
+  year: z.number().nullable(),
+  bpm: z.number().nullable(),
+  key_signature: z.string().nullable(),
+  thumbnail_blob_id: z.string().nullable(),
+  waveform_blob_id: z.string().nullable(),
+  song_created_at: z.string().nullable(),
 });
 
 export type TrendingSong = z.infer<typeof TrendingSongSchema>;
@@ -91,12 +82,8 @@ export const GenreListeningPatternSchema = z.object({
 export type GenreListeningPattern = z.infer<typeof GenreListeningPatternSchema>;
 
 export const ListeningTimePeriodSchema = z.object({
-  period_start: z
-    .union([z.string(), z.array(z.number())])
-    .transform(convertTimestampNonNull),
-  period_end: z
-    .union([z.string(), z.array(z.number())])
-    .transform(convertTimestampNonNull),
+  period_start: z.string(),
+  period_end: z.string(),
   total_listening_seconds: z.number(),
   unique_songs_played: z.number(),
   total_play_events: z.number(),
@@ -112,12 +99,24 @@ export const PopularSongSchema = z.object({
   unique_users: z.number(),
   completion_rate: z.number(),
   momentum_score: z.number(),
-  first_play_at: z
-    .union([z.string(), z.array(z.number())])
-    .transform(convertTimestampNonNull),
-  latest_play_at: z
-    .union([z.string(), z.array(z.number())])
-    .transform(convertTimestampNonNull),
+  first_play_at: z.string(),
+  latest_play_at: z.string(),
+  // Song details
+  song_id: z.string().uuid().nullable(),
+  title: z.string().nullable(),
+  artist: z.string().nullable(),
+  album: z.string().nullable(),
+  album_artist: z.string().nullable(),
+  track_number: z.number().nullable(),
+  disc_number: z.number().nullable(),
+  duration_seconds: z.number().nullable(),
+  genre: z.string().nullable(),
+  year: z.number().nullable(),
+  bpm: z.number().nullable(),
+  key_signature: z.string().nullable(),
+  thumbnail_blob_id: z.string().nullable(),
+  waveform_blob_id: z.string().nullable(),
+  song_created_at: z.string().nullable(),
 });
 
 export type PopularSong = z.infer<typeof PopularSongSchema>;
@@ -171,9 +170,7 @@ export const UserHistoryResponseSchema = z.object({
       domain_type: z.string().nullable(),
       domain_id: z.string().nullable(),
       session_id: z.string().nullable(),
-      created_at: z
-        .union([z.string(), z.array(z.number())])
-        .transform(convertTimestampNonNull),
+      created_at: z.string(),
     })
   ),
 });
@@ -333,7 +330,9 @@ export const createAnalyticsApi = (
       );
     },
 
-    async getSongAnalytics(mediaBlobId: string): Promise<PlayAnalytics> {
+    async getSongAnalytics(
+      mediaBlobId: string
+    ): Promise<SongAnalyticsResponse> {
       return makeRequest(
         {
           query_type: "song_analytics",
@@ -341,7 +340,7 @@ export const createAnalyticsApi = (
             media_blob_id: mediaBlobId,
           },
         },
-        PlayAnalyticsSchema
+        SongAnalyticsResponseSchema
       );
     },
 

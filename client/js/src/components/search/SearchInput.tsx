@@ -284,7 +284,7 @@ export function SearchInput(props: SearchInputProps) {
           const displayParts = suggestionObj.display.split(" - ");
           const songTitle = suggestionObj.value;
           const artist =
-            displayParts.length > 1
+            displayParts.length > 1 && displayParts[1]
               ? displayParts[1].replace(" (song)", "")
               : "";
           props.onPlaySong(songTitle, artist);
