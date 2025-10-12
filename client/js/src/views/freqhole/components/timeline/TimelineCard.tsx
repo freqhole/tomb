@@ -74,26 +74,26 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
 
   const getCollectionGrid = (event: FeedItem) => {
     const grid = event.metadata?.collection_grid;
-    if (!grid || !grid.collections) return null;
+    if (!grid || !grid.songs) return null;
 
-    const collections = grid.collections.split(", ");
     return {
-      collections,
-      totalCollections: grid.total_collections || collections.length,
+      songs: grid.songs,
+      totalSongs: grid.total_songs || grid.songs.length,
       groupingLevel: grid.grouping_level || "unknown",
     };
   };
 
-  const createCollectionCardData = (
-    collectionName: string,
-    index: number
-  ): CollectionCardData => {
+  const createCollectionCardData = (song: any): CollectionCardData => {
     return {
-      id: `collection-${index}`,
-      title: collectionName,
-      domain_type: "song", // Most collections in sessions are songs
-      // We don't have individual collection metadata in the grid
-      // but CollectionCard will show a nice placeholder
+      id: song.id,
+      title: song.title,
+      subtitle: song.artist ? `by ${song.artist}` : null,
+      domain_type: song.domain_type,
+      artist: song.artist,
+      album: song.album,
+      year: song.year,
+      thumbnail_blob_id: song.thumbnail_blob_id,
+      // We could add more metadata here if needed
     };
   };
 
@@ -206,8 +206,7 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
               <div class="collection-grid mt-3 pt-3 border-t border-magenta-500/30">
                 <div class="grid-header mb-3 flex items-center justify-between">
                   <span class="text-xs text-magenta-300 font-medium">
-                    {grid().totalCollections} collections •{" "}
-                    {grid().groupingLevel}
+                    {grid().totalSongs} songs • {grid().groupingLevel}
                   </span>
                   <span class="text-xs text-white/40">
                     {props.event.metadata?.user_activity?.session_duration &&
@@ -215,13 +214,10 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
                   </span>
                 </div>
                 <div class="collections-grid grid grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
-                  <For each={grid().collections.slice(0, 12)}>
-                    {(collection, index) => (
+                  <For each={grid().songs.slice(0, 12)}>
+                    {(song) => (
                       <CollectionCard
-                        collection={createCollectionCardData(
-                          collection,
-                          index()
-                        )}
+                        collection={createCollectionCardData(song)}
                         size="small"
                         enableNavigation={false}
                         enableContextMenu={false}
@@ -230,9 +226,9 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
                     )}
                   </For>
                 </div>
-                <Show when={grid().totalCollections > 12}>
+                <Show when={grid().totalSongs > 12}>
                   <div class="more-collections text-xs text-white/50 mt-2 text-center">
-                    +{grid().totalCollections - 12} more collections
+                    +{grid().totalSongs - 12} more songs
                   </div>
                 </Show>
               </div>

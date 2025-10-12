@@ -277,10 +277,27 @@ export const FeedItemMetadataSchema = z.object({
     .optional(),
   collection_grid: z
     .object({
-      total_collections: z.number(),
-      collections: z.string(),
-      domain_types: z.string(),
+      total_songs: z.number(),
       grouping_level: z.string(),
+      songs: z.array(
+        z.object({
+          id: z.string(),
+          title: z.string(),
+          artist: z.string().nullable(),
+          album: z.string().nullable(),
+          year: z.number().nullable(),
+          genre: z.string().nullable(),
+          sub_genres: z.array(z.string()),
+          tags: z.array(z.string()),
+          disc_number: z.number().nullable(),
+          track_number: z.number().nullable(),
+          duration: z.string().nullable(),
+          thumbnail_blob_id: z.string().nullable(),
+          domain_type: z.string(),
+          user_rating: z.number().nullable(),
+          is_favorite: z.boolean(),
+        })
+      ),
     })
     .nullable()
     .optional(),
