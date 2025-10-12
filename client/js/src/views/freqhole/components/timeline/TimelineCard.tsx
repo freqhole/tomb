@@ -1,5 +1,9 @@
-import { JSX } from "solid-js";
+import { JSX, Show, For } from "solid-js";
 import type { FeedItem } from "../../../../lib/analytics/analytics-api";
+import {
+  CollectionCard,
+  type CollectionCardData,
+} from "../shared/CollectionCard";
 
 interface TimelineCardProps {
   event: FeedItem;
@@ -28,12 +32,29 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
         return "unfavorited";
       case "user_rated_song":
         return "rated";
+      case "user_listening_session":
+        return "had a listening session";
+      case "user_daily_activity":
+        return "daily music activity";
+      case "user_weekly_activity":
+        return "weekly music activity";
+      case "user_monthly_activity":
+        return "monthly music activity";
+      case "user_music_archive":
+        return "music archive";
       default:
         return "interacted with";
     }
   };
 
   const getFrequencyText = (event: FeedItem): string => {
+    // For session and grouped events, don't show frequency (it's in subtitle)
+    if (
+      event.item_type.includes("session") ||
+      event.item_type.includes("activity")
+    )
+      return "";
+
     // For non-play events, don't show frequency
     if (!event.item_type.includes("played")) return "";
 
@@ -44,8 +65,60 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
     return ` ${playCount} times recently`;
   };
 
+  const isGroupedItem = (event: FeedItem): boolean => {
+    return (
+      event.item_type.includes("session") ||
+      event.item_type.includes("activity")
+    );
+  };
+
+  const getCollectionGrid = (event: FeedItem) => {
+    const grid = event.metadata?.collection_grid;
+    if (!grid || !grid.collections) return null;
+
+    const collections = grid.collections.split(", ");
+    return {
+      collections,
+      totalCollections: grid.total_collections || collections.length,
+      groupingLevel: grid.grouping_level || "unknown",
+    };
+  };
+
+  const createCollectionCardData = (
+    collectionName: string,
+    index: number
+  ): CollectionCardData => {
+    return {
+      id: `collection-${index}`,
+      title: collectionName,
+      domain_type: "song", // Most collections in sessions are songs
+      // We don't have individual collection metadata in the grid
+      // but CollectionCard will show a nice placeholder
+    };
+  };
+
+  const getCardBorderColor = () => {
+    if (isGroupedItem(props.event)) {
+      switch (props.event.metadata?.social_context?.grouping_level) {
+        case "session":
+          return "border-l-magenta-500";
+        case "daily":
+          return "border-l-blue-500";
+        case "weekly":
+          return "border-l-green-500";
+        case "monthly":
+          return "border-l-yellow-500";
+        default:
+          return "border-l-purple-500";
+      }
+    }
+    return "border-l-transparent";
+  };
+
   return (
-    <div class="timeline-card bg-black border-b border-white/10 p-4 hover:bg-white/5 transition-colors">
+    <div
+      class={`timeline-card bg-black border-b border-white/10 border-l-4 ${getCardBorderColor()} p-4 hover:bg-white/5 transition-colors`}
+    >
       {/* User Action Header */}
       <div class="timeline-header mb-3">
         <div class="user-action text-sm text-white/70">
@@ -70,9 +143,13 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
 
       {/* Target Content */}
       <div class="timeline-content">
-        <div class="collection-preview bg-white/5 rounded-none border border-white/10 p-3">
+        <div
+          class={`collection-preview ${isGroupedItem(props.event) ? "bg-white/10" : "bg-white/5"} rounded-none border border-white/10 p-3`}
+        >
           <div class="collection-info">
-            <h3 class="collection-title text-white font-medium text-base mb-1">
+            <h3
+              class={`collection-title font-medium text-base mb-1 ${isGroupedItem(props.event) ? "text-magenta-200" : "text-white"}`}
+            >
               {props.event.title}
             </h3>
 
@@ -121,6 +198,47 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
             </div>
           </div>
 
+          {/* Collection Grid for Sessions */}
+          <Show
+            when={isGroupedItem(props.event) && getCollectionGrid(props.event)}
+          >
+            {(grid) => (
+              <div class="collection-grid mt-3 pt-3 border-t border-magenta-500/30">
+                <div class="grid-header mb-3 flex items-center justify-between">
+                  <span class="text-xs text-magenta-300 font-medium">
+                    {grid().totalCollections} collections •{" "}
+                    {grid().groupingLevel}
+                  </span>
+                  <span class="text-xs text-white/40">
+                    {props.event.metadata?.user_activity?.session_duration &&
+                      `${Math.round(props.event.metadata.user_activity.session_duration / 60)}min`}
+                  </span>
+                </div>
+                <div class="collections-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 md:gap-2">
+                  <For each={grid().collections.slice(0, 8)}>
+                    {(collection, index) => (
+                      <CollectionCard
+                        collection={createCollectionCardData(
+                          collection,
+                          index()
+                        )}
+                        size="small"
+                        enableNavigation={false}
+                        enableContextMenu={false}
+                        class="opacity-80 hover:opacity-100 transition-opacity"
+                      />
+                    )}
+                  </For>
+                </div>
+                <Show when={grid().totalCollections > 8}>
+                  <div class="more-collections text-xs text-white/50 mt-2 text-center">
+                    +{grid().totalCollections - 8} more collections
+                  </div>
+                </Show>
+              </div>
+            )}
+          </Show>
+
           {/* Action Buttons */}
           <div class="timeline-actions mt-3 flex gap-2">
             <button
@@ -146,18 +264,43 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
         </div>
       </div>
 
-      {/* Social Context */}
+      {/* Enhanced Social Context */}
       {props.event.metadata?.social_context && (
         <div class="social-context mt-2 text-xs text-white/40">
           {props.event.metadata.social_context.frequency > 10 && (
             <span class="heavy-listener">heavy listener • </span>
           )}
           {props.event.metadata.social_context.is_trending && (
-            <span class="trending-item">trending item • </span>
+            <span class="trending-item text-magenta font-medium">
+              trending •{" "}
+            </span>
           )}
           <span class="activity-type">
             {props.event.metadata.social_context.action_type} activity
           </span>
+          {isGroupedItem(props.event) && (
+            <span class="grouping-indicator text-magenta-400">
+              {" "}
+              • {props.event.metadata.social_context.grouping_level} grouping
+            </span>
+          )}
+          {props.event.metadata.social_context.age_category && (
+            <span class="age-category">
+              {" "}
+              • {props.event.metadata.social_context.age_category}
+            </span>
+          )}
+          {isGroupedItem(props.event) &&
+            props.event.metadata.user_activity?.session_duration && (
+              <span class="session-duration">
+                {" "}
+                •{" "}
+                {Math.round(
+                  props.event.metadata.user_activity.session_duration / 60
+                )}
+                min session
+              </span>
+            )}
         </div>
       )}
     </div>

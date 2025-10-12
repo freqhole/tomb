@@ -2,6 +2,7 @@ import { Show, createSignal, onMount, createEffect } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { apiClient } from "../../../../lib/api-client";
 import { useCollectionInteractions } from "../../services/collectionInteractions";
+import { MarqueeText } from "./MarqueeText";
 
 // Unified collection types
 export interface CollectionCardData {
@@ -63,79 +64,6 @@ export function CollectionCard(props: CollectionCardProps) {
   const [fallbackImageUrl, setFallbackImageUrl] = createSignal<string | null>(
     null
   );
-
-  // Marquee animation component
-  const MarqueeText = (textProps: {
-    text: string;
-    class?: string;
-    title?: string;
-  }) => {
-    const [shouldMarquee, setShouldMarquee] = createSignal(false);
-    let containerRef: HTMLDivElement | undefined;
-    let textRef: HTMLSpanElement | undefined;
-
-    onMount(() => {
-      // Add CSS keyframes for marquee animation if not exists
-      if (!document.querySelector("#marquee-styles")) {
-        const style = document.createElement("style");
-        style.id = "marquee-styles";
-        style.textContent = `
-          @keyframes marquee-bounce {
-            0%, 25% { transform: translateX(0%); }
-            50%, 75% { transform: translateX(calc(-100% + var(--container-width))); }
-            100% { transform: translateX(0%); }
-          }
-        `;
-        document.head.appendChild(style);
-      }
-
-      // Check if text overflows
-      const checkOverflow = () => {
-        if (containerRef && textRef) {
-          const containerWidth = containerRef.offsetWidth;
-          const textWidth = textRef.scrollWidth;
-          setShouldMarquee(textWidth > containerWidth);
-
-          if (textWidth > containerWidth) {
-            containerRef.style.setProperty(
-              "--container-width",
-              `${containerWidth}px`
-            );
-          }
-        }
-      };
-
-      setTimeout(checkOverflow, 10);
-      window.addEventListener("resize", checkOverflow);
-      return () => window.removeEventListener("resize", checkOverflow);
-    });
-
-    return (
-      <div
-        ref={containerRef!}
-        class={`relative overflow-hidden ${textProps.class || ""}`}
-        title={textProps.title || textProps.text}
-      >
-        <span
-          ref={textRef!}
-          class={
-            shouldMarquee()
-              ? "inline-block whitespace-nowrap"
-              : "truncate block"
-          }
-          style={
-            shouldMarquee()
-              ? {
-                  animation: "marquee-bounce 4s ease-in-out infinite",
-                }
-              : {}
-          }
-        >
-          {textProps.text}
-        </span>
-      </div>
-    );
-  };
 
   // Helper functions
   const getImageUrl = () => {

@@ -38,6 +38,11 @@ pub enum FeedItemType {
     UserFavoritedSong,
     UserUnfavoritedSong,
     UserRatedSong,
+    UserListeningSession,
+    UserDailyActivity,
+    UserWeeklyActivity,
+    UserMonthlyActivity,
+    UserMusicArchive,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,6 +54,7 @@ pub struct FeedItemMetadata {
     pub genre_name: Option<String>,
     pub user_activity: Option<UserActivitySummary>,
     pub social_context: Option<SocialContext>,
+    pub collection_grid: Option<CollectionGrid>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -57,14 +63,31 @@ pub struct SocialContext {
     pub frequency: i64,
     pub is_trending: bool,
     pub rating: Option<i32>,
+    pub age_category: Option<String>,
+    pub grouping_level: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CollectionGrid {
+    pub total_collections: i32,
+    pub collections: String,
+    pub domain_types: String,
+    pub grouping_level: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserActivitySummary {
-    pub recent_albums: Vec<ActivityTile>,
-    pub recent_playlists: Vec<ActivityTile>,
-    pub recent_songs: Vec<ActivityTile>,
-    pub period_description: String,
+    pub recent_albums: Option<Vec<ActivityTile>>,
+    pub recent_playlists: Option<Vec<ActivityTile>>,
+    pub recent_songs: Option<Vec<ActivityTile>>,
+    pub period_description: Option<String>,
+    pub total_events: Option<i64>,
+    pub last_activity: Option<String>,
+    pub grouping_level: Option<String>,
+    pub user_play_count: Option<i64>,
+    pub session_duration: Option<f64>,
+    pub total_play_count: Option<i64>,
+    pub unique_collections: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -144,75 +167,91 @@ pub async fn get_social_feed(
                 "user_favorited_song" => FeedItemType::UserFavoritedSong,
                 "user_unfavorited_song" => FeedItemType::UserUnfavoritedSong,
                 "user_rated_song" => FeedItemType::UserRatedSong,
+                "user_listening_session" => FeedItemType::UserListeningSession,
+                "user_daily_activity" => FeedItemType::UserDailyActivity,
+                "user_weekly_activity" => FeedItemType::UserWeeklyActivity,
+                "user_monthly_activity" => FeedItemType::UserMonthlyActivity,
+                "user_music_archive" => FeedItemType::UserMusicArchive,
                 _ => FeedItemType::RecentAlbum, // fallback
             };
 
             // Parse metadata JSON
             let metadata: FeedItemMetadata = if let Some(meta_json) = row.metadata {
-                // Handle user_activity parsing
-                if item_type == FeedItemType::UserActivityGroup {
-                    if let Some(user_activity_json) = meta_json.get("user_activity") {
-                        let user_activity: Result<UserActivitySummary, _> =
-                            serde_json::from_value(user_activity_json.clone());
+                // Parse social context
+                let social_context = meta_json.get("social_context").and_then(|sc| {
+                    Some(SocialContext {
+                        action_type: sc.get("action_type")?.as_str()?.to_string(),
+                        frequency: sc.get("frequency")?.as_i64()?,
+                        is_trending: sc.get("is_trending")?.as_bool()?,
+                        rating: sc.get("rating").and_then(|v| v.as_i64()).map(|v| v as i32),
+                        age_category: sc
+                            .get("age_category")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        grouping_level: sc
+                            .get("grouping_level")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                    })
+                });
 
-                        match user_activity {
-                            Ok(activity) => FeedItemMetadata {
-                                total_songs: None,
-                                artist_name: None,
-                                album_name: None,
-                                playlist_name: None,
-                                genre_name: None,
-                                user_activity: Some(activity),
-                                social_context: None,
-                            },
-                            Err(_) => FeedItemMetadata {
-                                total_songs: None,
-                                artist_name: None,
-                                album_name: None,
-                                playlist_name: None,
-                                genre_name: None,
-                                user_activity: None,
-                                social_context: None,
-                            },
-                        }
-                    } else {
-                        Default::default()
-                    }
-                } else {
-                    // Handle regular collection metadata
-                    let social_context = meta_json.get("social_context").and_then(|sc| {
-                        Some(SocialContext {
-                            action_type: sc.get("action_type")?.as_str()?.to_string(),
-                            frequency: sc.get("frequency")?.as_i64()?,
-                            is_trending: sc.get("is_trending")?.as_bool()?,
-                            rating: sc.get("rating").and_then(|v| v.as_i64()).map(|v| v as i32),
-                        })
-                    });
+                // Parse user activity (for sessions and activity items)
+                let user_activity = meta_json.get("user_activity").and_then(|ua| {
+                    Some(UserActivitySummary {
+                        recent_albums: None,
+                        recent_playlists: None,
+                        recent_songs: None,
+                        period_description: None,
+                        total_events: ua.get("total_events").and_then(|v| v.as_i64()),
+                        last_activity: ua
+                            .get("last_activity")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        grouping_level: ua
+                            .get("grouping_level")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        user_play_count: ua.get("user_play_count").and_then(|v| v.as_i64()),
+                        session_duration: ua.get("session_duration").and_then(|v| v.as_f64()),
+                        total_play_count: ua.get("total_play_count").and_then(|v| v.as_i64()),
+                        unique_collections: ua.get("unique_collections").and_then(|v| v.as_i64()),
+                    })
+                });
 
-                    FeedItemMetadata {
-                        total_songs: meta_json
-                            .get("total_songs")
-                            .and_then(|v| v.as_i64())
-                            .map(|v| v as i32),
-                        artist_name: meta_json
-                            .get("artist_name")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        album_name: meta_json
-                            .get("album_name")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        playlist_name: meta_json
-                            .get("playlist_name")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        genre_name: meta_json
-                            .get("genre_name")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        user_activity: None,
-                        social_context,
-                    }
+                // Parse collection grid (for session items)
+                let collection_grid = meta_json.get("collection_grid").and_then(|cg| {
+                    Some(CollectionGrid {
+                        total_collections: cg.get("total_collections")?.as_i64()? as i32,
+                        collections: cg.get("collections")?.as_str()?.to_string(),
+                        domain_types: cg.get("domain_types")?.as_str()?.to_string(),
+                        grouping_level: cg.get("grouping_level")?.as_str()?.to_string(),
+                    })
+                });
+
+                FeedItemMetadata {
+                    total_songs: meta_json
+                        .get("total_songs")
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v as i32),
+                    artist_name: meta_json
+                        .get("artist_name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    album_name: meta_json
+                        .get("album_name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    playlist_name: meta_json
+                        .get("playlist_name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    genre_name: meta_json
+                        .get("genre_name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    user_activity,
+                    social_context,
+                    collection_grid,
                 }
             } else {
                 Default::default()
@@ -256,6 +295,7 @@ impl Default for FeedItemMetadata {
             genre_name: None,
             user_activity: None,
             social_context: None,
+            collection_grid: None,
         }
     }
 }

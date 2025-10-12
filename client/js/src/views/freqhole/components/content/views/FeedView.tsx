@@ -171,7 +171,7 @@ export function FeedView() {
             }
           >
             {/* feed grid */}
-            <div class="timeline-container">
+            <div class="timeline-container space-y-4 md:space-y-6">
               <For each={allItems()}>
                 {(item) => <TimelineCard event={item} />}
               </For>

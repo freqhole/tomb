@@ -244,10 +244,17 @@ export const ActivityTileSchema = z.object({
 });
 
 export const UserActivitySummarySchema = z.object({
-  recent_albums: z.array(ActivityTileSchema),
-  recent_playlists: z.array(ActivityTileSchema),
-  recent_songs: z.array(ActivityTileSchema),
-  period_description: z.string(),
+  recent_albums: z.array(ActivityTileSchema).nullable(),
+  recent_playlists: z.array(ActivityTileSchema).nullable(),
+  recent_songs: z.array(ActivityTileSchema).nullable(),
+  period_description: z.string().nullable(),
+  total_events: z.number().nullable(),
+  last_activity: z.string().nullable(),
+  grouping_level: z.string().nullable(),
+  user_play_count: z.number().nullable(),
+  session_duration: z.number().nullable(),
+  total_play_count: z.number().nullable(),
+  unique_collections: z.number().nullable(),
 });
 
 export const FeedItemMetadataSchema = z.object({
@@ -256,19 +263,24 @@ export const FeedItemMetadataSchema = z.object({
   album_name: z.string().nullable(),
   playlist_name: z.string().nullable(),
   genre_name: z.string().nullable(),
-  user_activity: z
-    .object({
-      user_play_count: z.number(),
-      total_play_count: z.number(),
-      last_activity: z.string(),
-    })
-    .nullable(),
+  user_activity: UserActivitySummarySchema.nullable(),
   social_context: z
     .object({
       action_type: z.string(),
       frequency: z.number(),
       is_trending: z.boolean(),
       rating: z.number().nullable().optional(),
+      age_category: z.string().nullable(),
+      grouping_level: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
+  collection_grid: z
+    .object({
+      total_collections: z.number(),
+      collections: z.string(),
+      domain_types: z.string(),
+      grouping_level: z.string(),
     })
     .nullable()
     .optional(),
@@ -290,9 +302,14 @@ export const FeedItemSchema = z.object({
     "user_favorited_song",
     "user_unfavorited_song",
     "user_rated_song",
+    "user_listening_session",
+    "user_daily_activity",
+    "user_weekly_activity",
+    "user_monthly_activity",
+    "user_music_archive",
   ]),
   domain_type: z
-    .enum(["album", "playlist", "artist", "genre", "song"])
+    .enum(["album", "playlist", "artist", "genre", "song", "collection"])
     .nullable(),
   domain_ids: z.array(z.string()).nullable(),
   title: z.string(),
