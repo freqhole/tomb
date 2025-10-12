@@ -256,7 +256,20 @@ export const FeedItemMetadataSchema = z.object({
   album_name: z.string().nullable(),
   playlist_name: z.string().nullable(),
   genre_name: z.string().nullable(),
-  user_activity: UserActivitySummarySchema.nullable(),
+  user_activity: z
+    .object({
+      user_play_count: z.number(),
+      total_play_count: z.number(),
+      last_activity: z.string(),
+    })
+    .nullable(),
+  social_context: z
+    .object({
+      action_type: z.string(),
+      frequency: z.number(),
+      is_trending: z.boolean(),
+    })
+    .nullable(),
 });
 
 export const FeedItemSchema = z.object({

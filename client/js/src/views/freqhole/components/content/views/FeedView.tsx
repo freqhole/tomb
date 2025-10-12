@@ -2,7 +2,6 @@ import {
   createSignal,
   For,
   Show,
-  createMemo,
   createEffect,
   onMount,
   batch,
@@ -18,7 +17,7 @@ export function FeedView() {
   const [allItems, setAllItems] = createSignal<FeedItem[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [hasMore, setHasMore] = createSignal(true);
-  const [mobile, setMobile] = createSignal(isMobile());
+  const [, setMobile] = createSignal(isMobile());
   const [refreshing, setRefreshing] = createSignal(false);
   let scrollContainer: HTMLDivElement | undefined;
 
@@ -180,12 +179,6 @@ export function FeedView() {
   });
 
   // Responsive grid classes
-  const gridClasses = createMemo(() => {
-    if (mobile()) {
-      return "grid grid-cols-2 gap-3";
-    }
-    return "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4";
-  });
 
   return (
     <div class="flex flex-col h-full text-white">

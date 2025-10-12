@@ -19,14 +19,14 @@ BEGIN
             me.event_data,
             me.user_id,
             me.created_at,
-            -- Get actual current collection name from domain_ids and songs table
+            -- Get actual current collection name from domain_ids
             CASE
                 WHEN me.domain_type = 'album' THEN
                     COALESCE(
                         (SELECT DISTINCT s.album || ' by ' || s.artist
                          FROM songs s
-                         WHERE s.album IS NOT NULL AND s.artist IS NOT NULL
-                         AND (s.album || ':' || s.artist = ANY(me.domain_ids) OR s.media_blob_id = ANY(me.domain_ids))
+                         WHERE s.media_blob_id = ANY(me.domain_ids)
+                         AND s.album IS NOT NULL AND s.artist IS NOT NULL
                          LIMIT 1),
                         me.event_data->>'collection_name',
                         'Unknown Album'
@@ -39,12 +39,21 @@ BEGIN
                     )
                 WHEN me.domain_type = 'artist' THEN
                     COALESCE(
-                        (SELECT DISTINCT s.artist FROM songs s WHERE s.artist = ANY(me.domain_ids) LIMIT 1),
+                        (SELECT DISTINCT s.artist
+                         FROM songs s
+                         WHERE s.media_blob_id = ANY(me.domain_ids)
+                         AND s.artist IS NOT NULL
+                         LIMIT 1),
                         me.event_data->>'collection_name',
                         'Unknown Artist'
                     )
                 WHEN me.domain_type = 'genre' THEN
                     COALESCE(
+                        (SELECT DISTINCT s.genre
+                         FROM songs s
+                         WHERE s.media_blob_id = ANY(me.domain_ids)
+                         AND s.genre IS NOT NULL
+                         LIMIT 1),
                         me.event_data->>'collection_name',
                         'Unknown Genre'
                     )

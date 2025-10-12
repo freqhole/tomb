@@ -28,6 +28,7 @@ export class EventBuffer {
   private isDestroyed = false;
   private unloadListener: (() => void) | null = null;
   private baseUrl: string;
+  private sessionClientId: string;
 
   constructor(config: EventBufferConfig = {}) {
     this.config = {
@@ -37,6 +38,7 @@ export class EventBuffer {
       enableDebugLogs: config.enableDebugLogs || false,
       baseUrl: config.baseUrl || window.location.origin,
     };
+    this.sessionClientId = this.generateSessionClientId();
 
     this.baseUrl = this.config.baseUrl;
     this.setupUnloadHandler();
@@ -62,7 +64,7 @@ export class EventBuffer {
     // Add client_id for correlation tracking if not already present
     const eventWithClientId = {
       ...event,
-      client_id: event.client_id || this.generateClientId(),
+      client_id: event.client_id || this.sessionClientId,
     };
 
     this.buffer.push(eventWithClientId);
@@ -79,10 +81,17 @@ export class EventBuffer {
   }
 
   /**
-   * Generate a unique client ID for event correlation
+   * Generate a unique client ID for the session
    */
-  private generateClientId(): string {
+  private generateSessionClientId(): string {
     return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * Get the current session client ID
+   */
+  public getSessionClientId(): string {
+    return this.sessionClientId;
   }
 
   /**
@@ -262,4 +271,9 @@ export function trackEvent(event: MediaEventRequest): void {
 // Convenience function to flush immediately
 export function flushEvents(): Promise<void> {
   return eventBuffer.flush();
+}
+
+// Convenience function to get session client ID
+export function getSessionClientId(): string {
+  return eventBuffer.getSessionClientId();
 }

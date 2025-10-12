@@ -1,6 +1,5 @@
-import { Component, JSX } from "solid-js";
+import { JSX } from "solid-js";
 import type { FeedItem } from "../../../../lib/analytics/analytics-api";
-import { CollectionCard } from "../shared/CollectionCard";
 
 interface TimelineCardProps {
   event: FeedItem;
@@ -70,20 +69,17 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
             )}
 
             <div class="collection-meta flex items-center gap-4 text-xs text-white/50">
-              <span class="domain-type">
-                {props.event.domain_type}
-              </span>
+              <span class="domain-type">{props.event.domain_type}</span>
 
               {props.event.metadata?.user_activity?.total_play_count && (
                 <span class="total-plays">
-                  {props.event.metadata.user_activity.total_play_count} total plays
+                  {props.event.metadata.user_activity.total_play_count} total
+                  plays
                 </span>
               )}
 
               {props.event.metadata?.social_context?.is_trending && (
-                <span class="trending text-magenta">
-                  trending
-                </span>
+                <span class="trending text-magenta">trending</span>
               )}
             </div>
           </div>

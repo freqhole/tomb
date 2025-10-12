@@ -6,7 +6,7 @@
  */
 
 import type { MediaEventRequest } from "./analytics-client";
-import { trackEvent } from "./event-buffer";
+import { trackEvent, getSessionClientId } from "./event-buffer";
 
 // Collection play event data
 export interface CollectionPlayEventData {
@@ -18,11 +18,10 @@ export interface CollectionPlayEventData {
 }
 
 // Collection context for event creation
-export interface CollectionEventContext {
+interface CollectionEventContext {
   domainType: "album" | "playlist" | "artist" | "genre";
-  domainId: string;
+  domainIds: string[];
   sessionId?: string;
-  userAgent?: string;
 }
 
 /**
@@ -40,12 +39,13 @@ export class CollectionEventBuilder {
    */
   playCollection(eventData: CollectionPlayEventData): MediaEventRequest {
     return {
-      media_blob_id: null, // not applicable for collections
+      media_blob_id: eventData.first_song_id || null,
       event_type: "play",
       event_data: eventData,
       session_id: this.context.sessionId,
       domain_type: this.context.domainType,
-      domain_ids: [this.context.domainId],
+      domain_ids: this.context.domainIds,
+      client_id: getSessionClientId(),
     };
   }
 
@@ -54,13 +54,13 @@ export class CollectionEventBuilder {
    */
   static createPlayEvent(
     domainType: "album" | "playlist" | "artist" | "genre",
-    domainId: string,
+    domainIds: string[],
     eventData: CollectionPlayEventData,
     sessionId?: string
   ): MediaEventRequest {
     const builder = new CollectionEventBuilder({
       domainType,
-      domainId,
+      domainIds,
       sessionId,
     });
     return builder.playCollection(eventData);
@@ -70,16 +70,16 @@ export class CollectionEventBuilder {
    * Create album play event
    */
   static playAlbum(
-    albumId: string,
+    songIds: string[],
     albumName: string,
     totalSongs: number,
     shuffleEnabled: boolean = false,
     sessionId?: string,
     firstSongId?: string
   ): MediaEventRequest {
-    return this.createPlayEvent(
+    return CollectionEventBuilder.createPlayEvent(
       "album",
-      albumId,
+      songIds,
       {
         total_songs: totalSongs,
         shuffle_enabled: shuffleEnabled,
@@ -95,16 +95,16 @@ export class CollectionEventBuilder {
    * Create artist play event
    */
   static playArtist(
-    artistId: string,
+    songIds: string[],
     artistName: string,
     totalSongs: number,
     shuffleEnabled: boolean = false,
     sessionId?: string,
     firstSongId?: string
   ): MediaEventRequest {
-    return this.createPlayEvent(
+    return CollectionEventBuilder.createPlayEvent(
       "artist",
-      artistId,
+      songIds,
       {
         total_songs: totalSongs,
         shuffle_enabled: shuffleEnabled,
@@ -120,16 +120,16 @@ export class CollectionEventBuilder {
    * Create genre play event
    */
   static playGenre(
-    genreSlug: string,
+    songIds: string[],
     genreName: string,
     totalSongs: number,
     shuffleEnabled: boolean = false,
     sessionId?: string,
     firstSongId?: string
   ): MediaEventRequest {
-    return this.createPlayEvent(
+    return CollectionEventBuilder.createPlayEvent(
       "genre",
-      genreSlug,
+      songIds,
       {
         total_songs: totalSongs,
         shuffle_enabled: shuffleEnabled,
@@ -145,16 +145,16 @@ export class CollectionEventBuilder {
    * Create playlist play event
    */
   static playPlaylist(
-    playlistId: string,
+    songIds: string[],
     playlistName: string,
     totalSongs: number,
     shuffleEnabled: boolean = false,
     sessionId?: string,
     firstSongId?: string
   ): MediaEventRequest {
-    return this.createPlayEvent(
+    return CollectionEventBuilder.createPlayEvent(
       "playlist",
-      playlistId,
+      songIds,
       {
         total_songs: totalSongs,
         shuffle_enabled: shuffleEnabled,
@@ -287,7 +287,7 @@ export const collectionPlayTracker = new CollectionPlayTracker();
 // Helper function to track collection play events
 export function trackCollectionPlay(
   domainType: "album" | "playlist" | "artist" | "genre",
-  domainId: string,
+  songIds: string[],
   collectionName: string,
   totalSongs: number,
   shuffleEnabled: boolean = false,
@@ -296,7 +296,7 @@ export function trackCollectionPlay(
 ): void {
   const event = CollectionEventBuilder.createPlayEvent(
     domainType,
-    domainId,
+    songIds,
     {
       total_songs: totalSongs,
       shuffle_enabled: shuffleEnabled,

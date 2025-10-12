@@ -34,17 +34,6 @@ export function useCollectionInteractions() {
     return store.player.currentSong?.id || crypto.randomUUID();
   };
 
-  // Create deterministic UUID from string (for collections without IDs)
-  const createDeterministicUUID = (input: string): string => {
-    // Simple hash-based UUID generation for consistent IDs
-    let hash = 0;
-    for (let i = 0; i < input.length; i++) {
-      hash = ((hash << 5) - hash + input.charCodeAt(i)) & 0xffffffff;
-    }
-    const hex = Math.abs(hash).toString(16).padStart(32, "0");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(12, 15)}-8${hex.slice(15, 18)}-${hex.slice(18, 30)}`;
-  };
-
   // Shuffle array utility
   const shuffleArray = <T>(array: T[]): T[] => {
     const shuffled = [...array];
@@ -62,7 +51,7 @@ export function useCollectionInteractions() {
     songs: Song[],
     options: {
       domainType: "album" | "playlist" | "artist" | "genre";
-      domainId: string;
+      songIds: string[];
       collectionName: string;
       shuffle?: boolean;
       replaceQueue?: boolean;
@@ -75,7 +64,7 @@ export function useCollectionInteractions() {
 
     const {
       domainType,
-      domainId,
+      songIds,
       collectionName,
       shuffle = false,
       replaceQueue = true,
@@ -85,7 +74,7 @@ export function useCollectionInteractions() {
     // Track collection play analytics
     trackCollectionPlay(
       domainType,
-      domainId, // Use the actual domainId passed in
+      songIds,
       collectionName,
       songs.length,
       shuffle,
@@ -134,9 +123,7 @@ export function useCollectionInteractions() {
 
       playCollection(tracks, {
         domainType: "album",
-        domainId: createDeterministicUUID(
-          `album:${album.artist}:${album.album}`
-        ),
+        songIds: tracks.map((track) => track.media_blob_id),
         collectionName: `${album.album}`,
         shuffle,
         replaceQueue: true,
@@ -159,9 +146,7 @@ export function useCollectionInteractions() {
 
       playCollection(tracks, {
         domainType: "album",
-        domainId: createDeterministicUUID(
-          `album:${album.artist}:${album.album}`
-        ),
+        songIds: tracks.map((track) => track.media_blob_id),
         collectionName: `${album.album}`,
         shuffle,
         replaceQueue: false,
@@ -186,19 +171,18 @@ export function useCollectionInteractions() {
         page_size: 100,
       });
 
-      playCollection(
-        tracks.songs.map((song) => ({
-          ...song,
-          sub_genres: song.sub_genres || null,
-        })),
-        {
-          domainType: "artist",
-          domainId: createDeterministicUUID(`artist:${artist.artist}`),
-          collectionName: artist.artist,
-          shuffle,
-          replaceQueue: true,
-        }
-      );
+      const songList = tracks.songs.map((song) => ({
+        ...song,
+        sub_genres: song.sub_genres || null,
+      }));
+
+      playCollection(songList, {
+        domainType: "artist",
+        songIds: songList.map((song) => song.media_blob_id),
+        collectionName: artist.artist,
+        shuffle,
+        replaceQueue: true,
+      });
     } catch (error) {
       console.error("failed to play artist:", error);
       events.emit("notification:show", {
@@ -218,19 +202,18 @@ export function useCollectionInteractions() {
         page_size: 100,
       });
 
-      playCollection(
-        tracks.songs.map((song) => ({
-          ...song,
-          sub_genres: song.sub_genres || null,
-        })),
-        {
-          domainType: "artist",
-          domainId: createDeterministicUUID(`artist:${artist.artist}`),
-          collectionName: artist.artist,
-          shuffle,
-          replaceQueue: false,
-        }
-      );
+      const songList = tracks.songs.map((song) => ({
+        ...song,
+        sub_genres: song.sub_genres || null,
+      }));
+
+      playCollection(songList, {
+        domainType: "artist",
+        songIds: songList.map((song) => song.media_blob_id),
+        collectionName: artist.artist,
+        shuffle,
+        replaceQueue: false,
+      });
     } catch (error) {
       console.error("failed to queue artist:", error);
       events.emit("notification:show", {
@@ -248,19 +231,18 @@ export function useCollectionInteractions() {
         page_size: 100,
       });
 
-      playCollection(
-        tracks.songs.map((song) => ({
-          ...song,
-          sub_genres: song.sub_genres || null,
-        })),
-        {
-          domainType: "genre",
-          domainId: createDeterministicUUID(`genre:${genre.slug}`),
-          collectionName: genre.name,
-          shuffle,
-          replaceQueue: true,
-        }
-      );
+      const songList = tracks.songs.map((song) => ({
+        ...song,
+        sub_genres: song.sub_genres || null,
+      }));
+
+      playCollection(songList, {
+        domainType: "genre",
+        songIds: songList.map((song) => song.media_blob_id),
+        collectionName: genre.name,
+        shuffle,
+        replaceQueue: true,
+      });
     } catch (error) {
       console.error("failed to play genre:", error);
       events.emit("notification:show", {
@@ -273,23 +255,22 @@ export function useCollectionInteractions() {
   const queueGenre = async (genre: GenreStat, shuffle: boolean = false) => {
     try {
       const tracks = await apiClient.searchPost({
-        query: `genre:${genre.name}`,
+        query: genre.name,
         page_size: 100,
       });
 
-      playCollection(
-        tracks.songs.map((song) => ({
-          ...song,
-          sub_genres: song.sub_genres || null,
-        })),
-        {
-          domainType: "genre",
-          domainId: createDeterministicUUID(`genre:${genre.slug}`),
-          collectionName: genre.name,
-          shuffle,
-          replaceQueue: false,
-        }
-      );
+      const songList = tracks.songs.map((song) => ({
+        ...song,
+        sub_genres: song.sub_genres || null,
+      }));
+
+      playCollection(songList, {
+        domainType: "genre",
+        songIds: songList.map((song) => song.media_blob_id),
+        collectionName: genre.name,
+        shuffle,
+        replaceQueue: false,
+      });
     } catch (error) {
       console.error("failed to queue genre:", error);
       events.emit("notification:show", {
@@ -310,7 +291,7 @@ export function useCollectionInteractions() {
 
       playCollection(tracks, {
         domainType: "playlist",
-        domainId: playlistId, // Playlists already have UUID IDs
+        songIds: [playlistId], // Use playlist UUID, not song IDs
         collectionName: playlistName,
         shuffle,
         replaceQueue: true,
@@ -334,7 +315,7 @@ export function useCollectionInteractions() {
 
       playCollection(tracks, {
         domainType: "playlist",
-        domainId: playlistId, // Playlists already have UUID IDs
+        songIds: [playlistId], // Use playlist UUID, not song IDs
         collectionName: playlistName,
         shuffle,
         replaceQueue: false,
@@ -502,7 +483,7 @@ export function useCollectionInteractions() {
         if (domainId.includes(":")) {
           const [artist, album] = domainId.split(":", 2);
           artistName = artist;
-          albumName = album;
+          albumName = album || "";
         } else {
           // Try to get album info from feed metadata if available
           albumName = domainId;
@@ -550,7 +531,7 @@ export function useCollectionInteractions() {
 
       playCollection(tracks, {
         domainType,
-        domainId,
+        songIds: tracks.map((track) => track.media_blob_id),
         collectionName,
         shuffle: options.shuffle_enabled,
         replaceQueue: true,
@@ -569,7 +550,6 @@ export function useCollectionInteractions() {
     event: MouseEvent,
     domainType: "album" | "playlist" | "artist" | "genre",
     domainId: string,
-    title: string,
     metadata?: { artist?: string; album?: string }
   ) => {
     event.preventDefault();
