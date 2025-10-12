@@ -71,8 +71,26 @@ export interface FreqholeStore {
     loading: boolean;
   };
   sort: {
-    field: string;
-    direction: "asc" | "desc";
+    songs: {
+      field: string;
+      direction: "asc" | "desc";
+    };
+    artists: {
+      field: string;
+      direction: "asc" | "desc";
+    };
+    albums: {
+      field: string;
+      direction: "asc" | "desc";
+    };
+    genres: {
+      field: string;
+      direction: "asc" | "desc";
+    };
+    playlists: {
+      field: string;
+      direction: "asc" | "desc";
+    };
   };
   auth: {
     isAuthenticated: boolean;
@@ -169,8 +187,26 @@ const initialState: FreqholeStore = {
     loading: false,
   },
   sort: {
-    field: "created_at",
-    direction: "desc",
+    songs: {
+      field: "created_at",
+      direction: "desc",
+    },
+    artists: {
+      field: "artist",
+      direction: "asc",
+    },
+    albums: {
+      field: "created_at",
+      direction: "desc",
+    },
+    genres: {
+      field: "song_count",
+      direction: "desc",
+    },
+    playlists: {
+      field: "created_at",
+      direction: "desc",
+    },
   },
   auth: {
     isAuthenticated: false,
@@ -322,11 +358,26 @@ export const useSearch = () => {
   ] as const;
 };
 
-export const useSort = () => {
+export const useSort = (
+  view?: "songs" | "artists" | "albums" | "genres" | "playlists"
+) => {
   const [store] = useStore();
+
+  // If no view specified, return the current navigation view's sort state
+  if (!view) {
+    const currentView = store.navigation.currentView;
+    return [
+      store.sort[currentView],
+      (updates: Partial<FreqholeStore["sort"][typeof currentView]>) =>
+        setStore("sort", currentView, updates),
+    ] as const;
+  }
+
+  // Return specific view's sort state
   return [
-    store.sort,
-    (updates: Partial<FreqholeStore["sort"]>) => setStore("sort", updates),
+    store.sort[view],
+    (updates: Partial<FreqholeStore["sort"][typeof view]>) =>
+      setStore("sort", view, updates),
   ] as const;
 };
 

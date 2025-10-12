@@ -36,7 +36,7 @@ export function MobileSongsView(props: MobileSongsViewProps) {
 
   // Use modern reactive store instead of legacy search hook
   const reactiveActions = useReactiveActions();
-  const [sortState] = useSort();
+  const [sortState] = useSort("songs");
 
   // Use same data access pattern as working desktop view
   const dataSections = useDataSections();

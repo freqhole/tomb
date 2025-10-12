@@ -24,7 +24,7 @@ export function DesktopArtistsView(props: DesktopArtistsViewProps) {
 
   // Use modern reactive store instead of legacy hook
   const reactiveActions = useReactiveActions();
-  const [sortState] = useSort();
+  const [sortState] = useSort("artists");
   const dataSections = useDataSections();
 
   // Data access using modern reactive store

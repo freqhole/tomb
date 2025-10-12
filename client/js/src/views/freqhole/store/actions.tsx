@@ -31,8 +31,8 @@ export function createStoreActions(
         const deps = {
           tags: [...store.filters.tags], // spread to track changes properly
           query: store.search.query?.trim() || "",
-          sortField: store.sort.field,
-          sortDirection: store.sort.direction,
+          sortField: store.sort.songs.field,
+          sortDirection: store.sort.songs.direction,
           favoritesOnly: store.filters.favoritesOnly,
         };
 
@@ -65,8 +65,8 @@ export function createStoreActions(
         const deps = {
           tags: [...store.filters.tags], // spread to track changes properly
           query: store.search.query?.trim() || "",
-          sortField: store.sort.field,
-          sortDirection: store.sort.direction,
+          sortField: store.sort.artists.field,
+          sortDirection: store.sort.artists.direction,
         };
         return deps;
       },
@@ -88,8 +88,8 @@ export function createStoreActions(
         const deps = {
           tags: [...store.filters.tags], // spread to track changes properly
           query: store.search.query?.trim() || "",
-          sortField: store.sort.field,
-          sortDirection: store.sort.direction,
+          sortField: store.sort.albums.field,
+          sortDirection: store.sort.albums.direction,
         };
         return deps;
       },
@@ -160,8 +160,8 @@ export function createStoreActions(
       const deps = {
         tags: [...store.filters.tags], // spread to track changes properly
         query: store.search.query?.trim() || "",
-        sortField: store.sort.field,
-        sortDirection: store.sort.direction,
+        sortField: store.sort.genres.field,
+        sortDirection: store.sort.genres.direction,
         with_songs_only: true, // filter out genres with zero counts
       };
       return deps;
@@ -227,8 +227,8 @@ export function createStoreActions(
         // Track all dependencies for proper reactivity
         const selectedGenre = store.genres.selectedGenre;
         const query = store.search.query?.trim() || "";
-        const sortField = store.sort.field;
-        const sortDirection = store.sort.direction;
+        const sortField = store.sort.songs.field;
+        const sortDirection = store.sort.songs.direction;
         const tags = [...store.filters.tags];
         const currentPage = store.genres.currentPage;
 
@@ -508,8 +508,8 @@ export function createStoreActions(
         nextPageResult = await apiClient.searchPost({
           query: params.query || undefined,
           filters: Object.keys(filters).length > 0 ? filters : undefined,
-          sort_by: store.sort.field,
-          sort_direction: store.sort.direction,
+          sort_by: store.sort.songs.field,
+          sort_direction: store.sort.songs.direction,
           page: nextPage,
           page_size: 100,
         });
@@ -573,8 +573,8 @@ export function createStoreActions(
         nextPageResult = await apiClient.filterAlbums({
           query: params.query || undefined,
           tags: params.tags.length > 0 ? params.tags : undefined,
-          sort_by: store.sort.field,
-          sort_direction: store.sort.direction,
+          sort_by: store.sort.albums.field,
+          sort_direction: store.sort.albums.direction,
           page: nextPage,
           page_size: 100,
         });
@@ -638,8 +638,8 @@ export function createStoreActions(
         nextPageResult = await apiClient.filterArtists({
           query: params.query || undefined,
           tags: params.tags.length > 0 ? params.tags : undefined,
-          sort_by: store.sort.field,
-          sort_direction: store.sort.direction,
+          sort_by: store.sort.artists.field,
+          sort_direction: store.sort.artists.direction,
           page: nextPage,
           page_size: 100,
         });
@@ -677,9 +677,10 @@ export function createStoreActions(
 
     // sort management
     setSort: (field: string, direction: "asc" | "desc") => {
-      setStore("sort", { field, direction });
+      const currentView = store.navigation.currentView;
+      setStore("sort", currentView, { field, direction });
 
-      // songs resource will automatically refetch due to reactive dependencies
+      // appropriate resource will automatically refetch due to reactive dependencies
     },
 
     // tag lifecycle management with optimistic updates

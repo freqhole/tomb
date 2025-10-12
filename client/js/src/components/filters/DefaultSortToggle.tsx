@@ -14,7 +14,7 @@ export function DefaultSortToggle(props: DefaultSortToggleProps): JSX.Element {
   const reactiveActions = useReactiveActions();
 
   // const reactiveActions = useReactiveActions();
-  const [sortState] = useSort();
+  const [sortState] = useSort(); // Uses current navigation view's sort state
 
   const handleToggle = () => {
     reactiveActions.setSort(

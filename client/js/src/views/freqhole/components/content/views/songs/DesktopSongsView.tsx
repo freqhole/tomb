@@ -29,7 +29,7 @@ export function DesktopSongsView(
 ) {
   const [] = useStore();
   const reactiveActions = useReactiveActions();
-  const [sortState] = useSort();
+  const [sortState] = useSort("songs");
   const songState = useSongState();
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();

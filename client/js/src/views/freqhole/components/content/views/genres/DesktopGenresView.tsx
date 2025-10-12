@@ -17,7 +17,7 @@ export function DesktopGenresView(props: DesktopGenresViewProps) {
 
   // Use modern reactive store
   const reactiveActions = useReactiveActions();
-  const [sortState] = useSort();
+  const [sortState] = useSort("genres");
   const [genresState] = useGenres();
   const dataSections = useDataSections();
 

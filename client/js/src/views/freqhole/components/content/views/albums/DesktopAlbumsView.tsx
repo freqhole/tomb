@@ -35,7 +35,7 @@ export function DesktopAlbumsView(props: DesktopAlbumsViewProps) {
 
   // Use modern reactive store instead of legacy hook
   const reactiveActions = useReactiveActions();
-  const [sortState] = useSort();
+  const [sortState] = useSort("albums");
   const dataSections = useDataSections();
 
   // Data access using modern reactive store
