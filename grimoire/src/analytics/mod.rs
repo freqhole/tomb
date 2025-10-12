@@ -17,9 +17,10 @@ pub use models::{
 
 // Re-export media events types
 pub use media_events::{
-    DomainType, MediaAnalyticsError, MediaEvent, MediaEventBatchRequest, MediaEventBatchResponse,
-    MediaEventData, MediaEventRequest, MediaEventResponse, MediaEventType, PlayAnalytics,
-    UserListeningHistory,
+    DomainType, GenreListeningPattern, ListeningTimePeriod, MediaAnalyticsError, MediaEvent,
+    MediaEventBatchRequest, MediaEventBatchResponse, MediaEventData, MediaEventRequest,
+    MediaEventResponse, MediaEventType, PlayAnalytics, PopularSong, TrendingSong,
+    UserListeningHistory, UserListeningStreaks,
 };
 pub use repository::AnalyticsRepository;
 pub use service::{AnalyticsService, RequestAnalyticsBuilder};

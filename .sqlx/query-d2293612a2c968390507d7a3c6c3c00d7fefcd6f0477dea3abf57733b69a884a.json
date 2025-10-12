@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT * FROM get_popular_songs_by_period($1, $2, $3)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "media_blob_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "domain_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "play_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "unique_users",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "completion_rate",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 5,
+        "name": "momentum_score",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 6,
+        "name": "first_play_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "latest_play_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "d2293612a2c968390507d7a3c6c3c00d7fefcd6f0477dea3abf57733b69a884a"
+}

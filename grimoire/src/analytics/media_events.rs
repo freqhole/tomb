@@ -475,8 +475,12 @@ pub struct PlayAnalytics {
     pub unique_sessions: i64,
     pub avg_completion_rate: f64,
     pub total_play_time_seconds: i64,
+    pub avg_play_time_seconds: f64,
     pub last_played_at: Option<OffsetDateTime>,
     pub first_played_at: Option<OffsetDateTime>,
+    pub play_count_last_24h: i64,
+    pub play_count_last_7d: i64,
+    pub play_count_last_30d: i64,
 }
 
 /// User listening history entry
@@ -489,6 +493,69 @@ pub struct UserListeningHistory {
     pub domain_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
     pub created_at: OffsetDateTime,
+}
+
+/// Trending song analytics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrendingSong {
+    pub media_blob_id: String,
+    pub domain_id: Option<Uuid>,
+    pub current_period_plays: i64,
+    pub previous_period_plays: i64,
+    pub trend_score: f64,
+    pub velocity_score: f64,
+    pub unique_users: i64,
+    pub completion_rate: f64,
+}
+
+/// User listening streak analytics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserListeningStreaks {
+    pub user_id: Uuid,
+    pub current_streak_days: i32,
+    pub longest_streak_days: i32,
+    pub total_listening_days: i32,
+    pub avg_daily_plays: f64,
+    pub favorite_listening_hour: i32,
+    pub most_played_day_of_week: i32,
+    pub total_unique_songs: i64,
+    pub completion_rate: f64,
+}
+
+/// Genre listening pattern analytics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenreListeningPattern {
+    pub genre: String,
+    pub total_plays: i64,
+    pub unique_users: i64,
+    pub unique_songs: i64,
+    pub avg_completion_rate: f64,
+    pub trend_direction: String,
+    pub popularity_rank: i32,
+}
+
+/// User listening time by period
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListeningTimePeriod {
+    pub period_start: OffsetDateTime,
+    pub period_end: OffsetDateTime,
+    pub total_listening_seconds: i64,
+    pub unique_songs_played: i64,
+    pub total_play_events: i64,
+    pub avg_session_length_minutes: f64,
+}
+
+/// Popular song metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PopularSong {
+    pub media_blob_id: String,
+    pub domain_id: Option<Uuid>,
+    pub play_count: i64,
+    pub unique_users: i64,
+    pub completion_rate: f64,
+    pub momentum_score: f64,
+    pub first_play_at: OffsetDateTime,
+    pub latest_play_at: OffsetDateTime,
 }
 
 #[cfg(test)]

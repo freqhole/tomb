@@ -1,5 +1,6 @@
 use super::media_events::{
-    MediaAnalyticsError, MediaEvent, MediaEventType, PlayAnalytics, UserListeningHistory,
+    GenreListeningPattern, ListeningTimePeriod, MediaAnalyticsError, MediaEvent, MediaEventType,
+    PlayAnalytics, PopularSong, TrendingSong, UserListeningHistory, UserListeningStreaks,
 };
 use super::models::{
     AnalyticsError, PathMetric, RequestAnalytics, RequestMetrics, TimeSeriesPoint,
@@ -437,24 +438,7 @@ impl<'a> AnalyticsRepository<'a> {
     ) -> Result<PlayAnalytics, MediaAnalyticsError> {
         let row = sqlx::query!(
             r#"
-            SELECT
-                COUNT(*) FILTER (WHERE event_type = 'play') as total_plays,
-                COUNT(*) FILTER (WHERE event_type = 'complete' OR
-                    (event_type = 'play' AND (event_data->>'progress')::FLOAT >= 0.9)) as complete_plays,
-                COUNT(*) FILTER (WHERE event_type = 'pause' OR event_type = 'stop' OR
-                    (event_type = 'play' AND (event_data->>'progress')::FLOAT < 0.9)) as partial_plays,
-                COUNT(DISTINCT user_id) as unique_users,
-                COUNT(DISTINCT session_id) as unique_sessions,
-                AVG(CASE
-                    WHEN event_type = 'complete' THEN 1.0
-                    WHEN event_type = 'play' AND event_data->>'progress' IS NOT NULL
-                    THEN (event_data->>'progress')::FLOAT
-                    ELSE 0.0
-                END) as avg_completion_rate,
-                MIN(created_at) as first_played_at,
-                MAX(created_at) as last_played_at
-            FROM media_events
-            WHERE media_blob_id = $1
+            SELECT * FROM get_song_play_analytics($1)
             "#,
             media_blob_id
         )
@@ -462,7 +446,9 @@ impl<'a> AnalyticsRepository<'a> {
         .await?;
 
         Ok(PlayAnalytics {
-            media_blob_id: media_blob_id.to_string(),
+            media_blob_id: row
+                .media_blob_id
+                .unwrap_or_else(|| media_blob_id.to_string()),
             total_plays: row.total_plays.unwrap_or(0),
             complete_plays: row.complete_plays.unwrap_or(0),
             partial_plays: row.partial_plays.unwrap_or(0),
@@ -472,10 +458,193 @@ impl<'a> AnalyticsRepository<'a> {
                 .avg_completion_rate
                 .and_then(|d| d.to_f64())
                 .unwrap_or(0.0),
-            total_play_time_seconds: 0, // TODO: Calculate from event data
+            total_play_time_seconds: row.total_play_time_seconds.unwrap_or(0),
+            avg_play_time_seconds: row
+                .avg_play_time_seconds
+                .and_then(|d| d.to_f64())
+                .unwrap_or(0.0),
             last_played_at: row.last_played_at,
             first_played_at: row.first_played_at,
+            play_count_last_24h: row.play_count_last_24h.unwrap_or(0),
+            play_count_last_7d: row.play_count_last_7d.unwrap_or(0),
+            play_count_last_30d: row.play_count_last_30d.unwrap_or(0),
         })
+    }
+
+    /// Get trending songs based on play velocity and momentum
+    pub async fn get_trending_songs(
+        &self,
+        time_period_hours: i32,
+        limit_count: i32,
+        domain_filter: Option<&str>,
+    ) -> Result<Vec<TrendingSong>, MediaAnalyticsError> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT * FROM get_trending_songs($1, $2, $3)
+            "#,
+            time_period_hours,
+            limit_count,
+            domain_filter
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let trending_songs = rows
+            .into_iter()
+            .map(|row| TrendingSong {
+                media_blob_id: row.media_blob_id.unwrap_or_default(),
+                domain_id: row.domain_id,
+                current_period_plays: row.current_period_plays.unwrap_or(0),
+                previous_period_plays: row.previous_period_plays.unwrap_or(0),
+                trend_score: row.trend_score.and_then(|d| d.to_f64()).unwrap_or(0.0),
+                velocity_score: row.velocity_score.and_then(|d| d.to_f64()).unwrap_or(0.0),
+                unique_users: row.unique_users.unwrap_or(0),
+                completion_rate: row.completion_rate.and_then(|d| d.to_f64()).unwrap_or(0.0),
+            })
+            .collect();
+
+        Ok(trending_songs)
+    }
+
+    /// Get user listening streaks and engagement patterns
+    pub async fn get_user_listening_streaks(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<UserListeningStreaks>, MediaAnalyticsError> {
+        let row = sqlx::query!(
+            r#"
+            SELECT * FROM get_user_listening_streaks($1)
+            "#,
+            user_id
+        )
+        .fetch_optional(self.db.pool())
+        .await?;
+
+        if let Some(row) = row {
+            Ok(Some(UserListeningStreaks {
+                user_id: row.user_id.unwrap_or(user_id),
+                current_streak_days: row.current_streak_days.unwrap_or(0),
+                longest_streak_days: row.longest_streak_days.unwrap_or(0),
+                total_listening_days: row.total_listening_days.unwrap_or(0),
+                avg_daily_plays: row.avg_daily_plays.and_then(|d| d.to_f64()).unwrap_or(0.0),
+                favorite_listening_hour: row.favorite_listening_hour.unwrap_or(0),
+                most_played_day_of_week: row.most_played_day_of_week.unwrap_or(0),
+                total_unique_songs: row.total_unique_songs.unwrap_or(0),
+                completion_rate: row.completion_rate.and_then(|d| d.to_f64()).unwrap_or(0.0),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get genre listening patterns for music taste analysis
+    pub async fn get_genre_listening_patterns(
+        &self,
+        days_back: i32,
+        min_plays: i32,
+    ) -> Result<Vec<GenreListeningPattern>, MediaAnalyticsError> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT * FROM get_genre_listening_patterns($1, $2)
+            "#,
+            days_back,
+            min_plays
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let patterns = rows
+            .into_iter()
+            .map(|row| GenreListeningPattern {
+                genre: row.genre.unwrap_or_else(|| "unknown".to_string()),
+                total_plays: row.total_plays.unwrap_or(0),
+                unique_users: row.unique_users.unwrap_or(0),
+                unique_songs: row.unique_songs.unwrap_or(0),
+                avg_completion_rate: row
+                    .avg_completion_rate
+                    .and_then(|d| d.to_f64())
+                    .unwrap_or(0.0),
+                trend_direction: row.trend_direction.unwrap_or_else(|| "stable".to_string()),
+                popularity_rank: row.popularity_rank.unwrap_or(0),
+            })
+            .collect();
+
+        Ok(patterns)
+    }
+
+    /// Calculate listening time by time period for user analytics
+    pub async fn calculate_listening_time_by_period(
+        &self,
+        user_id: Uuid,
+        period_type: &str,
+    ) -> Result<Vec<ListeningTimePeriod>, MediaAnalyticsError> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT * FROM calculate_listening_time_by_period($1, $2)
+            "#,
+            user_id,
+            period_type
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let periods = rows
+            .into_iter()
+            .map(|row| ListeningTimePeriod {
+                period_start: row
+                    .period_start
+                    .unwrap_or_else(|| OffsetDateTime::now_utc()),
+                period_end: row.period_end.unwrap_or_else(|| OffsetDateTime::now_utc()),
+                total_listening_seconds: row.total_listening_seconds.unwrap_or(0),
+                unique_songs_played: row.unique_songs_played.unwrap_or(0),
+                total_play_events: row.total_play_events.unwrap_or(0),
+                avg_session_length_minutes: row
+                    .avg_session_length_minutes
+                    .and_then(|d| d.to_f64())
+                    .unwrap_or(0.0),
+            })
+            .collect();
+
+        Ok(periods)
+    }
+
+    /// Get popular songs by time period with momentum calculation
+    pub async fn get_popular_songs_by_period(
+        &self,
+        period_hours: i32,
+        limit_count: i32,
+        min_plays: i32,
+    ) -> Result<Vec<PopularSong>, MediaAnalyticsError> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT * FROM get_popular_songs_by_period($1, $2, $3)
+            "#,
+            period_hours,
+            limit_count,
+            min_plays
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let popular_songs = rows
+            .into_iter()
+            .map(|row| PopularSong {
+                media_blob_id: row.media_blob_id.unwrap_or_default(),
+                domain_id: row.domain_id,
+                play_count: row.play_count.unwrap_or(0),
+                unique_users: row.unique_users.unwrap_or(0),
+                completion_rate: row.completion_rate.and_then(|d| d.to_f64()).unwrap_or(0.0),
+                momentum_score: row.momentum_score.and_then(|d| d.to_f64()).unwrap_or(0.0),
+                first_play_at: row
+                    .first_play_at
+                    .unwrap_or_else(|| OffsetDateTime::now_utc()),
+                latest_play_at: row
+                    .latest_play_at
+                    .unwrap_or_else(|| OffsetDateTime::now_utc()),
+            })
+            .collect();
+
+        Ok(popular_songs)
     }
 
     /// Get user listening history

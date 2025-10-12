@@ -4,7 +4,8 @@
 //! validation, and data operations for analytics functionality.
 
 use super::media_events::{
-    MediaAnalyticsError, MediaEvent, MediaEventRequest, PlayAnalytics, UserListeningHistory,
+    GenreListeningPattern, ListeningTimePeriod, MediaAnalyticsError, MediaEvent, MediaEventRequest,
+    PlayAnalytics, PopularSong, TrendingSong, UserListeningHistory, UserListeningStreaks,
 };
 use super::models::{
     AnalyticsConfig, AnalyticsError, RequestAnalytics, RequestMetrics, TimeSeriesPoint,
@@ -261,6 +262,123 @@ impl<'a> AnalyticsService<'a> {
 
         self.repo
             .get_user_listening_history(user_id, limit, offset)
+            .await
+    }
+
+    /// Get trending songs based on play velocity and momentum
+    pub async fn get_trending_songs(
+        &self,
+        time_period_hours: i32,
+        limit_count: i32,
+        domain_filter: Option<&str>,
+    ) -> Result<Vec<TrendingSong>, MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Err(MediaAnalyticsError::InvalidEventData(
+                "Analytics disabled".to_string(),
+            ));
+        }
+
+        self.repo
+            .get_trending_songs(time_period_hours, limit_count, domain_filter)
+            .await
+    }
+
+    /// Get user listening streaks and engagement patterns
+    pub async fn get_user_listening_streaks(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<UserListeningStreaks>, MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Err(MediaAnalyticsError::InvalidEventData(
+                "Analytics disabled".to_string(),
+            ));
+        }
+
+        self.repo.get_user_listening_streaks(user_id).await
+    }
+
+    /// Get genre listening patterns for music taste analysis
+    pub async fn get_genre_listening_patterns(
+        &self,
+        days_back: i32,
+        min_plays: i32,
+    ) -> Result<Vec<GenreListeningPattern>, MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Err(MediaAnalyticsError::InvalidEventData(
+                "Analytics disabled".to_string(),
+            ));
+        }
+
+        self.repo
+            .get_genre_listening_patterns(days_back, min_plays)
+            .await
+    }
+
+    /// Calculate listening time by time period for user analytics
+    pub async fn calculate_listening_time_by_period(
+        &self,
+        user_id: Uuid,
+        period_type: &str,
+    ) -> Result<Vec<ListeningTimePeriod>, MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Err(MediaAnalyticsError::InvalidEventData(
+                "Analytics disabled".to_string(),
+            ));
+        }
+
+        // Validate period type
+        if !["hour", "day", "week", "month"].contains(&period_type) {
+            return Err(MediaAnalyticsError::InvalidEventData(format!(
+                "Invalid period type: {}. Must be hour, day, week, or month",
+                period_type
+            )));
+        }
+
+        self.repo
+            .calculate_listening_time_by_period(user_id, period_type)
+            .await
+    }
+
+    /// Get popular songs by time period with momentum calculation
+    pub async fn get_popular_songs_by_period(
+        &self,
+        period_hours: i32,
+        limit_count: i32,
+        min_plays: i32,
+    ) -> Result<Vec<PopularSong>, MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Err(MediaAnalyticsError::InvalidEventData(
+                "Analytics disabled".to_string(),
+            ));
+        }
+
+        self.repo
+            .get_popular_songs_by_period(period_hours, limit_count, min_plays)
+            .await
+    }
+
+    /// Get trending songs for the last 24 hours (convenience method)
+    pub async fn get_trending_songs_24h(
+        &self,
+        limit: i32,
+    ) -> Result<Vec<TrendingSong>, MediaAnalyticsError> {
+        self.get_trending_songs(24, limit, Some("song")).await
+    }
+
+    /// Get popular songs for the last week (convenience method)
+    pub async fn get_popular_songs_week(
+        &self,
+        limit: i32,
+    ) -> Result<Vec<PopularSong>, MediaAnalyticsError> {
+        self.get_popular_songs_by_period(24 * 7, limit, 3).await
+    }
+
+    /// Get user daily listening time for the last 30 days (convenience method)
+    pub async fn get_user_daily_listening_time(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<ListeningTimePeriod>, MediaAnalyticsError> {
+        self.calculate_listening_time_by_period(user_id, "day")
             .await
     }
 

@@ -151,8 +151,12 @@ pub async fn get_song_plays(
                 unique_sessions: 0,
                 avg_completion_rate: 0.0,
                 total_play_time_seconds: 0,
+                avg_play_time_seconds: 0.0,
                 last_played_at: None,
                 first_played_at: None,
+                play_count_last_24h: 0,
+                play_count_last_7d: 0,
+                play_count_last_30d: 0,
             };
             Ok(Json(empty_analytics))
         }
@@ -216,6 +220,11 @@ pub async fn admin_analytics_query(
         "user_history" => handle_admin_user_history_query(&analytics_service, query.params).await,
         "trends" => handle_trends_query(&analytics_service, query.params).await,
         "song_analytics" => handle_song_analytics_query(&analytics_service, query.params).await,
+        "trending_songs" => handle_trending_songs_query(&analytics_service, query.params).await,
+        "user_streaks" => handle_user_streaks_query(&analytics_service, query.params).await,
+        "genre_patterns" => handle_genre_patterns_query(&analytics_service, query.params).await,
+        "listening_time" => handle_listening_time_query(&analytics_service, query.params).await,
+        "popular_songs" => handle_popular_songs_query(&analytics_service, query.params).await,
         _ => Err(AppError::BadRequest(format!(
             "Unknown query type: {}",
             query.query_type
@@ -239,17 +248,41 @@ async fn handle_overview_query(
     Ok(Json(overview))
 }
 
-async fn handle_top_songs_query(
-    _analytics_service: &AnalyticsService<'_>,
-    _params: serde_json::Value,
-) -> Result<Json<serde_json::Value>, AppError> {
-    // TODO: Implement top songs analytics
-    let top_songs = json!({
-        "songs": [],
-        "note": "Top songs analytics not yet implemented"
-    });
+#[derive(Deserialize)]
+struct TopSongsParams {
+    period_hours: Option<i32>,
+    limit: Option<i32>,
+    min_plays: Option<i32>,
+}
 
-    Ok(Json(top_songs))
+async fn handle_top_songs_query(
+    analytics_service: &AnalyticsService<'_>,
+    params: serde_json::Value,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let params: TopSongsParams = serde_json::from_value(params)
+        .map_err(|e| AppError::BadRequest(format!("Invalid params: {}", e)))?;
+
+    let period_hours = params.period_hours.unwrap_or(24 * 7); // default to week
+    let limit = params.limit.unwrap_or(20);
+    let min_plays = params.min_plays.unwrap_or(3);
+
+    match analytics_service
+        .get_popular_songs_by_period(period_hours, limit, min_plays)
+        .await
+    {
+        Ok(popular_songs) => Ok(Json(json!({
+            "songs": popular_songs,
+            "period_hours": period_hours,
+            "limit": limit
+        }))),
+        Err(e) => {
+            tracing::warn!("Failed to get top songs: {}", e);
+            Err(AppError::BadRequest(format!(
+                "Failed to get top songs: {}",
+                e
+            )))
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -284,18 +317,210 @@ async fn handle_admin_user_history_query(
     }
 }
 
-async fn handle_trends_query(
-    _analytics_service: &AnalyticsService<'_>,
-    _params: serde_json::Value,
-) -> Result<Json<serde_json::Value>, AppError> {
-    // TODO: Implement trends analytics
-    let trends = json!({
-        "daily_plays": [],
-        "weekly_plays": [],
-        "note": "Trends analytics not yet implemented"
-    });
+#[derive(Deserialize)]
+struct TrendsParams {
+    time_period_hours: Option<i32>,
+    limit: Option<i32>,
+}
 
-    Ok(Json(trends))
+async fn handle_trends_query(
+    analytics_service: &AnalyticsService<'_>,
+    params: serde_json::Value,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let params: TrendsParams = serde_json::from_value(params)
+        .map_err(|e| AppError::BadRequest(format!("Invalid params: {}", e)))?;
+
+    let time_period_hours = params.time_period_hours.unwrap_or(24);
+    let limit = params.limit.unwrap_or(50);
+
+    match analytics_service
+        .get_trending_songs(time_period_hours, limit, Some("song"))
+        .await
+    {
+        Ok(trending_songs) => Ok(Json(json!({
+            "trending_songs": trending_songs,
+            "time_period_hours": time_period_hours,
+            "limit": limit
+        }))),
+        Err(e) => {
+            tracing::warn!("Failed to get trends: {}", e);
+            Err(AppError::BadRequest(format!("Failed to get trends: {}", e)))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct TrendingSongsParams {
+    time_period_hours: Option<i32>,
+    limit: Option<i32>,
+    domain_filter: Option<String>,
+}
+
+async fn handle_trending_songs_query(
+    analytics_service: &AnalyticsService<'_>,
+    params: serde_json::Value,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let params: TrendingSongsParams = serde_json::from_value(params)
+        .map_err(|e| AppError::BadRequest(format!("Invalid params: {}", e)))?;
+
+    let time_period_hours = params.time_period_hours.unwrap_or(24);
+    let limit = params.limit.unwrap_or(50);
+    let domain_filter = params.domain_filter.as_deref();
+
+    match analytics_service
+        .get_trending_songs(time_period_hours, limit, domain_filter)
+        .await
+    {
+        Ok(trending_songs) => Ok(Json(json!({
+            "trending_songs": trending_songs,
+            "time_period_hours": time_period_hours,
+            "limit": limit
+        }))),
+        Err(e) => {
+            tracing::warn!("Failed to get trending songs: {}", e);
+            Err(AppError::BadRequest(format!(
+                "Failed to get trending songs: {}",
+                e
+            )))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct UserStreaksParams {
+    user_id: Uuid,
+}
+
+async fn handle_user_streaks_query(
+    analytics_service: &AnalyticsService<'_>,
+    params: serde_json::Value,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let params: UserStreaksParams = serde_json::from_value(params)
+        .map_err(|e| AppError::BadRequest(format!("Invalid params: {}", e)))?;
+
+    match analytics_service
+        .get_user_listening_streaks(params.user_id)
+        .await
+    {
+        Ok(streaks) => Ok(Json(json!({
+            "user_id": params.user_id,
+            "streaks": streaks
+        }))),
+        Err(e) => {
+            tracing::warn!("Failed to get user streaks: {}", e);
+            Err(AppError::BadRequest(format!(
+                "Failed to get user streaks: {}",
+                e
+            )))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct GenrePatternsParams {
+    days_back: Option<i32>,
+    min_plays: Option<i32>,
+}
+
+async fn handle_genre_patterns_query(
+    analytics_service: &AnalyticsService<'_>,
+    params: serde_json::Value,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let params: GenrePatternsParams = serde_json::from_value(params)
+        .map_err(|e| AppError::BadRequest(format!("Invalid params: {}", e)))?;
+
+    let days_back = params.days_back.unwrap_or(30);
+    let min_plays = params.min_plays.unwrap_or(5);
+
+    match analytics_service
+        .get_genre_listening_patterns(days_back, min_plays)
+        .await
+    {
+        Ok(patterns) => Ok(Json(json!({
+            "genre_patterns": patterns,
+            "days_back": days_back,
+            "min_plays": min_plays
+        }))),
+        Err(e) => {
+            tracing::warn!("Failed to get genre patterns: {}", e);
+            Err(AppError::BadRequest(format!(
+                "Failed to get genre patterns: {}",
+                e
+            )))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ListeningTimeParams {
+    user_id: Uuid,
+    period_type: Option<String>,
+}
+
+async fn handle_listening_time_query(
+    analytics_service: &AnalyticsService<'_>,
+    params: serde_json::Value,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let params: ListeningTimeParams = serde_json::from_value(params)
+        .map_err(|e| AppError::BadRequest(format!("Invalid params: {}", e)))?;
+
+    let period_type = params.period_type.as_deref().unwrap_or("day");
+
+    match analytics_service
+        .calculate_listening_time_by_period(params.user_id, period_type)
+        .await
+    {
+        Ok(periods) => Ok(Json(json!({
+            "user_id": params.user_id,
+            "period_type": period_type,
+            "listening_periods": periods
+        }))),
+        Err(e) => {
+            tracing::warn!("Failed to get listening time: {}", e);
+            Err(AppError::BadRequest(format!(
+                "Failed to get listening time: {}",
+                e
+            )))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct PopularSongsParams {
+    period_hours: Option<i32>,
+    limit: Option<i32>,
+    min_plays: Option<i32>,
+}
+
+async fn handle_popular_songs_query(
+    analytics_service: &AnalyticsService<'_>,
+    params: serde_json::Value,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let params: PopularSongsParams = serde_json::from_value(params)
+        .map_err(|e| AppError::BadRequest(format!("Invalid params: {}", e)))?;
+
+    let period_hours = params.period_hours.unwrap_or(24 * 7); // default to week
+    let limit = params.limit.unwrap_or(20);
+    let min_plays = params.min_plays.unwrap_or(3);
+
+    match analytics_service
+        .get_popular_songs_by_period(period_hours, limit, min_plays)
+        .await
+    {
+        Ok(popular_songs) => Ok(Json(json!({
+            "popular_songs": popular_songs,
+            "period_hours": period_hours,
+            "limit": limit,
+            "min_plays": min_plays
+        }))),
+        Err(e) => {
+            tracing::warn!("Failed to get popular songs: {}", e);
+            Err(AppError::BadRequest(format!(
+                "Failed to get popular songs: {}",
+                e
+            )))
+        }
+    }
 }
 
 #[derive(Deserialize)]
