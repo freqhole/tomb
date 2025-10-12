@@ -39,7 +39,7 @@ export class CollectionEventBuilder {
    */
   playCollection(eventData: CollectionPlayEventData): MediaEventRequest {
     return {
-      media_blob_id: eventData.first_song_id || null,
+      media_blob_id: null,
       event_type: "play",
       event_data: eventData,
       session_id: this.context.sessionId,

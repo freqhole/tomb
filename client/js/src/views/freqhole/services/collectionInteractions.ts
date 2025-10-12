@@ -79,7 +79,7 @@ export function useCollectionInteractions() {
       songs.length,
       shuffle,
       sessionId,
-      songs[0]?.id
+      songs[0]?.media_blob_id
     );
 
     // Prepare songs (shuffle if requested)

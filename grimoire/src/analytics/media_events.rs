@@ -281,6 +281,7 @@ pub struct MediaEvent {
     pub domain_type: Option<DomainType>,
     pub domain_ids: Option<Vec<String>>,
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::iso8601::option")]
     pub client_timestamp: Option<OffsetDateTime>,
 }
 
@@ -473,6 +474,7 @@ pub struct MediaEventRequest {
     pub session_id: Option<Uuid>,
     pub domain_type: Option<DomainType>,
     pub domain_ids: Option<Vec<String>>,
+    #[serde(with = "time::serde::iso8601::option")]
     pub client_timestamp: Option<OffsetDateTime>,
 }
 
