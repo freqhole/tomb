@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE analytics_jobs\n            SET status = 'pending',\n                updated_at = NOW(),\n                error_message = NULL\n            WHERE status = 'failed'\n            AND created_at >= NOW() - INTERVAL '24 hours'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "50eb208f838bb626cd91f05664f9441edac21ff56023ac8a334d5881c8794664"
+}

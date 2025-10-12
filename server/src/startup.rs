@@ -1,5 +1,5 @@
 use crate::download::DownloadJobQueue;
-use crate::jobs::{MusicJobQueue, ThumbnailJobQueue};
+use crate::jobs::{AnalyticsJobQueue, MusicJobQueue, ThumbnailJobQueue};
 use crate::maintenance::{MaintenanceConfig, MaintenanceScheduler};
 use crate::notifications::NotificationInfrastructure;
 use crate::storage::SessionStore;
@@ -44,6 +44,8 @@ pub struct AppState {
     pub thumbnail_queue: Arc<tokio::sync::Mutex<ThumbnailJobQueue>>,
     // Music job queue for background processing
     pub music_queue: Arc<tokio::sync::Mutex<MusicJobQueue>>,
+    // Analytics job queue for background analytics processing
+    pub analytics_queue: Arc<tokio::sync::Mutex<AnalyticsJobQueue>>,
     // Download job queue for URL-based downloads
     pub download_queue: Arc<tokio::sync::Mutex<DownloadJobQueue>>,
     // WebSocket connection manager for real-time notifications
@@ -199,7 +201,26 @@ impl AppState {
             }
         }
 
-        // Initialize music job queue with notification support
+        // Initialize analytics job queue with notification support
+        let mut analytics_queue =
+            AnalyticsJobQueue::new_with_notifications(database.clone(), notification_tx.clone());
+
+        // Start analytics workers
+        let analytics_worker_count = 2; // Default to 2 analytics workers
+        match analytics_queue.start_workers(analytics_worker_count).await {
+            Ok(_) => {
+                tracing::info!(
+                    "✅ Started {} analytics job workers",
+                    analytics_worker_count
+                );
+            }
+            Err(e) => {
+                tracing::error!("❌ Failed to start analytics workers: {}", e);
+                tracing::warn!("Analytics background jobs will not be available");
+            }
+        }
+
+        // Initialize download job queue with notification support
         let mut music_queue =
             MusicJobQueue::new_with_notifications(database.clone(), notification_tx.clone());
 
@@ -306,6 +327,7 @@ impl AppState {
             config,
             thumbnail_queue: thumbnail_queue_arc,
             music_queue: Arc::new(tokio::sync::Mutex::new(music_queue)),
+            analytics_queue: Arc::new(tokio::sync::Mutex::new(analytics_queue)),
             download_queue: Arc::new(tokio::sync::Mutex::new(download_queue)),
             connection_manager,
             maintenance_scheduler,

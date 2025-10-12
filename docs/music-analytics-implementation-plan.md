@@ -213,26 +213,32 @@ migration `060_analytics_materialized_views.sql` implemented:
 - ✅ performance indexes for fast lookups, rankings, and period-based queries
 - ✅ integrated into repository with refresh capabilities
 
-### 3.3 background analytics jobs (NEXT)
+### 3.3 background analytics jobs ✅ COMPLETE
 
-create rust background job system:
+migration `061_analytics_jobs.sql` and job queue system implemented:
 
-- implement scheduled aggregation jobs in grimoire
-- daily rollup of play counts and user statistics
-- weekly trend analysis and caching
-- cleanup jobs for old raw events (retain aggregated data)
-- notification system for analytics milestones
+- ✅ created `AnalyticsJobQueue` following existing job queue patterns from thumbnails/music jobs
+- ✅ implemented scheduled aggregation jobs with `analytics_jobs` table and proper indexing
+- ✅ daily rollup jobs with materialized view refresh and statistics aggregation
+- ✅ weekly trend analysis jobs with trending songs calculation and caching
+- ✅ cleanup jobs for old raw events with configurable retention (90 days default)
+- ✅ analytics milestones detection system for notifications
+- ✅ integrated into server startup with 2 background workers and notification support
+- ✅ automatic job scheduling: daily rollup (2am), weekly trends (3am monday), materialized view refresh (every 6h), monthly cleanup
+- ✅ job queue management with retry logic, exponential backoff, and statistics tracking
+- ✅ database functions: `schedule_recurring_analytics_jobs()`, `get_analytics_job_queue_status()`, `retry_failed_analytics_jobs()`
 
-### implementation approach
+**testing**: 4 scheduled jobs created automatically, job queue operational with proper status tracking and worker management
 
-build on existing foundation:
+### implementation approach ✅ COMPLETE
 
-- extend current `grimoire/src/analytics/repository.rs` with new query methods
-- add job scheduling system using existing patterns from thumbnails/musicbrainz jobs
-- create admin dashboard queries in existing `server/src/analytics/media_handlers.rs`
-- leverage existing `POST /api/admin/analytics/query` endpoint with new query types
+built on existing foundation successfully:
 
-**testing**: use existing analytics data to test aggregation accuracy, verify performance with larger datasets
+- ✅ extended `grimoire/src/analytics/repository.rs` with materialized view refresh methods
+- ✅ added job scheduling system using proven patterns from existing job queues
+- ✅ enhanced admin dashboard queries in `server/src/analytics/media_handlers.rs` with new analytics endpoints
+- ✅ leveraged existing `POST /api/admin/analytics/query` endpoint with 5 new query types
+- ✅ integrated into server startup alongside thumbnail and music job queues
 
 ## phase 4: analytics dashboard ui (FUTURE)
 
