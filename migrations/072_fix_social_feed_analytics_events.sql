@@ -18,6 +18,7 @@ BEGIN
             me.event_data,
             me.user_id,
             me.created_at,
+            me.media_blob_id,
             EXTRACT(EPOCH FROM (NOW() - me.created_at)) / 60 as age_minutes,
             -- Session gap detection using window functions
             COALESCE(
@@ -95,6 +96,7 @@ BEGIN
             sb.created_at,
             sb.age_minutes,
             sb.session_group,
+            sb.media_blob_id,
             -- Progressive temporal grouping key
             CASE
                 WHEN sb.age_minutes < 15 THEN
@@ -171,15 +173,62 @@ BEGIN
                     WHEN 'unfavorite' THEN 3
                     ELSE 4
                 END, pg.created_at DESC))[1] as latest_event_data,
-            -- Collection grid with simplified aggregation
+            -- Collection grid with full song records and metadata
             CASE
                 WHEN pg.grouping_level != 'individual' THEN
-                    jsonb_build_object(
-                        'total_collections', COUNT(DISTINCT pg.collection_name),
-                        'collections', string_agg(DISTINCT pg.collection_name, ', ' ORDER BY pg.collection_name),
-                        'domain_types', string_agg(DISTINCT pg.domain_type, ', ' ORDER BY pg.domain_type),
-                        'grouping_level', pg.grouping_level
+                    (SELECT jsonb_build_object(
+                        'total_songs', COUNT(DISTINCT all_song_ids.song_id),
+                        'grouping_level', pg.grouping_level,
+                        'songs', jsonb_agg(jsonb_build_object(
+                            'id', s.media_blob_id,
+                            'title', s.title,
+                            'artist', s.artist,
+                            'album', s.album,
+                            'year', s.year,
+                            'genre', s.genre,
+                            'sub_genres', s.sub_genres,
+                            'tags', s.tags,
+                            'disc_number', s.disc_number,
+                            'track_number', s.track_number,
+                            'duration', s.duration,
+                            'thumbnail_blob_id', s.thumbnail_blob_id,
+                            'domain_type', 'song',
+                            'user_rating', (
+                                SELECT ur.rating
+                                FROM user_ratings ur
+                                WHERE ur.domain_type = 'song'
+                                AND s.media_blob_id = ANY(ur.domain_ids)
+                                AND ur.user_id = pg.user_id
+                                LIMIT 1
+                            ),
+                            'is_favorite', EXISTS(
+                                SELECT 1
+                                FROM user_favorites uf
+                                WHERE uf.domain_type = 'song'
+                                AND s.media_blob_id = ANY(uf.domain_ids)
+                                AND uf.user_id = pg.user_id
+                            )
+                        ) ORDER BY
+                            COALESCE(s.disc_number, 1),
+                            COALESCE(s.track_number, 999),
+                            s.created_at
+                        )
                     )
+                    FROM (
+                        -- Get all song IDs from domain_ids arrays and individual media_blob_ids
+                        SELECT unnest(pg2.domain_ids) as song_id
+                        FROM progressive_groups pg2
+                        WHERE pg2.grouping_key = pg.grouping_key
+                        AND pg2.domain_ids IS NOT NULL
+                        UNION
+                        SELECT pg2.media_blob_id as song_id
+                        FROM progressive_groups pg2
+                        WHERE pg2.grouping_key = pg.grouping_key
+                        AND pg2.media_blob_id IS NOT NULL
+                    ) all_song_ids
+                    INNER JOIN songs s ON s.media_blob_id = all_song_ids.song_id
+                    WHERE s.deleted_at IS NULL
+                    LIMIT 12)
                 ELSE NULL
             END as collection_grid,
             MIN(pg.age_minutes) as min_age_minutes
