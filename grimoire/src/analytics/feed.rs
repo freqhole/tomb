@@ -6,7 +6,7 @@ use time::OffsetDateTime;
 pub struct FeedItem {
     pub item_type: FeedItemType,
     pub domain_type: Option<String>,
-    pub domain_id: Option<String>,
+    pub domain_ids: Option<Vec<String>>,
     pub title: String,
     pub subtitle: Option<String>,
     pub image_url: Option<String>,
@@ -75,7 +75,7 @@ pub async fn get_social_feed(
         SELECT
             item_type,
             domain_type,
-            domain_id,
+            domain_ids,
             title,
             subtitle,
             image_url,
@@ -175,7 +175,7 @@ pub async fn get_social_feed(
             FeedItem {
                 item_type,
                 domain_type: row.domain_type,
-                domain_id: row.domain_id,
+                domain_ids: row.domain_ids,
                 title: row.title.unwrap_or_else(|| "untitled".to_string()),
                 subtitle: row.subtitle,
                 image_url: row.image_url,

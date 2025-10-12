@@ -305,7 +305,7 @@ impl<'a> AnalyticsRepository<'a> {
             INSERT INTO media_events (
                 id, media_blob_id, user_id, event_type, event_data,
                 session_id, user_agent, client_id,
-                domain_type, domain_id, created_at
+                domain_type, domain_ids, created_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
@@ -318,7 +318,7 @@ impl<'a> AnalyticsRepository<'a> {
             event.user_agent,
             event.client_id,
             event.domain_type.as_ref().map(|d| d.to_string()),
-            event.domain_id,
+            event.domain_ids.as_ref().map(|ids| ids.as_slice()),
             event.created_at
         )
         .execute(self.db.pool())
@@ -348,7 +348,7 @@ impl<'a> AnalyticsRepository<'a> {
                 INSERT INTO media_events (
                     id, media_blob_id, user_id, event_type, event_data,
                     session_id, user_agent, client_id,
-                    domain_type, domain_id, created_at
+                    domain_type, domain_ids, created_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 "#,
@@ -361,7 +361,7 @@ impl<'a> AnalyticsRepository<'a> {
                 event.user_agent,
                 event.client_id,
                 event.domain_type.as_ref().map(|d| d.to_string()),
-                event.domain_id,
+                event.domain_ids.as_ref().map(|ids| ids.as_slice()),
                 event.created_at
             )
             .execute(&mut *tx)
@@ -389,7 +389,7 @@ impl<'a> AnalyticsRepository<'a> {
             r#"
             SELECT id, media_blob_id, user_id, event_type, event_data,
                    session_id, user_agent, client_id,
-                   domain_type, domain_id, created_at
+                   domain_type, domain_ids, created_at
             FROM media_events
             WHERE session_id = $1
             ORDER BY created_at ASC
@@ -423,7 +423,7 @@ impl<'a> AnalyticsRepository<'a> {
                 user_agent: row.user_agent,
                 client_id: row.client_id,
                 domain_type: domain_type.flatten(),
-                domain_id: row.domain_id,
+                domain_ids: row.domain_ids,
                 created_at: row.created_at,
             });
         }
@@ -482,7 +482,7 @@ impl<'a> AnalyticsRepository<'a> {
             r#"
             SELECT
                 ts.media_blob_id,
-                ts.domain_id,
+                ts.domain_ids,
                 ts.current_period_plays,
                 ts.previous_period_plays,
                 ts.trend_score,
@@ -518,7 +518,7 @@ impl<'a> AnalyticsRepository<'a> {
             .into_iter()
             .map(|row| TrendingSong {
                 media_blob_id: row.media_blob_id.unwrap_or_default(),
-                domain_id: row.domain_id,
+                domain_ids: row.domain_ids,
                 current_period_plays: row.current_period_plays.unwrap_or(0),
                 previous_period_plays: row.previous_period_plays.unwrap_or(0),
                 trend_score: row.trend_score.and_then(|d| d.to_f64()).unwrap_or(0.0),
@@ -659,7 +659,7 @@ impl<'a> AnalyticsRepository<'a> {
             r#"
             SELECT
                 ps.media_blob_id,
-                ps.domain_id,
+                ps.domain_ids,
                 ps.play_count,
                 ps.unique_users,
                 ps.completion_rate,
@@ -695,7 +695,7 @@ impl<'a> AnalyticsRepository<'a> {
             .into_iter()
             .map(|row| PopularSong {
                 media_blob_id: row.media_blob_id.unwrap_or_default(),
-                domain_id: row.domain_id,
+                domain_ids: row.domain_ids,
                 play_count: row.play_count.unwrap_or(0),
                 unique_users: row.unique_users.unwrap_or(0),
                 completion_rate: row.completion_rate.and_then(|d| d.to_f64()).unwrap_or(0.0),
@@ -792,7 +792,7 @@ impl<'a> AnalyticsRepository<'a> {
                 me.event_type,
                 me.event_data,
                 me.domain_type,
-                me.domain_id,
+                me.domain_ids,
                 me.session_id,
                 me.created_at,
                 s.id as "song_id: Option<Uuid>",
@@ -842,7 +842,7 @@ impl<'a> AnalyticsRepository<'a> {
                 event_type,
                 event_data,
                 domain_type: domain_type.flatten(),
-                domain_id: row.domain_id,
+                domain_ids: row.domain_ids,
                 session_id: row.session_id,
                 created_at: row.created_at,
                 song_id: row.song_id,
@@ -878,7 +878,7 @@ impl<'a> AnalyticsRepository<'a> {
             r#"
             SELECT
                 domain_type,
-                domain_id,
+                domain_ids,
                 COUNT(*) FILTER (WHERE event_type = 'play') as play_count,
                 COUNT(DISTINCT user_id) as unique_users,
                 MAX(event_data->>'collection_name') as collection_name,
@@ -886,9 +886,9 @@ impl<'a> AnalyticsRepository<'a> {
             FROM media_events
             WHERE media_blob_id IS NULL
                 AND domain_type IS NOT NULL
-                AND domain_id IS NOT NULL
+                AND domain_ids IS NOT NULL
                 AND created_at >= NOW() - INTERVAL '1 day' * $1
-            GROUP BY domain_type, domain_id
+            GROUP BY domain_type, domain_ids
             HAVING COUNT(*) FILTER (WHERE event_type = 'play') > 0
             ORDER BY play_count DESC
             LIMIT $2
@@ -912,7 +912,7 @@ impl<'a> AnalyticsRepository<'a> {
 
             let collection = serde_json::json!({
                 "domain_type": row.domain_type,
-                "domain_id": row.domain_id,
+                "domain_ids": row.domain_ids,
                 "play_count": row.play_count.unwrap_or(0),
                 "unique_users": row.unique_users.unwrap_or(0),
                 "collection_name": row.collection_name,
@@ -938,10 +938,10 @@ impl<'a> AnalyticsRepository<'a> {
                 COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL AND domain_type = 'artist') as artist_plays,
                 COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL AND domain_type = 'genre') as genre_plays,
                 COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL AND domain_type = 'playlist') as playlist_plays,
-                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'album') as unique_albums,
-                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'artist') as unique_artists,
-                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'genre') as unique_genres,
-                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'playlist') as unique_playlists
+                COUNT(DISTINCT domain_ids) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'album') as unique_albums,
+                COUNT(DISTINCT domain_ids) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'artist') as unique_artists,
+                COUNT(DISTINCT domain_ids) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'genre') as unique_genres,
+                COUNT(DISTINCT domain_ids) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'playlist') as unique_playlists
             FROM media_events
             WHERE created_at >= NOW() - INTERVAL '1 day' * $1
             "#,

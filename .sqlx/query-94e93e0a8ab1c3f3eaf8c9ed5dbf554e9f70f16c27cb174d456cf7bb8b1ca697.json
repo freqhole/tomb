@@ -1,17 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                ts.media_blob_id,\n                ts.domain_id,\n                ts.current_period_plays,\n                ts.previous_period_plays,\n                ts.trend_score,\n                ts.velocity_score,\n                ts.unique_users,\n                ts.completion_rate,\n                s.id as song_id,\n                s.title,\n                s.artist,\n                s.album,\n                s.album_artist,\n                s.track_number,\n                s.disc_number,\n                EXTRACT(epoch FROM s.duration)::integer as duration_seconds,\n                s.genre,\n                s.year,\n                s.bpm,\n                s.key_signature,\n                s.thumbnail_blob_id,\n                s.waveform_blob_id,\n                s.created_at as song_created_at\n            FROM get_trending_songs($1, $2, $3) ts\n            LEFT JOIN songs s ON s.media_blob_id = ts.media_blob_id\n            ",
+  "query": "\n            SELECT\n                ts.media_blob_id,\n                ts.domain_ids,\n                ts.current_period_plays,\n                ts.previous_period_plays,\n                ts.trend_score,\n                ts.velocity_score,\n                ts.unique_users,\n                ts.completion_rate,\n                s.id as song_id,\n                s.title,\n                s.artist,\n                s.album,\n                s.album_artist,\n                s.track_number,\n                s.disc_number,\n                EXTRACT(epoch FROM s.duration)::integer as duration_seconds,\n                s.genre,\n                s.year,\n                s.bpm,\n                s.key_signature,\n                s.thumbnail_blob_id,\n                s.waveform_blob_id,\n                s.created_at as song_created_at\n            FROM get_trending_songs($1, $2, $3) ts\n            LEFT JOIN songs s ON s.media_blob_id = ts.media_blob_id\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "media_blob_id",
-        "type_info": "Varchar"
+        "type_info": "Text"
       },
       {
         "ordinal": 1,
-        "name": "domain_id",
-        "type_info": "Uuid"
+        "name": "domain_ids",
+        "type_info": "TextArray"
       },
       {
         "ordinal": 2,
@@ -26,12 +26,12 @@
       {
         "ordinal": 4,
         "name": "trend_score",
-        "type_info": "Numeric"
+        "type_info": "Float8"
       },
       {
         "ordinal": 5,
         "name": "velocity_score",
-        "type_info": "Numeric"
+        "type_info": "Float8"
       },
       {
         "ordinal": 6,
@@ -41,7 +41,7 @@
       {
         "ordinal": 7,
         "name": "completion_rate",
-        "type_info": "Numeric"
+        "type_info": "Float8"
       },
       {
         "ordinal": 8,
@@ -152,5 +152,5 @@
       true
     ]
   },
-  "hash": "969b1272a4eb4b98171b6af812e17e5923e78ea607075fb669dbc7ac6234cee7"
+  "hash": "94e93e0a8ab1c3f3eaf8c9ed5dbf554e9f70f16c27cb174d456cf7bb8b1ca697"
 }

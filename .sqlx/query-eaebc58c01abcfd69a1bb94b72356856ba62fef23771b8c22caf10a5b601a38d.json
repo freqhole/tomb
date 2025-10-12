@@ -1,17 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                ps.media_blob_id,\n                ps.domain_id,\n                ps.play_count,\n                ps.unique_users,\n                ps.completion_rate,\n                ps.momentum_score,\n                ps.first_play_at,\n                ps.latest_play_at,\n                s.id as song_id,\n                s.title,\n                s.artist,\n                s.album,\n                s.album_artist,\n                s.track_number,\n                s.disc_number,\n                EXTRACT(epoch FROM s.duration)::integer as duration_seconds,\n                s.genre,\n                s.year,\n                s.bpm,\n                s.key_signature,\n                s.thumbnail_blob_id,\n                s.waveform_blob_id,\n                s.created_at as song_created_at\n            FROM get_popular_songs_by_period($1, $2, $3) ps\n            LEFT JOIN songs s ON s.media_blob_id = ps.media_blob_id\n            ",
+  "query": "\n            SELECT\n                ps.media_blob_id,\n                ps.domain_ids,\n                ps.play_count,\n                ps.unique_users,\n                ps.completion_rate,\n                ps.momentum_score,\n                ps.first_play_at,\n                ps.latest_play_at,\n                s.id as song_id,\n                s.title,\n                s.artist,\n                s.album,\n                s.album_artist,\n                s.track_number,\n                s.disc_number,\n                EXTRACT(epoch FROM s.duration)::integer as duration_seconds,\n                s.genre,\n                s.year,\n                s.bpm,\n                s.key_signature,\n                s.thumbnail_blob_id,\n                s.waveform_blob_id,\n                s.created_at as song_created_at\n            FROM get_popular_songs_by_period($1, $2, $3) ps\n            LEFT JOIN songs s ON s.media_blob_id = ps.media_blob_id\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "media_blob_id",
-        "type_info": "Varchar"
+        "type_info": "Text"
       },
       {
         "ordinal": 1,
-        "name": "domain_id",
-        "type_info": "Uuid"
+        "name": "domain_ids",
+        "type_info": "TextArray"
       },
       {
         "ordinal": 2,
@@ -26,12 +26,12 @@
       {
         "ordinal": 4,
         "name": "completion_rate",
-        "type_info": "Numeric"
+        "type_info": "Float8"
       },
       {
         "ordinal": 5,
         "name": "momentum_score",
-        "type_info": "Numeric"
+        "type_info": "Float8"
       },
       {
         "ordinal": 6,
@@ -152,5 +152,5 @@
       true
     ]
   },
-  "hash": "b471dae31ae3c706ae4cd839b3f4c50415586ac61b86d25c2e6bd9b5940dea56"
+  "hash": "eaebc58c01abcfd69a1bb94b72356856ba62fef23771b8c22caf10a5b601a38d"
 }

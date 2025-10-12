@@ -211,11 +211,11 @@ impl<'a> AnalyticsService<'a> {
         event
             .with_session(session_id.or(request.session_id))
             .with_client_info(user_agent, None)
-            .with_domain(
+            .with_domain_ids(
                 request
                     .domain_type
                     .unwrap_or(super::media_events::DomainType::Song),
-                request.domain_id,
+                request.domain_ids,
             )
     }
 

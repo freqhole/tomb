@@ -1624,9 +1624,31 @@ following critical rules:
 
 this creates a social, discovery-oriented landing page that combines recent content creation with aggregated user activity, transforming the app from personal music management to a more engaging, community-driven music discovery experience while leveraging all existing infrastructure.
 
-## current implementation status
+## current implementation status - phase 9a database changes complete
 
-### ✅ completed components
+### ✅ phase 9a server-side schema complete
+
+**database migrations applied**:
+
+- migration 066: analytics resilient batching schema
+  - added `domain_ids TEXT[]` column for multi-item collections
+  - removed foreign key constraints for loose coupling
+  - added new event types: upload, create_playlist, add_to_playlist
+  - added indexes for domain_ids array queries and client_id correlation
+- migration 067: user social features
+  - added `is_owner` boolean to users table (edward marked as owner)
+  - created `user_favorites` table with domain_ids arrays
+  - created `user_ratings` table (1-5 stars) with domain_ids arrays
+  - added helper functions: get_username_safe, get_song_title_safe, get_playlist_title_safe
+
+**schema testing complete**:
+
+- ✅ new analytics events can use domain_ids arrays
+- ✅ loose coupling works (no foreign key constraints)
+- ✅ server owner attribution ready
+- ✅ example test event: album play with 2 song IDs in domain_ids array
+
+### ✅ completed components (phase 8)
 
 - **server-side sql aggregation**: complex feed query with joins, scoring, and mixed content types
 - **rust feed endpoint**: `/api/feed` with pagination and time filtering
@@ -1655,7 +1677,14 @@ this creates a social, discovery-oriented landing page that combines recent cont
 - **responsive design**: 2 columns mobile, 1-4 columns desktop based on screen size
 - **image support**: thumbnail urls with fallback icons (♪ for albums, ♭ for playlists)
 
-the foundation is solid and the major implementation work is complete - primarily needs testing and polish!
+**where to continue next session**:
+
+priority 1 (server-side): implement resilient batch processing endpoint to fix 400 errors
+priority 2 (client-side): update collection event builder to use domain_ids arrays
+priority 3 (debugging): investigate completion rate and genre patterns issues
+priority 4 (dashboard): redesign mobile-friendly SongRow component
+
+the database schema foundation is now complete with loose coupling and array-based collections!
 
 ## phase 9: true social feed with user attribution and unified timeline
 
@@ -2099,12 +2128,16 @@ debug steps:
 
 ### 9.9 implementation approach
 
-**phase 9a**: fix analytics event schema and 400 errors + resilient batching
+**phase 9a**: fix analytics event schema and 400 errors + resilient batching ✅ COMPLETE
 
-1. add `domain_ids` column and update constraints
-2. fix collection event builder to use proper arrays
-3. implement resilient event batching system
-4. test existing play events work correctly
+1. ✅ add `domain_ids` column and update constraints (migration 066 applied)
+2. ✅ remove foreign key constraints for loose coupling (migration 066 applied)
+3. ✅ add new event types (upload, create_playlist, add_to_playlist)
+4. ✅ create user_favorites and user_ratings tables (migration 067 applied)
+5. ✅ mark server owner (edward) for attribution
+6. ✅ test new schema works with domain_ids arrays
+7. 🔄 NEXT: implement resilient event batching system
+8. 🔄 NEXT: fix collection event builder to use proper arrays
 
 **resilient event batching strategy**:
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                me.media_blob_id,\n                me.event_type,\n                me.event_data,\n                me.domain_type,\n                me.domain_id,\n                me.session_id,\n                me.created_at,\n                s.id as \"song_id: Option<Uuid>\",\n                s.title as \"title: Option<String>\",\n                s.artist,\n                s.album,\n                s.album_artist,\n                s.track_number,\n                s.disc_number,\n                EXTRACT(epoch FROM s.duration)::integer as duration_seconds,\n                s.genre,\n                s.year,\n                s.bpm,\n                s.key_signature,\n                s.thumbnail_blob_id,\n                s.waveform_blob_id,\n                s.created_at as \"song_created_at: Option<OffsetDateTime>\"\n            FROM media_events me\n            LEFT JOIN songs s ON s.media_blob_id = me.media_blob_id\n            WHERE me.user_id = $1\n            ORDER BY me.created_at DESC\n            LIMIT $2 OFFSET $3\n            ",
+  "query": "\n            SELECT\n                me.media_blob_id,\n                me.event_type,\n                me.event_data,\n                me.domain_type,\n                me.domain_ids,\n                me.session_id,\n                me.created_at,\n                s.id as \"song_id: Option<Uuid>\",\n                s.title as \"title: Option<String>\",\n                s.artist,\n                s.album,\n                s.album_artist,\n                s.track_number,\n                s.disc_number,\n                EXTRACT(epoch FROM s.duration)::integer as duration_seconds,\n                s.genre,\n                s.year,\n                s.bpm,\n                s.key_signature,\n                s.thumbnail_blob_id,\n                s.waveform_blob_id,\n                s.created_at as \"song_created_at: Option<OffsetDateTime>\"\n            FROM media_events me\n            LEFT JOIN songs s ON s.media_blob_id = me.media_blob_id\n            WHERE me.user_id = $1\n            ORDER BY me.created_at DESC\n            LIMIT $2 OFFSET $3\n            ",
   "describe": {
     "columns": [
       {
@@ -25,8 +25,8 @@
       },
       {
         "ordinal": 4,
-        "name": "domain_id",
-        "type_info": "Uuid"
+        "name": "domain_ids",
+        "type_info": "TextArray"
       },
       {
         "ordinal": 5,
@@ -146,5 +146,5 @@
       false
     ]
   },
-  "hash": "afc32919b2a5475f022b8bd11e0820f320f1b9f1a99a387fbc3001bc39e7b1c9"
+  "hash": "b2d0295fc51ec9e1fc0ba5a6d71d1e0ba3e87e18d115be4914f19eaa953ea72e"
 }

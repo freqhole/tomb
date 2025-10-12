@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, media_blob_id, user_id, event_type, event_data,\n                   session_id, user_agent, client_id,\n                   domain_type, domain_id, created_at\n            FROM media_events\n            WHERE session_id = $1\n            ORDER BY created_at ASC\n            ",
+  "query": "\n            SELECT id, media_blob_id, user_id, event_type, event_data,\n                   session_id, user_agent, client_id,\n                   domain_type, domain_ids, created_at\n            FROM media_events\n            WHERE session_id = $1\n            ORDER BY created_at ASC\n            ",
   "describe": {
     "columns": [
       {
@@ -50,8 +50,8 @@
       },
       {
         "ordinal": 9,
-        "name": "domain_id",
-        "type_info": "Uuid"
+        "name": "domain_ids",
+        "type_info": "TextArray"
       },
       {
         "ordinal": 10,
@@ -78,5 +78,5 @@
       false
     ]
   },
-  "hash": "aec70b91e1c609158059e0b7c2fda67c9ce2abd3a11b1b131ccc592545d40a59"
+  "hash": "b427f810981baef643da81c045888a2d1195d4b4e0ef15ebc6e91033270e2814"
 }

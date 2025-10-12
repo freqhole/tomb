@@ -10,13 +10,14 @@ use axum::{
 };
 use grimoire::analytics::{
     feed::{get_social_feed, FeedResponse},
-    AnalyticsService, MediaAnalyticsError, MediaEventBatchRequest, MediaEventBatchResponse,
-    MediaEventRequest, MediaEventResponse, PlayAnalytics,
+    AnalyticsService, EventBatchResult, FailedEvent, MediaAnalyticsError, MediaEventBatchRequest,
+    MediaEventRequest, MediaEventResponse, PlayAnalytics, ProcessedEvent,
 };
 use grimoire::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
+use time;
 use tower_sessions::Session;
 use uuid::Uuid;
 
@@ -46,85 +47,58 @@ pub async fn record_events(
 
     // Handle both single event and batch requests
     if let Ok(single_request) = serde_json::from_value::<MediaEventRequest>(payload.clone()) {
-        // Single event
-        let event = analytics_service.create_media_event_from_request(
-            single_request,
+        // Single event - process with resilient handling
+        let result = record_events_resilient(
+            vec![single_request],
+            &analytics_service,
             Some(user_id),
             session_id,
             user_agent,
-        );
+        )
+        .await;
 
-        match analytics_service.record_media_event(event.clone()).await {
-            Ok(_) => {
-                let response = MediaEventResponse {
-                    id: event.id,
-                    created_at: event.created_at,
-                    status: "recorded".to_string(),
-                };
-                Ok(Json(serde_json::to_value(response).unwrap()))
-            }
-            Err(e) => {
-                tracing::warn!("Failed to record media event: {}", e);
-                Err(AppError::BadRequest(format!(
-                    "Failed to record event: {}",
-                    e
-                )))
-            }
+        if result.success_count > 0 {
+            let event_response = ProcessedEvent {
+                client_id: result
+                    .processed
+                    .first()
+                    .map(|p| p.client_id.clone())
+                    .unwrap_or_else(|| "unknown".to_string()),
+                event_id: result
+                    .processed
+                    .first()
+                    .map(|p| p.event_id)
+                    .unwrap_or_else(|| Uuid::new_v4()),
+            };
+            let response = MediaEventResponse {
+                id: event_response.event_id,
+                created_at: time::OffsetDateTime::now_utc(),
+                status: "recorded".to_string(),
+            };
+            Ok(Json(serde_json::to_value(response).unwrap()))
+        } else if !result.failed.is_empty() {
+            let error = &result.failed[0];
+            Err(AppError::BadRequest(format!(
+                "Failed to record event: {}",
+                error.error
+            )))
+        } else {
+            Err(AppError::BadRequest(
+                "Unknown error processing event".to_string(),
+            ))
         }
     } else if let Ok(batch_request) = serde_json::from_value::<MediaEventBatchRequest>(payload) {
-        // Batch events
-        let mut events = Vec::new();
-        let mut responses = Vec::new();
-        let mut errors = Vec::new();
+        // Batch events - use new resilient processing
+        let result = record_events_resilient(
+            batch_request.events,
+            &analytics_service,
+            Some(user_id),
+            session_id,
+            user_agent,
+        )
+        .await;
 
-        for request in batch_request.events {
-            let event = analytics_service.create_media_event_from_request(
-                request,
-                Some(user_id),
-                session_id,
-                user_agent.clone(),
-            );
-
-            responses.push(MediaEventResponse {
-                id: event.id,
-                created_at: event.created_at,
-                status: "pending".to_string(),
-            });
-
-            events.push(event);
-        }
-
-        match analytics_service.record_media_events_batch(events).await {
-            Ok(processed) => {
-                let failed = responses.len() - processed;
-
-                // Update response statuses
-                for (i, response) in responses.iter_mut().enumerate() {
-                    if i < processed {
-                        response.status = "recorded".to_string();
-                    } else {
-                        response.status = "failed".to_string();
-                        errors.push(format!("Event {} failed to record", response.id));
-                    }
-                }
-
-                let batch_response = MediaEventBatchResponse {
-                    processed,
-                    failed,
-                    events: responses,
-                    errors,
-                };
-
-                Ok(Json(serde_json::to_value(batch_response).unwrap()))
-            }
-            Err(e) => {
-                tracing::warn!("Failed to record media events batch: {}", e);
-                Err(AppError::BadRequest(format!(
-                    "Failed to record batch: {}",
-                    e
-                )))
-            }
-        }
+        Ok(Json(serde_json::to_value(result).unwrap()))
     } else {
         Err(AppError::BadRequest(
             "Invalid request format. Expected single MediaEventRequest or MediaEventBatchRequest"
@@ -169,6 +143,83 @@ pub async fn get_song_plays(
                 e
             )))
         }
+    }
+}
+
+/// Resilient event batch processing with partial success handling
+/// Processes each event individually to avoid all-or-nothing failures
+async fn record_events_resilient(
+    events: Vec<MediaEventRequest>,
+    analytics_service: &AnalyticsService<'_>,
+    user_id: Option<Uuid>,
+    session_id: Option<Uuid>,
+    user_agent: Option<String>,
+) -> EventBatchResult {
+    let mut processed = Vec::new();
+    let mut failed = Vec::new();
+
+    for event_request in events {
+        // Generate client_id if not provided for correlation
+        let client_id = event_request
+            .client_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        // Create event from request
+        let event = analytics_service.create_media_event_from_request(
+            event_request,
+            user_id,
+            session_id,
+            user_agent.clone(),
+        );
+
+        // Try to record this individual event
+        match analytics_service.record_media_event(event.clone()).await {
+            Ok(_) => {
+                processed.push(ProcessedEvent {
+                    client_id,
+                    event_id: event.id,
+                });
+                tracing::debug!("Successfully recorded event {}", event.id);
+            }
+            Err(e) => {
+                let error_code = classify_error(&e);
+                failed.push(FailedEvent {
+                    client_id,
+                    error: e.to_string(),
+                    error_code,
+                });
+                tracing::warn!("Failed to record event: {}", e);
+            }
+        }
+    }
+
+    let total_count = processed.len() + failed.len();
+    let success_count = processed.len();
+
+    if failed.len() > 0 {
+        tracing::info!(
+            "Batch processing completed: {}/{} events successful",
+            success_count,
+            total_count
+        );
+    }
+
+    EventBatchResult {
+        processed,
+        failed,
+        total_count,
+        success_count,
+    }
+}
+
+/// Classify errors for retry logic
+/// Returns error codes that clients can use to determine retry behavior
+fn classify_error(error: &MediaAnalyticsError) -> String {
+    match error {
+        MediaAnalyticsError::Serialization(_) => "schema_error".to_string(),
+        MediaAnalyticsError::Database(_) => "database_error".to_string(),
+        _ => "unknown_error".to_string(),
     }
 }
 

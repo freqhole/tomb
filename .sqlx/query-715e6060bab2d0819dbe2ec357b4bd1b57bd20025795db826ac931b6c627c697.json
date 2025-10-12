@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO media_events (\n                    id, media_blob_id, user_id, event_type, event_data,\n                    session_id, user_agent, client_id,\n                    domain_type, domain_ids, created_at\n                )\n                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Uuid",
+        "Varchar",
+        "Jsonb",
+        "Uuid",
+        "Text",
+        "Text",
+        "Varchar",
+        "TextArray",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "715e6060bab2d0819dbe2ec357b4bd1b57bd20025795db826ac931b6c627c697"
+}

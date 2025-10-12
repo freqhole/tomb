@@ -279,7 +279,7 @@ pub struct MediaEvent {
     pub user_agent: Option<String>,
     pub client_id: Option<String>,
     pub domain_type: Option<DomainType>,
-    pub domain_id: Option<Uuid>,
+    pub domain_ids: Option<Vec<String>>,
     pub created_at: OffsetDateTime,
 }
 
@@ -300,7 +300,7 @@ impl MediaEvent {
             user_agent: None,
             client_id: None,
             domain_type: None,
-            domain_id: None,
+            domain_ids: None,
             created_at: OffsetDateTime::now_utc(),
         }
     }
@@ -327,7 +327,7 @@ impl MediaEvent {
             user_agent: None,
             client_id: None,
             domain_type: Some(DomainType::Song),
-            domain_id: None,
+            domain_ids: None,
             created_at: OffsetDateTime::now_utc(),
         }
     }
@@ -352,7 +352,7 @@ impl MediaEvent {
             user_agent: None,
             client_id: None,
             domain_type: Some(DomainType::Song),
-            domain_id: None,
+            domain_ids: None,
             created_at: OffsetDateTime::now_utc(),
         }
     }
@@ -377,7 +377,7 @@ impl MediaEvent {
             user_agent: None,
             client_id: None,
             domain_type: Some(DomainType::Song),
-            domain_id: None,
+            domain_ids: None,
             created_at: OffsetDateTime::now_utc(),
         }
     }
@@ -399,10 +399,14 @@ impl MediaEvent {
         self
     }
 
-    /// Set domain context
-    pub fn with_domain(mut self, domain_type: DomainType, domain_id: Option<Uuid>) -> Self {
+    /// Set domain context with IDs array
+    pub fn with_domain_ids(
+        mut self,
+        domain_type: DomainType,
+        domain_ids: Option<Vec<String>>,
+    ) -> Self {
         self.domain_type = Some(domain_type);
-        self.domain_id = domain_id;
+        self.domain_ids = domain_ids;
         self
     }
 
@@ -451,12 +455,13 @@ pub enum MediaAnalyticsError {
 /// Request/response types for the API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaEventRequest {
+    pub client_id: Option<String>,
     pub media_blob_id: Option<String>,
     pub event_type: MediaEventType,
     pub event_data: Option<MediaEventData>,
     pub session_id: Option<Uuid>,
     pub domain_type: Option<DomainType>,
-    pub domain_id: Option<Uuid>,
+    pub domain_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -477,6 +482,28 @@ pub struct MediaEventBatchResponse {
     pub failed: usize,
     pub events: Vec<MediaEventResponse>,
     pub errors: Vec<String>,
+}
+
+/// New resilient batch processing response types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventBatchResult {
+    pub processed: Vec<ProcessedEvent>,
+    pub failed: Vec<FailedEvent>,
+    pub total_count: usize,
+    pub success_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessedEvent {
+    pub client_id: String,
+    pub event_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailedEvent {
+    pub client_id: String,
+    pub error: String,
+    pub error_code: String,
 }
 
 /// Play analytics summary
@@ -509,7 +536,7 @@ pub struct UserListeningHistory {
     pub event_type: MediaEventType,
     pub event_data: MediaEventData,
     pub domain_type: Option<DomainType>,
-    pub domain_id: Option<Uuid>,
+    pub domain_ids: Option<Vec<String>>,
     pub session_id: Option<Uuid>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
@@ -536,7 +563,7 @@ pub struct UserListeningHistory {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrendingSong {
     pub media_blob_id: String,
-    pub domain_id: Option<Uuid>,
+    pub domain_ids: Option<Vec<String>>,
     pub current_period_plays: i64,
     pub previous_period_plays: i64,
     pub trend_score: f64,
@@ -606,7 +633,7 @@ pub struct ListeningTimePeriod {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PopularSong {
     pub media_blob_id: String,
-    pub domain_id: Option<Uuid>,
+    pub domain_ids: Option<Vec<String>>,
     pub play_count: i64,
     pub unique_users: i64,
     pub completion_rate: f64,
@@ -705,7 +732,7 @@ mod tests {
     #[test]
     fn test_event_builder_pattern() {
         let session_id = Uuid::new_v4();
-        let domain_id = Uuid::new_v4();
+        let domain_ids = vec!["test_song_id".to_string()];
 
         let event = MediaEvent::new(
             Some("test_blob_123".to_string()),
@@ -717,12 +744,12 @@ mod tests {
             Some("Mozilla/5.0".to_string()),
             Some("web_player".to_string()),
         )
-        .with_domain(DomainType::Song, Some(domain_id));
+        .with_domain_ids(DomainType::Song, Some(domain_ids.clone()));
 
         assert_eq!(event.session_id, Some(session_id));
         assert_eq!(event.user_agent, Some("Mozilla/5.0".to_string()));
         assert_eq!(event.client_id, Some("web_player".to_string()));
         assert_eq!(event.domain_type, Some(DomainType::Song));
-        assert_eq!(event.domain_id, Some(domain_id));
+        assert_eq!(event.domain_ids, Some(domain_ids));
     }
 }
