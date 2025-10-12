@@ -41,17 +41,17 @@ BEGIN
         AND array_length(me.domain_ids, 1) > 0  -- Ensure domain_ids is not empty
     ),
     grouped_activity AS (
-        SELECT DISTINCT ON (domain_type, domain_ids)
-            domain_type,
-            domain_ids,
-            collection_name,
-            play_count,
-            latest_activity as last_played_at,
-            latest_activity as created_at,
-            -- Score based on recency and play count (more recent and popular = higher score)
-            (EXTRACT(EPOCH FROM latest_activity) / 1000000) + (play_count * 100) as score
-        FROM recent_activity
-        ORDER BY domain_type, domain_ids, latest_activity DESC
+        SELECT DISTINCT ON (ra.domain_type, ra.domain_ids)
+            ra.domain_type,
+            ra.domain_ids,
+            ra.collection_name,
+            ra.play_count,
+            ra.latest_activity as last_played_at,
+            ra.latest_activity as created_at,
+            -- Score based on recency and play count (cast to double precision)
+            ((EXTRACT(EPOCH FROM ra.latest_activity) / 1000000) + (ra.play_count * 100))::double precision as score
+        FROM recent_activity ra
+        ORDER BY ra.domain_type, ra.domain_ids, ra.latest_activity DESC
     )
     SELECT
         CASE
@@ -114,5 +114,5 @@ END;
 $function$;
 
 -- Update function comments
-COMMENT ON FUNCTION get_social_feed_items IS 'Returns social feed items based on user activity from media_events table';
+COMMENT ON FUNCTION get_social_feed_items IS 'Returns social feed items based on user activity from media_events table (consolidated fix)';
 COMMENT ON FUNCTION get_social_feed_count IS 'Returns count of collections with recent activity from media_events table';
