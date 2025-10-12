@@ -9,6 +9,11 @@ import { useAuth } from "../../../../hooks/auth/index.js";
 import { useSongInteractions } from "../../services/songInteractions.js";
 import { formatDuration } from "../../../../lib/analytics/analytics-api.js";
 import { formatRelativeTime } from "../../../../lib/date-utils.js";
+import {
+  formatCollectionHistoryItem,
+  isCollectionHistoryItem,
+  getCollectionIcon,
+} from "../../../../lib/analytics/collection-history.js";
 import type { Song } from "../../../../lib/music/schemas/song.js";
 import type { UserHistoryResponse } from "../../../../lib/analytics/analytics-api.js";
 
@@ -92,22 +97,40 @@ export function Queue() {
     }
   );
 
-  // Deduplicate consecutive songs in history
-  const deduplicatedHistory = createMemo(() => {
+  // Process history to include both songs and collections
+  const processedHistory = createMemo(() => {
     const history = userHistoryData();
     if (!history?.history) return [];
 
-    const deduplicated = [];
+    // Separate song and collection events
+    const songEvents = [];
+    const collectionEvents = [];
     let lastSongId: string | null = null;
 
     for (const item of history.history) {
-      if (item.song_id && item.song_id !== lastSongId) {
-        deduplicated.push(item);
+      // Check if it's a collection event (domain_type is album/artist/genre/playlist)
+      if (isCollectionHistoryItem(item)) {
+        collectionEvents.push({
+          ...item,
+          itemType: "collection" as const,
+        });
+      } else if (item.song_id && item.song_id !== lastSongId) {
+        // Regular song event - deduplicate consecutive songs
+        songEvents.push({
+          ...item,
+          itemType: "song" as const,
+        });
         lastSongId = item.song_id;
       }
     }
 
-    return deduplicated;
+    // Combine and sort by timestamp
+    const combined = [...songEvents, ...collectionEvents];
+    return combined.sort((a, b) => {
+      const dateA = new Date(a.created_at);
+      const dateB = new Date(b.created_at);
+      return dateB.getTime() - dateA.getTime(); // most recent first
+    });
   });
 
   // Convert history item to Song for playback
@@ -227,7 +250,7 @@ export function Queue() {
             when={userHistoryData.loading}
             fallback={
               <Show
-                when={deduplicatedHistory().length > 0}
+                when={processedHistory().length > 0}
                 fallback={
                   <div class="text-center py-12">
                     <div class="w-16 h-16 mx-auto mb-4 bg-gray-800 rounded-full flex items-center justify-center">
@@ -253,66 +276,113 @@ export function Queue() {
                 }
               >
                 <div class="space-y-1">
-                  <For each={deduplicatedHistory()}>
+                  <For each={processedHistory()}>
                     {(historyItem) => (
-                      <div
-                        class="flex items-center py-2 px-3 bg-black hover:bg-magenta-600/20 transition-colors cursor-pointer"
-                        onClick={() => handleHistorySongPlay(historyItem)}
-                        onDblClick={() =>
-                          handleHistorySongDoubleClick(historyItem)
-                        }
-                        onContextMenu={(e) =>
-                          handleHistorySongContextMenu(e, historyItem)
+                      <Show
+                        when={historyItem.itemType === "song"}
+                        fallback={
+                          // Collection history item
+                          <div class="flex items-center py-2 px-3 bg-black hover:bg-magenta-600/10 transition-colors">
+                            {/* Collection Icon */}
+                            <div class="w-10 h-10 flex-shrink-0 bg-gray-700 mr-3 flex items-center justify-center">
+                              <span class="text-gray-400 text-lg">
+                                {getCollectionIcon(
+                                  historyItem.domain_type || ""
+                                )}
+                              </span>
+                            </div>
+
+                            {/* Collection Info */}
+                            <div class="flex-1 min-w-0">
+                              <Show when={isCollectionHistoryItem(historyItem)}>
+                                <div class="text-white text-sm font-medium truncate">
+                                  {
+                                    formatCollectionHistoryItem(
+                                      historyItem as any
+                                    ).displayText
+                                  }
+                                </div>
+                                <div class="text-xs text-gray-400">
+                                  {
+                                    formatCollectionHistoryItem(
+                                      historyItem as any
+                                    ).subtitle
+                                  }
+                                </div>
+                              </Show>
+                            </div>
+
+                            {/* Play Time */}
+                            <div class="text-right flex-shrink-0 mr-2">
+                              <div class="text-gray-400 text-xs">
+                                {formatRelativeTime(historyItem.created_at)}
+                              </div>
+                            </div>
+                          </div>
                         }
                       >
-                        {/* Thumbnail */}
-                        <div class="w-10 h-10 flex-shrink-0 bg-gray-700 mr-3">
-                          <Show
-                            when={historyItem.thumbnail_blob_id}
-                            fallback={
-                              <div class="w-full h-full bg-gray-600 flex items-center justify-center">
-                                <span class="text-gray-400 text-xs">♪</span>
-                              </div>
-                            }
-                          >
-                            <img
-                              src={`${apiClient.getBaseUrl()}/api/blobs/${historyItem.thumbnail_blob_id}`}
-                              alt=""
-                              class="w-full h-full object-cover"
-                              loading="lazy"
-                            />
-                          </Show>
-                        </div>
-
-                        {/* Song Info */}
-                        <div class="flex-1 min-w-0">
-                          <div class="text-white text-sm font-medium truncate">
-                            {historyItem.title || "unknown title"}
-                          </div>
-                          <div class="flex items-center space-x-2 text-xs text-gray-400">
-                            <span class="truncate">
-                              {historyItem.artist && historyItem.album
-                                ? `${historyItem.artist} • ${historyItem.album}`
-                                : historyItem.artist ||
-                                  historyItem.album ||
-                                  "unknown artist"}
-                            </span>
-                            <Show when={historyItem.duration_seconds}>
-                              <span>•</span>
-                              <span>
-                                {formatDuration(historyItem.duration_seconds!)}
-                              </span>
+                        {/* Song history item */}
+                        <div
+                          class="flex items-center py-2 px-3 bg-black hover:bg-magenta-600/20 transition-colors cursor-pointer"
+                          onClick={() => handleHistorySongPlay(historyItem)}
+                          onDblClick={() =>
+                            handleHistorySongDoubleClick(historyItem)
+                          }
+                          onContextMenu={(e) =>
+                            handleHistorySongContextMenu(e, historyItem)
+                          }
+                        >
+                          {/* Thumbnail */}
+                          <div class="w-10 h-10 flex-shrink-0 bg-gray-700 mr-3">
+                            <Show
+                              when={historyItem.thumbnail_blob_id}
+                              fallback={
+                                <div class="w-full h-full bg-gray-600 flex items-center justify-center">
+                                  <span class="text-gray-400 text-xs">♪</span>
+                                </div>
+                              }
+                            >
+                              <img
+                                src={`${apiClient.getBaseUrl()}/api/blobs/${historyItem.thumbnail_blob_id}`}
+                                alt=""
+                                class="w-full h-full object-cover"
+                                loading="lazy"
+                              />
                             </Show>
                           </div>
-                        </div>
 
-                        {/* Play Time */}
-                        <div class="text-right flex-shrink-0 mr-2">
-                          <div class="text-gray-400 text-xs">
-                            {formatRelativeTime(historyItem.created_at)}
+                          {/* Song Info */}
+                          <div class="flex-1 min-w-0">
+                            <div class="text-white text-sm font-medium truncate">
+                              {historyItem.title || "unknown title"}
+                            </div>
+                            <div class="flex items-center space-x-2 text-xs text-gray-400">
+                              <span class="truncate">
+                                {historyItem.artist && historyItem.album
+                                  ? `${historyItem.artist} • ${historyItem.album}`
+                                  : historyItem.artist ||
+                                    historyItem.album ||
+                                    "unknown artist"}
+                              </span>
+                              <Show when={historyItem.duration_seconds}>
+                                <span>•</span>
+                                <span>
+                                  {formatDuration(
+                                    historyItem.duration_seconds!
+                                  )}
+                                </span>
+                              </Show>
+                            </div>
+                          </div>
+
+                          {/* Play Time */}
+                          <div class="text-right flex-shrink-0 mr-2">
+                            <div class="text-gray-400 text-xs">
+                              {formatRelativeTime(historyItem.created_at)}
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      </Show>
                     )}
                   </For>
                 </div>

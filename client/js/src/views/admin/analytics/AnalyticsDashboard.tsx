@@ -51,6 +51,16 @@ export function AnalyticsDashboard() {
     }
   );
 
+  const [topCollectionsData, { refetch: refetchTopCollections }] =
+    createResource(async () => {
+      return await analyticsApi.getTopCollections(7, 10); // last week, top 10
+    });
+
+  const [collectionOverviewData, { refetch: refetchCollectionOverview }] =
+    createResource(async () => {
+      return await analyticsApi.getCollectionOverview(30); // last 30 days
+    });
+
   // Auto-refresh every 5 minutes
   onMount(() => {
     const interval = setInterval(
@@ -60,6 +70,8 @@ export function AnalyticsDashboard() {
         refetchTopSongs();
         refetchTrending();
         refetchGenrePatterns();
+        refetchTopCollections();
+        refetchCollectionOverview();
         setLastUpdated(new Date());
       },
       5 * 60 * 1000
@@ -80,6 +92,8 @@ export function AnalyticsDashboard() {
     refetchTopSongs();
     refetchTrending();
     refetchGenrePatterns();
+    refetchTopCollections();
+    refetchCollectionOverview();
     setLastUpdated(new Date());
   };
 
@@ -138,6 +152,41 @@ export function AnalyticsDashboard() {
         </Show>
       </div>
 
+      {/* Collection Overview */}
+      <div class="mb-8">
+        <Show
+          when={collectionOverviewData()}
+          fallback={<div class="h-20 bg-gray-900 animate-pulse" />}
+        >
+          {(overview) => (
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <MetricCard
+                title="album plays"
+                value={formatNumber(overview().overview.breakdown.album_plays)}
+                subtitle={`${overview().overview.unique_collections.albums} unique albums`}
+              />
+              <MetricCard
+                title="artist plays"
+                value={formatNumber(overview().overview.breakdown.artist_plays)}
+                subtitle={`${overview().overview.unique_collections.artists} unique artists`}
+              />
+              <MetricCard
+                title="playlist plays"
+                value={formatNumber(
+                  overview().overview.breakdown.playlist_plays
+                )}
+                subtitle={`${overview().overview.unique_collections.playlists} unique playlists`}
+              />
+              <MetricCard
+                title="genre plays"
+                value={formatNumber(overview().overview.breakdown.genre_plays)}
+                subtitle={`${overview().overview.unique_collections.genres} unique genres`}
+              />
+            </div>
+          )}
+        </Show>
+      </div>
+
       {/* Main Content Grid */}
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top Songs */}
@@ -187,8 +236,46 @@ export function AnalyticsDashboard() {
           </Show>
         </div>
 
+        {/* Top Collections */}
+        <div class="bg-gray-900 p-6">
+          <h2 class="text-lg font-semibold text-white mb-4">
+            top collections (last week)
+          </h2>
+          <Show when={topCollectionsData()} fallback={<TableSkeleton />}>
+            {(collections) => (
+              <div class="space-y-1">
+                <For each={collections().collections}>
+                  {(collection, index) => (
+                    <div class="flex items-center justify-between py-2 px-3 bg-gray-800 hover:bg-gray-700 transition-colors">
+                      <div class="flex items-center space-x-3">
+                        <span class="text-gray-400 text-sm w-6">
+                          #{index() + 1}
+                        </span>
+                        <div>
+                          <div class="text-white text-sm font-medium">
+                            {collection.collection_name || "unknown"}
+                          </div>
+                          <div class="text-gray-400 text-xs">
+                            {collection.domain_type} • {collection.unique_users}{" "}
+                            users
+                          </div>
+                        </div>
+                      </div>
+                      <div class="text-right">
+                        <div class="text-white text-sm font-medium">
+                          {formatNumber(collection.play_count)} plays
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            )}
+          </Show>
+        </div>
+
         {/* Genre Patterns */}
-        <div class="bg-gray-900 p-6 lg:col-span-2">
+        <div class="bg-gray-900 p-6">
           <h2 class="text-lg font-semibold text-white mb-4">
             genre listening patterns (last 30 days)
           </h2>

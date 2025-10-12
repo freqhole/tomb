@@ -215,7 +215,7 @@ export function SongRow(props: SongRowProps) {
         <Show when={props.showCompletionRate}>
           <div class="text-center min-w-0">
             <div class="text-white font-medium text-xs">
-              {Math.round(props.song.completion_rate)}%
+              {Math.round(props.song.completion_rate * 100)}%
             </div>
             <div class="text-gray-400 text-xs">done</div>
           </div>

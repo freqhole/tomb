@@ -495,3 +495,239 @@ the analytics collection is working perfectly. phase 3 should focus on:
 4. **trend analysis** and popularity calculations
 
 this plan leverages the established solid foundation to build comprehensive music analytics focused on song play tracking and user listening behavior.
+
+## phase 7: collection analytics (albums, playlists, artists, genres) - NEW
+
+extend analytics to track when users play entire collections, not just individual songs. this adds valuable insight into how users consume music at the collection level (playing full albums, shuffling artists, etc.).
+
+### current state
+
+- song-level analytics working perfectly
+- individual song plays tracked in user history
+- existing domain types support "playlist" but missing "album", "artist", "genre"
+- no collection-level play events currently tracked
+
+### 7.1 extend domain types and schemas
+
+update client-side schemas to support new domain types:
+
+```typescript
+// tomb/client/js/src/lib/analytics/analytics-client.ts
+export const DomainTypeSchema = z.enum([
+  "song",
+  "album", // NEW
+  "artist", // NEW
+  "genre", // NEW
+  "playlist", // already exists
+  "photo",
+  "video",
+  "book",
+  "document",
+]);
+```
+
+### 7.2 collection event builder
+
+create new event builder for collection plays:
+
+```typescript
+// tomb/client/js/src/lib/analytics/collection-events.ts
+export interface CollectionPlayEventData {
+  total_songs: number;
+  shuffle_enabled: boolean;
+  play_source: "play_all" | "shuffle_all" | "continue_playing";
+  first_song_id?: string;
+}
+
+export class CollectionEventBuilder {
+  static playCollection(
+    domainType: "album" | "playlist" | "artist" | "genre",
+    domainId: string,
+    eventData: CollectionPlayEventData,
+    sessionId?: string,
+  ): MediaEventRequest {
+    return {
+      media_blob_id: "", // not applicable for collections
+      event_type: "play",
+      event_data: eventData,
+      session_id: sessionId,
+      domain_type: domainType,
+      domain_id: domainId,
+    };
+  }
+}
+```
+
+### 7.3 integration points
+
+**album play tracking**:
+
+- trigger: user clicks "play album" or "shuffle album" on album cards/detail views
+- data: album id, song count, shuffle mode, first song played
+- location: `DesktopAlbumsView.tsx`, `MobileAlbumsView.tsx`, album detail components
+
+**playlist play tracking**:
+
+- trigger: user plays entire playlist (when playlist features exist)
+- data: playlist id, song count, shuffle mode
+- location: future playlist components
+
+**artist play tracking**:
+
+- trigger: user clicks "play all" or "shuffle all" on artist detail views
+- data: artist id, total song count, shuffle mode
+- location: `DesktopArtistsView.tsx`, `MobileArtistsView.tsx`, artist detail panels
+
+**genre play tracking**:
+
+- trigger: user plays "all songs in genre" or "shuffle genre"
+- data: genre slug, total songs, shuffle mode
+- location: `DesktopGenresView.tsx`, genre detail components
+
+### 7.4 server-side extensions
+
+update rust analytics models:
+
+```rust
+// tomb/grimoire/src/analytics/media_events.rs
+#[derive(Debug, Clone, sqlx::Type)]
+#[sqlx(type_name = "domain_type", rename_all = "lowercase")]
+pub enum DomainType {
+    Song,
+    Album,    // NEW
+    Artist,   // NEW
+    Genre,    // NEW
+    Playlist,
+    Photo,
+    Video,
+    Book,
+    Document,
+}
+```
+
+add collection analytics sql functions:
+
+```sql
+-- get collection play analytics
+CREATE OR REPLACE FUNCTION get_collection_play_analytics(
+    p_domain_type domain_type,
+    p_time_period interval DEFAULT '30 days'
+)
+RETURNS TABLE (
+    domain_id text,
+    total_plays bigint,
+    unique_users bigint,
+    last_played_at timestamptz
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        me.domain_id::text,
+        COUNT(*)::bigint as total_plays,
+        COUNT(DISTINCT me.user_id)::bigint as unique_users,
+        MAX(me.created_at) as last_played_at
+    FROM media_events me
+    WHERE me.domain_type = p_domain_type
+      AND me.event_type = 'play'
+      AND me.created_at >= NOW() - p_time_period
+      AND me.domain_id IS NOT NULL
+    GROUP BY me.domain_id
+    ORDER BY total_plays DESC;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 7.5 user history integration
+
+extend user history to show collection plays alongside song plays:
+
+```typescript
+// tomb/client/js/src/lib/analytics/analytics-api.ts
+const CollectionHistoryItemSchema = z.object({
+  domain_type: z.enum(["album", "playlist", "artist", "genre"]),
+  domain_id: z.string(),
+  event_type: z.string(),
+  event_data: z.record(z.any()).nullable(),
+  created_at: z.string(),
+  // collection details populated by join
+  collection_name: z.string().nullable(),
+  total_songs: z.number().nullable(),
+  shuffle_enabled: z.boolean().nullable(),
+});
+```
+
+update queue history ui to show collection plays:
+
+```typescript
+// examples of history display:
+// "played album: dark side of the moon (10 songs, shuffled)"
+// "played artist: pink floyd (142 songs)"
+// "shuffled genre: rock (1,247 songs)"
+// "played playlist: chill vibes (23 songs)"
+```
+
+### 7.6 materialized views extension
+
+extend existing materialized views for collection analytics:
+
+```sql
+-- add collection play summary view
+CREATE MATERIALIZED VIEW collection_play_summary AS
+SELECT
+    domain_type,
+    domain_id,
+    DATE_TRUNC('day', created_at) as play_date,
+    COUNT(*) as daily_plays,
+    COUNT(DISTINCT user_id) as unique_users,
+    AVG((event_data->>'total_songs')::int) as avg_songs_per_play,
+    COUNT(CASE WHEN event_data->>'shuffle_enabled' = 'true' THEN 1 END) as shuffled_plays
+FROM media_events
+WHERE domain_type IN ('album', 'artist', 'genre', 'playlist')
+  AND event_type = 'play'
+  AND domain_id IS NOT NULL
+GROUP BY domain_type, domain_id, DATE_TRUNC('day', created_at);
+
+CREATE INDEX idx_collection_play_summary_lookup
+ON collection_play_summary (domain_type, domain_id, play_date DESC);
+```
+
+### 7.7 implementation approach
+
+following critical rules:
+
+1. **no emojis**: keep all ui text lowercase and simple
+2. **file size limit**: split collection events into separate file (~500 lines max)
+3. **dark theme**: collection history items use same dark theme as song history
+4. **modular architecture**: use solidjs createResource for collection data, hooks for reactive logic
+5. **data validation**: use zod for all collection event schemas
+6. **code reuse**: leverage existing event buffer, analytics client, history components
+7. **domain separation**: collection analytics in lib/analytics/, music-specific in lib/music/
+8. **generic library focus**: build reusable collection event patterns
+9. **legacy code marking**: mark any old collection tracking as @deprecated
+10. **maximum code reuse**: extend existing analytics apis, history ui, materialized views
+
+**testing approach**:
+
+- verify collection events tracked when playing albums/artists/genres
+- check history tab shows collection plays with proper formatting
+- test materialized view performance with collection data
+- validate admin dashboard shows collection analytics
+
+### dependencies
+
+- extends existing analytics infrastructure (phases 1-3)
+- requires album/artist/genre detail views to emit events
+- leverages current event buffer and batch submission
+- uses existing user history api and ui components
+
+### rollout strategy
+
+1. update domain type schemas (client + server)
+2. implement collection event builder
+3. add collection play tracking to existing views
+4. extend user history to show collection plays
+5. add collection analytics to admin dashboard
+6. create materialized views for performance
+7. integrate with background analytics jobs
+
+this extends the solid analytics foundation to provide comprehensive insights into both individual song consumption and collection-level listening patterns, giving a complete picture of user music behavior.

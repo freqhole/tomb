@@ -225,6 +225,10 @@ pub async fn admin_analytics_query(
         "genre_patterns" => handle_genre_patterns_query(&analytics_service, query.params).await,
         "listening_time" => handle_listening_time_query(&analytics_service, query.params).await,
         "popular_songs" => handle_popular_songs_query(&analytics_service, query.params).await,
+        "top_collections" => handle_top_collections_query(&analytics_service, query.params).await,
+        "collection_overview" => {
+            handle_collection_overview_query(&analytics_service, query.params).await
+        }
         _ => Err(AppError::BadRequest(format!(
             "Unknown query type: {}",
             query.query_type
@@ -552,6 +556,55 @@ async fn handle_song_analytics_query(
             tracing::warn!("Failed to get song analytics: {}", e);
             Err(AppError::BadRequest(format!(
                 "Failed to get song analytics: {}",
+                e
+            )))
+        }
+    }
+}
+
+async fn handle_top_collections_query(
+    analytics_service: &AnalyticsService<'_>,
+    params: serde_json::Value,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let days_back = params.get("days").and_then(|v| v.as_i64()).unwrap_or(7) as i32;
+    let limit = params.get("limit").and_then(|v| v.as_i64()).unwrap_or(10) as i32;
+    let domain_type = params.get("domain_type").and_then(|v| v.as_str());
+
+    match analytics_service
+        .get_top_collections(days_back, limit, domain_type)
+        .await
+    {
+        Ok(collections) => Ok(Json(json!({
+            "collections": collections,
+            "days_back": days_back,
+            "limit": limit,
+            "domain_type": domain_type
+        }))),
+        Err(e) => {
+            tracing::error!("Failed to get top collections: {:?}", e);
+            Err(AppError::InternalServerError(format!(
+                "Failed to get top collections: {}",
+                e
+            )))
+        }
+    }
+}
+
+async fn handle_collection_overview_query(
+    analytics_service: &AnalyticsService<'_>,
+    params: serde_json::Value,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let days_back = params.get("days").and_then(|v| v.as_i64()).unwrap_or(30) as i32;
+
+    match analytics_service.get_collection_overview(days_back).await {
+        Ok(overview) => Ok(Json(json!({
+            "overview": overview,
+            "days_back": days_back
+        }))),
+        Err(e) => {
+            tracing::error!("Failed to get collection overview: {:?}", e);
+            Err(AppError::InternalServerError(format!(
+                "Failed to get collection overview: {}",
                 e
             )))
         }

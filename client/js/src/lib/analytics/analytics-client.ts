@@ -38,11 +38,14 @@ export const MediaEventTypeSchema = z.enum([
 
 export const DomainTypeSchema = z.enum([
   "song",
+  "album",
+  "artist",
+  "genre",
+  "playlist",
   "photo",
   "video",
   "book",
   "document",
-  "playlist",
 ]);
 
 // Event data schemas for different event types
@@ -73,13 +76,19 @@ export const MediaEventDataSchema = z.union([
     tag: z.string(),
     operation: z.enum(["add", "remove"]),
   }),
+  z.object({
+    total_songs: z.number(),
+    shuffle_enabled: z.boolean(),
+    play_source: z.enum(["play_all", "shuffle_all", "continue_playing"]),
+    first_song_id: z.string().optional(),
+  }),
   z.record(z.unknown()), // Generic data
   z.null(), // Empty data
 ]);
 
 // Request schemas
 export const MediaEventRequestSchema = z.object({
-  media_blob_id: z.string(),
+  media_blob_id: z.string().nullable(),
   event_type: MediaEventTypeSchema,
   event_data: MediaEventDataSchema.optional(),
   session_id: z.string().optional(),

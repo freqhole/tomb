@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useSongInteractions } from "../../../../services/songInteractions";
+import { useCollectionInteractions } from "../../../../services/collectionInteractions";
 import { apiClient } from "../../../../../../lib/api-client";
 import type { Album, Song } from "../../../../../../lib/music/schemas";
 
@@ -28,36 +29,104 @@ export const formatAlbumDuration = (durationStr: string | null): string => {
 // Album playback utilities
 export function useAlbumPlayback() {
   const songInteractions = useSongInteractions();
+  const collectionInteractions = useCollectionInteractions();
 
-  const playAlbum = (tracks: Song[], _albumName?: string) => {
-    if (tracks.length > 0) {
-      const firstTrack = tracks[0];
-      if (firstTrack) {
-        songInteractions.playSong(firstTrack, true); // Replace queue and start playing
-        // Add remaining tracks to queue
-        tracks.slice(1).forEach((track) => {
-          songInteractions.queueSong(track);
-        });
+  const playAlbum = (
+    tracks: Song[],
+    albumName?: string,
+    albumArtist?: string
+  ) => {
+    if (tracks.length > 0 && albumName) {
+      // Create album object for collection analytics
+      const album = {
+        album: albumName,
+        artist: albumArtist || tracks[0]?.artist || "unknown artist",
+        genres: null,
+        year: null,
+        avg_rating: null,
+        total_duration: null,
+        favorite_count: 0,
+        track_count: tracks.length,
+        disc_count: 1,
+        album_thumbnail_id: null,
+      };
+
+      collectionInteractions.playAlbum(album, false);
+    } else {
+      // Fallback to old behavior if no album name
+      if (tracks.length > 0) {
+        const firstTrack = tracks[0];
+        if (firstTrack) {
+          songInteractions.playSong(firstTrack, true);
+          tracks.slice(1).forEach((track) => {
+            songInteractions.queueSong(track);
+          });
+        }
       }
     }
   };
 
-  const shuffleAlbum = (tracks: Song[], _albumName?: string) => {
-    if (tracks.length > 0) {
-      const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-      const firstTrack = shuffled[0];
-      if (firstTrack) {
-        songInteractions.playSong(firstTrack, true); // Replace queue and start playing
-        // Add remaining shuffled tracks to queue
-        shuffled.slice(1).forEach((track) => {
-          songInteractions.queueSong(track);
-        });
+  const shuffleAlbum = (
+    tracks: Song[],
+    albumName?: string,
+    albumArtist?: string
+  ) => {
+    if (tracks.length > 0 && albumName) {
+      // Create album object for collection analytics
+      const album = {
+        album: albumName,
+        artist: albumArtist || tracks[0]?.artist || "unknown artist",
+        genres: null,
+        year: null,
+        avg_rating: null,
+        total_duration: null,
+        favorite_count: 0,
+        track_count: tracks.length,
+        disc_count: 1,
+        album_thumbnail_id: null,
+      };
+
+      collectionInteractions.playAlbum(album, true);
+    } else {
+      // Fallback to old behavior if no album name
+      if (tracks.length > 0) {
+        const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+        const firstTrack = shuffled[0];
+        if (firstTrack) {
+          songInteractions.playSong(firstTrack, true);
+          shuffled.slice(1).forEach((track) => {
+            songInteractions.queueSong(track);
+          });
+        }
       }
     }
   };
 
-  const addAlbumToQueue = (tracks: Song[]) => {
-    songInteractions.smartQueueSongs(tracks);
+  const addAlbumToQueue = (
+    tracks: Song[],
+    albumName?: string,
+    albumArtist?: string
+  ) => {
+    if (tracks.length > 0 && albumName) {
+      // Create album object for collection analytics
+      const album = {
+        album: albumName,
+        artist: albumArtist || tracks[0]?.artist || "unknown artist",
+        genres: null,
+        year: null,
+        avg_rating: null,
+        total_duration: null,
+        favorite_count: 0,
+        track_count: tracks.length,
+        disc_count: 1,
+        album_thumbnail_id: null,
+      };
+
+      collectionInteractions.queueAlbum(album);
+    } else {
+      // Fallback to old behavior
+      songInteractions.smartQueueSongs(tracks);
+    }
   };
 
   return {

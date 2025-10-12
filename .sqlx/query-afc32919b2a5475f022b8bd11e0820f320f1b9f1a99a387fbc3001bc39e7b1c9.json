@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                me.media_blob_id,\n                me.event_type,\n                me.event_data,\n                me.domain_type,\n                me.domain_id,\n                me.session_id,\n                me.created_at,\n                s.id as song_id,\n                s.title,\n                s.artist,\n                s.album,\n                s.album_artist,\n                s.track_number,\n                s.disc_number,\n                EXTRACT(epoch FROM s.duration)::integer as duration_seconds,\n                s.genre,\n                s.year,\n                s.bpm,\n                s.key_signature,\n                s.thumbnail_blob_id,\n                s.waveform_blob_id,\n                s.created_at as song_created_at\n            FROM media_events me\n            LEFT JOIN songs s ON s.media_blob_id = me.media_blob_id\n            WHERE me.user_id = $1\n            ORDER BY me.created_at DESC\n            LIMIT $2 OFFSET $3\n            ",
+  "query": "\n            SELECT\n                me.media_blob_id,\n                me.event_type,\n                me.event_data,\n                me.domain_type,\n                me.domain_id,\n                me.session_id,\n                me.created_at,\n                s.id as \"song_id: Option<Uuid>\",\n                s.title as \"title: Option<String>\",\n                s.artist,\n                s.album,\n                s.album_artist,\n                s.track_number,\n                s.disc_number,\n                EXTRACT(epoch FROM s.duration)::integer as duration_seconds,\n                s.genre,\n                s.year,\n                s.bpm,\n                s.key_signature,\n                s.thumbnail_blob_id,\n                s.waveform_blob_id,\n                s.created_at as \"song_created_at: Option<OffsetDateTime>\"\n            FROM media_events me\n            LEFT JOIN songs s ON s.media_blob_id = me.media_blob_id\n            WHERE me.user_id = $1\n            ORDER BY me.created_at DESC\n            LIMIT $2 OFFSET $3\n            ",
   "describe": {
     "columns": [
       {
@@ -40,12 +40,12 @@
       },
       {
         "ordinal": 7,
-        "name": "song_id",
+        "name": "song_id: Option<Uuid>",
         "type_info": "Uuid"
       },
       {
         "ordinal": 8,
-        "name": "title",
+        "name": "title: Option<String>",
         "type_info": "Text"
       },
       {
@@ -110,7 +110,7 @@
       },
       {
         "ordinal": 21,
-        "name": "song_created_at",
+        "name": "song_created_at: Option<OffsetDateTime>",
         "type_info": "Timestamptz"
       }
     ],
@@ -122,7 +122,7 @@
       ]
     },
     "nullable": [
-      false,
+      true,
       false,
       true,
       true,
@@ -146,5 +146,5 @@
       false
     ]
   },
-  "hash": "f0d31e81e9ae2349e8d2eb957b77c1151b87bf79969acb24a4745bf57d6d4f13"
+  "hash": "afc32919b2a5475f022b8bd11e0820f320f1b9f1a99a387fbc3001bc39e7b1c9"
 }

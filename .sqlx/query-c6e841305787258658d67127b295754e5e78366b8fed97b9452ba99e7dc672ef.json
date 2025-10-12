@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                domain_type,\n                domain_id,\n                COUNT(*) FILTER (WHERE event_type = 'play') as play_count,\n                COUNT(DISTINCT user_id) as unique_users,\n                MAX(event_data->>'collection_name') as collection_name,\n                MAX(created_at)::text as last_played_at\n            FROM media_events\n            WHERE media_blob_id IS NULL\n                AND domain_type IS NOT NULL\n                AND domain_id IS NOT NULL\n                AND created_at >= NOW() - INTERVAL '1 day' * $1\n            GROUP BY domain_type, domain_id\n            HAVING COUNT(*) FILTER (WHERE event_type = 'play') > 0\n            ORDER BY play_count DESC\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "domain_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "domain_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "play_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "unique_users",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "collection_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_played_at",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "c6e841305787258658d67127b295754e5e78366b8fed97b9452ba99e7dc672ef"
+}

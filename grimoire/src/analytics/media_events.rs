@@ -143,10 +143,14 @@ impl TryFrom<&str> for MediaEventType {
 }
 
 /// Domain types for media events
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "domain_type", rename_all = "lowercase")]
 pub enum DomainType {
     Song,
+    Album,
+    Artist,
+    Genre,
     Photo,
     Video,
     Book,
@@ -158,6 +162,9 @@ impl std::fmt::Display for DomainType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             DomainType::Song => "song",
+            DomainType::Album => "album",
+            DomainType::Artist => "artist",
+            DomainType::Genre => "genre",
             DomainType::Photo => "photo",
             DomainType::Video => "video",
             DomainType::Book => "book",
@@ -174,6 +181,9 @@ impl TryFrom<&str> for DomainType {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "song" => Ok(DomainType::Song),
+            "album" => Ok(DomainType::Album),
+            "artist" => Ok(DomainType::Artist),
+            "genre" => Ok(DomainType::Genre),
             "photo" => Ok(DomainType::Photo),
             "video" => Ok(DomainType::Video),
             "book" => Ok(DomainType::Book),
@@ -261,7 +271,7 @@ impl Default for MediaEventData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaEvent {
     pub id: Uuid,
-    pub media_blob_id: String,
+    pub media_blob_id: Option<String>,
     pub user_id: Option<Uuid>,
     pub event_type: MediaEventType,
     pub event_data: MediaEventData,
@@ -275,7 +285,11 @@ pub struct MediaEvent {
 
 impl MediaEvent {
     /// Create a new media event with minimal required fields
-    pub fn new(media_blob_id: String, event_type: MediaEventType, user_id: Option<Uuid>) -> Self {
+    pub fn new(
+        media_blob_id: Option<String>,
+        event_type: MediaEventType,
+        user_id: Option<Uuid>,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             media_blob_id,
@@ -292,8 +306,9 @@ impl MediaEvent {
     }
 
     /// Create a play event with position data
+    /// Create a play event
     pub fn play_event(
-        media_blob_id: String,
+        media_blob_id: Option<String>,
         user_id: Option<Uuid>,
         position: String,
         progress: Option<f64>,
@@ -319,7 +334,7 @@ impl MediaEvent {
 
     /// Create a completion event
     pub fn completion_event(
-        media_blob_id: String,
+        media_blob_id: Option<String>,
         user_id: Option<Uuid>,
         final_position: String,
     ) -> Self {
@@ -344,7 +359,7 @@ impl MediaEvent {
 
     /// Create a rating event
     pub fn rating_event(
-        media_blob_id: String,
+        media_blob_id: Option<String>,
         user_id: Option<Uuid>,
         rating: i32,
         previous_rating: Option<i32>,
@@ -436,7 +451,7 @@ pub enum MediaAnalyticsError {
 /// Request/response types for the API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaEventRequest {
-    pub media_blob_id: String,
+    pub media_blob_id: Option<String>,
     pub event_type: MediaEventType,
     pub event_data: Option<MediaEventData>,
     pub session_id: Option<Uuid>,
@@ -490,7 +505,7 @@ pub struct PlayAnalytics {
 /// User listening history with event details and song information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserListeningHistory {
-    pub media_blob_id: String,
+    pub media_blob_id: Option<String>,
     pub event_type: MediaEventType,
     pub event_data: MediaEventData,
     pub domain_type: Option<DomainType>,
@@ -693,7 +708,7 @@ mod tests {
         let domain_id = Uuid::new_v4();
 
         let event = MediaEvent::new(
-            "test_blob_123".to_string(),
+            Some("test_blob_123".to_string()),
             MediaEventType::Play,
             Some(Uuid::new_v4()),
         )

@@ -122,18 +122,23 @@ export function AlbumDetailView(
   const handlePlayAll = () => {
     const tracks = albumTracksResource() || [];
     const album = albumSummaryResource();
-    playAlbum(tracks, album?.album || undefined);
+    playAlbum(tracks, album?.album || undefined, album?.artist || undefined);
   };
 
   const handleShuffle = () => {
     const tracks = albumTracksResource() || [];
     const album = albumSummaryResource();
-    shuffleAlbum(tracks, album?.album || undefined);
+    shuffleAlbum(tracks, album?.album || undefined, album?.artist || undefined);
   };
 
   const handleAddToQueue = () => {
     const tracks = albumTracksResource() || [];
-    addAlbumToQueue(tracks);
+    const album = albumSummaryResource();
+    addAlbumToQueue(
+      tracks,
+      album?.album || undefined,
+      album?.artist || undefined
+    );
   };
 
   const handleEditAlbum = () => {

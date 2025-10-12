@@ -8,7 +8,7 @@ import { storeActions } from "../../../../store";
 import { saveScrollStateSecurely } from "../../../../../../lib/navigation";
 import { SearchSortControls } from "../../../../../../components/search/SearchSortControls";
 import { TagFilterControls } from "../../../../../../components/filters/TagFilterControls";
-import { useSongInteractions } from "../../../../services/songInteractions";
+import { useCollectionInteractions } from "../../../../services/collectionInteractions";
 import type { Album } from "../../../../../../lib/music/schemas";
 import type { SortField } from "../../../../../../components/search/SearchSortControls";
 
@@ -31,12 +31,12 @@ const formatAlbumDuration = (durationString: string | null) => {
 export function MobileAlbumsView(props: MobileAlbumsViewProps) {
   const navigate = useNavigate();
   const events = useGlobalEvents();
-  const songInteractions = useSongInteractions();
 
   // Use modern reactive store instead of legacy hook
   const reactiveActions = useReactiveActions();
   const [sortState] = useSort("albums");
   const dataSections = useDataSections();
+  const collectionInteractions = useCollectionInteractions();
 
   // Data access using modern reactive store
   const albums = () => {
@@ -136,28 +136,9 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
     navigate(`/album/${encodedArtist}/${encodedAlbum}`);
   };
 
-  const handleAlbumPlay = async (album: Album, event: MouseEvent) => {
+  const handleAlbumPlay = (album: Album, event: MouseEvent) => {
     event.stopPropagation();
-
-    try {
-      if (!album.album) {
-        console.error("album name is null, cannot play album");
-        return;
-      }
-      const tracks = await apiClient.getAlbumTracks(
-        album.album,
-        album.artist || undefined
-      );
-      if (Array.isArray(tracks) && tracks.length > 0) {
-        // Play first track and queue the rest
-        events.emit("song:play", { song: tracks[0], replaceQueue: true });
-        tracks.slice(1).forEach((track) => {
-          events.emit("song:queue", { song: track });
-        });
-      }
-    } catch (error) {
-      console.error("failed to play album:", error);
-    }
+    collectionInteractions.playAlbum(album);
   };
 
   // Handle scroll for infinite loading and scroll restoration
@@ -256,7 +237,7 @@ export function MobileAlbumsView(props: MobileAlbumsViewProps) {
                       class="group cursor-pointer transition-all hover:scale-105"
                       onClick={() => handleAlbumClick(album)}
                       onContextMenu={(e) =>
-                        songInteractions.handleAlbumRightClick(e, album)
+                        collectionInteractions.handleAlbumRightClick(e, album)
                       }
                     >
                       {/* Album Artwork */}

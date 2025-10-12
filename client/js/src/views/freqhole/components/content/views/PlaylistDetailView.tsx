@@ -10,6 +10,7 @@ import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { useSelection } from "../../../hooks/useSelection";
 import { useLocation, useNavigate, useParams } from "@solidjs/router";
 import { useSongInteractions } from "../../../services/songInteractions";
+import { useCollectionInteractions } from "../../../services/collectionInteractions";
 import { apiClient } from "../../../../../lib/api-client";
 import { formatRelativeDate } from "../../../utils/dateUtils";
 import { FileUploadHandler } from "../../../../../lib/file-upload";
@@ -28,6 +29,7 @@ export function PlaylistDetailView(
   const [] = useStore();
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
+  const collectionInteractions = useCollectionInteractions();
   const location = useLocation();
   const navigate = useNavigate();
   const params = useParams();
@@ -420,37 +422,17 @@ export function PlaylistDetailView(
 
   const handlePlayPlaylist = () => {
     const songs = playlistSongsResource();
-    if (songs && songs.length > 0) {
-      // Play first song and replace queue
-      const firstSong = songs[0];
-      if (firstSong) {
-        songInteractions.playSong(firstSong, true);
-        // Add rest of songs to queue
-        songs.slice(1).forEach((song) => {
-          if (song) {
-            songInteractions.queueSong(song);
-          }
-        });
-      }
+    const playlist = selectedPlaylist();
+    if (songs && songs.length > 0 && playlist) {
+      collectionInteractions.playPlaylist(playlist.id, playlist.title, false);
     }
   };
 
   const handleShufflePlaylist = () => {
     const songs = playlistSongsResource();
-    if (songs && songs.length > 0) {
-      // Create shuffled copy
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      // Play first shuffled song and replace queue
-      const firstShuffled = shuffled[0];
-      if (firstShuffled) {
-        songInteractions.playSong(firstShuffled, true);
-        // Add rest of shuffled songs to queue
-        shuffled.slice(1).forEach((song) => {
-          if (song) {
-            songInteractions.queueSong(song);
-          }
-        });
-      }
+    const playlist = selectedPlaylist();
+    if (songs && songs.length > 0 && playlist) {
+      collectionInteractions.playPlaylist(playlist.id, playlist.title, true);
     }
   };
 

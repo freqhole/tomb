@@ -418,6 +418,26 @@ impl<'a> AnalyticsService<'a> {
 
         static_extensions.iter().any(|ext| path.ends_with(ext))
     }
+
+    /// Get top collections (albums, artists, genres, playlists) by play count
+    pub async fn get_top_collections(
+        &self,
+        days_back: i32,
+        limit: i32,
+        domain_type: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>, MediaAnalyticsError> {
+        self.repo
+            .get_top_collections(days_back, limit, domain_type)
+            .await
+    }
+
+    /// Get collection overview statistics
+    pub async fn get_collection_overview(
+        &self,
+        days_back: i32,
+    ) -> Result<serde_json::Value, MediaAnalyticsError> {
+        self.repo.get_collection_overview(days_back).await
+    }
 }
 
 /// Builder for creating RequestAnalytics records

@@ -160,11 +160,25 @@ export const TrendingResponseSchema = z.object({
   limit: z.number(),
 });
 
+// Collection history item schema for album/playlist/artist/genre plays
+export const CollectionHistoryItemSchema = z.object({
+  domain_type: z.enum(["album", "playlist", "artist", "genre"]),
+  domain_id: z.string(),
+  event_type: z.string(),
+  event_data: z.record(z.any()).nullable(),
+  created_at: z.string(),
+  session_id: z.string().nullable(),
+  // Collection details (can come from event_data or direct fields)
+  collection_name: z.string().nullable().optional(),
+  total_songs: z.number().nullable().optional(),
+  shuffle_enabled: z.boolean().nullable().optional(),
+});
+
 export const UserHistoryResponseSchema = z.object({
   user_id: z.string(),
   history: z.array(
     z.object({
-      media_blob_id: z.string(),
+      media_blob_id: z.string().nullable(),
       event_type: z.string(),
       event_data: z.record(z.any()).nullable(),
       domain_type: z.string().nullable(),
@@ -214,6 +228,50 @@ export type TrendingResponse = z.infer<typeof TrendingResponseSchema>;
 export type UserHistoryResponse = z.infer<typeof UserHistoryResponseSchema>;
 export type UserStreaksResponse = z.infer<typeof UserStreaksResponseSchema>;
 export type GenrePatternsResponse = z.infer<typeof GenrePatternsResponseSchema>;
+
+// Collection analytics schemas
+export const CollectionItemSchema = z.object({
+  domain_type: z.string(),
+  domain_id: z.string(),
+  play_count: z.number(),
+  unique_users: z.number(),
+  collection_name: z.string().nullable(),
+  last_played_at: z.string().nullable(),
+});
+
+export const TopCollectionsResponseSchema = z.object({
+  collections: z.array(CollectionItemSchema),
+  days_back: z.number(),
+  limit: z.number(),
+  domain_type: z.string().nullable().optional(),
+});
+
+export const CollectionOverviewResponseSchema = z.object({
+  overview: z.object({
+    total_collection_plays: z.number(),
+    total_song_plays: z.number(),
+    breakdown: z.object({
+      album_plays: z.number(),
+      artist_plays: z.number(),
+      genre_plays: z.number(),
+      playlist_plays: z.number(),
+    }),
+    unique_collections: z.object({
+      albums: z.number(),
+      artists: z.number(),
+      genres: z.number(),
+      playlists: z.number(),
+    }),
+  }),
+  days_back: z.number(),
+});
+
+export type TopCollectionsResponse = z.infer<
+  typeof TopCollectionsResponseSchema
+>;
+export type CollectionOverviewResponse = z.infer<
+  typeof CollectionOverviewResponseSchema
+>;
 export type ListeningTimeResponse = z.infer<typeof ListeningTimeResponseSchema>;
 
 // Analytics dashboard state
@@ -375,6 +433,38 @@ export const createAnalyticsApi = (
           },
         },
         UserHistoryResponseSchema
+      );
+    },
+
+    async getTopCollections(
+      daysBack: number = 7,
+      limit: number = 20,
+      domainType?: string
+    ): Promise<TopCollectionsResponse> {
+      return makeRequest(
+        {
+          query_type: "top_collections",
+          params: {
+            days: daysBack,
+            limit,
+            domain_type: domainType,
+          },
+        },
+        TopCollectionsResponseSchema
+      );
+    },
+
+    async getCollectionOverview(
+      daysBack: number = 30
+    ): Promise<CollectionOverviewResponse> {
+      return makeRequest(
+        {
+          query_type: "collection_overview",
+          params: {
+            days: daysBack,
+          },
+        },
+        CollectionOverviewResponseSchema
       );
     },
   };

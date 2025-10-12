@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL) as total_collection_plays,\n                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NOT NULL) as total_song_plays,\n                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL AND domain_type = 'album') as album_plays,\n                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL AND domain_type = 'artist') as artist_plays,\n                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL AND domain_type = 'genre') as genre_plays,\n                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL AND domain_type = 'playlist') as playlist_plays,\n                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'album') as unique_albums,\n                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'artist') as unique_artists,\n                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'genre') as unique_genres,\n                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'playlist') as unique_playlists\n            FROM media_events\n            WHERE created_at >= NOW() - INTERVAL '1 day' * $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_collection_plays",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "total_song_plays",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "album_plays",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "artist_plays",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "genre_plays",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "playlist_plays",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "unique_albums",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "unique_artists",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "unique_genres",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "unique_playlists",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a2cdc87172b129d314ba2ad35f1e9d0e81ea4b0fe3e092bc2447c5c7c42c3fcc"
+}

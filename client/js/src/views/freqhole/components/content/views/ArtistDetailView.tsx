@@ -10,6 +10,7 @@ import { useParams, useNavigate } from "@solidjs/router";
 import { useSelection } from "../../../hooks/useSelection";
 import { useGlobalEvents } from "../../../hooks/useGlobalEvents";
 import { useSongInteractions } from "../../../services/songInteractions";
+import { useCollectionInteractions } from "../../../services/collectionInteractions";
 import { useAuth } from "../../../../../hooks/auth";
 import { isMobile } from "../../../../../lib/format-utils";
 import { apiClient } from "../../../../../lib/api-client";
@@ -56,6 +57,7 @@ export function ArtistDetailView(
 
   const events = useGlobalEvents();
   const songInteractions = useSongInteractions();
+  const collectionInteractions = useCollectionInteractions();
   const auth = useAuth();
 
   const [loadingArtistSongs, setLoadingArtistSongs] = createSignal(false);
@@ -177,34 +179,16 @@ export function ArtistDetailView(
   };
 
   const handlePlayAll = () => {
-    const songs = artistSongsResource()?.songs || [];
-    if (songs.length > 0) {
-      // Use songInteractions to properly queue and play all songs
-      const firstSong = songs[0];
-      if (firstSong) {
-        songInteractions.playSong(firstSong, true); // Replace queue and start playing
-        // Add remaining songs to queue
-        songs.slice(1).forEach((song) => {
-          songInteractions.queueSong(song);
-        });
-      }
+    const artist = artistSummaryResource();
+    if (artist) {
+      collectionInteractions.playArtist(artist, false);
     }
   };
 
   const handleShuffle = () => {
-    const songs = artistSongsResource()?.songs || [];
-    if (songs.length > 0) {
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-
-      // Use songInteractions to properly queue and play shuffled songs
-      const firstSong = shuffled[0];
-      if (firstSong) {
-        songInteractions.playSong(firstSong, true); // Replace queue and start playing
-        // Add remaining shuffled songs to queue
-        shuffled.slice(1).forEach((song) => {
-          songInteractions.queueSong(song);
-        });
-      }
+    const artist = artistSummaryResource();
+    if (artist) {
+      collectionInteractions.playArtist(artist, true);
     }
   };
 
@@ -214,16 +198,21 @@ export function ArtistDetailView(
   };
 
   const handlePlayAlbum = (album: AlbumGroup) => {
-    if (album.songs.length > 0) {
-      // Use songInteractions to properly queue and play the album
-      const firstSong = album.songs[0];
-      if (firstSong) {
-        songInteractions.playSong(firstSong, true); // Replace queue and start playing
-        // Add remaining songs to queue
-        album.songs.slice(1).forEach((song) => {
-          songInteractions.queueSong(song);
-        });
-      }
+    const artistInfo = artistSummaryResource();
+    if (album.songs.length > 0 && artistInfo) {
+      const albumData = {
+        album: album.album,
+        artist: artistInfo.artist,
+        genres: null,
+        year: null,
+        avg_rating: null,
+        total_duration: null,
+        favorite_count: 0,
+        track_count: album.songs.length,
+        disc_count: 1,
+        album_thumbnail_id: album.albumThumbnailId,
+      };
+      collectionInteractions.playAlbum(albumData, false);
     }
   };
 

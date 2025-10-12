@@ -795,8 +795,8 @@ impl<'a> AnalyticsRepository<'a> {
                 me.domain_id,
                 me.session_id,
                 me.created_at,
-                s.id as song_id,
-                s.title,
+                s.id as "song_id: Option<Uuid>",
+                s.title as "title: Option<String>",
                 s.artist,
                 s.album,
                 s.album_artist,
@@ -809,7 +809,7 @@ impl<'a> AnalyticsRepository<'a> {
                 s.key_signature,
                 s.thumbnail_blob_id,
                 s.waveform_blob_id,
-                s.created_at as song_created_at
+                s.created_at as "song_created_at: Option<OffsetDateTime>"
             FROM media_events me
             LEFT JOIN songs s ON s.media_blob_id = me.media_blob_id
             WHERE me.user_id = $1
@@ -845,8 +845,8 @@ impl<'a> AnalyticsRepository<'a> {
                 domain_id: row.domain_id,
                 session_id: row.session_id,
                 created_at: row.created_at,
-                song_id: Some(row.song_id),
-                title: Some(row.title),
+                song_id: row.song_id,
+                title: row.title,
                 artist: row.artist,
                 album: row.album,
                 album_artist: row.album_artist,
@@ -859,10 +859,114 @@ impl<'a> AnalyticsRepository<'a> {
                 key_signature: row.key_signature,
                 thumbnail_blob_id: row.thumbnail_blob_id,
                 waveform_blob_id: row.waveform_blob_id,
-                song_created_at: Some(row.song_created_at),
+                song_created_at: row.song_created_at,
             });
         }
 
         Ok(history)
+    }
+
+    /// Get top collections by play count (simplified version for now)
+    pub async fn get_top_collections(
+        &self,
+        days_back: i32,
+        limit: i32,
+        domain_type: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>, MediaAnalyticsError> {
+        // Simplified query without domain_type filter for now to avoid dynamic SQL
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                domain_type,
+                domain_id,
+                COUNT(*) FILTER (WHERE event_type = 'play') as play_count,
+                COUNT(DISTINCT user_id) as unique_users,
+                MAX(event_data->>'collection_name') as collection_name,
+                MAX(created_at)::text as last_played_at
+            FROM media_events
+            WHERE media_blob_id IS NULL
+                AND domain_type IS NOT NULL
+                AND domain_id IS NOT NULL
+                AND created_at >= NOW() - INTERVAL '1 day' * $1
+            GROUP BY domain_type, domain_id
+            HAVING COUNT(*) FILTER (WHERE event_type = 'play') > 0
+            ORDER BY play_count DESC
+            LIMIT $2
+            "#,
+            days_back as f64,
+            limit as i64
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let mut collections = Vec::new();
+        for row in rows {
+            // Apply domain_type filter in Rust if specified
+            if let Some(dt) = domain_type {
+                if let Some(row_domain_type) = &row.domain_type {
+                    if row_domain_type != dt {
+                        continue;
+                    }
+                }
+            }
+
+            let collection = serde_json::json!({
+                "domain_type": row.domain_type,
+                "domain_id": row.domain_id,
+                "play_count": row.play_count.unwrap_or(0),
+                "unique_users": row.unique_users.unwrap_or(0),
+                "collection_name": row.collection_name,
+                "last_played_at": row.last_played_at
+            });
+            collections.push(collection);
+        }
+
+        Ok(collections)
+    }
+
+    /// Get collection overview statistics
+    pub async fn get_collection_overview(
+        &self,
+        days_back: i32,
+    ) -> Result<serde_json::Value, MediaAnalyticsError> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL) as total_collection_plays,
+                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NOT NULL) as total_song_plays,
+                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL AND domain_type = 'album') as album_plays,
+                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL AND domain_type = 'artist') as artist_plays,
+                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL AND domain_type = 'genre') as genre_plays,
+                COUNT(*) FILTER (WHERE event_type = 'play' AND media_blob_id IS NULL AND domain_type = 'playlist') as playlist_plays,
+                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'album') as unique_albums,
+                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'artist') as unique_artists,
+                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'genre') as unique_genres,
+                COUNT(DISTINCT domain_id) FILTER (WHERE media_blob_id IS NULL AND domain_type = 'playlist') as unique_playlists
+            FROM media_events
+            WHERE created_at >= NOW() - INTERVAL '1 day' * $1
+            "#,
+            days_back as f64
+        )
+        .fetch_one(self.db.pool())
+        .await?;
+
+        let overview = serde_json::json!({
+            "total_collection_plays": row.total_collection_plays.unwrap_or(0),
+            "total_song_plays": row.total_song_plays.unwrap_or(0),
+            "breakdown": {
+                "album_plays": row.album_plays.unwrap_or(0),
+                "artist_plays": row.artist_plays.unwrap_or(0),
+                "genre_plays": row.genre_plays.unwrap_or(0),
+                "playlist_plays": row.playlist_plays.unwrap_or(0)
+            },
+            "unique_collections": {
+                "albums": row.unique_albums.unwrap_or(0),
+                "artists": row.unique_artists.unwrap_or(0),
+                "genres": row.unique_genres.unwrap_or(0),
+                "playlists": row.unique_playlists.unwrap_or(0)
+            }
+        });
+
+        Ok(overview)
     }
 }
