@@ -134,6 +134,8 @@ export const AdminAnalyticsQuerySchema = z.object({
     "genre_patterns",
     "listening_time",
     "popular_songs",
+    "top_collections",
+    "collection_overview",
   ]),
   params: z.record(z.any()),
 });
@@ -521,7 +523,7 @@ export const createAnalyticsApi = (
             days: daysBack,
           },
         },
-        SongAnalyticsResponseSchema
+        CollectionOverviewResponseSchema
       );
     },
 

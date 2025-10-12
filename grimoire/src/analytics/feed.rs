@@ -12,7 +12,9 @@ pub struct FeedItem {
     pub image_url: Option<String>,
     pub metadata: FeedItemMetadata,
     pub play_count: Option<i64>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub last_played_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
 

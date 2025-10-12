@@ -10,6 +10,7 @@ export function NavigationSections(props: NavigationSectionsProps) {
   const events = useGlobalEvents();
 
   const navItems = [
+    { path: "/feed", label: "feed" },
     { path: "/songs", label: "songs" },
     { path: "/artists", label: "artists" },
     { path: "/albums", label: "albums" },
@@ -28,7 +29,7 @@ export function NavigationSections(props: NavigationSectionsProps) {
           <button
             class={`w-full text-left p-2 rounded-lg text-sm transition-all duration-200 ${
               props.currentPath === item.path ||
-              (props.currentPath === "/" && item.path === "/genres")
+              (props.currentPath === "/" && item.path === "/feed")
                 ? "bg-magenta-600/30 text-white"
                 : "text-white hover:bg-magenta-600/20"
             }`}

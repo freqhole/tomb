@@ -8,11 +8,14 @@ import { PlaylistDetailView } from "../components/content/views/PlaylistDetailVi
 import { SearchResultsView } from "../components/content/views/SearchResultsView";
 import { ArtistDetailView } from "../components/content/views/ArtistDetailView";
 import { AlbumDetailView } from "../components/content/views/AlbumDetailView";
+import { FeedView } from "../components/content/views/FeedView";
 import { AnalyticsDashboard } from "../../admin/analytics/AnalyticsDashboard";
 
 export const routes = (
   <Route path="/" component={ThreeColumnLayout}>
-    <Route path="/" component={AlbumGridView} />
+    <Route path="/" component={FeedView} />
+    <Route path="/feed" component={FeedView} />
+    <Route path="/albums" component={AlbumGridView} />
     <Route path="/songs" component={SongTableView} />
 
     <Route
@@ -21,7 +24,6 @@ export const routes = (
     />
     <Route path="/artists" component={ArtistSplitView} />
     <Route path="/artist/:id" component={ArtistDetailView} />
-    <Route path="/albums" component={AlbumGridView} />
     <Route path="/genres" component={GenreSplitView} />
     <Route
       path="/genre/:id"

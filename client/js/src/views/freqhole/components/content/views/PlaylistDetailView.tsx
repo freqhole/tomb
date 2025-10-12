@@ -112,6 +112,7 @@ export function PlaylistDetailView(
         is_collaborative: false,
         visibility: "private",
         created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
         media_blob_id: null,
         thumbnail_blob_id: null,
       });

@@ -183,7 +183,7 @@ export function useCollectionInteractions() {
     try {
       const tracks = await apiClient.searchPost({
         query: artist.artist,
-        page_size: 1000,
+        page_size: 100,
       });
 
       playCollection(
@@ -215,7 +215,7 @@ export function useCollectionInteractions() {
     try {
       const tracks = await apiClient.searchPost({
         query: artist.artist,
-        page_size: 1000,
+        page_size: 100,
       });
 
       playCollection(
@@ -245,7 +245,7 @@ export function useCollectionInteractions() {
     try {
       const tracks = await apiClient.searchPost({
         query: `genre:${genre.name}`,
-        page_size: 1000,
+        page_size: 100,
       });
 
       playCollection(
@@ -274,7 +274,7 @@ export function useCollectionInteractions() {
     try {
       const tracks = await apiClient.searchPost({
         query: `genre:${genre.name}`,
-        page_size: 1000,
+        page_size: 100,
       });
 
       playCollection(
@@ -471,6 +471,199 @@ export function useCollectionInteractions() {
     });
   };
 
+  // Generic collection play method for feed components
+  const playCollectionGeneric = async (
+    domainType: "album" | "playlist" | "artist" | "genre",
+    domainId: string,
+    options: {
+      total_songs: number;
+      shuffle_enabled: boolean;
+      play_source: string;
+    }
+  ) => {
+    try {
+      let tracks: Song[] = [];
+      let collectionName = "";
+
+      if (domainType === "playlist") {
+        const playlistsResponse = await apiClient.getPlaylists();
+        const playlist = playlistsResponse.playlists.find(
+          (p: any) => p.id === domainId
+        );
+        if (!playlist) throw new Error(`Playlist ${domainId} not found`);
+        tracks = await apiClient.getPlaylistSongs(domainId);
+        collectionName = playlist.title;
+      } else if (domainType === "album") {
+        // For albums, use the proper album API
+        // The domainId might be formatted as "artist:album" or just the album name
+        let albumName: string;
+        let artistName: string | undefined;
+
+        if (domainId.includes(":")) {
+          const [artist, album] = domainId.split(":", 2);
+          artistName = artist;
+          albumName = album;
+        } else {
+          // Try to get album info from feed metadata if available
+          albumName = domainId;
+          artistName = undefined;
+        }
+
+        // Get album tracks using the proper API
+        tracks = await apiClient.getAlbumTracks(albumName, artistName);
+
+        // Try to get album metadata for better naming
+        try {
+          const albumInfo = await apiClient.getAlbumByName(
+            albumName,
+            artistName
+          );
+          if (albumInfo) {
+            collectionName = `${albumInfo.album} by ${albumInfo.artist}`;
+          } else {
+            collectionName = tracks[0]?.album || albumName;
+          }
+        } catch {
+          collectionName = tracks[0]?.album || albumName;
+        }
+      } else if (domainType === "artist") {
+        const searchResults = await apiClient.searchPost({
+          query: domainId,
+          page_size: 100,
+        });
+        tracks = searchResults.songs.map((song) => ({
+          ...song,
+          sub_genres: song.sub_genres || null,
+        }));
+        collectionName = tracks[0]?.artist || "Unknown Artist";
+      } else if (domainType === "genre") {
+        const searchResults = await apiClient.searchPost({
+          query: `genre:${domainId}`,
+          page_size: 100,
+        });
+        tracks = searchResults.songs.map((song) => ({
+          ...song,
+          sub_genres: song.sub_genres || null,
+        }));
+        collectionName = domainId;
+      }
+
+      playCollection(tracks, {
+        domainType,
+        domainId,
+        collectionName,
+        shuffle: options.shuffle_enabled,
+        replaceQueue: true,
+      });
+    } catch (error) {
+      console.error("failed to play collection:", error);
+      events.emit("notification:show", {
+        message: "failed to load collection",
+        type: "error",
+      });
+    }
+  };
+
+  // Generic context menu handler for feed components
+  const showCollectionContextMenu = (
+    event: MouseEvent,
+    domainType: "album" | "playlist" | "artist" | "genre",
+    domainId: string,
+    title: string,
+    metadata?: { artist?: string; album?: string }
+  ) => {
+    event.preventDefault();
+
+    const actions: CollectionMenuAction[] = [
+      {
+        label: "play",
+        icon: "play",
+        action: () =>
+          playCollectionGeneric(domainType, domainId, {
+            total_songs: 0,
+            shuffle_enabled: false,
+            play_source: "context_menu",
+          }),
+      },
+      {
+        label: "shuffle",
+        icon: "shuffle",
+        action: () =>
+          playCollectionGeneric(domainType, domainId, {
+            total_songs: 0,
+            shuffle_enabled: true,
+            play_source: "context_menu",
+          }),
+      },
+      { type: "separator" },
+      {
+        label: "add to queue",
+        icon: "queue-add",
+        action: () => {
+          // TODO: Implement queue functionality for generic collections
+          events.emit("notification:show", {
+            message: "queue functionality coming soon",
+            type: "info",
+          });
+        },
+      },
+    ];
+
+    // Add navigation options based on domain type
+    if (domainType === "album" && metadata?.album && metadata?.artist) {
+      actions.push(
+        { type: "separator" },
+        {
+          label: "view album",
+          icon: "view",
+          action: () => {
+            const encodedAlbum = encodeURIComponent(metadata.album!);
+            const encodedArtist = encodeURIComponent(metadata.artist!);
+            // Use navigate from router
+            window.location.href = `/album/${encodedArtist}/${encodedAlbum}`;
+          },
+        },
+        {
+          label: "view artist",
+          icon: "view",
+          action: () => {
+            const encodedArtist = encodeURIComponent(metadata.artist!);
+            window.location.href = `/artist/${encodedArtist}`;
+          },
+        }
+      );
+    } else if (domainType === "playlist") {
+      actions.push(
+        { type: "separator" },
+        {
+          label: "view playlist",
+          icon: "view",
+          action: () => {
+            window.location.href = `/playlist/${domainId}`;
+          },
+        }
+      );
+    } else if (domainType === "artist" && metadata?.artist) {
+      actions.push(
+        { type: "separator" },
+        {
+          label: "view artist",
+          icon: "view",
+          action: () => {
+            const encodedArtist = encodeURIComponent(metadata.artist!);
+            window.location.href = `/artist/${encodedArtist}`;
+          },
+        }
+      );
+    }
+
+    events.emit("context-menu:open", {
+      x: event.clientX,
+      y: event.clientY,
+      actions,
+    });
+  };
+
   return {
     // Direct play actions
     playAlbum,
@@ -493,5 +686,9 @@ export function useCollectionInteractions() {
     createAlbumContextMenuActions,
     createArtistContextMenuActions,
     createGenreContextMenuActions,
+
+    // Generic methods for feed components
+    playCollection: playCollectionGeneric,
+    showCollectionContextMenu,
   };
 }
