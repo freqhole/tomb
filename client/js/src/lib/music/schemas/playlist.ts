@@ -12,6 +12,7 @@ export const PlaylistSchema = z.object({
   song_count: z.number().nullable(),
   visibility: z.string(),
   created_at: z.string(),
+  updated_at: z.string(),
   media_blob_id: z.string().nullable(),
   thumbnail_blob_id: z.string().nullable(),
 });
