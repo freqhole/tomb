@@ -8,6 +8,7 @@ import { PlaylistDetailView } from "../components/content/views/PlaylistDetailVi
 import { SearchResultsView } from "../components/content/views/SearchResultsView";
 import { ArtistDetailView } from "../components/content/views/ArtistDetailView";
 import { AlbumDetailView } from "../components/content/views/AlbumDetailView";
+import { AnalyticsDashboard } from "../../admin/analytics/AnalyticsDashboard";
 
 export const routes = (
   <Route path="/" component={ThreeColumnLayout}>
@@ -32,5 +33,6 @@ export const routes = (
     <Route path="/playlists/new" component={PlaylistDetailView} />
     <Route path="/playlist/:id" component={PlaylistDetailView} />
     <Route path="/search" component={SearchResultsView} />
+    <Route path="/admin/analytics" component={AnalyticsDashboard} />
   </Route>
 );

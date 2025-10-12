@@ -1,0 +1,440 @@
+import { z } from "zod";
+
+// Helper function to convert timestamp arrays to ISO strings
+const convertTimestamp = (val: string | number[] | null): string | null => {
+  if (val === null) return null;
+  if (Array.isArray(val)) {
+    // Convert array timestamp to ISO string
+    const [year, dayOfYear, hour, minute, second, nanosecond] = val;
+    const date = new Date(year, 0, dayOfYear);
+    date.setHours(hour, minute, second, Math.floor(nanosecond / 1000000));
+    return date.toISOString();
+  }
+  return val;
+};
+
+// Helper function for non-nullable timestamps
+const convertTimestampNonNull = (val: string | number[]): string => {
+  if (Array.isArray(val)) {
+    // Convert array timestamp to ISO string
+    const [year, dayOfYear, hour, minute, second, nanosecond] = val;
+    const date = new Date(year, 0, dayOfYear);
+    date.setHours(hour, minute, second, Math.floor(nanosecond / 1000000));
+    return date.toISOString();
+  }
+  return val;
+};
+
+// Analytics API schemas following existing patterns
+export const PlayAnalyticsSchema = z.object({
+  media_blob_id: z.string(),
+  total_plays: z.number(),
+  complete_plays: z.number(),
+  partial_plays: z.number(),
+  unique_users: z.number(),
+  unique_sessions: z.number(),
+  avg_completion_rate: z.number(),
+  total_play_time_seconds: z.number(),
+  avg_play_time_seconds: z.number(),
+  last_played_at: z
+    .union([z.string(), z.array(z.number())])
+    .nullable()
+    .transform(convertTimestamp),
+  first_played_at: z
+    .union([z.string(), z.array(z.number())])
+    .nullable()
+    .transform(convertTimestamp),
+  play_count_last_24h: z.number(),
+  play_count_last_7d: z.number(),
+  play_count_last_30d: z.number(),
+});
+
+export type PlayAnalytics = z.infer<typeof PlayAnalyticsSchema>;
+
+export const TrendingSongSchema = z.object({
+  media_blob_id: z.string(),
+  domain_id: z.string().nullable(),
+  current_period_plays: z.number(),
+  previous_period_plays: z.number(),
+  trend_score: z.number(),
+  velocity_score: z.number(),
+  unique_users: z.number(),
+  completion_rate: z.number(),
+});
+
+export type TrendingSong = z.infer<typeof TrendingSongSchema>;
+
+export const UserListeningStreaksSchema = z.object({
+  user_id: z.string(),
+  current_streak_days: z.number(),
+  longest_streak_days: z.number(),
+  total_listening_days: z.number(),
+  avg_daily_plays: z.number(),
+  favorite_listening_hour: z.number(),
+  most_played_day_of_week: z.number(),
+  total_unique_songs: z.number(),
+  completion_rate: z.number(),
+});
+
+export type UserListeningStreaks = z.infer<typeof UserListeningStreaksSchema>;
+
+export const GenreListeningPatternSchema = z.object({
+  genre: z.string(),
+  total_plays: z.number(),
+  unique_users: z.number(),
+  unique_songs: z.number(),
+  avg_completion_rate: z.number(),
+  trend_direction: z.string(),
+  popularity_rank: z.number(),
+});
+
+export type GenreListeningPattern = z.infer<typeof GenreListeningPatternSchema>;
+
+export const ListeningTimePeriodSchema = z.object({
+  period_start: z
+    .union([z.string(), z.array(z.number())])
+    .transform(convertTimestampNonNull),
+  period_end: z
+    .union([z.string(), z.array(z.number())])
+    .transform(convertTimestampNonNull),
+  total_listening_seconds: z.number(),
+  unique_songs_played: z.number(),
+  total_play_events: z.number(),
+  avg_session_length_minutes: z.number(),
+});
+
+export type ListeningTimePeriod = z.infer<typeof ListeningTimePeriodSchema>;
+
+export const PopularSongSchema = z.object({
+  media_blob_id: z.string(),
+  domain_id: z.string().nullable(),
+  play_count: z.number(),
+  unique_users: z.number(),
+  completion_rate: z.number(),
+  momentum_score: z.number(),
+  first_play_at: z
+    .union([z.string(), z.array(z.number())])
+    .transform(convertTimestampNonNull),
+  latest_play_at: z
+    .union([z.string(), z.array(z.number())])
+    .transform(convertTimestampNonNull),
+});
+
+export type PopularSong = z.infer<typeof PopularSongSchema>;
+
+// Admin analytics query request schema
+export const AdminAnalyticsQuerySchema = z.object({
+  query_type: z.enum([
+    "overview",
+    "top_songs",
+    "user_history",
+    "trends",
+    "song_analytics",
+    "trending_songs",
+    "user_streaks",
+    "genre_patterns",
+    "listening_time",
+    "popular_songs",
+  ]),
+  params: z.record(z.any()),
+});
+
+export type AdminAnalyticsQuery = z.infer<typeof AdminAnalyticsQuerySchema>;
+
+// Response schemas for different query types
+export const OverviewResponseSchema = z.object({
+  total_events: z.number(),
+  total_plays: z.number(),
+  unique_users: z.number(),
+  active_sessions: z.number(),
+});
+
+export const TopSongsResponseSchema = z.object({
+  songs: z.array(PopularSongSchema),
+  period_hours: z.number(),
+  limit: z.number(),
+});
+
+export const TrendingResponseSchema = z.object({
+  trending_songs: z.array(TrendingSongSchema),
+  time_period_hours: z.number(),
+  limit: z.number(),
+});
+
+export const UserHistoryResponseSchema = z.object({
+  user_id: z.string(),
+  history: z.array(
+    z.object({
+      media_blob_id: z.string(),
+      event_type: z.string(),
+      event_data: z.record(z.any()),
+      domain_type: z.string().nullable(),
+      domain_id: z.string().nullable(),
+      session_id: z.string().nullable(),
+      created_at: z
+        .union([z.string(), z.array(z.number())])
+        .transform(convertTimestampNonNull),
+    })
+  ),
+});
+
+export const UserStreaksResponseSchema = z.object({
+  user_id: z.string(),
+  streaks: UserListeningStreaksSchema.nullable(),
+});
+
+export const GenrePatternsResponseSchema = z.object({
+  genre_patterns: z.array(GenreListeningPatternSchema),
+  days_back: z.number(),
+  min_plays: z.number(),
+});
+
+export const ListeningTimeResponseSchema = z.object({
+  user_id: z.string(),
+  period_type: z.string(),
+  listening_periods: z.array(ListeningTimePeriodSchema),
+});
+
+export type OverviewResponse = z.infer<typeof OverviewResponseSchema>;
+export type TopSongsResponse = z.infer<typeof TopSongsResponseSchema>;
+export type TrendingResponse = z.infer<typeof TrendingResponseSchema>;
+export type UserHistoryResponse = z.infer<typeof UserHistoryResponseSchema>;
+export type UserStreaksResponse = z.infer<typeof UserStreaksResponseSchema>;
+export type GenrePatternsResponse = z.infer<typeof GenrePatternsResponseSchema>;
+export type ListeningTimeResponse = z.infer<typeof ListeningTimeResponseSchema>;
+
+// Analytics dashboard state
+export interface AnalyticsDashboardState {
+  overview: OverviewResponse | null;
+  topSongs: TopSongsResponse | null;
+  trending: TrendingResponse | null;
+  genrePatterns: GenrePatternsResponse | null;
+  loading: {
+    overview: boolean;
+    topSongs: boolean;
+    trending: boolean;
+    genrePatterns: boolean;
+  };
+  error: {
+    overview: string | null;
+    topSongs: string | null;
+    trending: string | null;
+    genrePatterns: string | null;
+  };
+  lastUpdated: Date | null;
+}
+
+// Analytics API client function that takes an ApiClient instance
+export const createAnalyticsApi = (
+  apiClient: () => import("../api-client.js").ApiClient
+) => {
+  const makeRequest = async <T>(
+    query: AdminAnalyticsQuery,
+    schema: z.ZodSchema<T>
+  ): Promise<T> => {
+    const client = apiClient();
+    // Use the existing ApiClient's makeRequest method
+    const response = await client.makeRequest(
+      "POST",
+      "/api/admin/analytics/query",
+      {
+        data: query,
+      }
+    );
+    return schema.parse(response);
+  };
+
+  return {
+    async getOverview(): Promise<OverviewResponse> {
+      return makeRequest(
+        {
+          query_type: "overview",
+          params: {},
+        },
+        OverviewResponseSchema
+      );
+    },
+
+    async getTopSongs(
+      periodHours: number = 168,
+      limit: number = 20
+    ): Promise<TopSongsResponse> {
+      return makeRequest(
+        {
+          query_type: "top_songs",
+          params: {
+            period_hours: periodHours,
+            limit,
+            min_plays: 1,
+          },
+        },
+        TopSongsResponseSchema
+      );
+    },
+
+    async getTrendingSongs(
+      timePeriodHours: number = 24,
+      limit: number = 50
+    ): Promise<TrendingResponse> {
+      return makeRequest(
+        {
+          query_type: "trending_songs",
+          params: {
+            time_period_hours: timePeriodHours,
+            limit,
+            domain_filter: "song",
+          },
+        },
+        TrendingResponseSchema
+      );
+    },
+
+    async getUserStreaks(userId: string): Promise<UserStreaksResponse> {
+      return makeRequest(
+        {
+          query_type: "user_streaks",
+          params: {
+            user_id: userId,
+          },
+        },
+        UserStreaksResponseSchema
+      );
+    },
+
+    async getGenrePatterns(
+      daysBack: number = 30,
+      minPlays: number = 5
+    ): Promise<GenrePatternsResponse> {
+      return makeRequest(
+        {
+          query_type: "genre_patterns",
+          params: {
+            days_back: daysBack,
+            min_plays: minPlays,
+          },
+        },
+        GenrePatternsResponseSchema
+      );
+    },
+
+    async getUserListeningTime(
+      userId: string,
+      periodType: string = "day"
+    ): Promise<ListeningTimeResponse> {
+      return makeRequest(
+        {
+          query_type: "listening_time",
+          params: {
+            user_id: userId,
+            period_type: periodType,
+          },
+        },
+        ListeningTimeResponseSchema
+      );
+    },
+
+    async getSongAnalytics(mediaBlobId: string): Promise<PlayAnalytics> {
+      return makeRequest(
+        {
+          query_type: "song_analytics",
+          params: {
+            media_blob_id: mediaBlobId,
+          },
+        },
+        PlayAnalyticsSchema
+      );
+    },
+
+    async getUserHistory(
+      userId: string,
+      limit: number = 50,
+      offset: number = 0
+    ): Promise<UserHistoryResponse> {
+      return makeRequest(
+        {
+          query_type: "user_history",
+          params: {
+            user_id: userId,
+            limit,
+            offset,
+          },
+        },
+        UserHistoryResponseSchema
+      );
+    },
+  };
+};
+
+// Utility functions for formatting analytics data
+export const formatDuration = (seconds: number): string => {
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s`;
+  } else if (seconds < 3600) {
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+    return secs > 0 ? `${minutes}m ${secs}s` : `${minutes}m`;
+  } else {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+};
+
+export const formatNumber = (num: number): string => {
+  if (num >= 1000000) {
+    return `${(num / 1000000).toFixed(1)}M`;
+  } else if (num >= 1000) {
+    return `${(num / 1000).toFixed(1)}K`;
+  }
+  return num.toString();
+};
+
+export const formatPercentage = (value: number): string => {
+  return `${Math.round(value * 100) / 100}%`;
+};
+
+export const getDayOfWeekName = (dayOfWeek: number): string => {
+  const days = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  return days[dayOfWeek] || "Unknown";
+};
+
+export const formatHour = (hour: number): string => {
+  if (hour === 0) return "12 AM";
+  if (hour === 12) return "12 PM";
+  if (hour < 12) return `${hour} AM`;
+  return `${hour - 12} PM`;
+};
+
+export const getTrendIcon = (trendDirection: string): string => {
+  switch (trendDirection) {
+    case "rising":
+      return "↗";
+    case "declining":
+      return "↘";
+    case "stable":
+      return "→";
+    default:
+      return "→";
+  }
+};
+
+export const getTrendColor = (trendDirection: string): string => {
+  switch (trendDirection) {
+    case "rising":
+      return "text-green-400";
+    case "declining":
+      return "text-red-400";
+    case "stable":
+      return "text-gray-400";
+    default:
+      return "text-gray-400";
+  }
+};

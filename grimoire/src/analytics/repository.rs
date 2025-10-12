@@ -647,6 +647,31 @@ impl<'a> AnalyticsRepository<'a> {
         Ok(popular_songs)
     }
 
+    /// Get overview analytics statistics
+    pub async fn get_overview_analytics(
+        &self,
+    ) -> Result<(i64, i64, i64, i64), MediaAnalyticsError> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                COUNT(*) as total_events,
+                COUNT(*) FILTER (WHERE event_type = 'play') as total_plays,
+                COUNT(DISTINCT user_id) as unique_users,
+                COUNT(DISTINCT session_id) FILTER (WHERE created_at >= NOW() - INTERVAL '1 hour') as active_sessions
+            FROM media_events
+            "#
+        )
+        .fetch_one(self.db.pool())
+        .await?;
+
+        Ok((
+            row.total_events.unwrap_or(0),
+            row.total_plays.unwrap_or(0),
+            row.unique_users.unwrap_or(0),
+            row.active_sessions.unwrap_or(0),
+        ))
+    }
+
     /// Refresh all analytics materialized views
     pub async fn refresh_analytics_materialized_views(
         &self,

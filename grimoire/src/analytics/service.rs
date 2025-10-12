@@ -382,6 +382,19 @@ impl<'a> AnalyticsService<'a> {
             .await
     }
 
+    /// Get overview analytics statistics
+    pub async fn get_overview_analytics(
+        &self,
+    ) -> Result<(i64, i64, i64, i64), MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Err(MediaAnalyticsError::InvalidEventData(
+                "Analytics disabled".to_string(),
+            ));
+        }
+
+        self.repo.get_overview_analytics().await
+    }
+
     /// Refresh all analytics materialized views
     pub async fn refresh_analytics_materialized_views(
         &self,

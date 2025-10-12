@@ -233,19 +233,27 @@ pub async fn admin_analytics_query(
 }
 
 async fn handle_overview_query(
-    _analytics_service: &AnalyticsService<'_>,
+    analytics_service: &AnalyticsService<'_>,
     _params: serde_json::Value,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // TODO: Implement overview analytics
-    let overview = json!({
-        "total_events": 0,
-        "total_plays": 0,
-        "unique_users": 0,
-        "active_sessions": 0,
-        "note": "Overview analytics not yet implemented"
-    });
-
-    Ok(Json(overview))
+    match analytics_service.get_overview_analytics().await {
+        Ok((total_events, total_plays, unique_users, active_sessions)) => {
+            let overview = json!({
+                "total_events": total_events,
+                "total_plays": total_plays,
+                "unique_users": unique_users,
+                "active_sessions": active_sessions
+            });
+            Ok(Json(overview))
+        }
+        Err(e) => {
+            tracing::warn!("Failed to get overview analytics: {}", e);
+            Err(AppError::BadRequest(format!(
+                "Failed to get overview analytics: {}",
+                e
+            )))
+        }
+    }
 }
 
 #[derive(Deserialize)]

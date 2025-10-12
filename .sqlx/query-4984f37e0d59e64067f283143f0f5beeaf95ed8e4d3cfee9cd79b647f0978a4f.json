@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                COUNT(*) as total_events,\n                COUNT(*) FILTER (WHERE event_type = 'play') as total_plays,\n                COUNT(DISTINCT user_id) as unique_users,\n                COUNT(DISTINCT session_id) FILTER (WHERE created_at >= NOW() - INTERVAL '1 hour') as active_sessions\n            FROM media_events\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_events",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "total_plays",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "unique_users",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "active_sessions",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "4984f37e0d59e64067f283143f0f5beeaf95ed8e4d3cfee9cd79b647f0978a4f"
+}

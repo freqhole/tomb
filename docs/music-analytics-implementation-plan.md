@@ -186,7 +186,7 @@ implement logic to convert raw events into meaningful play metrics and create ad
 
 ### current state
 
-analytics events are being collected successfully with proper session tracking and user association. phases 3.1 and 3.2 completed with enhanced sql functions and materialized views for performance. ready for phase 3.3 background jobs.
+analytics events are being collected successfully with proper session tracking and user association. all three phases completed with enhanced sql functions, materialized views, and background job processing. system is operational and processing jobs automatically.
 
 ### 3.1 enhanced sql aggregation functions ✅ COMPLETE
 
@@ -228,7 +228,7 @@ migration `061_analytics_jobs.sql` and job queue system implemented:
 - ✅ job queue management with retry logic, exponential backoff, and statistics tracking
 - ✅ database functions: `schedule_recurring_analytics_jobs()`, `get_analytics_job_queue_status()`, `retry_failed_analytics_jobs()`
 
-**testing**: 4 scheduled jobs created automatically, job queue operational with proper status tracking and worker management
+**testing**: ✅ PRODUCTION VERIFIED - first materialized view refresh job completed successfully in 24ms, 39 songs tracked, jobs scheduled automatically (next refresh 7am, daily rollup tomorrow 2am)
 
 ### implementation approach ✅ COMPLETE
 
@@ -240,9 +240,13 @@ built on existing foundation successfully:
 - ✅ leveraged existing `POST /api/admin/analytics/query` endpoint with 5 new query types
 - ✅ integrated into server startup alongside thumbnail and music job queues
 
-## phase 4: analytics dashboard ui (FUTURE)
+## phase 4: analytics dashboard ui (NEXT)
 
-build admin interface for viewing analytics data.
+build admin interface for viewing analytics data using pre-built api endpoints and materialized views.
+
+### current state
+
+phase 3 provides a complete foundation with 5 enhanced api endpoints, materialized views, and automated background processing. all server-side analytics infrastructure is ready for dashboard ui implementation.
 
 ### 4.1 analytics api endpoints ✅ FOUNDATION
 
@@ -270,25 +274,39 @@ pub async fn admin_analytics_query(
 
 ✅ foundation in place - ready for phase 3 enhanced query implementations
 
-### 4.2 analytics dashboard components
+### 4.2 analytics dashboard components (NEXT)
 
-create `client/js/src/views/admin/analytics/`:
+create `client/js/src/views/admin/analytics/` using existing patterns:
 
-- `AnalyticsDashboard.tsx` - main dashboard layout
-- `PlayMetricsCard.tsx` - song play statistics
-- `TrendChart.tsx` - time series visualization
-- `TopSongsTable.tsx` - most played songs list
-- `UserActivityChart.tsx` - user engagement metrics
+- `AnalyticsDashboard.tsx` - main dashboard layout with dark theme
+- `PlayMetricsCard.tsx` - song play statistics cards
+- `TrendChart.tsx` - time series visualization using chart.js
+- `TopSongsTable.tsx` - most played songs table with existing table components
+- `UserActivityChart.tsx` - user engagement metrics visualization
+- leverage existing admin layout patterns from `client/js/src/views/admin/`
+- use existing hooks and utilities from `client/js/src/lib/`
+- follow dark theme design rules (black, white, magenta accents, no borders, no rounded corners)
 
 ### 4.3 real-time updates
 
-extend websocket system:
+extend existing websocket system:
 
 - emit analytics events via websocket for real-time dashboard updates
 - update play counts in real-time as events occur
-- live user activity indicators
+- live user activity indicators using existing notification infrastructure
+- leverage existing `ConnectionManager` and notification patterns
 
-**testing**: navigate to admin analytics dashboard, verify data loads and updates
+### implementation approach
+
+build on existing ui foundation:
+
+- extend existing admin routes in `client/js/src/routes/admin/`
+- use existing admin authentication and layout components
+- leverage existing api client patterns for analytics endpoints
+- implement using solidjs createResource for reactive data loading
+- follow existing component patterns for tables, cards, and charts
+
+**testing**: navigate to admin analytics dashboard, verify data loads from materialized views, test real-time updates
 
 ## phase 5: user-facing analytics features
 
