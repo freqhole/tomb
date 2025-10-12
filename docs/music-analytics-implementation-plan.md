@@ -2487,6 +2487,98 @@ cargo run --bin tomb-cli analytics fix-legacy-events --apply
 - **production**: clean up legacy composite string domain_ids
 - **migration**: transition deployed servers from legacy to clean analytics
 
+## ✅ **PHASE 9C-9D COMPLETION UPDATE - OCTOBER 2024**
+
+### **✅ PHASE 9C: PROPER ANALYTICS ARCHITECTURE - COMPLETE**
+
+**✅ eliminated legacy composite string hacks**:
+
+- removed synthetic album UUID generation (`createDeterministicUUID`)
+- albums now use actual song `media_blob_id` arrays in `domain_ids`
+- playlists use proper playlist UUID (real entities)
+- artists/genres use song `media_blob_id` arrays (computed collections)
+
+**✅ session-level client id correlation**:
+
+- centralized client ID generation in EventBuffer
+- single client ID per session instead of per-event
+- proper event correlation for analytics batching
+
+**✅ server-side social feed compatibility**:
+
+- updated SQL functions to work with new `domain_ids` approach
+- proper collection name resolution from songs table
+- handles both computed collections and real entities correctly
+
+**✅ cli tools for data management**:
+
+- `cargo run --bin cli analytics legacy-report` - analyze legacy data
+- `cargo run --bin cli analytics drop-before-now --confirm` - clean development data
+- `cargo run --bin cli analytics drop-all --confirm` - nuclear reset option
+- tested and working for production migration support
+
+### **✅ PHASE 9D: SOCIAL TIMELINE FOUNDATIONS - COMPLETE**
+
+**✅ user attribution in social feed**:
+
+- added `user_id` and `username` fields to feed responses
+- timeline shows "edward played album Mind Control 108 times recently"
+- proper social context instead of anonymous activity
+
+**✅ timelinecard component implementation**:
+
+- new TimelineCard component for social timeline display
+- user action headers with play frequency
+- dark theme design (black/white/magenta, no borders)
+- ready for collection grid integration
+
+**✅ analytics dashboard function compatibility**:
+
+- fixed type mismatches between SQL functions and Rust structs
+- overview endpoint working: 311 total events, 220 plays, 1 user
+- materialized views populated with real data
+- ready for dashboard UI development
+
+### **🔧 IDENTIFIED TECHNICAL DEBT**
+
+**legacy component compatibility**:
+
+- UserActivityGroupCard expects old user_activity schema
+- some CollectionCard type mismatches with "song" domain_type
+- feed flattening logic expects old activity structure
+
+**typescript cleanup needed**:
+
+- 17 remaining typecheck errors in legacy components
+- most are in unused/deprecated components
+- core analytics and timeline components compile successfully
+
+### **🎯 NEXT SESSION PRIORITIES**
+
+**Priority #1: Social Timeline UI Enhancement**
+
+- implement grid layout you mentioned (user headers + collection grids)
+- smaller, more responsive collection cards in timeline
+- proper thumbnail support and hover states
+
+**Priority #2: Event Grouping and Smart Timeline**
+
+- group multiple plays of same collection by user
+- time-based grouping (last hour, today, this week)
+- "alice uploaded 3 songs" style event aggregation
+
+**Priority #3: TypeScript Cleanup**
+
+- mark legacy components as deprecated
+- update schemas to match new social timeline approach
+- clean up unused UserActivityGroupCard and old feed logic
+
+**Priority #4: Additional Event Types**
+
+- favorites, ratings, uploads for richer social timeline
+- collection creation events (new playlists)
+- user interaction patterns (heavy listeners, trending items)
+
 ### **🗃️ READY FOR DEVELOPMENT**
 
 **database foundation**: ✅ complete and tested
