@@ -16,12 +16,28 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
         return "listened to";
       case "user_played_genre":
         return "explored";
+      case "user_played_song":
+        return "played";
+      case "user_favorited_album":
+        return "favorited album";
+      case "user_favorited_playlist":
+        return "favorited playlist";
+      case "user_favorited_song":
+        return "favorited";
+      case "user_unfavorited_song":
+        return "unfavorited";
+      case "user_rated_song":
+        return "rated";
       default:
         return "interacted with";
     }
   };
 
-  const getPlayFrequencyText = (playCount: number): string => {
+  const getFrequencyText = (event: FeedItem): string => {
+    // For non-play events, don't show frequency
+    if (!event.item_type.includes("played")) return "";
+
+    const playCount = event.play_count || 0;
     if (playCount === 1) return "";
     if (playCount < 5) return ` ${playCount} times`;
     if (playCount < 20) return ` ${playCount} times`;
@@ -39,11 +55,9 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
           <span class="action text-white/50 mx-2">
             {getActionText(props.event)}
           </span>
-          {props.event.play_count && props.event.play_count > 1 && (
-            <span class="frequency text-white/40">
-              {getPlayFrequencyText(props.event.play_count)}
-            </span>
-          )}
+          <span class="frequency text-white/40">
+            {getFrequencyText(props.event)}
+          </span>
         </div>
         <div class="timestamp text-xs text-white/40 mt-1">
           {new Date(props.event.created_at).toLocaleDateString()} at{" "}
@@ -68,6 +82,25 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
               </p>
             )}
 
+            {/* Show rating for rating events */}
+            {props.event.item_type === "user_rated_song" &&
+              props.event.metadata?.social_context && (
+                <div class="rating-display flex items-center gap-1 mb-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <span
+                      class={
+                        star <=
+                        (props.event.metadata?.social_context?.rating || 0)
+                          ? "text-magenta"
+                          : "text-white/20"
+                      }
+                    >
+                      ★
+                    </span>
+                  ))}
+                </div>
+              )}
+
             <div class="collection-meta flex items-center gap-4 text-xs text-white/50">
               <span class="domain-type">{props.event.domain_type}</span>
 
@@ -80,6 +113,10 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
 
               {props.event.metadata?.social_context?.is_trending && (
                 <span class="trending text-magenta">trending</span>
+              )}
+
+              {props.event.item_type.includes("favorited") && (
+                <span class="favorited text-magenta">♥ favorited</span>
               )}
             </div>
           </div>
