@@ -12,7 +12,7 @@ import { AnalyticsDashboard } from "../../admin/analytics/AnalyticsDashboard";
 
 export const routes = (
   <Route path="/" component={ThreeColumnLayout}>
-    <Route path="/" component={GenreSplitView} />
+    <Route path="/" component={AlbumGridView} />
     <Route path="/songs" component={SongTableView} />
 
     <Route
