@@ -69,10 +69,28 @@ pub struct SocialContext {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CollectionGrid {
-    pub total_collections: i32,
-    pub collections: String,
-    pub domain_types: String,
-    pub grouping_level: String,
+    pub total_songs: Option<i32>,
+    pub grouping_level: Option<String>,
+    pub songs: Option<Vec<CollectionGridSong>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CollectionGridSong {
+    pub id: String,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    pub sub_genres: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
+    pub disc_number: Option<i32>,
+    pub track_number: Option<i32>,
+    pub duration: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
+    pub domain_type: Option<String>,
+    pub user_rating: Option<i32>,
+    pub is_favorite: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -220,11 +238,92 @@ pub async fn get_social_feed(
 
                 // Parse collection grid (for session items)
                 let collection_grid = meta_json.get("collection_grid").and_then(|cg| {
+                    let songs = cg.get("songs").and_then(|songs_array| {
+                        let songs_vec: Vec<CollectionGridSong> = songs_array
+                            .as_array()?
+                            .iter()
+                            .filter_map(|song| {
+                                Some(CollectionGridSong {
+                                    id: song.get("id")?.as_str()?.to_string(),
+                                    title: song
+                                        .get("title")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                    artist: song
+                                        .get("artist")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                    album: song
+                                        .get("album")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                    year: song
+                                        .get("year")
+                                        .and_then(|v| v.as_i64())
+                                        .map(|v| v as i32),
+                                    genre: song
+                                        .get("genre")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                    sub_genres: song.get("sub_genres").and_then(|v| {
+                                        v.as_array().map(|arr| {
+                                            arr.iter()
+                                                .filter_map(|item| {
+                                                    item.as_str().map(|s| s.to_string())
+                                                })
+                                                .collect()
+                                        })
+                                    }),
+                                    tags: song.get("tags").and_then(|v| {
+                                        v.as_array().map(|arr| {
+                                            arr.iter()
+                                                .filter_map(|item| {
+                                                    item.as_str().map(|s| s.to_string())
+                                                })
+                                                .collect()
+                                        })
+                                    }),
+                                    disc_number: song
+                                        .get("disc_number")
+                                        .and_then(|v| v.as_i64())
+                                        .map(|v| v as i32),
+                                    track_number: song
+                                        .get("track_number")
+                                        .and_then(|v| v.as_i64())
+                                        .map(|v| v as i32),
+                                    duration: song
+                                        .get("duration")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                    thumbnail_blob_id: song
+                                        .get("thumbnail_blob_id")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                    domain_type: song
+                                        .get("domain_type")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                    user_rating: song
+                                        .get("user_rating")
+                                        .and_then(|v| v.as_i64())
+                                        .map(|v| v as i32),
+                                    is_favorite: song.get("is_favorite").and_then(|v| v.as_bool()),
+                                })
+                            })
+                            .collect();
+                        Some(songs_vec)
+                    });
+
                     Some(CollectionGrid {
-                        total_collections: cg.get("total_collections")?.as_i64()? as i32,
-                        collections: cg.get("collections")?.as_str()?.to_string(),
-                        domain_types: cg.get("domain_types")?.as_str()?.to_string(),
-                        grouping_level: cg.get("grouping_level")?.as_str()?.to_string(),
+                        total_songs: cg
+                            .get("total_songs")
+                            .and_then(|v| v.as_i64())
+                            .map(|v| v as i32),
+                        grouping_level: cg
+                            .get("grouping_level")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        songs,
                     })
                 });
 
