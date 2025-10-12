@@ -46,6 +46,7 @@ export class CollectionEventBuilder {
       domain_type: this.context.domainType,
       domain_ids: this.context.domainIds,
       client_id: getSessionClientId(),
+      client_timestamp: new Date().toISOString(),
     };
   }
 
