@@ -214,8 +214,8 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
                       `${Math.round(props.event.metadata.user_activity.session_duration / 60)}min`}
                   </span>
                 </div>
-                <div class="collections-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 md:gap-2">
-                  <For each={grid().collections.slice(0, 8)}>
+                <div class="collections-grid grid grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+                  <For each={grid().collections.slice(0, 12)}>
                     {(collection, index) => (
                       <CollectionCard
                         collection={createCollectionCardData(
@@ -225,14 +225,14 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
                         size="small"
                         enableNavigation={false}
                         enableContextMenu={false}
-                        class="opacity-80 hover:opacity-100 transition-opacity"
+                        class="opacity-80 hover:opacity-100 transition-all duration-200 hover:scale-[1.01] text-xs"
                       />
                     )}
                   </For>
                 </div>
-                <Show when={grid().totalCollections > 8}>
+                <Show when={grid().totalCollections > 12}>
                   <div class="more-collections text-xs text-white/50 mt-2 text-center">
-                    +{grid().totalCollections - 8} more collections
+                    +{grid().totalCollections - 12} more collections
                   </div>
                 </Show>
               </div>

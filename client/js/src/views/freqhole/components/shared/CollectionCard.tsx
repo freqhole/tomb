@@ -3,6 +3,11 @@ import { useNavigate } from "@solidjs/router";
 import { apiClient } from "../../../../lib/api-client";
 import { useCollectionInteractions } from "../../services/collectionInteractions";
 import { MarqueeText } from "./MarqueeText";
+import {
+  getImageUrl,
+  getTypeIcon,
+  formatDuration,
+} from "../../../../lib/image-utils";
 
 // Unified collection types
 export interface CollectionCardData {
@@ -65,25 +70,13 @@ export function CollectionCard(props: CollectionCardProps) {
     null
   );
 
-  // Helper functions
-  const getImageUrl = () => {
+  // Helper functions using central image utility
+  const getCollectionImageUrl = () => {
     const { collection } = props;
 
-    // Priority: image_url > album_thumbnail_id > thumbnail_blob_id > fallback
-    if (collection.image_url) {
-      if (collection.image_url.startsWith("/api/blobs/")) {
-        return `${apiClient.getBaseUrl()}${collection.image_url}`;
-      }
-      return collection.image_url;
-    }
-
-    if (collection.album_thumbnail_id) {
-      return `${apiClient.getBaseUrl()}/api/blobs/${collection.album_thumbnail_id}`;
-    }
-
-    if (collection.thumbnail_blob_id) {
-      return `${apiClient.getBaseUrl()}/api/blobs/${collection.thumbnail_blob_id}`;
-    }
+    // Use central image utility
+    const url = getImageUrl(collection);
+    if (url) return url;
 
     // Use fallback image if we fetched one
     if (fallbackImageUrl()) {
@@ -121,39 +114,6 @@ export function CollectionCard(props: CollectionCardProps) {
         });
     }
   });
-
-  const getIcon = () => {
-    switch (props.collection.domain_type) {
-      case "album":
-        return "♪";
-      case "playlist":
-        return "♭";
-      case "artist":
-        return "♫";
-      case "genre":
-        return "♬";
-      case "song":
-        return "♩";
-      default:
-        return "♪";
-    }
-  };
-
-  const formatDuration = (seconds: number | string): string => {
-    if (!seconds) return "";
-    const secs = typeof seconds === "string" ? parseFloat(seconds) : seconds;
-    if (isNaN(secs) || secs < 60) {
-      return `${Math.floor(secs)}s`;
-    }
-    if (secs < 3600) {
-      const mins = Math.floor(secs / 60);
-      const remainSecs = Math.floor(secs % 60);
-      return `${mins}:${remainSecs.toString().padStart(2, "0")}`;
-    }
-    const hours = Math.floor(secs / 3600);
-    const mins = Math.floor((secs % 3600) / 60);
-    return `${hours}h ${mins}m`;
-  };
 
   const getTrackCount = () => {
     return props.collection.track_count || props.collection.song_count || 0;
@@ -310,9 +270,9 @@ export function CollectionCard(props: CollectionCardProps) {
         return {
           container: "aspect-square",
           image: "w-full h-full",
-          playButton: "w-8 h-8",
+          playButton: "w-8 h-8 rounded-full",
           playIcon: "w-4 h-4",
-          title: "text-xs",
+          title: "text-xs font-medium",
           subtitle: "text-xs",
           meta: "text-xs",
         };
@@ -320,7 +280,7 @@ export function CollectionCard(props: CollectionCardProps) {
         return {
           container: "aspect-square",
           image: "w-full h-full",
-          playButton: "w-16 h-16",
+          playButton: "w-16 h-16 rounded-full",
           playIcon: "w-8 h-8",
           title: "text-lg",
           subtitle: "text-base",
@@ -330,7 +290,7 @@ export function CollectionCard(props: CollectionCardProps) {
         return {
           container: "aspect-square",
           image: "w-full h-full",
-          playButton: "w-12 h-12",
+          playButton: "w-12 h-12 rounded-full",
           playIcon: "w-6 h-6",
           title: "text-sm",
           subtitle: "text-sm",
@@ -343,24 +303,26 @@ export function CollectionCard(props: CollectionCardProps) {
 
   return (
     <div
-      class={`group cursor-pointer transition-transform hover:scale-105 ${props.class || ""}`}
+      class={`group cursor-pointer transition-transform duration-200 hover:scale-[1.02] ${props.class || ""}`}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
     >
       {/* Image/artwork area */}
       <div
-        class={`${classes.container} bg-gray-900 relative overflow-hidden mb-3 transition-colors hover:bg-gray-800`}
+        class={`${classes.container} bg-magenta-800/30 rounded-lg overflow-hidden mb-3 transition-transform group-hover:scale-105 relative`}
       >
         <Show
-          when={getImageUrl()}
+          when={getCollectionImageUrl()}
           fallback={
             <div class="w-full h-full flex items-center justify-center">
-              <div class="text-4xl text-gray-600">{getIcon()}</div>
+              <div class="text-4xl text-magenta-400">
+                {getTypeIcon(props.collection.domain_type)}
+              </div>
             </div>
           }
         >
           <img
-            src={getImageUrl()!}
+            src={getCollectionImageUrl()!}
             alt={props.collection.title}
             class={`${classes.image} object-cover`}
             loading="lazy"
@@ -384,10 +346,12 @@ export function CollectionCard(props: CollectionCardProps) {
           </button>
         </div>
 
-        {/* Type indicator - always visible for timeline clarity */}
-        <div class="absolute top-2 left-2 bg-black/90 px-2 py-1 text-xs font-medium transition-opacity">
-          <span class={getTypeColor()}>{getTypeDisplay()}</span>
-        </div>
+        {/* Type indicator - only show for timeline items */}
+        <Show when={props.collection.item_type}>
+          <div class="absolute top-2 left-2 bg-black/90 px-2 py-1 text-xs font-medium">
+            <span class={getTypeColor()}>{getTypeDisplay()}</span>
+          </div>
+        </Show>
       </div>
 
       {/* Collection info */}
