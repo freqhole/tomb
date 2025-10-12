@@ -9,12 +9,18 @@ import {
 import { createAnalyticsApi } from "../../../../../lib/analytics/analytics-api";
 import { apiClient } from "../../../../../lib/api-client";
 import { TimelineCard } from "../../timeline/TimelineCard";
+import { GroupedTimelineCard } from "../../timeline/GroupedTimelineCard";
 import type { FeedItem } from "../../../../../lib/analytics/analytics-api";
+import {
+  groupConsecutiveFeedItems,
+  type GroupedFeedItem,
+} from "../../timeline/timeline-grouping";
 
 import { isMobile } from "../../../../../lib/format-utils";
 
 export function FeedView() {
   const [allItems, setAllItems] = createSignal<FeedItem[]>([]);
+  const [groupedItems, setGroupedItems] = createSignal<GroupedFeedItem[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [hasMore, setHasMore] = createSignal(true);
   const [, setMobile] = createSignal(isMobile());
@@ -55,6 +61,17 @@ export function FeedView() {
     }
   };
 
+  // Group items when they change
+  createEffect(() => {
+    const items = allItems();
+    const grouped = groupConsecutiveFeedItems(items, {
+      maxGroupSize: 4,
+      maxTimeGapMinutes: 30,
+      groupOnlyIndividualItems: true,
+    });
+    setGroupedItems(grouped);
+  });
+
   const refreshFeed = async () => {
     setRefreshing(true);
     batch(() => {
@@ -94,20 +111,21 @@ export function FeedView() {
   return (
     <div class="flex flex-col h-full text-white">
       {/* header */}
-      <div class="flex-shrink-0 p-4 md:p-6">
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+      <div class="flex-shrink-0 px-0 py-2 md:p-6">
+        <div class="flex items-center justify-between mb-2 md:mb-4 px-2 md:px-0">
+          {/* Title and subtitle */}
           <div>
             <h1 class="text-2xl md:text-3xl font-bold">music feed</h1>
-            <p class="text-sm text-gray-400 mt-1">
+            <p class="text-sm text-gray-400">
               recent albums, playlists and activity
             </p>
           </div>
 
-          {/* refresh button */}
+          {/* refresh button - centered in header height */}
           <button
             onClick={refreshFeed}
             disabled={refreshing()}
-            class="px-4 py-2 bg-gray-800 text-white hover:bg-gray-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+            class="px-3 py-1.5 md:px-4 md:py-2 bg-gray-800 text-white hover:bg-gray-700 transition-colors disabled:opacity-50 flex items-center gap-2 text-sm"
           >
             <svg
               class={`w-4 h-4 ${refreshing() ? "animate-spin" : ""}`}
@@ -118,7 +136,7 @@ export function FeedView() {
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                stroke-width={2}
+                stroke-width="2"
                 d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
               />
             </svg>
@@ -172,8 +190,19 @@ export function FeedView() {
           >
             {/* feed grid */}
             <div class="timeline-container space-y-4 md:space-y-6">
-              <For each={allItems()}>
-                {(item) => <TimelineCard event={item} />}
+              <For each={groupedItems()}>
+                {(group) => {
+                  // Use regular TimelineCard for already-grouped items (sessions, etc.)
+                  // Use GroupedTimelineCard for our consecutive grouping
+                  if (
+                    group.items.length === 1 &&
+                    (group.items[0].item_type.includes("session") ||
+                      group.items[0].item_type.includes("activity"))
+                  ) {
+                    return <TimelineCard event={group.items[0]} />;
+                  }
+                  return <GroupedTimelineCard group={group} />;
+                }}
               </For>
             </div>
 

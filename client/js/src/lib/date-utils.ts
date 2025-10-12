@@ -8,11 +8,11 @@
  */
 export function formatRelativeTime(date: string | Date): string {
   const now = new Date();
-  const targetDate = typeof date === 'string' ? new Date(date) : date;
+  const targetDate = typeof date === "string" ? new Date(date) : date;
 
   // Handle invalid dates
   if (isNaN(targetDate.getTime())) {
-    return 'Invalid date';
+    return "Invalid date";
   }
 
   const diffMs = now.getTime() - targetDate.getTime();
@@ -24,48 +24,60 @@ export function formatRelativeTime(date: string | Date): string {
   const diffMonths = Math.floor(diffDays / 30);
   const diffYears = Math.floor(diffDays / 365);
 
+  // Handle future dates (clock skew or timezone issues)
+  if (diffMs < 0) {
+    return "just now";
+  }
+
   // For dates more than ~1 year old, just show the year
   if (diffYears >= 1) {
     return targetDate.getFullYear().toString();
   }
 
   // Use Intl.RelativeTimeFormat for relative formatting
-  const rtf = new Intl.RelativeTimeFormat('en', {
-    numeric: 'auto', // This gives us "last week" instead of "1 week ago"
-    style: 'long'
+  const rtf = new Intl.RelativeTimeFormat("en", {
+    numeric: "auto", // This gives us "last week" instead of "1 week ago"
+    style: "long",
   });
 
   // Recent times (less than 1 minute)
   if (diffSeconds < 60) {
     if (diffSeconds < 10) {
-      return 'a moment ago';
+      return "a moment ago";
     }
-    return rtf.format(-diffSeconds, 'second');
+    return rtf.format(-diffSeconds, "second");
   }
 
   // Minutes
   if (diffMinutes < 60) {
-    return rtf.format(-diffMinutes, 'minute');
+    return rtf.format(-diffMinutes, "minute");
   }
 
   // Hours
   if (diffHours < 24) {
-    return rtf.format(-diffHours, 'hour');
+    return rtf.format(-diffHours, "hour");
   }
 
   // Days
   if (diffDays < 7) {
-    return rtf.format(-diffDays, 'day');
+    return rtf.format(-diffDays, "day");
   }
 
   // Weeks
-  if (diffWeeks < 4) {
-    return rtf.format(-diffWeeks, 'week');
+  if (diffWeeks < 5) {
+    return rtf.format(-diffWeeks, "week");
   }
 
-  // Months
-  if (diffMonths < 12) {
-    return rtf.format(-diffMonths, 'month');
+  // Months - only show if there's at least 1 month AND it's been at least 25 days
+  if (diffMonths >= 1 && diffDays >= 25) {
+    if (diffMonths < 12) {
+      return rtf.format(-diffMonths, "month");
+    }
+  }
+
+  // Fallback for edge cases (recent but not quite a month)
+  if (diffDays >= 25) {
+    return rtf.format(-Math.floor(diffDays / 7), "week");
   }
 
   // Fallback (shouldn't reach here due to year check above)
@@ -76,23 +88,23 @@ export function formatRelativeTime(date: string | Date): string {
  * Format a date as a full readable string for tooltips
  */
 export function formatFullDateTime(date: string | Date): string {
-  const targetDate = typeof date === 'string' ? new Date(date) : date;
+  const targetDate = typeof date === "string" ? new Date(date) : date;
 
   // Handle invalid dates
   if (isNaN(targetDate.getTime())) {
-    return 'Invalid date';
+    return "Invalid date";
   }
 
   // Use Intl.DateTimeFormat for locale-aware formatting
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
   });
 
   return formatter.format(targetDate);
@@ -107,6 +119,6 @@ export function formatDateWithTooltip(date: string | Date): {
 } {
   return {
     relative: formatRelativeTime(date),
-    full: formatFullDateTime(date)
+    full: formatFullDateTime(date),
   };
 }

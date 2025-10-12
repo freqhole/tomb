@@ -1,11 +1,16 @@
-import { JSX, Show, For } from "solid-js";
+import { JSX, Show, For, createSignal } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { apiClient } from "../../../../lib/api-client";
 import { MarqueeText } from "../shared/MarqueeText";
 import { useCollectionInteractions } from "../../services/collectionInteractions";
 import { useSongInteractions } from "../../services/songInteractions";
 import type { FeedItem } from "../../../../lib/analytics/analytics-api";
-import type { CollectionCardData } from "../shared/CollectionCard";
+import {
+  CollectionCard,
+  type CollectionCardData,
+} from "../shared/CollectionCard";
+import { formatRelativeTime } from "../../../../lib/date-utils";
+import { TimelineItemRow } from "./TimelineItemRow";
 
 interface TimelineCardProps {
   event: FeedItem;
@@ -15,6 +20,48 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
   const navigate = useNavigate();
   const collectionInteractions = useCollectionInteractions();
   const songInteractions = useSongInteractions();
+
+  // Helper to convert song data to FeedItem format for TimelineItemRow
+  const createSongFeedItem = (song: any): any => {
+    return {
+      domain_type: "song",
+      domain_ids: [song.id || song.media_blob_id],
+      title: `${song.title || "Unknown Song"} - ${song.artist || "Unknown Artist"}`,
+      image_url: song.thumbnail_blob_id
+        ? `${apiClient.getBaseUrl()}/api/blobs/${song.thumbnail_blob_id}`
+        : null,
+      created_at: new Date().toISOString(),
+      item_type: "user_played_song",
+      username: props.event.username,
+      user_id: props.event.user_id,
+      play_count: 1,
+      metadata: {
+        collection_grid: {
+          songs: [song],
+        },
+      },
+    };
+  };
+
+  // Group songs by album for cleaner display
+  const groupSongsByAlbum = (songs: any[]) => {
+    const albumGroups = new Map();
+
+    songs.forEach((song) => {
+      const albumKey = `${song.album || "Unknown Album"} - ${song.artist || "Unknown Artist"}`;
+      if (!albumGroups.has(albumKey)) {
+        albumGroups.set(albumKey, {
+          album: song.album || "Unknown Album",
+          artist: song.artist || "Unknown Artist",
+          songs: [],
+          thumbnail_blob_id: song.thumbnail_blob_id,
+        });
+      }
+      albumGroups.get(albumKey).songs.push(song);
+    });
+
+    return Array.from(albumGroups.values());
+  };
   const getActionText = (event: FeedItem): string => {
     switch (event.item_type) {
       case "user_played_album":
@@ -88,21 +135,156 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
     };
   };
 
-  const createCollectionCardData = (song: any): CollectionCardData => {
+  const createSingleItemCardData = (event: FeedItem): CollectionCardData => {
     return {
-      id: song.id,
-      title: song.title,
-      subtitle: song.artist || null,
-      domain_type: "song" as const,
-      artist: song.artist,
-      album: song.album,
-      year: song.year,
-      thumbnail_blob_id: song.thumbnail_blob_id,
-      track_count: 1,
-      total_duration: song.duration,
-      genres: song.genre,
-      tags: song.tags?.join(", ") || null,
+      id: event.domain_ids?.[0] || "",
+      title: event.title,
+      subtitle: event.metadata?.user_activity
+        ? `${event.metadata.user_activity.total_play_count} plays`
+        : "single play",
+      domain_type: event.domain_type as
+        | "album"
+        | "playlist"
+        | "artist"
+        | "genre"
+        | "song",
+      image_url: event.image_url,
+      play_count: event.play_count,
+      last_played_at: event.last_played_at,
+      created_at: event.created_at,
     };
+  };
+
+  const handleSingleSongPlay = (event: FeedItem) => {
+    // Create song data from feed item for songInteractions
+    const songData = {
+      id: event.domain_ids?.[0] || "", // Use first domain_id as song ID
+      media_blob_id: event.domain_ids?.[0] || "",
+      title: event.title || "Unknown Song",
+      artist: extractArtistFromTitle(event.title) || "Unknown Artist",
+      album: null,
+      album_artist: null,
+      track_number: null,
+      disc_number: null,
+      duration_seconds: null,
+      genre: null,
+      sub_genres: null,
+      year: null,
+      bpm: null,
+      key_signature: null,
+      user_rating: null,
+      user_is_favorite: false,
+      tags: [],
+      display_title: event.title || "Unknown Song",
+      detailed_display_title: event.title || "Unknown Song",
+      created_at: new Date().toISOString(),
+      thumbnail_blob_id: null,
+      waveform_blob_id: null,
+      thumbnail_blob_ids: [],
+      preference_updated_at: null,
+    };
+
+    songInteractions.playSong(songData, true);
+  };
+
+  const extractArtistFromTitle = (title: string): string | null => {
+    // Try to extract artist from title format like "Song Title - Artist Name"
+    const parts = title.split(" - ");
+    return parts.length > 1 ? parts[1] : null;
+  };
+
+  const handleSingleCollectionPlay = (event: FeedItem) => {
+    // Handle playing single collections (albums, playlists, etc.)
+    switch (event.domain_type) {
+      case "album":
+        // Extract album and artist from title
+        const albumArtist = extractArtistFromTitle(event.title);
+        if (albumArtist && event.title) {
+          const albumName = event.title.split(" - ")[0];
+          const albumObj = {
+            album: albumName,
+            artist: albumArtist,
+            year: null,
+            track_count: 0,
+            disc_count: 1,
+            total_duration: null,
+            genres: null,
+            avg_rating: null,
+            favorite_count: 0,
+            album_thumbnail_id: null,
+          };
+          collectionInteractions.playAlbum(albumObj);
+        }
+        break;
+      case "playlist":
+        if (event.domain_ids?.[0]) {
+          collectionInteractions.playPlaylist(
+            event.domain_ids[0],
+            event.title || "Unknown Playlist"
+          );
+        }
+        break;
+      case "artist":
+        if (event.title) {
+          const artistObj = {
+            artist: event.title,
+            song_count: 0,
+            album_count: 0,
+            total_duration: 0,
+            genres: [],
+            avg_rating: null,
+            favorite_count: 0,
+          };
+          collectionInteractions.playArtist(artistObj);
+        }
+        break;
+      case "genre":
+        if (event.title) {
+          const genreObj = {
+            name: event.title,
+            slug: event.title.toLowerCase().replace(/\s+/g, "-"),
+            song_count: 0,
+            album_count: 0,
+            artist_count: 0,
+            total_duration: 0,
+          };
+          collectionInteractions.playGenre(genreObj);
+        }
+        break;
+      default:
+        break;
+    }
+  };
+
+  const handleViewItemNavigation = (event: FeedItem) => {
+    switch (event.domain_type) {
+      case "artist":
+        if (event.title) {
+          const encodedArtist = encodeURIComponent(event.title);
+          navigate(`/artist/${encodedArtist}`);
+        }
+        break;
+      case "album":
+        // Extract artist from title if format is "Album - Artist"
+        const artist = extractArtistFromTitle(event.title);
+        if (artist && event.title) {
+          const albumName = event.title.split(" - ")[0];
+          const encodedAlbum = encodeURIComponent(albumName);
+          const encodedArtist = encodeURIComponent(artist);
+          navigate(`/album/${encodedArtist}/${encodedAlbum}`);
+        }
+        break;
+      case "song":
+        // Navigate to song's album if we can extract artist
+        const songArtist = extractArtistFromTitle(event.title);
+        if (songArtist) {
+          const encodedArtist = encodeURIComponent(songArtist);
+          navigate(`/artist/${encodedArtist}`);
+        }
+        break;
+      default:
+        break;
+    }
   };
 
   const handleSongClick = (song: any) => {
@@ -182,13 +364,31 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
     }
   };
 
+  const getUsernameColor = (): string => {
+    if (isGroupedItem(props.event)) {
+      switch (props.event.metadata?.social_context?.grouping_level) {
+        case "session":
+          return "text-magenta";
+        case "daily":
+          return "text-yellow-500";
+        case "weekly":
+          return "text-green-400";
+        case "monthly":
+          return "text-yellow-400";
+        default:
+          return "text-purple-400";
+      }
+    }
+    return "text-magenta";
+  };
+
   const getCardBorderColor = () => {
     if (isGroupedItem(props.event)) {
       switch (props.event.metadata?.social_context?.grouping_level) {
         case "session":
           return "border-l-magenta-500";
         case "daily":
-          return "border-l-blue-500";
+          return "border-l-yellow-500";
         case "weekly":
           return "border-l-green-500";
         case "monthly":
@@ -202,12 +402,12 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
 
   return (
     <div
-      class={`timeline-card bg-black border-b border-white/10 border-l-4 ${getCardBorderColor()} p-4 hover:bg-white/5 transition-colors`}
+      class={`timeline-card bg-black border-b border-white/10 border-l-4 ${getCardBorderColor()} px-0 py-4 md:p-4 hover:bg-white/5 transition-colors`}
     >
       {/* User Action Header */}
-      <div class="timeline-header mb-3">
+      <div class="timeline-header mb-3 px-3 md:px-0">
         <div class="user-action text-sm text-white/70">
-          <span class="username text-magenta font-medium">
+          <span class={`username ${getUsernameColor()} font-medium`}>
             {props.event.username || "unknown user"}
           </span>
           <span class="action text-white/50 mx-2">
@@ -218,28 +418,24 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
           </span>
         </div>
         <div class="timestamp text-xs text-white/40 mt-1">
-          {new Date(props.event.created_at).toLocaleDateString()} at{" "}
-          {new Date(props.event.created_at).toLocaleTimeString(undefined, {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {formatRelativeTime(props.event.created_at)}
         </div>
       </div>
 
       {/* Target Content */}
       <div class="timeline-content">
         <div
-          class={`collection-preview ${isGroupedItem(props.event) ? "bg-white/10" : "bg-white/5"} rounded-none border border-white/10 p-3`}
+          class={`collection-preview ${isGroupedItem(props.event) ? "bg-white/10" : "bg-white/5"} rounded-none border border-white/10`}
         >
           <div class="collection-info">
             <h3
-              class={`collection-title font-medium text-base mb-1 ${isGroupedItem(props.event) ? "text-magenta-200" : "text-white"}`}
+              class={`collection-title font-medium text-base px-3 my-1 ${isGroupedItem(props.event) ? "text-magenta-200" : "text-white"}`}
             >
               {props.event.title}
             </h3>
 
             {props.event.subtitle && (
-              <p class="collection-subtitle text-white/60 text-sm mb-2">
+              <p class="collection-subtitle text-white/60 text-sm px-3 my-2">
                 {props.event.subtitle}
               </p>
             )}
@@ -262,83 +458,53 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
                   ))}
                 </div>
               )}
-
-            <div class="collection-meta flex items-center gap-4 text-xs text-white/50">
-              <span class="domain-type">{props.event.domain_type}</span>
-
-              {props.event.metadata?.user_activity?.total_play_count && (
-                <span class="total-plays">
-                  {props.event.metadata.user_activity.total_play_count} total
-                  plays
-                </span>
-              )}
-
-              {props.event.metadata?.social_context?.is_trending && (
-                <span class="trending text-magenta">trending</span>
-              )}
-
-              {props.event.item_type.includes("favorited") && (
-                <span class="favorited text-magenta">♥ favorited</span>
-              )}
-            </div>
           </div>
 
-          {/* Collection Grid for Sessions */}
+          {/* Collection Grid for Grouped Sessions */}
           <Show
             when={isGroupedItem(props.event) && getCollectionGrid(props.event)}
           >
-            {(grid) => (
-              <div class="collection-grid mt-3 pt-3 border-t border-magenta-500/30">
-                <div class="grid-header mb-3 flex items-center justify-between">
-                  <span class="text-xs text-magenta-300 font-medium">
-                    {grid().totalSongs} songs • {grid().groupingLevel}
-                  </span>
-                  <span class="text-xs text-white/40">
-                    {props.event.metadata?.user_activity?.session_duration &&
-                      `${Math.round(props.event.metadata.user_activity.session_duration / 60)}min`}
-                  </span>
-                </div>
-                <div class="collections-grid grid grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
-                  <For each={grid().songs.slice(0, 12)}>
-                    {(song) => (
-                      <div
-                        class="group cursor-pointer"
-                        onClick={() => handleSongClick(song)}
-                        onContextMenu={(e) => handleSongContextMenu(song, e)}
-                      >
-                        {/* Song Cover */}
-                        <div class="aspect-square bg-magenta-800/30 rounded-lg overflow-hidden mb-2 transition-transform hover:scale-105 relative">
-                          <Show
-                            when={song.thumbnail_blob_id}
-                            fallback={
-                              <div class="w-full h-full flex items-center justify-center">
-                                <svg
-                                  class="w-6 h-6 text-magenta-400"
-                                  fill="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-                                </svg>
-                              </div>
-                            }
-                          >
-                            <img
-                              src={`${apiClient.getBaseUrl()}/api/blobs/${song.thumbnail_blob_id}`}
-                              alt={`${song.title} by ${song.artist}`}
-                              class="w-full h-full object-cover"
-                              loading="lazy"
-                            />
-                          </Show>
+            {(grid) => {
+              const albumGroups = groupSongsByAlbum(grid().songs);
 
-                          {/* Hover overlay with play button */}
-                          <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              return (
+                <div class="collection-grid mt-3 pt-3 border-t border-magenta-500/30  md:px-0">
+                  <div class="collection-albums-list space-y-2">
+                    <For each={albumGroups}>
+                      {(albumGroup) => (
+                        <div class="album-group bg-black/20 border border-white/10 p-2 mx-0 md:mx-0">
+                          <div class="album-header mb-1 flex items-center justify-between">
+                            <div class="album-info">
+                              <div class="text-white/80 text-xs font-medium">
+                                {albumGroup.album} - {albumGroup.artist}
+                              </div>
+                              <div class="text-white/50 text-xs">
+                                {albumGroup.songs.length} song
+                                {albumGroup.songs.length !== 1 ? "s" : ""}
+                              </div>
+                            </div>
                             <button
-                              class="w-8 h-8 bg-magenta-600 hover:bg-magenta-500 rounded-full flex items-center justify-center transition-colors cursor-pointer"
-                              onClick={(e) => handleSongPlay(song, e)}
-                              title="play song"
+                              class="album-play-btn w-6 h-6 bg-magenta-600 hover:bg-magenta-500 rounded-full flex items-center justify-center transition-colors"
+                              onClick={() => {
+                                const albumObj = {
+                                  album: albumGroup.album,
+                                  artist: albumGroup.artist,
+                                  year: null,
+                                  track_count: albumGroup.songs.length,
+                                  disc_count: 1,
+                                  total_duration: null,
+                                  genres: null,
+                                  avg_rating: null,
+                                  favorite_count: 0,
+                                  album_thumbnail_id:
+                                    albumGroup.thumbnail_blob_id,
+                                };
+                                collectionInteractions.playAlbum(albumObj);
+                              }}
+                              title="play album"
                             >
                               <svg
-                                class="w-4 h-4 text-white ml-0.5"
+                                class="w-3 h-3 text-white ml-0.5"
                                 fill="currentColor"
                                 viewBox="0 0 24 24"
                               >
@@ -346,83 +512,53 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
                               </svg>
                             </button>
                           </div>
-
-                          {/* Favorite heart icon */}
-                          <Show when={song.is_favorite}>
-                            <div class="absolute top-1 right-1 text-magenta-400">
-                              <svg
-                                class="w-3 h-3 fill-current"
-                                viewBox="0 0 24 24"
-                              >
-                                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                              </svg>
-                            </div>
-                          </Show>
-                        </div>
-
-                        {/* Song Info */}
-                        <div class="space-y-0.5">
-                          <MarqueeText
-                            text={song.title || "unknown song"}
-                            class="text-white font-medium text-xs group-hover:text-magenta-300 transition-colors"
-                          />
-                          <MarqueeText
-                            text={song.artist || "unknown artist"}
-                            class="text-magenta-400 text-xs"
-                          />
-                          <div class="text-magenta-500 text-xs truncate">
-                            {song.year && `${song.year} · `}
-                            {song.duration || "unknown"}
-                            {song.genre && ` · ${song.genre}`}
+                          <div class="album-songs space-y-1">
+                            <For each={albumGroup.songs}>
+                              {(song) => (
+                                <TimelineItemRow
+                                  item={createSongFeedItem(song)}
+                                  showTime={false}
+                                  showUsername={false}
+                                  compact={true}
+                                />
+                              )}
+                            </For>
                           </div>
-                          <Show when={song.tags && song.tags.length > 0}>
-                            <MarqueeText
-                              text={song.tags.join(", ")}
-                              class="text-gray-500 text-xs bg-black/30 px-1 py-0.5 rounded"
-                            />
-                          </Show>
                         </div>
-                      </div>
-                    )}
-                  </For>
-                </div>
-                <Show when={grid().totalSongs > 12}>
-                  <div class="more-collections text-xs text-white/50 mt-2 text-center">
-                    +{grid().totalSongs - 12} more songs
+                      )}
+                    </For>
                   </div>
-                </Show>
-              </div>
-            )}
+                </div>
+              );
+            }}
           </Show>
 
-          {/* Action Buttons */}
-          <div class="timeline-actions mt-3 flex gap-2">
-            <button
-              class="action-btn bg-magenta text-black px-3 py-1 text-xs hover:bg-magenta/80 transition-colors"
-              onClick={() => {
-                // TODO: implement play action
-                console.log("play collection", props.event.domain_ids);
-              }}
-            >
-              play
-            </button>
-
-            <button
-              class="action-btn bg-white/10 text-white px-3 py-1 text-xs hover:bg-white/20 transition-colors"
-              onClick={() => {
-                // TODO: implement view collection action
-                console.log("view collection", props.event.domain_ids);
-              }}
-            >
-              view
-            </button>
-          </div>
+          {/* Single Item Cards for Individual Items */}
+          <Show when={!isGroupedItem(props.event)}>
+            <div class="single-item-display mt-3 px-2 md:px-0">
+              <CollectionCard
+                collection={createSingleItemCardData(props.event)}
+                size="medium"
+                showPlayCount={true}
+                enableNavigation={true}
+                enableContextMenu={true}
+                class="bg-transparent border-0 p-0"
+                onPlay={(collection) => {
+                  if (props.event.domain_type === "song") {
+                    handleSingleSongPlay(props.event);
+                  } else {
+                    handleSingleCollectionPlay(props.event);
+                  }
+                }}
+              />
+            </div>
+          </Show>
         </div>
       </div>
 
       {/* Enhanced Social Context */}
       {props.event.metadata?.social_context && (
-        <div class="social-context mt-2 text-xs text-white/40">
+        <div class="social-context mt-2 text-xs text-white/40 px-3 md:px-0">
           {props.event.metadata.social_context.frequency > 10 && (
             <span class="heavy-listener">heavy listener • </span>
           )}
@@ -432,8 +568,15 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
             </span>
           )}
           <span class="activity-type">
-            {props.event.metadata.social_context.action_type} activity
+            {props.event.domain_type}{" "}
+            {props.event.metadata.social_context.action_type}
           </span>
+          {props.event.metadata?.user_activity?.total_play_count && (
+            <span class="play-count">
+              {" "}
+              • {props.event.metadata.user_activity.total_play_count} plays
+            </span>
+          )}
           {isGroupedItem(props.event) && (
             <span class="grouping-indicator text-magenta-400">
               {" "}
