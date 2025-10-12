@@ -2579,7 +2579,55 @@ cargo run --bin tomb-cli analytics fix-legacy-events --apply
 - collection creation events (new playlists)
 - user interaction patterns (heavy listeners, trending items)
 
-### **🗃️ READY FOR DEVELOPMENT**
+### **🎯 NEXT SESSION PRIORITIES - OCTOBER 2024**
+
+**Priority #1: Fix 072 Migration Progressive Temporal Grouping**
+
+- ✅ basic analytics architecture and social timeline foundations working
+- ✅ schema validation issues resolved (sub_genres optional, song domain_type supported)
+- ✅ database constraint issues fixed (media_blob_id can handle longer hashes)
+- 🔄 progressive temporal grouping implementation in progress
+- ❌ SQL query has column ambiguity issues that need debugging
+
+**Current Issue: 072 Migration Column Ambiguity**
+
+The full progressive temporal consolidation SQL is hitting column reference ambiguity errors:
+
+- "column reference 'created_at' is ambiguous"
+- Complex CTEs with session boundary detection and progressive grouping
+- Need to add proper table aliases throughout all CTEs
+- Migration file: `migrations/072_fix_social_feed_analytics_events.sql`
+
+**Goal: Progressive Timeline Consolidation**
+
+- Fresh activity (< 15 min): individual items
+- Session grouping (15 min - 2 hours): listening sessions
+- Daily consolidation (2 hours - 1 day): daily activity summaries
+- Weekly/monthly/yearly rollups for long-term archives
+- Collection grids for grouped items
+
+**Technical Context:**
+
+- Using window functions for session gap detection (15+ minute breaks)
+- Multi-level temporal grouping with seamless transitions
+- Rich metadata including collection grids, session duration, trending indicators
+- Progressive scoring algorithm prioritizes recent individual items
+
+**Next Steps:**
+
+1. Debug and fix column ambiguity in 072 migration SQL
+2. Test progressive grouping algorithm with real data
+3. Implement UI grid layout for collection displays
+4. Add TypeScript cleanup for legacy components
+
+**Ready for Development After 072 Migration Fix:**
+
+- Grid layout UI enhancement (user headers + collection grids)
+- Smaller, responsive collection cards
+- Time-based visual grouping in frontend
+- Real-time updates integration
+
+### **🗃️ FOUNDATION COMPLETE - READY FOR UI DEVELOPMENT**
 
 **database foundation**: ✅ complete and tested
 

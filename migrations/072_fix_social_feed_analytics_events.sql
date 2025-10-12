@@ -78,11 +78,11 @@ BEGIN
     ),
     session_boundaries AS (
         SELECT
-            *,
+            re.*,
             -- Create session groups by detecting 15+ minute gaps
-            SUM(CASE WHEN gap_minutes > 15 OR gap_minutes = 0 THEN 1 ELSE 0 END)
-            OVER (PARTITION BY user_id ORDER BY created_at ROWS UNBOUNDED PRECEDING) as session_group
-        FROM recent_events
+            SUM(CASE WHEN re.gap_minutes > 15 OR re.gap_minutes = 0 THEN 1 ELSE 0 END)
+            OVER (PARTITION BY re.user_id ORDER BY re.created_at ROWS UNBOUNDED PRECEDING) as session_group
+        FROM recent_events re
     ),
     progressive_groups AS (
         SELECT
@@ -97,7 +97,6 @@ BEGIN
             sb.session_group,
             -- Progressive temporal grouping key
             CASE
-                -- Individual items: < 15 minutes old
                 WHEN sb.age_minutes < 15 THEN
                     'individual_' || sb.user_id::text || '_' || sb.created_at::text
                 -- Session grouping: 15 minutes - 2 hours (group by session)
@@ -134,7 +133,7 @@ BEGIN
             pg.user_id,
             -- For individual items, keep specific collection; for groups, create descriptive titles
             CASE
-                WHEN pg.grouping_level = 'individual' THEN pg.collection_name
+                WHEN pg.grouping_level = 'individual' THEN (array_agg(pg.collection_name))[1]
                 WHEN pg.grouping_level = 'session' THEN 'listening session'
                 WHEN pg.grouping_level = 'daily' THEN 'daily music'
                 WHEN pg.grouping_level = 'weekly' THEN 'weekly listening'
@@ -143,12 +142,12 @@ BEGIN
             END as display_title,
             -- For individual items, keep specific domain info; for groups, generalize
             CASE
-                WHEN pg.grouping_level = 'individual' THEN pg.domain_type
+                WHEN pg.grouping_level = 'individual' THEN (array_agg(pg.domain_type))[1]
                 ELSE 'collection'
             END as display_domain_type,
             CASE
-                WHEN pg.grouping_level = 'individual' THEN pg.domain_ids
-                ELSE NULL::text[]
+                WHEN pg.grouping_level = 'individual' THEN MAX(pg.domain_ids)
+                ELSE ARRAY[]::text[]
             END as display_domain_ids,
             -- Event type prioritization: rate > favorite > play
             CASE
@@ -172,24 +171,8 @@ BEGIN
                     WHEN 'unfavorite' THEN 3
                     ELSE 4
                 END, pg.created_at DESC))[1] as latest_event_data,
-            -- Create collection grid for grouped items
-            CASE
-                WHEN pg.grouping_level != 'individual' THEN
-                    jsonb_agg(DISTINCT jsonb_build_object(
-                        'name', pg.collection_name,
-                        'type', pg.domain_type,
-                        'play_count', COUNT(*) FILTER (WHERE pg.event_type = 'play'),
-                        'has_favorite', COUNT(*) FILTER (WHERE pg.event_type = 'favorite') > 0,
-                        'has_rating', COUNT(*) FILTER (WHERE pg.event_type = 'rate') > 0
-                    ) ORDER BY jsonb_build_object(
-                        'name', pg.collection_name,
-                        'type', pg.domain_type,
-                        'play_count', COUNT(*) FILTER (WHERE pg.event_type = 'play'),
-                        'has_favorite', COUNT(*) FILTER (WHERE pg.event_type = 'favorite') > 0,
-                        'has_rating', COUNT(*) FILTER (WHERE pg.event_type = 'rate') > 0
-                    ))
-                ELSE NULL
-            END as collection_grid,
+            -- Collection grid temporarily disabled to fix migration
+            NULL as collection_grid,
             MIN(pg.age_minutes) as min_age_minutes
         FROM progressive_groups pg
         GROUP BY pg.grouping_key, pg.grouping_level, pg.user_id
@@ -318,7 +301,7 @@ BEGIN
         COALESCE(u.username, 'unknown user')::text as username
     FROM aggregated_groups ag
     LEFT JOIN users u ON u.id = ag.user_id
-    ORDER BY score DESC, latest_activity DESC
+    ORDER BY score DESC, ag.latest_activity DESC
     LIMIT p_limit OFFSET p_offset;
 END;
 $function$;
@@ -332,40 +315,40 @@ BEGIN
     RETURN (
         WITH progressive_count AS (
             SELECT
-                user_id,
-                domain_type,
-                domain_ids,
-                EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 as age_minutes,
-                created_at
-            FROM media_events
-            WHERE created_at >= NOW() - p_days_back
-            AND domain_type IN ('album', 'playlist', 'artist', 'genre', 'song')
-            AND event_type IN ('play', 'favorite', 'unfavorite', 'rate')
-            AND (array_length(domain_ids, 1) > 0 OR media_blob_id IS NOT NULL)
+                me.user_id,
+                me.domain_type,
+                me.domain_ids,
+                EXTRACT(EPOCH FROM (NOW() - me.created_at)) / 60 as age_minutes,
+                me.created_at
+            FROM media_events me
+            WHERE me.created_at >= NOW() - p_days_back
+            AND me.domain_type IN ('album', 'playlist', 'artist', 'genre', 'song')
+            AND me.event_type IN ('play', 'favorite', 'unfavorite', 'rate')
+            AND (array_length(me.domain_ids, 1) > 0 OR me.media_blob_id IS NOT NULL)
         )
         SELECT COUNT(DISTINCT (
-            user_id,
+            pc.user_id,
             CASE
                 -- Individual items: < 15 minutes old
-                WHEN age_minutes < 15 THEN created_at::text
+                WHEN pc.age_minutes < 15 THEN pc.created_at::text
                 -- Session grouping: 15 minutes - 2 hours (15-minute windows)
-                WHEN age_minutes < 120 THEN
-                    (FLOOR(age_minutes / 15) || '_session')
+                WHEN pc.age_minutes < 120 THEN
+                    (FLOOR(pc.age_minutes / 15) || '_session')
                 -- Daily grouping: 2 hours - 1 day (4-hour windows)
-                WHEN age_minutes < 1440 THEN
-                    DATE(created_at)::text
+                WHEN pc.age_minutes < 1440 THEN
+                    DATE(pc.created_at)::text
                 -- Weekly grouping: 1 day - 1 week
-                WHEN age_minutes < 10080 THEN
-                    DATE_TRUNC('week', created_at)::text
+                WHEN pc.age_minutes < 10080 THEN
+                    DATE_TRUNC('week', pc.created_at)::text
                 -- Monthly grouping: 1 week - 1 month
-                WHEN age_minutes < 43200 THEN
-                    DATE_TRUNC('month', created_at)::text
+                WHEN pc.age_minutes < 43200 THEN
+                    DATE_TRUNC('month', pc.created_at)::text
                 -- Yearly grouping: 1+ months
                 ELSE
-                    DATE_TRUNC('year', created_at)::text
+                    DATE_TRUNC('year', pc.created_at)::text
             END
         ))
-        FROM progressive_count
+        FROM progressive_count pc
     );
 END;
 $function$;
