@@ -117,10 +117,10 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
   const handleSongPlay = (song: any, event: MouseEvent) => {
     event.stopPropagation();
     // Play individual song using songInteractions for proper queue management
-    if (song.id) {
+    if (song.song_id || song.id) {
       const songData = {
-        id: song.id,
-        media_blob_id: song.id,
+        id: song.song_id || song.id, // Use UUID for API calls
+        media_blob_id: song.id, // Keep media_blob_id for player
         title: song.title || "Unknown Song",
         artist: song.artist || "Unknown Artist",
         album: song.album || "Unknown Album",
@@ -141,18 +141,37 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
     event.stopPropagation();
 
     // Use songInteractions for full context menu with all song actions
-    if (song.id) {
+    if (song.song_id || song.id) {
       const songData = {
-        id: song.id,
-        media_blob_id: song.id,
+        id: song.song_id || song.id, // Use UUID for API calls
+        media_blob_id: song.id, // Keep media_blob_id for player
         title: song.title || "Unknown Song",
-        artist: song.artist || "Unknown Artist",
-        album: song.album || "Unknown Album",
-        year: song.year,
-        genre: song.genre,
-        duration: song.duration,
-        sub_genres: song.sub_genres || [],
+        artist: song.artist || null,
+        album: song.album || null,
+        album_artist: song.artist || null,
+        track_number: song.track_number || null,
+        disc_number: song.disc_number || null,
+        duration_seconds: song.duration
+          ? parseInt(song.duration.split(":")[0]) * 60 +
+            parseInt(song.duration.split(":")[1])
+          : null,
+        genre: song.genre || null,
+        sub_genres: song.sub_genres || null,
+        year: song.year || null,
+        bpm: null,
+        key_signature: null,
+        user_rating: song.user_rating || null,
+        user_is_favorite: song.is_favorite || false,
         tags: song.tags || [],
+        display_title: song.title || "Unknown Song",
+        detailed_display_title: `${song.title || "Unknown Song"} - ${song.artist || "Unknown Artist"}`,
+        created_at: new Date().toISOString(),
+        thumbnail_blob_id: song.thumbnail_blob_id || null,
+        waveform_blob_id: null,
+        thumbnail_blob_ids: song.thumbnail_blob_id
+          ? [song.thumbnail_blob_id]
+          : [],
+        preference_updated_at: null,
       };
 
       // Use full song context menu with all actions

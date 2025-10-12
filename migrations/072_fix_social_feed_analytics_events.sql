@@ -181,6 +181,7 @@ BEGIN
                         'grouping_level', pg.grouping_level,
                         'songs', jsonb_agg(jsonb_build_object(
                             'id', s.media_blob_id,
+                            'song_id', s.id,
                             'title', s.title,
                             'artist', s.artist,
                             'album', s.album,

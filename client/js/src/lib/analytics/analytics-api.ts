@@ -283,6 +283,7 @@ export const FeedItemMetadataSchema = z.object({
         .array(
           z.object({
             id: z.string(),
+            song_id: z.string().nullish(),
             title: z.string().nullish(),
             artist: z.string().nullish(),
             album: z.string().nullish(),

@@ -77,6 +77,7 @@ pub struct CollectionGrid {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CollectionGridSong {
     pub id: String,
+    pub song_id: Option<String>,
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
@@ -245,6 +246,10 @@ pub async fn get_social_feed(
                             .filter_map(|song| {
                                 Some(CollectionGridSong {
                                     id: song.get("id")?.as_str()?.to_string(),
+                                    song_id: song
+                                        .get("song_id")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
                                     title: song
                                         .get("title")
                                         .and_then(|v| v.as_str())
