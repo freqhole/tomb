@@ -647,6 +647,29 @@ impl<'a> AnalyticsRepository<'a> {
         Ok(popular_songs)
     }
 
+    /// Refresh all analytics materialized views
+    pub async fn refresh_analytics_materialized_views(
+        &self,
+    ) -> Result<Vec<(String, String)>, MediaAnalyticsError> {
+        let _result = sqlx::query!(
+            r#"
+            SELECT refresh_all_analytics_views()
+            "#
+        )
+        .fetch_one(self.db.pool())
+        .await?;
+
+        // Return success indicators
+        Ok(vec![
+            ("song_play_summary".to_string(), "refreshed".to_string()),
+            (
+                "user_listening_summary".to_string(),
+                "refreshed".to_string(),
+            ),
+            ("trending_analysis".to_string(), "refreshed".to_string()),
+        ])
+    }
+
     /// Get user listening history
     pub async fn get_user_listening_history(
         &self,

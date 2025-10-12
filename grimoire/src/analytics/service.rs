@@ -382,6 +382,19 @@ impl<'a> AnalyticsService<'a> {
             .await
     }
 
+    /// Refresh all analytics materialized views
+    pub async fn refresh_analytics_materialized_views(
+        &self,
+    ) -> Result<Vec<(String, String)>, MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Err(MediaAnalyticsError::InvalidEventData(
+                "Analytics disabled".to_string(),
+            ));
+        }
+
+        self.repo.refresh_analytics_materialized_views().await
+    }
+
     /// Helper method to determine if a path represents a static file
     fn is_static_file_path(&self, path: &str) -> bool {
         // Common static file extensions
