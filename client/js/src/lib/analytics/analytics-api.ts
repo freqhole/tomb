@@ -277,27 +277,29 @@ export const FeedItemMetadataSchema = z.object({
     .optional(),
   collection_grid: z
     .object({
-      total_songs: z.number(),
-      grouping_level: z.string(),
-      songs: z.array(
-        z.object({
-          id: z.string(),
-          title: z.string(),
-          artist: z.string().nullable(),
-          album: z.string().nullable(),
-          year: z.number().nullable(),
-          genre: z.string().nullable(),
-          sub_genres: z.array(z.string()),
-          tags: z.array(z.string()),
-          disc_number: z.number().nullable(),
-          track_number: z.number().nullable(),
-          duration: z.string().nullable(),
-          thumbnail_blob_id: z.string().nullable(),
-          domain_type: z.string(),
-          user_rating: z.number().nullable(),
-          is_favorite: z.boolean(),
-        })
-      ),
+      total_songs: z.number().nullish(),
+      grouping_level: z.string().nullish(),
+      songs: z
+        .array(
+          z.object({
+            id: z.string(),
+            title: z.string().nullish(),
+            artist: z.string().nullish(),
+            album: z.string().nullish(),
+            year: z.number().nullish(),
+            genre: z.string().nullish(),
+            sub_genres: z.array(z.string()).nullish(),
+            tags: z.array(z.string()).nullish(),
+            disc_number: z.number().nullish(),
+            track_number: z.number().nullish(),
+            duration: z.string().nullish(),
+            thumbnail_blob_id: z.string().nullish(),
+            domain_type: z.string().nullish(),
+            user_rating: z.number().nullish(),
+            is_favorite: z.boolean().nullish(),
+          })
+        )
+        .nullish(),
     })
     .nullable()
     .optional(),
