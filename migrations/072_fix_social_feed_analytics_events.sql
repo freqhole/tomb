@@ -1,7 +1,7 @@
--- Fix social feed analytics with simplified progressive grouping
--- This migration implements basic temporal grouping to debug type issues
+-- Fix social feed analytics with full progressive temporal consolidation
+-- This migration implements seamless temporal grouping where events naturally consolidate more as they age
 
--- Drop and recreate get_social_feed_items function with simplified approach
+-- Drop and recreate get_social_feed_items function with full progressive temporal grouping
 DROP FUNCTION IF EXISTS public.get_social_feed_items(bigint, bigint, interval);
 
 CREATE FUNCTION public.get_social_feed_items(p_limit bigint, p_offset bigint, p_days_back interval)
@@ -19,6 +19,12 @@ BEGIN
             me.user_id,
             me.created_at,
             EXTRACT(EPOCH FROM (NOW() - me.created_at)) / 60 as age_minutes,
+            -- Session gap detection using window functions
+            COALESCE(
+                EXTRACT(EPOCH FROM (me.created_at - LAG(me.created_at) OVER (
+                    PARTITION BY me.user_id ORDER BY me.created_at
+                ))) / 60, 0
+            ) as gap_minutes,
             CASE
                 WHEN me.domain_type = 'song' THEN
                     COALESCE(
@@ -27,8 +33,39 @@ BEGIN
                     )
                 WHEN me.domain_type = 'album' THEN
                     COALESCE(
+                        (SELECT DISTINCT s.album || ' by ' || s.artist
+                         FROM songs s
+                         WHERE s.media_blob_id = ANY(me.domain_ids)
+                         AND s.album IS NOT NULL AND s.artist IS NOT NULL
+                         LIMIT 1),
                         me.event_data->>'collection_name',
                         'unknown album'
+                    )
+                WHEN me.domain_type = 'playlist' THEN
+                    COALESCE(
+                        (SELECT p.title FROM playlists p WHERE p.id::text = ANY(me.domain_ids) LIMIT 1),
+                        me.event_data->>'collection_name',
+                        'unknown playlist'
+                    )
+                WHEN me.domain_type = 'artist' THEN
+                    COALESCE(
+                        (SELECT DISTINCT s.artist
+                         FROM songs s
+                         WHERE s.media_blob_id = ANY(me.domain_ids)
+                         AND s.artist IS NOT NULL
+                         LIMIT 1),
+                        me.event_data->>'collection_name',
+                        'unknown artist'
+                    )
+                WHEN me.domain_type = 'genre' THEN
+                    COALESCE(
+                        (SELECT DISTINCT s.genre
+                         FROM songs s
+                         WHERE s.media_blob_id = ANY(me.domain_ids)
+                         AND s.genre IS NOT NULL
+                         LIMIT 1),
+                        me.event_data->>'collection_name',
+                        'unknown genre'
                     )
                 ELSE COALESCE(me.event_data->>'collection_name', 'unknown collection')
             END as collection_name
@@ -39,111 +76,300 @@ BEGIN
         AND (array_length(me.domain_ids, 1) > 0 OR me.media_blob_id IS NOT NULL)
         AND me.user_id IS NOT NULL
     ),
-    grouped_events AS (
+    session_boundaries AS (
         SELECT
-            re.user_id,
-            re.domain_type,
-            re.domain_ids,
-            re.collection_name,
-            re.event_type,
-            MAX(re.created_at) as latest_activity,
-            COUNT(*) FILTER (WHERE re.event_type = 'play') as play_count,
+            *,
+            -- Create session groups by detecting 15+ minute gaps
+            SUM(CASE WHEN gap_minutes > 15 OR gap_minutes = 0 THEN 1 ELSE 0 END)
+            OVER (PARTITION BY user_id ORDER BY created_at ROWS UNBOUNDED PRECEDING) as session_group
+        FROM recent_events
+    ),
+    progressive_groups AS (
+        SELECT
+            sb.user_id,
+            sb.domain_type,
+            sb.domain_ids,
+            sb.collection_name,
+            sb.event_type,
+            sb.event_data,
+            sb.created_at,
+            sb.age_minutes,
+            sb.session_group,
+            -- Progressive temporal grouping key
+            CASE
+                -- Individual items: < 15 minutes old
+                WHEN sb.age_minutes < 15 THEN
+                    'individual_' || sb.user_id::text || '_' || sb.created_at::text
+                -- Session grouping: 15 minutes - 2 hours (group by session)
+                WHEN sb.age_minutes < 120 THEN
+                    'session_' || sb.user_id::text || '_' || sb.session_group::text
+                -- Daily grouping: 2 hours - 1 day (group by day)
+                WHEN sb.age_minutes < 1440 THEN
+                    'daily_' || sb.user_id::text || '_' || DATE(sb.created_at)::text
+                -- Weekly grouping: 1 day - 1 week (group by week)
+                WHEN sb.age_minutes < 10080 THEN
+                    'weekly_' || sb.user_id::text || '_' || DATE_TRUNC('week', sb.created_at)::text
+                -- Monthly grouping: 1 week - 1 month (group by month)
+                WHEN sb.age_minutes < 43200 THEN
+                    'monthly_' || sb.user_id::text || '_' || DATE_TRUNC('month', sb.created_at)::text
+                -- Yearly grouping: 1+ months (group by year)
+                ELSE
+                    'yearly_' || sb.user_id::text || '_' || DATE_TRUNC('year', sb.created_at)::text
+            END as grouping_key,
+            -- Determine grouping level for display
+            CASE
+                WHEN sb.age_minutes < 15 THEN 'individual'
+                WHEN sb.age_minutes < 120 THEN 'session'
+                WHEN sb.age_minutes < 1440 THEN 'daily'
+                WHEN sb.age_minutes < 10080 THEN 'weekly'
+                WHEN sb.age_minutes < 43200 THEN 'monthly'
+                ELSE 'yearly'
+            END as grouping_level
+        FROM session_boundaries sb
+    ),
+    aggregated_groups AS (
+        SELECT
+            pg.grouping_key,
+            pg.grouping_level,
+            pg.user_id,
+            -- For individual items, keep specific collection; for groups, create descriptive titles
+            CASE
+                WHEN pg.grouping_level = 'individual' THEN pg.collection_name
+                WHEN pg.grouping_level = 'session' THEN 'listening session'
+                WHEN pg.grouping_level = 'daily' THEN 'daily music'
+                WHEN pg.grouping_level = 'weekly' THEN 'weekly listening'
+                WHEN pg.grouping_level = 'monthly' THEN 'monthly highlights'
+                ELSE 'music archive'
+            END as display_title,
+            -- For individual items, keep specific domain info; for groups, generalize
+            CASE
+                WHEN pg.grouping_level = 'individual' THEN pg.domain_type
+                ELSE 'collection'
+            END as display_domain_type,
+            CASE
+                WHEN pg.grouping_level = 'individual' THEN pg.domain_ids
+                ELSE NULL::text[]
+            END as display_domain_ids,
+            -- Event type prioritization: rate > favorite > play
+            CASE
+                WHEN COUNT(*) FILTER (WHERE pg.event_type = 'rate') > 0 THEN 'rate'
+                WHEN COUNT(*) FILTER (WHERE pg.event_type = 'favorite') > 0 THEN 'favorite'
+                WHEN COUNT(*) FILTER (WHERE pg.event_type = 'unfavorite') > 0 THEN 'unfavorite'
+                ELSE 'play'
+            END as primary_event_type,
+            MAX(pg.created_at) as latest_activity,
+            MIN(pg.created_at) as earliest_activity,
+            COUNT(*) FILTER (WHERE pg.event_type = 'play') as total_plays,
+            COUNT(*) FILTER (WHERE pg.event_type = 'favorite') as total_favorites,
+            COUNT(*) FILTER (WHERE pg.event_type = 'rate') as total_ratings,
+            COUNT(DISTINCT pg.collection_name) as unique_collections,
             COUNT(*) as total_events,
-            (array_agg(re.event_data ORDER BY re.created_at DESC))[1] as latest_event_data,
-            MIN(re.age_minutes) as min_age_minutes
-        FROM recent_events re
-        GROUP BY re.user_id, re.domain_type, re.domain_ids, re.collection_name, re.event_type,
-                 CASE WHEN re.age_minutes < 30 THEN re.created_at ELSE DATE(re.created_at) END
+            -- Get latest event data for ratings/metadata
+            (array_agg(pg.event_data ORDER BY
+                CASE pg.event_type
+                    WHEN 'rate' THEN 1
+                    WHEN 'favorite' THEN 2
+                    WHEN 'unfavorite' THEN 3
+                    ELSE 4
+                END, pg.created_at DESC))[1] as latest_event_data,
+            -- Create collection grid for grouped items
+            CASE
+                WHEN pg.grouping_level != 'individual' THEN
+                    jsonb_agg(DISTINCT jsonb_build_object(
+                        'name', pg.collection_name,
+                        'type', pg.domain_type,
+                        'play_count', COUNT(*) FILTER (WHERE pg.event_type = 'play'),
+                        'has_favorite', COUNT(*) FILTER (WHERE pg.event_type = 'favorite') > 0,
+                        'has_rating', COUNT(*) FILTER (WHERE pg.event_type = 'rate') > 0
+                    ) ORDER BY jsonb_build_object(
+                        'name', pg.collection_name,
+                        'type', pg.domain_type,
+                        'play_count', COUNT(*) FILTER (WHERE pg.event_type = 'play'),
+                        'has_favorite', COUNT(*) FILTER (WHERE pg.event_type = 'favorite') > 0,
+                        'has_rating', COUNT(*) FILTER (WHERE pg.event_type = 'rate') > 0
+                    ))
+                ELSE NULL
+            END as collection_grid,
+            MIN(pg.age_minutes) as min_age_minutes
+        FROM progressive_groups pg
+        GROUP BY pg.grouping_key, pg.grouping_level, pg.user_id
     )
     SELECT
+        -- Generate appropriate item types based on grouping level and primary event
         CASE
-            WHEN ge.event_type = 'play' AND ge.domain_type = 'song' THEN 'user_played_song'
-            WHEN ge.event_type = 'play' AND ge.domain_type = 'album' THEN 'user_played_album'
-            WHEN ge.event_type = 'favorite' THEN 'user_favorited_' || ge.domain_type
-            WHEN ge.event_type = 'rate' THEN 'user_rated_' || ge.domain_type
-            ELSE 'user_activity'
+            WHEN ag.grouping_level = 'individual' AND ag.primary_event_type = 'play' AND ag.display_domain_type = 'song' THEN 'user_played_song'
+            WHEN ag.grouping_level = 'individual' AND ag.primary_event_type = 'play' AND ag.display_domain_type = 'album' THEN 'user_played_album'
+            WHEN ag.grouping_level = 'individual' AND ag.primary_event_type = 'play' AND ag.display_domain_type = 'playlist' THEN 'user_played_playlist'
+            WHEN ag.grouping_level = 'individual' AND ag.primary_event_type = 'play' AND ag.display_domain_type = 'artist' THEN 'user_played_artist'
+            WHEN ag.grouping_level = 'individual' AND ag.primary_event_type = 'play' AND ag.display_domain_type = 'genre' THEN 'user_played_genre'
+            WHEN ag.grouping_level = 'individual' AND ag.primary_event_type = 'favorite' THEN 'user_favorited_' || ag.display_domain_type
+            WHEN ag.grouping_level = 'individual' AND ag.primary_event_type = 'unfavorite' THEN 'user_unfavorited_' || ag.display_domain_type
+            WHEN ag.grouping_level = 'individual' AND ag.primary_event_type = 'rate' THEN 'user_rated_' || ag.display_domain_type
+            WHEN ag.grouping_level = 'session' THEN 'user_listening_session'
+            WHEN ag.grouping_level = 'daily' THEN 'user_daily_activity'
+            WHEN ag.grouping_level = 'weekly' THEN 'user_weekly_activity'
+            WHEN ag.grouping_level = 'monthly' THEN 'user_monthly_activity'
+            ELSE 'user_music_archive'
         END::text as item_type,
-        ge.domain_type::text,
-        ge.domain_ids,
-        ge.collection_name as title,
+        ag.display_domain_type::text as domain_type,
+        ag.display_domain_ids as domain_ids,
+        ag.display_title as title,
+        -- Generate contextual subtitles based on grouping level and activity
         CASE
-            WHEN ge.event_type = 'favorite' THEN 'added to favorites'
-            WHEN ge.event_type = 'rate' THEN
+            WHEN ag.grouping_level = 'individual' THEN
                 CASE
-                    WHEN (ge.latest_event_data->>'rating')::int = 5 THEN 'rated 5 stars'
-                    WHEN (ge.latest_event_data->>'rating')::int = 4 THEN 'rated 4 stars'
-                    WHEN (ge.latest_event_data->>'rating')::int = 3 THEN 'rated 3 stars'
-                    WHEN (ge.latest_event_data->>'rating')::int = 2 THEN 'rated 2 stars'
-                    WHEN (ge.latest_event_data->>'rating')::int = 1 THEN 'rated 1 star'
-                    ELSE 'rated'
+                    WHEN ag.primary_event_type = 'favorite' THEN 'added to favorites'
+                    WHEN ag.primary_event_type = 'unfavorite' THEN 'removed from favorites'
+                    WHEN ag.primary_event_type = 'rate' THEN
+                        CASE
+                            WHEN (ag.latest_event_data->>'rating')::int = 5 THEN 'rated 5 stars'
+                            WHEN (ag.latest_event_data->>'rating')::int = 4 THEN 'rated 4 stars'
+                            WHEN (ag.latest_event_data->>'rating')::int = 3 THEN 'rated 3 stars'
+                            WHEN (ag.latest_event_data->>'rating')::int = 2 THEN 'rated 2 stars'
+                            WHEN (ag.latest_event_data->>'rating')::int = 1 THEN 'rated 1 star'
+                            ELSE 'rated'
+                        END
+                    WHEN ag.total_plays = 1 THEN 'played once'
+                    WHEN ag.total_plays < 5 THEN ag.total_plays || ' times'
+                    WHEN ag.total_plays < 20 THEN 'played ' || ag.total_plays || ' times'
+                    ELSE 'played ' || ag.total_plays || ' times recently'
                 END
-            WHEN ge.play_count = 1 THEN 'played once'
-            WHEN ge.play_count < 5 THEN ge.play_count || ' times'
-            WHEN ge.play_count < 20 THEN 'played ' || ge.play_count || ' times'
-            ELSE 'played ' || ge.play_count || ' times recently'
+            ELSE
+                -- Grouped activity subtitles with rich context
+                CASE
+                    WHEN ag.grouping_level = 'session' THEN
+                        CASE
+                            WHEN ag.unique_collections = 1 THEN ag.total_plays || ' plays'
+                            ELSE ag.unique_collections || ' items, ' || ag.total_plays || ' plays'
+                        END
+                    WHEN ag.grouping_level = 'daily' THEN
+                        ag.unique_collections || ' collections, ' || ag.total_plays || ' plays'
+                    WHEN ag.grouping_level = 'weekly' THEN
+                        ag.unique_collections || ' collections this week'
+                    WHEN ag.grouping_level = 'monthly' THEN
+                        ag.unique_collections || ' collections this month'
+                    ELSE
+                        ag.unique_collections || ' collections'
+                END ||
+                CASE
+                    WHEN ag.total_favorites > 0 THEN ' • ' || ag.total_favorites || ' favorited'
+                    ELSE ''
+                END ||
+                CASE
+                    WHEN ag.total_ratings > 0 THEN ' • ' || ag.total_ratings || ' rated'
+                    ELSE ''
+                END
         END as subtitle,
         NULL::text as image_url,
         jsonb_build_object(
             'total_songs', NULL,
-            'artist_name', CASE WHEN ge.domain_type = 'artist' THEN ge.collection_name ELSE NULL END,
-            'album_name', CASE WHEN ge.domain_type = 'album' THEN ge.collection_name ELSE NULL END,
-            'playlist_name', CASE WHEN ge.domain_type = 'playlist' THEN ge.collection_name ELSE NULL END,
-            'genre_name', CASE WHEN ge.domain_type = 'genre' THEN ge.collection_name ELSE NULL END,
+            'artist_name', CASE WHEN ag.display_domain_type = 'artist' THEN ag.display_title ELSE NULL END,
+            'album_name', CASE WHEN ag.display_domain_type = 'album' THEN ag.display_title ELSE NULL END,
+            'playlist_name', CASE WHEN ag.display_domain_type = 'playlist' THEN ag.display_title ELSE NULL END,
+            'genre_name', CASE WHEN ag.display_domain_type = 'genre' THEN ag.display_title ELSE NULL END,
             'user_activity', jsonb_build_object(
-                'user_play_count', ge.play_count,
-                'total_play_count', ge.play_count,
-                'last_activity', ge.latest_activity
+                'user_play_count', ag.total_plays,
+                'total_play_count', ag.total_plays,
+                'last_activity', ag.latest_activity,
+                'grouping_level', ag.grouping_level,
+                'unique_collections', ag.unique_collections,
+                'session_duration', EXTRACT(EPOCH FROM (ag.latest_activity - ag.earliest_activity)),
+                'total_events', ag.total_events
             ),
             'social_context', jsonb_build_object(
-                'action_type', ge.event_type,
-                'frequency', ge.play_count,
-                'is_trending', ge.play_count > 10,
-                'grouping_level', CASE WHEN ge.min_age_minutes < 30 THEN 'individual' ELSE 'grouped' END,
+                'action_type', ag.primary_event_type,
+                'frequency', ag.total_plays,
+                'is_trending', CASE
+                    WHEN ag.grouping_level = 'individual' THEN ag.total_plays > 10
+                    ELSE ag.total_plays > 20
+                END,
+                'grouping_level', ag.grouping_level,
+                'age_category', CASE
+                    WHEN ag.min_age_minutes < 15 THEN 'fresh'
+                    WHEN ag.min_age_minutes < 120 THEN 'recent'
+                    WHEN ag.min_age_minutes < 1440 THEN 'today'
+                    WHEN ag.min_age_minutes < 10080 THEN 'this_week'
+                    WHEN ag.min_age_minutes < 43200 THEN 'this_month'
+                    ELSE 'archive'
+                END,
                 'rating', CASE
-                    WHEN ge.event_type = 'rate' THEN (ge.latest_event_data->>'rating')::int
+                    WHEN ag.primary_event_type = 'rate' THEN (ag.latest_event_data->>'rating')::int
                     ELSE NULL
                 END
-            )
+            ),
+            'collection_grid', ag.collection_grid
         ) as metadata,
-        ge.play_count,
-        ge.latest_activity as last_played_at,
-        ((EXTRACT(EPOCH FROM ge.latest_activity) / 1000000) + (ge.total_events * 100))::double precision as score,
-        ge.latest_activity as created_at,
-        ge.user_id as user_id,
+        ag.total_plays as play_count,
+        ag.latest_activity as last_played_at,
+        -- Progressive scoring: more recent and more active = higher score, with bonuses for grouped content
+        ((EXTRACT(EPOCH FROM ag.latest_activity) / 1000000) +
+         (ag.total_events * 100) +
+         (ag.unique_collections * 50) +
+         (CASE ag.grouping_level
+            WHEN 'individual' THEN 1000  -- Boost fresh individual items
+            WHEN 'session' THEN 800      -- Session summaries get good visibility
+            WHEN 'daily' THEN 600        -- Daily summaries
+            WHEN 'weekly' THEN 400       -- Weekly summaries
+            WHEN 'monthly' THEN 200      -- Monthly archives
+            ELSE 100                     -- Yearly archives
+         END))::double precision as score,
+        ag.latest_activity as created_at,
+        ag.user_id as user_id,
         COALESCE(u.username, 'unknown user')::text as username
-    FROM grouped_events ge
-    LEFT JOIN users u ON u.id = ge.user_id
+    FROM aggregated_groups ag
+    LEFT JOIN users u ON u.id = ag.user_id
     ORDER BY score DESC, latest_activity DESC
     LIMIT p_limit OFFSET p_offset;
 END;
 $function$;
 
--- Fix get_social_feed_count function
+-- Fix get_social_feed_count function with progressive temporal grouping
 CREATE OR REPLACE FUNCTION public.get_social_feed_count(p_days_back interval)
  RETURNS bigint
  LANGUAGE plpgsql
 AS $function$
 BEGIN
     RETURN (
-        SELECT COUNT(DISTINCT (domain_type, domain_ids, user_id,
+        WITH progressive_count AS (
+            SELECT
+                user_id,
+                domain_type,
+                domain_ids,
+                EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 as age_minutes,
+                created_at
+            FROM media_events
+            WHERE created_at >= NOW() - p_days_back
+            AND domain_type IN ('album', 'playlist', 'artist', 'genre', 'song')
+            AND event_type IN ('play', 'favorite', 'unfavorite', 'rate')
+            AND (array_length(domain_ids, 1) > 0 OR media_blob_id IS NOT NULL)
+        )
+        SELECT COUNT(DISTINCT (
+            user_id,
             CASE
-                WHEN EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 < 10 THEN created_at
-                WHEN EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 < 120 THEN
-                    date_trunc('hour', created_at) + INTERVAL '15 minutes' * FLOOR(EXTRACT(MINUTE FROM created_at) / 15)
-                WHEN EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 < 1440 THEN
-                    date_trunc('hour', created_at) + INTERVAL '4 hours' * FLOOR(EXTRACT(HOUR FROM created_at) / 4)
-                ELSE date_trunc('day', created_at)
+                -- Individual items: < 15 minutes old
+                WHEN age_minutes < 15 THEN created_at::text
+                -- Session grouping: 15 minutes - 2 hours (15-minute windows)
+                WHEN age_minutes < 120 THEN
+                    (FLOOR(age_minutes / 15) || '_session')
+                -- Daily grouping: 2 hours - 1 day (4-hour windows)
+                WHEN age_minutes < 1440 THEN
+                    DATE(created_at)::text
+                -- Weekly grouping: 1 day - 1 week
+                WHEN age_minutes < 10080 THEN
+                    DATE_TRUNC('week', created_at)::text
+                -- Monthly grouping: 1 week - 1 month
+                WHEN age_minutes < 43200 THEN
+                    DATE_TRUNC('month', created_at)::text
+                -- Yearly grouping: 1+ months
+                ELSE
+                    DATE_TRUNC('year', created_at)::text
             END
         ))
-        FROM media_events
-        WHERE created_at >= NOW() - p_days_back
-        AND domain_type IN ('album', 'playlist', 'artist', 'genre', 'song')
-        AND event_type IN ('play', 'favorite', 'unfavorite', 'rate')
-        AND (array_length(domain_ids, 1) > 0 OR media_blob_id IS NOT NULL)
+        FROM progressive_count
     );
 END;
 $function$;
 
 -- Update function comments
-COMMENT ON FUNCTION get_social_feed_items IS 'returns social feed with progressive temporal grouping - more granular for recent events, more consolidated as events age';
-COMMENT ON FUNCTION get_social_feed_count IS 'returns count of grouped social feed items using progressive temporal consolidation';
+COMMENT ON FUNCTION get_social_feed_items IS 'returns social feed with full progressive temporal grouping - seamless consolidation from individual fresh items to yearly archives';
+COMMENT ON FUNCTION get_social_feed_count IS 'returns count of grouped social feed items using full progressive temporal consolidation algorithm';
