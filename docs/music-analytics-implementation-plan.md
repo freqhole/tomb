@@ -1656,3 +1656,636 @@ this creates a social, discovery-oriented landing page that combines recent cont
 - **image support**: thumbnail urls with fallback icons (♪ for albums, ♭ for playlists)
 
 the foundation is solid and the major implementation work is complete - primarily needs testing and polish!
+
+## phase 9: true social feed with user attribution and unified timeline
+
+### current issues with feed approach
+
+the current feed implementation (phase 8) has several fundamental problems:
+
+1. **not truly social**: no user attribution - can't tell who did what
+2. **chunky sections**: "user activity groups" break timeline flow into big blocks
+3. **limited event types**: only shows content creation, missing favorites/ratings/uploads
+4. **hacky domain ids**: using string encoding like "artist:album" instead of proper collections
+5. **analytics events failing**: 400 errors from malformed event data
+6. **duplicates albums view**: current feed is basically recreating existing album grid
+
+### vision: unified social timeline
+
+**example scenario**:
+
+- user a: uploads 2 albums, creates playlist, adds song to playlist, favorites album + 2 songs, rates album, listens to 3 albums + 10 songs
+- user b: adds song, favorites album
+- user c: listens to 3 songs
+
+**desired feed output** (chronological, grouped by user):
+
+```
+[10:30] alice uploaded "dark side of the moon" (album)
+[10:28] alice uploaded "wish you were here" (album)
+[10:25] bob favorited "abbey road" (album)
+[10:22] charlie listened to "bohemian rhapsody", "imagine", "hotel california"
+[10:20] alice created "road trip mix" (playlist)
+[10:18] alice rated "dark side of the moon" ★★★★★
+[10:15] alice favorited "comfortably numb", "money" (songs)
+```
+
+### 9.1 analytics event schema fixes
+
+**fix 400 errors in current analytics events**:
+
+problem: current events fail validation, e.g.:
+
+```json
+{
+  "media_blob_id": null,
+  "domain_type": "album",
+  "domain_id": "Dusk", // string, but constraint expects array
+  "event_data": { "collection_name": "Dusk by null" } // malformed
+}
+```
+
+**solution**: simplify to use only domain_ids array with row IDs:
+
+```sql
+-- add domain_ids array column and remove domain_id
+ALTER TABLE media_events ADD COLUMN domain_ids TEXT[];
+ALTER TABLE media_events DROP COLUMN domain_id;
+
+-- remove foreign key constraints for operational flexibility
+ALTER TABLE media_events DROP CONSTRAINT IF EXISTS media_events_media_blob_id_fkey;
+ALTER TABLE media_events DROP CONSTRAINT IF EXISTS media_events_user_id_fkey;
+
+-- update constraint to require domain_ids for collection events
+ALTER TABLE media_events ADD CONSTRAINT chk_collection_domain_new
+    CHECK (
+        (media_blob_id IS NOT NULL) OR
+        (media_blob_id IS NULL AND domain_type IS NOT NULL AND
+         domain_ids IS NOT NULL AND array_length(domain_ids, 1) > 0)
+    );
+```
+
+**domain_ids usage patterns**:
+
+- **single song**: `domain_ids = ['173bff4']` (song SHA ID)
+- **album**: `domain_ids = ['173bff4', '5e25f26', 'ccdbe29']` (all song SHA IDs in album)
+- **playlist**: `domain_ids = ['bdc1e053-ed61-47b5-87d9-c07023fa3c19']` (playlist UUID)
+- **playlist songs**: `domain_ids = ['173bff4', '5e25f26']` (song SHA IDs in playlist)
+- **mixed ID types**: songs use SHA IDs, playlists/users use UUIDs
+- **individual items**: always arrays, even for single items
+- **only row IDs**: no string encoding, only actual database primary keys
+
+**loose coupling benefits**:
+
+- can delete songs without cascade issues
+- analytics data preserved for historical reporting
+- operational flexibility for content management
+- orphaned references handled gracefully in queries
+
+**handling orphaned references in queries**:
+
+```sql
+-- analytics queries with graceful orphan handling
+SELECT
+    me.event_type,
+    me.domain_type,
+    me.domain_id,
+    me.created_at,
+    -- gracefully handle missing songs
+    COALESCE(s.title, 'deleted song') as title,
+    COALESCE(s.artist, 'unknown artist') as artist
+FROM media_events me
+LEFT JOIN songs s ON s.media_blob_id = me.media_blob_id
+WHERE me.event_type = 'play'
+ORDER BY me.created_at DESC;
+
+-- feed queries ignore orphaned references
+-- p_days_back explanation: PostgreSQL interval for how far back to search
+-- '7 days' = last week, '30 days' = last month, '1 hour' = last hour
+SELECT * FROM get_social_timeline(20, 0, '7 days')
+WHERE title IS NOT NULL; -- filter out events for deleted content
+```
+
+### 9.2 expand event types for social feed
+
+**current events**: only "play" events tracked
+
+**new event types needed**:
+
+- `upload` - user uploads new song/album
+- `favorite` - user favorites song/album/playlist/artist
+- `unfavorite` - user removes favorite (tracked for analytics, not shown in feed)
+- `rate` - user rates content (1-5 stars)
+- `create_playlist` - user creates new playlist
+- `add_to_playlist` - user adds songs to playlist
+
+**event data standardization**:
+
+```typescript
+interface SocialEventData {
+  // for uploads
+  content_type?: "song" | "album";
+  upload_batch_id?: string;
+
+  // for favorites/ratings
+  rating?: number; // 1-5 stars
+
+  // for playlists
+  playlist_id?: string;
+  added_songs?: string[]; // song ids
+
+  // for plays
+  collection_name?: string;
+  total_songs?: number;
+  shuffle_enabled?: boolean;
+}
+```
+
+### 9.3 user attribution and timeline aggregation
+
+**server-side feed query redesign**:
+
+replace current `get_social_feed_items()` with user-centric timeline:
+
+```sql
+CREATE OR REPLACE FUNCTION get_social_timeline(
+    p_limit bigint,
+    p_offset bigint,
+    p_days_back interval DEFAULT '7 days'  -- how far back to look for events
+)
+RETURNS TABLE (
+    event_id uuid,
+    user_id uuid,
+    username text,
+    event_type text,
+    domain_type text,
+    domain_ids text[],
+    title text,
+    subtitle text,
+    image_url text,
+    event_data jsonb,
+    created_at timestamptz,
+    -- grouping fields
+    group_key text, -- for grouping related events
+    group_count integer
+) AS $$
+-- implementation groups events by user and time proximity
+-- e.g. "alice uploaded 3 songs" instead of 3 separate upload events
+$$;
+```
+
+### 9.4 unified timeline ui component
+
+**replace chunky activity groups with clean timeline**:
+
+```typescript
+interface TimelineEvent {
+  id: string;
+  user: { id: string; username: string; };
+  eventType: 'upload' | 'favorite' | 'rate' | 'play' | 'create_playlist';
+  target: {
+    type: 'song' | 'album' | 'playlist' | 'artist';
+    id: string;
+    title: string;
+    imageUrl?: string;
+  };
+  metadata?: {
+    rating?: number;
+    playCount?: number;
+    addedSongs?: number;
+  };
+  timestamp: string;
+  groupedEvents?: TimelineEvent[]; // for "alice uploaded 3 songs"
+}
+
+function TimelineCard({ event }: { event: TimelineEvent }) {
+  return (
+    <div class="timeline-event">
+      <div class="user-info">
+        <span class="username">{event.user.username}</span>
+        <span class="action">{getActionText(event)}</span>
+      </div>
+
+      <div class="target-content">
+        <CollectionCard
+          collection={event.target}
+          size="small"
+          showMetadata={true}
+        />
+      </div>
+
+      <div class="timestamp">{formatRelativeTime(event.timestamp)}</div>
+    </div>
+  );
+}
+```
+
+### 9.5 extend favorites system
+
+**current**: only song favorites exist
+
+**expand to all content types**:
+
+```sql
+CREATE TABLE user_favorites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL, -- loose reference to users.id
+    domain_type VARCHAR(20) NOT NULL, -- song, album, playlist, artist, genre
+    domain_ids TEXT[] NOT NULL, -- array of row IDs (song SHA IDs, playlist UUIDs, etc)
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+
+    UNIQUE(user_id, domain_type, domain_ids)
+);
+```
+
+**client-side analytics integration**: use existing event batching system via api endpoints instead of db triggers
+
+### 9.6 ratings system
+
+**add comprehensive ratings for all content**:
+
+```sql
+CREATE TABLE user_ratings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL, -- loose reference to users.id
+    domain_type VARCHAR(20) NOT NULL,
+    domain_ids TEXT[] NOT NULL, -- array of row IDs (mixed types: song SHA, playlist UUID)
+    rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+    UNIQUE(user_id, domain_type, domain_ids)
+);
+```
+
+**client-side analytics integration**: emit rating events via existing analytics api when user rates content
+
+### 9.7 upload event integration
+
+**emit analytics events from background processing jobs**:
+
+- **web uploads**: track user from session, emit events when processing completes
+- **cli scans**: attribute to oldest admin user (server owner)
+- **user roles**: add `is_owner` boolean to users table to mark server owners
+
+```sql
+-- add server owner designation
+ALTER TABLE users ADD COLUMN is_owner BOOLEAN DEFAULT FALSE;
+
+-- mark oldest admin as owner
+UPDATE users SET is_owner = TRUE
+WHERE role = 'admin'
+AND id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1);
+```
+
+**implementation**: emit upload events via existing analytics api when background jobs complete processing new music
+
+**server owner roles**:
+
+- mark users with `is_owner = true` to identify server administrators
+- display owner badge in feed timeline ("alice (owner) uploaded...")
+- use oldest admin as default for cli operations until better attribution available
+
+**6-hour grouping strategy**:
+
+- group related events within 6-hour windows by same user
+- examples:
+  - "alice uploaded 3 songs" (instead of 3 separate upload events)
+  - "bob favorited 2 albums and 5 songs"
+  - "charlie listened to 8 songs"
+- **unfavorite handling**: track `unfavorite` events but don't show in feed UI
+- **grouping logic**: if same user has `favorite` then `unfavorite` in window, cancel both out
+- preserve chronological ordering while reducing timeline noise
+- show expandable details for grouped events
+
+### 9.8 analytics dashboard improvements
+
+**current issues with dashboard ui**:
+
+1. **song rows too dense**: cramped layout doesn't work on mobile
+2. **completion rate mystery**: always shows 0% - debugging needed
+3. **momentum score confusion**: floating point number not intuitive
+4. **genre patterns not working**: likely missing genre data on songs
+5. **missing new event types**: no upload/favorite/rating tracking in dashboard
+
+**solution: mobile-friendly two-row song layout**:
+
+```typescript
+// new SongRow design - split into two visual rows
+function SongRow(props: SongRowProps) {
+  return (
+    <div class="song-row-container bg-gray-800 hover:bg-gray-700 p-3 space-y-2">
+      {/* Top row: image + metadata */}
+      <div class="flex items-center space-x-3">
+        <div class="w-12 h-12 bg-gray-700 relative cursor-pointer" onClick={handlePlay}>
+          <img src={thumbnailUrl} class="w-full h-full object-cover" />
+          <div class="absolute inset-0 bg-black/60 opacity-0 hover:opacity-100 flex items-center justify-center">
+            <span class="text-white">▶</span>
+          </div>
+        </div>
+
+        <div class="flex-1 min-w-0">
+          <div class="text-white font-medium truncate">{song.title}</div>
+          <div class="text-gray-400 text-sm truncate">{song.artist} • {song.album}</div>
+          <div class="text-gray-500 text-xs">{duration} • {year}</div>
+        </div>
+
+        <div class="text-gray-400 text-sm">#{rank}</div>
+      </div>
+
+      {/* Bottom row: analytics stats */}
+      <div class="flex items-center justify-between text-xs">
+        <div class="flex space-x-4">
+          <StatPill label="plays" value={playCount} />
+          <StatPill label="users" value={uniqueUsers} />
+          <StatPill label="completion" value={`${Math.round(completionRate * 100)}%`} />
+          <TrendIndicator score={trendScore} />
+        </div>
+
+        <button onClick={handleMore} class="text-gray-400 hover:text-white">⋯</button>
+      </div>
+    </div>
+  );
+}
+
+// replace momentum floating point with visual trend indicator
+function TrendIndicator({ score }: { score: number }) {
+  if (score > 2) return <span class="text-red-400">🔥 hot</span>;
+  if (score > 1.5) return <span class="text-green-400">📈 rising</span>;
+  if (score > 1) return <span class="text-blue-400">↗️ trending</span>;
+  return <span class="text-gray-400">— stable</span>;
+}
+```
+
+**debug completion rate issue**:
+
+likely cause: completion_rate calculation bug in sql aggregation
+
+```sql
+-- check current calculation
+SELECT
+  song_id,
+  total_plays,
+  complete_plays,
+  completion_rate,
+  -- debug calculation
+  CASE
+    WHEN total_plays > 0 THEN complete_plays::float / total_plays::float
+    ELSE 0
+  END as manual_rate
+FROM song_play_stats
+WHERE completion_rate = 0 AND total_plays > 0
+LIMIT 5;
+```
+
+**add new event tracking to dashboard**:
+
+```typescript
+// extend analytics api for new events
+interface DashboardData {
+  recentUploads: UploadEvent[];
+  recentFavorites: FavoriteEvent[];
+  recentRatings: RatingEvent[];
+  topRatedContent: RatedContent[];
+}
+
+interface UploadEvent {
+  user_id: string;
+  username: string;
+  content_type: 'song' | 'album';
+  title: string;
+  artist?: string;
+  upload_count: number; // for grouped uploads
+  created_at: string;
+}
+
+// new dashboard sections
+function RecentActivityPanel() {
+  return (
+    <div class="space-y-4">
+      <ActivitySection
+        title="recent uploads"
+        events={recentUploads}
+        renderEvent={(event) => (
+          <div class="flex justify-between">
+            <span>{event.username} uploaded {event.upload_count} songs</span>
+            <span class="text-gray-400">{formatRelativeTime(event.created_at)}</span>
+          </div>
+        )}
+      />
+
+      <ActivitySection
+        title="recent favorites"
+        events={recentFavorites}
+        renderEvent={(event) => (
+          <div class="flex justify-between">
+            <span>{event.username} favorited "{event.title}"</span>
+            <span class="text-gray-400">{formatRelativeTime(event.created_at)}</span>
+          </div>
+        )}
+      />
+    </div>
+  );
+}
+```
+
+**fix genre patterns**:
+
+debug steps:
+
+1. check if songs have genre data: `SELECT COUNT(*) FROM songs WHERE genre IS NOT NULL`
+2. verify genre analytics query joins correctly
+3. add fallback for songs without genres
+
+### 9.9 implementation approach
+
+**phase 9a**: fix analytics event schema and 400 errors + resilient batching
+
+1. add `domain_ids` column and update constraints
+2. fix collection event builder to use proper arrays
+3. implement resilient event batching system
+4. test existing play events work correctly
+
+**resilient event batching strategy**:
+
+problem: one malformed event causes entire batch to fail (400 error), blocking all subsequent events
+
+solution: partial success processing with detailed response
+
+**server-side batch processing**:
+
+```rust
+pub struct EventBatchResult {
+    pub processed: Vec<ProcessedEvent>,
+    pub failed: Vec<FailedEvent>,
+    pub total_count: usize,
+    pub success_count: usize,
+}
+
+pub struct ProcessedEvent {
+    pub client_id: String,  // client-generated id for correlation
+    pub event_id: uuid::Uuid,
+}
+
+pub struct FailedEvent {
+    pub client_id: String,
+    pub error: String,
+    pub error_code: String, // "validation_error", "schema_error", etc
+}
+
+// extend existing MediaEventRequest to include client_id
+pub struct MediaEventRequest {
+    pub client_id: String,  // client-generated uuid for batch correlation
+    pub media_blob_id: Option<String>,
+    pub event_type: String,
+    pub event_data: serde_json::Value,
+    pub session_id: Option<String>,
+    pub domain_type: Option<String>,
+    pub domain_ids: Option<Vec<String>>,  // array of row IDs: song SHA IDs, playlist UUIDs, etc
+}
+
+// process each event individually, don't fail fast
+pub async fn record_events_resilient(
+    events: Vec<MediaEventRequest>
+) -> EventBatchResult {
+    let mut processed = Vec::new();
+    let mut failed = Vec::new();
+
+    for event in events {
+        match validate_and_insert_event(event).await {
+            Ok(event_id) => processed.push(ProcessedEvent {
+                client_id: event.client_id,
+                event_id
+            }),
+            Err(e) => failed.push(FailedEvent {
+                client_id: event.client_id,
+                error: e.to_string(),
+                error_code: classify_error(&e),
+            }),
+        }
+    }
+
+    EventBatchResult {
+        total_count: processed.len() + failed.len(),
+        success_count: processed.len(),
+        processed,
+        failed,
+    }
+}
+```
+
+**client-side batch handling**:
+
+```typescript
+interface EventBatchResponse {
+  processed: { client_id: string; event_id: string }[];
+  failed: { client_id: string; error: string; error_code: string }[];
+  total_count: number;
+  success_count: number;
+}
+
+interface MediaEvent {
+  client_id: string; // uuid generated on client
+  media_blob_id?: string;
+  event_type: string;
+  event_data: Record<string, any>;
+  session_id?: string;
+  domain_type?: string;
+  domain_ids?: string[]; // array of row IDs: song SHA IDs, playlist UUIDs, etc
+}
+
+class AnalyticsEventQueue {
+  private pendingEvents: Map<string, MediaEvent> = new Map();
+
+  async flushEvents(): Promise<void> {
+    const events = Array.from(this.pendingEvents.values());
+    if (events.length === 0) return;
+
+    try {
+      const response = await this.apiClient.recordEventsBatch(events);
+
+      // remove successfully processed events
+      response.processed.forEach((p) => {
+        this.pendingEvents.delete(p.client_id);
+      });
+
+      // handle failed events
+      response.failed.forEach((f) => {
+        if (
+          f.error_code === "validation_error" ||
+          f.error_code === "schema_error"
+        ) {
+          // permanent errors - remove invalid events
+          console.warn(`Removing invalid event: ${f.error}`);
+          this.pendingEvents.delete(f.client_id);
+        } else {
+          // temporary errors - keep for retry
+          console.warn(`Event failed, will retry: ${f.error}`);
+        }
+      });
+
+      if (response.failed.length > 0) {
+        console.warn(
+          `Batch partial success: ${response.success_count}/${response.total_count} events processed`,
+        );
+      }
+    } catch (error) {
+      // network or server errors - keep all events for retry
+      console.error("Event batch failed entirely, will retry:", error);
+    }
+  }
+}
+```
+
+**error classification for retry logic**:
+
+- `validation_error`, `schema_error` → permanent failure, remove event
+- `rate_limit`, `server_error` → temporary failure, retry later
+- network errors → temporary failure, retry entire batch
+
+**phase 9b**: analytics dashboard improvements
+
+1. redesign SongRow component for mobile-friendly two-row layout
+2. debug completion rate calculation (currently showing 0%)
+3. replace momentum floating point with visual trend indicators
+4. add new event tracking (uploads, favorites, ratings) to dashboard
+5. debug genre patterns query and add fallback for missing genre data
+
+**phase 9c**: expand event types and tracking
+
+1. implement favorites system for all content types
+2. implement ratings system
+3. add upload event triggers from background processing jobs
+4. add playlist creation/modification events
+
+**phase 9d**: social timeline aggregation
+
+1. create `get_social_timeline()` sql function
+2. update feed api endpoint to use timeline approach
+3. implement smart event grouping logic (6 hour window for grouping related events)
+
+**phase 9e**: unified timeline ui
+
+1. replace chunky activity groups with timeline cards
+2. add user attribution and action descriptions
+3. implement infinite scroll with proper chronological ordering
+4. add context menus and interactions
+
+### success criteria
+
+- ✅ feed shows chronological timeline of all user activity
+- ✅ clear attribution: "alice uploaded", "bob favorited"
+- ✅ unified design: no more chunky sections breaking flow
+- ✅ expanded tracking: uploads, favorites, ratings, playlist changes
+- ✅ no more 400 analytics errors
+- ✅ proper collection handling with song id arrays
+- ✅ smart grouping: "alice uploaded 3 songs" vs individual events
+
+### dependencies
+
+- existing analytics infrastructure (complete)
+- user authentication system (exists)
+- collection interaction system (exists from phase 8)
+- infinite scroll ui patterns (exists from phase 8)
+
+this phase transforms the feed from a "recent content view" into a true social timeline showing the music community's activity in real-time.
