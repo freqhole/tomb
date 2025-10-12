@@ -413,6 +413,7 @@ mod tests {
             local_path: None,
             parent_blob_id: None,
             blob_type: Some("original".to_string()),
+            content_id: None,
             metadata: serde_json::json!({"test": true}),
         };
 

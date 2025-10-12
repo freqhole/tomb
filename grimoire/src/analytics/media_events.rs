@@ -487,6 +487,7 @@ pub struct PlayAnalytics {
 }
 
 /// User listening history entry
+/// User listening history with event details and song information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserListeningHistory {
     pub media_blob_id: String,
@@ -497,6 +498,23 @@ pub struct UserListeningHistory {
     pub session_id: Option<Uuid>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    // Song details
+    pub song_id: Option<Uuid>,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<i32>,
+    pub disc_number: Option<i32>,
+    pub duration_seconds: Option<i32>,
+    pub genre: Option<String>,
+    pub year: Option<i32>,
+    pub bpm: Option<i32>,
+    pub key_signature: Option<String>,
+    pub thumbnail_blob_id: Option<String>,
+    pub waveform_blob_id: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub song_created_at: Option<OffsetDateTime>,
 }
 
 /// Trending song analytics with song details

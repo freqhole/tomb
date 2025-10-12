@@ -166,11 +166,27 @@ export const UserHistoryResponseSchema = z.object({
     z.object({
       media_blob_id: z.string(),
       event_type: z.string(),
-      event_data: z.record(z.any()),
+      event_data: z.record(z.any()).nullable(),
       domain_type: z.string().nullable(),
       domain_id: z.string().nullable(),
       session_id: z.string().nullable(),
       created_at: z.string(),
+      // Song details
+      song_id: z.string().uuid().nullable(),
+      title: z.string().nullable(),
+      artist: z.string().nullable(),
+      album: z.string().nullable(),
+      album_artist: z.string().nullable(),
+      track_number: z.number().nullable(),
+      disc_number: z.number().nullable(),
+      duration_seconds: z.number().nullable(),
+      genre: z.string().nullable(),
+      year: z.number().nullable(),
+      bpm: z.number().nullable(),
+      key_signature: z.string().nullable(),
+      thumbnail_blob_id: z.string().nullable(),
+      waveform_blob_id: z.string().nullable(),
+      song_created_at: z.string().nullable(),
     })
   ),
 });

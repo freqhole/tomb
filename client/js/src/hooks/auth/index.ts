@@ -30,6 +30,7 @@ const uint8ArrayToBase64 = (uint8Array: Uint8Array): string => {
 export interface AuthState {
   isAuthenticated: boolean;
   currentUser: string | null;
+  userId: string | null;
   role: string | null;
   isLoading: boolean;
   error: string | null;
@@ -54,6 +55,7 @@ export interface UseAuthOptions {
 const [authStore, setAuthStore] = createStore({
   isAuthenticated: false,
   currentUser: null as string | null,
+  userId: null as string | null,
   role: null as string | null,
   isLoading: false,
   error: null as string | null,
@@ -96,11 +98,13 @@ export const useAuth = (options: UseAuthOptions = {}) => {
       const status = await apiClient().authStatus();
       setAuthStore("isAuthenticated", status.authenticated);
       setAuthStore("currentUser", status.username || null);
+      setAuthStore("userId", status.user_id || null);
       setAuthStore("role", status.role || null);
       return status.authenticated;
     } catch (err) {
       setAuthStore("isAuthenticated", false);
       setAuthStore("currentUser", null);
+      setAuthStore("userId", null);
       return false;
     } finally {
       setAuthStore("isLoading", false);
@@ -112,11 +116,13 @@ export const useAuth = (options: UseAuthOptions = {}) => {
       const status = await apiClient().authStatus();
       setAuthStore("isAuthenticated", status.authenticated);
       setAuthStore("currentUser", status.username || null);
+      setAuthStore("userId", status.user_id || null);
       setAuthStore("role", status.role || null);
       return status.authenticated;
     } catch (err) {
       setAuthStore("isAuthenticated", false);
       setAuthStore("currentUser", null);
+      setAuthStore("userId", null);
       return false;
     }
   };
@@ -295,6 +301,7 @@ export const useAuth = (options: UseAuthOptions = {}) => {
       await apiClient().logout();
       setAuthStore("isAuthenticated", false);
       setAuthStore("currentUser", null);
+      setAuthStore("userId", null);
       options.onLogout?.();
     } catch (err) {
       handleError(err);
@@ -311,6 +318,9 @@ export const useAuth = (options: UseAuthOptions = {}) => {
     },
     get currentUser() {
       return authStore.currentUser;
+    },
+    get userId() {
+      return authStore.userId;
     },
     get role() {
       return authStore.role;

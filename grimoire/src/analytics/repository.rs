@@ -787,11 +787,33 @@ impl<'a> AnalyticsRepository<'a> {
 
         let rows = sqlx::query!(
             r#"
-            SELECT media_blob_id, event_type, event_data, domain_type,
-                   domain_id, session_id, created_at
-            FROM media_events
-            WHERE user_id = $1
-            ORDER BY created_at DESC
+            SELECT
+                me.media_blob_id,
+                me.event_type,
+                me.event_data,
+                me.domain_type,
+                me.domain_id,
+                me.session_id,
+                me.created_at,
+                s.id as song_id,
+                s.title,
+                s.artist,
+                s.album,
+                s.album_artist,
+                s.track_number,
+                s.disc_number,
+                EXTRACT(epoch FROM s.duration)::integer as duration_seconds,
+                s.genre,
+                s.year,
+                s.bpm,
+                s.key_signature,
+                s.thumbnail_blob_id,
+                s.waveform_blob_id,
+                s.created_at as song_created_at
+            FROM media_events me
+            LEFT JOIN songs s ON s.media_blob_id = me.media_blob_id
+            WHERE me.user_id = $1
+            ORDER BY me.created_at DESC
             LIMIT $2 OFFSET $3
             "#,
             user_id,
@@ -823,6 +845,21 @@ impl<'a> AnalyticsRepository<'a> {
                 domain_id: row.domain_id,
                 session_id: row.session_id,
                 created_at: row.created_at,
+                song_id: Some(row.song_id),
+                title: Some(row.title),
+                artist: row.artist,
+                album: row.album,
+                album_artist: row.album_artist,
+                track_number: row.track_number,
+                disc_number: row.disc_number,
+                duration_seconds: row.duration_seconds,
+                genre: row.genre,
+                year: row.year,
+                bpm: row.bpm,
+                key_signature: row.key_signature,
+                thumbnail_blob_id: row.thumbnail_blob_id,
+                waveform_blob_id: row.waveform_blob_id,
+                song_created_at: Some(row.song_created_at),
             });
         }
 
