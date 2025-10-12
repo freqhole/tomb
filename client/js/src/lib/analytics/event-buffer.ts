@@ -59,9 +59,16 @@ export class EventBuffer {
       return;
     }
 
-    this.buffer.push(event);
+    // Add client_id for correlation tracking if not already present
+    const eventWithClientId = {
+      ...event,
+      client_id: event.client_id || this.generateClientId(),
+    };
+
+    this.buffer.push(eventWithClientId);
     this.debugLog(
-      `event added to buffer (${this.buffer.length}/${this.config.maxBufferSize})`
+      `event added to buffer (${this.buffer.length}/${this.config.maxBufferSize})`,
+      { client_id: eventWithClientId.client_id }
     );
 
     // Auto-flush if buffer is full
@@ -69,6 +76,13 @@ export class EventBuffer {
       this.debugLog("buffer full, auto-flushing");
       void this.flush();
     }
+  }
+
+  /**
+   * Generate a unique client ID for event correlation
+   */
+  private generateClientId(): string {
+    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 
   /**

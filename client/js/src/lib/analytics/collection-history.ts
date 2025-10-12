@@ -99,7 +99,7 @@ export function deduplicateCollectionHistory(
     const isDuplicate =
       lastItem &&
       lastItem.domain_type === item.domain_type &&
-      lastItem.domain_id === item.domain_id &&
+      JSON.stringify(lastItem.domain_ids) === JSON.stringify(item.domain_ids) &&
       lastItem.session_id === item.session_id &&
       // within 30 seconds of each other
       Math.abs(

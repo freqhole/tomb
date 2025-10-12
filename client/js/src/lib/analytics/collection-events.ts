@@ -45,7 +45,7 @@ export class CollectionEventBuilder {
       event_data: eventData,
       session_id: this.context.sessionId,
       domain_type: this.context.domainType,
-      domain_id: this.context.domainId,
+      domain_ids: [this.context.domainId],
     };
   }
 

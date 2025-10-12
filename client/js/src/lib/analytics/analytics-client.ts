@@ -88,12 +88,13 @@ export const MediaEventDataSchema = z.union([
 
 // Request schemas
 export const MediaEventRequestSchema = z.object({
+  client_id: z.string().optional(),
   media_blob_id: z.string().nullable(),
   event_type: MediaEventTypeSchema,
   event_data: MediaEventDataSchema.optional(),
   session_id: z.string().optional(),
   domain_type: DomainTypeSchema.optional(),
-  domain_id: z.string().optional(),
+  domain_ids: z.array(z.string()).optional(),
 });
 
 export const MediaEventBatchRequestSchema = z.object({
@@ -325,6 +326,7 @@ export class AnalyticsClient {
         progress,
       },
       domain_type: "song",
+      domain_ids: [mediaBlobId],
     };
   }
 
@@ -340,6 +342,7 @@ export class AnalyticsClient {
         progress: 1.0,
       },
       domain_type: "song",
+      domain_ids: [mediaBlobId],
     };
   }
 
@@ -359,6 +362,7 @@ export class AnalyticsClient {
             }
           : null,
       domain_type: "song",
+      domain_ids: [mediaBlobId],
     };
   }
 }

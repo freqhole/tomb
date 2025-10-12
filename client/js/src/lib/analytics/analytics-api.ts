@@ -28,7 +28,7 @@ export type SongAnalyticsResponse = z.infer<typeof SongAnalyticsResponseSchema>;
 
 export const TrendingSongSchema = z.object({
   media_blob_id: z.string(),
-  domain_id: z.string().nullable(),
+  domain_ids: z.array(z.string()).nullable(),
   current_period_plays: z.number(),
   previous_period_plays: z.number(),
   trend_score: z.number(),
@@ -45,6 +45,7 @@ export const TrendingSongSchema = z.object({
   disc_number: z.number().nullable(),
   duration_seconds: z.number().nullable(),
   genre: z.string().nullable(),
+  sub_genres: z.array(z.string()).nullable(),
   year: z.number().nullable(),
   bpm: z.number().nullable(),
   key_signature: z.string().nullable(),
@@ -94,7 +95,7 @@ export type ListeningTimePeriod = z.infer<typeof ListeningTimePeriodSchema>;
 
 export const PopularSongSchema = z.object({
   media_blob_id: z.string(),
-  domain_id: z.string().nullable(),
+  domain_ids: z.array(z.string()).nullable(),
   play_count: z.number(),
   unique_users: z.number(),
   completion_rate: z.number(),
@@ -111,6 +112,7 @@ export const PopularSongSchema = z.object({
   disc_number: z.number().nullable(),
   duration_seconds: z.number().nullable(),
   genre: z.string().nullable(),
+  sub_genres: z.array(z.string()).nullable(),
   year: z.number().nullable(),
   bpm: z.number().nullable(),
   key_signature: z.string().nullable(),
@@ -165,7 +167,7 @@ export const TrendingResponseSchema = z.object({
 // Collection history item schema for album/playlist/artist/genre plays
 export const CollectionHistoryItemSchema = z.object({
   domain_type: z.enum(["album", "playlist", "artist", "genre"]),
-  domain_id: z.string(),
+  domain_ids: z.array(z.string()),
   event_type: z.string(),
   event_data: z.record(z.any()).nullable(),
   created_at: z.string(),
@@ -184,7 +186,7 @@ export const UserHistoryResponseSchema = z.object({
       event_type: z.string(),
       event_data: z.record(z.any()).nullable(),
       domain_type: z.string().nullable(),
-      domain_id: z.string().nullable(),
+      domain_ids: z.array(z.string()).nullable(),
       session_id: z.string().nullable(),
       created_at: z.string(),
       // Song details
@@ -197,6 +199,7 @@ export const UserHistoryResponseSchema = z.object({
       disc_number: z.number().nullable(),
       duration_seconds: z.number().nullable(),
       genre: z.string().nullable(),
+      sub_genres: z.array(z.string()).nullable(),
       year: z.number().nullable(),
       bpm: z.number().nullable(),
       key_signature: z.string().nullable(),
@@ -264,7 +267,7 @@ export const FeedItemSchema = z.object({
     "trending_collection",
   ]),
   domain_type: z.enum(["album", "playlist", "artist", "genre"]).nullable(),
-  domain_id: z.string().nullable(),
+  domain_ids: z.array(z.string()).nullable(),
   title: z.string(),
   subtitle: z.string().nullable(),
   image_url: z.string().nullable(),
@@ -291,7 +294,7 @@ export type FeedResponse = z.infer<typeof FeedResponseSchema>;
 // Collection analytics schemas
 export const CollectionItemSchema = z.object({
   domain_type: z.string(),
-  domain_id: z.string(),
+  domain_ids: z.array(z.string()),
   play_count: z.number(),
   unique_users: z.number(),
   collection_name: z.string().nullable(),

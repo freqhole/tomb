@@ -74,7 +74,7 @@ export class MusicEventBuilder {
       },
       session_id: this.context.sessionId,
       domain_type: "song",
-      domain_id: this.context.songId,
+      domain_ids: this.context.songId ? [this.context.songId] : undefined,
     };
   }
 
@@ -93,7 +93,7 @@ export class MusicEventBuilder {
       },
       session_id: this.context.sessionId,
       domain_type: "song",
-      domain_id: this.context.songId,
+      domain_ids: this.context.songId ? [this.context.songId] : undefined,
     };
   }
 
@@ -117,7 +117,7 @@ export class MusicEventBuilder {
       },
       session_id: this.context.sessionId,
       domain_type: "song",
-      domain_id: this.context.songId,
+      domain_ids: this.context.songId ? [this.context.songId] : undefined,
     };
   }
 
@@ -135,7 +135,7 @@ export class MusicEventBuilder {
       },
       session_id: this.context.sessionId,
       domain_type: "song",
-      domain_id: this.context.songId,
+      domain_ids: this.context.songId ? [this.context.songId] : undefined,
     };
   }
 
@@ -152,7 +152,7 @@ export class MusicEventBuilder {
       },
       session_id: this.context.sessionId,
       domain_type: "song",
-      domain_id: this.context.songId,
+      domain_ids: this.context.songId ? [this.context.songId] : undefined,
     };
   }
 
@@ -166,7 +166,7 @@ export class MusicEventBuilder {
       event_data: null,
       session_id: this.context.sessionId,
       domain_type: "song",
-      domain_id: this.context.songId,
+      domain_ids: this.context.songId ? [this.context.songId] : undefined,
     };
   }
 

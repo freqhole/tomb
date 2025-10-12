@@ -127,36 +127,8 @@ export function FeedView() {
 
       // If we have few items and this is the first load, supplement with recent albums
       if (reset && feedItems.length < 5) {
-        try {
-          const albumsResponse = await apiClient.getAlbums({ limit: 10 });
-          const albumFeedItems = albumsResponse.albums
-            .slice(0, 8 - feedItems.length)
-            .map((album) => ({
-              item_type: "recent_album" as const,
-              domain_type: "album" as const,
-              domain_id: `${album.artist}:${album.album}`,
-              title: album.album || "Unknown Album",
-              subtitle: `album by ${album.artist || "unknown artist"} • ${album.track_count || 0} tracks`,
-              image_url: album.album_thumbnail_id
-                ? `/api/blobs/${album.album_thumbnail_id}`
-                : null,
-              metadata: {
-                total_songs: album.track_count,
-                artist_name: album.artist,
-                album_name: album.album,
-                playlist_name: null,
-                genre_name: null,
-                user_activity: null,
-              },
-              play_count: null,
-              last_played_at: null,
-              created_at: album.first_added || new Date().toISOString(),
-            }));
-          feedItems = [...feedItems, ...albumFeedItems];
-          setNeedsAlbumFallback(true);
-        } catch (error) {
-          console.error("failed to load fallback albums:", error);
-        }
+        // TODO: implement proper album feed items using new domain_ids approach
+        // Legacy album fallback removed - will implement with social timeline
       }
 
       if (reset) {

@@ -6,7 +6,7 @@
       {
         "ordinal": 0,
         "name": "media_blob_id",
-        "type_info": "Varchar"
+        "type_info": "Text"
       },
       {
         "ordinal": 1,
