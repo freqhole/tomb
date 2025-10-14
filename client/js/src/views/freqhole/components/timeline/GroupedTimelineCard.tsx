@@ -493,7 +493,7 @@ export function GroupedTimelineCard(
       <Show when={props.group.groupType === "consecutive"}>
         <div class="consecutive-items-container bg-white/5 border border-white/10 rounded-none p-3 mx-2 md:mx-0">
           {/* Consecutive Items Grid */}
-          <div class="consecutive-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 p-1 items-start">
+          <div class="consecutive-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 p-1 items-start justify-items-start">
             <For each={groupItemsForGrid(getFilteredItems(props.group.items))}>
               {(gridItem) => (
                 <Show
@@ -513,54 +513,57 @@ export function GroupedTimelineCard(
                     </div>
                   }
                 >
-                  {(() => {
-                    const item = gridItem.items[0];
-                    const songs = item.metadata?.collection_grid?.songs || [];
-                    const firstSong =
-                      songs.find((s) => s.thumbnail_blob_id) || songs[0];
+                  <div class="w-full">
+                    {(() => {
+                      const item = gridItem.items[0];
+                      const songs = item.metadata?.collection_grid?.songs || [];
+                      const firstSong =
+                        songs.find((s) => s.thumbnail_blob_id) || songs[0];
 
-                    return (
-                      <CollectionCard
-                        collection={{
-                          id: item.domain_ids?.[0] || item.user_id || "",
-                          title:
-                            firstSong?.album ||
-                            item.metadata?.album_name ||
-                            item.title,
-                          subtitle: `by ${firstSong?.artist || item.metadata?.artist_name || "Unknown Artist"}`,
-                          domain_type: (item.domain_type === "collection"
-                            ? "album"
-                            : item.domain_type) as
-                            | "album"
-                            | "playlist"
-                            | "artist"
-                            | "genre",
-                          artist:
-                            firstSong?.artist || item.metadata?.artist_name,
-                          album: firstSong?.album || item.metadata?.album_name,
-                          thumbnail_blob_id: firstSong?.thumbnail_blob_id,
-                          track_count:
-                            item.metadata?.total_songs || songs.length,
-                          year: firstSong?.year,
-                          genres:
-                            firstSong?.genre ||
-                            [
-                              ...new Set(
-                                songs.map((s) => s.genre).filter(Boolean)
-                              ),
-                            ].join(", ") ||
-                            null,
-                          created_at: item.created_at,
-                        }}
-                        size="small"
-                        showYear={true}
-                        showGenres={true}
-                        enableNavigation={true}
-                        enableContextMenu={true}
-                        onPlay={() => handleSingleCollectionPlay(item)}
-                      />
-                    );
-                  })()}
+                      return (
+                        <CollectionCard
+                          collection={{
+                            id: item.domain_ids?.[0] || item.user_id || "",
+                            title:
+                              firstSong?.album ||
+                              item.metadata?.album_name ||
+                              item.title,
+                            subtitle: `by ${firstSong?.artist || item.metadata?.artist_name || "Unknown Artist"}`,
+                            domain_type: (item.domain_type === "collection"
+                              ? "album"
+                              : item.domain_type) as
+                              | "album"
+                              | "playlist"
+                              | "artist"
+                              | "genre",
+                            artist:
+                              firstSong?.artist || item.metadata?.artist_name,
+                            album:
+                              firstSong?.album || item.metadata?.album_name,
+                            thumbnail_blob_id: firstSong?.thumbnail_blob_id,
+                            track_count:
+                              item.metadata?.total_songs || songs.length,
+                            year: firstSong?.year,
+                            genres:
+                              firstSong?.genre ||
+                              [
+                                ...new Set(
+                                  songs.map((s) => s.genre).filter(Boolean)
+                                ),
+                              ].join(", ") ||
+                              null,
+                            created_at: item.created_at,
+                          }}
+                          size="small"
+                          showYear={true}
+                          showGenres={true}
+                          enableNavigation={true}
+                          enableContextMenu={true}
+                          onPlay={() => handleSingleCollectionPlay(item)}
+                        />
+                      );
+                    })()}
+                  </div>
                 </Show>
               )}
             </For>

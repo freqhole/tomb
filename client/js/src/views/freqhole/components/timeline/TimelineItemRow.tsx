@@ -372,14 +372,8 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
               />
 
               {/* Artist and Album info */}
-              <div
-                class={`text-white/70 ${
-                  props.compact
-                    ? "text-xs leading-tight"
-                    : "text-xs leading-tight"
-                }`}
-              >
-                {(() => {
+              <MarqueeText
+                text={(() => {
                   const songs =
                     props.item.metadata?.collection_grid?.songs || [];
                   const firstSong = songs[0];
@@ -397,32 +391,36 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
 
                   return parts.join(" • ") || props.item.domain_type;
                 })()}
-              </div>
+                class={`text-white/70 ${
+                  props.compact
+                    ? "text-xs leading-tight"
+                    : "text-xs leading-tight"
+                }`}
+              />
 
               {/* Action and time combined */}
-              <div
+              <MarqueeText
+                text={(() => {
+                  const parts = [];
+                  if (props.showUsername) {
+                    parts.push(props.item.username || "");
+                  }
+                  parts.push(getActionText(props.item));
+                  parts.push(props.item.domain_type || "");
+                  if (props.showTime) {
+                    parts.push(formatRelativeTime(props.item.created_at));
+                  }
+                  if (props.item.play_count && props.item.play_count > 1) {
+                    parts.push(`${props.item.play_count} plays`);
+                  }
+                  return parts.join(" • ");
+                })()}
                 class={`text-white/50 ${
                   props.compact
                     ? "text-xs leading-tight"
                     : "text-xs leading-tight"
                 }`}
-              >
-                <Show when={props.showUsername}>
-                  <span class="text-magenta-400">{props.item.username}</span>
-                  <span class="mx-1">•</span>
-                </Show>
-                {getActionText(props.item)} • {props.item.domain_type}
-                <Show when={props.showTime}>
-                  <span class="mx-1">•</span>
-                  <span>{formatRelativeTime(props.item.created_at)}</span>
-                </Show>
-                <Show when={props.item.play_count && props.item.play_count > 1}>
-                  <span class="mx-1">•</span>
-                  <span class="text-white/40">
-                    {props.item.play_count} plays
-                  </span>
-                </Show>
-              </div>
+              />
             </div>
 
             {/* Rating Display for Rating Events */}
