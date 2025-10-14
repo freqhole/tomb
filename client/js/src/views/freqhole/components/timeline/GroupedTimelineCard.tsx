@@ -1,4 +1,4 @@
-import { JSX, Show, For, createSignal, createEffect } from "solid-js";
+import { JSX, Show, For } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import {
   CollectionCard,
@@ -6,7 +6,6 @@ import {
 } from "../shared/CollectionCard";
 import { useCollectionInteractions } from "../../services/collectionInteractions";
 import { useSongInteractions } from "../../services/songInteractions";
-import { apiClient } from "../../../../lib/api-client";
 
 import type { FeedItem } from "../../../../lib/analytics/analytics-api";
 import type { GroupedFeedItem } from "./timeline-grouping";
@@ -23,121 +22,6 @@ export function GroupedTimelineCard(
 ): JSX.Element {
   const navigate = useNavigate();
   const collectionInteractions = useCollectionInteractions();
-  const songInteractions = useSongInteractions();
-
-  const createItemCardData = (item: FeedItem): CollectionCardData => {
-    // Aggregate metadata from songs in collection_grid
-    const songs = item.metadata?.collection_grid?.songs || [];
-
-    // Calculate aggregated metadata
-    const years = songs.map((s) => s.year).filter(Boolean);
-    const genres = songs.map((s) => s.genre).filter(Boolean);
-    const tags = songs.flatMap((s) => s.tags || []).filter(Boolean);
-    const durations = songs.map((s) => s.duration).filter(Boolean);
-
-    // Calculate total duration in seconds
-    const totalSeconds = durations.reduce((sum, duration) => {
-      if (!duration) return sum;
-      const parts = duration.split(":").map(Number);
-      return sum + parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
-    }, 0);
-
-    const formatTotalDuration = (seconds: number): string => {
-      if (seconds === 0) return "";
-      const hours = Math.floor(seconds / 3600);
-      const mins = Math.floor((seconds % 3600) / 60);
-      return hours > 0
-        ? `${hours}:${mins.toString().padStart(2, "0")}:00`
-        : `${mins}:00`;
-    };
-
-    // Handle activity/session items differently
-    const isActivityItem =
-      item.item_type?.includes("activity") ||
-      item.item_type?.includes("session");
-
-    // For compilation albums, prefer album_artist over individual track artists
-    // For playlists, handle differently
-    const getDisplayArtist = () => {
-      if (isActivityItem) return item.metadata?.artist_name || songs[0]?.artist;
-
-      // For playlists, don't show artist - will be handled in subtitle
-      if (item.domain_type === "playlist") {
-        return null;
-      }
-
-      // For albums, use album_artist if available (compilation albums)
-      const firstSong = songs[0];
-      if (
-        firstSong?.album_artist &&
-        firstSong.album_artist !== firstSong.artist
-      ) {
-        return firstSong.album_artist;
-      }
-
-      return item.metadata?.artist_name || firstSong?.artist;
-    };
-
-    // Get appropriate subtitle based on domain type
-    const getDisplaySubtitle = () => {
-      if (isActivityItem) return item.subtitle;
-
-      if (item.domain_type === "playlist") {
-        // For playlists, show description or track count
-        const description = item.metadata?.description || item.subtitle;
-        const trackCount = item.metadata?.total_songs || songs.length;
-        if (description && description !== item.title) {
-          return description;
-        }
-        return trackCount > 0
-          ? `${trackCount} track${trackCount !== 1 ? "s" : ""}`
-          : null;
-      }
-
-      return getItemSubtitle(item);
-    };
-
-    return {
-      id: item.domain_ids?.[0] || item.user_id || "",
-      title: item.title,
-      subtitle: getDisplaySubtitle(),
-      domain_type: (item.domain_type === "collection"
-        ? "album"
-        : item.domain_type) as "album" | "playlist" | "artist" | "genre",
-      image_url: item.image_url,
-      play_count: item.play_count,
-      last_played_at: item.last_played_at,
-      created_at: item.created_at,
-      // Enhanced metadata aggregation with album_artist support
-      artist: getDisplayArtist(),
-      album: item.metadata?.album_name || songs[0]?.album,
-      album_artist: songs[0]?.album_artist,
-      year: years.length > 0 ? Math.min(...years) : null, // Use earliest year
-      track_count:
-        item.metadata?.total_songs ||
-        item.metadata?.user_activity?.unique_collections ||
-        songs.length,
-      genres: [...new Set(genres)].join(", ") || null, // Unique genres
-      tags: [...new Set(tags)].join(", ") || null, // Unique tags
-      total_duration: isActivityItem
-        ? item.metadata?.user_activity?.session_duration
-          ? formatTotalDuration(item.metadata.user_activity.session_duration)
-          : null
-        : formatTotalDuration(totalSeconds) || null,
-      item_type: item.item_type as any,
-      // For playlists, prefer playlist thumbnail, fall back to first song thumbnail
-      thumbnail_blob_id:
-        item.domain_type === "playlist"
-          ? item.metadata?.thumbnail_blob_id ||
-            songs.find((s) => s.thumbnail_blob_id)?.thumbnail_blob_id
-          : songs.find((s) => s.thumbnail_blob_id)?.thumbnail_blob_id,
-      // Enhanced image URL handling for playlists
-      image_url:
-        item.image_url ||
-        (item.domain_type === "playlist" ? item.metadata?.image_url : null) ||
-        null,
-    };
-  };
 
   const isCollectionContext = (item: FeedItem): boolean => {
     return (
