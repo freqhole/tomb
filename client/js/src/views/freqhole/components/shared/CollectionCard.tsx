@@ -28,6 +28,7 @@ export interface CollectionCardData {
   // Metadata
   artist?: string | null;
   album?: string | null;
+  album_artist?: string | null;
   year?: number | null;
   track_count?: number | null;
   song_count?: number | null;
@@ -90,19 +91,8 @@ export function CollectionCard(props: CollectionCardProps) {
   createEffect(() => {
     const { collection } = props;
 
-    // Skip if we already have an image or are loading
-    if (getCollectionImageUrl() || fallbackImageUrl()) {
-      return;
-    }
-
-    // Try to get image from first domain_id (media_blob_id)
-    if (
-      collection.id &&
-      !collection.image_url &&
-      !collection.thumbnail_blob_id
-    ) {
-      const imageUrl = `${apiClient.getBaseUrl()}/api/blobs/${collection.id}`;
-      setFallbackImageUrl(imageUrl);
+    // Skip if we already have an image
+    if (getCollectionImageUrl()) {
       return;
     }
 
@@ -110,7 +100,8 @@ export function CollectionCard(props: CollectionCardProps) {
     if (
       collection.domain_type === "album" &&
       collection.album &&
-      collection.artist
+      collection.artist &&
+      !fallbackImageUrl()
     ) {
       apiClient
         .getAlbumByName(collection.album, collection.artist)
@@ -280,32 +271,32 @@ export function CollectionCard(props: CollectionCardProps) {
     switch (props.size) {
       case "small":
         return {
-          container: "aspect-square w-28 h-28",
+          container: "aspect-square w-full",
           image: "w-full h-full",
           playButton: "w-8 h-8 rounded-full",
           playIcon: "w-4 h-4",
-          title: "text-sm font-medium leading-tight",
-          subtitle: "text-xs leading-tight",
+          title: "text-xs font-medium leading-tight truncate",
+          subtitle: "text-xs leading-tight truncate",
           meta: "text-xs leading-tight",
         };
       case "large":
         return {
-          container: "aspect-square w-48 h-48",
+          container: "aspect-square w-full",
           image: "w-full h-full",
           playButton: "w-16 h-16 rounded-full",
           playIcon: "w-8 h-8",
-          title: "text-lg font-medium leading-tight",
-          subtitle: "text-base leading-tight",
-          meta: "text-sm leading-tight",
+          title: "text-sm font-medium leading-tight truncate",
+          subtitle: "text-xs leading-tight truncate",
+          meta: "text-xs leading-tight",
         };
       default: // medium
         return {
-          container: "aspect-square w-36 h-36",
+          container: "aspect-square w-full",
           image: "w-full h-full",
           playButton: "w-12 h-12 rounded-full",
           playIcon: "w-6 h-6",
-          title: "text-sm font-medium leading-tight",
-          subtitle: "text-sm leading-tight",
+          title: "text-xs font-medium leading-tight truncate",
+          subtitle: "text-xs leading-tight truncate",
           meta: "text-xs leading-tight",
         };
     }
@@ -326,10 +317,14 @@ export function CollectionCard(props: CollectionCardProps) {
         <Show
           when={getCollectionImageUrl()}
           fallback={
-            <div class="w-full h-full flex items-center justify-center">
-              <div class="text-4xl text-magenta-400">
-                {getTypeIcon(props.collection.domain_type)}
-              </div>
+            <div class="w-full h-full flex items-center justify-center bg-gray-800">
+              <svg
+                class="w-8 h-8 text-magenta-400"
+                fill="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+              </svg>
             </div>
           }
         >
@@ -338,6 +333,19 @@ export function CollectionCard(props: CollectionCardProps) {
             alt={props.collection.title}
             class={`${classes.image} object-cover transition-transform group-hover:scale-105`}
             loading="lazy"
+            onError={(e) => {
+              console.log("Image failed to load:", getCollectionImageUrl());
+              e.currentTarget.style.display = "none";
+              if (e.currentTarget.parentElement) {
+                e.currentTarget.parentElement.innerHTML = `
+                  <div class="w-full h-full flex items-center justify-center bg-gray-800">
+                    <svg class="w-8 h-8 text-magenta-400" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                    </svg>
+                  </div>
+                `;
+              }
+            }}
           />
         </Show>
 
@@ -360,32 +368,39 @@ export function CollectionCard(props: CollectionCardProps) {
       </div>
 
       {/* Collection info */}
-      <div class="space-y-0.5">
+      <div class="space-y-0.5 min-w-0">
         {/* Title */}
-        <MarqueeText
-          text={props.collection.title}
+        <div
           class={`text-white font-medium ${classes.title} group-hover:text-magenta-300 transition-colors`}
-        />
+          title={props.collection.title}
+        >
+          {props.collection.title}
+        </div>
 
         {/* Attribution and metadata */}
         <Show when={props.collection.subtitle}>
-          <MarqueeText
-            text={props.collection.subtitle || ""}
+          <div
             class={`text-gray-400 ${classes.subtitle} group-hover:text-white transition-colors`}
-          />
+            title={props.collection.subtitle || ""}
+          >
+            {props.collection.subtitle}
+          </div>
         </Show>
 
-        {/* Artist info for albums/songs */}
+        {/* Artist info for albums/songs only - not playlists */}
         <Show
           when={
             props.collection.artist &&
+            props.collection.domain_type !== "playlist" &&
             !props.collection.subtitle?.includes(props.collection.artist!)
           }
         >
-          <MarqueeText
-            text={`by ${props.collection.artist}`}
+          <div
             class={`text-gray-500 ${classes.subtitle} group-hover:text-gray-300 transition-colors`}
-          />
+            title={`by ${props.collection.artist}`}
+          >
+            by {props.collection.artist}
+          </div>
         </Show>
 
         {/* Metadata row */}

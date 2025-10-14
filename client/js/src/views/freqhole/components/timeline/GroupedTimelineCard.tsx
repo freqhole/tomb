@@ -53,10 +53,51 @@ export function GroupedTimelineCard(
       item.item_type?.includes("activity") ||
       item.item_type?.includes("session");
 
+    // For compilation albums, prefer album_artist over individual track artists
+    // For playlists, handle differently
+    const getDisplayArtist = () => {
+      if (isActivityItem) return item.metadata?.artist_name || songs[0]?.artist;
+
+      // For playlists, don't show artist - will be handled in subtitle
+      if (item.domain_type === "playlist") {
+        return null;
+      }
+
+      // For albums, use album_artist if available (compilation albums)
+      const firstSong = songs[0];
+      if (
+        firstSong?.album_artist &&
+        firstSong.album_artist !== firstSong.artist
+      ) {
+        return firstSong.album_artist;
+      }
+
+      return item.metadata?.artist_name || firstSong?.artist;
+    };
+
+    // Get appropriate subtitle based on domain type
+    const getDisplaySubtitle = () => {
+      if (isActivityItem) return item.subtitle;
+
+      if (item.domain_type === "playlist") {
+        // For playlists, show description or track count
+        const description = item.metadata?.description || item.subtitle;
+        const trackCount = item.metadata?.total_songs || songs.length;
+        if (description && description !== item.title) {
+          return description;
+        }
+        return trackCount > 0
+          ? `${trackCount} track${trackCount !== 1 ? "s" : ""}`
+          : null;
+      }
+
+      return getItemSubtitle(item);
+    };
+
     return {
       id: item.domain_ids?.[0] || item.user_id || "",
       title: item.title,
-      subtitle: isActivityItem ? item.subtitle : getItemSubtitle(item),
+      subtitle: getDisplaySubtitle(),
       domain_type: (item.domain_type === "collection"
         ? "album"
         : item.domain_type) as "album" | "playlist" | "artist" | "genre",
@@ -64,9 +105,10 @@ export function GroupedTimelineCard(
       play_count: item.play_count,
       last_played_at: item.last_played_at,
       created_at: item.created_at,
-      // Enhanced metadata aggregation
-      artist: item.metadata?.artist_name || songs[0]?.artist,
+      // Enhanced metadata aggregation with album_artist support
+      artist: getDisplayArtist(),
       album: item.metadata?.album_name || songs[0]?.album,
+      album_artist: songs[0]?.album_artist,
       year: years.length > 0 ? Math.min(...years) : null, // Use earliest year
       track_count:
         item.metadata?.total_songs ||
@@ -80,11 +122,17 @@ export function GroupedTimelineCard(
           : null
         : formatTotalDuration(totalSeconds) || null,
       item_type: item.item_type as any,
-      // Try to get thumbnail from first song that has one
-      thumbnail_blob_id: songs.find((s) => s.thumbnail_blob_id)
-        ?.thumbnail_blob_id,
-      // Also try image_url if available
-      image_url: item.image_url || null,
+      // For playlists, prefer playlist thumbnail, fall back to first song thumbnail
+      thumbnail_blob_id:
+        item.domain_type === "playlist"
+          ? item.metadata?.thumbnail_blob_id ||
+            songs.find((s) => s.thumbnail_blob_id)?.thumbnail_blob_id
+          : songs.find((s) => s.thumbnail_blob_id)?.thumbnail_blob_id,
+      // Enhanced image URL handling for playlists
+      image_url:
+        item.image_url ||
+        (item.domain_type === "playlist" ? item.metadata?.image_url : null) ||
+        null,
     };
   };
 
@@ -96,67 +144,81 @@ export function GroupedTimelineCard(
     );
   };
 
-  // Filter out individual songs when there's an album card with same artist/album
+  // Filter out individual songs when there's an album or playlist card that contains them
   const getFilteredItems = (items: FeedItem[]): FeedItem[] => {
     const albumItems = items.filter((item) => item.domain_type === "album");
+    const playlistItems = items.filter(
+      (item) => item.domain_type === "playlist"
+    );
 
-    if (albumItems.length === 0) {
-      return items; // No albums, return all items
+    if (albumItems.length === 0 && playlistItems.length === 0) {
+      return items; // No albums or playlists, return all items
     }
 
-    // Get album identifiers for filtering
+    // Get album identifiers for filtering - use collection_grid songs for accurate data
+    // Handle compilation albums by using album_artist when available
     const albumKeys = new Set(
-      albumItems.map((album) => {
-        // Extract album and artist from different possible sources
-        let albumName = album.metadata?.album_name;
-        let artistName = album.metadata?.artist_name;
-
-        // Try extracting from title if metadata is missing
-        if (!albumName || !artistName) {
-          const titleParts = album.title?.split(" by ") || [];
-          if (titleParts.length >= 2) {
-            albumName = albumName || titleParts[0];
-            artistName = artistName || titleParts[1];
-          }
-        }
-
-        // Try extracting from collection_grid songs
-        if (!albumName || !artistName) {
-          const firstSong = album.metadata?.collection_grid?.songs?.[0];
-          albumName = albumName || firstSong?.album;
-          artistName = artistName || firstSong?.artist;
-        }
-
-        return `${albumName}:${artistName}`.toLowerCase();
+      albumItems.flatMap((album) => {
+        const songs = album.metadata?.collection_grid?.songs || [];
+        return songs.map((song) => {
+          const albumName =
+            song.album ||
+            album.metadata?.album_name ||
+            album.title?.split(" by ")[0];
+          // Use album_artist for compilation albums, fall back to artist
+          const artistName =
+            song.album_artist ||
+            song.artist ||
+            album.metadata?.artist_name ||
+            album.title?.split(" by ")[1];
+          return `${albumName}:${artistName}`.toLowerCase().trim();
+        });
       })
     );
 
-    // Filter out songs that match any album
+    // Get playlist song identifiers for filtering
+    const playlistSongIds = new Set(
+      playlistItems.flatMap((playlist) => {
+        const songs = playlist.metadata?.collection_grid?.songs || [];
+        return songs.map((song) => song.id || song.song_id).filter(Boolean);
+      })
+    );
+
+    // Filter out songs that match any album or are contained in any playlist
     return items.filter((item) => {
       if (item.domain_type !== "song") {
-        return true; // Keep all non-song items (including activity/session items)
+        return true; // Keep all non-song items
       }
 
-      // Extract song's album/artist info from title parsing
-      const songTitle = item.title || "";
-      const titleMatch = songTitle.match(/^(.+?)\s*-\s*(.+)$/);
-      let songTitle_clean = titleMatch ? titleMatch[1] : songTitle;
-      let songArtist = titleMatch ? titleMatch[2] : "";
+      // Check if song is in any playlist first (by song ID)
+      const songId = item.domain_ids?.[0];
+      if (songId && playlistSongIds.has(songId)) {
+        return false; // Remove songs that are in playlists
+      }
 
-      // Try getting from metadata first
-      const songAlbum = item.metadata?.collection_grid?.songs?.[0]?.album;
-      const songArtistMeta = item.metadata?.collection_grid?.songs?.[0]?.artist;
+      // Get song's album/artist from its metadata for album filtering
+      const songs = item.metadata?.collection_grid?.songs || [];
+      const firstSong = songs[0];
 
-      // Use metadata if available, otherwise use parsed values
-      const finalAlbum = songAlbum || songTitle_clean;
-      const finalArtist = songArtistMeta || songArtist;
-
-      if (!finalAlbum || !finalArtist) {
+      if (
+        !firstSong?.album ||
+        (!firstSong?.artist && !firstSong?.album_artist)
+      ) {
         return true; // Keep songs without clear album/artist info
       }
 
-      const songKey = `${finalAlbum}:${finalArtist}`.toLowerCase();
-      return !albumKeys.has(songKey); // Remove songs that match an album
+      // Check against both album_artist and artist for compilation album matching
+      const albumArtistKey = firstSong.album_artist
+        ? `${firstSong.album}:${firstSong.album_artist}`.toLowerCase().trim()
+        : null;
+      const artistKey = `${firstSong.album}:${firstSong.artist}`
+        .toLowerCase()
+        .trim();
+
+      return (
+        !albumKeys.has(artistKey) &&
+        (!albumArtistKey || !albumKeys.has(albumArtistKey))
+      );
     });
   };
 
@@ -340,20 +402,51 @@ export function GroupedTimelineCard(
               )
             }
           >
-            {props.group.items[0] && (
-              <CollectionCard
-                collection={createItemCardData(props.group.items[0])}
-                onPlay={() => handleSingleCollectionPlay(props.group.items[0]!)}
-                onClick={() => handleViewItemNavigation(props.group.items[0]!)}
-                showPlayCount={true}
-                showYear={true}
-                showGenres={true}
-                showDuration={true}
-                enableNavigation={true}
-                enableContextMenu={true}
-                size="small"
-              />
-            )}
+            {props.group.items[0] &&
+              (() => {
+                const item = props.group.items[0];
+                const songs = item.metadata?.collection_grid?.songs || [];
+                const firstSong =
+                  songs.find((s) => s.thumbnail_blob_id) || songs[0];
+
+                return (
+                  <CollectionCard
+                    collection={{
+                      id: item.domain_ids?.[0] || "",
+                      title:
+                        firstSong?.album ||
+                        item.metadata?.album_name ||
+                        item.title,
+                      subtitle: `by ${firstSong?.artist || item.metadata?.artist_name || "Unknown Artist"}`,
+                      domain_type: (item.domain_type === "collection"
+                        ? "album"
+                        : item.domain_type) as
+                        | "album"
+                        | "playlist"
+                        | "artist"
+                        | "genre",
+                      artist: firstSong?.artist || item.metadata?.artist_name,
+                      album: firstSong?.album || item.metadata?.album_name,
+                      thumbnail_blob_id: firstSong?.thumbnail_blob_id,
+                      track_count: item.metadata?.total_songs || songs.length,
+                      year: firstSong?.year,
+                      genres:
+                        firstSong?.genre ||
+                        [
+                          ...new Set(songs.map((s) => s.genre).filter(Boolean)),
+                        ].join(", ") ||
+                        null,
+                      created_at: item.created_at,
+                    }}
+                    size="small"
+                    showYear={true}
+                    showGenres={true}
+                    enableNavigation={true}
+                    enableContextMenu={true}
+                    onPlay={() => handleSingleCollectionPlay(item)}
+                  />
+                );
+              })()}
           </Show>
         </div>
       </Show>
@@ -362,7 +455,7 @@ export function GroupedTimelineCard(
       <Show when={props.group.groupType === "consecutive"}>
         <div class="consecutive-items-container bg-white/5 border border-white/10 rounded-none p-3 mx-2 md:mx-0">
           {/* Consecutive Items Grid */}
-          <div class="consecutive-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div class="consecutive-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 p-1">
             <For each={getFilteredItems(props.group.items)}>
               {(item) => (
                 <Show
@@ -376,18 +469,53 @@ export function GroupedTimelineCard(
                     />
                   }
                 >
-                  <CollectionCard
-                    collection={createItemCardData(item)}
-                    onPlay={() => handleSingleCollectionPlay(item)}
-                    onClick={() => handleViewItemNavigation(item)}
-                    showPlayCount={true}
-                    showYear={true}
-                    showGenres={true}
-                    showDuration={true}
-                    size="small"
-                    enableNavigation={true}
-                    enableContextMenu={true}
-                  />
+                  {(() => {
+                    const songs = item.metadata?.collection_grid?.songs || [];
+                    const firstSong =
+                      songs.find((s) => s.thumbnail_blob_id) || songs[0];
+
+                    return (
+                      <CollectionCard
+                        collection={{
+                          id: item.domain_ids?.[0] || "",
+                          title:
+                            firstSong?.album ||
+                            item.metadata?.album_name ||
+                            item.title,
+                          subtitle: `by ${firstSong?.artist || item.metadata?.artist_name || "Unknown Artist"}`,
+                          domain_type: (item.domain_type === "collection"
+                            ? "album"
+                            : item.domain_type) as
+                            | "album"
+                            | "playlist"
+                            | "artist"
+                            | "genre",
+                          artist:
+                            firstSong?.artist || item.metadata?.artist_name,
+                          album: firstSong?.album || item.metadata?.album_name,
+                          thumbnail_blob_id: firstSong?.thumbnail_blob_id,
+                          track_count:
+                            item.metadata?.total_songs || songs.length,
+                          year: firstSong?.year,
+                          genres:
+                            firstSong?.genre ||
+                            [
+                              ...new Set(
+                                songs.map((s) => s.genre).filter(Boolean)
+                              ),
+                            ].join(", ") ||
+                            null,
+                          created_at: item.created_at,
+                        }}
+                        size="small"
+                        showYear={true}
+                        showGenres={true}
+                        enableNavigation={true}
+                        enableContextMenu={true}
+                        onPlay={() => handleSingleCollectionPlay(item)}
+                      />
+                    );
+                  })()}
                 </Show>
               )}
             </For>

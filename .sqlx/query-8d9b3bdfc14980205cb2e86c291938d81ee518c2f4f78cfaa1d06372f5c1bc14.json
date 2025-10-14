@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM media_events",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "8d9b3bdfc14980205cb2e86c291938d81ee518c2f4f78cfaa1d06372f5c1bc14"
+}

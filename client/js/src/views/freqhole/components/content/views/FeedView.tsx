@@ -192,30 +192,11 @@ export function FeedView() {
             <div class="timeline-container space-y-4 md:space-y-6">
               <For each={groupedItems()}>
                 {(group) => {
-                  console.log("DEBUG: Processing group:", {
-                    itemCount: group.items.length,
-                    groupType: group.groupType,
-                    items: group.items.map((item) => ({
-                      item_type: item.item_type,
-                      domain_type: item.domain_type,
-                      title: item.title,
-                    })),
-                  });
-
                   // Use collection-style cards for album, playlist, artist contexts
                   // Use song row style for individual songs (including single-song albums)
                   if (group.items.length === 1) {
                     const item = group.items[0];
                     if (!item) return null;
-
-                    console.log("DEBUG: Single item:", {
-                      item_type: item.item_type,
-                      domain_type: item.domain_type,
-                      title: item.title,
-                      isSessionOrActivity:
-                        item.item_type.includes("session") ||
-                        item.item_type.includes("activity"),
-                    });
 
                     // Use TimelineCard for session and activity items, GroupedTimelineCard for others
                     if (
@@ -228,7 +209,6 @@ export function FeedView() {
                     }
                   }
                   // Multiple items - always use grouped display
-                  console.log("DEBUG: Multiple items group");
                   return <GroupedTimelineCard group={group} />;
                 }}
               </For>

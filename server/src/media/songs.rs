@@ -666,7 +666,7 @@ pub struct UpdateSongRequest {
 }
 
 // user preference request types
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct UpdateUserPreferenceRequest {
     pub is_favorite: Option<bool>,
     pub rating: Option<i32>,
@@ -1026,14 +1026,18 @@ pub async fn bulk_update_user_preferences(
     let repository = MusicRepository::new(db.pool().clone());
     let service = PlaylistService::new(repository);
 
+    // Clone the data we need before moving req
+    let song_ids = req.song_ids.clone();
+    let updates = req.updates.clone();
+
     let preferences = service
         .bulk_update_user_preferences(user_id, req.into())
         .await
         .map_err(|_| WebauthnError::DatabaseError)?;
 
     // emit analytics for bulk preference updates
-    for song_id in &req.song_ids {
-        if let Some(is_favorite) = req.updates.is_favorite {
+    for song_id in &song_ids {
+        if let Some(is_favorite) = updates.is_favorite {
             if let Err(e) =
                 emit_preference_analytics(&db, user_id, *song_id, is_favorite, None).await
             {
@@ -1046,7 +1050,7 @@ pub async fn bulk_update_user_preferences(
                 );
             }
         }
-        if let Some(rating) = req.updates.rating {
+        if let Some(rating) = updates.rating {
             if let Err(e) =
                 emit_preference_analytics(&db, user_id, *song_id, false, Some(rating)).await
             {

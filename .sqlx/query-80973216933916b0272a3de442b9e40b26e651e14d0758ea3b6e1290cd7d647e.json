@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM media_events WHERE array_length(domain_ids, 1) = 1 AND domain_ids[1] ~ '^[0-9a-f-]+$'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "80973216933916b0272a3de442b9e40b26e651e14d0758ea3b6e1290cd7d647e"
+}

@@ -469,7 +469,7 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
 
               return (
                 <div class="collection-grid mt-3 pt-3 border-t border-magenta-500/30 md:px-0">
-                  <div class="collection-albums-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  <div class="collection-albums-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 p-1">
                     <For each={albumGroups}>
                       {(albumGroup) => (
                         <CollectionCard
