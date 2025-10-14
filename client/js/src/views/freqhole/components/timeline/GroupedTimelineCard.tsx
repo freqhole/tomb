@@ -1,10 +1,11 @@
-import { JSX, Show, For } from "solid-js";
+import { JSX, Show, For, createSignal, createEffect } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import {
   CollectionCard,
   type CollectionCardData,
 } from "../shared/CollectionCard";
 import { useCollectionInteractions } from "../../services/collectionInteractions";
+import { apiClient } from "../../../../lib/api-client";
 
 import type { FeedItem } from "../../../../lib/analytics/analytics-api";
 import type { GroupedFeedItem } from "./timeline-grouping";
@@ -455,18 +456,20 @@ export function GroupedTimelineCard(
       <Show when={props.group.groupType === "consecutive"}>
         <div class="consecutive-items-container bg-white/5 border border-white/10 rounded-none p-3 mx-2 md:mx-0">
           {/* Consecutive Items Grid */}
-          <div class="consecutive-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 p-1">
+          <div class="consecutive-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 p-1 items-start">
             <For each={getFilteredItems(props.group.items)}>
               {(item) => (
                 <Show
                   when={item.domain_type !== "song"}
                   fallback={
-                    <TimelineItemRow
-                      item={item}
-                      showTime={true}
-                      showUsername={false}
-                      compact={true}
-                    />
+                    <div class="flex flex-col gap-1 min-h-0 w-full overflow-hidden">
+                      <TimelineItemRow
+                        item={item}
+                        showTime={true}
+                        showUsername={false}
+                        compact={true}
+                      />
+                    </div>
                   }
                 >
                   {(() => {

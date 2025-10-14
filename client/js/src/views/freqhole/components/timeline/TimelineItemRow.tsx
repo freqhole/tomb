@@ -288,20 +288,45 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
 
   return (
     <div
-      class="timeline-item-row group cursor-pointer bg-black/30 border border-white/10 px-0 py-1 md:p-1 hover:bg-black/50 transition-colors"
+      class={`timeline-item-row group cursor-pointer bg-black/30 border border-white/10 px-0 py-1 md:p-1 hover:bg-black/50 transition-colors ${
+        props.compact ? "h-fit max-h-16 self-start w-full overflow-hidden" : ""
+      }`}
       onClick={handleRowClick}
       onDblClick={handleRowDoubleClick}
       onContextMenu={handleContextMenu}
     >
-      <div class="flex items-center gap-2 px-2 md:px-0">
-        {/* Media Image */}
-        <MediaImage
-          imageUrl={imageUrl}
-          alt={props.item.title || "unknown item"}
-          size={compactSize}
-          domainType={props.item.domain_type as any}
-          enableHover={false}
-        />
+      <div
+        class={`flex items-center gap-2 px-2 md:px-0 ${props.compact ? "min-w-0" : ""}`}
+      >
+        {/* Media Image with Hover Play Button */}
+        <div class="relative flex-shrink-0">
+          <MediaImage
+            imageUrl={imageUrl}
+            alt={props.item.title || "unknown item"}
+            size={compactSize}
+            domainType={props.item.domain_type as any}
+            enableHover={false}
+          />
+          {/* Hover overlay with play button */}
+          <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <button
+              class="w-6 h-6 bg-magenta-600 hover:bg-magenta-500 text-white flex items-center justify-center transition-colors rounded-full"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRowDoubleClick(e);
+              }}
+              title="Play"
+            >
+              <svg
+                class="w-3 h-3 ml-0.5"
+                fill="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </button>
+          </div>
+        </div>
 
         {/* Action Icon */}
         <div
@@ -311,15 +336,23 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
         </div>
 
         {/* Item Info */}
-        <div class="item-info flex-1 min-w-0">
+        <div
+          class={`item-info flex-1 min-w-0 ${props.compact ? "overflow-hidden" : ""}`}
+        >
           <div class="flex items-start justify-between gap-2">
             <div class="flex-1 min-w-0">
               <MarqueeText
                 text={props.item.title || "unknown item"}
-                class="text-white text-xs font-medium group-hover:text-magenta-300 transition-colors leading-tight"
+                class={`text-white font-medium group-hover:text-magenta-300 transition-colors leading-tight ${
+                  props.compact ? "text-xs" : "text-xs"
+                }`}
               />
 
-              <div class="text-white/60 text-xs leading-tight">
+              <div
+                class={`text-white/60 leading-tight ${
+                  props.compact ? "text-xs" : "text-xs"
+                }`}
+              >
                 <Show when={props.showUsername}>
                   <span class="text-magenta-400">{props.item.username}</span>
                   <span class="mx-1">•</span>
@@ -334,7 +367,11 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
               </div>
 
               <Show when={props.showTime}>
-                <div class="text-white/40 text-xs leading-tight">
+                <div
+                  class={`text-white/40 leading-tight ${
+                    props.compact ? "text-xs" : "text-xs"
+                  }`}
+                >
                   {formatRelativeTime(props.item.created_at)}
                 </div>
               </Show>
