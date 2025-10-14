@@ -100,28 +100,42 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
     e?.stopPropagation();
 
     if (props.item.domain_type === "song") {
+      // Use rich metadata from collection_grid if available
+      const songs = props.item.metadata?.collection_grid?.songs || [];
+      const songMetadata = songs[0];
+
       const songData = {
-        id: props.item.domain_ids?.[0] || "",
-        media_blob_id: props.item.domain_ids?.[0] || "",
-        title: props.item.title || "Unknown Song",
-        artist: extractArtistFromTitle(props.item.title) || "Unknown Artist",
-        album: null,
-        album_artist: null,
-        track_number: null,
-        disc_number: null,
-        duration_seconds: null,
-        genre: null,
-        sub_genres: null,
-        year: null,
+        id: songMetadata?.song_id || props.item.domain_ids?.[0] || "",
+        media_blob_id: songMetadata?.id || props.item.domain_ids?.[0] || "",
+        title: songMetadata?.title || props.item.title || "Unknown Song",
+        artist:
+          songMetadata?.artist ||
+          extractArtistFromTitle(props.item.title) ||
+          "Unknown Artist",
+        album: songMetadata?.album || null,
+        album_artist: songMetadata?.album_artist || null,
+        track_number: songMetadata?.track_number || null,
+        disc_number: songMetadata?.disc_number || null,
+        duration_seconds: songMetadata?.duration
+          ? (() => {
+              const parts = songMetadata.duration.split(":").map(Number);
+              return parts[0] * 60 + (parts[1] || 0);
+            })()
+          : null,
+        genre: songMetadata?.genre || null,
+        sub_genres: songMetadata?.sub_genres || null,
+        year: songMetadata?.year || null,
         bpm: null,
         key_signature: null,
-        user_rating: null,
-        user_is_favorite: false,
-        tags: [],
-        display_title: props.item.title || "Unknown Song",
-        detailed_display_title: props.item.title || "Unknown Song",
+        user_rating: songMetadata?.user_rating || null,
+        user_is_favorite: songMetadata?.is_favorite || false,
+        tags: songMetadata?.tags || [],
+        display_title:
+          songMetadata?.title || props.item.title || "Unknown Song",
+        detailed_display_title:
+          songMetadata?.title || props.item.title || "Unknown Song",
         created_at: new Date().toISOString(),
-        thumbnail_blob_id: null,
+        thumbnail_blob_id: songMetadata?.thumbnail_blob_id || null,
         waveform_blob_id: null,
         thumbnail_blob_ids: [],
         preference_updated_at: null,
@@ -208,28 +222,42 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
     e.stopPropagation();
 
     if (props.item.domain_type === "song") {
+      // Use rich metadata from collection_grid if available
+      const songs = props.item.metadata?.collection_grid?.songs || [];
+      const songMetadata = songs[0];
+
       const songData = {
-        id: props.item.domain_ids?.[0] || "",
-        media_blob_id: props.item.domain_ids?.[0] || "",
-        title: props.item.title || "Unknown Song",
-        artist: extractArtistFromTitle(props.item.title) || "Unknown Artist",
-        album: null,
-        album_artist: null,
-        track_number: null,
-        disc_number: null,
-        duration_seconds: null,
-        genre: null,
-        sub_genres: null,
-        year: null,
+        id: songMetadata?.song_id || props.item.domain_ids?.[0] || "",
+        media_blob_id: songMetadata?.id || props.item.domain_ids?.[0] || "",
+        title: songMetadata?.title || props.item.title || "Unknown Song",
+        artist:
+          songMetadata?.artist ||
+          extractArtistFromTitle(props.item.title) ||
+          "Unknown Artist",
+        album: songMetadata?.album || null,
+        album_artist: songMetadata?.album_artist || null,
+        track_number: songMetadata?.track_number || null,
+        disc_number: songMetadata?.disc_number || null,
+        duration_seconds: songMetadata?.duration
+          ? (() => {
+              const parts = songMetadata.duration.split(":").map(Number);
+              return parts[0] * 60 + (parts[1] || 0);
+            })()
+          : null,
+        genre: songMetadata?.genre || null,
+        sub_genres: songMetadata?.sub_genres || null,
+        year: songMetadata?.year || null,
         bpm: null,
         key_signature: null,
-        user_rating: null,
-        user_is_favorite: false,
-        tags: [],
-        display_title: props.item.title || "Unknown Song",
-        detailed_display_title: props.item.title || "Unknown Song",
+        user_rating: songMetadata?.user_rating || null,
+        user_is_favorite: songMetadata?.is_favorite || false,
+        tags: songMetadata?.tags || [],
+        display_title:
+          songMetadata?.title || props.item.title || "Unknown Song",
+        detailed_display_title:
+          songMetadata?.title || props.item.title || "Unknown Song",
         created_at: new Date().toISOString(),
-        thumbnail_blob_id: null,
+        thumbnail_blob_id: songMetadata?.thumbnail_blob_id || null,
         waveform_blob_id: null,
         thumbnail_blob_ids: [],
         preference_updated_at: null,
@@ -289,14 +317,14 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
   return (
     <div
       class={`timeline-item-row group cursor-pointer bg-black/30 border border-white/10 px-0 py-1 md:p-1 hover:bg-black/50 transition-colors ${
-        props.compact ? "h-fit max-h-16 self-start w-full overflow-hidden" : ""
+        props.compact ? "h-14 self-start w-full overflow-hidden" : ""
       }`}
       onClick={handleRowClick}
       onDblClick={handleRowDoubleClick}
       onContextMenu={handleContextMenu}
     >
       <div
-        class={`flex items-center gap-2 px-2 md:px-0 ${props.compact ? "min-w-0" : ""}`}
+        class={`flex items-center gap-2 px-2 md:px-0 ${props.compact ? "min-w-0 h-full" : ""}`}
       >
         {/* Media Image with Hover Play Button */}
         <div class="relative flex-shrink-0">
@@ -328,29 +356,55 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
           </div>
         </div>
 
-        {/* Action Icon */}
-        <div
-          class={`action-icon text-xs ${getActionIconColor(props.item)} flex-shrink-0`}
-        >
-          {getActionIcon(props.item)}
-        </div>
-
         {/* Item Info */}
         <div
-          class={`item-info flex-1 min-w-0 ${props.compact ? "overflow-hidden" : ""}`}
+          class={`item-info flex-1 min-w-0 ${props.compact ? "overflow-hidden flex flex-col justify-center h-full py-0.5" : ""}`}
         >
           <div class="flex items-start justify-between gap-2">
             <div class="flex-1 min-w-0">
               <MarqueeText
                 text={props.item.title || "unknown item"}
-                class={`text-white font-medium group-hover:text-magenta-300 transition-colors leading-tight ${
-                  props.compact ? "text-xs" : "text-xs"
+                class={`text-white font-medium group-hover:text-magenta-300 transition-colors ${
+                  props.compact
+                    ? "text-xs leading-tight"
+                    : "text-xs leading-tight"
                 }`}
               />
 
+              {/* Artist and Album info */}
               <div
-                class={`text-white/60 leading-tight ${
-                  props.compact ? "text-xs" : "text-xs"
+                class={`text-white/70 ${
+                  props.compact
+                    ? "text-xs leading-tight"
+                    : "text-xs leading-tight"
+                }`}
+              >
+                {(() => {
+                  const songs =
+                    props.item.metadata?.collection_grid?.songs || [];
+                  const firstSong = songs[0];
+                  const artist =
+                    firstSong?.artist || props.item.metadata?.artist_name;
+                  const album =
+                    firstSong?.album || props.item.metadata?.album_name;
+                  const genre =
+                    firstSong?.genre || props.item.metadata?.genre_name;
+
+                  const parts = [];
+                  if (artist) parts.push(artist);
+                  if (album) parts.push(album);
+                  if (genre && parts.length < 2) parts.push(genre);
+
+                  return parts.join(" • ") || props.item.domain_type;
+                })()}
+              </div>
+
+              {/* Action and time combined */}
+              <div
+                class={`text-white/50 ${
+                  props.compact
+                    ? "text-xs leading-tight"
+                    : "text-xs leading-tight"
                 }`}
               >
                 <Show when={props.showUsername}>
@@ -358,23 +412,17 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
                   <span class="mx-1">•</span>
                 </Show>
                 {getActionText(props.item)} • {props.item.domain_type}
+                <Show when={props.showTime}>
+                  <span class="mx-1">•</span>
+                  <span>{formatRelativeTime(props.item.created_at)}</span>
+                </Show>
                 <Show when={props.item.play_count && props.item.play_count > 1}>
                   <span class="mx-1">•</span>
-                  <span class="text-white/50">
+                  <span class="text-white/40">
                     {props.item.play_count} plays
                   </span>
                 </Show>
               </div>
-
-              <Show when={props.showTime}>
-                <div
-                  class={`text-white/40 leading-tight ${
-                    props.compact ? "text-xs" : "text-xs"
-                  }`}
-                >
-                  {formatRelativeTime(props.item.created_at)}
-                </div>
-              </Show>
             </div>
 
             {/* Rating Display for Rating Events */}
@@ -420,21 +468,6 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
             </svg>
           </button>
         </Show>
-
-        {/* Play Button */}
-        <button
-          class="play-btn w-6 h-6 bg-magenta-600/70 hover:bg-magenta-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-          onClick={handlePlay}
-          title={`play ${props.item.domain_type}`}
-        >
-          <svg
-            class="w-3 h-3 text-white ml-0.5"
-            fill="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        </button>
       </div>
     </div>
   );

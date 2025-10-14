@@ -312,7 +312,7 @@ export function CollectionCard(props: CollectionCardProps) {
     >
       {/* Image/artwork area */}
       <div
-        class={`${classes.container} bg-magenta-800/30 rounded-lg overflow-hidden mb-1 relative`}
+        class={`${classes.container} bg-magenta-800/30 rounded-lg overflow-visible mb-1 relative`}
       >
         <Show
           when={getCollectionImageUrl()}
@@ -331,7 +331,7 @@ export function CollectionCard(props: CollectionCardProps) {
           <img
             src={getCollectionImageUrl()!}
             alt={props.collection.title}
-            class={`${classes.image} object-cover transition-transform group-hover:scale-105`}
+            class={`${classes.image} object-cover transition-all duration-200 group-hover:scale-110 group-hover:rounded-none group-hover:z-20 group-hover:shadow-2xl group-hover:-translate-y-2 rounded-lg`}
             loading="lazy"
             onError={(e) => {
               console.log("Image failed to load:", getCollectionImageUrl());
@@ -350,7 +350,7 @@ export function CollectionCard(props: CollectionCardProps) {
         </Show>
 
         {/* Hover overlay with play button */}
-        <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <div class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
           <button
             class={`${classes.playButton} bg-magenta-600 hover:bg-magenta-500 text-white flex items-center justify-center transition-colors`}
             onClick={handlePlay}

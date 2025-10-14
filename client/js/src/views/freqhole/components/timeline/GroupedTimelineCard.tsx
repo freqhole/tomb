@@ -5,6 +5,7 @@ import {
   type CollectionCardData,
 } from "../shared/CollectionCard";
 import { useCollectionInteractions } from "../../services/collectionInteractions";
+import { useSongInteractions } from "../../services/songInteractions";
 import { apiClient } from "../../../../lib/api-client";
 
 import type { FeedItem } from "../../../../lib/analytics/analytics-api";
@@ -22,6 +23,7 @@ export function GroupedTimelineCard(
 ): JSX.Element {
   const navigate = useNavigate();
   const collectionInteractions = useCollectionInteractions();
+  const songInteractions = useSongInteractions();
 
   const createItemCardData = (item: FeedItem): CollectionCardData => {
     // Aggregate metadata from songs in collection_grid
@@ -259,16 +261,51 @@ export function GroupedTimelineCard(
     }
   };
 
+  // Group items for grid display - stack consecutive songs together
+  const groupItemsForGrid = (
+    items: FeedItem[]
+  ): Array<{ type: "collection" | "songs"; items: FeedItem[] }> => {
+    const result: Array<{ type: "collection" | "songs"; items: FeedItem[] }> =
+      [];
+    let currentSongGroup: FeedItem[] = [];
+
+    items.forEach((item, index) => {
+      if (item.domain_type === "song") {
+        currentSongGroup.push(item);
+
+        // If this is the last item or next item is not a song, finalize the song group
+        if (
+          index === items.length - 1 ||
+          items[index + 1].domain_type !== "song"
+        ) {
+          // Split songs into groups of maximum 3 per grid cell
+          for (let i = 0; i < currentSongGroup.length; i += 3) {
+            const songChunk = currentSongGroup.slice(i, i + 3);
+            result.push({ type: "songs", items: songChunk });
+          }
+          currentSongGroup = [];
+        }
+      } else {
+        // Non-song item (collection) - add as individual item
+        result.push({ type: "collection", items: [item] });
+      }
+    });
+
+    return result;
+  };
+
   const handleSingleCollectionPlay = (item: FeedItem) => {
     switch (item.domain_type) {
       case "album":
-        // Extract album and artist from title
-        const albumArtist = extractArtistFromTitle(item.title);
-        if (albumArtist && item.title) {
-          const albumName = item.title.split(" - ")[0];
+        // Parse "ALBUM by ARTIST" format
+        if (item.title && item.title.includes(" by ")) {
+          const lastByIndex = item.title.lastIndexOf(" by ");
+          const albumName = item.title.substring(0, lastByIndex);
+          const artistName = item.title.substring(lastByIndex + 4);
+
           const albumObj = {
             album: albumName || null,
-            artist: albumArtist,
+            artist: artistName,
             year: null,
             track_count: 0,
             disc_count: 1,
@@ -457,22 +494,27 @@ export function GroupedTimelineCard(
         <div class="consecutive-items-container bg-white/5 border border-white/10 rounded-none p-3 mx-2 md:mx-0">
           {/* Consecutive Items Grid */}
           <div class="consecutive-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 p-1 items-start">
-            <For each={getFilteredItems(props.group.items)}>
-              {(item) => (
+            <For each={groupItemsForGrid(getFilteredItems(props.group.items))}>
+              {(gridItem) => (
                 <Show
-                  when={item.domain_type !== "song"}
+                  when={gridItem.type === "collection"}
                   fallback={
-                    <div class="flex flex-col gap-1 min-h-0 w-full overflow-hidden">
-                      <TimelineItemRow
-                        item={item}
-                        showTime={true}
-                        showUsername={false}
-                        compact={true}
-                      />
+                    <div class="flex flex-col gap-1 min-h-0 w-full overflow-hidden col-span-2 md:col-span-2 lg:col-span-2">
+                      <For each={gridItem.items}>
+                        {(songItem) => (
+                          <TimelineItemRow
+                            item={songItem}
+                            showTime={true}
+                            showUsername={false}
+                            compact={true}
+                          />
+                        )}
+                      </For>
                     </div>
                   }
                 >
                   {(() => {
+                    const item = gridItem.items[0];
                     const songs = item.metadata?.collection_grid?.songs || [];
                     const firstSong =
                       songs.find((s) => s.thumbnail_blob_id) || songs[0];
@@ -480,7 +522,7 @@ export function GroupedTimelineCard(
                     return (
                       <CollectionCard
                         collection={{
-                          id: item.domain_ids?.[0] || "",
+                          id: item.domain_ids?.[0] || item.user_id || "",
                           title:
                             firstSong?.album ||
                             item.metadata?.album_name ||
