@@ -291,7 +291,12 @@ BEGIN
                 END
             WHEN ag.grouping_level = 'session' THEN
                 ag.total_plays || ' tracks in ' ||
-                EXTRACT(EPOCH FROM (ag.latest_activity - ag.earliest_activity)) / 60 || ' minutes'
+                CASE
+                    WHEN EXTRACT(EPOCH FROM (ag.latest_activity - ag.earliest_activity)) < 60 THEN
+                        ROUND(EXTRACT(EPOCH FROM (ag.latest_activity - ag.earliest_activity))) || ' seconds'
+                    ELSE
+                        ROUND(EXTRACT(EPOCH FROM (ag.latest_activity - ag.earliest_activity)) / 60) || ' minutes'
+                END
             WHEN ag.grouping_level IN ('daily', 'weekly', 'monthly') THEN
                 ag.total_events || ' listening events'
             ELSE 'music activity'

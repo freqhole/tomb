@@ -493,7 +493,7 @@ export function GroupedTimelineCard(
       <Show when={props.group.groupType === "consecutive"}>
         <div class="consecutive-items-container bg-white/5 border border-white/10 rounded-none p-3 mx-2 md:mx-0">
           {/* Consecutive Items Grid */}
-          <div class="consecutive-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 p-1 items-start justify-items-start">
+          <div class="consecutive-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 p-2 items-start justify-items-start">
             <For each={groupItemsForGrid(getFilteredItems(props.group.items))}>
               {(gridItem) => (
                 <Show
