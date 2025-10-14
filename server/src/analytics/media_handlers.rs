@@ -702,7 +702,7 @@ pub async fn social_feed_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use grimoire::analytics::{DomainType, MediaEventData, MediaEventType};
+    use grimoire::analytics::{DomainType, MediaEventType};
 
     #[test]
     fn test_admin_analytics_query_deserialization() {
@@ -735,7 +735,7 @@ mod tests {
         let request: MediaEventRequest = serde_json::from_value(request_json).unwrap();
         assert_eq!(request.media_blob_id, "test123");
         assert_eq!(request.event_type, MediaEventType::Play);
-        assert_eq!(request.domain_type, Some(DomainType::Song));
+        assert_eq!(request.domain_type, Some(DomainType::Song.to_string()));
     }
 
     #[test]

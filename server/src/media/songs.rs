@@ -978,11 +978,36 @@ pub async fn update_song_preferences(
         .await
         .map_err(|_| WebauthnError::DatabaseError)?;
 
+    // emit analytics for favorite/unfavorite
+    if let Some(is_favorite) = req.is_favorite {
+        if let Err(e) = emit_preference_analytics(&db, user_id, song_id, is_favorite, None).await {
+            warn!(
+                user_id = %user_id,
+                song_id = %song_id,
+                is_favorite = is_favorite,
+                error = %e,
+                "failed to emit favorite analytics"
+            );
+        }
+    }
+
     if let Some(rating) = req.rating {
         let preference = service
             .rate_user_song(user_id, song_id, Some(rating))
             .await
             .map_err(|_| WebauthnError::BadRequest)?;
+
+        // emit analytics for rating
+        if let Err(e) = emit_preference_analytics(&db, user_id, song_id, false, Some(rating)).await
+        {
+            warn!(
+                user_id = %user_id,
+                song_id = %song_id,
+                rating = rating,
+                error = %e,
+                "failed to emit rating analytics"
+            );
+        }
 
         return Ok(Json(UserPreferenceResponse::from(preference)));
     }
@@ -1005,6 +1030,36 @@ pub async fn bulk_update_user_preferences(
         .bulk_update_user_preferences(user_id, req.into())
         .await
         .map_err(|_| WebauthnError::DatabaseError)?;
+
+    // emit analytics for bulk preference updates
+    for song_id in &req.song_ids {
+        if let Some(is_favorite) = req.updates.is_favorite {
+            if let Err(e) =
+                emit_preference_analytics(&db, user_id, *song_id, is_favorite, None).await
+            {
+                warn!(
+                    user_id = %user_id,
+                    song_id = %song_id,
+                    is_favorite = is_favorite,
+                    error = %e,
+                    "failed to emit bulk favorite analytics"
+                );
+            }
+        }
+        if let Some(rating) = req.updates.rating {
+            if let Err(e) =
+                emit_preference_analytics(&db, user_id, *song_id, false, Some(rating)).await
+            {
+                warn!(
+                    user_id = %user_id,
+                    song_id = %song_id,
+                    rating = rating,
+                    error = %e,
+                    "failed to emit bulk rating analytics"
+                );
+            }
+        }
+    }
 
     let updated_preferences = preferences
         .into_iter()
@@ -2313,6 +2368,97 @@ pub fn create_routes() -> Router {
         .route("/download-job-status/{job_id}", get(get_job_status))
 }
 
+/// emit analytics event for user preference changes
+async fn emit_preference_analytics(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_id: Uuid,
+    is_favorite: bool,
+    rating: Option<i32>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use grimoire::analytics::media_events::{
+        DomainType, MediaEvent, MediaEventData, MediaEventType,
+    };
+    use grimoire::analytics::service::AnalyticsService;
+    use grimoire::music::MusicRepository;
+
+    // get song details for analytics
+    let music_repo = MusicRepository::new(db.pool().clone());
+    let song = music_repo.get_song(song_id).await?;
+
+    let (event_type, event_data) = if let Some(rating_value) = rating {
+        (
+            MediaEventType::Rate,
+            MediaEventData::Rating {
+                rating: rating_value,
+                previous_rating: None, // could be enhanced to track previous rating
+            },
+        )
+    } else if is_favorite {
+        (
+            MediaEventType::Favorite,
+            MediaEventData::Generic {
+                data: {
+                    let mut data = serde_json::Map::new();
+                    data.insert(
+                        "action".to_string(),
+                        serde_json::Value::String("favorite".to_string()),
+                    );
+                    data.insert(
+                        "song_title".to_string(),
+                        serde_json::Value::String(song.title.clone()),
+                    );
+                    if let Some(artist) = &song.artist {
+                        data.insert(
+                            "artist".to_string(),
+                            serde_json::Value::String(artist.clone()),
+                        );
+                    }
+                    data
+                },
+            },
+        )
+    } else {
+        (
+            MediaEventType::Unfavorite,
+            MediaEventData::Generic {
+                data: {
+                    let mut data = serde_json::Map::new();
+                    data.insert(
+                        "action".to_string(),
+                        serde_json::Value::String("unfavorite".to_string()),
+                    );
+                    data.insert(
+                        "song_title".to_string(),
+                        serde_json::Value::String(song.title.clone()),
+                    );
+                    if let Some(artist) = &song.artist {
+                        data.insert(
+                            "artist".to_string(),
+                            serde_json::Value::String(artist.clone()),
+                        );
+                    }
+                    data
+                },
+            },
+        )
+    };
+
+    let mut analytics_event =
+        MediaEvent::new(Some(song.media_blob_id.clone()), event_type, Some(user_id));
+    analytics_event.event_data = event_data;
+    analytics_event.domain_type = Some(DomainType::Song);
+    analytics_event.domain_ids = Some(vec![song_id.to_string()]);
+
+    // store analytics event
+    let analytics_service = AnalyticsService::new_with_defaults(db);
+    analytics_service
+        .record_media_event(analytics_event)
+        .await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2336,13 +2482,16 @@ mod tests {
             disc_number: Some(1),
             duration: None,
             genre: Some("Rock".to_string()),
+            sub_genres: Some(vec!["classic rock".to_string()]),
             year: Some(2023),
             bpm: None,
             key_signature: None,
             rating: Some(5),
             is_favorite: true,
-            tags: vec!["rock".to_string(), "classic".to_string()],
+            tags: Some(vec!["rock".to_string(), "classic".to_string()]),
             metadata: serde_json::Value::Null,
+            processing_status: None,
+            processing_notes: None,
             deleted_at: None,
             deleted_by: None,
             created_at: OffsetDateTime::now_utc(),

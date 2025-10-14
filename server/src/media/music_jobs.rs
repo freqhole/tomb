@@ -262,6 +262,7 @@ pub async fn create_music_job(
     file_path: &str,
     original_filename: Option<&str>,
     upload_metadata: Option<&serde_json::Value>,
+    user_id: Option<Uuid>,
 ) -> Result<String, AppError> {
     let job_id = Uuid::new_v4();
 
@@ -283,6 +284,14 @@ pub async fn create_music_job(
         {
             parameters.insert("web_upload".to_string(), serde_json::Value::Bool(true));
         }
+    }
+
+    // Store user_id for analytics
+    if let Some(uid) = user_id {
+        parameters.insert(
+            "user_id".to_string(),
+            serde_json::Value::String(uid.to_string()),
+        );
     }
 
     let params_json = serde_json::Value::Object(parameters);

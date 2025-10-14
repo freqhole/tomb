@@ -86,20 +86,32 @@ export function CollectionCard(props: CollectionCardProps) {
     return null;
   };
 
-  // Try to fetch album thumbnail for albums without images
+  // Try to fetch images for items without images
   createEffect(() => {
     const { collection } = props;
 
+    // Skip if we already have an image or are loading
+    if (getCollectionImageUrl() || fallbackImageUrl()) {
+      return;
+    }
+
+    // Try to get image from first domain_id (media_blob_id)
+    if (
+      collection.id &&
+      !collection.image_url &&
+      !collection.thumbnail_blob_id
+    ) {
+      const imageUrl = `${apiClient.getBaseUrl()}/api/blobs/${collection.id}`;
+      setFallbackImageUrl(imageUrl);
+      return;
+    }
+
+    // For albums, try to fetch album info which might include thumbnail
     if (
       collection.domain_type === "album" &&
       collection.album &&
-      collection.artist &&
-      !collection.image_url &&
-      !collection.album_thumbnail_id &&
-      !collection.thumbnail_blob_id &&
-      !fallbackImageUrl()
+      collection.artist
     ) {
-      // Try to fetch album info which might include thumbnail
       apiClient
         .getAlbumByName(collection.album, collection.artist)
         .then((albumInfo) => {
@@ -263,38 +275,38 @@ export function CollectionCard(props: CollectionCardProps) {
     }
   };
 
-  // Size variants
+  // Size variants - much smaller and more compact
   const sizeClasses = () => {
     switch (props.size) {
       case "small":
         return {
-          container: "aspect-square",
+          container: "aspect-square w-28 h-28",
           image: "w-full h-full",
           playButton: "w-8 h-8 rounded-full",
           playIcon: "w-4 h-4",
-          title: "text-xs font-medium",
-          subtitle: "text-xs",
-          meta: "text-xs",
+          title: "text-sm font-medium leading-tight",
+          subtitle: "text-xs leading-tight",
+          meta: "text-xs leading-tight",
         };
       case "large":
         return {
-          container: "aspect-square",
+          container: "aspect-square w-48 h-48",
           image: "w-full h-full",
           playButton: "w-16 h-16 rounded-full",
           playIcon: "w-8 h-8",
-          title: "text-lg",
-          subtitle: "text-base",
-          meta: "text-sm",
+          title: "text-lg font-medium leading-tight",
+          subtitle: "text-base leading-tight",
+          meta: "text-sm leading-tight",
         };
       default: // medium
         return {
-          container: "aspect-square",
+          container: "aspect-square w-36 h-36",
           image: "w-full h-full",
           playButton: "w-12 h-12 rounded-full",
           playIcon: "w-6 h-6",
-          title: "text-sm",
-          subtitle: "text-sm",
-          meta: "text-xs",
+          title: "text-sm font-medium leading-tight",
+          subtitle: "text-sm leading-tight",
+          meta: "text-xs leading-tight",
         };
     }
   };
@@ -303,13 +315,13 @@ export function CollectionCard(props: CollectionCardProps) {
 
   return (
     <div
-      class={`group cursor-pointer transition-transform duration-200 hover:scale-[1.02] ${props.class || ""}`}
+      class={`group cursor-pointer ${props.class || ""}`}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
     >
       {/* Image/artwork area */}
       <div
-        class={`${classes.container} bg-magenta-800/30 rounded-lg overflow-hidden mb-3 transition-transform group-hover:scale-105 relative`}
+        class={`${classes.container} bg-magenta-800/30 rounded-lg overflow-hidden mb-1 relative`}
       >
         <Show
           when={getCollectionImageUrl()}
@@ -324,7 +336,7 @@ export function CollectionCard(props: CollectionCardProps) {
           <img
             src={getCollectionImageUrl()!}
             alt={props.collection.title}
-            class={`${classes.image} object-cover`}
+            class={`${classes.image} object-cover transition-transform group-hover:scale-105`}
             loading="lazy"
           />
         </Show>
@@ -345,17 +357,10 @@ export function CollectionCard(props: CollectionCardProps) {
             </svg>
           </button>
         </div>
-
-        {/* Type indicator - only show for timeline items */}
-        <Show when={props.collection.item_type}>
-          <div class="absolute top-2 left-2 bg-black/90 px-2 py-1 text-xs font-medium">
-            <span class={getTypeColor()}>{getTypeDisplay()}</span>
-          </div>
-        </Show>
       </div>
 
       {/* Collection info */}
-      <div class="space-y-1">
+      <div class="space-y-0.5">
         {/* Title */}
         <MarqueeText
           text={props.collection.title}
@@ -385,9 +390,9 @@ export function CollectionCard(props: CollectionCardProps) {
 
         {/* Metadata row */}
         <div
-          class={`text-gray-500 ${classes.meta} group-hover:text-gray-300 transition-colors flex items-center justify-between`}
+          class={`text-gray-500 ${classes.meta} group-hover:text-gray-300 transition-colors`}
         >
-          <div class="flex items-center space-x-2">
+          <div class="flex items-center space-x-1 flex-wrap">
             {/* Year */}
             <Show when={props.showYear && props.collection.year}>
               <span>{props.collection.year}</span>

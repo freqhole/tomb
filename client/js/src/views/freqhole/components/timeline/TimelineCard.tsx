@@ -468,63 +468,52 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
               const albumGroups = groupSongsByAlbum(grid().songs);
 
               return (
-                <div class="collection-grid mt-3 pt-3 border-t border-magenta-500/30  md:px-0">
-                  <div class="collection-albums-list space-y-2">
+                <div class="collection-grid mt-3 pt-3 border-t border-magenta-500/30 md:px-0">
+                  <div class="collection-albums-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     <For each={albumGroups}>
                       {(albumGroup) => (
-                        <div class="album-group bg-black/20 border border-white/10 p-2 mx-0 md:mx-0">
-                          <div class="album-header mb-1 flex items-center justify-between">
-                            <div class="album-info">
-                              <div class="text-white/80 text-xs font-medium">
-                                {albumGroup.album} - {albumGroup.artist}
-                              </div>
-                              <div class="text-white/50 text-xs">
-                                {albumGroup.songs.length} song
-                                {albumGroup.songs.length !== 1 ? "s" : ""}
-                              </div>
-                            </div>
-                            <button
-                              class="album-play-btn w-6 h-6 bg-magenta-600 hover:bg-magenta-500 rounded-full flex items-center justify-center transition-colors"
-                              onClick={() => {
-                                const albumObj = {
-                                  album: albumGroup.album,
-                                  artist: albumGroup.artist,
-                                  year: null,
-                                  track_count: albumGroup.songs.length,
-                                  disc_count: 1,
-                                  total_duration: null,
-                                  genres: null,
-                                  avg_rating: null,
-                                  favorite_count: 0,
-                                  album_thumbnail_id:
-                                    albumGroup.thumbnail_blob_id,
-                                };
-                                collectionInteractions.playAlbum(albumObj);
-                              }}
-                              title="play album"
-                            >
-                              <svg
-                                class="w-3 h-3 text-white ml-0.5"
-                                fill="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path d="M8 5v14l11-7z" />
-                              </svg>
-                            </button>
-                          </div>
-                          <div class="album-songs space-y-1">
-                            <For each={albumGroup.songs}>
-                              {(song) => (
-                                <TimelineItemRow
-                                  item={createSongFeedItem(song)}
-                                  showTime={false}
-                                  showUsername={false}
-                                  compact={true}
-                                />
-                              )}
-                            </For>
-                          </div>
-                        </div>
+                        <CollectionCard
+                          collection={{
+                            id: `${albumGroup.album}:${albumGroup.artist}`,
+                            title: albumGroup.album,
+                            subtitle: `by ${albumGroup.artist}`,
+                            domain_type: "album" as const,
+                            artist: albumGroup.artist,
+                            album: albumGroup.album,
+                            thumbnail_blob_id: albumGroup.thumbnail_blob_id,
+                            track_count: albumGroup.songs.length,
+                            year: albumGroup.songs[0]?.year,
+                            genres:
+                              [
+                                ...new Set(
+                                  albumGroup.songs
+                                    .map((s) => s.genre)
+                                    .filter(Boolean)
+                                ),
+                              ].join(", ") || null,
+                            created_at: new Date().toISOString(),
+                          }}
+                          size="small"
+                          showYear={true}
+                          showGenres={true}
+                          enableNavigation={true}
+                          enableContextMenu={true}
+                          onPlay={() => {
+                            const albumObj = {
+                              album: albumGroup.album,
+                              artist: albumGroup.artist,
+                              year: null,
+                              track_count: albumGroup.songs.length,
+                              disc_count: 1,
+                              total_duration: null,
+                              genres: null,
+                              avg_rating: null,
+                              favorite_count: 0,
+                              album_thumbnail_id: albumGroup.thumbnail_blob_id,
+                            };
+                            collectionInteractions.playAlbum(albumObj);
+                          }}
+                        />
                       )}
                     </For>
                   </div>

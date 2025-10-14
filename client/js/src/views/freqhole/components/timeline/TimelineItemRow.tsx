@@ -288,12 +288,12 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
 
   return (
     <div
-      class="timeline-item-row group cursor-pointer bg-black/30 border border-white/10 px-0 py-2 md:p-2 hover:bg-black/50 transition-colors"
+      class="timeline-item-row group cursor-pointer bg-black/30 border border-white/10 px-0 py-1 md:p-1 hover:bg-black/50 transition-colors"
       onClick={handleRowClick}
       onDblClick={handleRowDoubleClick}
       onContextMenu={handleContextMenu}
     >
-      <div class="flex items-center gap-3 px-2 md:px-0">
+      <div class="flex items-center gap-2 px-2 md:px-0">
         {/* Media Image */}
         <MediaImage
           imageUrl={imageUrl}
@@ -305,7 +305,7 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
 
         {/* Action Icon */}
         <div
-          class={`action-icon text-sm ${getActionIconColor(props.item)} flex-shrink-0`}
+          class={`action-icon text-xs ${getActionIconColor(props.item)} flex-shrink-0`}
         >
           {getActionIcon(props.item)}
         </div>
@@ -316,10 +316,10 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
             <div class="flex-1 min-w-0">
               <MarqueeText
                 text={props.item.title || "unknown item"}
-                class="text-white text-sm font-medium group-hover:text-magenta-300 transition-colors"
+                class="text-white text-xs font-medium group-hover:text-magenta-300 transition-colors leading-tight"
               />
 
-              <div class="text-white/60 text-xs">
+              <div class="text-white/60 text-xs leading-tight">
                 <Show when={props.showUsername}>
                   <span class="text-magenta-400">{props.item.username}</span>
                   <span class="mx-1">•</span>
@@ -334,7 +334,7 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
               </div>
 
               <Show when={props.showTime}>
-                <div class="text-white/40 text-xs">
+                <div class="text-white/40 text-xs leading-tight">
                   {formatRelativeTime(props.item.created_at)}
                 </div>
               </Show>

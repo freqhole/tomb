@@ -235,6 +235,7 @@ pub async fn upload_large_file(
             &file_path.to_string_lossy(),
             original_filename,
             Some(&upload_request.metadata),
+            Some(user.user().id),
         )
         .await
         {

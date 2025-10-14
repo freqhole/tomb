@@ -1,12 +1,11 @@
 import { JSX, Show, For } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { MarqueeText } from "../shared/MarqueeText";
 import {
   CollectionCard,
   type CollectionCardData,
 } from "../shared/CollectionCard";
 import { useCollectionInteractions } from "../../services/collectionInteractions";
-import { useSongInteractions } from "../../services/songInteractions";
+
 import type { FeedItem } from "../../../../lib/analytics/analytics-api";
 import type { GroupedFeedItem } from "./timeline-grouping";
 import { getGroupSummaryText } from "./timeline-grouping";
@@ -22,24 +21,143 @@ export function GroupedTimelineCard(
 ): JSX.Element {
   const navigate = useNavigate();
   const collectionInteractions = useCollectionInteractions();
-  const songInteractions = useSongInteractions();
 
   const createItemCardData = (item: FeedItem): CollectionCardData => {
+    // Aggregate metadata from songs in collection_grid
+    const songs = item.metadata?.collection_grid?.songs || [];
+
+    // Calculate aggregated metadata
+    const years = songs.map((s) => s.year).filter(Boolean);
+    const genres = songs.map((s) => s.genre).filter(Boolean);
+    const tags = songs.flatMap((s) => s.tags || []).filter(Boolean);
+    const durations = songs.map((s) => s.duration).filter(Boolean);
+
+    // Calculate total duration in seconds
+    const totalSeconds = durations.reduce((sum, duration) => {
+      if (!duration) return sum;
+      const parts = duration.split(":").map(Number);
+      return sum + parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
+    }, 0);
+
+    const formatTotalDuration = (seconds: number): string => {
+      if (seconds === 0) return "";
+      const hours = Math.floor(seconds / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      return hours > 0
+        ? `${hours}:${mins.toString().padStart(2, "0")}:00`
+        : `${mins}:00`;
+    };
+
+    // Handle activity/session items differently
+    const isActivityItem =
+      item.item_type?.includes("activity") ||
+      item.item_type?.includes("session");
+
     return {
-      id: item.domain_ids?.[0] || "",
+      id: item.domain_ids?.[0] || item.user_id || "",
       title: item.title,
-      subtitle: getItemSubtitle(item),
-      domain_type: item.domain_type as
-        | "album"
-        | "playlist"
-        | "artist"
-        | "genre"
-        | "song",
+      subtitle: isActivityItem ? item.subtitle : getItemSubtitle(item),
+      domain_type: (item.domain_type === "collection"
+        ? "album"
+        : item.domain_type) as "album" | "playlist" | "artist" | "genre",
       image_url: item.image_url,
       play_count: item.play_count,
       last_played_at: item.last_played_at,
       created_at: item.created_at,
+      // Enhanced metadata aggregation
+      artist: item.metadata?.artist_name || songs[0]?.artist,
+      album: item.metadata?.album_name || songs[0]?.album,
+      year: years.length > 0 ? Math.min(...years) : null, // Use earliest year
+      track_count:
+        item.metadata?.total_songs ||
+        item.metadata?.user_activity?.unique_collections ||
+        songs.length,
+      genres: [...new Set(genres)].join(", ") || null, // Unique genres
+      tags: [...new Set(tags)].join(", ") || null, // Unique tags
+      total_duration: isActivityItem
+        ? item.metadata?.user_activity?.session_duration
+          ? formatTotalDuration(item.metadata.user_activity.session_duration)
+          : null
+        : formatTotalDuration(totalSeconds) || null,
+      item_type: item.item_type as any,
+      // Try to get thumbnail from first song that has one
+      thumbnail_blob_id: songs.find((s) => s.thumbnail_blob_id)
+        ?.thumbnail_blob_id,
+      // Also try image_url if available
+      image_url: item.image_url || null,
     };
+  };
+
+  const isCollectionContext = (item: FeedItem): boolean => {
+    return (
+      item.domain_type === "album" ||
+      item.domain_type === "playlist" ||
+      item.domain_type === "artist"
+    );
+  };
+
+  // Filter out individual songs when there's an album card with same artist/album
+  const getFilteredItems = (items: FeedItem[]): FeedItem[] => {
+    const albumItems = items.filter((item) => item.domain_type === "album");
+
+    if (albumItems.length === 0) {
+      return items; // No albums, return all items
+    }
+
+    // Get album identifiers for filtering
+    const albumKeys = new Set(
+      albumItems.map((album) => {
+        // Extract album and artist from different possible sources
+        let albumName = album.metadata?.album_name;
+        let artistName = album.metadata?.artist_name;
+
+        // Try extracting from title if metadata is missing
+        if (!albumName || !artistName) {
+          const titleParts = album.title?.split(" by ") || [];
+          if (titleParts.length >= 2) {
+            albumName = albumName || titleParts[0];
+            artistName = artistName || titleParts[1];
+          }
+        }
+
+        // Try extracting from collection_grid songs
+        if (!albumName || !artistName) {
+          const firstSong = album.metadata?.collection_grid?.songs?.[0];
+          albumName = albumName || firstSong?.album;
+          artistName = artistName || firstSong?.artist;
+        }
+
+        return `${albumName}:${artistName}`.toLowerCase();
+      })
+    );
+
+    // Filter out songs that match any album
+    return items.filter((item) => {
+      if (item.domain_type !== "song") {
+        return true; // Keep all non-song items (including activity/session items)
+      }
+
+      // Extract song's album/artist info from title parsing
+      const songTitle = item.title || "";
+      const titleMatch = songTitle.match(/^(.+?)\s*-\s*(.+)$/);
+      let songTitle_clean = titleMatch ? titleMatch[1] : songTitle;
+      let songArtist = titleMatch ? titleMatch[2] : "";
+
+      // Try getting from metadata first
+      const songAlbum = item.metadata?.collection_grid?.songs?.[0]?.album;
+      const songArtistMeta = item.metadata?.collection_grid?.songs?.[0]?.artist;
+
+      // Use metadata if available, otherwise use parsed values
+      const finalAlbum = songAlbum || songTitle_clean;
+      const finalArtist = songArtistMeta || songArtist;
+
+      if (!finalAlbum || !finalArtist) {
+        return true; // Keep songs without clear album/artist info
+      }
+
+      const songKey = `${finalAlbum}:${finalArtist}`.toLowerCase();
+      return !albumKeys.has(songKey); // Remove songs that match an album
+    });
   };
 
   const getItemSubtitle = (item: FeedItem): string => {
@@ -78,37 +196,6 @@ export function GroupedTimelineCard(
     }
   };
 
-  const handleSingleSongPlay = (item: FeedItem) => {
-    const songData = {
-      id: item.domain_ids?.[0] || "",
-      media_blob_id: item.domain_ids?.[0] || "",
-      title: item.title || "Unknown Song",
-      artist: extractArtistFromTitle(item.title) || "Unknown Artist",
-      album: null,
-      album_artist: null,
-      track_number: null,
-      disc_number: null,
-      duration_seconds: null,
-      genre: null,
-      sub_genres: null,
-      year: null,
-      bpm: null,
-      key_signature: null,
-      user_rating: null,
-      user_is_favorite: false,
-      tags: [],
-      display_title: item.title || "Unknown Song",
-      detailed_display_title: item.title || "Unknown Song",
-      created_at: new Date().toISOString(),
-      thumbnail_blob_id: null,
-      waveform_blob_id: null,
-      thumbnail_blob_ids: [],
-      preference_updated_at: null,
-    };
-
-    songInteractions.playSong(songData, true);
-  };
-
   const handleSingleCollectionPlay = (item: FeedItem) => {
     switch (item.domain_type) {
       case "album":
@@ -117,7 +204,7 @@ export function GroupedTimelineCard(
         if (albumArtist && item.title) {
           const albumName = item.title.split(" - ")[0];
           const albumObj = {
-            album: albumName,
+            album: albumName || null,
             artist: albumArtist,
             year: null,
             track_count: 0,
@@ -180,16 +267,16 @@ export function GroupedTimelineCard(
         }
         break;
       case "album":
-        const artist = extractArtistFromTitle(item.title);
+        const artist = extractArtistFromTitle(item.title || "");
         if (artist && item.title) {
           const albumName = item.title.split(" - ")[0];
-          const encodedAlbum = encodeURIComponent(albumName);
+          const encodedAlbum = encodeURIComponent(albumName || "");
           const encodedArtist = encodeURIComponent(artist);
           navigate(`/album/${encodedArtist}/${encodedAlbum}`);
         }
         break;
       case "song":
-        const songArtist = extractArtistFromTitle(item.title);
+        const songArtist = extractArtistFromTitle(item.title || "");
         if (songArtist) {
           const encodedArtist = encodeURIComponent(songArtist);
           navigate(`/artist/${encodedArtist}`);
@@ -200,51 +287,12 @@ export function GroupedTimelineCard(
     }
   };
 
-  const extractArtistFromTitle = (title: string): string | null => {
+  const extractArtistFromTitle = (
+    title: string | null | undefined
+  ): string | null => {
+    if (!title) return null;
     const parts = title.split(" - ");
-    return parts.length > 1 ? parts[1] : null;
-  };
-
-  const getItemIcon = (item: FeedItem): string => {
-    switch (item.item_type) {
-      case "user_played_song":
-      case "user_played_album":
-      case "user_played_playlist":
-      case "user_played_artist":
-      case "user_played_genre":
-        return "▶";
-      case "user_favorited_song":
-      case "user_favorited_album":
-      case "user_favorited_playlist":
-        return "♥";
-      case "user_unfavorited_song":
-        return "♡";
-      case "user_rated_song":
-        return "★";
-      default:
-        return "•";
-    }
-  };
-
-  const getItemIconColor = (item: FeedItem): string => {
-    switch (item.item_type) {
-      case "user_played_song":
-      case "user_played_album":
-      case "user_played_playlist":
-      case "user_played_artist":
-      case "user_played_genre":
-        return "text-white";
-      case "user_favorited_song":
-      case "user_favorited_album":
-      case "user_favorited_playlist":
-        return "text-magenta";
-      case "user_unfavorited_song":
-        return "text-white/50";
-      case "user_rated_song":
-        return "text-yellow-400";
-      default:
-        return "text-white/70";
-    }
+    return parts.length > 1 ? parts[1] || null : null;
   };
 
   const getGroupBorderColor = (): string => {
@@ -273,15 +321,40 @@ export function GroupedTimelineCard(
         </div>
       </div>
 
-      {/* Single Item Display - Use compact row */}
-      <Show when={props.group.groupType === "single"}>
+      {/* Single Item Display - Use collection card for album/playlist/artist/activity, row for songs */}
+      <Show when={props.group.groupType === "single" && props.group.items[0]}>
         <div class="single-item-container mt-3 px-2 md:px-0">
-          <TimelineItemRow
-            item={props.group.items[0]}
-            showTime={false}
-            showUsername={false}
-            compact={false}
-          />
+          <Show
+            when={
+              props.group.items[0] &&
+              props.group.items[0].domain_type !== "song"
+            }
+            fallback={
+              props.group.items[0] && (
+                <TimelineItemRow
+                  item={props.group.items[0]}
+                  showTime={false}
+                  showUsername={false}
+                  compact={false}
+                />
+              )
+            }
+          >
+            {props.group.items[0] && (
+              <CollectionCard
+                collection={createItemCardData(props.group.items[0])}
+                onPlay={() => handleSingleCollectionPlay(props.group.items[0]!)}
+                onClick={() => handleViewItemNavigation(props.group.items[0]!)}
+                showPlayCount={true}
+                showYear={true}
+                showGenres={true}
+                showDuration={true}
+                enableNavigation={true}
+                enableContextMenu={true}
+                size="small"
+              />
+            )}
+          </Show>
         </div>
       </Show>
 
@@ -289,15 +362,33 @@ export function GroupedTimelineCard(
       <Show when={props.group.groupType === "consecutive"}>
         <div class="consecutive-items-container bg-white/5 border border-white/10 rounded-none p-3 mx-2 md:mx-0">
           {/* Consecutive Items Grid */}
-          <div class="consecutive-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-            <For each={props.group.items}>
+          <div class="consecutive-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <For each={getFilteredItems(props.group.items)}>
               {(item) => (
-                <TimelineItemRow
-                  item={item}
-                  showTime={true}
-                  showUsername={false}
-                  compact={true}
-                />
+                <Show
+                  when={item.domain_type !== "song"}
+                  fallback={
+                    <TimelineItemRow
+                      item={item}
+                      showTime={true}
+                      showUsername={false}
+                      compact={true}
+                    />
+                  }
+                >
+                  <CollectionCard
+                    collection={createItemCardData(item)}
+                    onPlay={() => handleSingleCollectionPlay(item)}
+                    onClick={() => handleViewItemNavigation(item)}
+                    showPlayCount={true}
+                    showYear={true}
+                    showGenres={true}
+                    showDuration={true}
+                    size="small"
+                    enableNavigation={true}
+                    enableContextMenu={true}
+                  />
+                </Show>
               )}
             </For>
           </div>
