@@ -118,22 +118,16 @@ BEGIN
             rd.media_blob_id,
             -- Create grouping keys for different levels
             CASE
-                WHEN rd.age_minutes <= 30 THEN
+                WHEN rd.age_minutes <= 10080 THEN -- 7 days - show as individual items
                     CONCAT(rd.user_id, ':', rd.domain_type, ':', COALESCE(array_to_string(rd.domain_ids, ','), rd.media_blob_id), ':individual')
-                WHEN rd.age_minutes <= 720 THEN -- 12 hours
-                    CONCAT(rd.user_id, ':', rd.session_group, ':session')
-                WHEN rd.age_minutes <= 1440 THEN -- 24 hours
-                    CONCAT(rd.user_id, ':', DATE(rd.event_timestamp), ':daily')
-                WHEN rd.age_minutes <= 10080 THEN -- 1 week
+                WHEN rd.age_minutes <= 20160 THEN -- 2 weeks
                     CONCAT(rd.user_id, ':', DATE_TRUNC('week', rd.event_timestamp), ':weekly')
                 ELSE
                     CONCAT(rd.user_id, ':', DATE_TRUNC('month', rd.event_timestamp), ':monthly')
             END as grouping_key,
             CASE
-                WHEN rd.age_minutes <= 30 THEN 'individual'
-                WHEN rd.age_minutes <= 720 THEN 'session'
-                WHEN rd.age_minutes <= 1440 THEN 'daily'
-                WHEN rd.age_minutes <= 10080 THEN 'weekly'
+                WHEN rd.age_minutes <= 10080 THEN 'individual' -- 7 days - show as individual items
+                WHEN rd.age_minutes <= 20160 THEN 'weekly' -- 2 weeks
                 ELSE 'monthly'
             END as grouping_level
         FROM rating_deduplicated rd
