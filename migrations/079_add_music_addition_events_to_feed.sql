@@ -420,7 +420,7 @@ BEGIN
         fr.user_id,
         fr.computed_username::text as username
     FROM final_results fr
-    ORDER BY fr.computed_score DESC, fr.latest_activity DESC
+    ORDER BY fr.latest_activity DESC, fr.computed_score DESC
     LIMIT p_limit
     OFFSET p_offset;
 END;

@@ -64,6 +64,12 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
   };
   const getActionText = (event: FeedItem): string => {
     switch (event.item_type) {
+      case "recent_album":
+        return "added new music";
+      case "recent_playlist":
+        return "added new playlist";
+      case "recent_song":
+        return "added new song";
       case "user_played_album":
         return "played album";
       case "user_played_playlist":
@@ -539,7 +545,7 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
                     <div class="text-xs text-magenta-400 mb-2 px-2">
                       Favorited & Rated Songs
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 py-2">
                       <For each={favoritedAndRatedSongs()}>
                         {(feedSong: any) => {
                           // Convert feedSong to FeedItem format for TimelineItemRow

@@ -316,22 +316,22 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
 
   return (
     <div
-      class={`timeline-item-row group cursor-pointer bg-black/30 border border-white/10 px-0 py-1 md:p-1 hover:bg-black/50 transition-colors ${
-        props.compact ? "h-12 self-start w-full overflow-hidden" : ""
+      class={`timeline-item-row group cursor-pointer bg-black/30 border border-white/10 py-1 pr-2 hover:bg-black/50 transition-colors ${
+        props.compact ? "h-16 self-start w-full overflow-hidden" : ""
       }`}
       onClick={handleRowClick}
       onDblClick={handleRowDoubleClick}
       onContextMenu={handleContextMenu}
     >
       <div
-        class={`flex items-center gap-2 px-2 md:px-0 ${props.compact ? "min-w-0 h-full" : ""}`}
+        class={`flex items-center gap-2 ${props.compact ? "px-0" : "px-2 md:px-0"} ${props.compact ? "min-w-0 h-full" : ""}`}
       >
         {/* Media Image with Hover Play Button */}
         <div class="relative flex-shrink-0">
           <MediaImage
             imageUrl={imageUrl}
             alt={props.item.title || "unknown item"}
-            size={compactSize}
+            size={props.compact ? "md" : compactSize}
             domainType={props.item.domain_type as any}
             enableHover={false}
           />
@@ -358,7 +358,7 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
 
         {/* Item Info */}
         <div
-          class={`item-info flex-1 min-w-0 ${props.compact ? "overflow-hidden flex flex-col justify-center h-full py-0.5" : ""}`}
+          class={`item-info flex-1 min-w-0 ${props.compact ? "overflow-hidden flex flex-col justify-center h-full py-1" : ""}`}
         >
           <div class="flex items-start justify-between gap-2">
             <div class="flex-1 min-w-0">
@@ -366,7 +366,7 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
                 text={props.item.title || "unknown item"}
                 class={`text-white font-medium group-hover:text-magenta-300 transition-colors ${
                   props.compact
-                    ? "text-xs leading-tight"
+                    ? "text-sm leading-tight"
                     : "text-xs leading-tight"
                 }`}
               />
@@ -393,7 +393,7 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
                 })()}
                 class={`text-white/70 ${
                   props.compact
-                    ? "text-xs leading-tight"
+                    ? "text-xs leading-relaxed"
                     : "text-xs leading-tight"
                 }`}
               />
@@ -417,7 +417,7 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
                 })()}
                 class={`text-white/50 ${
                   props.compact
-                    ? "text-xs leading-tight"
+                    ? "text-xs leading-relaxed"
                     : "text-xs leading-tight"
                 }`}
               />

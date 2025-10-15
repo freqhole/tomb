@@ -220,7 +220,7 @@ export function getGroupSummaryText(group: GroupedFeedItem): string {
     }
   }
 
-  return summaryParts.join(", ") || "multiple interactions";
+  return summaryParts.join(", ") || "added new music";
 }
 
 /**
@@ -228,6 +228,12 @@ export function getGroupSummaryText(group: GroupedFeedItem): string {
  */
 function getSingleItemActionText(item: FeedItem): string {
   switch (item.item_type) {
+    case "recent_album":
+      return "added new music";
+    case "recent_playlist":
+      return "added new playlist";
+    case "recent_song":
+      return "added new song";
     case "user_played_song":
       return "played";
     case "user_played_album":
@@ -274,6 +280,7 @@ function groupItemsByType(items: FeedItem[]): Record<string, FeedItem[]> {
  * Extracts action verb from item type
  */
 function extractActionFromItemType(itemType: string): string {
+  if (itemType.includes("recent_")) return "added";
   if (itemType.includes("played")) return "played";
   if (itemType.includes("favorited")) return "favorited";
   if (itemType.includes("unfavorited")) return "unfavorited";
