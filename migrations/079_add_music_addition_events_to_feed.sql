@@ -116,12 +116,19 @@ BEGIN
             rd.age_minutes,
             rd.session_group,
             rd.media_blob_id,
-            -- Create grouping keys for different levels
+            -- Create grouping keys for three-tier system
             CASE
-                WHEN rd.age_minutes <= 30 THEN
+                -- Tier 1: Individual items (recent activity)
+                WHEN rd.age_minutes <= 120 AND rd.event_type IN ('add', 'favorite', 'rate') THEN
                     CONCAT(rd.user_id, ':', rd.domain_type, ':', COALESCE(array_to_string(rd.domain_ids, ','), rd.media_blob_id), ':individual')
-                WHEN rd.age_minutes <= 720 THEN -- 12 hours
-                    CONCAT(rd.user_id, ':', rd.session_group, ':session')
+                WHEN rd.age_minutes <= 30 AND rd.event_type = 'play' THEN
+                    CONCAT(rd.user_id, ':', rd.domain_type, ':', COALESCE(array_to_string(rd.domain_ids, ','), rd.media_blob_id), ':individual')
+                -- Tier 2: Session grouping (separate listening from activity)
+                WHEN rd.age_minutes <= 720 AND rd.event_type = 'play' THEN -- 12 hours
+                    CONCAT(rd.user_id, ':', rd.session_group, ':listening_session')
+                WHEN rd.age_minutes <= 720 AND rd.event_type IN ('add', 'favorite', 'rate') THEN -- 12 hours
+                    CONCAT(rd.user_id, ':', rd.session_group, ':activity_session')
+                -- Tier 3: Daily/weekly aggregation (all events combined)
                 WHEN rd.age_minutes <= 1440 THEN -- 24 hours
                     CONCAT(rd.user_id, ':', DATE(rd.event_timestamp), ':daily')
                 WHEN rd.age_minutes <= 10080 THEN -- 1 week
@@ -130,8 +137,10 @@ BEGIN
                     CONCAT(rd.user_id, ':', DATE_TRUNC('month', rd.event_timestamp), ':monthly')
             END as grouping_key,
             CASE
-                WHEN rd.age_minutes <= 30 THEN 'individual'
-                WHEN rd.age_minutes <= 720 THEN 'session'
+                WHEN rd.age_minutes <= 120 AND rd.event_type IN ('add', 'favorite', 'rate') THEN 'individual'
+                WHEN rd.age_minutes <= 30 AND rd.event_type = 'play' THEN 'individual'
+                WHEN rd.age_minutes <= 720 AND rd.event_type = 'play' THEN 'listening_session'
+                WHEN rd.age_minutes <= 720 AND rd.event_type IN ('add', 'favorite', 'rate') THEN 'activity_session'
                 WHEN rd.age_minutes <= 1440 THEN 'daily'
                 WHEN rd.age_minutes <= 10080 THEN 'weekly'
                 ELSE 'monthly'
@@ -148,7 +157,8 @@ BEGIN
             -- For individual items, keep specific collection; for groups, create descriptive titles
             CASE
                 WHEN pg.grouping_level = 'individual' THEN (array_agg(pg.collection_name))[1]
-                WHEN pg.grouping_level = 'session' THEN 'listening session'
+                WHEN pg.grouping_level = 'listening_session' THEN 'listening session'
+                WHEN pg.grouping_level = 'activity_session' THEN 'music activity'
                 WHEN pg.grouping_level = 'daily' THEN 'daily music'
                 WHEN pg.grouping_level = 'weekly' THEN 'weekly listening'
                 WHEN pg.grouping_level = 'monthly' THEN 'monthly highlights'
@@ -260,7 +270,8 @@ BEGIN
                 WHEN ag.primary_event_type = 'favorite' AND ag.display_domain_type = 'song' THEN 'user_favorited_song'
                 WHEN ag.primary_event_type = 'unfavorite' AND ag.display_domain_type = 'song' THEN 'user_unfavorited_song'
                 WHEN ag.primary_event_type = 'rate' AND ag.display_domain_type = 'song' THEN 'user_rated_song'
-                WHEN ag.grouping_level = 'session' THEN 'user_listening_session'
+                WHEN ag.grouping_level = 'listening_session' THEN 'user_listening_session'
+                WHEN ag.grouping_level = 'activity_session' THEN 'user_activity_session'
                 WHEN ag.grouping_level = 'daily' THEN 'user_daily_activity'
                 WHEN ag.grouping_level = 'weekly' THEN 'user_weekly_activity'
                 WHEN ag.grouping_level = 'monthly' THEN 'user_monthly_activity'
@@ -271,12 +282,28 @@ BEGIN
             ag.display_title,
             -- Create subtitles based on event type and counts
             CASE
-                WHEN ag.primary_event_type = 'add' THEN 'added to collection'
-                WHEN ag.total_plays = 1 THEN 'played once'
-                WHEN ag.total_plays > 1 THEN ag.total_plays || ' plays'
-                WHEN ag.total_favorites > 0 THEN 'favorited'
-                WHEN ag.total_ratings > 0 THEN 'rated'
-                ELSE 'listened to'
+                WHEN ag.primary_event_type = 'add' AND ag.grouping_level = 'individual' THEN 'added to collection'
+                WHEN ag.grouping_level = 'activity_session' THEN
+                    CASE
+                        WHEN ag.total_additions > 0 AND ag.total_favorites > 0 THEN ag.total_additions || ' additions, ' || ag.total_favorites || ' favorites'
+                        WHEN ag.total_additions > 0 AND ag.total_ratings > 0 THEN ag.total_additions || ' additions, ' || ag.total_ratings || ' ratings'
+                        WHEN ag.total_additions > 0 THEN ag.total_additions || ' additions'
+                        WHEN ag.total_favorites > 0 THEN ag.total_favorites || ' favorites'
+                        WHEN ag.total_ratings > 0 THEN ag.total_ratings || ' ratings'
+                        ELSE 'music activity'
+                    END
+                WHEN ag.grouping_level = 'listening_session' THEN
+                    CASE
+                        WHEN ag.total_plays = 1 THEN 'played once'
+                        WHEN ag.total_plays > 1 THEN ag.total_plays || ' plays'
+                        ELSE 'listened to music'
+                    END
+                WHEN ag.total_plays > 0 AND ag.total_additions > 0 THEN ag.total_plays || ' plays, ' || ag.total_additions || ' additions'
+                WHEN ag.total_plays > 0 THEN ag.total_plays || ' plays'
+                WHEN ag.total_additions > 0 THEN ag.total_additions || ' additions'
+                WHEN ag.total_favorites > 0 THEN ag.total_favorites || ' favorites'
+                WHEN ag.total_ratings > 0 THEN ag.total_ratings || ' ratings'
+                ELSE 'music activity'
             END as computed_subtitle,
             -- Extract thumbnail from collection grid or use first song's thumbnail
             COALESCE(
