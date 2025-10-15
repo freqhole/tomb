@@ -233,14 +233,12 @@ BEGIN
                     SELECT unnest(pg_inner.domain_ids) as song_id
                     FROM progressive_groups pg_inner
                     WHERE pg_inner.grouping_key = pg.grouping_key
-                      AND pg_inner.grouping_level = 'individual'
                       AND pg_inner.domain_ids IS NOT NULL
                     UNION ALL
                     -- Individual songs from media_blob_id (for single song events)
                     SELECT pg_inner.media_blob_id as song_id
                     FROM progressive_groups pg_inner
                     WHERE pg_inner.grouping_key = pg.grouping_key
-                      AND pg_inner.grouping_level = 'individual'
                       AND pg_inner.media_blob_id IS NOT NULL
                 ) as all_song_ids
                 WHERE song_id IS NOT NULL
