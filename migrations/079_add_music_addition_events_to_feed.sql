@@ -296,8 +296,21 @@ BEGIN
                         WHEN ag.total_plays > 1 THEN ag.total_plays || ' plays'
                         ELSE 'listened to music'
                     END
-                WHEN ag.total_plays > 0 AND ag.total_additions > 0 THEN ag.total_plays || ' plays, ' || ag.total_additions || ' additions'
-                WHEN ag.total_plays > 0 THEN ag.total_plays || ' plays'
+                WHEN ag.total_plays > 0 THEN
+                    CASE
+                        WHEN ag.total_additions > 0 AND ag.total_favorites > 0 AND ag.total_ratings > 0 THEN
+                            ag.total_plays || ' plays, ' || ag.total_additions || ' additions, ' || ag.total_favorites || ' favorites, ' || ag.total_ratings || ' ratings'
+                        WHEN ag.total_additions > 0 AND ag.total_favorites > 0 THEN
+                            ag.total_plays || ' plays, ' || ag.total_additions || ' additions, ' || ag.total_favorites || ' favorites'
+                        WHEN ag.total_additions > 0 AND ag.total_ratings > 0 THEN
+                            ag.total_plays || ' plays, ' || ag.total_additions || ' additions, ' || ag.total_ratings || ' ratings'
+                        WHEN ag.total_favorites > 0 AND ag.total_ratings > 0 THEN
+                            ag.total_plays || ' plays, ' || ag.total_favorites || ' favorites, ' || ag.total_ratings || ' ratings'
+                        WHEN ag.total_additions > 0 THEN ag.total_plays || ' plays, ' || ag.total_additions || ' additions'
+                        WHEN ag.total_favorites > 0 THEN ag.total_plays || ' plays, ' || ag.total_favorites || ' favorites'
+                        WHEN ag.total_ratings > 0 THEN ag.total_plays || ' plays, ' || ag.total_ratings || ' ratings'
+                        ELSE ag.total_plays || ' plays'
+                    END
                 WHEN ag.total_additions > 0 THEN ag.total_additions || ' additions'
                 WHEN ag.total_favorites > 0 THEN ag.total_favorites || ' favorites'
                 WHEN ag.total_ratings > 0 THEN ag.total_ratings || ' ratings'
