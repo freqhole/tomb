@@ -45,12 +45,17 @@ pub struct DownloadJob {
     pub retry_count: i32,
     pub max_retries: i32,
     pub content_id: Option<String>,
+    pub user_id: Option<Uuid>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }
 
 /// Create a new download job
-pub async fn create_download_job(db: &DatabaseConnection, url: &str) -> Result<String, AppError> {
+pub async fn create_download_job(
+    db: &DatabaseConnection,
+    url: &str,
+    user_id: Uuid,
+) -> Result<String, AppError> {
     let job_id = Uuid::new_v4();
 
     sqlx::query!(
@@ -61,15 +66,17 @@ pub async fn create_download_job(db: &DatabaseConnection, url: &str) -> Result<S
             status,
             retry_count,
             max_retries,
+            user_id,
             created_at,
             updated_at
-        ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+        ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
         "#,
         job_id,
         url,
         DownloadJobStatus::Queued.to_string(),
         0,
-        3
+        3,
+        user_id
     )
     .execute(db.pool())
     .await
@@ -89,7 +96,7 @@ pub async fn get_pending_jobs(
 ) -> Result<Vec<DownloadJob>, AppError> {
     let rows = sqlx::query!(
         r#"
-        SELECT id, url, status, download_path, error_message, retry_count, max_retries, content_id, created_at, updated_at
+        SELECT id, url, status, download_path, error_message, retry_count, max_retries, content_id, user_id, created_at, updated_at
         FROM download_jobs
         WHERE status = 'queued'
         ORDER BY created_at ASC
@@ -122,6 +129,7 @@ pub async fn get_pending_jobs(
             retry_count: row.retry_count,
             max_retries: row.max_retries,
             content_id: row.content_id,
+            user_id: row.user_id,
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
@@ -304,7 +312,7 @@ pub async fn extract_metadata_only(
 pub async fn get_job_by_id(db: &DatabaseConnection, job_id: Uuid) -> Result<DownloadJob, AppError> {
     let row = sqlx::query!(
         r#"
-        SELECT id, url, status, download_path, error_message, retry_count, max_retries, content_id, created_at, updated_at
+        SELECT id, url, status, download_path, error_message, retry_count, max_retries, content_id, user_id, created_at, updated_at
         FROM download_jobs
         WHERE id = $1
         "#,
@@ -334,6 +342,7 @@ pub async fn get_job_by_id(db: &DatabaseConnection, job_id: Uuid) -> Result<Down
             retry_count: row.retry_count,
             max_retries: row.max_retries,
             content_id: row.content_id,
+            user_id: row.user_id,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }),

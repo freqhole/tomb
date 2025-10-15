@@ -449,9 +449,20 @@ impl<'a> AnalyticsService<'a> {
         album_name: &str,
         artist_name: &str,
         user_id: Option<Uuid>,
-        job_id: &str,
+        session_id: &str,
         original_filename: Option<&str>,
     ) -> Result<(), MediaAnalyticsError> {
+        // Skip analytics if no user context
+        let user_id = match user_id {
+            Some(id) => id,
+            None => {
+                tracing::warn!(
+                    "Skipping analytics creation for song {} - no user context",
+                    song_id
+                );
+                return Ok(());
+            }
+        };
         if !self.config.enabled {
             return Ok(());
         }
@@ -495,17 +506,11 @@ impl<'a> AnalyticsService<'a> {
         // Create new event with this song
         let domain_ids = vec![song_id_str];
 
-        let effective_user_id = user_id.unwrap_or_else(|| {
-            // fallback to system user id for background jobs
-            Uuid::parse_str("00000000-0000-0000-0000-000000000000")
-                .unwrap_or_else(|_| Uuid::new_v4())
-        });
-
         // Create album-level analytics event with no media_blob_id
         let mut analytics_event = MediaEvent::new(
             None, // no specific media blob for album-level event
             crate::analytics::media_events::MediaEventType::Add,
-            Some(effective_user_id),
+            Some(user_id),
         );
 
         analytics_event.event_data = crate::analytics::media_events::MediaEventData::Generic {
@@ -529,7 +534,7 @@ impl<'a> AnalyticsService<'a> {
                 );
                 data.insert(
                     "job_id".to_string(),
-                    serde_json::Value::String(job_id.to_string()),
+                    serde_json::Value::String(session_id.to_string()),
                 );
                 if let Some(filename) = original_filename {
                     data.insert(

@@ -144,6 +144,7 @@ BEGIN
             pg.grouping_key,
             pg.grouping_level,
             pg.user_id,
+            MIN(pg.age_minutes) as age_minutes,
             -- For individual items, keep specific collection; for groups, create descriptive titles
             CASE
                 WHEN pg.grouping_level = 'individual' THEN (array_agg(pg.collection_name))[1]
@@ -205,9 +206,9 @@ BEGIN
                     'disc_number', s.disc_number,
                     'track_number', s.track_number,
                     'duration', CASE
-                        WHEN s.duration_seconds IS NOT NULL THEN
-                            LPAD((s.duration_seconds / 60)::text, 2, '0') || ':' ||
-                            LPAD((s.duration_seconds % 60)::text, 2, '0')
+                        WHEN s.duration IS NOT NULL THEN
+                            LPAD((EXTRACT(EPOCH FROM s.duration)::int / 60)::text, 2, '0') || ':' ||
+                            LPAD((EXTRACT(EPOCH FROM s.duration)::int % 60)::text, 2, '0')
                         ELSE NULL
                     END,
                     'thumbnail_blob_id', s.thumbnail_blob_id,
@@ -216,12 +217,16 @@ BEGIN
                     'is_favorite', false
                 ) ORDER BY s.track_number NULLS LAST, s.title)
             ) FROM (
-                SELECT DISTINCT
-                    CASE
-                        WHEN pg.grouping_level = 'individual' AND (array_agg(pg.domain_ids) FILTER (WHERE pg.domain_ids IS NOT NULL))[1] IS NOT NULL THEN
-                            UNNEST((array_agg(pg.domain_ids) FILTER (WHERE pg.domain_ids IS NOT NULL))[1])
-                        ELSE pg.media_blob_id
-                    END as song_id
+                -- Get song IDs from domain_ids arrays
+                SELECT DISTINCT unnested_id as song_id
+                FROM progressive_groups pg
+                CROSS JOIN LATERAL unnest(pg.domain_ids) AS unnested_id
+                WHERE pg.grouping_level = 'individual' AND pg.domain_ids IS NOT NULL
+                UNION
+                -- Get song IDs from media_blob_id
+                SELECT DISTINCT pg.media_blob_id as song_id
+                FROM progressive_groups pg
+                WHERE pg.grouping_level = 'individual' AND pg.media_blob_id IS NOT NULL
             ) as all_song_ids
             JOIN songs s ON (s.media_blob_id = all_song_ids.song_id OR s.id::text = all_song_ids.song_id)
             WHERE s.deleted_at IS NULL
@@ -329,13 +334,13 @@ BEGIN
             ) as computed_score,
             ag.earliest_activity as computed_created_at,
             ag.user_id,
-            (SELECT username FROM users WHERE id = ag.user_id) as computed_username
+            (SELECT u.username FROM users u WHERE u.id = ag.user_id) as computed_username
         FROM aggregated_groups ag
         WHERE ag.total_events > 0
     )
     SELECT
         fr.computed_item_type,
-        fr.display_domain_type,
+        fr.display_domain_type::text,
         fr.display_domain_ids,
         fr.display_title,
         fr.computed_subtitle,
@@ -343,10 +348,10 @@ BEGIN
         fr.computed_metadata,
         fr.total_plays,
         fr.latest_activity,
-        fr.computed_score,
+        fr.computed_score::double precision,
         fr.computed_created_at,
         fr.user_id,
-        fr.computed_username
+        fr.computed_username::text as username
     FROM final_results fr
     ORDER BY fr.computed_score DESC, fr.latest_activity DESC
     LIMIT p_limit

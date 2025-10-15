@@ -83,7 +83,7 @@ pub async fn download_urls(
         }
 
         // Create download job - duplicates will be handled by the job itself
-        match super::jobs::create_download_job(&db, &url).await {
+        match super::jobs::create_download_job(&db, &url, user.user().id).await {
             Ok(job_id) => {
                 download_jobs.push(DownloadJobInfo {
                     job_id,

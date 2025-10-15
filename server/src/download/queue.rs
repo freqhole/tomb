@@ -343,7 +343,7 @@ impl DownloadJobQueue {
             file_path,
             Some(filename),
             Some(&upload_metadata),
-            None, // No authenticated user for download jobs - they run as system
+            job.user_id, // Use the user who initiated the download
         )
         .await
         {
