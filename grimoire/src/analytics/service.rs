@@ -439,6 +439,124 @@ impl<'a> AnalyticsService<'a> {
     ) -> Result<serde_json::Value, MediaAnalyticsError> {
         self.repo.get_collection_overview(days_back).await
     }
+
+    /// Create or update an album addition analytics event
+    /// If an event for this album already exists, add the song to it
+    /// If not, create a new event with this song
+    pub async fn create_or_update_album_addition_event(
+        &self,
+        song_id: Uuid,
+        album_name: &str,
+        artist_name: &str,
+        user_id: Option<Uuid>,
+        job_id: &str,
+        original_filename: Option<&str>,
+    ) -> Result<(), MediaAnalyticsError> {
+        if !self.config.enabled {
+            return Ok(());
+        }
+
+        // Check if we've already emitted an analytics event for this album
+        let existing_event = self
+            .repo
+            .get_album_addition_event(album_name, artist_name)
+            .await?;
+
+        let song_id_str = song_id.to_string();
+
+        if let Some((event_id, domain_ids)) = existing_event {
+            // Update existing event to include this song
+            let mut current_domain_ids = domain_ids;
+            if !current_domain_ids.contains(&song_id_str) {
+                current_domain_ids.push(song_id_str);
+
+                self.repo
+                    .update_album_addition_event(event_id, current_domain_ids.clone())
+                    .await?;
+
+                tracing::info!(
+                    song_id = %song_id,
+                    album = %album_name,
+                    artist = %artist_name,
+                    total_songs = current_domain_ids.len(),
+                    "updated existing analytics event with new song"
+                );
+            } else {
+                tracing::info!(
+                    song_id = %song_id,
+                    album = %album_name,
+                    artist = %artist_name,
+                    "song already in analytics event - skipping"
+                );
+            }
+            return Ok(());
+        }
+
+        // Create new event with this song
+        let domain_ids = vec![song_id_str];
+
+        let effective_user_id = user_id.unwrap_or_else(|| {
+            // fallback to system user id for background jobs
+            Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                .unwrap_or_else(|_| Uuid::new_v4())
+        });
+
+        // Create album-level analytics event with no media_blob_id
+        let mut analytics_event = MediaEvent::new(
+            None, // no specific media blob for album-level event
+            crate::analytics::media_events::MediaEventType::Add,
+            Some(effective_user_id),
+        );
+
+        analytics_event.event_data = crate::analytics::media_events::MediaEventData::Generic {
+            data: {
+                let mut data = serde_json::Map::new();
+                data.insert(
+                    "source".to_string(),
+                    serde_json::Value::String("music_processing".to_string()),
+                );
+                data.insert(
+                    "collection_name".to_string(),
+                    serde_json::Value::String(album_name.to_string()),
+                );
+                data.insert(
+                    "artist_name".to_string(),
+                    serde_json::Value::String(artist_name.to_string()),
+                );
+                data.insert(
+                    "total_songs".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(domain_ids.len())),
+                );
+                data.insert(
+                    "job_id".to_string(),
+                    serde_json::Value::String(job_id.to_string()),
+                );
+                if let Some(filename) = original_filename {
+                    data.insert(
+                        "original_filename".to_string(),
+                        serde_json::Value::String(filename.to_string()),
+                    );
+                }
+                data
+            },
+        };
+        analytics_event.domain_type = Some(crate::analytics::media_events::DomainType::Album);
+        analytics_event.domain_ids = Some(domain_ids.clone());
+        analytics_event.client_id = Some("music_job_processor".to_string());
+
+        // Store analytics event
+        self.record_media_event(analytics_event).await?;
+
+        tracing::info!(
+            song_id = %song_id,
+            album = %album_name,
+            artist = %artist_name,
+            song_count = domain_ids.len(),
+            "created new analytics event for album addition"
+        );
+
+        Ok(())
+    }
 }
 
 /// Builder for creating RequestAnalytics records

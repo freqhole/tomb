@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE media_events\n            SET domain_ids = $1,\n                event_data = jsonb_set(event_data, '{total_songs}', $2::jsonb)\n            WHERE id = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ab7e6d57e47cf78488a37937af17d8133d748d76b6b1e0892aac1ff4cf3215c8"
+}

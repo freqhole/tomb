@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, domain_ids\n            FROM media_events\n            WHERE event_type = 'add'\n            AND domain_type = 'album'\n            AND event_data->>'collection_name' = $1\n            AND event_data->>'artist_name' = $2\n            AND event_data->>'source' = 'music_processing'\n            AND created_at >= NOW() - interval '1 hour'\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "domain_ids",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "c853981a4bf3921edf361db85db636509a4c2abcf783e596fe03d86d522d462b"
+}

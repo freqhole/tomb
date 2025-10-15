@@ -5,7 +5,7 @@
 //! It follows the same pattern as the thumbnail job queue system.
 
 use crate::jobs::ThumbnailJobQueue;
-use grimoire::analytics::media_events::{DomainType, MediaEvent, MediaEventData, MediaEventType};
+
 use grimoire::DatabaseConnection;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
@@ -719,79 +719,34 @@ impl MusicJobQueue {
         let music_repo = MusicRepository::new(db.pool().clone());
         let song = music_repo.get_song(*song_id).await?;
 
-        // create analytics event for album addition (batch songs by album)
-        let domain_type = DomainType::Album;
-        let domain_ids = vec![format!(
-            "{}:{}",
-            song.album.as_deref().unwrap_or("unknown album"),
-            song.artist.as_deref().unwrap_or("unknown artist")
-        )];
+        let album_name = song.album.as_deref().unwrap_or("unknown album");
+        let artist_name = song.artist.as_deref().unwrap_or("unknown artist");
 
-        // get user_id from job parameters if available, otherwise use system user
+        // get user_id from job parameters if available
         let user_id = job
             .parameters
             .get("user_id")
             .and_then(|v| v.as_str())
-            .and_then(|s| Uuid::parse_str(s).ok())
-            .unwrap_or_else(|| {
-                // fallback to system user id for background jobs
-                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
-                    .unwrap_or_else(|_| Uuid::new_v4())
-            });
+            .and_then(|s| Uuid::parse_str(s).ok());
 
-        let mut analytics_event = MediaEvent::new(
-            Some(song.media_blob_id.clone()),
-            MediaEventType::View, // use view event type for music addition
-            Some(user_id),
-        );
-        analytics_event.event_data = MediaEventData::Generic {
-            data: {
-                let mut data = serde_json::Map::new();
-                data.insert(
-                    "source".to_string(),
-                    serde_json::Value::String("music_processing".to_string()),
-                );
-                data.insert(
-                    "collection_name".to_string(),
-                    serde_json::Value::String(
-                        song.album.as_deref().unwrap_or("unknown album").to_string(),
-                    ),
-                );
-                data.insert(
-                    "artist_name".to_string(),
-                    serde_json::Value::String(
-                        song.artist
-                            .as_deref()
-                            .unwrap_or("unknown artist")
-                            .to_string(),
-                    ),
-                );
-                data.insert(
-                    "job_id".to_string(),
-                    serde_json::Value::String(job.id.to_string()),
-                );
-                if let Some(filename) = job.parameters.get("original_filename") {
-                    data.insert("original_filename".to_string(), filename.clone());
-                }
-                data
-            },
-        };
-        analytics_event.domain_type = Some(domain_type);
-        analytics_event.domain_ids = Some(domain_ids);
-        analytics_event.client_id = Some("music_job_processor".to_string());
+        // get original filename from job parameters
+        let original_filename = job
+            .parameters
+            .get("original_filename")
+            .and_then(|v| v.as_str());
 
-        // store analytics event
+        // use analytics service to create or update album addition event
         let analytics_service = AnalyticsService::new_with_defaults(db);
         analytics_service
-            .record_media_event(analytics_event)
+            .create_or_update_album_addition_event(
+                *song_id,
+                album_name,
+                artist_name,
+                user_id,
+                &job.id.to_string(),
+                original_filename,
+            )
             .await?;
-
-        info!(
-            song_id = %song_id,
-            album = %song.album.as_deref().unwrap_or("unknown album"),
-            artist = %song.artist.as_deref().unwrap_or("unknown artist"),
-            "emitted analytics event for music addition"
-        );
 
         Ok(())
     }

@@ -972,4 +972,56 @@ impl<'a> AnalyticsRepository<'a> {
 
         Ok(overview)
     }
+
+    /// Get existing album addition event for an album
+    pub async fn get_album_addition_event(
+        &self,
+        album_name: &str,
+        artist_name: &str,
+    ) -> Result<Option<(uuid::Uuid, Vec<String>)>, MediaAnalyticsError> {
+        let row = sqlx::query!(
+            r#"
+            SELECT id, domain_ids
+            FROM media_events
+            WHERE event_type = 'add'
+            AND domain_type = 'album'
+            AND event_data->>'collection_name' = $1
+            AND event_data->>'artist_name' = $2
+            AND event_data->>'source' = 'music_processing'
+            AND created_at >= NOW() - interval '1 hour'
+            LIMIT 1
+            "#,
+            album_name,
+            artist_name
+        )
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|e| MediaAnalyticsError::Database(e))?;
+
+        Ok(row.map(|r| (r.id, r.domain_ids.unwrap_or_default())))
+    }
+
+    /// Update existing album addition event with new song
+    pub async fn update_album_addition_event(
+        &self,
+        event_id: uuid::Uuid,
+        domain_ids: Vec<String>,
+    ) -> Result<(), MediaAnalyticsError> {
+        sqlx::query!(
+            r#"
+            UPDATE media_events
+            SET domain_ids = $1,
+                event_data = jsonb_set(event_data, '{total_songs}', $2::jsonb)
+            WHERE id = $3
+            "#,
+            &domain_ids,
+            serde_json::Value::Number(serde_json::Number::from(domain_ids.len())),
+            event_id
+        )
+        .execute(self.db.pool())
+        .await
+        .map_err(|e| MediaAnalyticsError::Database(e))?;
+
+        Ok(())
+    }
 }

@@ -28,8 +28,10 @@ pub enum MediaEventType {
     Tag,
     Untag,
 
-    // Sharing and download events
-    Download,
+    // Content management events
+    Add,
+
+    // Sharing events
     Share,
     View,
     ThumbnailClick,
@@ -69,7 +71,6 @@ impl MediaEventType {
                 | MediaEventType::Favorite
                 | MediaEventType::Unfavorite
                 | MediaEventType::Share
-                | MediaEventType::Download
         )
     }
 }
@@ -89,7 +90,7 @@ impl std::fmt::Display for MediaEventType {
             MediaEventType::Unfavorite => "unfavorite",
             MediaEventType::Tag => "tag",
             MediaEventType::Untag => "untag",
-            MediaEventType::Download => "download",
+            MediaEventType::Add => "add",
             MediaEventType::Share => "share",
             MediaEventType::View => "view",
             MediaEventType::ThumbnailClick => "thumbnail_click",
@@ -124,7 +125,7 @@ impl TryFrom<&str> for MediaEventType {
             "unfavorite" => Ok(MediaEventType::Unfavorite),
             "tag" => Ok(MediaEventType::Tag),
             "untag" => Ok(MediaEventType::Untag),
-            "download" => Ok(MediaEventType::Download),
+            "add" => Ok(MediaEventType::Add),
             "share" => Ok(MediaEventType::Share),
             "view" => Ok(MediaEventType::View),
             "thumbnail_click" => Ok(MediaEventType::ThumbnailClick),
