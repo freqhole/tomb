@@ -253,82 +253,81 @@ BEGIN
                     WHEN 'unfavorite' THEN 4
                     ELSE 5
                 END, cl.event_timestamp DESC))[1] as latest_event_data,
-            -- Collection grid with sampled content for ALL items
-            (SELECT jsonb_build_object(
-                'total_songs', COUNT(DISTINCT all_song_ids.song_id),
-                'grouping_level', cl.grouping_level,
-                'content_distribution', jsonb_build_object(
-                    'collections', COUNT(*) FILTER (WHERE cl_inner.domain_type IN ('album', 'playlist')),
-                    'ratings', COUNT(*) FILTER (WHERE cl_inner.event_type IN ('favorite', 'rate') AND cl_inner.domain_type = 'song'),
-                    'songs', COUNT(*) FILTER (WHERE cl_inner.domain_type = 'song' AND cl_inner.event_type NOT IN ('favorite', 'rate'))
-                ),
-                'songs', jsonb_agg(jsonb_build_object(
-                    'id', s.media_blob_id,
-                    'song_id', s.id,
-                    'title', s.title,
-                    'artist', s.artist,
-                    'album', s.album,
-                    'album_artist', s.album_artist,
-                    'year', s.year,
-                    'genre', s.genre,
-                    'sub_genres', s.sub_genres,
-                    'tags', s.tags,
-                    'disc_number', s.disc_number,
-                    'track_number', s.track_number,
-                    'duration', CASE
-                        WHEN s.duration IS NOT NULL THEN
-                            LPAD((EXTRACT(EPOCH FROM s.duration)::int / 60)::text, 2, '0') || ':' ||
-                            LPAD((EXTRACT(EPOCH FROM s.duration)::int % 60)::text, 2, '0')
-                        ELSE NULL
-                    END,
-                    'thumbnail_blob_id', s.thumbnail_blob_id,
-                    'domain_type', 'song',
-                    'user_rating', (
-                        SELECT (latest_rating.event_data->>'rating')::int
-                        FROM (
-                            SELECT event_data,
-                                   ROW_NUMBER() OVER (ORDER BY COALESCE(me_rating.client_timestamp, me_rating.created_at) DESC) as rn
-                            FROM media_events me_rating
-                            WHERE me_rating.user_id = cl.user_id
-                              AND me_rating.event_type = 'rate'
-                              AND me_rating.media_blob_id = s.media_blob_id
-                        ) latest_rating
-                        WHERE latest_rating.rn = 1
-                    ),
-                    'is_favorite', (
-                        SELECT
-                            CASE
-                                WHEN COALESCE(SUM(CASE WHEN me_fav.event_type = 'favorite' THEN 1 ELSE -1 END), 0) > 0
-                                THEN true
-                                ELSE false
-                            END
-                        FROM media_events me_fav
-                        WHERE me_fav.user_id = cl.user_id
-                          AND me_fav.event_type IN ('favorite', 'unfavorite')
-                          AND me_fav.media_blob_id = s.media_blob_id
-                    )
-                ) ORDER BY s.track_number NULLS LAST, s.title)
-            ) FROM (
-                SELECT DISTINCT song_id
-                FROM (
-                    -- Songs from array domain_ids (for collection events like add/play album)
-                    SELECT unnest(cl_inner.domain_ids) as song_id
-                    FROM content_limited cl_inner
-                    WHERE cl_inner.grouping_key = cl.grouping_key
-                      AND cl_inner.domain_ids IS NOT NULL
-                    UNION ALL
-                    -- Individual songs from media_blob_id (for single song events)
-                    SELECT cl_inner.media_blob_id as song_id
-                    FROM content_limited cl_inner
-                    WHERE cl_inner.grouping_key = cl.grouping_key
-                      AND cl_inner.media_blob_id IS NOT NULL
-                ) as all_song_ids
-                WHERE song_id IS NOT NULL
-            ) as all_song_ids
-            JOIN songs s ON (s.media_blob_id = all_song_ids.song_id OR s.id::text = all_song_ids.song_id)
-            JOIN content_limited cl_inner ON cl_inner.grouping_key = cl.grouping_key
-            WHERE s.deleted_at IS NULL
-            ) as collection_grid_data
+           -- Collection grid with distinct songs only
+          (SELECT jsonb_build_object(
+              'total_songs', COUNT(DISTINCT s.media_blob_id),
+              'grouping_level', cl.grouping_level,
+              'content_distribution', jsonb_build_object(
+                  'collections', (SELECT COUNT(*) FROM content_limited cl_dist WHERE cl_dist.grouping_key = cl.grouping_key AND cl_dist.domain_type IN ('album', 'playlist')),
+                  'ratings', (SELECT COUNT(*) FROM content_limited cl_dist WHERE cl_dist.grouping_key = cl.grouping_key AND cl_dist.event_type IN ('favorite', 'rate') AND cl_dist.domain_type = 'song'),
+                  'songs', (SELECT COUNT(*) FROM content_limited cl_dist WHERE cl_dist.grouping_key = cl.grouping_key AND cl_dist.domain_type = 'song' AND cl_dist.event_type NOT IN ('favorite', 'rate'))
+              ),
+               'songs', jsonb_agg(jsonb_build_object(
+                   'id', s.media_blob_id,
+                   'song_id', s.id,
+                   'title', s.title,
+                   'artist', s.artist,
+                   'album', s.album,
+                   'album_artist', s.album_artist,
+                   'year', s.year,
+                   'genre', s.genre,
+                   'sub_genres', s.sub_genres,
+                   'tags', s.tags,
+                   'disc_number', s.disc_number,
+                   'track_number', s.track_number,
+                   'duration', CASE
+                       WHEN s.duration IS NOT NULL THEN
+                           LPAD((EXTRACT(EPOCH FROM s.duration)::int / 60)::text, 2, '0') || ':' ||
+                           LPAD((EXTRACT(EPOCH FROM s.duration)::int % 60)::text, 2, '0')
+                       ELSE NULL
+                   END,
+                   'thumbnail_blob_id', s.thumbnail_blob_id,
+                   'domain_type', 'song',
+                   'user_rating', (
+                       SELECT (latest_rating.event_data->>'rating')::int
+                       FROM (
+                           SELECT event_data,
+                                  ROW_NUMBER() OVER (ORDER BY COALESCE(me_rating.client_timestamp, me_rating.created_at) DESC) as rn
+                           FROM media_events me_rating
+                           WHERE me_rating.user_id = cl.user_id
+                             AND me_rating.event_type = 'rate'
+                             AND me_rating.media_blob_id = s.media_blob_id
+                       ) latest_rating
+                       WHERE latest_rating.rn = 1
+                   ),
+                   'is_favorite', (
+                       SELECT
+                           CASE
+                               WHEN COALESCE(SUM(CASE WHEN me_fav.event_type = 'favorite' THEN 1 ELSE -1 END), 0) > 0
+                               THEN true
+                               ELSE false
+                           END
+                       FROM media_events me_fav
+                       WHERE me_fav.user_id = cl.user_id
+                         AND me_fav.event_type IN ('favorite', 'unfavorite')
+                         AND me_fav.media_blob_id = s.media_blob_id
+                   )
+               ) ORDER BY s.track_number NULLS LAST, s.title)
+           ) FROM (
+               SELECT DISTINCT song_id
+               FROM (
+                   -- Songs from array domain_ids (for collection events like add/play album)
+                   SELECT unnest(cl_inner.domain_ids) as song_id
+                   FROM content_limited cl_inner
+                   WHERE cl_inner.grouping_key = cl.grouping_key
+                     AND cl_inner.domain_ids IS NOT NULL
+                   UNION ALL
+                   -- Individual songs from media_blob_id (for single song events)
+                   SELECT cl_inner.media_blob_id as song_id
+                   FROM content_limited cl_inner
+                   WHERE cl_inner.grouping_key = cl.grouping_key
+                     AND cl_inner.media_blob_id IS NOT NULL
+               ) as all_song_ids
+               WHERE song_id IS NOT NULL
+           ) as all_song_ids
+           JOIN songs s ON (s.media_blob_id = all_song_ids.song_id OR s.id::text = all_song_ids.song_id)
+           WHERE s.deleted_at IS NULL
+           ) as collection_grid_data
         FROM content_limited cl
         GROUP BY cl.grouping_key, cl.grouping_level, cl.user_id
     ),
@@ -506,7 +505,7 @@ BEGIN
         fr.user_id::uuid as user_id,
         fr.computed_username::text as username
     FROM final_results fr
-    ORDER BY fr.computed_score DESC, fr.latest_activity DESC
+    ORDER BY fr.latest_activity DESC
     LIMIT p_limit
     OFFSET p_offset;
 END;
