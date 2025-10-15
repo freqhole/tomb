@@ -121,7 +121,7 @@ BEGIN
                 -- Tier 1: Individual items (recent activity)
                 WHEN rd.age_minutes <= 120 AND rd.event_type IN ('add', 'favorite', 'rate') THEN
                     CONCAT(rd.user_id, ':', rd.domain_type, ':', COALESCE(array_to_string(rd.domain_ids, ','), rd.media_blob_id), ':individual')
-                WHEN rd.age_minutes <= 30 AND rd.event_type = 'play' THEN
+                WHEN rd.age_minutes <= 5 AND rd.event_type = 'play' THEN
                     CONCAT(rd.user_id, ':', rd.domain_type, ':', COALESCE(array_to_string(rd.domain_ids, ','), rd.media_blob_id), ':individual')
                 -- Tier 2: Session grouping (separate listening from activity)
                 WHEN rd.age_minutes <= 720 AND rd.event_type = 'play' THEN -- 12 hours
@@ -138,7 +138,7 @@ BEGIN
             END as grouping_key,
             CASE
                 WHEN rd.age_minutes <= 120 AND rd.event_type IN ('add', 'favorite', 'rate') THEN 'individual'
-                WHEN rd.age_minutes <= 30 AND rd.event_type = 'play' THEN 'individual'
+                WHEN rd.age_minutes <= 5 AND rd.event_type = 'play' THEN 'individual'
                 WHEN rd.age_minutes <= 720 AND rd.event_type = 'play' THEN 'listening_session'
                 WHEN rd.age_minutes <= 720 AND rd.event_type IN ('add', 'favorite', 'rate') THEN 'activity_session'
                 WHEN rd.age_minutes <= 1440 THEN 'daily'
@@ -223,8 +223,30 @@ BEGIN
                     END,
                     'thumbnail_blob_id', s.thumbnail_blob_id,
                     'domain_type', 'song',
-                    'user_rating', NULL,
-                    'is_favorite', false
+                    'user_rating', (
+                        SELECT (latest_rating.event_data->>'rating')::int
+                        FROM (
+                            SELECT event_data,
+                                   ROW_NUMBER() OVER (ORDER BY COALESCE(me_rating.client_timestamp, me_rating.created_at) DESC) as rn
+                            FROM media_events me_rating
+                            WHERE me_rating.user_id = pg.user_id
+                              AND me_rating.event_type = 'rate'
+                              AND me_rating.media_blob_id = s.media_blob_id
+                        ) latest_rating
+                        WHERE latest_rating.rn = 1
+                    ),
+                    'is_favorite', (
+                        SELECT
+                            CASE
+                                WHEN COALESCE(SUM(CASE WHEN me_fav.event_type = 'favorite' THEN 1 ELSE -1 END), 0) > 0
+                                THEN true
+                                ELSE false
+                            END
+                        FROM media_events me_fav
+                        WHERE me_fav.user_id = pg.user_id
+                          AND me_fav.event_type IN ('favorite', 'unfavorite')
+                          AND me_fav.media_blob_id = s.media_blob_id
+                    )
                 ) ORDER BY s.track_number NULLS LAST, s.title)
             ) FROM (
                 SELECT DISTINCT song_id

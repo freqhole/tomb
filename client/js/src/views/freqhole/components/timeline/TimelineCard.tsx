@@ -522,6 +522,70 @@ export function TimelineCard(props: TimelineCardProps): JSX.Element {
             }}
           </Show>
 
+          {/* Individual Song Rows for Favorited/Rated Songs */}
+          <Show
+            when={isGroupedItem(props.event) && getCollectionGrid(props.event)}
+          >
+            {(grid) => {
+              const favoritedAndRatedSongs = () => {
+                return grid().songs.filter(
+                  (song: any) => song.is_favorite || song.user_rating
+                );
+              };
+
+              return (
+                <Show when={favoritedAndRatedSongs().length > 0}>
+                  <div class="individual-songs mt-4 pt-3 border-t border-magenta-500/20">
+                    <div class="text-xs text-magenta-400 mb-2 px-2">
+                      Favorited & Rated Songs
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                      <For each={favoritedAndRatedSongs()}>
+                        {(feedSong: any) => {
+                          // Convert feedSong to FeedItem format for TimelineItemRow
+                          const feedItem: FeedItem = {
+                            item_type: feedSong.is_favorite
+                              ? "user_favorited_song"
+                              : "user_rated_song",
+                            domain_type: "song",
+                            domain_ids: [feedSong.song_id],
+                            title: feedSong.title,
+                            subtitle: "",
+                            image_url: "",
+                            metadata: {
+                              collection_grid: {
+                                songs: [feedSong],
+                              },
+                              social_context: {
+                                rating: feedSong.user_rating,
+                              },
+                            },
+                            play_count: 0,
+                            last_played_at: new Date().toISOString(),
+                            score: 0,
+                            created_at: new Date().toISOString(),
+                            user_id: "",
+                            username: "",
+                          };
+
+                          return (
+                            <TimelineItemRow
+                              item={feedItem}
+                              compact={true}
+                              showTime={false}
+                              showUsername={false}
+                              showNavButton={false}
+                            />
+                          );
+                        }}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+              );
+            }}
+          </Show>
+
           {/* Single Item Cards for Individual Items */}
           <Show when={!isGroupedItem(props.event)}>
             <div class="single-item-display mt-3 px-2 md:px-0">

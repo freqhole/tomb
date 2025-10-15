@@ -1,4 +1,4 @@
-import { JSX, Show } from "solid-js";
+import { JSX, Show, For } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { MarqueeText } from "../shared/MarqueeText";
 import { MediaImage } from "../shared/MediaImage";
@@ -317,7 +317,7 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
   return (
     <div
       class={`timeline-item-row group cursor-pointer bg-black/30 border border-white/10 px-0 py-1 md:p-1 hover:bg-black/50 transition-colors ${
-        props.compact ? "h-14 self-start w-full overflow-hidden" : ""
+        props.compact ? "h-12 self-start w-full overflow-hidden" : ""
       }`}
       onClick={handleRowClick}
       onDblClick={handleRowDoubleClick}
@@ -423,27 +423,46 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
               />
             </div>
 
-            {/* Rating Display for Rating Events */}
-            <Show
-              when={
-                props.item.item_type === "user_rated_song" &&
-                props.item.metadata?.social_context?.rating
-              }
-            >
-              <div class="rating-display flex items-center gap-0.5">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <span
-                    class={`text-xs ${
-                      star <= (props.item.metadata?.social_context?.rating || 0)
-                        ? "text-yellow-400"
-                        : "text-white/20"
-                    }`}
-                  >
-                    ★
-                  </span>
-                ))}
-              </div>
-            </Show>
+            {/* Rating and Favorite Display */}
+            <div class="flex items-center gap-2 flex-shrink-0 h-full">
+              {/* Rating Stars */}
+              <Show
+                when={
+                  props.item.item_type === "user_rated_song" &&
+                  props.item.metadata?.social_context?.rating
+                }
+              >
+                <div class="rating-display flex items-center gap-0.5">
+                  <For each={[1, 2, 3, 4, 5]}>
+                    {(star) => (
+                      <svg
+                        class={`w-3 h-3 ${
+                          star <=
+                          (props.item.metadata?.social_context?.rating || 0)
+                            ? "text-magenta-400"
+                            : "text-gray-600"
+                        }`}
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                      </svg>
+                    )}
+                  </For>
+                </div>
+              </Show>
+
+              {/* Favorite Heart */}
+              <Show when={props.item.item_type === "user_favorited_song"}>
+                <svg
+                  class="w-4 h-4 text-magenta-400"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                </svg>
+              </Show>
+            </div>
           </div>
         </div>
 
