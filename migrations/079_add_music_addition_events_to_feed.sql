@@ -217,16 +217,23 @@ BEGIN
                     'is_favorite', false
                 ) ORDER BY s.track_number NULLS LAST, s.title)
             ) FROM (
-                -- Get song IDs from domain_ids arrays
-                SELECT DISTINCT unnested_id as song_id
-                FROM progressive_groups pg
-                CROSS JOIN LATERAL unnest(pg.domain_ids) AS unnested_id
-                WHERE pg.grouping_level = 'individual' AND pg.domain_ids IS NOT NULL
-                UNION
-                -- Get song IDs from media_blob_id
-                SELECT DISTINCT pg.media_blob_id as song_id
-                FROM progressive_groups pg
-                WHERE pg.grouping_level = 'individual' AND pg.media_blob_id IS NOT NULL
+                SELECT DISTINCT song_id
+                FROM (
+                    -- Songs from array domain_ids (for collection events like add/play album)
+                    SELECT unnest(pg_inner.domain_ids) as song_id
+                    FROM progressive_groups pg_inner
+                    WHERE pg_inner.grouping_key = pg.grouping_key
+                      AND pg_inner.grouping_level = 'individual'
+                      AND pg_inner.domain_ids IS NOT NULL
+                    UNION ALL
+                    -- Individual songs from media_blob_id (for single song events)
+                    SELECT pg_inner.media_blob_id as song_id
+                    FROM progressive_groups pg_inner
+                    WHERE pg_inner.grouping_key = pg.grouping_key
+                      AND pg_inner.grouping_level = 'individual'
+                      AND pg_inner.media_blob_id IS NOT NULL
+                ) as all_song_ids
+                WHERE song_id IS NOT NULL
             ) as all_song_ids
             JOIN songs s ON (s.media_blob_id = all_song_ids.song_id OR s.id::text = all_song_ids.song_id)
             WHERE s.deleted_at IS NULL

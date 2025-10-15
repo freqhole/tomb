@@ -445,7 +445,7 @@ impl<'a> AnalyticsService<'a> {
     /// If not, create a new event with this song
     pub async fn create_or_update_album_addition_event(
         &self,
-        song_id: Uuid,
+        media_blob_id: &str,
         album_name: &str,
         artist_name: &str,
         user_id: Option<Uuid>,
@@ -458,7 +458,7 @@ impl<'a> AnalyticsService<'a> {
             None => {
                 tracing::warn!(
                     "Skipping analytics creation for song {} - no user context",
-                    song_id
+                    media_blob_id
                 );
                 return Ok(());
             }
@@ -473,38 +473,36 @@ impl<'a> AnalyticsService<'a> {
             .get_album_addition_event(album_name, artist_name)
             .await?;
 
-        let song_id_str = song_id.to_string();
-
         if let Some((event_id, domain_ids)) = existing_event {
             // Update existing event to include this song
             let mut current_domain_ids = domain_ids;
-            if !current_domain_ids.contains(&song_id_str) {
-                current_domain_ids.push(song_id_str);
+            if !current_domain_ids.contains(&media_blob_id.to_string()) {
+                current_domain_ids.push(media_blob_id.to_string());
 
                 self.repo
                     .update_album_addition_event(event_id, current_domain_ids.clone())
                     .await?;
 
                 tracing::info!(
-                    song_id = %song_id,
-                    album = %album_name,
-                    artist = %artist_name,
+                    album = album_name,
+                    artist = artist_name,
+                    media_blob_id = media_blob_id,
                     total_songs = current_domain_ids.len(),
-                    "updated existing analytics event with new song"
+                    "Updated existing album addition analytics event"
                 );
             } else {
-                tracing::info!(
-                    song_id = %song_id,
-                    album = %album_name,
-                    artist = %artist_name,
+                tracing::debug!(
+                    album = album_name,
+                    artist = artist_name,
+                    media_blob_id = media_blob_id,
                     "song already in analytics event - skipping"
                 );
             }
             return Ok(());
         }
 
-        // Create new event with this song
-        let domain_ids = vec![song_id_str];
+        // Create new event with this song - use media_blob_id for consistency with collection events
+        let domain_ids = vec![media_blob_id.to_string()];
 
         // Create album-level analytics event with no media_blob_id
         let mut analytics_event = MediaEvent::new(
@@ -553,9 +551,9 @@ impl<'a> AnalyticsService<'a> {
         self.record_media_event(analytics_event).await?;
 
         tracing::info!(
-            song_id = %song_id,
-            album = %album_name,
-            artist = %artist_name,
+            media_blob_id = media_blob_id,
+            album = album_name,
+            artist = artist_name,
             song_count = domain_ids.len(),
             "created new analytics event for album addition"
         );

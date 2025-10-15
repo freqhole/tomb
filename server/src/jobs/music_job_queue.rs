@@ -739,7 +739,7 @@ impl MusicJobQueue {
         let analytics_service = AnalyticsService::new_with_defaults(db);
         analytics_service
             .create_or_update_album_addition_event(
-                *song_id,
+                &song.media_blob_id,
                 album_name,
                 artist_name,
                 user_id,
