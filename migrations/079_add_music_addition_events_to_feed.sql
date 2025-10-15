@@ -338,8 +338,13 @@ BEGIN
                 WHEN ag.total_ratings > 0 THEN ag.total_ratings || ' ratings'
                 ELSE 'music activity'
             END as computed_subtitle,
-            -- Extract thumbnail from collection grid or use first song's thumbnail
+            -- Extract thumbnail from collection grid or playlist/album thumbnail
             COALESCE(
+                -- For playlists, get playlist thumbnail
+                CASE WHEN ag.display_domain_type = 'playlist' THEN
+                    (SELECT p.thumbnail_blob_id FROM playlists p WHERE p.id::text = ANY(ag.display_domain_ids) LIMIT 1)
+                ELSE NULL END,
+                -- For other collections, use first song's thumbnail
                 (ag.collection_grid_data->'songs'->0->>'thumbnail_blob_id'),
                 ''
             ) as computed_image_url,
@@ -406,18 +411,18 @@ BEGIN
         WHERE ag.total_events > 0
     )
     SELECT
-        fr.computed_item_type,
-        fr.display_domain_type::text,
-        fr.display_domain_ids,
-        fr.display_title,
-        fr.computed_subtitle,
-        fr.computed_image_url,
-        fr.computed_metadata,
-        fr.total_plays,
-        fr.latest_activity,
-        fr.computed_score::double precision,
-        fr.computed_created_at,
-        fr.user_id,
+        fr.computed_item_type::text as item_type,
+        fr.display_domain_type::text as domain_type,
+        fr.display_domain_ids as domain_ids,
+        fr.display_title::text as title,
+        fr.computed_subtitle::text as subtitle,
+        fr.computed_image_url::text as image_url,
+        fr.computed_metadata as metadata,
+        fr.total_plays::bigint as play_count,
+        fr.latest_activity as last_played_at,
+        fr.computed_score::double precision as score,
+        fr.computed_created_at as created_at,
+        fr.user_id::uuid as user_id,
         fr.computed_username::text as username
     FROM final_results fr
     ORDER BY fr.latest_activity DESC, fr.computed_score DESC

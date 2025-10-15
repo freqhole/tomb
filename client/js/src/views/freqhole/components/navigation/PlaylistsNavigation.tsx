@@ -6,7 +6,7 @@ import {
   createSignal,
 } from "solid-js";
 import { useGlobalEvents } from "../../hooks/useGlobalEvents";
-import { useSongInteractions } from "../../services/songInteractions";
+import { useCollectionInteractions } from "../../services/collectionInteractions";
 import { apiClient } from "../../../../lib/api-client";
 import { formatCompactRelativeDate } from "../../utils/dateUtils";
 import type { Playlist } from "../../../../lib/music/schemas";
@@ -18,7 +18,7 @@ interface PlaylistsNavigationProps {
 
 export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
   const events = useGlobalEvents();
-  const songInteractions = useSongInteractions();
+  const collectionInteractions = useCollectionInteractions();
   const [refreshPlaylists, setRefreshPlaylists] = createSignal(0);
   const [hoveredPlaylist, setHoveredPlaylist] = createSignal<string | null>(
     null
@@ -84,22 +84,8 @@ export function PlaylistsNavigation(props: PlaylistsNavigationProps) {
   };
 
   const handlePlaylistDoubleClick = async (playlist: Playlist) => {
-    try {
-      // Fetch playlist songs and start playing
-      const songs = await apiClient.getPlaylistSongs(playlist.id);
-
-      if (songs.length > 0 && songs[0]) {
-        // Play first song and queue the rest
-        songInteractions.playSong(songs[0], true); // Replace queue
-        songs.slice(1).forEach((song) => {
-          if (song) {
-            songInteractions.queueSong(song);
-          }
-        });
-      }
-    } catch (error) {
-      console.error("failed to play playlist:", error);
-    }
+    // Use analytics-enabled playlist play
+    collectionInteractions.playPlaylist(playlist.id, playlist.title, false);
   };
 
   const handleImageClick = async (e: Event, playlist: Playlist) => {

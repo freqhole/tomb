@@ -8,6 +8,7 @@ import type { FeedItem } from "../../../../lib/analytics/analytics-api";
 import { formatRelativeTime } from "../../../../lib/date-utils";
 import { getImageUrl } from "../../../../lib/image-utils";
 import { isMobile } from "../../../../lib/format-utils";
+import apiClient from "../../../../lib";
 
 interface TimelineItemRowProps {
   item: FeedItem;
@@ -300,7 +301,12 @@ export function TimelineItemRow(props: TimelineItemRowProps): JSX.Element {
   };
 
   const getImageSource = () => {
-    // Create image source object compatible with getImageUrl
+    // For playlists, use the image_url directly if available
+    if (props.item.domain_type === "playlist" && props.item.image_url) {
+      return `${apiClient.getBaseUrl()}/api/blobs/${props.item.image_url}`;
+    }
+
+    // Create image source object compatible with getImageUrl for other types
     const imageSource = {
       id: props.item.domain_ids?.[0] || "",
       image_url: props.item.image_url,
