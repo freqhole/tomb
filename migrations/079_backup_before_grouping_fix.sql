@@ -1,6 +1,5 @@
 -- Add 'add' event type to social feed to show music addition events
 -- This allows newly added albums/songs to appear in the social feed
--- Fixed grouping logic to prevent overlaps and create single daily/weekly groups per user
 
 DROP FUNCTION IF EXISTS public.get_social_feed_items(bigint, bigint, interval);
 
@@ -117,151 +116,92 @@ BEGIN
             rd.age_minutes,
             rd.session_group,
             rd.media_blob_id,
-            -- Create improved grouping keys with no overlaps
+            -- Create grouping keys for three-tier system
             CASE
-                -- Tier 1: Individual items (very recent activity only)
-                WHEN rd.age_minutes <= 90 AND rd.event_type IN ('add', 'favorite', 'rate') THEN
+                -- Tier 1: Individual items (recent activity)
+                WHEN rd.age_minutes <= 120 AND rd.event_type IN ('add', 'favorite', 'rate') THEN
                     CONCAT(rd.user_id, ':', rd.domain_type, ':', COALESCE(array_to_string(rd.domain_ids, ','), rd.media_blob_id), ':individual')
-                WHEN rd.age_minutes <= 3 AND rd.event_type = 'play' THEN
+                WHEN rd.age_minutes <= 5 AND rd.event_type = 'play' THEN
                     CONCAT(rd.user_id, ':', rd.domain_type, ':', COALESCE(array_to_string(rd.domain_ids, ','), rd.media_blob_id), ':individual')
-                -- Tier 2: Session grouping (recent but not individual)
-                WHEN rd.age_minutes > 90 AND rd.age_minutes <= 480 AND rd.event_type = 'play' THEN -- 8 hours
+                -- Tier 2: Session grouping (separate listening from activity)
+                WHEN rd.age_minutes <= 720 AND rd.event_type = 'play' THEN -- 12 hours
                     CONCAT(rd.user_id, ':', rd.session_group, ':listening_session')
-                WHEN rd.age_minutes > 90 AND rd.age_minutes <= 480 AND rd.event_type IN ('add', 'favorite', 'rate') THEN -- 8 hours
+                WHEN rd.age_minutes <= 720 AND rd.event_type IN ('add', 'favorite', 'rate') THEN -- 12 hours
                     CONCAT(rd.user_id, ':', rd.session_group, ':activity_session')
-                -- Tier 3: Single daily group per user (spans up to 3 days, excludes recent sessions)
-                WHEN rd.age_minutes > 480 AND rd.age_minutes <= 4320 THEN -- 8 hours to 3 days
-                    CONCAT(rd.user_id, ':daily')
-                -- Tier 4: Single weekly group per user (spans up to 4 weeks, excludes daily content)
-                WHEN rd.age_minutes > 4320 AND rd.age_minutes <= 40320 THEN -- 3 days to 4 weeks
-                    CONCAT(rd.user_id, ':weekly')
-                -- Tier 5: Single monthly group per user (older than 4 weeks)
+                -- Tier 3: Daily/weekly aggregation (all events combined)
+                WHEN rd.age_minutes <= 1440 THEN -- 24 hours
+                    CONCAT(rd.user_id, ':', DATE(rd.event_timestamp), ':daily')
+                WHEN rd.age_minutes <= 10080 THEN -- 1 week
+                    CONCAT(rd.user_id, ':', DATE_TRUNC('week', rd.event_timestamp), ':weekly')
                 ELSE
-                    CONCAT(rd.user_id, ':monthly')
+                    CONCAT(rd.user_id, ':', DATE_TRUNC('month', rd.event_timestamp), ':monthly')
             END as grouping_key,
             CASE
-                WHEN rd.age_minutes <= 90 AND rd.event_type IN ('add', 'favorite', 'rate') THEN 'individual'
-                WHEN rd.age_minutes <= 3 AND rd.event_type = 'play' THEN 'individual'
-                WHEN rd.age_minutes > 90 AND rd.age_minutes <= 480 AND rd.event_type = 'play' THEN 'listening_session'
-                WHEN rd.age_minutes > 90 AND rd.age_minutes <= 480 AND rd.event_type IN ('add', 'favorite', 'rate') THEN 'activity_session'
-                WHEN rd.age_minutes > 480 AND rd.age_minutes <= 4320 THEN 'daily'
-                WHEN rd.age_minutes > 4320 AND rd.age_minutes <= 40320 THEN 'weekly'
+                WHEN rd.age_minutes <= 120 AND rd.event_type IN ('add', 'favorite', 'rate') THEN 'individual'
+                WHEN rd.age_minutes <= 5 AND rd.event_type = 'play' THEN 'individual'
+                WHEN rd.age_minutes <= 720 AND rd.event_type = 'play' THEN 'listening_session'
+                WHEN rd.age_minutes <= 720 AND rd.event_type IN ('add', 'favorite', 'rate') THEN 'activity_session'
+                WHEN rd.age_minutes <= 1440 THEN 'daily'
+                WHEN rd.age_minutes <= 10080 THEN 'weekly'
                 ELSE 'monthly'
-            END as grouping_level,
-            -- Add scoring for content sampling
-            CASE
-                WHEN rd.domain_type IN ('album', 'playlist') THEN 3 -- High priority for collections
-                WHEN rd.event_type IN ('favorite', 'rate') AND rd.domain_type = 'song' THEN 2 -- Medium priority for song ratings
-                WHEN rd.domain_type = 'song' THEN 1 -- Low priority for regular songs
-                ELSE 1
-            END as content_priority
+            END as grouping_level
         FROM rating_deduplicated rd
         WHERE rd.rating_rank = 1  -- Only include the most recent rating in each window
     ),
-    -- Content sampling for larger groups (daily, weekly, monthly)
-    sampled_content AS (
-        SELECT
-            pg.*,
-            -- For large groups, sample content based on priority and limits
-            CASE
-                WHEN pg.grouping_level IN ('daily', 'weekly', 'monthly') THEN
-                    ROW_NUMBER() OVER (
-                        PARTITION BY pg.grouping_key, pg.grouping_level,
-                        CASE
-                            WHEN pg.domain_type IN ('album', 'playlist') THEN 'collections'
-                            WHEN pg.event_type IN ('favorite', 'rate') AND pg.domain_type = 'song' THEN 'ratings'
-                            ELSE 'songs'
-                        END
-                        ORDER BY pg.content_priority DESC,
-                                CASE pg.event_type
-                                    WHEN 'add' THEN 1
-                                    WHEN 'rate' THEN 2
-                                    WHEN 'favorite' THEN 3
-                                    ELSE 4
-                                END,
-                                pg.event_timestamp DESC
-                    )
-                ELSE 1
-            END as content_rank
-        FROM progressive_groups pg
-    ),
-    content_limited AS (
-        SELECT sc.*
-        FROM sampled_content sc
-        WHERE
-            -- For individual items and sessions, include all
-            sc.grouping_level IN ('individual', 'listening_session', 'activity_session')
-            OR
-            -- For large groups, apply content limits (100 total items with distribution)
-            (sc.grouping_level IN ('daily', 'weekly', 'monthly') AND (
-                (sc.domain_type IN ('album', 'playlist') AND sc.content_rank <= 60) OR -- 60% collections
-                (sc.event_type IN ('favorite', 'rate') AND sc.domain_type = 'song' AND sc.content_rank <= 20) OR -- 20% ratings
-                (sc.domain_type = 'song' AND sc.event_type NOT IN ('favorite', 'rate') AND sc.content_rank <= 20) -- 20% songs
-            ))
-    ),
     aggregated_groups AS (
         SELECT
-            cl.grouping_key,
-            cl.grouping_level,
-            cl.user_id,
-            MIN(cl.age_minutes) as age_minutes,
+            pg.grouping_key,
+            pg.grouping_level,
+            pg.user_id,
+            MIN(pg.age_minutes) as age_minutes,
             -- For individual items, keep specific collection; for groups, create descriptive titles
             CASE
-                WHEN cl.grouping_level = 'individual' THEN (array_agg(cl.collection_name))[1]
-                WHEN cl.grouping_level = 'listening_session' THEN 'listening session'
-                WHEN cl.grouping_level = 'activity_session' THEN 'music activity'
-                WHEN cl.grouping_level = 'daily' THEN 'daily music'
-                WHEN cl.grouping_level = 'weekly' THEN 'weekly listening'
-                WHEN cl.grouping_level = 'monthly' THEN 'monthly highlights'
+                WHEN pg.grouping_level = 'individual' THEN (array_agg(pg.collection_name))[1]
+                WHEN pg.grouping_level = 'listening_session' THEN 'listening session'
+                WHEN pg.grouping_level = 'activity_session' THEN 'music activity'
+                WHEN pg.grouping_level = 'daily' THEN 'daily music'
+                WHEN pg.grouping_level = 'weekly' THEN 'weekly listening'
+                WHEN pg.grouping_level = 'monthly' THEN 'monthly highlights'
                 ELSE 'music archive'
             END as display_title,
             -- For individual items, keep specific domain info; for groups, generalize
             CASE
-                WHEN cl.grouping_level = 'individual' THEN (array_agg(cl.domain_type))[1]
+                WHEN pg.grouping_level = 'individual' THEN (array_agg(pg.domain_type))[1]
                 ELSE 'collection'
             END as display_domain_type,
             CASE
-                WHEN cl.grouping_level = 'individual' THEN MAX(cl.domain_ids)
+                WHEN pg.grouping_level = 'individual' THEN MAX(pg.domain_ids)
                 ELSE ARRAY[]::text[]
             END as display_domain_ids,
             -- Event type prioritization: add > rate > favorite > play
             CASE
-                WHEN COUNT(*) FILTER (WHERE cl.event_type = 'add') > 0 THEN 'add'
-                WHEN COUNT(*) FILTER (WHERE cl.event_type = 'rate') > 0 THEN 'rate'
-                WHEN COUNT(*) FILTER (WHERE cl.event_type = 'favorite') > 0 THEN 'favorite'
-                WHEN COUNT(*) FILTER (WHERE cl.event_type = 'unfavorite') > 0 THEN 'unfavorite'
+                WHEN COUNT(*) FILTER (WHERE pg.event_type = 'add') > 0 THEN 'add'
+                WHEN COUNT(*) FILTER (WHERE pg.event_type = 'rate') > 0 THEN 'rate'
+                WHEN COUNT(*) FILTER (WHERE pg.event_type = 'favorite') > 0 THEN 'favorite'
+                WHEN COUNT(*) FILTER (WHERE pg.event_type = 'unfavorite') > 0 THEN 'unfavorite'
                 ELSE 'play'
             END as primary_event_type,
-            MAX(cl.event_timestamp) as latest_activity,
-            MIN(cl.event_timestamp) as earliest_activity,
-            COUNT(*) FILTER (WHERE cl.event_type = 'play') as total_plays,
-            COUNT(*) FILTER (WHERE cl.event_type = 'favorite') as total_favorites,
-            COUNT(*) FILTER (WHERE cl.event_type = 'rate') as total_ratings,
-            COUNT(*) FILTER (WHERE cl.event_type = 'add') as total_additions,
-            COUNT(DISTINCT cl.collection_name) as unique_collections,
+            MAX(pg.event_timestamp) as latest_activity,
+            MIN(pg.event_timestamp) as earliest_activity,
+            COUNT(*) FILTER (WHERE pg.event_type = 'play') as total_plays,
+            COUNT(*) FILTER (WHERE pg.event_type = 'favorite') as total_favorites,
+            COUNT(*) FILTER (WHERE pg.event_type = 'rate') as total_ratings,
+            COUNT(*) FILTER (WHERE pg.event_type = 'add') as total_additions,
+            COUNT(DISTINCT pg.collection_name) as unique_collections,
             COUNT(*) as total_events,
-            -- Content distribution stats for large groups
-            COUNT(*) FILTER (WHERE cl.domain_type IN ('album', 'playlist')) as collection_count,
-            COUNT(*) FILTER (WHERE cl.event_type IN ('favorite', 'rate') AND cl.domain_type = 'song') as rating_count,
-            COUNT(*) FILTER (WHERE cl.domain_type = 'song' AND cl.event_type NOT IN ('favorite', 'rate')) as song_count,
             -- Get latest event data for ratings/metadata
-            (array_agg(cl.event_data ORDER BY
-                CASE cl.event_type
+            (array_agg(pg.event_data ORDER BY
+                CASE pg.event_type
                     WHEN 'add' THEN 1
                     WHEN 'rate' THEN 2
                     WHEN 'favorite' THEN 3
                     WHEN 'unfavorite' THEN 4
                     ELSE 5
-                END, cl.event_timestamp DESC))[1] as latest_event_data,
-            -- Collection grid with sampled content for ALL items
+                END, pg.event_timestamp DESC))[1] as latest_event_data,
+            -- Collection grid with full song records and metadata (for ALL items)
             (SELECT jsonb_build_object(
                 'total_songs', COUNT(DISTINCT all_song_ids.song_id),
-                'grouping_level', cl.grouping_level,
-                'content_distribution', jsonb_build_object(
-                    'collections', COUNT(*) FILTER (WHERE cl_inner.domain_type IN ('album', 'playlist')),
-                    'ratings', COUNT(*) FILTER (WHERE cl_inner.event_type IN ('favorite', 'rate') AND cl_inner.domain_type = 'song'),
-                    'songs', COUNT(*) FILTER (WHERE cl_inner.domain_type = 'song' AND cl_inner.event_type NOT IN ('favorite', 'rate'))
-                ),
+                'grouping_level', pg.grouping_level,
                 'songs', jsonb_agg(jsonb_build_object(
                     'id', s.media_blob_id,
                     'song_id', s.id,
@@ -289,7 +229,7 @@ BEGIN
                             SELECT event_data,
                                    ROW_NUMBER() OVER (ORDER BY COALESCE(me_rating.client_timestamp, me_rating.created_at) DESC) as rn
                             FROM media_events me_rating
-                            WHERE me_rating.user_id = cl.user_id
+                            WHERE me_rating.user_id = pg.user_id
                               AND me_rating.event_type = 'rate'
                               AND me_rating.media_blob_id = s.media_blob_id
                         ) latest_rating
@@ -303,7 +243,7 @@ BEGIN
                                 ELSE false
                             END
                         FROM media_events me_fav
-                        WHERE me_fav.user_id = cl.user_id
+                        WHERE me_fav.user_id = pg.user_id
                           AND me_fav.event_type IN ('favorite', 'unfavorite')
                           AND me_fav.media_blob_id = s.media_blob_id
                     )
@@ -312,25 +252,24 @@ BEGIN
                 SELECT DISTINCT song_id
                 FROM (
                     -- Songs from array domain_ids (for collection events like add/play album)
-                    SELECT unnest(cl_inner.domain_ids) as song_id
-                    FROM content_limited cl_inner
-                    WHERE cl_inner.grouping_key = cl.grouping_key
-                      AND cl_inner.domain_ids IS NOT NULL
+                    SELECT unnest(pg_inner.domain_ids) as song_id
+                    FROM progressive_groups pg_inner
+                    WHERE pg_inner.grouping_key = pg.grouping_key
+                      AND pg_inner.domain_ids IS NOT NULL
                     UNION ALL
                     -- Individual songs from media_blob_id (for single song events)
-                    SELECT cl_inner.media_blob_id as song_id
-                    FROM content_limited cl_inner
-                    WHERE cl_inner.grouping_key = cl.grouping_key
-                      AND cl_inner.media_blob_id IS NOT NULL
+                    SELECT pg_inner.media_blob_id as song_id
+                    FROM progressive_groups pg_inner
+                    WHERE pg_inner.grouping_key = pg.grouping_key
+                      AND pg_inner.media_blob_id IS NOT NULL
                 ) as all_song_ids
                 WHERE song_id IS NOT NULL
             ) as all_song_ids
             JOIN songs s ON (s.media_blob_id = all_song_ids.song_id OR s.id::text = all_song_ids.song_id)
-            JOIN content_limited cl_inner ON cl_inner.grouping_key = cl.grouping_key
             WHERE s.deleted_at IS NULL
             ) as collection_grid_data
-        FROM content_limited cl
-        GROUP BY cl.grouping_key, cl.grouping_level, cl.user_id
+        FROM progressive_groups pg
+        GROUP BY pg.grouping_key, pg.grouping_level, pg.user_id
     ),
     final_results AS (
         SELECT
@@ -361,24 +300,9 @@ BEGIN
             ag.display_domain_type,
             ag.display_domain_ids,
             ag.display_title,
-            -- Create subtitles based on event type, counts, and content distribution
+            -- Create subtitles based on event type and counts
             CASE
                 WHEN ag.primary_event_type = 'add' AND ag.grouping_level = 'individual' THEN 'added to collection'
-                WHEN ag.grouping_level IN ('daily', 'weekly', 'monthly') THEN
-                    CASE
-                        WHEN ag.collection_count > 0 AND ag.rating_count > 0 AND ag.song_count > 0 THEN
-                            ag.collection_count || ' albums/playlists, ' || ag.song_count || ' songs, ' || ag.rating_count || ' ratings'
-                        WHEN ag.collection_count > 0 AND ag.song_count > 0 THEN
-                            ag.collection_count || ' albums/playlists, ' || ag.song_count || ' songs'
-                        WHEN ag.collection_count > 0 AND ag.rating_count > 0 THEN
-                            ag.collection_count || ' albums/playlists, ' || ag.rating_count || ' ratings'
-                        WHEN ag.collection_count > 0 THEN ag.collection_count || ' albums/playlists'
-                        WHEN ag.rating_count > 0 AND ag.song_count > 0 THEN
-                            ag.song_count || ' songs, ' || ag.rating_count || ' ratings'
-                        WHEN ag.song_count > 0 THEN ag.song_count || ' songs'
-                        WHEN ag.rating_count > 0 THEN ag.rating_count || ' ratings'
-                        ELSE ag.total_events || ' activities'
-                    END
                 WHEN ag.grouping_level = 'activity_session' THEN
                     CASE
                         WHEN ag.total_additions > 0 AND ag.total_favorites > 0 THEN ag.total_additions || ' additions, ' || ag.total_favorites || ' favorites'
@@ -393,6 +317,21 @@ BEGIN
                         WHEN ag.total_plays = 1 THEN 'played once'
                         WHEN ag.total_plays > 1 THEN ag.total_plays || ' plays'
                         ELSE 'listened to music'
+                    END
+                WHEN ag.total_plays > 0 THEN
+                    CASE
+                        WHEN ag.total_additions > 0 AND ag.total_favorites > 0 AND ag.total_ratings > 0 THEN
+                            ag.total_plays || ' plays, ' || ag.total_additions || ' additions, ' || ag.total_favorites || ' favorites, ' || ag.total_ratings || ' ratings'
+                        WHEN ag.total_additions > 0 AND ag.total_favorites > 0 THEN
+                            ag.total_plays || ' plays, ' || ag.total_additions || ' additions, ' || ag.total_favorites || ' favorites'
+                        WHEN ag.total_additions > 0 AND ag.total_ratings > 0 THEN
+                            ag.total_plays || ' plays, ' || ag.total_additions || ' additions, ' || ag.total_ratings || ' ratings'
+                        WHEN ag.total_favorites > 0 AND ag.total_ratings > 0 THEN
+                            ag.total_plays || ' plays, ' || ag.total_favorites || ' favorites, ' || ag.total_ratings || ' ratings'
+                        WHEN ag.total_additions > 0 THEN ag.total_plays || ' plays, ' || ag.total_additions || ' additions'
+                        WHEN ag.total_favorites > 0 THEN ag.total_plays || ' plays, ' || ag.total_favorites || ' favorites'
+                        WHEN ag.total_ratings > 0 THEN ag.total_plays || ' plays, ' || ag.total_ratings || ' ratings'
+                        ELSE ag.total_plays || ' plays'
                     END
                 WHEN ag.total_additions > 0 THEN ag.total_additions || ' additions'
                 WHEN ag.total_favorites > 0 THEN ag.total_favorites || ' favorites'
@@ -409,7 +348,7 @@ BEGIN
                 (ag.collection_grid_data->'songs'->0->>'thumbnail_blob_id'),
                 ''
             ) as computed_image_url,
-            -- Build comprehensive metadata with content distribution info
+            -- Build comprehensive metadata
             jsonb_build_object(
                 'total_songs', COALESCE((ag.collection_grid_data->>'total_songs')::int, 1),
                 'artist_name', ag.latest_event_data->>'artist_name',
@@ -427,17 +366,7 @@ BEGIN
                     'user_play_count', ag.total_plays,
                     'session_duration', EXTRACT(EPOCH FROM (ag.latest_activity - ag.earliest_activity)) / 60.0,
                     'total_play_count', ag.total_plays,
-                    'unique_collections', ag.unique_collections,
-                    'content_distribution', CASE
-                        WHEN ag.grouping_level IN ('daily', 'weekly', 'monthly') THEN
-                            jsonb_build_object(
-                                'collections', ag.collection_count,
-                                'songs', ag.song_count,
-                                'ratings', ag.rating_count,
-                                'sampled', true
-                            )
-                        ELSE NULL
-                    END
+                    'unique_collections', ag.unique_collections
                 ),
                 'social_context', jsonb_build_object(
                     'action_type', ag.primary_event_type,
@@ -456,10 +385,10 @@ BEGIN
             ) as computed_metadata,
             ag.total_plays,
             ag.latest_activity,
-            -- Improved scoring: boost daily/weekly groups and maintain recency
+            -- Scoring: prioritize recent additions and high engagement
             (
-                -- Base recency score (0-100, exponential decay)
-                100.0 * EXP(-ag.age_minutes / 2880.0) +
+                -- Recency score (0-100, exponential decay)
+                100.0 * EXP(-ag.age_minutes / 1440.0) +
                 -- Event type boost
                 CASE ag.primary_event_type
                     WHEN 'add' THEN 50.0  -- Boost new additions
@@ -467,21 +396,11 @@ BEGIN
                     WHEN 'favorite' THEN 25.0
                     ELSE 10.0
                 END +
-                -- Grouping level boost (prioritize aggregated content)
-                CASE ag.grouping_level
-                    WHEN 'daily' THEN 40.0    -- Boost daily summaries
-                    WHEN 'weekly' THEN 35.0   -- Boost weekly summaries
-                    WHEN 'monthly' THEN 30.0  -- Boost monthly summaries
-                    WHEN 'activity_session' THEN 20.0
-                    WHEN 'listening_session' THEN 15.0
-                    ELSE 10.0
-                END +
                 -- Play count boost
-                LEAST(ag.total_plays * 3.0, 30.0) +
-                -- Content diversity bonus for large groups
+                LEAST(ag.total_plays * 5.0, 50.0) +
+                -- Collection size penalty for very large collections
                 CASE
-                    WHEN ag.grouping_level IN ('daily', 'weekly', 'monthly') AND ag.unique_collections > 5 THEN 20.0
-                    WHEN ag.grouping_level IN ('daily', 'weekly', 'monthly') AND ag.unique_collections > 2 THEN 10.0
+                    WHEN COALESCE((ag.collection_grid_data->>'total_songs')::int, 1) > 20 THEN -10.0
                     ELSE 0.0
                 END
             ) as computed_score,
@@ -506,7 +425,7 @@ BEGIN
         fr.user_id::uuid as user_id,
         fr.computed_username::text as username
     FROM final_results fr
-    ORDER BY fr.computed_score DESC, fr.latest_activity DESC
+    ORDER BY fr.latest_activity DESC, fr.computed_score DESC
     LIMIT p_limit
     OFFSET p_offset;
 END;
