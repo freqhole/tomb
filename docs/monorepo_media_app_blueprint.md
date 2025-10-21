@@ -24,6 +24,7 @@ views/                  # presentation layer
     context/
     hooks/
     routes/
+    theme/
   music/                # music-specific views
     components/
     context/
@@ -32,13 +33,16 @@ views/                  # presentation layer
     services/
     store/
 lib/                    # business logic + data
-  sync/                 # cross-domain sync helpers (ws+http, SW messaging)
+  sync/                 # cross-domain sync base (ws+http, SW messaging, generic helpers)
+  api/                  # cross-domain api base (and generic helpers)
+  data/                 # cross-domain indexdb base helpers
   music/                # music domain
-    api/                # remote provider interfaces + implementations
-    data/               # IndexedDB, queries, mutations, collections infra
-    types/              # zod schema for Song
-    domain/             # normalize, filters, sorters, aggregations
+    api/                # music-domain specific api impl; remote provider interfaces + implementations
+    sync/               # music-domain specific sync impl
+    data/               # IndexedDB, queries, mutations, collections infra, normalize, filters, sorters, aggregations
+    schemas/            # zod schemas
   utils/                # tiny pure helpers
+testing/                # playwright stuff
 ```
 
 > All imports are **relative**, e.g. `import { normalizeSong } from "../../../lib/music/domain/normalize"`
