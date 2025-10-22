@@ -18,7 +18,15 @@ the following areas need deeper analysis and concrete decisions before implement
 - how do you merge user data (favorites, ratings) across remotes?
 
 **decision needed:** [ ]
-**conclusion:** _[space for analysis and decisions]_
+**conclusion:**
+
+songs and all remote data should be bifurcated in the user's browser indexed db. however, if a user chooses to "save offline" any songs, then they should (generally) be distinct songs (but still track which remote they came from).
+
+offline conflicts-- i think should probably defer to remote server version, probably notify the user. but probably, no remote server mutations while offline. however, the user's local cache of songs and metadata don't really need to sync with the server (can dig into this more in the distant future).
+
+"primary remote"-- maybe? i'll deal with this in the future.
+
+same with merging things across remotes; would like to get to a place where user can choose to sync things between remote servers, but that's a ways off.
 
 ---
 
@@ -32,7 +40,13 @@ the following areas need deeper analysis and concrete decisions before implement
 - how do you handle search when some remotes are offline?
 
 **decision needed:** [ ]
-**conclusion:** _[space for analysis and decisions]_
+**conclusion:**
+
+oh, probably hybrid. right now it's mostly server-side. i think i can probably do most of it client side.
+
+search across multiple remotes, and ranking relevance/score, is a distant future feature consideration, don't want to worry about that now.
+
+if a remote is offline, then it's offline. so either the user has some stuff from that remote cached offline, or they need to wait until it's online again.
 
 ---
 
@@ -46,7 +60,13 @@ the following areas need deeper analysis and concrete decisions before implement
 - what's the strategy for handling different audio formats across remotes?
 
 **decision needed:** [ ]
-**conclusion:** _[space for analysis and decisions]_
+**conclusion:**
+
+progressive download should just use byte range requests, i think the browser's audio element should handle most of this?
+
+gapless playback, crossfades not a concern right now.
+
+modern browsers play a lot of different formats, so not trying to re-encode my music collection. if the browser can't play a song, it should just get skipped and the next thing in the queue should get played.
 
 ---
 
@@ -60,7 +80,15 @@ the following areas need deeper analysis and concrete decisions before implement
 - what's the testing strategy for partially migrated state?
 
 **decision needed:** [ ]
-**conclusion:** _[space for analysis and decisions]_
+**conclusion:**
+
+i will test it myself locally; i hope that playwright tests will help us collaborate during development.
+
+we don't really need to worry about rolling back, we're moving forward.
+
+i guess i'll just know when ui components lose functionality? i guess i should inventory the current list of features.
+
+playwright testing is gonna be the focus.
 
 ---
 
@@ -74,7 +102,13 @@ the following areas need deeper analysis and concrete decisions before implement
 - how do you handle partial sync failures gracefully?
 
 **decision needed:** [ ]
-**conclusion:** _[space for analysis and decisions]_
+**conclusion:**
+
+well, indexed db is ephemeral, so if it corrupts or is unavailable, then that's that. user should be able to easily enough get data from remote server to start again.
+
+if all remotes are unreachable, user could still play and interact with offline cache!
+
+handle partial sync failures gracefully-- hmm, hopefully the user should get ui to help fix. ideally it mostly just "works" and i really want to avoid ui when the user doesn't need to anything, or can't do anything. less is more (well, generally).
 
 ---
 
@@ -88,7 +122,18 @@ the following areas need deeper analysis and concrete decisions before implement
 - how do you balance storage quotas across multiple remotes?
 
 **decision needed:** [ ]
-**conclusion:** _[space for analysis and decisions]_
+**conclusion:**
+
+indexeddb query time limits-- under 100ms for queries that drive ui. probably only matters for really large datasets like thousands of songs? so probably not gonna be a huge consideration.
+
+60fps for virtual scrolling.
+
+audio latency-- as low as possible, but honestly not sure there's much control here, the browsers audio element / web audio api should handle most of this.
+
+storage quotas-- not a real consideration, it's the user's disk and they choose what to cache offline.
+**conclusion:**
+
+really need to get this all built and working before i worry about this stuff.
 
 ---
 
@@ -102,7 +147,20 @@ the following areas need deeper analysis and concrete decisions before implement
 - how do you maintain development velocity during the transition?
 
 **decision needed:** [ ]
-**conclusion:** _[space for analysis and decisions]_
+**conclusion:**
+
+probably won't develop new music features during migration; focusing on the refactor is the priority.
+
+old vs new code dependencies-- will handle case by case. might have some duplication for a period of time.
+
+playwright testing strategy should help with partially migrated state.
+
+development velocity during transition-- probably will be quite slow, but that's okay, the goal is to get to a much better foundation.
+**conclusion:**
+
+i hope so?
+
+we're moving forward, and forward we will go. playwright will help us test.
 
 ---
 
@@ -116,7 +174,18 @@ the following areas need deeper analysis and concrete decisions before implement
 - how do you handle reduced motion preferences in animations?
 
 **decision needed:** [ ]
-**conclusion:** _[space for analysis and decisions]_
+**conclusion:**
+
+wcag 2.1 aa-- keyboard navigation, screen reader support, color contrast, reduced motion.
+
+keyboard navigation for virtualized lists-- arrow keys, home/end, page up/down. should be pretty standard.
+
+screen reader support for audio controls-- proper aria labels, live regions for playback status.
+
+reduced motion-- `prefers-reduced-motion` css media query to disable animations.
+**conclusion:**
+
+this is important! but it has to come later.
 
 ---
 
@@ -156,7 +225,7 @@ from preliminary analysis of `client/js/`, key areas to evaluate:
 
 ## target architecture overview
 
-### folder structure (final)
+### folder structure
 
 ```
 spume/
@@ -172,7 +241,12 @@ spume/
 │   │   ├── api/                  # music api providers
 │   │   ├── sync/                 # music synchronization
 │   │   ├── domain/               # pure business logic
-│   │   └── schemas/              # zod validation schemas
+│   │   ├── schemas/              # zod validation schemas
+│   │   ├── audio-player/         # playback engine
+│   │   ├── collections/          # collection browsing
+│   │   ├── playlists/            # playlist management
+│   │   ├── search/               # search & filtering
+│   │   └── analytics/            # usage analytics
 │   └── utils/                    # pure utility functions
 ├── views/                        # presentation layer
 │   ├── core/                     # application shell
@@ -180,19 +254,16 @@ spume/
 │   │   ├── context/              # global app context
 │   │   ├── hooks/                # app-level hooks
 │   │   ├── routes/               # root routing
-│   │   └── themes/               # theming system
-│   └── music/                    # music-specific views
+│   │   └── themes/               # theming system (tailwind-based)
+│   └── music/                    # music-specific views (/music/ base route)
 │       ├── components/           # music ui components
+│       │   ├── desktop/          # desktop-specific compositions
+│       │   ├── mobile/           # mobile-specific compositions
+│       │   └── shared/           # shared components
 │       ├── context/              # music domain context
 │       ├── hooks/                # music-specific hooks
-│       ├── routes/               # music routing
+│       ├── routes/               # music hash routing with scroll restoration
 │       └── store/                # music state management
-├── modules/                      # self-contained modules
-│   ├── audio-player/             # playback engine
-│   ├── collections/              # collection browsing
-│   ├── playlists/                # playlist management
-│   ├── search/                   # search & filtering
-│   └── analytics/                # usage analytics
 ├── testing/                      # test infrastructure
 │   ├── playwright/               # e2e tests
 │   ├── fixtures/                 # test data
@@ -213,12 +284,191 @@ spume/
 6. **functional approach**: prefer pure functions over classes
 7. **clean separation**: strict boundaries between data, business logic, and ui
 8. **user-controlled caching**: explicit user control over offline storage
+9. **remote server clarity**: clean, well-documented api interface for easy integration
+10. **responsive without branching**: separate mobile/desktop components, not conditional rendering
+11. **scroll restoration**: preserve navigation state across route changes
+12. **batch operations**: multi-select and bulk editing capabilities
 
 ## phase-by-phase implementation plan
 
-### phase 1: foundation infrastructure
+### phase 0: current state inventory & feature audit
 
-#### 1.1 project setup & build system
+**objective**: catalog all existing functionality to ensure nothing is lost during refactoring
+
+**current feature inventory:**
+
+**core infrastructure:**
+
+- [ ] **api client**: http requests, authentication, error handling
+- [ ] **websocket client**: real-time updates, connection management
+- [ ] **sync engine**: data synchronization logic (complex, needs simplification)
+- [ ] **blob storage**: audio file and image handling
+- [ ] **analytics**: usage tracking and metrics
+
+**music domain features:**
+
+- [ ] **audio player**: play/pause, seek, volume, queue management
+- [ ] **player persistence**: queue and currently playing persisted to indexeddb
+- [ ] **media session**: browser controls, lock screen integration
+- [ ] **collections**: songs, albums, artists, genres browsing
+- [ ] **search**: full-text search across music library
+- [ ] **playlists**: create, edit, delete, reorder tracks
+- [ ] **favorites**: mark songs/albums as favorites
+- [ ] **ratings**: 5-star rating system for songs
+- [ ] **play history**: track listening history, persisted to indexeddb
+- [ ] **virtualized lists**: infinite scrolling for large collections
+- [ ] **sorting**: multiple sort options for collections
+- [ ] **filtering**: filter by genre, year, etc.
+- [ ] **musicbrainz integration**: metadata lookup and enrichment
+- [ ] **batch editing**: select multiple songs (ctrl/shift) and edit metadata
+- [ ] **hash routing**: `/music/` base route with detail routes for artists, albums, playlists
+
+**ui components:**
+
+- [ ] **player controls**: transport controls, progress bar, volume
+- [ ] **song rows**: track listing with metadata
+- [ ] **album tiles**: grid view for albums
+- [ ] **context menus**: right-click actions
+- [ ] **modals**: edit song metadata, create playlist
+- [ ] **batch edit modal**: edit multiple songs at once
+- [ ] **navigation**: sidebar, breadcrumbs, hash routing
+- [ ] **scroll restoration**: preserve scroll position across navigation
+- [ ] **responsive design**: separate mobile/desktop compositions, not branching
+- [ ] **tailwind css**: utility-first styling system
+
+**user features:**
+
+- [ ] **profile management**: user settings and preferences
+- [ ] **theme system**: dark theme (light theme future consideration)
+- [ ] **keyboard shortcuts**: hotkeys for common actions, ctrl/shift multi-select
+- [ ] **drag and drop**: reorder playlists, add to queue
+- [ ] **selection state**: multi-select with keyboard modifiers
+
+**tasks:**
+
+- [ ] **complete inventory**: review every component and feature in current codebase
+- [ ] **categorize features**: group by domain (core, music, ui, user)
+- [ ] **identify dependencies**: map how features interact with each other
+- [ ] **assess complexity**: mark which features will be easy/hard to migrate
+- [ ] **document api surface**: catalog current remote server interactions
+- [ ] **responsive patterns**: catalog mobile vs desktop component variations
+- [ ] **routing inventory**: map current hash routes and scroll positions
+
+### phase 1: foundation infrastructure & remote server interface
+
+#### 1.1 remote server api specification & reference implementation
+
+**objective**: define clear, well-documented interface for remote server integration
+
+**remote server api specification:**
+
+```typescript
+// lib/core/api/remote-server-spec.ts
+
+// server info endpoint: GET /api/info
+export const ServerInfo = z.object({
+  id: z.string(), // unique server identifier
+  name: z.string(), // human-readable server name
+  version: z.string(), // api version
+  features: z.array(
+    z.enum([
+      "music-library", // basic music browsing
+      "search", // full-text search
+      "playlists", // playlist management
+      "user-data", // favorites, ratings, history
+      "real-time", // websocket updates
+      "analytics", // usage tracking
+      "upload", // file upload
+      "transcoding", // audio format conversion
+      "musicbrainz", // metadata enrichment
+    ]),
+  ),
+  auth: z.object({
+    required: z.boolean(),
+    methods: z.array(z.enum(["passkey", "password", "oauth"])),
+  }),
+  endpoints: z.object({
+    base: z.string(), // base url for api
+    websocket: z.string().optional(), // websocket url if supported
+  }),
+});
+
+// authentication: POST /api/auth
+export const AuthRequest = z.object({
+  method: z.enum(["passkey", "password"]),
+  credentials: z.record(z.string()), // flexible credential format
+});
+
+export const AuthResponse = z.object({
+  token: z.string(),
+  expires: z.string(), // iso date
+  user: z.object({
+    id: z.string(),
+    name: z.string(),
+  }),
+});
+
+// music library: GET /api/music/songs
+export const SongQueryParams = z.object({
+  limit: z.number().optional(),
+  offset: z.number().optional(),
+  artist: z.string().optional(),
+  album: z.string().optional(),
+  genre: z.string().optional(),
+  search: z.string().optional(),
+});
+
+export const Song = z.object({
+  id: z.string(),
+  title: z.string(),
+  artist: z.string(),
+  album: z.string(),
+  track_number: z.number().optional(),
+  disc_number: z.number().optional(),
+  duration_seconds: z.number(),
+  genre: z.string().optional(),
+  year: z.number().optional(),
+  musicbrainz_id: z.string().optional(), // musicbrainz integration
+  user_rating: z.number().min(0).max(5).optional(),
+  user_is_favorite: z.boolean().default(false),
+  // ... rest of song schema
+});
+```
+
+**reference server implementation:**
+
+```javascript
+// reference-server/server.js (simple express server)
+const express = require("express");
+const app = express();
+
+// server info endpoint
+app.get("/api/info", (req, res) => {
+  res.json({
+    id: "reference-music-server",
+    name: "reference music server",
+    version: "1.0.0",
+    features: ["music-library", "search", "musicbrainz"],
+    auth: { required: false, methods: [] },
+    endpoints: { base: "http://localhost:3000/api" },
+  });
+});
+
+// basic music library endpoint
+app.get("/api/music/songs", (req, res) => {
+  // return sample songs for testing
+  res.json({ songs: sampleSongs, total: sampleSongs.length });
+});
+```
+
+**tasks:**
+
+- [ ] **complete api specification**: define all endpoints with zod schemas
+- [ ] **reference server**: build simple javascript implementation for testing
+- [ ] **api documentation**: generate docs from zod schemas
+- [ ] **integration tests**: test client against reference server
+
+#### 1.2 project setup & build system
 
 **objective**: establish clean build pipeline for modern pwa
 
@@ -237,6 +487,7 @@ spume/
 - [ ] **typescript configuration**: strict types, proper paths
 - [ ] **eslint/prettier**: code quality enforcement
 - [ ] **bundle analysis**: size monitoring and optimization
+- [ ] **tailwind css**: utility-first styling configuration
 
 **key deliverables:**
 
@@ -264,7 +515,7 @@ export default defineConfig({
 });
 ```
 
-#### 1.2 indexeddb foundation with solid-js resources
+#### 1.3 indexeddb foundation with solid-js resources
 
 **objective**: create robust, typed indexeddb layer with reactive queries
 
@@ -305,6 +556,13 @@ export interface StorageSchema {
   user_favorites: UserFavorite;
   user_ratings: UserRating;
   play_history: PlayHistory;
+
+  // player state persistence
+  player_queue: PlayerQueueEntry;
+  player_state: PlayerState;
+
+  // ui state persistence
+  scroll_positions: ScrollPosition;
 }
 ```
 
@@ -419,7 +677,7 @@ export function createUserCacheControl() {
 - [ ] **transaction management**: proper error handling and rollbacks
 - [ ] **user cache control**: explicit offline storage management
 
-#### 1.3 service worker & user-controlled caching
+#### 1.4 service worker & user-controlled caching
 
 **objective**: implement offline-first caching with user control
 
@@ -492,7 +750,7 @@ self.addEventListener("message", async (event) => {
 - [ ] **update notifications**: detect new app versions
 - [ ] **offline fallbacks**: meaningful offline pages and error states
 
-#### 1.4 multi-remote architecture
+#### 1.5 multi-remote architecture
 
 **objective**: create flexible system for connecting to multiple music servers
 
@@ -560,9 +818,17 @@ export const supportsModule = (remoteId: string, module: string): boolean => {
 - [ ] **data conflicts**: handle overlapping data from multiple sources
 - [ ] **user management**: ui for adding/configuring remotes
 
-### phase 2: application shell & loading
+### phase 2: application shell & remote setup ui
 
-#### 2.1 application initialization
+**completion criteria:**
+
+- app shows loading animation during initialization
+- user can add/remove remote server configurations
+- app validates remote server connectivity and capabilities
+- remote configurations persist in indexeddb
+- app gracefully handles connection failures
+
+#### 2.1 application initialization with remote setup
 
 **objective**: create robust app startup sequence with proper loading states
 
@@ -635,6 +901,50 @@ export function createAppInitializer() {
 
   return { initialize, status, progress, currentStep };
 }
+
+// first-time setup flow for adding remotes
+export function createFirstTimeSetup() {
+  const [remotes, setRemotes] = createSignal<RemoteConfig[]>([]);
+  const [currentStep, setCurrentStep] = createSignal<
+    "welcome" | "add-remote" | "validate" | "complete"
+  >("welcome");
+
+  const addRemote = async (url: string, name?: string) => {
+    try {
+      // validate server by fetching /api/info
+      const response = await fetch(`${url}/api/info`);
+      const serverInfo = ServerInfo.parse(await response.json());
+
+      const config: RemoteConfig = {
+        id: crypto.randomUUID(),
+        serverId: serverInfo.id,
+        name: name || serverInfo.name,
+        baseUrl: url,
+        capabilities: {
+          modules: serverInfo.features,
+          dataTypes: ["songs", "albums", "artists", "genres"],
+          streaming: true,
+          upload: serverInfo.features.includes("upload"),
+          realtime: serverInfo.features.includes("real-time"),
+        },
+        auth: {
+          required: serverInfo.auth.required,
+          token: null,
+        },
+        syncStrategy: "incremental",
+        lastSync: null,
+        enabled: true,
+      };
+
+      setRemotes((prev) => [...prev, config]);
+      await saveRemoteConfig(config);
+    } catch (error) {
+      throw new Error(`failed to connect to server: ${error.message}`);
+    }
+  };
+
+  return { remotes, currentStep, setCurrentStep, addRemote };
+}
 ```
 
 **loading animation:**
@@ -682,7 +992,216 @@ export function LoadingAnimation(props: {
 - [ ] **progress tracking**: real-time feedback on startup progress
 - [ ] **timeout handling**: prevent hanging on network issues
 
-#### 2.2 application shell architecture
+#### 2.2 routing & scroll restoration
+
+**objective**: implement hash routing with scroll position persistence
+
+**routing setup:**
+
+```typescript
+// views/music/routes/music-routes.tsx
+import { Router, Route, Routes } from '@solidjs/router';
+
+export function MusicRoutes() {
+  return (
+    <Routes>
+      <Route path="/music" component={MusicLayout}>
+        <Route path="/albums" component={AlbumsListPage} />
+        <Route path="/albums/:id" component={AlbumDetailPage} />
+        <Route path="/artists" component={ArtistsListPage} />
+        <Route path="/artists/:id" component={ArtistDetailPage} />
+        <Route path="/playlists" component={PlaylistsListPage} />
+        <Route path="/playlists/:id" component={PlaylistDetailPage} />
+        <Route path="/genres" component={GenresListPage} />
+        <Route path="/search" component={SearchPage} />
+      </Route>
+    </Routes>
+  );
+}
+```
+
+**scroll restoration:**
+
+```typescript
+// lib/core/hooks/use-scroll-restoration.ts
+export function useScrollRestoration(routeKey: string) {
+  const [scrollPosition, setScrollPosition] = createSignal(0);
+  let containerRef: HTMLElement;
+
+  // restore scroll position when component mounts
+  onMount(async () => {
+    const stored = await getStoredScrollPosition(routeKey);
+    if (stored && containerRef) {
+      containerRef.scrollTop = stored;
+      setScrollPosition(stored);
+    }
+  });
+
+  // save scroll position on navigation
+  const saveScrollPosition = debounce(async (position: number) => {
+    await storeScrollPosition(routeKey, position);
+    setScrollPosition(position);
+  }, 150);
+
+  const onScroll = (e: Event) => {
+    const target = e.target as HTMLElement;
+    saveScrollPosition(target.scrollTop);
+  };
+
+  return {
+    scrollPosition,
+    onScroll,
+    containerRef: (el: HTMLElement) => {
+      containerRef = el;
+    },
+  };
+}
+```
+
+#### 2.3 responsive design patterns
+
+**objective**: separate mobile/desktop compositions without conditional branching
+
+**responsive component pattern:**
+
+```typescript
+// views/music/components/albums-list.tsx
+export function AlbumsList() {
+  const [isMobile] = useMediaQuery('(max-width: 768px)');
+
+  return (
+    <Switch>
+      <Match when={isMobile()}>
+        <MobileAlbumsList />
+      </Match>
+      <Match when={!isMobile()}>
+        <DesktopAlbumsList />
+      </Match>
+    </Switch>
+  );
+}
+
+// separate components for each layout
+// views/music/components/mobile/mobile-albums-list.tsx
+export function MobileAlbumsList() {
+  const scroll = useScrollRestoration('albums-mobile');
+
+  return (
+    <div ref={scroll.containerRef} onScroll={scroll.onScroll}>
+      {/* mobile-specific layout */}
+    </div>
+  );
+}
+
+// views/music/components/desktop/desktop-albums-list.tsx
+export function DesktopAlbumsList() {
+  const scroll = useScrollRestoration('albums-desktop');
+
+  return (
+    <div ref={scroll.containerRef} onScroll={scroll.onScroll}>
+      {/* desktop-specific layout */}
+    </div>
+  );
+}
+```
+
+#### 2.4 remote management ui
+
+**objective**: create ui for managing remote server connections
+
+**remote setup components:**
+
+```typescript
+// views/core/components/remote-setup.tsx
+export function RemoteSetupWizard() {
+  const setup = createFirstTimeSetup();
+
+  return (
+    <div class="setup-wizard">
+      <Switch>
+        <Match when={setup.currentStep() === 'welcome'}>
+          <WelcomeStep onNext={() => setup.setCurrentStep('add-remote')} />
+        </Match>
+        <Match when={setup.currentStep() === 'add-remote'}>
+          <AddRemoteStep
+            onAddRemote={setup.addRemote}
+            onNext={() => setup.setCurrentStep('validate')}
+          />
+        </Match>
+        <Match when={setup.currentStep() === 'validate'}>
+          <ValidateRemotesStep
+            remotes={setup.remotes()}
+            onComplete={() => setup.setCurrentStep('complete')}
+          />
+        </Match>
+        <Match when={setup.currentStep() === 'complete'}>
+          <SetupCompleteStep />
+        </Match>
+      </Switch>
+    </div>
+  );
+}
+
+export function AddRemoteStep(props: {
+  onAddRemote: (url: string, name?: string) => Promise<void>;
+  onNext: () => void;
+}) {
+  const [url, setUrl] = createSignal('');
+  const [name, setName] = createSignal('');
+  const [loading, setLoading] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+
+  const handleAdd = async () => {
+    if (!url()) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      await props.onAddRemote(url(), name() || undefined);
+      setUrl('');
+      setName('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div class="add-remote-step">
+      <h2>add music server</h2>
+      <div class="form-fields">
+        <input
+          type="url"
+          placeholder="server url (e.g., https://myserver.com)"
+          value={url()}
+          onInput={(e) => setUrl(e.target.value)}
+        />
+        <input
+          type="text"
+          placeholder="server name (optional)"
+          value={name()}
+          onInput={(e) => setName(e.target.value)}
+        />
+      </div>
+
+      {error() && <div class="error-message">{error()}</div>}
+
+      <div class="actions">
+        <button onClick={handleAdd} disabled={loading() || !url()}>
+          {loading() ? 'connecting...' : 'add server'}
+        </button>
+        <button onClick={props.onNext}>
+          continue
+        </button>
+      </div>
+    </div>
+  );
+}
+```
+
+#### 2.5 application shell architecture
 
 **objective**: create flexible shell that can accommodate multiple domains
 
@@ -792,7 +1311,129 @@ for each file, determine:
    - tests to update
 ```
 
-#### 3.2 module extraction
+#### 3.2 batch editing & musicbrainz integration
+
+**objective**: implement multi-select and metadata enrichment features
+
+**batch editing pattern:**
+
+```typescript
+// lib/music/batch-editing/selection-manager.ts
+export function createSelectionManager<T extends { id: string }>() {
+  const [selectedItems, setSelectedItems] = createStore<Set<string>>(new Set());
+  const [lastSelected, setLastSelected] = createSignal<string | null>(null);
+
+  const toggleSelection = (id: string, event?: MouseEvent) => {
+    if (event?.ctrlKey || event?.metaKey) {
+      // ctrl+click: toggle individual item
+      setSelectedItems((prev) => {
+        const newSet = new Set(prev);
+        if (newSet.has(id)) {
+          newSet.delete(id);
+        } else {
+          newSet.add(id);
+        }
+        return newSet;
+      });
+    } else if (event?.shiftKey && lastSelected()) {
+      // shift+click: select range
+      selectRange(lastSelected()!, id);
+    } else {
+      // regular click: select only this item
+      setSelectedItems(new Set([id]));
+    }
+    setLastSelected(id);
+  };
+
+  const selectAll = (items: T[]) => {
+    setSelectedItems(new Set(items.map((item) => item.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedItems(new Set());
+    setLastSelected(null);
+  };
+
+  return {
+    selectedItems: () => selectedItems,
+    toggleSelection,
+    selectAll,
+    clearSelection,
+    hasSelection: () => selectedItems.size > 0,
+  };
+}
+```
+
+**musicbrainz integration:**
+
+```typescript
+// lib/music/musicbrainz/metadata-enrichment.ts
+export async function enrichSongMetadata(song: Song): Promise<Partial<Song>> {
+  const searchQuery = `${song.artist} ${song.title}`;
+
+  try {
+    const response = await fetch(
+      `https://musicbrainz.org/ws/2/recording/?query=${encodeURIComponent(searchQuery)}&fmt=json`,
+    );
+
+    const data = await response.json();
+    const recording = data.recordings?.[0];
+
+    if (recording) {
+      return {
+        musicbrainz_id: recording.id,
+        title: recording.title || song.title,
+        artist: recording["artist-credit"]?.[0]?.name || song.artist,
+        // additional enrichment...
+      };
+    }
+  } catch (error) {
+    console.warn("musicbrainz enrichment failed:", error);
+  }
+
+  return {};
+}
+```
+
+#### 3.3 player persistence
+
+**objective**: persist player state and queue to indexeddb
+
+```typescript
+// lib/music/audio-player/player-persistence.ts
+export function createPlayerPersistence() {
+  const savePlayerState = async (state: {
+    currentTrack: Track | null;
+    position: number;
+    volume: number;
+    queue: Track[];
+    queueIndex: number;
+  }) => {
+    await updateStore("player_state", "current", state);
+  };
+
+  const restorePlayerState = async () => {
+    return await queryStore("player_state", { id: "current" });
+  };
+
+  const savePlayHistory = async (track: Track, playedAt: Date) => {
+    await insertIntoStore("play_history", {
+      id: crypto.randomUUID(),
+      track_id: track.id,
+      played_at: playedAt.toISOString(),
+      remote_id: track.remote_id,
+    });
+  };
+
+  return {
+    savePlayerState,
+    restorePlayerState,
+    savePlayHistory,
+  };
+}
+```
+
+#### 3.4 module extraction
 
 **objective**: extract cohesive modules from the monolithic codebase
 
@@ -855,7 +1496,7 @@ export interface CollectionsModule {
 - [ ] **playlist extraction**: crud operations and ui components
 - [ ] **analytics extraction**: usage tracking and insights
 
-#### 3.3 virtualized infinite scrolling with solid-js resources
+#### 3.5 virtualized infinite scrolling with solid-js resources
 
 **objective**: create sound abstraction for virtualized lists with reactive data
 
@@ -935,7 +1576,7 @@ export function SongList() {
 - [ ] **search integration**: virtualized search results with highlighting
 - [ ] **performance optimization**: efficient rendering for large datasets
 
-#### 3.4 state management consolidation
+#### 3.6 state management consolidation
 
 **objective**: establish consistent patterns for state management across modules
 
