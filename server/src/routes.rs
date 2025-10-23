@@ -37,7 +37,7 @@ pub fn build_routes(config: &AppConfig, connection_manager: ConnectionManager) -
     Router::new()
         // Public routes (no auth required)
         .merge(build_auth_routes(config))
-        .merge(build_health_routes())
+        .merge(build_health_routes(config))
         .merge(build_enhanced_public_routes(config))
         // Protected routes
         .merge(protected_routes)

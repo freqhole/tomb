@@ -80,6 +80,12 @@ pub struct AppInfo {
     pub environment: String,
     /// Optional description
     pub description: Option<String>,
+    /// Server identifier for API
+    #[serde(default = "default_server_id")]
+    pub id: String,
+    /// Supported features
+    #[serde(default = "default_features")]
+    pub features: Vec<String>,
 }
 
 /// Database configuration
@@ -154,9 +160,19 @@ pub struct ServerConfig {
     /// Server port to bind to
     #[serde(default = "default_server_port")]
     pub port: u16,
+    /// Base URL for API endpoints
+    #[serde(default = "default_server_base")]
+    pub base: String,
     /// CORS configuration
     #[serde(default)]
     pub cors: CorsConfig,
+}
+
+impl ServerConfig {
+    /// Get the normalized base URL without trailing slashes
+    pub fn normalized_base(&self) -> String {
+        normalize_base_url(&self.base)
+    }
 }
 
 /// CORS (Cross-Origin Resource Sharing) configuration
@@ -524,6 +540,27 @@ fn default_environment() -> String {
     "development".to_string()
 }
 
+fn default_server_id() -> String {
+    "tomb-music-server".to_string()
+}
+
+fn default_features() -> Vec<String> {
+    vec![
+        "music-library".to_string(),
+        // "search".to_string(),
+        // "musicbrainz".to_string(),
+    ]
+}
+
+fn default_server_base() -> String {
+    "http://localhost:8080".to_string()
+}
+
+/// Utility function to normalize base URL by removing trailing slashes
+fn normalize_base_url(base: &str) -> String {
+    base.trim_end_matches('/').to_string()
+}
+
 fn default_db_host() -> String {
     "localhost".to_string()
 }
@@ -762,6 +799,8 @@ impl AppConfig {
                 version: default_app_version(),
                 environment: default_environment(),
                 description: Some("WebAuthn authentication server with invite codes".to_string()),
+                id: default_server_id(),
+                features: default_features(),
             },
             database: DatabaseConfig {
                 host: default_db_host(),
@@ -787,6 +826,7 @@ impl AppConfig {
             server: ServerConfig {
                 host: default_server_host(),
                 port: default_server_port(),
+                base: default_server_base(),
                 cors: CorsConfig::default(),
             },
             sessions: SessionConfig {
@@ -1023,6 +1063,8 @@ impl Default for AppConfig {
                 version: default_app_version(),
                 environment: default_environment(),
                 description: None,
+                id: default_server_id(),
+                features: default_features(),
             },
             database: DatabaseConfig {
                 host: default_db_host(),
@@ -1048,6 +1090,7 @@ impl Default for AppConfig {
             server: ServerConfig {
                 host: default_server_host(),
                 port: default_server_port(),
+                base: default_server_base(),
                 cors: CorsConfig::default(),
             },
             sessions: SessionConfig {
@@ -1117,6 +1160,38 @@ mod tests {
         let url = config.database_url();
         assert!(url.starts_with("postgresql://"));
         assert!(url.contains("localhost:5432"));
+    }
+
+    #[test]
+    fn test_normalize_base_url() {
+        assert_eq!(
+            normalize_base_url("http://localhost:8080"),
+            "http://localhost:8080"
+        );
+        assert_eq!(
+            normalize_base_url("http://localhost:8080/"),
+            "http://localhost:8080"
+        );
+        assert_eq!(
+            normalize_base_url("http://localhost:8080/api/"),
+            "http://localhost:8080/api"
+        );
+        assert_eq!(
+            normalize_base_url("https://example.com/api///"),
+            "https://example.com/api"
+        );
+        assert_eq!(normalize_base_url(""), "");
+    }
+
+    #[test]
+    fn test_server_config_normalized_base() {
+        let config = ServerConfig {
+            host: "localhost".to_string(),
+            port: 8080,
+            base: "http://localhost:8080/api/".to_string(),
+            cors: CorsConfig::default(),
+        };
+        assert_eq!(config.normalized_base(), "http://localhost:8080/api");
     }
 
     #[test]
