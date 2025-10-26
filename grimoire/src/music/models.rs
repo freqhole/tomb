@@ -36,9 +36,12 @@ pub struct Song {
     pub metadata: serde_json::Value,
     pub processing_status: Option<String>,
     pub processing_notes: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub deleted_at: Option<OffsetDateTime>,
     pub deleted_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
     pub version: i64,
 }
@@ -90,9 +93,12 @@ pub struct Playlist {
     pub is_public: bool,
     pub is_collaborative: bool,
     pub metadata: serde_json::Value,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub deleted_at: Option<OffsetDateTime>,
     pub deleted_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
     pub version: i64,
 }
@@ -128,6 +134,7 @@ pub struct PlaylistSong {
     pub playlist_id: Uuid,
     pub song_id: Uuid,
     pub position: i32,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     pub added_by_client_id: Option<String>,
     pub metadata: serde_json::Value,

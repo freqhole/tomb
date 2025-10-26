@@ -174,15 +174,196 @@ impl MusicRepository {
         Ok(songs)
     }
 
-    /// Query songs with filtering and pagination (backward compatibility)
-    /// This method converts search results back to Song objects for existing code
+    /// Query songs with filtering and pagination
     pub async fn query_songs(&self, query: SongQuery) -> Result<Vec<Song>> {
-        // For now, use the simple list method for backward compatibility
-        // This can be enhanced later to use search results
-        let limit = query.limit;
-        let offset = query.offset;
+        let limit = query.limit.unwrap_or(100);
+        let offset = query.offset.unwrap_or(0);
 
-        self.list_songs(limit, offset).await
+        // Build the SQL query with filtering
+        let mut sql = "SELECT id, media_blob_id, thumbnail_blob_id, waveform_blob_id, thumbnail_blob_ids, title, artist, album, album_artist, track_number, disc_number, duration, genre, sub_genres, year, bpm, key_signature, rating, is_favorite, tags, metadata, processing_status, processing_notes, deleted_at, deleted_by, created_at, updated_at, version FROM songs WHERE 1=1".to_string();
+        let mut bind_count = 0;
+
+        // Add filters
+        if let Some(_artist) = &query.artist {
+            bind_count += 1;
+            sql.push_str(&format!(" AND artist = ${}", bind_count));
+        }
+
+        if let Some(_album) = &query.album {
+            bind_count += 1;
+            sql.push_str(&format!(" AND album = ${}", bind_count));
+        }
+
+        if let Some(_album_artist) = &query.album_artist {
+            bind_count += 1;
+            sql.push_str(&format!(" AND album_artist = ${}", bind_count));
+        }
+
+        if let Some(_genre) = &query.genre {
+            bind_count += 1;
+            sql.push_str(&format!(" AND genre = ${}", bind_count));
+        }
+
+        if let Some(_title_search) = &query.title_search {
+            bind_count += 1;
+            sql.push_str(&format!(" AND title ILIKE ${}", bind_count));
+        }
+
+        if let Some(_year) = query.year {
+            bind_count += 1;
+            sql.push_str(&format!(" AND year = ${}", bind_count));
+        }
+
+        if let Some(_rating_min) = query.rating_min {
+            bind_count += 1;
+            sql.push_str(&format!(" AND rating >= ${}", bind_count));
+        }
+
+        if let Some(_rating_max) = query.rating_max {
+            bind_count += 1;
+            sql.push_str(&format!(" AND rating <= ${}", bind_count));
+        }
+
+        if let Some(_bpm_min) = query.bpm_min {
+            bind_count += 1;
+            sql.push_str(&format!(" AND bpm >= ${}", bind_count));
+        }
+
+        if let Some(_bmp_max) = query.bpm_max {
+            bind_count += 1;
+            sql.push_str(&format!(" AND bpm <= ${}", bind_count));
+        }
+
+        if let Some(_duration_min) = query.duration_min {
+            bind_count += 1;
+            sql.push_str(&format!(
+                " AND EXTRACT(EPOCH FROM duration) >= ${}",
+                bind_count
+            ));
+        }
+
+        if let Some(_duration_max) = query.duration_max {
+            bind_count += 1;
+            sql.push_str(&format!(
+                " AND EXTRACT(EPOCH FROM duration) <= ${}",
+                bind_count
+            ));
+        }
+
+        if let Some(_favorites_only) = query.favorites_only {
+            if _favorites_only {
+                sql.push_str(" AND is_favorite = true");
+            }
+        }
+
+        if let Some(_has_thumbnail) = query.has_thumbnail {
+            if _has_thumbnail {
+                sql.push_str(" AND thumbnail_blob_id IS NOT NULL");
+            } else {
+                sql.push_str(" AND thumbnail_blob_id IS NULL");
+            }
+        }
+
+        if let Some(_has_waveform) = query.has_waveform {
+            if _has_waveform {
+                sql.push_str(" AND waveform_blob_id IS NOT NULL");
+            } else {
+                sql.push_str(" AND waveform_blob_id IS NULL");
+            }
+        }
+
+        if let Some(_created_after) = query.created_after {
+            bind_count += 1;
+            sql.push_str(&format!(" AND created_at > ${}", bind_count));
+        }
+
+        if let Some(_updated_after) = query.updated_after {
+            bind_count += 1;
+            sql.push_str(&format!(" AND updated_at > ${}", bind_count));
+        }
+
+        if let Some(_key_signature) = &query.key_signature {
+            bind_count += 1;
+            sql.push_str(&format!(" AND key_signature = ${}", bind_count));
+        }
+
+        if let Some(_media_blob_id) = &query.media_blob_id {
+            bind_count += 1;
+            sql.push_str(&format!(" AND media_blob_id = ${}", bind_count));
+        }
+
+        // Add ordering
+        let order_by = query.order_by.as_deref().unwrap_or("created_at");
+        let order_direction = query.order_direction.as_deref().unwrap_or("DESC");
+        sql.push_str(&format!(" ORDER BY {} {}", order_by, order_direction));
+
+        // Add pagination
+        bind_count += 1;
+        sql.push_str(&format!(" LIMIT ${}", bind_count));
+        bind_count += 1;
+        sql.push_str(&format!(" OFFSET ${}", bind_count));
+
+        // Build and execute the query
+        let mut query_builder = sqlx::query_as::<_, Song>(&sql);
+
+        // Bind parameters in the same order they were added
+        if let Some(artist) = &query.artist {
+            query_builder = query_builder.bind(artist);
+        }
+        if let Some(album) = &query.album {
+            query_builder = query_builder.bind(album);
+        }
+        if let Some(album_artist) = &query.album_artist {
+            query_builder = query_builder.bind(album_artist);
+        }
+        if let Some(genre) = &query.genre {
+            query_builder = query_builder.bind(genre);
+        }
+        if let Some(title_search) = &query.title_search {
+            query_builder = query_builder.bind(format!("%{}%", title_search));
+        }
+        if let Some(year) = query.year {
+            query_builder = query_builder.bind(year);
+        }
+        if let Some(rating_min) = query.rating_min {
+            query_builder = query_builder.bind(rating_min);
+        }
+        if let Some(rating_max) = query.rating_max {
+            query_builder = query_builder.bind(rating_max);
+        }
+        if let Some(bpm_min) = query.bpm_min {
+            query_builder = query_builder.bind(bpm_min);
+        }
+        if let Some(bpm_max) = query.bpm_max {
+            query_builder = query_builder.bind(bpm_max);
+        }
+        if let Some(duration_min) = query.duration_min {
+            query_builder = query_builder.bind(duration_min);
+        }
+        if let Some(duration_max) = query.duration_max {
+            query_builder = query_builder.bind(duration_max);
+        }
+        if let Some(created_after) = query.created_after {
+            query_builder = query_builder.bind(created_after);
+        }
+        if let Some(updated_after) = query.updated_after {
+            query_builder = query_builder.bind(updated_after);
+        }
+        if let Some(key_signature) = &query.key_signature {
+            query_builder = query_builder.bind(key_signature);
+        }
+        if let Some(media_blob_id) = &query.media_blob_id {
+            query_builder = query_builder.bind(media_blob_id);
+        }
+
+        // Bind pagination parameters
+        query_builder = query_builder.bind(limit);
+        query_builder = query_builder.bind(offset);
+
+        query_builder
+            .fetch_all(&self.pool)
+            .await
+            .map_err(MusicRepositoryError::Database)
     }
 
     /// Create a new song
