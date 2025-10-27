@@ -5,6 +5,7 @@
 use crate::auth::require_admin;
 use crate::auth::AuthenticatedUser;
 use crate::download::routes::{download_urls, get_job_status};
+use crate::startup::AppState;
 use axum::{
     extract::{DefaultBodyLimit, Extension, Multipart, Path, Query},
     http::StatusCode,
@@ -24,6 +25,7 @@ use grimoire::music::{
     PlaylistQuery, PlaylistService, PlaylistSummary, PlaylistWithCount, Song, SongQuery,
     UpdatePlaylist,
 };
+use grimoire::notifications::{NotificationEvent, PlaylistEventPayload};
 use grimoire::thumbnails::ThumbnailService;
 use grimoire::DatabaseConnection;
 use serde::{Deserialize, Serialize};
@@ -1448,6 +1450,7 @@ pub async fn get_playlist(
 /// Create playlist
 pub async fn create_playlist(
     Extension(db): Extension<DatabaseConnection>,
+    Extension(app_state): Extension<AppState>,
     Json(req): Json<CreatePlaylistRequest>,
 ) -> Result<Json<PlaylistResponse>, WebauthnError> {
     tracing::debug!("Creating playlist with request: {:?}", req);
@@ -1456,6 +1459,7 @@ pub async fn create_playlist(
     let service = PlaylistService::new(repository);
 
     let song_ids = req.song_ids.clone().unwrap_or_default();
+    let song_count = song_ids.len() as i32;
     let create_params = CreatePlaylist::from(req);
 
     tracing::debug!(
@@ -1465,7 +1469,11 @@ pub async fn create_playlist(
     );
 
     let (playlist, _added_songs) = service
-        .create_playlist_with_songs(create_params, Some(song_ids), Some("web".to_string()))
+        .create_playlist_with_songs(
+            create_params,
+            Some(song_ids.clone()),
+            Some("web".to_string()),
+        )
         .await
         .map_err(|e| {
             tracing::error!("Failed to create playlist: {:?}", e);
@@ -1473,12 +1481,44 @@ pub async fn create_playlist(
         })?;
 
     tracing::debug!("Successfully created playlist: {:?}", playlist);
-    Ok(Json(PlaylistResponse::from(playlist)))
+
+    let response = Json(PlaylistResponse::from(playlist.clone()));
+
+    // Emit WebSocket notification for playlist creation
+    if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
+        let payload = PlaylistEventPayload {
+            playlist_id: playlist.id,
+            title: playlist.title.clone(),
+            description: playlist.description.clone(),
+            song_count: Some(song_count),
+            thumbnail_blob_id: playlist
+                .media_blob_id
+                .clone()
+                .and_then(|id| id.parse().ok()),
+            is_public: playlist.is_public,
+        };
+
+        let event = NotificationEvent::playlist_created(payload);
+
+        if let Ok(infrastructure) = notification_infrastructure.try_lock() {
+            if let Err(e) = infrastructure.service().publish_event(event).await {
+                tracing::warn!("Failed to emit playlist created notification: {}", e);
+            } else {
+                tracing::debug!(
+                    "Emitted playlist created notification for playlist: {}",
+                    playlist.id
+                );
+            }
+        }
+    }
+
+    Ok(response)
 }
 
 /// Update playlist
 pub async fn update_playlist(
     Extension(db): Extension<DatabaseConnection>,
+    Extension(app_state): Extension<AppState>,
     Path(playlist_id): Path<Uuid>,
     Json(req): Json<UpdatePlaylistRequest>,
 ) -> Result<Json<PlaylistResponse>, WebauthnError> {
@@ -1491,21 +1531,79 @@ pub async fn update_playlist(
         .await
         .map_err(|_| WebauthnError::BadRequest)?;
 
+    // Emit WebSocket notification for playlist update
+    if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
+        // Get song count for the playlist
+        let song_count = match service.get_playlist_songs(playlist_id).await {
+            Ok(songs) => Some(songs.len() as i32),
+            Err(_) => None,
+        };
+
+        let payload = PlaylistEventPayload {
+            playlist_id: playlist.id,
+            title: playlist.title.clone(),
+            description: playlist.description.clone(),
+            song_count,
+            thumbnail_blob_id: playlist
+                .media_blob_id
+                .clone()
+                .and_then(|id| id.parse().ok()),
+            is_public: playlist.is_public,
+        };
+
+        let event = NotificationEvent::playlist_updated(payload);
+
+        if let Ok(infrastructure) = notification_infrastructure.try_lock() {
+            if let Err(e) = infrastructure.service().publish_event(event).await {
+                tracing::warn!("Failed to emit playlist updated notification: {}", e);
+            } else {
+                tracing::debug!(
+                    "Emitted playlist updated notification for playlist: {}",
+                    playlist.id
+                );
+            }
+        }
+    }
+
     Ok(Json(PlaylistResponse::from(playlist)))
 }
 
 /// Delete playlist
 pub async fn delete_playlist(
     Extension(db): Extension<DatabaseConnection>,
+    Extension(app_state): Extension<AppState>,
     Path(playlist_id): Path<Uuid>,
 ) -> Result<StatusCode, WebauthnError> {
     let repository = MusicRepository::new(db.pool().clone());
     let service = PlaylistService::new(repository);
 
+    // Get playlist title before deletion for notification
+    let playlist_title = match service.get_playlist(playlist_id).await {
+        Ok(playlist) => playlist.title,
+        Err(_) => format!("Playlist {}", playlist_id),
+    };
+
     let _deleted = service
         .delete_playlist(playlist_id, None)
         .await
         .map_err(|_| WebauthnError::UserNotFound)?;
+
+    // Emit WebSocket notification for playlist deletion
+    if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
+        let event = NotificationEvent::playlist_deleted(playlist_id, playlist_title.clone());
+
+        if let Ok(infrastructure) = notification_infrastructure.try_lock() {
+            if let Err(e) = infrastructure.service().publish_event(event).await {
+                tracing::warn!("Failed to emit playlist deleted notification: {}", e);
+            } else {
+                tracing::debug!(
+                    "Emitted playlist deleted notification for playlist: {} ({})",
+                    playlist_id,
+                    playlist_title
+                );
+            }
+        }
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
