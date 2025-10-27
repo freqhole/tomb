@@ -920,6 +920,7 @@ pub async fn get_song(
 /// Update song (favorite status, rating)
 pub async fn update_song(
     Extension(db): Extension<DatabaseConnection>,
+    Extension(app_state): Extension<AppState>,
     Path(song_id): Path<Uuid>,
     Json(req): Json<UpdateSongRequest>,
 ) -> Result<Json<SongUpdateResponse>, WebauthnError> {
@@ -958,10 +959,32 @@ pub async fn update_song(
         format!("Song {}", actions.join(" and "))
     };
 
-    Ok(Json(SongUpdateResponse {
+    let response = SongUpdateResponse {
         message,
-        song: SongResponse::from(song),
-    }))
+        song: SongResponse::from(song.clone()),
+    };
+
+    // emit websocket notification for song update
+    if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
+        let song_response = SongResponse::from(song.clone());
+        let payload = serde_json::json!({
+            "song": song_response,
+        });
+
+        let event = NotificationEvent::new(
+            NotificationChannel::Music,
+            "song.updated".to_string(),
+            payload,
+        );
+
+        if let Ok(infrastructure) = notification_infrastructure.try_lock() {
+            if let Err(e) = infrastructure.service().publish_event(event).await {
+                tracing::error!("failed to emit song updated notification: {}", e);
+            }
+        }
+    }
+
+    Ok(Json(response))
 }
 
 /// Update user song preferences (favorite status, rating)
@@ -1129,11 +1152,14 @@ pub async fn bulk_update_songs(
 pub async fn delete_songs(
     Extension(user): Extension<AuthenticatedUser>,
     Extension(db): Extension<DatabaseConnection>,
+    Extension(app_state): Extension<AppState>,
     Json(request): Json<DeleteSongsRequest>,
 ) -> Result<Json<HashMap<String, serde_json::Value>>, WebauthnError> {
     let repository = MusicRepository::new(db.pool().clone());
 
     let mut deleted_count = 0;
+    let mut deleted_song_ids = Vec::new();
+
     for song_id in request.song_ids {
         let uuid = Uuid::parse_str(&song_id).map_err(|_| WebauthnError::BadRequest)?;
 
@@ -1143,6 +1169,36 @@ pub async fn delete_songs(
             .map_err(|_| WebauthnError::DatabaseError)?
         {
             deleted_count += 1;
+            deleted_song_ids.push(uuid);
+        }
+    }
+
+    // emit websocket notifications for song deletions
+    if !deleted_song_ids.is_empty() {
+        if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
+            for song_id in &deleted_song_ids {
+                let payload = serde_json::json!({
+                    "song_id": song_id,
+                });
+
+                let event = NotificationEvent::new(
+                    NotificationChannel::Music,
+                    "song.deleted".to_string(),
+                    payload,
+                );
+
+                if let Ok(infrastructure) = notification_infrastructure.try_lock() {
+                    if let Err(e) = infrastructure.service().publish_event(event).await {
+                        tracing::error!(
+                            "failed to emit song deleted notification for {}: {}",
+                            song_id,
+                            e
+                        );
+                    }
+                } else {
+                    break; // don't spam logs for multiple failures
+                }
+            }
         }
     }
 
