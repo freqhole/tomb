@@ -461,8 +461,7 @@ impl PostgresNotificationListener {
             }
             "music_notifications" => {
                 debug!("Music notification received: {}", payload);
-                debug!("Routing music notification to MediaBlobs channel for client consumption");
-                NotificationChannel::MediaBlobs // Route music notifications to MediaBlobs channel
+                NotificationChannel::Music
             }
             _ => {
                 warn!("Unknown PostgreSQL notification channel: {}", channel_name);

@@ -288,6 +288,7 @@
   "features": {
     "registration_enabled": true,
     "invite_codes_required": true,
-    "analytics_enabled": true
+    "analytics_enabled": true,
+    "notifications_enabled": true
   }
 }

@@ -54,16 +54,26 @@ impl NotificationInfrastructure {
         let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
         self.shutdown_tx = Some(shutdown_tx);
 
-        // Use mock publishers for the notification service (these aren't the main path anymore)
-        let service_clone = Arc::clone(&self.service);
+        // Create a new service with the proper publishers
+        let config = NotificationConfig::default();
+        let mut new_service = NotificationService::new(config);
 
-        // Try to get mutable access to add publishers
-        if let Ok(mut service_mut) = Arc::try_unwrap(service_clone) {
-            service_mut.add_publisher(NotificationChannel::MediaBlobs, Publisher::mock());
-            service_mut.add_publisher(NotificationChannel::ThumbnailJobs, Publisher::mock());
-            service_mut.add_publisher(NotificationChannel::System, Publisher::mock());
-            self.service = Arc::new(service_mut);
-        }
+        // Add mock publishers for most channels
+        new_service.add_publisher(NotificationChannel::MediaBlobs, Publisher::mock());
+        new_service.add_publisher(NotificationChannel::ThumbnailJobs, Publisher::mock());
+        new_service.add_publisher(NotificationChannel::System, Publisher::mock());
+        info!("Added mock publishers for MediaBlobs, ThumbnailJobs, and System channels");
+
+        // Add real PostgreSQL publisher for Music notifications
+        let postgres_config = grimoire::notifications::publisher::PublishConfig::default();
+        new_service.add_publisher(
+            NotificationChannel::Music,
+            Publisher::postgres(postgres_config, db.clone()),
+        );
+        info!("Added PostgreSQL publisher for Music channel");
+
+        // Replace the service
+        self.service = Arc::new(new_service);
 
         // Start PostgreSQL listener with direct WebSocket broadcasting
         let config = grimoire::notifications::config::NotificationConfig::production();
