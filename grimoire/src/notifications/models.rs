@@ -23,6 +23,7 @@ pub struct NotificationEvent {
     /// Event metadata
     pub metadata: EventMetadata,
     /// When this event was created
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     /// Priority level for delivery
     pub priority: NotificationPriority,

@@ -94,6 +94,7 @@ pub enum WebSocketResponse {
         event_type: String,
         payload: Value,
         priority: String,
+        #[serde(with = "time::serde::rfc3339")]
         timestamp: OffsetDateTime,
     },
     /// Server confirms subscription to notifications

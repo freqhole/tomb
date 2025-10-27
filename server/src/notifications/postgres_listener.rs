@@ -417,7 +417,7 @@ impl PostgresNotificationListener {
     /// Handle a single PostgreSQL notification
     async fn handle_notification(
         notification: PgNotification,
-        notification_service: &NotificationService,
+        _notification_service: &NotificationService,
         stats: &Arc<RwLock<PostgresListenerStats>>,
         websocket_tx: &Option<broadcast::Sender<String>>,
     ) -> Result<(), PostgresListenerError> {
@@ -478,8 +478,15 @@ impl PostgresNotificationListener {
             .unwrap_or("unknown")
             .to_string();
 
-        // Create NotificationEvent
-        let event = NotificationEvent::new(notification_channel, event_type, payload_json);
+        // Extract the original payload data from the received notification
+        let original_payload = payload_json
+            .get("payload")
+            .and_then(|p| p.get("data"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+
+        // Create NotificationEvent with just the original payload data
+        let event = NotificationEvent::new(notification_channel, event_type, original_payload);
 
         // Extract more notification details for better logging
         let event_type_str = event.event_type.clone();
@@ -494,7 +501,7 @@ impl PostgresNotificationListener {
                     "event_type": event.event_type,
                     "payload": event.payload_value(),
                     "priority": format!("{:?}", event.priority),
-                    "timestamp": event.timestamp(),
+                    "timestamp": event.timestamp().format(&time::format_description::well_known::Rfc3339).unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string()),
                 }
             });
 
@@ -522,19 +529,8 @@ impl PostgresNotificationListener {
             }
         }
 
-        // Also publish through the notification service for other publishers
-        match notification_service.publish_event(event).await {
-            Ok(_) => {
-                // Already logged success above for WebSocket
-            }
-            Err(e) => {
-                error!(
-                    "Failed to publish notification - Channel: '{}', Event: '{}': {}",
-                    channel_name, event_type_str, e
-                );
-                return Err(e.into());
-            }
-        }
+        // Note: Do NOT republish through notification_service here as that would create
+        // an infinite loop. The PostgreSQL listener only forwards to WebSocket clients.
 
         // Update stats
         {

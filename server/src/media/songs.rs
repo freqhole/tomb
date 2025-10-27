@@ -966,9 +966,8 @@ pub async fn update_song(
 
     // emit websocket notification for song update
     if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
-        let song_response = SongResponse::from(song.clone());
         let payload = serde_json::json!({
-            "song": song_response,
+            "song_id": song.id,
         });
 
         let event = NotificationEvent::new(
@@ -991,6 +990,7 @@ pub async fn update_song(
 pub async fn update_song_preferences(
     Extension(db): Extension<DatabaseConnection>,
     Extension(user): Extension<AuthenticatedUser>,
+    Extension(app_state): Extension<AppState>,
     Path(song_id): Path<Uuid>,
     Json(req): Json<UpdateUserPreferenceRequest>,
 ) -> Result<Json<UserPreferenceResponse>, WebauthnError> {
@@ -1038,13 +1038,35 @@ pub async fn update_song_preferences(
         return Ok(Json(UserPreferenceResponse::from(preference)));
     }
 
-    Ok(Json(UserPreferenceResponse::from(preference)))
+    let response = UserPreferenceResponse::from(preference);
+
+    // emit websocket notification for user preference change
+    if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
+        let payload = serde_json::json!({
+            "song_id": song_id,
+        });
+
+        let event = NotificationEvent::new(
+            NotificationChannel::Music,
+            "user_preference.updated".to_string(),
+            payload,
+        );
+
+        if let Ok(infrastructure) = notification_infrastructure.try_lock() {
+            if let Err(e) = infrastructure.service().publish_event(event).await {
+                tracing::error!("failed to emit user preference updated notification: {}", e);
+            }
+        }
+    }
+
+    Ok(Json(response))
 }
 
 /// Bulk update user preferences for multiple songs
 pub async fn bulk_update_user_preferences(
     Extension(db): Extension<DatabaseConnection>,
     Extension(user): Extension<AuthenticatedUser>,
+    Extension(app_state): Extension<AppState>,
     Json(req): Json<BulkUpdateUserPreferencesRequest>,
 ) -> Result<Json<BulkUserPreferenceResponse>, WebauthnError> {
     let user_id = user.user().id;
@@ -1096,10 +1118,36 @@ pub async fn bulk_update_user_preferences(
         .map(UserPreferenceResponse::from)
         .collect();
 
-    Ok(Json(BulkUserPreferenceResponse {
+    let response = BulkUserPreferenceResponse {
         message: "preferences updated successfully".to_string(),
         updated_preferences,
-    }))
+    };
+
+    // emit websocket notification for bulk user preference changes
+    if !song_ids.is_empty() {
+        if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
+            let payload = serde_json::json!({
+                "song_count": song_ids.len(),
+            });
+
+            let event = NotificationEvent::new(
+                NotificationChannel::Music,
+                "user_preference.bulk_updated".to_string(),
+                payload,
+            );
+
+            if let Ok(infrastructure) = notification_infrastructure.try_lock() {
+                if let Err(e) = infrastructure.service().publish_event(event).await {
+                    tracing::error!(
+                        "failed to emit bulk user preference updated notification: {}",
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(Json(response))
 }
 
 /// Bulk update song metadata (admin-only)
@@ -1176,27 +1224,19 @@ pub async fn delete_songs(
     // emit websocket notifications for song deletions
     if !deleted_song_ids.is_empty() {
         if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
-            for song_id in &deleted_song_ids {
-                let payload = serde_json::json!({
-                    "song_id": song_id,
-                });
+            let payload = serde_json::json!({
+                "deleted_count": deleted_song_ids.len(),
+            });
 
-                let event = NotificationEvent::new(
-                    NotificationChannel::Music,
-                    "song.deleted".to_string(),
-                    payload,
-                );
+            let event = NotificationEvent::new(
+                NotificationChannel::Music,
+                "songs.deleted".to_string(),
+                payload,
+            );
 
-                if let Ok(infrastructure) = notification_infrastructure.try_lock() {
-                    if let Err(e) = infrastructure.service().publish_event(event).await {
-                        tracing::error!(
-                            "failed to emit song deleted notification for {}: {}",
-                            song_id,
-                            e
-                        );
-                    }
-                } else {
-                    break; // don't spam logs for multiple failures
+            if let Ok(infrastructure) = notification_infrastructure.try_lock() {
+                if let Err(e) = infrastructure.service().publish_event(event).await {
+                    tracing::error!("failed to emit songs deleted notification: {}", e);
                 }
             }
         }
@@ -1541,17 +1581,10 @@ pub async fn create_playlist(
 
     let response = Json(PlaylistResponse::from(playlist.clone()));
 
-    // Emit WebSocket notification for playlist creation
-    tracing::info!(
-        "Attempting to emit playlist created notification for playlist: {}",
-        playlist.id
-    );
+    // emit websocket notification for playlist creation
     if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
-        tracing::debug!("Notification infrastructure is available");
-        // Fetch current playlist data and include in notification
-        let playlist_response = PlaylistResponse::from(playlist.clone());
         let payload = serde_json::json!({
-            "playlist": playlist_response,
+            "playlist_id": playlist.id,
         });
 
         let event = NotificationEvent::new(
@@ -1561,20 +1594,10 @@ pub async fn create_playlist(
         );
 
         if let Ok(infrastructure) = notification_infrastructure.try_lock() {
-            tracing::debug!("Successfully acquired notification infrastructure lock");
             if let Err(e) = infrastructure.service().publish_event(event).await {
-                tracing::error!("Failed to emit playlist created notification: {}", e);
-            } else {
-                tracing::info!(
-                    "Successfully emitted playlist created notification for playlist: {}",
-                    playlist.id
-                );
+                tracing::error!("failed to emit playlist created notification: {}", e);
             }
-        } else {
-            tracing::warn!("Failed to acquire notification infrastructure lock");
         }
-    } else {
-        tracing::warn!("Notification infrastructure is not available in app_state");
     }
 
     Ok(response)
@@ -1596,17 +1619,10 @@ pub async fn update_playlist(
         .await
         .map_err(|_| WebauthnError::BadRequest)?;
 
-    // Emit WebSocket notification for playlist update
-    tracing::info!(
-        "Attempting to emit playlist updated notification for playlist: {}",
-        playlist.id
-    );
+    // emit websocket notification for playlist update
     if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
-        tracing::debug!("Notification infrastructure is available for update");
-        // Fetch current playlist data and include in notification
-        let playlist_response = PlaylistResponse::from(playlist.clone());
         let payload = serde_json::json!({
-            "playlist": playlist_response,
+            "playlist_id": playlist.id,
         });
 
         let event = NotificationEvent::new(
@@ -1616,20 +1632,10 @@ pub async fn update_playlist(
         );
 
         if let Ok(infrastructure) = notification_infrastructure.try_lock() {
-            tracing::debug!("Successfully acquired notification infrastructure lock for update");
             if let Err(e) = infrastructure.service().publish_event(event).await {
-                tracing::error!("Failed to emit playlist updated notification: {}", e);
-            } else {
-                tracing::info!(
-                    "Successfully emitted playlist updated notification for playlist: {}",
-                    playlist.id
-                );
+                tracing::error!("failed to emit playlist updated notification: {}", e);
             }
-        } else {
-            tracing::warn!("Failed to acquire notification infrastructure lock for update");
         }
-    } else {
-        tracing::warn!("Notification infrastructure is not available in app_state for update");
     }
 
     Ok(Json(PlaylistResponse::from(playlist)))
@@ -1644,25 +1650,13 @@ pub async fn delete_playlist(
     let repository = MusicRepository::new(db.pool().clone());
     let service = PlaylistService::new(repository);
 
-    // Get playlist title before deletion for notification
-    let playlist_title = match service.get_playlist(playlist_id).await {
-        Ok(playlist) => playlist.title,
-        Err(_) => format!("Playlist {}", playlist_id),
-    };
-
     let _deleted = service
         .delete_playlist(playlist_id, None)
         .await
         .map_err(|_| WebauthnError::UserNotFound)?;
 
-    // Emit WebSocket notification for playlist deletion
-    tracing::info!(
-        "Attempting to emit playlist deleted notification for playlist: {}",
-        playlist_id
-    );
+    // emit websocket notification for playlist deletion
     if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
-        tracing::debug!("Notification infrastructure is available for deletion");
-        // Send minimal notification with just the playlist ID
         let payload = serde_json::json!({
             "playlist_id": playlist_id,
         });
@@ -1674,21 +1668,10 @@ pub async fn delete_playlist(
         );
 
         if let Ok(infrastructure) = notification_infrastructure.try_lock() {
-            tracing::debug!("Successfully acquired notification infrastructure lock for deletion");
             if let Err(e) = infrastructure.service().publish_event(event).await {
-                tracing::error!("Failed to emit playlist deleted notification: {}", e);
-            } else {
-                tracing::info!(
-                    "Successfully emitted playlist deleted notification for playlist: {} ({})",
-                    playlist_id,
-                    playlist_title
-                );
+                tracing::error!("failed to emit playlist deleted notification: {}", e);
             }
-        } else {
-            tracing::warn!("Failed to acquire notification infrastructure lock for deletion");
         }
-    } else {
-        tracing::warn!("Notification infrastructure is not available in app_state for deletion");
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -1730,6 +1713,7 @@ pub async fn get_playlist_songs(
 /// Add songs to playlist
 pub async fn add_songs_to_playlist(
     Extension(db): Extension<DatabaseConnection>,
+    Extension(app_state): Extension<AppState>,
     Path(playlist_id): Path<Uuid>,
     Json(req): Json<AddSongsRequest>,
 ) -> Result<Json<HashMap<String, serde_json::Value>>, WebauthnError> {
@@ -1740,6 +1724,28 @@ pub async fn add_songs_to_playlist(
         .add_songs_to_playlist(playlist_id, req.song_ids, Some("web".to_string()))
         .await
         .map_err(|_| WebauthnError::BadRequest)?;
+
+    // emit websocket notification for songs added to playlist
+    if !added.is_empty() {
+        if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
+            let payload = serde_json::json!({
+                "playlist_id": playlist_id,
+                "added_count": added.len(),
+            });
+
+            let event = NotificationEvent::new(
+                NotificationChannel::Music,
+                "playlist.songs_added".to_string(),
+                payload,
+            );
+
+            if let Ok(infrastructure) = notification_infrastructure.try_lock() {
+                if let Err(e) = infrastructure.service().publish_event(event).await {
+                    tracing::error!("failed to emit playlist songs added notification: {}", e);
+                }
+            }
+        }
+    }
 
     let mut response = HashMap::new();
     response.insert("added_songs".to_string(), serde_json::json!(added));
@@ -1759,6 +1765,7 @@ pub async fn add_songs_to_playlist(
 /// Remove songs from playlist
 pub async fn remove_songs_from_playlist(
     Extension(db): Extension<DatabaseConnection>,
+    Extension(app_state): Extension<AppState>,
     Path(playlist_id): Path<Uuid>,
     Json(req): Json<AddSongsRequest>, // Reuse the same request structure
 ) -> Result<Json<HashMap<String, serde_json::Value>>, WebauthnError> {
@@ -1769,6 +1776,28 @@ pub async fn remove_songs_from_playlist(
         .remove_songs_from_playlist(playlist_id, req.song_ids)
         .await
         .map_err(|_| WebauthnError::BadRequest)?;
+
+    // emit websocket notification for songs removed from playlist
+    if removed_count > 0 {
+        if let Some(ref notification_infrastructure) = app_state.notification_infrastructure {
+            let payload = serde_json::json!({
+                "playlist_id": playlist_id,
+                "removed_count": removed_count,
+            });
+
+            let event = NotificationEvent::new(
+                NotificationChannel::Music,
+                "playlist.songs_removed".to_string(),
+                payload,
+            );
+
+            if let Ok(infrastructure) = notification_infrastructure.try_lock() {
+                if let Err(e) = infrastructure.service().publish_event(event).await {
+                    tracing::error!("failed to emit playlist songs removed notification: {}", e);
+                }
+            }
+        }
+    }
 
     let mut response = HashMap::new();
     response.insert(
