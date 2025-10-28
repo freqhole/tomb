@@ -163,6 +163,9 @@ pub enum MusicCommands {
 
         /// Song IDs to remove (comma-separated)
         songs: String,
+
+        /// User ID who is removing the songs
+        user_id: String,
     },
 
     /// Show songs in a playlist

@@ -138,6 +138,9 @@ pub struct PlaylistSong {
     pub created_at: OffsetDateTime,
     pub added_by_client_id: Option<String>,
     pub metadata: serde_json::Value,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub deleted_at: Option<OffsetDateTime>,
+    pub deleted_by: Option<Uuid>,
 }
 
 /// A detailed playlist song with song information joined

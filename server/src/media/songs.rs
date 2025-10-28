@@ -1765,6 +1765,7 @@ pub async fn add_songs_to_playlist(
 /// Remove songs from playlist
 pub async fn remove_songs_from_playlist(
     Extension(db): Extension<DatabaseConnection>,
+    Extension(user): Extension<AuthenticatedUser>,
     Extension(app_state): Extension<AppState>,
     Path(playlist_id): Path<Uuid>,
     Json(req): Json<AddSongsRequest>, // Reuse the same request structure
@@ -1773,7 +1774,7 @@ pub async fn remove_songs_from_playlist(
     let service = PlaylistService::new(repository);
 
     let (removed_count, not_found) = service
-        .remove_songs_from_playlist(playlist_id, req.song_ids)
+        .remove_songs_from_playlist(playlist_id, req.song_ids, user.user().id)
         .await
         .map_err(|_| WebauthnError::BadRequest)?;
 

@@ -117,9 +117,18 @@ impl MusicCommands {
                 )
                 .await
             }
-            Self::RemoveFromPlaylist { playlist, songs } => {
-                playlist::handle_remove_from_playlist(&service, playlist.clone(), songs.clone())
-                    .await
+            Self::RemoveFromPlaylist {
+                playlist,
+                songs,
+                user_id,
+            } => {
+                playlist::handle_remove_from_playlist(
+                    &service,
+                    playlist.clone(),
+                    songs.clone(),
+                    user_id.clone(),
+                )
+                .await
             }
             Self::ShowPlaylist {
                 playlist,

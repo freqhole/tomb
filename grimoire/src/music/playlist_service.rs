@@ -435,6 +435,7 @@ impl PlaylistService {
         &self,
         playlist_id: Uuid,
         song_ids: Vec<Uuid>,
+        user_id: Uuid,
     ) -> Result<(u64, Vec<Uuid>)> {
         let mut not_found_songs = Vec::new();
         let mut valid_song_ids = Vec::new();
@@ -454,7 +455,7 @@ impl PlaylistService {
 
         let removed_count = if !valid_song_ids.is_empty() {
             self.repository
-                .remove_songs_from_playlist(playlist_id, &valid_song_ids)
+                .remove_songs_from_playlist(playlist_id, &valid_song_ids, user_id)
                 .await
                 .map_err(PlaylistServiceError::Repository)?
         } else {
@@ -469,10 +470,11 @@ impl PlaylistService {
         &self,
         playlist_input: &str,
         song_ids: Vec<Uuid>,
+        user_id: Uuid,
     ) -> Result<(Playlist, u64, Vec<Uuid>)> {
         let playlist = self.find_playlist_by_title_or_id(playlist_input).await?;
         let (removed_count, not_found) = self
-            .remove_songs_from_playlist(playlist.id, song_ids)
+            .remove_songs_from_playlist(playlist.id, song_ids, user_id)
             .await?;
         Ok((playlist, removed_count, not_found))
     }

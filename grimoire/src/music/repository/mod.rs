@@ -1230,6 +1230,7 @@ impl MusicRepository {
             FROM playlist_songs ps
             JOIN songs s ON ps.song_id = s.id
             WHERE ps.playlist_id = $1
+            AND ps.deleted_at IS NULL
             AND s.deleted_at IS NULL
             ORDER BY ps.position
             "#,
@@ -1318,26 +1319,30 @@ impl MusicRepository {
         Ok(added_songs)
     }
 
-    /// Remove songs from a playlist
+    /// Remove songs from a playlist (soft delete)
     pub async fn remove_songs_from_playlist(
         &self,
         playlist_id: Uuid,
         song_ids: &[Uuid],
+        user_id: Uuid,
     ) -> Result<u64> {
         let mut total_removed = 0;
 
         for &song_id in song_ids {
-            let result =
-                sqlx::query("DELETE FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2")
-                    .bind(playlist_id)
-                    .bind(song_id)
-                    .execute(&self.pool)
-                    .await?;
+            let result = sqlx::query(
+                "UPDATE playlist_songs SET deleted_at = NOW(), deleted_by = $3
+                 WHERE playlist_id = $1 AND song_id = $2 AND deleted_at IS NULL",
+            )
+            .bind(playlist_id)
+            .bind(song_id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
 
             total_removed += result.rows_affected();
         }
 
-        // Reorder positions to fill gaps
+        // Reorder positions to fill gaps (only for active songs)
         sqlx::query(
             r#"
             UPDATE playlist_songs
@@ -1345,7 +1350,7 @@ impl MusicRepository {
             FROM (
                 SELECT id, ROW_NUMBER() OVER (ORDER BY position) as new_position
                 FROM playlist_songs
-                WHERE playlist_id = $1
+                WHERE playlist_id = $1 AND deleted_at IS NULL
             ) AS numbered
             WHERE playlist_songs.id = numbered.id
             "#,
@@ -1360,7 +1365,7 @@ impl MusicRepository {
     /// Get song count in a playlist
     pub async fn get_playlist_song_count(&self, playlist_id: Uuid) -> Result<i64> {
         let count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM playlist_songs ps JOIN songs s ON ps.song_id = s.id WHERE ps.playlist_id = $1 AND s.deleted_at IS NULL"
+            "SELECT COUNT(*) FROM playlist_songs ps JOIN songs s ON ps.song_id = s.id WHERE ps.playlist_id = $1 AND ps.deleted_at IS NULL AND s.deleted_at IS NULL"
         )
         .bind(playlist_id)
         .fetch_one(&self.pool)
@@ -1372,7 +1377,7 @@ impl MusicRepository {
     /// Check if a song is in a playlist
     pub async fn is_song_in_playlist(&self, playlist_id: Uuid, song_id: Uuid) -> Result<bool> {
         let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM playlist_songs ps JOIN songs s ON ps.song_id = s.id WHERE ps.playlist_id = $1 AND ps.song_id = $2 AND s.deleted_at IS NULL)"
+            "SELECT EXISTS(SELECT 1 FROM playlist_songs ps JOIN songs s ON ps.song_id = s.id WHERE ps.playlist_id = $1 AND ps.song_id = $2 AND ps.deleted_at IS NULL AND s.deleted_at IS NULL)"
         )
         .bind(playlist_id)
         .bind(song_id)

@@ -726,7 +726,7 @@ pub async fn incremental_playlist_song_sync(
     let playlist_songs = if let Some(sync_time) = last_sync_time {
         if let Some(pid) = playlist_id {
             sqlx::query_as::<_, grimoire::music::PlaylistSong>(
-                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
+                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata, deleted_at, deleted_by
                  FROM playlist_songs
                  WHERE playlist_id = $1 AND created_at > $2
                  ORDER BY playlist_id, position
@@ -738,7 +738,7 @@ pub async fn incremental_playlist_song_sync(
             .bind(offset)
         } else {
             sqlx::query_as::<_, grimoire::music::PlaylistSong>(
-                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
+                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata, deleted_at, deleted_by
                  FROM playlist_songs
                  WHERE created_at > $1
                  ORDER BY playlist_id, position
@@ -751,7 +751,7 @@ pub async fn incremental_playlist_song_sync(
     } else {
         if let Some(pid) = playlist_id {
             sqlx::query_as::<_, grimoire::music::PlaylistSong>(
-                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
+                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata, deleted_at, deleted_by
                  FROM playlist_songs
                  WHERE playlist_id = $1
                  ORDER BY playlist_id, position
@@ -762,7 +762,7 @@ pub async fn incremental_playlist_song_sync(
             .bind(offset)
         } else {
             sqlx::query_as::<_, grimoire::music::PlaylistSong>(
-                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata
+                "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata, deleted_at, deleted_by
                  FROM playlist_songs
                  ORDER BY playlist_id, position
                  LIMIT $1 OFFSET $2",

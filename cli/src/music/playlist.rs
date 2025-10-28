@@ -702,6 +702,7 @@ pub async fn handle_remove_from_playlist(
     service: &MusicService<'_>,
     playlist_input: String,
     songs_input: String,
+    user_id: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository = MusicRepository::new(service.db().pool().clone());
     let playlist_service = PlaylistService::new(repository);
@@ -715,10 +716,19 @@ pub async fn handle_remove_from_playlist(
         }
     };
 
+    // Parse user ID
+    let parsed_user_id = match Uuid::parse_str(&user_id) {
+        Ok(id) => id,
+        Err(_) => {
+            println!("❌ Invalid user ID format: {}", user_id);
+            return Err("Invalid user ID".into());
+        }
+    };
+
     println!("🗑️  Removing songs from playlist: {}", playlist_input);
 
     match playlist_service
-        .remove_songs_from_playlist_by_title_or_id(&playlist_input, song_ids)
+        .remove_songs_from_playlist_by_title_or_id(&playlist_input, song_ids, parsed_user_id)
         .await
     {
         Ok((playlist, removed_count, not_found_songs)) => {
