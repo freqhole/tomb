@@ -2,6 +2,7 @@
 //!
 //! This module provides database access layer for songs and playlists,
 //! including CRUD operations and queries with proper error handling.
+//! #todo: jesusfuck this file is wayyyyy tooooo huge!
 
 use crate::music::models::{
     AlbumFavoriteStatus, AlbumSummary, AlbumTrack, ArtistAlbum, BulkFavoriteAlbumRequest,

@@ -2,6 +2,7 @@
 //!
 //! This module provides database access layer for media blobs,
 //! including CRUD operations and queries with cursor-based pagination support.
+//! #todo: i'm not sure i love these abstractionz :/ basically just shallow wrapperz for grimoire fnz YANK!
 
 use crate::error::WebauthnError;
 use grimoire::media::{

@@ -2,6 +2,7 @@
 //!
 //! This module provides high-level thumbnail services that handle business logic,
 //! validation, and orchestration for thumbnail generation operations.
+//! #todo: this file/module is too huge! too many half-baked featurez!
 
 use super::models::{
     CropStrategy, MediaBlobInfo, ThumbnailConfig, ThumbnailDimensions, ThumbnailError,

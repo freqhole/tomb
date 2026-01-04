@@ -54,11 +54,13 @@ pub trait MediaItem: Send + Sync + Clone {
     fn metadata(&self) -> &Self::Metadata;
 
     /// Get a formatted display title for UI purposes
+    /// #todo: yank.
     fn display_title(&self) -> String {
         self.title().to_string()
     }
 
     /// Get the file extension this media type typically uses
+    /// #todo: yank.
     fn typical_extensions() -> &'static [&'static str];
 
     /// Get the MIME types this media type supports
@@ -102,6 +104,7 @@ pub trait MediaCollection: Send + Sync + Clone {
     fn thumbnail_blob_id(&self) -> Option<&str>;
 
     /// Get the client ID that created this collection
+    /// #todo: hmm, yank?
     fn client_id(&self) -> Option<&str>;
 }
 
@@ -118,6 +121,7 @@ pub trait MetadataExtractor<T: MediaItem>: Send + Sync {
     fn supports_file(&self, file_path: &Path) -> bool;
 
     /// Get the priority of this extractor (higher = preferred)
+    /// #todo: hmm, yank? where's this used?
     fn priority(&self) -> i32 {
         0
     }
@@ -142,11 +146,13 @@ pub trait ThumbnailGenerator<T: MediaItem>: Send + Sync {
     fn supports_file(&self, file_path: &Path) -> bool;
 
     /// Get the priority of this generator (higher = preferred)
+    /// #todo: hmm, yank? where is this used?
     fn priority(&self) -> i32 {
         0
     }
 
     /// Get the preferred thumbnail format
+    /// #todo: yank? should be webp
     fn preferred_format(&self) -> ImageFormat {
         ImageFormat::Jpeg
     }
@@ -168,6 +174,7 @@ pub struct ThumbnailInfo {
 }
 
 /// Supported image formats for thumbnails
+/// #todo yank, just use webp
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ImageFormat {
     Jpeg,
@@ -176,6 +183,7 @@ pub enum ImageFormat {
     Avif,
 }
 
+// #todo yank, just use webp
 impl ImageFormat {
     /// Get the MIME type for this format
     pub fn mime_type(&self) -> &'static str {
@@ -222,8 +230,10 @@ pub trait MediaScanner<T: MediaItem>: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct ScanConfig {
     /// Maximum depth to scan into subdirectories
+    /// #todo: hmm, do we need this?
     pub max_depth: Option<usize>,
     /// Maximum file size to process (in bytes)
+    /// #todo yank? hmm, do we really need this?
     pub max_file_size: Option<u64>,
     /// File extensions to include (if empty, use default for media type)
     pub include_extensions: Vec<String>,
@@ -244,11 +254,12 @@ impl Default for ScanConfig {
             max_file_size: Some(500 * 1024 * 1024), // 500MB
             include_extensions: Vec::new(),
             exclude_extensions: Vec::new(),
+            // #todo: yank this default and move to some other config, or just skip .dot dirz
             skip_directories: vec![
                 ".git".to_string(),
                 ".svn".to_string(),
                 "node_modules".to_string(),
-                ".DS_Store".to_string(),
+                ".DS_Store".to_string(), // ...not a dir? #todo
             ],
             follow_symlinks: false,
             batch_size: 100,
@@ -272,6 +283,7 @@ pub struct ScannedFile {
 }
 
 /// Repository trait for media items
+/// #todo: hmm, do we need this? or is it really used? maybe over architected...
 #[async_trait]
 pub trait MediaRepository<T: MediaItem>: Send + Sync {
     /// Error type for repository operations
@@ -308,6 +320,7 @@ pub trait MediaRepository<T: MediaItem>: Send + Sync {
 }
 
 /// Repository trait for media collections
+/// #todo: hmm, do we need this? or is it really used? maybe over architected...
 #[async_trait]
 pub trait CollectionRepository<T: MediaCollection>: Send + Sync {
     /// Error type for repository operations
@@ -361,6 +374,7 @@ pub trait CollectionRepository<T: MediaCollection>: Send + Sync {
 }
 
 /// Generic query parameters for media items
+/// #todo: hmm, do we really need this?
 #[derive(Debug, Clone, Default)]
 pub struct MediaQuery {
     /// Filter by favorite status
@@ -377,6 +391,8 @@ pub struct MediaQuery {
 }
 
 /// Generic query parameters for collections
+/// #todo: do we really need this or actually use it?
+/// #todo: the rest of this file could maybe be yanked?!
 #[derive(Debug, Clone, Default)]
 pub struct CollectionQuery {
     /// Filter by public status
@@ -457,6 +473,7 @@ pub struct UpdateCollection {
 }
 
 /// Service trait for media operations
+/// #todo: this might be the only one to keep?
 #[async_trait]
 pub trait MediaService<T: MediaItem>: Send + Sync {
     /// Error type for service operations

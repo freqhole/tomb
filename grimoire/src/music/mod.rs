@@ -109,6 +109,7 @@ pub use waveform::{
 };
 
 /// Audio metadata structure for title building
+/// #todo: hmm, is this used? move it or yank it!
 #[derive(Debug, Clone)]
 pub struct AudioMetadata {
     /// Tag metadata extracted from the audio file

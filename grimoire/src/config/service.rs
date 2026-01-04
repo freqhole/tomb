@@ -260,6 +260,7 @@ impl ConfigService {
     }
 
     /// Generate JSON schema for configuration
+    /// #todo: yank this!
     pub fn generate_schema(&self) -> Result<String, ConfigError> {
         let schema = serde_json::json!({
             "$schema": "http://json-schema.org/draft-07/schema#",
@@ -318,6 +319,7 @@ impl ConfigService {
     }
 
     /// Generate environment file from configuration
+    /// #todo: yank this!
     pub fn generate_env_file(
         &self,
         config_path: &str,

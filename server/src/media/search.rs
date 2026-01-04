@@ -1,4 +1,5 @@
 //! Unified music search API endpoints
+//! #todo: this file is too huge! too much shit! deal with it.
 
 use crate::auth::AuthenticatedUser;
 use crate::media::songs::SongResponse;

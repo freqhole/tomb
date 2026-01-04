@@ -109,6 +109,7 @@ impl InviteCode {
 }
 
 /// WebAuthn credential storage
+/// #todo: move this somewhere else? like to encapsulate webauthn stuff
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebauthnCredential {
     pub id: Uuid,

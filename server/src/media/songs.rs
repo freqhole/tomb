@@ -1,6 +1,7 @@
 //! Song and playlist HTTP API handlers
 //!
 //! This module provides REST API endpoints for managing songs and playlists.
+// #todo: jesusfuck this file is too long!
 
 use crate::auth::require_admin;
 use crate::auth::AuthenticatedUser;

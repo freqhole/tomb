@@ -4,9 +4,9 @@
 //! consumed by HTTP route handlers, WebSocket handlers, the CLI package, and
 //! potentially future Rust consumers like a Tauri desktop app.
 //!
-//! The grimoire contains all the magical spells (business logic) needed to
-//! power the application! 🧙‍♀️✨
+//! grimoire contains all the magical spellz u need! (business logic) ✨
 
+// #todo: what's this recursion_limit about, again? yank?
 #![recursion_limit = "512"]
 
 pub mod analytics;

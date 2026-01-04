@@ -3,6 +3,8 @@
 //! This module provides the core data structures and logic for efficient
 //! media blob synchronization between clients and server. It builds on
 //! the cursor-based pagination system to enable incremental sync workflows.
+//!
+//! #todo: this whole file could probably get yanked.
 
 use super::models::MediaBlob;
 use serde::{Deserialize, Serialize};

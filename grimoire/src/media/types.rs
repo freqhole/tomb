@@ -19,6 +19,7 @@ pub enum MediaTypeError {
 }
 
 /// Storage strategy for media files based on source and size
+/// #todo: yank? is this actually used?
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageStrategy {
     /// Store as bytea in database (for small files, thumbnails, etc.)
@@ -34,6 +35,7 @@ pub struct MediaTypeDetector {
     max_blob_file_size: u64,
 }
 
+// #todo: is this used? i feel like traits.rs has a lot of this repeated? hm, yank if dead.
 impl MediaTypeDetector {
     /// Create a new media type detector from application configuration
     pub fn from_config(config: &AppConfig) -> Self {

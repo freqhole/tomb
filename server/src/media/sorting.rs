@@ -3,6 +3,7 @@
 //! This module provides common sorting functionality that can be used
 //! across different endpoints in the media domain, ensuring consistency
 //! in how sorting is handled between the songs API and search API.
+//! #todo: this is half-baked! yank this and/or move elsewhere.
 
 // Note: SongQuery uses string-based ordering, not enum-based
 

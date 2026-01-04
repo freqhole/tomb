@@ -7,6 +7,7 @@
 //!
 //! The media system is designed to work with the existing authentication
 //! and analytics systems to provide secure, trackable file sharing.
+//! #todo: unsure about the MediaService abstractionz here...
 
 pub mod filters;
 pub mod genres;

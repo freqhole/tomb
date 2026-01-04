@@ -9,5 +9,6 @@ pub mod service;
 
 // Re-export commonly used types
 pub use models::*;
+// #todo: don't export repository::
 pub use repository::AuthRepository;
 pub use service::*;

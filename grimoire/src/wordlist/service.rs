@@ -2,6 +2,7 @@
 //!
 //! This module provides high-level wordlist services that handle generation,
 //! validation, and statistics for wordlists used in invite code generation.
+//! #todo: yank all the emojiz from this file!
 
 use rand::seq::SliceRandom;
 use rand::thread_rng;

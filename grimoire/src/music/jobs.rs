@@ -59,6 +59,7 @@ impl MusicJobType {
     }
 
     /// Get the default priority for this job type
+    /// #todo: do we really need this? hmm. yank?
     pub fn default_priority(&self) -> JobPriority {
         match self {
             Self::ScanFile => JobPriority::High,    // User-initiated scans
@@ -139,6 +140,7 @@ impl JobStatus {
 }
 
 /// Job processing priority
+/// #todo: do we really need this? yank all this priority stuff if not...
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JobPriority {
@@ -270,14 +272,15 @@ impl MusicScanSession {
 }
 
 /// Music job data structure
+/// #todo: deal with different id types, perhaps union/merge with repository Type(s)?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MusicJob {
     pub id: Uuid,
     pub job_type: MusicJobType,
     pub scan_session_id: Option<Uuid>,
     pub file_path: String,
-    pub media_blob_id: Option<Uuid>,
-    pub song_id: Option<Uuid>,
+    pub media_blob_id: Option<Uuid>, // #todo: deal with id type, maybe move or extend some other way?
+    pub song_id: Option<Uuid>,       // #todo: deal with id type, here and elsewhere...
     pub status: JobStatus,
     pub priority: JobPriority,
     pub worker_id: Option<String>,
@@ -312,6 +315,7 @@ impl MusicJob {
     }
 
     /// Get queue wait time if job has started
+    /// #todo: is this queue_wait_time and is_overdue used?! yank if not.
     pub fn queue_wait_time(&self) -> Option<std::time::Duration> {
         if let Some(started) = &self.started_at {
             (*started - self.created_at).try_into().ok()
@@ -321,6 +325,7 @@ impl MusicJob {
     }
 
     /// Check if this job is overdue for processing
+    /// #todo: yank if not used
     pub fn is_overdue(&self, timeout_minutes: i32) -> bool {
         if let Some(started) = &self.started_at {
             let elapsed = OffsetDateTime::now_utc() - *started;
@@ -418,6 +423,7 @@ pub struct ScanSessionStats {
 }
 
 /// Music job queue health metrics
+/// #todo: hmm, what is this half-baked health feature? yank if so.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MusicJobHealth {
     pub total_jobs: i64,

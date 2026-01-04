@@ -1,4 +1,5 @@
 //! Filter metadata API endpoints for search filters
+//! #todo: get the sql outta here! too complex!
 
 use crate::auth::AuthenticatedUser;
 use axum::{

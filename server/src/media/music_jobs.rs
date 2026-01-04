@@ -2,6 +2,7 @@
 //!
 //! This module provides REST API endpoints for managing music processing jobs,
 //! including status tracking and job cancellation for uploaded audio files.
+//! #todo: there's too much sql in this file! deal with it!
 
 use axum::{
     extract::{Extension, Path},

@@ -2,6 +2,7 @@
 //!
 //! provides functions for tracking and managing song/album processing status
 //! during bulk musicbrainz metadata updates.
+//! #todo: this is probably half-baked feature...
 
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
