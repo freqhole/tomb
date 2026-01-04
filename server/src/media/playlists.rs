@@ -10,13 +10,13 @@ use axum::{
     routing::{get, patch, post, put},
     Router,
 };
-use grimoire::music::models::{
+use legacylib::music::models::{
     AlbumFavoriteStatus, BulkFavoriteAlbumRequest, PlaylistOwnership, PlaylistWithUserContext,
     TransferPlaylistOwnershipRequest, UpdateUserPlaylistPreferenceRequest, UserPlaylistPreference,
     UserSongPreference,
 };
-use grimoire::music::MusicRepository;
-use grimoire::DatabaseConnection;
+use legacylib::music::MusicRepository;
+use legacylib::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use tracing::{error, info};

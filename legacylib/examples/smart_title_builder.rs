@@ -5,7 +5,7 @@
 //!
 //! Run with: cargo run -p grimoire --example smart_title_builder
 
-use grimoire::music::{AudioMetadata, TitleBuilder, TitleBuilderConfig};
+use legacylib::music::{AudioMetadata, TitleBuilder, TitleBuilderConfig};
 use std::collections::HashMap;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

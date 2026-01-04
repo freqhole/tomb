@@ -11,7 +11,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-use grimoire::{media::MediaBlobService, DatabaseConnection};
+use legacylib::{media::MediaBlobService, DatabaseConnection};
 use mime_guess::from_path;
 use std::io::SeekFrom;
 use tokio::{
@@ -59,15 +59,15 @@ pub async fn get_blob(
 
     // Create media service
     let media_service =
-        MediaBlobService::new(grimoire::media::MediaBlobRepository::new(db.pool().clone()));
+        MediaBlobService::new(legacylib::media::MediaBlobRepository::new(db.pool().clone()));
 
     // Get blob with data
     let blob = media_service
         .get_media_blob(&id)
         .await
         .map_err(|e| match e {
-            grimoire::media::MediaServiceError::Repository(
-                grimoire::media::MediaRepositoryError::NotFound(_),
+            legacylib::media::MediaServiceError::Repository(
+                legacylib::media::MediaRepositoryError::NotFound(_),
             ) => AppError::NotFound(format!("Blob {} not found", id)),
             _ => AppError::InternalServerError(format!("Failed to retrieve blob: {}", e)),
         })?;
@@ -288,7 +288,7 @@ async fn handle_range_request(
     req: Request,
     file_path: std::path::PathBuf,
     file_size: u64,
-    blob: &grimoire::media::MediaBlob,
+    blob: &legacylib::media::MediaBlob,
     content_type: String,
 ) -> Result<Response, AppError> {
     let range_header = req.headers().get(header::RANGE).unwrap();
@@ -408,7 +408,7 @@ async fn handle_range_request(
 }
 
 /// Determine content type from blob metadata
-fn determine_content_type(blob: &grimoire::media::MediaBlob) -> String {
+fn determine_content_type(blob: &legacylib::media::MediaBlob) -> String {
     if let Some(ref mime) = blob.mime {
         if !mime.is_empty() {
             return mime.clone();
@@ -428,7 +428,7 @@ async fn build_blob_response(
     data: Vec<u8>,
     file_size: Option<u64>,
     content_type: String,
-    blob: &grimoire::media::MediaBlob,
+    blob: &legacylib::media::MediaBlob,
 ) -> Response {
     let mut headers = HeaderMap::new();
 
@@ -471,7 +471,7 @@ fn build_streaming_response(
     body: Body,
     file_size: u64,
     content_type: String,
-    blob: &grimoire::media::MediaBlob,
+    blob: &legacylib::media::MediaBlob,
 ) -> Response {
     let mut headers = HeaderMap::new();
 
@@ -522,7 +522,7 @@ fn build_streaming_response(
 }
 
 /// Add filename header if available in metadata
-fn add_filename_header(headers: &mut HeaderMap, blob: &grimoire::media::MediaBlob) {
+fn add_filename_header(headers: &mut HeaderMap, blob: &legacylib::media::MediaBlob) {
     if let Ok(meta_obj) =
         serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(blob.metadata.clone())
     {
@@ -564,15 +564,15 @@ pub async fn get_blob_metadata(
 
     // Create media service
     let media_service =
-        MediaBlobService::new(grimoire::media::MediaBlobRepository::new(db.pool().clone()));
+        MediaBlobService::new(legacylib::media::MediaBlobRepository::new(db.pool().clone()));
 
     // Get blob without data for efficiency
     let blob = media_service
         .get_media_blob_metadata(&id)
         .await
         .map_err(|e| match e {
-            grimoire::media::MediaServiceError::Repository(
-                grimoire::media::MediaRepositoryError::NotFound(_),
+            legacylib::media::MediaServiceError::Repository(
+                legacylib::media::MediaRepositoryError::NotFound(_),
             ) => AppError::NotFound(format!("Blob {} not found", id)),
             _ => AppError::InternalServerError(format!("Failed to retrieve blob metadata: {}", e)),
         })?;

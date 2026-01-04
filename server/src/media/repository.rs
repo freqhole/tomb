@@ -5,11 +5,11 @@
 //! #todo: i'm not sure i love these abstractionz :/ basically just shallow wrapperz for grimoire fnz YANK!
 
 use crate::error::WebauthnError;
-use grimoire::media::{
+use legacylib::media::{
     CreateMediaBlob, MediaBlob, MediaBlobQuery, MediaBlobRepository, MediaBlobService,
     MediaBlobStats, MediaRepositoryError, MediaServiceError, PaginatedResult,
 };
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use tracing::{debug, error, info};
 
 /// Media repository wrapper that uses grimoire services
@@ -90,7 +90,7 @@ impl<'a> MediaRepository<'a> {
     pub async fn create(
         &self,
         params: CreateMediaBlob,
-        _media_config: &grimoire::config::MediaConfig,
+        _media_config: &legacylib::config::MediaConfig,
     ) -> Result<MediaBlob, WebauthnError> {
         info!("Creating media blob with SHA256: {}", params.sha256);
 
@@ -237,7 +237,7 @@ impl<'a> MediaRepository<'a> {
 
 #[cfg(test)]
 mod tests {
-    use grimoire::DatabaseConnection;
+    use legacylib::DatabaseConnection;
 
     async fn _setup_test_db() -> DatabaseConnection {
         // This would be set up with test database in real tests

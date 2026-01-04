@@ -18,7 +18,7 @@ use crate::static_filez::{build_enhanced_private_routes, build_enhanced_public_r
 use crate::sync::create_sync_routes;
 use crate::upload::build_upload_routes;
 use crate::websocket::{build_websocket_routes_with_manager, handlers::ConnectionManager};
-use grimoire::AppConfig;
+use legacylib::AppConfig;
 
 /// Build all routes for the application
 pub fn build_routes(config: &AppConfig, connection_manager: ConnectionManager) -> Router {

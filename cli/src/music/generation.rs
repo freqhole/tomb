@@ -1,7 +1,7 @@
 //! Waveform and directory art generation functions for the music module
 
-use grimoire::media::{CreateMediaBlob, MediaBlobRepository, MediaBlobService};
-use grimoire::music::{
+use legacylib::media::{CreateMediaBlob, MediaBlobRepository, MediaBlobService};
+use legacylib::music::{
     directory_art::DirectoryArtDetector, waveform::WaveformGenerator, MusicRepository,
     MusicService, Song,
 };
@@ -261,7 +261,7 @@ pub async fn handle_backfill_metadata(
         batch_size, force
     );
 
-    let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
+    let repository = legacylib::music::MusicRepository::new(service.db().pool().clone());
     let mut offset = 0;
     let mut total_updated = 0;
     let mut total_failed = 0;
@@ -321,10 +321,10 @@ pub async fn handle_backfill_metadata(
 /// Backfill metadata for a single song
 async fn backfill_song_metadata(
     service: &MusicService<'_>,
-    song: &grimoire::music::Song,
+    song: &legacylib::music::Song,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // Get the media blob to find the local path
-    let media_repository = grimoire::media::MediaBlobRepository::new(service.db().pool().clone());
+    let media_repository = legacylib::media::MediaBlobRepository::new(service.db().pool().clone());
     let media_blob = media_repository.find_by_id(&song.media_blob_id).await?;
 
     let local_path = match media_blob.local_path {
@@ -340,7 +340,7 @@ async fn backfill_song_metadata(
     }
 
     // Extract fresh metadata
-    let standard_fields = grimoire::music::extract_standard_fields(file_path).await?;
+    let standard_fields = legacylib::music::extract_standard_fields(file_path).await?;
 
     // Check if we need to update anything
     let needs_update = song.artist.is_none()
@@ -355,7 +355,7 @@ async fn backfill_song_metadata(
     }
 
     // Update song with new metadata
-    let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
+    let repository = legacylib::music::MusicRepository::new(service.db().pool().clone());
 
     // Use repository method to update song metadata
     repository

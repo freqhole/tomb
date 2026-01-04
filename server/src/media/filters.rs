@@ -9,7 +9,7 @@ use axum::{
     routing::get,
     Router,
 };
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 

@@ -5,12 +5,12 @@
 //!
 //! Run with: cargo run -p grimoire --example music_notifications
 
-use grimoire::notifications::{
+use legacylib::notifications::{
     LibraryStatsPayload, NotificationEvent, PlaylistEventPayload, ScanCompletedPayload,
     ScanProgressPayload, SongEventPayload,
 };
 #[cfg(test)]
-use grimoire::NotificationChannel;
+use legacylib::NotificationChannel;
 #[cfg(test)]
 use serde_json::json;
 use time::OffsetDateTime;

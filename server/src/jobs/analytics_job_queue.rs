@@ -4,8 +4,8 @@
 //! materialized view refreshes, daily rollups, trend analysis, and cleanup tasks.
 //! It follows the same pattern as the existing job queue systems.
 
-use grimoire::analytics::{AnalyticsService, MediaAnalyticsError};
-use grimoire::DatabaseConnection;
+use legacylib::analytics::{AnalyticsService, MediaAnalyticsError};
+use legacylib::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use time::OffsetDateTime;

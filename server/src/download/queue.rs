@@ -1,6 +1,6 @@
 //! Download job queue system for processing URL downloads with yt-dlp
 
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, RwLock};
@@ -241,7 +241,7 @@ impl DownloadJobQueue {
         file_path: &str,
     ) -> Result<(), AppError> {
         use crate::media::music_jobs;
-        use grimoire::media::CreateMediaBlob;
+        use legacylib::media::CreateMediaBlob;
         use sha2::{Digest, Sha256};
         use std::path::Path;
 
@@ -297,13 +297,13 @@ impl DownloadJobQueue {
 
         // Create media blob using repository
         let media_repository = crate::media::MediaRepository::new(db);
-        let media_config = grimoire::config::MediaConfig {
+        let media_config = legacylib::config::MediaConfig {
             max_blob_file_size: 10 * 1024 * 1024,
             max_fs_file_size: 1024 * 1024 * 1024,
             supported_audio_formats: vec!["mp3".to_string()],
-            thumbnails: grimoire::config::app_config::ThumbnailConfig::default(),
-            playback: grimoire::config::app_config::AudioPlaybackConfig::default(),
-            downloads: grimoire::config::app_config::DownloadConfig::default(),
+            thumbnails: legacylib::config::app_config::ThumbnailConfig::default(),
+            playback: legacylib::config::app_config::AudioPlaybackConfig::default(),
+            downloads: legacylib::config::app_config::DownloadConfig::default(),
             genres: None,
         };
 

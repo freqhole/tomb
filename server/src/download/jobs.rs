@@ -1,6 +1,6 @@
 //! Download job management for URL-based downloads using yt-dlp
 
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::types::Uuid;

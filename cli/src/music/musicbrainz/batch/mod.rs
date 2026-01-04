@@ -12,7 +12,7 @@ pub use album::{group_songs_by_album, process_album_group};
 pub use database::get_songs_for_batch_scan;
 
 use crate::music::musicbrainz::utils::{get_musicbrainz_config, validate_confidence_threshold};
-use grimoire::{
+use legacylib::{
     config::AppConfig, database::DatabaseConnection, music::repository::MusicRepository,
     musicbrainz::MusicBrainzService,
 };
@@ -545,7 +545,7 @@ pub async fn handle_full_scan(
 struct ScanPlan {
     complete_albums: Vec<AlbumPlan>,
     partial_albums: Vec<AlbumPlan>,
-    individual_songs: Vec<grimoire::music::models::Song>,
+    individual_songs: Vec<legacylib::music::models::Song>,
     album_song_count: usize,
     partial_album_song_count: usize,
 }
@@ -566,7 +566,7 @@ struct AlbumPlan {
     artist: Option<String>,
     album_artist: Option<String>,
     album: String,
-    songs: Vec<grimoire::music::models::Song>,
+    songs: Vec<legacylib::music::models::Song>,
 }
 
 impl AlbumPlan {
@@ -734,7 +734,7 @@ async fn create_scan_plan(
         "#
     };
 
-    let individual_songs = sqlx::query_as::<_, grimoire::music::models::Song>(individual_query)
+    let individual_songs = sqlx::query_as::<_, legacylib::music::models::Song>(individual_query)
         .fetch_all(repository.pool())
         .await?;
 
@@ -754,7 +754,7 @@ async fn get_songs_for_album(
     album_artist: Option<&str>,
     album: &str,
     force_rescan: bool,
-) -> Result<Vec<grimoire::music::models::Song>, Box<dyn std::error::Error>> {
+) -> Result<Vec<legacylib::music::models::Song>, Box<dyn std::error::Error>> {
     let base_query = r#"
         SELECT id, media_blob_id, thumbnail_blob_id, waveform_blob_id, thumbnail_blob_ids,
                title, artist, album, album_artist, track_number, disc_number,
@@ -780,13 +780,13 @@ async fn get_songs_for_album(
     };
 
     let songs = if let Some(artist_val) = album_artist.or(artist) {
-        sqlx::query_as::<_, grimoire::music::models::Song>(&full_query)
+        sqlx::query_as::<_, legacylib::music::models::Song>(&full_query)
             .bind(album)
             .bind(artist_val)
             .fetch_all(repository.pool())
             .await?
     } else {
-        sqlx::query_as::<_, grimoire::music::models::Song>(&format!(
+        sqlx::query_as::<_, legacylib::music::models::Song>(&format!(
             "{}{}{}",
             base_query, condition, order
         ))
@@ -838,13 +838,13 @@ async fn process_partial_album(
 async fn process_individual_song(
     service: &MusicBrainzService,
     _repository: &Arc<MusicRepository>,
-    song: &grimoire::music::models::Song,
+    song: &legacylib::music::models::Song,
     _auto_apply: bool,
     _threshold: f32,
     _dry_run: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if should skip
-    if grimoire::musicbrainz::batch::should_skip_song(song) {
+    if legacylib::musicbrainz::batch::should_skip_song(song) {
         println!("   ⏭️  skipping - already processed");
         return Ok(());
     }

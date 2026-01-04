@@ -22,7 +22,7 @@ pub use middleware::{analytics_middleware, security_logging};
 pub use routes::build_analytics_routes;
 
 // Re-export core analytics types from grimoire
-pub use grimoire::analytics::{
+pub use legacylib::analytics::{
     AnalyticsConfig, AnalyticsError, AnalyticsRepository, AnalyticsService, PathMetric,
     RequestAnalytics, RequestAnalyticsBuilder, RequestMetrics, TimeSeriesPoint,
 };

@@ -20,7 +20,7 @@
 //! ### Extract photo metadata
 //!
 //! ```rust
-//! use grimoire::photos::{PhotoMetadataExtractor, extract_full_photo_metadata};
+//! use legacylib::photos::{PhotoMetadataExtractor, extract_full_photo_metadata};
 //! use std::path::Path;
 //!
 //! let metadata = extract_full_photo_metadata(Path::new("photo.jpg")).await?;
@@ -31,8 +31,8 @@
 //! ### Scan for photos
 //!
 //! ```rust
-//! use grimoire::photos::PhotoScanner;
-//! use grimoire::media::scanner::UnifiedScannerBuilder;
+//! use legacylib::photos::PhotoScanner;
+//! use legacylib::media::scanner::UnifiedScannerBuilder;
 //!
 //! let scanner = UnifiedScannerBuilder::new()
 //!     .add_scanner(PhotoScanner::new())
@@ -44,7 +44,7 @@
 //! ### Work with galleries
 //!
 //! ```rust
-//! use grimoire::photos::{CreateGallery, Gallery};
+//! use legacylib::photos::{CreateGallery, Gallery};
 //!
 //! let gallery = CreateGallery {
 //!     title: "Vacation Photos".to_string(),

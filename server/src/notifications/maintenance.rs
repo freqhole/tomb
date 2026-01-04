@@ -5,8 +5,8 @@
 //! and health checks.
 
 use crate::notifications::NotificationInfrastructure;
-use grimoire::notifications::EventStats;
-use grimoire::DatabaseConnection;
+use legacylib::notifications::EventStats;
+use legacylib::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
 use std::sync::Arc;

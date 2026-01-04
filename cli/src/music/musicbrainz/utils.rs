@@ -3,7 +3,7 @@
 //! This module contains shared helper functions, configuration utilities,
 //! and common functionality used across MusicBrainz CLI commands.
 
-use grimoire::{
+use legacylib::{
     config::AppConfig,
     musicbrainz::{MusicBrainzClient, MusicBrainzConfig},
 };
@@ -67,7 +67,7 @@ pub async fn handle_test_config(config: &AppConfig) -> Result<(), Box<dyn std::e
 }
 
 /// Print song metadata in a formatted way
-pub fn print_song_metadata(song: &grimoire::music::Song) {
+pub fn print_song_metadata(song: &legacylib::music::Song) {
     println!("song metadata:");
     println!("  id: {}", song.id);
     println!("  title: {}", song.title);

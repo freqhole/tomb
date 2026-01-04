@@ -3,11 +3,11 @@
 //! This module provides a PostgreSQL listener that subscribes to database notifications
 //! and routes them through the NotificationService to WebSocket clients.
 
-use grimoire::notifications::{
+use legacylib::notifications::{
     config::NotificationConfig, NotificationChannel, NotificationEvent, NotificationService,
     NotificationServiceError,
 };
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use serde_json::Value;
 use sqlx::postgres::{PgListener, PgNotification};
 use std::collections::HashMap;

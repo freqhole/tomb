@@ -5,9 +5,9 @@
 
 use axum::extract::Extension;
 use axum::{response::Json as ResponseJson, Json};
-use grimoire::music::repository::MusicRepository;
-use grimoire::musicbrainz::{MusicBrainzConfig, MusicBrainzService, RecordingSearchQuery};
-use grimoire::DatabaseConnection;
+use legacylib::music::repository::MusicRepository;
+use legacylib::musicbrainz::{MusicBrainzConfig, MusicBrainzService, RecordingSearchQuery};
+use legacylib::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -24,8 +24,8 @@ impl From<serde_json::Error> for MusicBrainzApiError {
 }
 
 // Add error conversion for grimoire music errors
-impl From<grimoire::music::repository::MusicRepositoryError> for MusicBrainzApiError {
-    fn from(err: grimoire::music::repository::MusicRepositoryError) -> Self {
+impl From<legacylib::music::repository::MusicRepositoryError> for MusicBrainzApiError {
+    fn from(err: legacylib::music::repository::MusicRepositoryError) -> Self {
         MusicBrainzApiError::DatabaseError(sqlx::Error::Protocol(err.to_string()))
     }
 }
@@ -182,7 +182,7 @@ pub async fn search_albums(
     let config = app_state.config.musicbrainz.clone();
 
     // Build search query
-    let mut query = grimoire::musicbrainz::queries::ReleaseSearchQuery::new();
+    let mut query = legacylib::musicbrainz::queries::ReleaseSearchQuery::new();
 
     if let Some(artist) = &request.artist {
         query = query.artist(artist);
@@ -197,7 +197,7 @@ pub async fn search_albums(
     query = query.limit(request.limit);
 
     // Perform search using grimoire service
-    let client = grimoire::musicbrainz::client::MusicBrainzClient::new(config)?;
+    let client = legacylib::musicbrainz::client::MusicBrainzClient::new(config)?;
     let search_result = client.search_releases(&query).await?;
 
     // Convert to API format
@@ -282,7 +282,7 @@ pub async fn search_musicbrainz(
 
     // Perform search using grimoire service
     // Use the config to create client directly
-    let client = grimoire::musicbrainz::client::MusicBrainzClient::new(config)?;
+    let client = legacylib::musicbrainz::client::MusicBrainzClient::new(config)?;
     let search_result = client.search_recordings(&query).await?;
 
     // Convert to API format with track number extraction

@@ -4,7 +4,7 @@
 //! client and server, with serde for JSON serialization.
 
 use crate::media::{CreateMediaBlob, MediaBlob};
-use grimoire::notifications::{NotificationChannel, NotificationEvent};
+use legacylib::notifications::{NotificationChannel, NotificationEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;

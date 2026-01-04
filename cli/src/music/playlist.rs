@@ -1,6 +1,6 @@
 //! Playlist management operations
 
-use grimoire::music::{
+use legacylib::music::{
     CreatePlaylist, MusicRepository, MusicService, PlaylistQuery, PlaylistService,
 };
 use std::io::{self, Write};

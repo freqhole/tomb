@@ -4,7 +4,7 @@
 //! directly for jobs, avoiding complex external job queue dependencies.
 
 use crate::jobs::thumbnail_job::{JobExecutionResult, ThumbnailJobProcessor};
-use grimoire::{
+use legacylib::{
     thumbnails::{ThumbnailDimensions, ThumbnailJobPriority},
     DatabaseConnection, ThumbnailConfig, ThumbnailService,
 };
@@ -203,7 +203,7 @@ impl ThumbnailJobQueue {
     pub async fn enqueue_thumbnail_job(
         &self,
         media_blob_id: &str,
-        job_type: grimoire::ThumbnailJobType,
+        job_type: legacylib::ThumbnailJobType,
         priority: Option<ThumbnailJobPriority>,
         dimensions: Option<ThumbnailDimensions>,
     ) -> Result<Uuid, ThumbnailJobQueueError> {

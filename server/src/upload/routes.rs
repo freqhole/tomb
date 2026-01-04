@@ -11,7 +11,7 @@ use axum::{
 };
 
 use crate::auth::{require_admin, require_authentication};
-use grimoire::AppConfig;
+use legacylib::AppConfig;
 
 use super::handlers::{delete_upload, get_upload_info, list_uploads, upload_large_file};
 use crate::media::music_jobs::{cancel_music_job, check_duplicate_file, get_music_job_status};

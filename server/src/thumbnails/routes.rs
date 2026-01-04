@@ -13,7 +13,7 @@ use crate::{
         get_thumbnail_metrics, retry_failed_jobs, trigger_thumbnail_generation,
     },
 };
-use grimoire::UserRole;
+use legacylib::UserRole;
 
 /// Build all thumbnail-related routes with appropriate middleware
 pub fn build_routes() -> Router<AppState> {

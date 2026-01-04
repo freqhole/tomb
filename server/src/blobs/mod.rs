@@ -23,7 +23,7 @@
 //!
 //! ```rust
 //! use crate::blobs::build_blob_routes;
-//! use grimoire::AppConfig;
+//! use legacylib::AppConfig;
 //!
 //! let config = AppConfig::default();
 //! let blob_routes = build_blob_routes(&config);

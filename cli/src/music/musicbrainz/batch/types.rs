@@ -1,6 +1,6 @@
 //! Type definitions for batch processing operations
 
-use grimoire::music::Song;
+use legacylib::music::Song;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

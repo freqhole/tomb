@@ -12,7 +12,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use grimoire::notifications::{NotificationChannel, NotificationEvent, NotificationPriority};
+use legacylib::notifications::{NotificationChannel, NotificationEvent, NotificationPriority};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

@@ -3,7 +3,7 @@
 //! This module provides lightweight job processing that works directly with
 //! our grimoire ThumbnailService and the existing thumbnail_jobs table.
 
-use grimoire::{
+use legacylib::{
     thumbnails::ThumbnailJobStatus, DatabaseConnection, ThumbnailConfig, ThumbnailJob,
     ThumbnailService,
 };
@@ -191,7 +191,7 @@ impl ThumbnailJobProcessor {
         media_blob_id: &str,
         thumbnail_id: &str,
     ) -> Result<(), ThumbnailJobError> {
-        use grimoire::music::MusicRepository;
+        use legacylib::music::MusicRepository;
 
         let music_repo = MusicRepository::new(self.db.pool().clone());
 

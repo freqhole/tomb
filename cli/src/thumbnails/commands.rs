@@ -1,7 +1,7 @@
 //! CLI commands for thumbnail tool validation and management
 
 use clap::{Args, Subcommand};
-use grimoire::{config::ConfigService, AppConfig, ThumbnailService};
+use legacylib::{config::ConfigService, AppConfig, ThumbnailService};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -435,10 +435,10 @@ async fn show_status(args: StatusArgs) -> Result<(), Box<dyn std::error::Error>>
 
     // Connect to database
     let pool = sqlx::PgPool::connect(&config.database_url()).await?;
-    let db = grimoire::DatabaseConnection::new(pool);
+    let db = legacylib::DatabaseConnection::new(pool);
 
     // Create thumbnail service and get metrics
-    let service = grimoire::ThumbnailService::new_with_defaults(&db);
+    let service = legacylib::ThumbnailService::new_with_defaults(&db);
 
     println!("📊 Thumbnail System Status");
     println!("{}", "=".repeat(50));
@@ -446,14 +446,14 @@ async fn show_status(args: StatusArgs) -> Result<(), Box<dyn std::error::Error>>
     // Get job counts by status
     let pending_jobs = service.get_pending_jobs(1000).await?;
     let completed_jobs = service
-        .get_jobs_by_status(grimoire::thumbnails::ThumbnailJobStatus::Completed, 1000)
+        .get_jobs_by_status(legacylib::thumbnails::ThumbnailJobStatus::Completed, 1000)
         .await?;
     let failed_jobs = service
-        .get_jobs_by_status(grimoire::thumbnails::ThumbnailJobStatus::Failed, 1000)
+        .get_jobs_by_status(legacylib::thumbnails::ThumbnailJobStatus::Failed, 1000)
         .await?;
     let failed_permanently_jobs = service
         .get_jobs_by_status(
-            grimoire::thumbnails::ThumbnailJobStatus::FailedPermanently,
+            legacylib::thumbnails::ThumbnailJobStatus::FailedPermanently,
             1000,
         )
         .await?;
@@ -516,19 +516,19 @@ async fn list_jobs(args: ListJobsArgs) -> Result<(), Box<dyn std::error::Error>>
 
     // Connect to database
     let pool = sqlx::PgPool::connect(&config.database_url()).await?;
-    let db = grimoire::DatabaseConnection::new(pool);
+    let db = legacylib::DatabaseConnection::new(pool);
 
-    let service = grimoire::ThumbnailService::new_with_defaults(&db);
+    let service = legacylib::ThumbnailService::new_with_defaults(&db);
 
     // Parse filter criteria
     let jobs = if let Some(status_str) = &args.status {
         let status = match status_str.as_str() {
-            "pending" => grimoire::thumbnails::ThumbnailJobStatus::Pending,
-            "in_progress" => grimoire::thumbnails::ThumbnailJobStatus::InProgress,
-            "completed" => grimoire::thumbnails::ThumbnailJobStatus::Completed,
-            "failed" => grimoire::thumbnails::ThumbnailJobStatus::Failed,
-            "failed_permanently" => grimoire::thumbnails::ThumbnailJobStatus::FailedPermanently,
-            "cancelled" => grimoire::thumbnails::ThumbnailJobStatus::Cancelled,
+            "pending" => legacylib::thumbnails::ThumbnailJobStatus::Pending,
+            "in_progress" => legacylib::thumbnails::ThumbnailJobStatus::InProgress,
+            "completed" => legacylib::thumbnails::ThumbnailJobStatus::Completed,
+            "failed" => legacylib::thumbnails::ThumbnailJobStatus::Failed,
+            "failed_permanently" => legacylib::thumbnails::ThumbnailJobStatus::FailedPermanently,
+            "cancelled" => legacylib::thumbnails::ThumbnailJobStatus::Cancelled,
             _ => return Err(format!("Invalid status: {}", status_str).into()),
         };
         service
@@ -589,7 +589,7 @@ async fn retry_jobs(args: RetryArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect to database
     let pool = sqlx::PgPool::connect(&config.database_url()).await?;
-    let db = grimoire::DatabaseConnection::new(pool);
+    let db = legacylib::DatabaseConnection::new(pool);
 
     let service = ThumbnailService::new_with_defaults(&db);
 
@@ -602,7 +602,7 @@ async fn retry_jobs(args: RetryArgs) -> Result<(), Box<dyn std::error::Error>> {
         // Get failed jobs count
         let failed_jobs = service
             .get_jobs_by_status(
-                grimoire::thumbnails::ThumbnailJobStatus::Failed,
+                legacylib::thumbnails::ThumbnailJobStatus::Failed,
                 args.max_jobs as i32,
             )
             .await?;
@@ -625,10 +625,10 @@ async fn cleanup_jobs(args: CleanupArgs) -> Result<(), Box<dyn std::error::Error
 
     // Connect to database
     let pool = sqlx::PgPool::connect(&config.database_url()).await?;
-    let db = grimoire::DatabaseConnection::new(pool);
+    let db = legacylib::DatabaseConnection::new(pool);
 
     // Create thumbnail config for directory info
-    let config_service = grimoire::config::ConfigService::new();
+    let config_service = legacylib::config::ConfigService::new();
     let thumbnail_config = config_service.to_thumbnail_config(&config);
 
     println!("🧹 Cleaning up thumbnail data...");
@@ -640,7 +640,7 @@ async fn cleanup_jobs(args: CleanupArgs) -> Result<(), Box<dyn std::error::Error
     // Get old jobs for reporting
     let service = ThumbnailService::new_with_defaults(&db);
     let completed_jobs = service
-        .get_jobs_by_status(grimoire::thumbnails::ThumbnailJobStatus::Completed, 1000)
+        .get_jobs_by_status(legacylib::thumbnails::ThumbnailJobStatus::Completed, 1000)
         .await?;
 
     let cutoff_date = time::OffsetDateTime::now_utc() - time::Duration::days(args.days as i64);
@@ -709,10 +709,10 @@ async fn generate_thumbnails(args: GenerateArgs) -> Result<(), Box<dyn std::erro
 
     let job_type = if let Some(type_str) = &args.job_type {
         Some(match type_str.as_str() {
-            "image_thumbnail" => grimoire::thumbnails::ThumbnailJobType::ImageThumbnail,
-            "video_thumbnail" => grimoire::thumbnails::ThumbnailJobType::VideoThumbnail,
-            "audio_waveform" => grimoire::thumbnails::ThumbnailJobType::AudioWaveform,
-            "video_preview" => grimoire::thumbnails::ThumbnailJobType::VideoPreview,
+            "image_thumbnail" => legacylib::thumbnails::ThumbnailJobType::ImageThumbnail,
+            "video_thumbnail" => legacylib::thumbnails::ThumbnailJobType::VideoThumbnail,
+            "audio_waveform" => legacylib::thumbnails::ThumbnailJobType::AudioWaveform,
+            "video_preview" => legacylib::thumbnails::ThumbnailJobType::VideoPreview,
             _ => return Err(format!("Invalid job type: {}", type_str).into()),
         })
     } else {
@@ -720,16 +720,16 @@ async fn generate_thumbnails(args: GenerateArgs) -> Result<(), Box<dyn std::erro
     };
 
     let priority = match args.priority.as_str() {
-        "low" => grimoire::thumbnails::ThumbnailJobPriority::Low,
-        "normal" => grimoire::thumbnails::ThumbnailJobPriority::Normal,
-        "high" => grimoire::thumbnails::ThumbnailJobPriority::High,
-        "critical" => grimoire::thumbnails::ThumbnailJobPriority::Critical,
+        "low" => legacylib::thumbnails::ThumbnailJobPriority::Low,
+        "normal" => legacylib::thumbnails::ThumbnailJobPriority::Normal,
+        "high" => legacylib::thumbnails::ThumbnailJobPriority::High,
+        "critical" => legacylib::thumbnails::ThumbnailJobPriority::Critical,
         _ => return Err(format!("Invalid priority: {}", args.priority).into()),
     };
 
     // Connect to database
     let pool = sqlx::PgPool::connect(&config.database_url()).await?;
-    let db = grimoire::DatabaseConnection::new(pool);
+    let db = legacylib::DatabaseConnection::new(pool);
 
     let service = ThumbnailService::new_with_defaults(&db);
 
@@ -787,7 +787,7 @@ async fn run_maintenance(args: MaintenanceArgs) -> Result<(), Box<dyn std::error
 
     // Connect to database
     let pool = sqlx::PgPool::connect(&config.database_url()).await?;
-    let db = grimoire::DatabaseConnection::new(pool);
+    let db = legacylib::DatabaseConnection::new(pool);
 
     let service = ThumbnailService::new_with_defaults(&db);
 
@@ -802,7 +802,7 @@ async fn run_maintenance(args: MaintenanceArgs) -> Result<(), Box<dyn std::error
 
         let completed_jobs = service
             .get_jobs_by_status(
-                grimoire::thumbnails::ThumbnailJobStatus::Completed,
+                legacylib::thumbnails::ThumbnailJobStatus::Completed,
                 args.max_items as i32,
             )
             .await?;
@@ -834,7 +834,7 @@ async fn debug_jobs(args: DebugArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect to database
     let pool = sqlx::PgPool::connect(&config.database_url()).await?;
-    let db = grimoire::DatabaseConnection::new(pool);
+    let db = legacylib::DatabaseConnection::new(pool);
 
     println!("🔍 Debugging Thumbnail Jobs Database");
     println!("{}", "=".repeat(80));
@@ -954,7 +954,7 @@ async fn check_system_health(args: HealthArgs) -> Result<(), Box<dyn std::error:
 
     // Connect to database
     let pool = sqlx::PgPool::connect(&config.database_url()).await?;
-    let db = grimoire::DatabaseConnection::new(pool);
+    let db = legacylib::DatabaseConnection::new(pool);
     let service = ThumbnailService::new_with_defaults(&db);
 
     // Get health summary
@@ -1032,7 +1032,7 @@ async fn bulk_generate_thumbnails(
 
     // Connect to database
     let pool = sqlx::PgPool::connect(&config.database_url()).await?;
-    let db = grimoire::DatabaseConnection::new(pool);
+    let db = legacylib::DatabaseConnection::new(pool);
 
     println!("🚀 Bulk Thumbnail Generation");
     println!("{}", "=".repeat(80));
@@ -1081,7 +1081,7 @@ async fn bulk_generate_thumbnails(
         return Ok(());
     }
 
-    let service = grimoire::ThumbnailService::new_with_defaults(&db);
+    let service = legacylib::ThumbnailService::new_with_defaults(&db);
     let mut successful = 0;
     let mut failed = 0;
 
@@ -1116,27 +1116,27 @@ async fn cleanup_duplicate_thumbnails(
 
     // Connect to database
     let pool = sqlx::PgPool::connect(&config.database_url()).await?;
-    let db = grimoire::DatabaseConnection::new(pool);
+    let db = legacylib::DatabaseConnection::new(pool);
 
     println!("🧹 Thumbnail Duplicate Cleanup");
     println!("{}", "=".repeat(80));
 
     // Validate keep strategy
     let keep_strategy = match args.keep.as_str() {
-        "first" | "oldest" => grimoire::thumbnails::KeepStrategy::First,
-        "last" | "newest" => grimoire::thumbnails::KeepStrategy::Last,
+        "first" | "oldest" => legacylib::thumbnails::KeepStrategy::First,
+        "last" | "newest" => legacylib::thumbnails::KeepStrategy::Last,
         _ => return Err("Invalid keep strategy. Use 'first' or 'last'".into()),
     };
 
     println!(
         "Strategy: Keep {} thumbnail per blob type",
         match keep_strategy {
-            grimoire::thumbnails::KeepStrategy::First => "first",
-            grimoire::thumbnails::KeepStrategy::Last => "last",
+            legacylib::thumbnails::KeepStrategy::First => "first",
+            legacylib::thumbnails::KeepStrategy::Last => "last",
         }
     );
 
-    let service = grimoire::ThumbnailService::new_with_defaults(&db);
+    let service = legacylib::ThumbnailService::new_with_defaults(&db);
 
     // Find duplicate thumbnails
     // get_pending_jobs

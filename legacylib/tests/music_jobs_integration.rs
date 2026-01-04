@@ -3,8 +3,8 @@
 //! These tests verify that the music job database tables and functions
 //! are working correctly with real database operations.
 
-use grimoire::music::jobs::*;
-use grimoire::test_helpers::*;
+use legacylib::music::jobs::*;
+use legacylib::test_helpers::*;
 use serde_json::json;
 use sqlx::PgPool;
 use std::time::Duration;

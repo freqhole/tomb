@@ -4,7 +4,7 @@
 //! and photo organization following the patterns established in the music module.
 
 use clap::Subcommand;
-use grimoire::{
+use legacylib::{
     media::{
         ConsoleScanProgress, MediaCollection, MetadataExtractor, ScanConfig, UnifiedScannerBuilder,
     },
@@ -286,7 +286,7 @@ impl PhotoCommands {
             ..Default::default()
         };
 
-        let photo_scanner = grimoire::photos::ConfigurablePhotoScanner::new(photo_config);
+        let photo_scanner = legacylib::photos::ConfigurablePhotoScanner::new(photo_config);
 
         // Build unified scanner for file discovery
         let scanner = UnifiedScannerBuilder::new()

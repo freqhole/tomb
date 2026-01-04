@@ -11,11 +11,11 @@ use axum::{
     routing::get,
     Router,
 };
-use grimoire::music::MusicRepository;
-use grimoire::search::{
+use legacylib::music::MusicRepository;
+use legacylib::search::{
     SearchFilters, SearchQuery, SearchService, SearchType, SortBy, SortDirection,
 };
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use time::OffsetDateTime;

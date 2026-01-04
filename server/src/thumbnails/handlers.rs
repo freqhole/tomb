@@ -10,7 +10,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use grimoire::{
+use legacylib::{
     thumbnails::{ThumbnailJobPriority, ThumbnailJobType},
     ThumbnailService,
 };
@@ -146,12 +146,12 @@ pub async fn get_thumbnail_jobs(
     let jobs = if let Some(status_str) = query.status {
         // Parse status and get jobs by status
         let status = match status_str.as_str() {
-            "pending" => grimoire::thumbnails::ThumbnailJobStatus::Pending,
-            "in_progress" => grimoire::thumbnails::ThumbnailJobStatus::InProgress,
-            "completed" => grimoire::thumbnails::ThumbnailJobStatus::Completed,
-            "failed" => grimoire::thumbnails::ThumbnailJobStatus::Failed,
-            "failed_permanently" => grimoire::thumbnails::ThumbnailJobStatus::FailedPermanently,
-            "cancelled" => grimoire::thumbnails::ThumbnailJobStatus::Cancelled,
+            "pending" => legacylib::thumbnails::ThumbnailJobStatus::Pending,
+            "in_progress" => legacylib::thumbnails::ThumbnailJobStatus::InProgress,
+            "completed" => legacylib::thumbnails::ThumbnailJobStatus::Completed,
+            "failed" => legacylib::thumbnails::ThumbnailJobStatus::Failed,
+            "failed_permanently" => legacylib::thumbnails::ThumbnailJobStatus::FailedPermanently,
+            "cancelled" => legacylib::thumbnails::ThumbnailJobStatus::Cancelled,
             _ => return Err(StatusCode::BAD_REQUEST),
         };
 
@@ -277,7 +277,7 @@ pub async fn trigger_thumbnail_generation(
 
         // Parse dimensions if provided
         let dimensions = if let Some(dims_req) = request.dimensions {
-            use grimoire::thumbnails::{CropStrategy, ThumbnailDimensions};
+            use legacylib::thumbnails::{CropStrategy, ThumbnailDimensions};
 
             let crop_strategy = if let Some(strategy_str) = dims_req.crop_strategy {
                 match strategy_str.as_str() {

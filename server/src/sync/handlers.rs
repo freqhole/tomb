@@ -9,8 +9,8 @@ use axum::{
     extract::{Extension, Query},
     Json,
 };
-use grimoire::music::MusicRepository;
-use grimoire::{
+use legacylib::music::MusicRepository;
+use legacylib::{
     DatabaseConnection, FullSyncRequest, MediaBlobService, SyncAcknowledgment, SyncRequest,
     SyncResponse, SyncStatusResponse,
 };
@@ -246,7 +246,7 @@ pub async fn incremental_sync(
     };
 
     // Execute sync
-    let grimoire_repo = grimoire::MediaBlobRepository::new(db.pool().clone());
+    let grimoire_repo = legacylib::MediaBlobRepository::new(db.pool().clone());
     let service = MediaBlobService::new(grimoire_repo);
 
     let sync_response = service.incremental_sync(sync_request).await.map_err(|e| {
@@ -290,7 +290,7 @@ pub async fn full_sync(
     };
 
     // Execute full sync
-    let grimoire_repo = grimoire::MediaBlobRepository::new(db.pool().clone());
+    let grimoire_repo = legacylib::MediaBlobRepository::new(db.pool().clone());
     let service = MediaBlobService::new(grimoire_repo);
 
     let sync_response = service.full_sync(sync_request).await.map_err(|e| {
@@ -343,7 +343,7 @@ pub async fn acknowledge_sync(
         .collect();
 
     // Create client sync state (simplified for this example)
-    let client_sync_state = grimoire::ClientSyncState::new(user.user().id.to_string());
+    let client_sync_state = legacylib::ClientSyncState::new(user.user().id.to_string());
 
     // Create acknowledgment
     let acknowledgment = SyncAcknowledgment {
@@ -355,7 +355,7 @@ pub async fn acknowledge_sync(
     };
 
     // Process acknowledgment
-    let grimoire_repo = grimoire::MediaBlobRepository::new(db.pool().clone());
+    let grimoire_repo = legacylib::MediaBlobRepository::new(db.pool().clone());
     let service = MediaBlobService::new(grimoire_repo);
 
     service
@@ -381,7 +381,7 @@ pub async fn sync_status(
 ) -> Result<Json<SyncStatusResponse>, AppError> {
     debug!("Sync status requested");
 
-    let grimoire_repo = grimoire::MediaBlobRepository::new(db.pool().clone());
+    let grimoire_repo = legacylib::MediaBlobRepository::new(db.pool().clone());
     let service = MediaBlobService::new(grimoire_repo);
 
     let status = service.get_sync_status().await.map_err(|e| {
@@ -416,7 +416,7 @@ pub async fn sync_recommendations(
         None
     };
 
-    let grimoire_repo = grimoire::MediaBlobRepository::new(db.pool().clone());
+    let grimoire_repo = legacylib::MediaBlobRepository::new(db.pool().clone());
     let service = MediaBlobService::new(grimoire_repo);
 
     let recommendations = service
@@ -429,10 +429,10 @@ pub async fn sync_recommendations(
 
     // Convert priority to string
     let priority_str = match recommendations.priority {
-        grimoire::SyncPriority::Low => "low",
-        grimoire::SyncPriority::Normal => "normal",
-        grimoire::SyncPriority::High => "high",
-        grimoire::SyncPriority::Critical => "critical",
+        legacylib::SyncPriority::Low => "low",
+        legacylib::SyncPriority::Normal => "normal",
+        legacylib::SyncPriority::High => "high",
+        legacylib::SyncPriority::Critical => "critical",
     };
 
     // Get count of items to sync
@@ -485,7 +485,7 @@ pub async fn check_sync_needed(
         OffsetDateTime::UNIX_EPOCH
     };
 
-    let grimoire_repo = grimoire::MediaBlobRepository::new(db.pool().clone());
+    let grimoire_repo = legacylib::MediaBlobRepository::new(db.pool().clone());
     let service = MediaBlobService::new(grimoire_repo);
 
     let needs_sync = service
@@ -537,7 +537,7 @@ pub async fn incremental_song_sync(
 
     // Request one extra item to determine if there are more pages
     let songs = music_repo
-        .query_songs(grimoire::music::SongQuery {
+        .query_songs(legacylib::music::SongQuery {
             limit: Some(page_size + 1),
             offset: Some(offset),
             artist: params.artist,
@@ -623,7 +623,7 @@ pub async fn incremental_playlist_sync(
 
     // Request one extra item to determine if there are more pages
     let playlists = music_repo
-        .query_playlists(grimoire::music::PlaylistQuery {
+        .query_playlists(legacylib::music::PlaylistQuery {
             limit: Some(page_size + 1),
             offset: Some(offset),
             public_only: params.public_only,
@@ -725,7 +725,7 @@ pub async fn incremental_playlist_song_sync(
     // Request one extra item to determine if there are more pages
     let playlist_songs = if let Some(sync_time) = last_sync_time {
         if let Some(pid) = playlist_id {
-            sqlx::query_as::<_, grimoire::music::PlaylistSong>(
+            sqlx::query_as::<_, legacylib::music::PlaylistSong>(
                 "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata, deleted_at, deleted_by
                  FROM playlist_songs
                  WHERE playlist_id = $1 AND created_at > $2
@@ -737,7 +737,7 @@ pub async fn incremental_playlist_song_sync(
             .bind(page_size + 1)
             .bind(offset)
         } else {
-            sqlx::query_as::<_, grimoire::music::PlaylistSong>(
+            sqlx::query_as::<_, legacylib::music::PlaylistSong>(
                 "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata, deleted_at, deleted_by
                  FROM playlist_songs
                  WHERE created_at > $1
@@ -750,7 +750,7 @@ pub async fn incremental_playlist_song_sync(
         }
     } else {
         if let Some(pid) = playlist_id {
-            sqlx::query_as::<_, grimoire::music::PlaylistSong>(
+            sqlx::query_as::<_, legacylib::music::PlaylistSong>(
                 "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata, deleted_at, deleted_by
                  FROM playlist_songs
                  WHERE playlist_id = $1
@@ -761,7 +761,7 @@ pub async fn incremental_playlist_song_sync(
             .bind(page_size + 1)
             .bind(offset)
         } else {
-            sqlx::query_as::<_, grimoire::music::PlaylistSong>(
+            sqlx::query_as::<_, legacylib::music::PlaylistSong>(
                 "SELECT id, playlist_id, song_id, position, created_at, added_by_client_id, metadata, deleted_at, deleted_by
                  FROM playlist_songs
                  ORDER BY playlist_id, position
@@ -827,7 +827,7 @@ pub async fn incremental_photo_sync(
         user.user().id
     );
 
-    let photos_repo = grimoire::photos::PhotoRepository::new(db.pool().clone());
+    let photos_repo = legacylib::photos::PhotoRepository::new(db.pool().clone());
     let page_size = params.page_size.unwrap_or(50) as i64;
 
     // Use list_recent_photos method since query_photos may not be available
@@ -898,7 +898,7 @@ pub async fn incremental_gallery_sync(
         user.user().id
     );
 
-    let photos_repo = grimoire::photos::PhotoRepository::new(db.pool().clone());
+    let photos_repo = legacylib::photos::PhotoRepository::new(db.pool().clone());
 
     // Use list_galleries method since query_galleries may not be available
     let galleries = photos_repo.list_galleries(50).await.map_err(|e| {
@@ -949,7 +949,7 @@ pub async fn incremental_photo_gallery_sync(
         user.user().id
     );
 
-    let photos_repo = grimoire::photos::PhotoRepository::new(db.pool().clone());
+    let photos_repo = legacylib::photos::PhotoRepository::new(db.pool().clone());
 
     // Get all galleries first, then fetch their photos to create photo_gallery records
     let galleries = photos_repo.list_galleries(50).await.map_err(|e| {
@@ -1028,7 +1028,7 @@ pub async fn incremental_video_sync(
         None
     };
 
-    let videos_repo = grimoire::videos::VideoRepository::new(db.pool().clone());
+    let videos_repo = legacylib::videos::VideoRepository::new(db.pool().clone());
     let page_size = params.page_size.unwrap_or(20);
     let offset = params
         .cursor
@@ -1037,7 +1037,7 @@ pub async fn incremental_video_sync(
         .unwrap_or(0);
 
     // Create query with filters
-    let video_query = grimoire::videos::VideoQuery {
+    let video_query = legacylib::videos::VideoQuery {
         search: params.title_search,
         duration_min: params.duration_min,
         duration_max: params.duration_max,
@@ -1126,7 +1126,7 @@ pub async fn incremental_video_playlist_sync(
         None
     };
 
-    let videos_repo = grimoire::videos::VideoRepository::new(db.pool().clone());
+    let videos_repo = legacylib::videos::VideoRepository::new(db.pool().clone());
     let page_size = params.page_size.unwrap_or(50);
     let offset = params
         .cursor
@@ -1135,7 +1135,7 @@ pub async fn incremental_video_playlist_sync(
         .unwrap_or(0);
 
     // Create query with filters
-    let playlist_query = grimoire::videos::VideoPlaylistQuery {
+    let playlist_query = legacylib::videos::VideoPlaylistQuery {
         search: params.title_search,
         is_public: params.public_only,
         created_after: last_sync_time,
@@ -1211,7 +1211,7 @@ pub async fn incremental_video_playlist_item_sync(
         _params
     );
 
-    let videos_repo = grimoire::videos::VideoRepository::new(db.pool().clone());
+    let videos_repo = legacylib::videos::VideoRepository::new(db.pool().clone());
 
     // Get all video playlists first, then fetch their videos to create video_playlist_item records
     let playlists = videos_repo

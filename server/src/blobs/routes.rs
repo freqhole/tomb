@@ -9,7 +9,7 @@ use axum::{
 };
 
 use crate::auth::require_authentication;
-use grimoire::AppConfig;
+use legacylib::AppConfig;
 
 use super::handlers::{blob_api_health, get_blob, get_blob_metadata};
 

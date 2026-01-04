@@ -7,7 +7,7 @@
 //! - Environment file generation
 
 use clap::Subcommand;
-use grimoire::{ConfigDisplayFormat, ConfigGenerationOptions, ConfigService};
+use legacylib::{ConfigDisplayFormat, ConfigGenerationOptions, ConfigService};
 use std::path::PathBuf;
 
 #[derive(Subcommand, Clone)]

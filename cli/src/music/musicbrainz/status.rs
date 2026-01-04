@@ -3,7 +3,7 @@
 //! This module contains functions for displaying processing status,
 //! progress tracking, and generating reports on MusicBrainz integration.
 
-use grimoire::{
+use legacylib::{
     config::AppConfig,
     database::DatabaseConnection,
     music::{get_albums_for_processing, get_processing_progress, ProcessingStatus},

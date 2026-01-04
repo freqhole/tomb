@@ -1,7 +1,7 @@
 //! Music search CLI handlers
 
-use grimoire::music::MusicService;
-use grimoire::search::{SearchQuery, SearchService, SearchType};
+use legacylib::music::MusicService;
+use legacylib::search::{SearchQuery, SearchService, SearchType};
 use std::collections::HashMap;
 
 /// Handle music search command

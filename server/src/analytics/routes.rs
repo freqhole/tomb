@@ -14,7 +14,7 @@ use super::media_handlers::{
 use super::{get_metrics, get_prometheus_metrics};
 use crate::auth::{require_admin, require_authentication};
 use crate::health::health_check;
-use grimoire::AppConfig;
+use legacylib::AppConfig;
 
 /// Build analytics and metrics routes
 pub fn build_analytics_routes(config: &AppConfig) -> Router {

@@ -3,7 +3,7 @@
 //! This module re-exports media blob types from grimoire with compatibility extensions
 //! for the WebSocket system and HTTP API.
 
-pub use grimoire::media::{
+pub use legacylib::media::{
     CreateMediaBlob, MediaBlob, MediaBlobCursor, MediaBlobQuery, MediaBlobStats, MimeTypeCount,
     PaginatedResult, PaginationDirection, PaginationMetadata,
 };

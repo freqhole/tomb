@@ -1,6 +1,6 @@
 //! Database operations for batch processing
 
-use grimoire::music::{repository::MusicRepository, Song};
+use legacylib::music::{repository::MusicRepository, Song};
 
 /// get songs for batch scanning based on various filters
 pub async fn get_songs_for_batch_scan(

@@ -17,7 +17,7 @@
 //! ### Basic cursor-based pagination
 //!
 //! ```rust
-//! use grimoire::media::{MediaBlobService, MediaBlobQuery};
+//! use legacylib::media::{MediaBlobService, MediaBlobQuery};
 //!
 //! // Get recent media blobs with cursor pagination
 //! let query = MediaBlobQuery::with_cursor(None, Some(25));

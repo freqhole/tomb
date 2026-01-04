@@ -8,7 +8,7 @@ use axum::{
     extract::{Extension, Path},
     response::Json,
 };
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -340,7 +340,7 @@ pub async fn process_music_file_directly(
     file_path: &str,
     original_filename: Option<&str>,
 ) -> Result<String, AppError> {
-    use grimoire::music::{extract_standard_fields, CreateSong, MusicRepository};
+    use legacylib::music::{extract_standard_fields, CreateSong, MusicRepository};
     use std::path::Path;
 
     let file_path_obj = Path::new(file_path);

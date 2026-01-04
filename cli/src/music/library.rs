@@ -1,6 +1,6 @@
 //! Music library operations and management
 
-use grimoire::music::{MusicRepository, MusicService, SongQuery};
+use legacylib::music::{MusicRepository, MusicService, SongQuery};
 use sqlx::Row;
 use std::io::{self, Write};
 use uuid::Uuid;

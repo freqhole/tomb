@@ -6,8 +6,8 @@ use super::utils::{
     select_best_release, store_enrichment_data, store_enrichment_data_with_album_context,
     store_no_match_result,
 };
-use grimoire::music::{repository::MusicRepository, Song};
-use grimoire::musicbrainz::{
+use legacylib::music::{repository::MusicRepository, Song};
+use legacylib::musicbrainz::{
     models::Track, MusicBrainzConfig, MusicBrainzMatch, MusicBrainzService, Release,
 };
 use std::collections::HashMap;

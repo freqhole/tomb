@@ -8,7 +8,7 @@ use tower_sessions::{
     Expiry, SessionManagerLayer,
 };
 
-use grimoire::AppConfig;
+use legacylib::AppConfig;
 use server::analytics::{analytics_middleware, security_logging};
 use server::logging::{
     access_log_middleware_with_logger, AccessLogConfig, AccessLogFormat, AccessLogger,

@@ -1,13 +1,13 @@
 //! Music scanning logic and file processing
 
 use crate::music::generation;
-use grimoire::media::{CreateMediaBlob, MediaBlobRepository, MediaBlobService, MediaTypeDetector};
-use grimoire::music::{
+use legacylib::media::{CreateMediaBlob, MediaBlobRepository, MediaBlobService, MediaTypeDetector};
+use legacylib::music::{
     directory_art::DirectoryArtDetector, extract_basic_metadata, extract_metadata,
     extract_standard_fields, extract_thumbnail, hash_bytes, hash_file, waveform::WaveformGenerator,
 };
-use grimoire::music::{ConsoleScanProgress, MusicService, ScanConfig, ScanProgress, ScannerConfig};
-use grimoire::AppConfig;
+use legacylib::music::{ConsoleScanProgress, MusicService, ScanConfig, ScanProgress, ScannerConfig};
+use legacylib::AppConfig;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -218,7 +218,7 @@ pub async fn handle_scan(
         service
             .complete_session(
                 session_id,
-                grimoire::music::jobs::ScanSessionStatus::Completed,
+                legacylib::music::jobs::ScanSessionStatus::Completed,
                 None,
             )
             .await?
@@ -358,7 +358,7 @@ pub async fn handle_resume(
         service
             .complete_session(
                 session_id,
-                grimoire::music::jobs::ScanSessionStatus::Completed,
+                legacylib::music::jobs::ScanSessionStatus::Completed,
                 None,
             )
             .await?
@@ -407,7 +407,7 @@ async fn process_audio_file(
         .await
     {
         // File already processed, check if it has an associated song
-        let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
+        let repository = legacylib::music::MusicRepository::new(service.db().pool().clone());
         if let Ok(songs) = repository
             .get_songs_by_media_blob_id(&existing_blob.id)
             .await
@@ -428,7 +428,7 @@ async fn process_audio_file(
     let _basic_metadata = extract_basic_metadata(file_path).await?;
 
     // Create song repository directly
-    let repository = grimoire::music::MusicRepository::new(service.db().pool().clone());
+    let repository = legacylib::music::MusicRepository::new(service.db().pool().clone());
     let file_metadata = std::fs::metadata(file_path)?;
     let file_size = file_metadata.len() as i64;
 
@@ -532,8 +532,8 @@ async fn process_audio_file(
         generate_waveform_for_audio_file(&media_repository, &media_blob.id, file_path).await?;
 
     // Build smart title using TitleBuilder
-    let title_builder = grimoire::music::TitleBuilder::new();
-    let audio_meta = grimoire::music::AudioMetadata::new(
+    let title_builder = legacylib::music::TitleBuilder::new();
+    let audio_meta = legacylib::music::AudioMetadata::new(
         metadata.tags.tags.clone(),
         file_path.to_string_lossy().to_string(),
     );
@@ -603,7 +603,7 @@ async fn process_directory_album_art(
     }
 
     // Check if this directory appears to be an album
-    if !detector.is_likely_album(&grimoire::music::DirectoryContext {
+    if !detector.is_likely_album(&legacylib::music::DirectoryContext {
         path: directory.to_path_buf(),
         audio_files: audio_files.to_vec(),
         metadata,
@@ -717,7 +717,7 @@ async fn process_directory_album_art(
 
     // Apply directory art to all songs without thumbnails
     let mut applied_count = 0;
-    let music_repository = grimoire::music::MusicRepository::new(music_service.db().pool().clone());
+    let music_repository = legacylib::music::MusicRepository::new(music_service.db().pool().clone());
 
     for song_id in songs_without_thumbnails {
         // Update the primary thumbnail_blob_id if it's null
@@ -776,7 +776,7 @@ async fn get_songs_without_thumbnails(
     song_ids: &[Uuid],
 ) -> Result<Vec<Uuid>, Box<dyn std::error::Error>> {
     let mut songs_without_thumbnails = Vec::new();
-    let music_repository = grimoire::music::MusicRepository::new(music_service.db().pool().clone());
+    let music_repository = legacylib::music::MusicRepository::new(music_service.db().pool().clone());
 
     for &song_id in song_ids {
         let has_thumbnail = music_repository
@@ -797,7 +797,7 @@ async fn get_song_media_blob_id(
     music_service: &MusicService<'_>,
     song_id: Uuid,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let music_repository = grimoire::music::MusicRepository::new(music_service.db().pool().clone());
+    let music_repository = legacylib::music::MusicRepository::new(music_service.db().pool().clone());
     let media_blob_id = music_repository
         .get_song_media_blob_id(song_id)
         .await

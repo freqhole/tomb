@@ -14,8 +14,8 @@ use tracing::error;
 
 use crate::auth::AuthenticatedUser;
 use crate::error::AppError;
-use grimoire::database::DatabaseConnection;
-use grimoire::photos::{
+use legacylib::database::DatabaseConnection;
+use legacylib::photos::{
     CreateGallery, Gallery, Photo, PhotoGallery, PhotoRepository, UpdateGallery,
 };
 

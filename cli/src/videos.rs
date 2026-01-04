@@ -4,7 +4,7 @@
 //! and video organization following the patterns established in the photos module.
 
 use clap::Subcommand;
-use grimoire::{
+use legacylib::{
     media::{ConsoleScanProgress, ScanConfig, UnifiedScannerBuilder},
     videos::{CreateVideoPlaylist, VideoMetadataExtractor, VideoService},
     DatabaseConnection,
@@ -254,7 +254,7 @@ impl VideoCommands {
         }
 
         // Create unified scanner with video scanner
-        let video_scanner = grimoire::videos::VideoScanner::new();
+        let video_scanner = legacylib::videos::VideoScanner::new();
         let scanner = UnifiedScannerBuilder::new()
             .with_config(ScanConfig {
                 max_depth: Some(depth.unwrap_or(10)),

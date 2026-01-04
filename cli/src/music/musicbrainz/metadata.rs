@@ -3,7 +3,7 @@
 //! This module contains functions for previewing and applying metadata changes,
 //! direct MusicBrainz operations, and guided song update workflows.
 
-use grimoire::{
+use legacylib::{
     config::AppConfig,
     database::DatabaseConnection,
     music::repository::MusicRepository,
@@ -420,7 +420,7 @@ pub async fn handle_mark_reviewed(
         return Err("must specify --song-id, --artist, --album, or --all".into());
     }
 
-    let rows_affected = grimoire::musicbrainz::batch::mark_songs_as_reviewed(
+    let rows_affected = legacylib::musicbrainz::batch::mark_songs_as_reviewed(
         &repository,
         song_uuid,
         artist.as_deref(),
@@ -483,7 +483,7 @@ pub async fn handle_clear_data(
         return Err("must specify --song-id, --artist, --album, or --all".into());
     }
 
-    let rows_affected = grimoire::musicbrainz::batch::clear_musicbrainz_data(
+    let rows_affected = legacylib::musicbrainz::batch::clear_musicbrainz_data(
         &repository,
         song_uuid,
         artist.as_deref(),

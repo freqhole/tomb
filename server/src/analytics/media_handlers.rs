@@ -8,12 +8,12 @@ use axum::{
     http::HeaderMap,
     response::IntoResponse,
 };
-use grimoire::analytics::{
+use legacylib::analytics::{
     feed::{get_social_feed, FeedResponse},
     AnalyticsService, EventBatchResult, FailedEvent, MediaAnalyticsError, MediaEventBatchRequest,
     MediaEventRequest, MediaEventResponse, PlayAnalytics, ProcessedEvent,
 };
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
@@ -702,7 +702,7 @@ pub async fn social_feed_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use grimoire::analytics::{DomainType, MediaEventType};
+    use legacylib::analytics::{DomainType, MediaEventType};
 
     #[test]
     fn test_admin_analytics_query_deserialization() {

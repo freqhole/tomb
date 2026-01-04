@@ -4,9 +4,9 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use grimoire::auth::{AuthError, User, UserRole};
-use grimoire::AuthRepository;
-use grimoire::DatabaseConnection;
+use legacylib::auth::{AuthError, User, UserRole};
+use legacylib::AuthRepository;
+use legacylib::DatabaseConnection;
 use tower_sessions::Session;
 use uuid::Uuid;
 

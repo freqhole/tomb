@@ -12,9 +12,9 @@ use axum::{
     routing::{get, post},
     Json as JsonExtractor, Router,
 };
-use grimoire::config::app_config::GenreConfig;
-use grimoire::music::genre_models::{GenreSearchBody, GenreSearchRequest, GenreStatsResponse};
-use grimoire::{database::DatabaseConnection, music::genre_service::GenreService, AppConfig};
+use legacylib::config::app_config::GenreConfig;
+use legacylib::music::genre_models::{GenreSearchBody, GenreSearchRequest, GenreStatsResponse};
+use legacylib::{database::DatabaseConnection, music::genre_service::GenreService, AppConfig};
 use serde::Deserialize;
 use serde::Serialize;
 

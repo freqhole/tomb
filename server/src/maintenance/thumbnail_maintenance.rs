@@ -3,7 +3,7 @@
 //! This module provides specific maintenance tasks for thumbnail generation,
 //! including cleanup of old jobs, orphaned files, and storage optimization.
 
-use grimoire::{
+use legacylib::{
     thumbnails::{ThumbnailConfig, ThumbnailJobStatus},
     DatabaseConnection, ThumbnailService,
 };
@@ -43,7 +43,7 @@ pub enum ThumbnailMaintenanceError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Thumbnail service error: {0}")]
-    ThumbnailService(#[from] grimoire::thumbnails::ThumbnailError),
+    ThumbnailService(#[from] legacylib::thumbnails::ThumbnailError),
     #[error("Configuration error: {0}")]
     Config(String),
 }

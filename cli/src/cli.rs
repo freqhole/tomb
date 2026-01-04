@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 use sqlx::PgPool;
 
-use grimoire::{AppConfig, DatabaseConnection};
+use legacylib::{AppConfig, DatabaseConnection};
 
 use crate::analytics::AnalyticsCommands;
 use crate::config::ConfigCommands;
@@ -210,7 +210,7 @@ impl Cli {
     }
 
     async fn ensure_wordlist_initialized(&self) -> Result<(), Box<dyn std::error::Error>> {
-        use grimoire::wordlist::{initialize_wordlist, is_initialized, ManagementWordlistConfig};
+        use legacylib::wordlist::{initialize_wordlist, is_initialized, ManagementWordlistConfig};
 
         // Check if wordlist is already initialized
         if is_initialized() {
@@ -262,7 +262,7 @@ impl Cli {
         println!("🎯 Domains: {}", scan_domains.join(", "));
 
         // Configure scanner
-        let scan_config = grimoire::media::ScanConfig {
+        let scan_config = legacylib::media::ScanConfig {
             batch_size: *batch_size,
             max_depth: *depth,
             max_file_size: max_size_mb.map(|mb| mb * 1024 * 1024),
@@ -270,7 +270,7 @@ impl Cli {
         };
 
         // Build unified scanner with requested domains
-        let mut builder = grimoire::media::UnifiedScannerBuilder::new().with_config(scan_config);
+        let mut builder = legacylib::media::UnifiedScannerBuilder::new().with_config(scan_config);
 
         for domain in &scan_domains {
             match *domain {
@@ -279,12 +279,12 @@ impl Cli {
                     println!("⚠️  Music scanner not yet integrated with unified scanner");
                 }
                 "photos" => {
-                    let photo_scanner = grimoire::photos::PhotoScanner::new();
+                    let photo_scanner = legacylib::photos::PhotoScanner::new();
                     builder = builder.add_scanner(photo_scanner);
                     println!("📸 Added photo scanner");
                 }
                 "videos" => {
-                    let video_scanner = grimoire::videos::VideoScanner::new();
+                    let video_scanner = legacylib::videos::VideoScanner::new();
                     builder = builder.add_scanner(video_scanner);
                     println!("🎬 Added video scanner");
                 }

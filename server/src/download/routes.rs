@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;

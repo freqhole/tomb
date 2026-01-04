@@ -15,20 +15,20 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use grimoire::config::AppConfig;
-use grimoire::music::models::SongWithUserPrefs;
-use grimoire::music::models::{
+use legacylib::config::AppConfig;
+use legacylib::music::models::SongWithUserPrefs;
+use legacylib::music::models::{
     BulkUpdatePreferencesRequest,
     UpdateUserPreferenceRequest as GrimoireUpdateUserPreferenceRequest, UserSongPreference,
 };
-use grimoire::music::{
+use legacylib::music::{
     AlbumSummary, AlbumTrack, BulkUpdateSongsRequest, CreatePlaylist, MusicRepository, Playlist,
     PlaylistQuery, PlaylistService, PlaylistSummary, PlaylistWithCount, Song, SongQuery,
     UpdatePlaylist,
 };
-use grimoire::notifications::{NotificationChannel, NotificationEvent};
-use grimoire::thumbnails::ThumbnailService;
-use grimoire::DatabaseConnection;
+use legacylib::notifications::{NotificationChannel, NotificationEvent};
+use legacylib::thumbnails::ThumbnailService;
+use legacylib::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
@@ -1358,7 +1358,7 @@ pub async fn filter_artists(
     Extension(db): Extension<DatabaseConnection>,
     Json(request): Json<ArtistsFilterRequest>,
 ) -> Result<Json<ArtistsFilterResponse>, WebauthnError> {
-    use grimoire::music::repository::filters;
+    use legacylib::music::repository::filters;
 
     // Calculate pagination parameters
     let page = request.page.unwrap_or(1);
@@ -1422,7 +1422,7 @@ pub async fn filter_albums(
     Extension(db): Extension<DatabaseConnection>,
     Json(request): Json<AlbumsFilterRequest>,
 ) -> Result<Json<AlbumsFilterResponse>, WebauthnError> {
-    use grimoire::music::repository::filters;
+    use legacylib::music::repository::filters;
 
     // Calculate pagination parameters
     let page = request.page.unwrap_or(1);
@@ -2595,11 +2595,11 @@ async fn emit_preference_analytics(
     is_favorite: bool,
     rating: Option<i32>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    use grimoire::analytics::media_events::{
+    use legacylib::analytics::media_events::{
         DomainType, MediaEvent, MediaEventData, MediaEventType,
     };
-    use grimoire::analytics::service::AnalyticsService;
-    use grimoire::music::MusicRepository;
+    use legacylib::analytics::service::AnalyticsService;
+    use legacylib::music::MusicRepository;
 
     // get song details for analytics
     let music_repo = MusicRepository::new(db.pool().clone());
@@ -2684,7 +2684,7 @@ mod tests {
 
     #[test]
     fn test_song_response_conversion() {
-        use grimoire::music::Song;
+        use legacylib::music::Song;
         use time::OffsetDateTime;
 
         let song = Song {

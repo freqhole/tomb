@@ -3,7 +3,7 @@
 //! This module contains health check and monitoring related routes.
 
 use axum::{routing::get, Router};
-use grimoire::AppConfig;
+use legacylib::AppConfig;
 
 use super::{api_hello, health_check};
 

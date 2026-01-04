@@ -26,7 +26,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::auth::require_authentication;
-use grimoire::AppConfig;
+use legacylib::AppConfig;
 
 // Re-export enhanced functions for easy access
 pub use enhanced::{

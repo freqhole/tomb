@@ -7,8 +7,8 @@
 //! - Analytics statistics
 
 use clap::Subcommand;
-use grimoire::analytics::{AnalyticsCliService, AnalyticsQuery, CleanupConfig, UserActivityQuery};
-use grimoire::DatabaseConnection;
+use legacylib::analytics::{AnalyticsCliService, AnalyticsQuery, CleanupConfig, UserActivityQuery};
+use legacylib::DatabaseConnection;
 
 #[derive(Subcommand, Clone)]
 pub enum AnalyticsCommands {

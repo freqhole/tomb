@@ -3,8 +3,8 @@
 //! This module provides a WebSocket publisher that integrates with the notification system
 //! to broadcast events to connected WebSocket clients in real-time.
 
-use grimoire::notifications::publisher::PublisherError;
-use grimoire::notifications::NotificationEvent;
+use legacylib::notifications::publisher::PublisherError;
+use legacylib::notifications::NotificationEvent;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -343,7 +343,7 @@ impl WebSocketNotificationPublisher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use grimoire::notifications::NotificationChannel;
+    use legacylib::notifications::NotificationChannel;
     use serde_json::json;
     use tokio::sync::broadcast;
 

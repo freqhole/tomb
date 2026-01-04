@@ -17,7 +17,7 @@
 //! ### Publishing a notification
 //!
 //! ```rust
-//! use grimoire::notifications::{NotificationService, NotificationEvent, NotificationChannel};
+//! use legacylib::notifications::{NotificationService, NotificationEvent, NotificationChannel};
 //!
 //! // Create a media blob change event
 //! let event = NotificationEvent::new(
@@ -36,7 +36,7 @@
 //! ### Subscribing to notifications
 //!
 //! ```rust
-//! use grimoire::notifications::{ChannelSubscription, NotificationFilter};
+//! use legacylib::notifications::{ChannelSubscription, NotificationFilter};
 //!
 //! // Subscribe to media blob events for specific user
 //! let subscription = ChannelSubscription::new(

@@ -22,7 +22,7 @@
 //! ### Smart title construction
 //!
 //! ```rust
-//! use grimoire::music::{TitleBuilder, AudioMetadata};
+//! use legacylib::music::{TitleBuilder, AudioMetadata};
 //! use std::collections::HashMap;
 //!
 //! let mut tags = HashMap::new();
@@ -41,8 +41,8 @@
 //! ### Directory scanning
 //!
 //! ```rust
-//! use grimoire::music::Scanner;
-//! use grimoire::config::AppConfig;
+//! use legacylib::music::Scanner;
+//! use legacylib::config::AppConfig;
 //!
 //! let config = AppConfig::default();
 //! let scanner = Scanner::new(&config);

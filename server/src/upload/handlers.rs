@@ -15,10 +15,10 @@ use crate::media::models::{CreateMediaBlob, MediaBlob};
 use crate::media::music_jobs;
 use crate::media::repository::MediaRepository;
 use crate::startup::AppState;
-use grimoire::auth::User;
-use grimoire::media::MediaTypeDetector;
-use grimoire::AppConfig;
-use grimoire::DatabaseConnection;
+use legacylib::auth::User;
+use legacylib::media::MediaTypeDetector;
+use legacylib::AppConfig;
+use legacylib::DatabaseConnection;
 
 use super::models::{UploadConfig, UploadRequest, UploadResponse};
 

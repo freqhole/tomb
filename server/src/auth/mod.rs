@@ -12,8 +12,8 @@ pub mod middleware;
 pub mod routes;
 
 // Re-export commonly used types from grimoire
-pub use grimoire::auth::{AuthError, InviteCode, User, UserRole, WebauthnCredential};
-pub use grimoire::AuthRepository;
+pub use legacylib::auth::{AuthError, InviteCode, User, UserRole, WebauthnCredential};
+pub use legacylib::AuthRepository;
 
 // Re-export handlers
 pub use handlers::*;

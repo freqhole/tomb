@@ -4,11 +4,11 @@
 //! including health checks, connection monitoring, test notifications, and maintenance operations.
 
 use clap::Subcommand;
-use grimoire::notifications::{
+use legacylib::notifications::{
     NotificationChannel, NotificationConfig, NotificationEvent, NotificationPriority,
     NotificationService,
 };
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use serde_json::{json, Value};
 use time::OffsetDateTime;
 

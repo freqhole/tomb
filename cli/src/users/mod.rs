@@ -7,9 +7,9 @@
 //! - User statistics
 
 use clap::Subcommand;
-use grimoire::{AuthService, InviteGenerationConfig};
+use legacylib::{AuthService, InviteGenerationConfig};
 
-use grimoire::{DatabaseConnection, UserRole};
+use legacylib::{DatabaseConnection, UserRole};
 
 #[derive(Subcommand, Clone)]
 pub enum UserCommands {

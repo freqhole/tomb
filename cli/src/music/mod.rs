@@ -18,8 +18,8 @@ pub mod sync;
 // Re-export the main command enum
 pub use commands::MusicCommands;
 
-use grimoire::music::MusicService;
-use grimoire::{AppConfig, DatabaseConnection};
+use legacylib::music::MusicService;
+use legacylib::{AppConfig, DatabaseConnection};
 
 impl MusicCommands {
     /// Execute the music command

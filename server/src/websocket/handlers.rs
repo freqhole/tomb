@@ -10,11 +10,11 @@ use axum::{
     response::Response,
     Extension,
 };
-use grimoire::AppConfig;
-use grimoire::DatabaseConnection;
+use legacylib::AppConfig;
+use legacylib::DatabaseConnection;
 // use futures_util::{sink::SinkExt, stream::StreamExt}; // TODO: Uncomment when needed
-use grimoire::notifications::NotificationChannel;
-use grimoire::thumbnails::ThumbnailService;
+use legacylib::notifications::NotificationChannel;
+use legacylib::thumbnails::ThumbnailService;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

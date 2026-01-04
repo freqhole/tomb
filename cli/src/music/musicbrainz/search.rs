@@ -3,7 +3,7 @@
 //! This module contains functions for searching MusicBrainz API directly
 //! and searching for songs in the local database to match with MusicBrainz.
 
-use grimoire::{
+use legacylib::{
     config::AppConfig,
     database::DatabaseConnection,
     music::repository::MusicRepository,

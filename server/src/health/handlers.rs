@@ -4,7 +4,7 @@
 
 use crate::error::WebauthnError;
 use axum::response::{IntoResponse, Json};
-use grimoire::AppConfig;
+use legacylib::AppConfig;
 
 /// Simple health check endpoint
 /// Returns basic status information and timestamp

@@ -3,8 +3,8 @@
 use super::types::{
     AlbumContext, MetadataEnrichment, MusicBrainzMatchSummary, SongMetadataSummary,
 };
-use grimoire::music::{repository::MusicRepository, Song};
-use grimoire::musicbrainz::MusicBrainzMatch;
+use legacylib::music::{repository::MusicRepository, Song};
+use legacylib::musicbrainz::MusicBrainzMatch;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -229,10 +229,10 @@ pub async fn store_enrichment_data_with_album_context(
 /// analyze album completeness from song matches
 pub fn analyze_album_completeness_from_songs(
     song_matches: &[(
-        &grimoire::music::Song,
-        Vec<grimoire::musicbrainz::MusicBrainzMatch>,
+        &legacylib::music::Song,
+        Vec<legacylib::musicbrainz::MusicBrainzMatch>,
     )],
-    config: &grimoire::musicbrainz::MusicBrainzConfig,
+    config: &legacylib::musicbrainz::MusicBrainzConfig,
 ) -> super::types::AlbumCompletenessReport {
     let total_our_tracks = song_matches.len();
     let matched_tracks = song_matches
@@ -275,15 +275,15 @@ pub fn analyze_album_completeness_from_songs(
 
 /// select best release from musicbrainz results based on config preferences
 pub fn select_best_release<'a>(
-    releases: &'a [grimoire::musicbrainz::Release],
-    config: &grimoire::musicbrainz::MusicBrainzConfig,
-) -> Option<&'a grimoire::musicbrainz::Release> {
+    releases: &'a [legacylib::musicbrainz::Release],
+    config: &legacylib::musicbrainz::MusicBrainzConfig,
+) -> Option<&'a legacylib::musicbrainz::Release> {
     if releases.is_empty() {
         return None;
     }
 
     // score each release based on preferences
-    let mut scored_releases: Vec<(f32, &grimoire::musicbrainz::Release)> = releases
+    let mut scored_releases: Vec<(f32, &legacylib::musicbrainz::Release)> = releases
         .iter()
         .map(|release| {
             let mut score = 0.0;

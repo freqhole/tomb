@@ -55,8 +55,8 @@ impl MaintenanceScheduler {
     /// Start the maintenance scheduler
     pub async fn start(
         &self,
-        db: grimoire::DatabaseConnection,
-        thumbnail_config: grimoire::thumbnails::ThumbnailConfig,
+        db: legacylib::DatabaseConnection,
+        thumbnail_config: legacylib::thumbnails::ThumbnailConfig,
     ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
         if !self.config.auto_run {
             return Err("Maintenance scheduler is disabled in configuration".into());

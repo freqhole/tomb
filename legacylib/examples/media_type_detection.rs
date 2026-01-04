@@ -7,8 +7,8 @@
 //!
 //! Run with: cargo run --example media_type_detection
 
-use grimoire::config::AppConfig;
-use grimoire::media::MediaTypeDetector;
+use legacylib::config::AppConfig;
+use legacylib::media::MediaTypeDetector;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load configuration
@@ -73,8 +73,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (size, is_client_upload, description) in test_scenarios {
         let strategy = detector.get_storage_strategy(size, is_client_upload);
         let strategy_str = match strategy {
-            grimoire::media::StorageStrategy::Bytea => "Database (bytea)",
-            grimoire::media::StorageStrategy::Filesystem => "Filesystem (local_path)",
+            legacylib::media::StorageStrategy::Bytea => "Database (bytea)",
+            legacylib::media::StorageStrategy::Filesystem => "Filesystem (local_path)",
         };
 
         println!("  📦 {:25} → {}", description, strategy_str);

@@ -4,12 +4,12 @@ use crate::maintenance::{MaintenanceConfig, MaintenanceScheduler};
 use crate::notifications::NotificationInfrastructure;
 use crate::storage::SessionStore;
 use crate::websocket::handlers::ConnectionManager;
-use grimoire::analytics::AnalyticsConfig;
-use grimoire::config::{ConfigService, StorageBackend};
-use grimoire::notifications::NotificationConfig;
+use legacylib::analytics::AnalyticsConfig;
+use legacylib::config::{ConfigService, StorageBackend};
+use legacylib::notifications::NotificationConfig;
 
-use grimoire::wordlist::{initialize_wordlist, ManagementWordlistConfig as WordlistConfig};
-use grimoire::{AppConfig, DatabaseConnection};
+use legacylib::wordlist::{initialize_wordlist, ManagementWordlistConfig as WordlistConfig};
+use legacylib::{AppConfig, DatabaseConnection};
 
 use std::sync::Arc;
 use tokio::fs;

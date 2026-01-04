@@ -1,6 +1,6 @@
 //! Scan session management and status tracking
 
-use grimoire::music::MusicService;
+use legacylib::music::MusicService;
 use uuid::Uuid;
 
 /// Handle scan session status command

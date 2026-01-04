@@ -24,7 +24,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::auth::require_authentication;
-use grimoire::AppConfig;
+use legacylib::AppConfig;
 
 /// Media file extensions that benefit from range requests
 const MEDIA_EXTENSIONS: &[&str] = &[

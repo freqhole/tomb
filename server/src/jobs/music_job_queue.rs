@@ -6,7 +6,7 @@
 
 use crate::jobs::ThumbnailJobQueue;
 
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
@@ -437,9 +437,9 @@ impl MusicJobQueue {
         job: &MusicJob,
         thumbnail_queue: Option<&ThumbnailJobQueue>,
     ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
-        use grimoire::media::{CreateMediaBlob, MediaBlobRepository, MediaBlobService};
-        use grimoire::music::thumbnail::extract_thumbnail;
-        use grimoire::music::{extract_standard_fields, CreateSong, MusicRepository};
+        use legacylib::media::{CreateMediaBlob, MediaBlobRepository, MediaBlobService};
+        use legacylib::music::thumbnail::extract_thumbnail;
+        use legacylib::music::{extract_standard_fields, CreateSong, MusicRepository};
         use sha2::{Digest, Sha256};
         use std::path::Path;
 
@@ -712,8 +712,8 @@ impl MusicJobQueue {
         song_id: &Uuid,
         job: &MusicJob,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use grimoire::analytics::service::AnalyticsService;
-        use grimoire::music::MusicRepository;
+        use legacylib::analytics::service::AnalyticsService;
+        use legacylib::music::MusicRepository;
 
         // get song details for analytics
         let music_repo = MusicRepository::new(db.pool().clone());

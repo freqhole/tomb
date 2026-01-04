@@ -5,8 +5,8 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use grimoire::analytics::{AnalyticsConfig, AnalyticsService, RequestAnalyticsBuilder};
-use grimoire::DatabaseConnection;
+use legacylib::analytics::{AnalyticsConfig, AnalyticsService, RequestAnalyticsBuilder};
+use legacylib::DatabaseConnection;
 use tower_sessions::Session;
 use uuid::Uuid;
 

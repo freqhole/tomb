@@ -18,7 +18,7 @@ use serde_json::json;
 #[derive(Debug, thiserror::Error)]
 pub enum MusicBrainzApiError {
     #[error("MusicBrainz service error: {0}")]
-    ServiceError(#[from] grimoire::musicbrainz::MusicBrainzError),
+    ServiceError(#[from] legacylib::musicbrainz::MusicBrainzError),
 
     #[error("Database error: {0}")]
     DatabaseError(#[from] sqlx::Error),

@@ -10,7 +10,7 @@ mod status;
 mod utils;
 
 use clap::{Args, Subcommand};
-use grimoire::config::AppConfig;
+use legacylib::config::AppConfig;
 
 // Re-export public types
 pub use utils::get_musicbrainz_config;

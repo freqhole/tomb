@@ -22,7 +22,7 @@ pub mod sorting;
 // Re-export commonly used types
 use crate::error::WebauthnError;
 use axum::Router;
-use grimoire::config::MediaConfig;
+use legacylib::config::MediaConfig;
 pub use models::{CreateMediaBlob, MediaBlob, MediaBlobQuery, MediaBlobStats, PaginatedResult};
 pub use repository::{MediaError, MediaRepository};
 

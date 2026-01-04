@@ -14,10 +14,10 @@ pub use postgres_listener::{PostgresListenerError, PostgresNotificationListener}
 pub use routes::build_notification_routes;
 pub use websocket_publisher::{WebSocketNotificationPublisher, WebSocketPublisherError};
 
-use grimoire::notifications::{
+use legacylib::notifications::{
     NotificationChannel, NotificationConfig, NotificationService, Publisher,
 };
-use grimoire::DatabaseConnection;
+use legacylib::DatabaseConnection;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{error, info};
@@ -65,7 +65,7 @@ impl NotificationInfrastructure {
         info!("Added mock publishers for MediaBlobs, ThumbnailJobs, and System channels");
 
         // Add real PostgreSQL publisher for Music notifications
-        let postgres_config = grimoire::notifications::publisher::PublishConfig::default();
+        let postgres_config = legacylib::notifications::publisher::PublishConfig::default();
         new_service.add_publisher(
             NotificationChannel::Music,
             Publisher::postgres(postgres_config, db.clone()),
@@ -76,7 +76,7 @@ impl NotificationInfrastructure {
         self.service = Arc::new(new_service);
 
         // Start PostgreSQL listener with direct WebSocket broadcasting
-        let config = grimoire::notifications::config::NotificationConfig::production();
+        let config = legacylib::notifications::config::NotificationConfig::production();
         let mut postgres_listener = PostgresNotificationListener::new_with_websocket_and_config(
             db,
             self.service.clone(),
@@ -133,7 +133,7 @@ impl NotificationInfrastructure {
 /// Infrastructure statistics
 #[derive(Debug, Clone)]
 pub struct InfrastructureStats {
-    pub service_stats: grimoire::notifications::EventStats,
+    pub service_stats: legacylib::notifications::EventStats,
     pub postgres_stats: Option<postgres_listener::PostgresListenerStats>,
     pub is_running: bool,
 }
@@ -148,7 +148,7 @@ pub enum NotificationInfrastructureError {
     WebSocketPublisher(#[from] WebSocketPublisherError),
 
     #[error("Service error: {0}")]
-    Service(#[from] grimoire::notifications::NotificationServiceError),
+    Service(#[from] legacylib::notifications::NotificationServiceError),
 
     #[error("Infrastructure not initialized")]
     NotInitialized,
@@ -160,7 +160,7 @@ pub enum NotificationInfrastructureError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use grimoire::notifications::NotificationConfig;
+    use legacylib::notifications::NotificationConfig;
 
     #[test]
     fn test_notification_infrastructure_creation() {

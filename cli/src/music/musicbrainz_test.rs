@@ -3,7 +3,7 @@
 //! provides utility functions for testing musicbrainz integration
 //! without requiring search matches first
 
-use grimoire::{
+use legacylib::{
     config::AppConfig,
     database::DatabaseConnection,
     music::{repository::MusicRepository, Song},
