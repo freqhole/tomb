@@ -7,6 +7,7 @@
 #   rustup target add armv7-unknown-linux-gnueabihf  # 32-bit Pi
 #   rustup target add aarch64-unknown-linux-gnu      # 64-bit Pi
 #
+# hmm, is arm-unknown-linux-gnueabihf needed for the armv6 32-bit Pi 1?!
 # system dependencies:
 #
 # macOS (via Homebrew):
