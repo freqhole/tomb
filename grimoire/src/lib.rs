@@ -7,14 +7,14 @@ pub mod config;
 mod database;
 pub mod error;
 pub mod jobs;
-pub mod media_blob;
+pub mod media_blobz;
 pub mod music;
 pub mod thumbnails;
 
 // re-export only domain types, no database internals
 pub use config::AppConfig;
 pub use error::{GrimoireError, GrimoireResult};
-pub use media_blob::{CreateMediaBlobRequest, MediaBlob};
+pub use media_blobz::{CreateMediaBlobRequest, MediaBlob};
 pub use music::{Album, Artist, Song};
 
 /// initialize grimoire - ensures databases exist and migrations are run

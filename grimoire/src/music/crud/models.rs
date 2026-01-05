@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::media_blobz::MediaBlob;
 use crate::music::{Album, Artist, Genre, Song};
 
 /// request for importing a song with all metadata
@@ -140,9 +141,8 @@ pub struct QueryParams {
     pub filters: std::collections::HashMap<String, serde_json::Value>, // Flexible filters (year_min, genre, etc.)
     pub sort_by: Option<String>,                                       // Field name
     pub sort_direction: Option<String>,                                // "asc" | "desc"
-    pub limit: Option<i64>,                                            // Page size (default: 50)
-    pub offset: Option<i64>,                                           // Page offset (default: 0)
-    pub include_relations: bool, // Include artist/album data (default: true)
+    pub limit: Option<u32>,                                            // Page size (default: 50)
+    pub offset: Option<u32>,                                           // Page offset (default: 0)
 }
 
 impl Default for QueryParams {
@@ -155,7 +155,6 @@ impl Default for QueryParams {
             sort_direction: Some("asc".to_string()),
             limit: Some(50),
             offset: Some(0),
-            include_relations: true,
         }
     }
 }
@@ -172,14 +171,14 @@ pub struct QueryResult<T> {
 }
 
 impl<T> QueryResult<T> {
-    pub fn new(items: Vec<T>, total_count: i64, offset: i64, limit: i64) -> Self {
-        let has_more = (offset + limit) < total_count;
+    pub fn new(items: Vec<T>, total_count: i64, offset: u32, limit: u32) -> Self {
+        let has_more = (offset as i64 + limit as i64) < total_count;
         Self {
             items,
             total_count,
             has_more,
-            offset,
-            limit,
+            offset: offset as i64,
+            limit: limit as i64,
             query_time_ms: None,
         }
     }
@@ -192,6 +191,7 @@ pub struct SongQueryResult {
     pub artist: Option<Artist>,
     pub album: Option<Album>,
     pub genre: Option<Genre>,
+    pub media_blob: Option<MediaBlob>,
     pub relevance_score: Option<f64>, // For FTS search results
     pub snippet: Option<String>,      // Highlighted text snippet for FTS
 }
@@ -203,8 +203,7 @@ pub struct ArtistQueryResult {
     pub song_count: i64,
     pub album_count: i64,
     pub total_duration: Option<i64>,
-    pub relevance_score: Option<f64>,
-    pub snippet: Option<String>,
+    pub rating: Option<f64>, // Future implementation
 }
 
 /// album with aggregated metadata for query results
@@ -213,8 +212,14 @@ pub struct AlbumQueryResult {
     pub album: Album,
     pub artist: Option<Artist>,
     pub genre: Option<Genre>,
-    pub song_count: i64,
-    pub total_duration: Option<i64>,
-    pub relevance_score: Option<f64>,
-    pub snippet: Option<String>,
+    pub rating: Option<f64>,       // Future implementation
+    pub is_favorite: Option<bool>, // Future implementation
+}
+
+/// genre with optional aggregated metadata for query results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenreQueryResult {
+    pub genre: Genre,
+    pub song_count: Option<i64>,  // Could be computed if needed
+    pub album_count: Option<i64>, // Could be computed if needed
 }
