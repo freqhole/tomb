@@ -5,11 +5,10 @@ CREATE TABLE artistz (
   rowid INTEGER PRIMARY KEY,
   id TEXT UNIQUE NOT NULL DEFAULT (lower(hex(randomblob(8)))),
   name TEXT NOT NULL,
-  sort_name TEXT,
-  musicbrainz_id TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   deleted_at INTEGER,
+  deleted_by TEXT,
   created_by TEXT,
   updated_by TEXT
 );
@@ -31,10 +30,14 @@ CREATE TABLE albumz (
   deleted_at INTEGER,
   deleted_by TEXT,
   created_by TEXT,
-  updated_by TEXT
+  updated_by TEXT,
+
+  -- constraints
+  CHECK (album_type IN ('album', 'single', 'compilation')),
+  FOREIGN KEY (genre_rowid) REFERENCES genrez(rowid)
 );
 
--- keep most existing songz columns, preserve complexity
+-- normalized song (or track) table
 CREATE TABLE songz (
   rowid INTEGER PRIMARY KEY,
   id TEXT UNIQUE NOT NULL DEFAULT (lower(hex(randomblob(8)))),
@@ -42,22 +45,15 @@ CREATE TABLE songz (
   thumbnail_blob_id TEXT,         -- reference to media_blobz.id
   waveform_blob_id TEXT,          -- reference to media_blobz.id
   title TEXT NOT NULL,
-  artist TEXT,                    -- denormalized, normalize later
-  album TEXT,                     -- denormalized, normalize later
-  album_artist TEXT,
-  track_number INTEGER,
+  track_number INTEGER DEFAULT 1,
   disc_number INTEGER DEFAULT 1,
   duration INTEGER,               -- seconds from interval
   year INTEGER,
   bpm INTEGER,
   key_signature TEXT,
-  rating INTEGER,
-  is_favorite INTEGER DEFAULT 0,
-  tags TEXT,                      -- json array as text
   metadata TEXT,                  -- json from existing jsonb
   processing_status TEXT DEFAULT 'unprocessed',
   processing_notes TEXT,
-  sub_genres TEXT,                -- json array as text, normalize later
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   deleted_at INTEGER,
@@ -66,30 +62,41 @@ CREATE TABLE songz (
   updated_by TEXT,
 
   -- constraints
-  CHECK (bpm >= 0 AND bpm <= 300),
-  CHECK (rating >= 1 AND rating <= 5)
+  CHECK (bpm >= 0 AND bpm <= 300)
 );
 
--- playlists
-CREATE TABLE playlistz (
-  rowid INTEGER PRIMARY KEY,
-  id TEXT UNIQUE NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT,
-  is_public INTEGER DEFAULT 0,
-  created_by_rowid INTEGER,       -- reference to user_accountz.rowid
-  created_at INTEGER,
-  updated_at INTEGER
-);
-
-CREATE TABLE playlist_songz (
-  playlist_rowid INTEGER NOT NULL,
-  song_rowid INTEGER NOT NULL,
-  position INTEGER NOT NULL,      -- order in playlist
-  added_at INTEGER,
+-- image collections for entities
+CREATE TABLE artist_imagez (
+  artist_rowid INTEGER NOT NULL,
+  media_blob_id TEXT NOT NULL,
+  is_primary INTEGER DEFAULT 0,
 
   -- constraints
-  UNIQUE(playlist_rowid, position)
+  UNIQUE(artist_rowid, media_blob_id),
+  FOREIGN KEY (artist_rowid) REFERENCES artistz(rowid)
+  -- No FK for media_blob_id - flexible string reference for images
+);
+
+CREATE TABLE album_imagez (
+  album_rowid INTEGER NOT NULL,
+  media_blob_id TEXT NOT NULL,
+  is_primary INTEGER DEFAULT 0,
+
+  -- constraints
+  UNIQUE(album_rowid, media_blob_id),
+  FOREIGN KEY (album_rowid) REFERENCES albumz(rowid)
+  -- No FK for media_blob_id - flexible string reference for images
+);
+
+CREATE TABLE song_imagez (
+  song_rowid INTEGER NOT NULL,
+  media_blob_id TEXT NOT NULL,
+  is_primary INTEGER DEFAULT 0,
+
+  -- constraints
+  UNIQUE(song_rowid, media_blob_id),
+  FOREIGN KEY (song_rowid) REFERENCES songz(rowid)
+  -- No FK for media_blob_id - flexible string reference for images
 );
 
 -- relationship tables
@@ -114,23 +121,28 @@ CREATE TABLE artist_albumz (
   album_rowid INTEGER NOT NULL,
 
   -- constraints
-  UNIQUE(artist_rowid, album_rowid)
+  UNIQUE(artist_rowid, album_rowid),
+  FOREIGN KEY (artist_rowid) REFERENCES artistz(rowid),
+  FOREIGN KEY (album_rowid) REFERENCES albumz(rowid)
 );
 
 -- genre normalization tables
 CREATE TABLE genrez (
   rowid INTEGER PRIMARY KEY,
-  id TEXT UNIQUE NOT NULL,
+  id TEXT UNIQUE NOT NULL DEFAULT (lower(hex(randomblob(8)))),
   name TEXT NOT NULL,
-  created_at INTEGER
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE TABLE sub_genrez (
   rowid INTEGER PRIMARY KEY,
-  id TEXT UNIQUE NOT NULL,
+  id TEXT UNIQUE NOT NULL DEFAULT (lower(hex(randomblob(8)))),
   name TEXT NOT NULL,
   parent_genre_rowid INTEGER,    -- optional parent genre
-  created_at INTEGER
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+
+  -- constraints
+  FOREIGN KEY (parent_genre_rowid) REFERENCES genrez(rowid)
 );
 
 CREATE TABLE album_sub_genrez (
@@ -138,23 +150,27 @@ CREATE TABLE album_sub_genrez (
   sub_genre_rowid INTEGER NOT NULL,
 
   -- constraints
-  UNIQUE(album_rowid, sub_genre_rowid)
+  UNIQUE(album_rowid, sub_genre_rowid),
+  FOREIGN KEY (album_rowid) REFERENCES albumz(rowid),
+  FOREIGN KEY (sub_genre_rowid) REFERENCES sub_genrez(rowid)
 );
 
--- tag normalization tables
+-- tag normalization tables (moved to albums)
 CREATE TABLE tagz (
   rowid INTEGER PRIMARY KEY,
-  id TEXT UNIQUE NOT NULL,
+  id TEXT UNIQUE NOT NULL DEFAULT (lower(hex(randomblob(8)))),
   name TEXT NOT NULL,
-  created_at INTEGER
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
-CREATE TABLE song_tagz (
-  song_rowid INTEGER NOT NULL,
+CREATE TABLE album_tagz (
+  album_rowid INTEGER NOT NULL,
   tag_rowid INTEGER NOT NULL,
 
   -- constraints
-  UNIQUE(song_rowid, tag_rowid)
+  UNIQUE(album_rowid, tag_rowid),
+  FOREIGN KEY (album_rowid) REFERENCES albumz(rowid),
+  FOREIGN KEY (tag_rowid) REFERENCES tagz(rowid)
 );
 
 -- indexes for artistz
@@ -170,23 +186,23 @@ CREATE INDEX idx_albumz_created_at ON albumz(created_at DESC);
 
 -- indexes for songz
 CREATE INDEX idx_songz_title ON songz(title);
-CREATE INDEX idx_songz_artist ON songz(artist);
-CREATE INDEX idx_songz_album ON songz(album);
 CREATE INDEX idx_songz_media_blob_id ON songz(media_blob_id);
 CREATE INDEX idx_songz_processing_status ON songz(processing_status);
 CREATE INDEX idx_songz_created_at ON songz(created_at DESC);
 CREATE INDEX idx_songz_deleted_at ON songz(deleted_at) WHERE deleted_at IS NOT NULL;
 
--- indexes for playlistz
-CREATE INDEX idx_playlistz_title ON playlistz(title);
-CREATE INDEX idx_playlistz_created_by ON playlistz(created_by_rowid);
-CREATE INDEX idx_playlistz_created_at ON playlistz(created_at DESC);
-CREATE INDEX idx_playlistz_public ON playlistz(is_public) WHERE is_public = 1;
+-- indexes for image tables
+CREATE INDEX idx_artist_imagez_artist ON artist_imagez(artist_rowid);
+CREATE INDEX idx_artist_imagez_blob ON artist_imagez(media_blob_id);
+CREATE INDEX idx_artist_imagez_primary ON artist_imagez(artist_rowid, is_primary);
 
--- indexes for playlist_songz
-CREATE INDEX idx_playlist_songz_playlist ON playlist_songz(playlist_rowid);
-CREATE INDEX idx_playlist_songz_song ON playlist_songz(song_rowid);
-CREATE INDEX idx_playlist_songz_position ON playlist_songz(playlist_rowid, position);
+CREATE INDEX idx_album_imagez_album ON album_imagez(album_rowid);
+CREATE INDEX idx_album_imagez_blob ON album_imagez(media_blob_id);
+CREATE INDEX idx_album_imagez_primary ON album_imagez(album_rowid, is_primary);
+
+CREATE INDEX idx_song_imagez_song ON song_imagez(song_rowid);
+CREATE INDEX idx_song_imagez_blob ON song_imagez(media_blob_id);
+CREATE INDEX idx_song_imagez_primary ON song_imagez(song_rowid, is_primary);
 
 -- indexes for relationship tables
 CREATE INDEX idx_artist_songz_artist ON artist_songz(artist_rowid);
@@ -237,9 +253,9 @@ CREATE INDEX idx_album_sub_genrez_genre ON album_sub_genrez(sub_genre_rowid);
 CREATE UNIQUE INDEX idx_tagz_name ON tagz(name);
 CREATE INDEX idx_tagz_created_at ON tagz(created_at DESC);
 
--- indexes for song_tagz
-CREATE INDEX idx_song_tagz_song ON song_tagz(song_rowid);
-CREATE INDEX idx_song_tagz_tag ON song_tagz(tag_rowid);
+-- indexes for album_tagz
+CREATE INDEX idx_album_tagz_album ON album_tagz(album_rowid);
+CREATE INDEX idx_album_tagz_tag ON album_tagz(tag_rowid);
 
 -- triggers for computed columns
 CREATE TRIGGER update_album_stats_insert

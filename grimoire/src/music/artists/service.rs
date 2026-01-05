@@ -14,15 +14,12 @@ pub async fn create_artist(
 
     let artist = sqlx::query_as!(
         Artist,
-        r#"INSERT INTO artistz (name, sort_name, musicbrainz_id, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?)
+        r#"INSERT INTO artistz (name, created_by, updated_by)
+         VALUES (?, ?, ?)
          RETURNING rowid as "rowid!", id as "id!", name as "name!",
-                   sort_name, musicbrainz_id,
                    created_at as "created_at!", updated_at as "updated_at!",
-                   deleted_at, created_by, updated_by"#,
+                   deleted_at, deleted_by, created_by, updated_by"#,
         req.name,
-        req.sort_name,
-        req.musicbrainz_id,
         req.created_by,
         req.created_by
     )
@@ -39,9 +36,8 @@ pub async fn list_artists(music_db_path: &str) -> GrimoireResult<Vec<Artist>> {
     let artists = sqlx::query_as!(
         Artist,
         r#"SELECT rowid as "rowid!", id as "id!", name as "name!",
-                  sort_name, musicbrainz_id,
                   created_at as "created_at!", updated_at as "updated_at!",
-                  deleted_at, created_by, updated_by
+                  deleted_at, deleted_by, created_by, updated_by
            FROM artistz
            WHERE deleted_at IS NULL
            ORDER BY name ASC
@@ -60,9 +56,8 @@ pub async fn get_artist(id: &str, music_db_path: &str) -> GrimoireResult<Artist>
     let artist = sqlx::query_as!(
         Artist,
         r#"SELECT rowid as "rowid!", id as "id!", name as "name!",
-                  sort_name, musicbrainz_id,
                   created_at as "created_at!", updated_at as "updated_at!",
-                  deleted_at, created_by, updated_by
+                  deleted_at, deleted_by, created_by, updated_by
            FROM artistz
            WHERE id = ? AND deleted_at IS NULL"#,
         id
@@ -83,7 +78,8 @@ pub async fn delete_artist(
     let pool = database::connect_music(music_db_path).await?;
 
     let rows_affected = sqlx::query!(
-        "UPDATE artistz SET deleted_at = unixepoch(), updated_by = ? WHERE id = ? AND deleted_at IS NULL",
+        "UPDATE artistz SET deleted_at = unixepoch(), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
+        deleted_by,
         deleted_by,
         id
     )

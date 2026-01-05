@@ -10,9 +10,14 @@ pub struct Playlist {
     pub title: String,
     pub description: Option<String>,
     pub is_public: i64, // sqlite boolean (0/1)
+    pub thumbnail_blob_id: Option<String>,
     pub created_by_rowid: Option<i64>,
-    pub created_at: Option<i64>, // unix timestamp UTC - optional until we fix schema
-    pub updated_at: Option<i64>, // unix timestamp UTC - optional until we fix schema
+    pub created_at: i64, // unix timestamp UTC
+    pub updated_at: i64, // unix timestamp UTC
+    pub deleted_at: Option<i64>,
+    pub deleted_by: Option<String>,
+    pub created_by: Option<String>,
+    pub updated_by: Option<String>,
 }
 
 /// request for creating a new playlist
@@ -48,8 +53,13 @@ pub struct PlaylistWithCount {
     pub title: String,
     pub description: Option<String>,
     pub is_public: i64, // sqlite boolean (0/1)
+    pub thumbnail_blob_id: Option<String>,
     pub created_by_rowid: Option<i64>,
-    pub created_at: Option<i64>, // unix timestamp UTC
-    pub updated_at: Option<i64>, // unix timestamp UTC
+    pub created_at: i64, // unix timestamp UTC
+    pub updated_at: i64, // unix timestamp UTC
+    pub deleted_at: Option<i64>,
+    pub deleted_by: Option<String>,
+    pub created_by: Option<String>,
+    pub updated_by: Option<String>,
     pub song_count: i64,
 }

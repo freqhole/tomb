@@ -32,6 +32,7 @@ BEGIN
 END;
 
 -- indexes
+CREATE UNIQUE INDEX idx_media_blobz_id ON media_blobz(id);
 CREATE UNIQUE INDEX idx_media_blobz_sha256 ON media_blobz(sha256);
 CREATE INDEX idx_media_blobz_blob_type ON media_blobz(blob_type);
 CREATE INDEX idx_media_blobz_created_at ON media_blobz(created_at DESC);

@@ -24,8 +24,6 @@ pub async fn import_song_with_metadata(
     let (artist, created_new_artist) = if let Some(artist_name) = &req.artist_name {
         let artist_req = ArtistImportRequest {
             name: artist_name.clone(),
-            sort_name: None,
-            musicbrainz_id: None,
             created_by: req.created_by.clone(),
         };
         let (artist, created) = find_or_create_artist(artist_req, music_db_path).await?;
@@ -64,9 +62,6 @@ pub async fn import_song_with_metadata(
     let song_req = CreateSongRequest {
         media_blob_id: req.media_blob_id,
         title: req.title,
-        artist: req.artist_name,
-        album: req.album_title,
-        album_artist: req.album_artist,
         track_number: req.track_number,
         disc_number: req.disc_number,
         duration: req.duration,
@@ -112,11 +107,10 @@ pub async fn find_or_create_artist(
             rowid as "rowid!",
             id as "id!",
             name as "name!",
-            sort_name,
-            musicbrainz_id,
             created_at as "created_at!",
             updated_at as "updated_at!",
             deleted_at,
+            deleted_by,
             created_by,
             updated_by
            FROM artistz
@@ -132,8 +126,6 @@ pub async fn find_or_create_artist(
     } else {
         let create_req = CreateArtistRequest {
             name: req.name,
-            sort_name: req.sort_name,
-            musicbrainz_id: req.musicbrainz_id,
             created_by: req.created_by,
         };
         let artist = artists::create_artist(create_req, music_db_path).await?;
@@ -273,7 +265,6 @@ pub async fn create_song_with_artist_and_album(
         title: req.title,
         artist_name: Some(req.artist_name),
         album_title: Some(req.album_title),
-        album_artist: req.album_artist,
         genre_name: req.genre_name,
         track_number: req.track_number,
         disc_number: req.disc_number,
@@ -381,9 +372,14 @@ pub async fn get_or_create_playlist_by_name(
             title as "title!",
             description,
             is_public as "is_public!",
+            thumbnail_blob_id,
             created_by_rowid,
-            created_at,
-            updated_at
+            created_at as "created_at!",
+            updated_at as "updated_at!",
+            deleted_at,
+            deleted_by,
+            created_by,
+            updated_by
            FROM playlistz
            WHERE LOWER(title) = LOWER(?)
            LIMIT 1"#,
@@ -434,8 +430,6 @@ pub async fn update_song_with_relationships(
     let (artist, created_new_artist) = if let Some(artist_name) = new_artist_name {
         let artist_req = ArtistImportRequest {
             name: artist_name,
-            sort_name: None,
-            musicbrainz_id: None,
             created_by: None,
         };
         let (artist, created) = find_or_create_artist(artist_req, music_db_path).await?;

@@ -12,7 +12,6 @@ pub struct ImportSongRequest {
     pub title: String,
     pub artist_name: Option<String>,
     pub album_title: Option<String>,
-    pub album_artist: Option<String>,
     pub genre_name: Option<String>,
     pub track_number: Option<i64>,
     pub disc_number: Option<i64>,
@@ -42,7 +41,6 @@ pub struct CreateSongWithMetadataRequest {
     pub title: String,
     pub artist_name: String, // required
     pub album_title: String, // required
-    pub album_artist: Option<String>,
     pub genre_name: Option<String>,
     pub track_number: Option<i64>,
     pub disc_number: Option<i64>,
@@ -55,8 +53,6 @@ pub struct CreateSongWithMetadataRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtistImportRequest {
     pub name: String,
-    pub sort_name: Option<String>,
-    pub musicbrainz_id: Option<String>,
     pub created_by: Option<String>,
 }
 
