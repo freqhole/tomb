@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE media_blobz SET deleted_at = datetime('now'), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "c0421931569dd1b3727d5b100b037bee3aa1e0d953e21e8f4d07753422c5034b"
+}

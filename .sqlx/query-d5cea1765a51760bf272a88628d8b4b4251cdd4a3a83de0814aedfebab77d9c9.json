@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        INSERT INTO artistz (id, name, sort_name, musicbrainz_id, created_by, updated_by)\n        VALUES (?, ?, ?, ?, ?, ?)\n        RETURNING\n            rowid,\n            id,\n            name,\n            sort_name,\n            musicbrainz_id,\n            created_at as \"created_at: OffsetDateTime\",\n            updated_at as \"updated_at: OffsetDateTime\",\n            deleted_at as \"deleted_at: Option<OffsetDateTime>\",\n            created_by,\n            updated_by\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "rowid",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "sort_name",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "musicbrainz_id",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at: OffsetDateTime",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at: OffsetDateTime",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "deleted_at: Option<OffsetDateTime>",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_by",
+        "ordinal": 9,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "d5cea1765a51760bf272a88628d8b4b4251cdd4a3a83de0814aedfebab77d9c9"
+}

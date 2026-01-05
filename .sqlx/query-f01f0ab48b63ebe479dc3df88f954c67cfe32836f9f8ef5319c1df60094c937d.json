@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE songz SET deleted_at = datetime('now'), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "f01f0ab48b63ebe479dc3df88f954c67cfe32836f9f8ef5319c1df60094c937d"
+}
