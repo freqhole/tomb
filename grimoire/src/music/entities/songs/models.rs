@@ -1,9 +1,10 @@
 //! song domain models
 
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
 /// song model for music domain
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
 pub struct Song {
     pub rowid: i64,
     pub id: String,

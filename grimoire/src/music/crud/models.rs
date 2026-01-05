@@ -131,3 +131,90 @@ pub enum SongImportErrorType {
     ValidationError,
     DatabaseError,
 }
+
+/// unified query parameters for all entity queries
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryParams {
+    pub q: Option<String>,                  // Full-text search query (FTS5)
+    pub search_fields: Option<Vec<String>>, // Which fields to search: ["title", "artist", "album"]
+    pub filters: std::collections::HashMap<String, serde_json::Value>, // Flexible filters (year_min, genre, etc.)
+    pub sort_by: Option<String>,                                       // Field name
+    pub sort_direction: Option<String>,                                // "asc" | "desc"
+    pub limit: Option<i64>,                                            // Page size (default: 50)
+    pub offset: Option<i64>,                                           // Page offset (default: 0)
+    pub include_relations: bool, // Include artist/album data (default: true)
+}
+
+impl Default for QueryParams {
+    fn default() -> Self {
+        Self {
+            q: None,
+            search_fields: None,
+            filters: std::collections::HashMap::new(),
+            sort_by: None,
+            sort_direction: Some("asc".to_string()),
+            limit: Some(50),
+            offset: Some(0),
+            include_relations: true,
+        }
+    }
+}
+
+/// unified query result with pagination metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryResult<T> {
+    pub items: Vec<T>,
+    pub total_count: i64,
+    pub has_more: bool,
+    pub offset: i64,
+    pub limit: i64,
+    pub query_time_ms: Option<u64>,
+}
+
+impl<T> QueryResult<T> {
+    pub fn new(items: Vec<T>, total_count: i64, offset: i64, limit: i64) -> Self {
+        let has_more = (offset + limit) < total_count;
+        Self {
+            items,
+            total_count,
+            has_more,
+            offset,
+            limit,
+            query_time_ms: None,
+        }
+    }
+}
+
+/// song with optional related data for query results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SongQueryResult {
+    pub song: Song,
+    pub artist: Option<Artist>,
+    pub album: Option<Album>,
+    pub genre: Option<Genre>,
+    pub relevance_score: Option<f64>, // For FTS search results
+    pub snippet: Option<String>,      // Highlighted text snippet for FTS
+}
+
+/// artist with aggregated metadata for query results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtistQueryResult {
+    pub artist: Artist,
+    pub song_count: i64,
+    pub album_count: i64,
+    pub total_duration: Option<i64>,
+    pub relevance_score: Option<f64>,
+    pub snippet: Option<String>,
+}
+
+/// album with aggregated metadata for query results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlbumQueryResult {
+    pub album: Album,
+    pub artist: Option<Artist>,
+    pub genre: Option<Genre>,
+    pub song_count: i64,
+    pub total_duration: Option<i64>,
+    pub relevance_score: Option<f64>,
+    pub snippet: Option<String>,
+}

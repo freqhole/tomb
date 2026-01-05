@@ -9,9 +9,10 @@ mod query;
 
 // re-export public types
 pub use models::{
-    AlbumImportRequest, AlbumImportResult, ArtistImportRequest, BulkImportRequest,
-    BulkImportResult, CreateSongWithMetadataRequest, ImportSongRequest, ImportSongResult,
-    SongImportError,
+    AlbumImportRequest, AlbumImportResult, AlbumQueryResult, ArtistImportRequest,
+    ArtistQueryResult, BulkImportRequest, BulkImportResult, CreateSongWithMetadataRequest,
+    ImportSongRequest, ImportSongResult, QueryParams, QueryResult, SongImportError,
+    SongQueryResult,
 };
 
 // re-export main workflow functions with cleaner names
@@ -29,8 +30,17 @@ pub use create_or_update::{
 
 // re-export query operations
 pub use query::{
-    list_albums_by_artist, list_recent_songs, list_songs_by_album, list_songs_by_artist,
-    list_songs_by_genre, search_songs,
+    list_albums_by_artist,
+    list_recent_songs,
+    list_songs_by_album,
+    list_songs_by_artist,
+    list_songs_by_genre,
+    // new unified query API
+    query_albums,
+    query_artists,
+    query_genres,
+    query_songs,
+    search_songs,
 };
 
 // re-export delete operations
@@ -56,10 +66,14 @@ pub use deduplication::{
 // - update_song_with_relationships() - updates song + creates missing relationships
 //
 // QUERY operations:
-// - search_songs() - full-text search across entities
-// - list_songs_by_artist() - complex queries with joins
-// - list_albums_by_artist() - artist discography with stats
-// - list_recent_songs() - recently added songs with metadata
+// - query_songs() - unified query API with FTS, filters, pagination
+// - query_artists() - unified artist queries with aggregated stats
+// - query_albums() - unified album queries with metadata
+// - query_genres() - unified genre queries
+// - search_songs() - (legacy) full-text search across entities
+// - list_songs_by_artist() - (legacy) complex queries with joins
+// - list_albums_by_artist() - (legacy) artist discography with stats
+// - list_recent_songs() - (legacy) recently added songs with metadata
 //
 // DELETE operations:
 // - delete_song() - soft delete with relationship cleanup

@@ -1,9 +1,10 @@
 //! artist domain models
 
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
 /// artist model (normalized table)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
 pub struct Artist {
     pub rowid: i64,
     pub id: String,

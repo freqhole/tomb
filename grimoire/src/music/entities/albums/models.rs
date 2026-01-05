@@ -1,9 +1,10 @@
 //! album domain models
 
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
 /// album model for music domain
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
 pub struct Album {
     pub rowid: i64,
     pub id: String,
