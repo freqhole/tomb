@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT rowid as \"rowid!\", id as \"id!\", name as \"name!\",\n                  sort_name, musicbrainz_id,\n                  created_at as \"created_at!\", updated_at as \"updated_at!\",\n                  deleted_at, created_by, updated_by\n           FROM artistz\n           WHERE deleted_at IS NULL\n           ORDER BY name ASC\n           LIMIT 100",
+  "describe": {
+    "columns": [
+      {
+        "name": "rowid!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "id!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "name!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "sort_name",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "musicbrainz_id",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_by",
+        "ordinal": 9,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e7ba1c51ec80322909f27b7189ecba89b6a7160131281bf170879ef1731daa6c"
+}
