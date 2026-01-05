@@ -8,10 +8,7 @@ use super::models::{
 use crate::error::GrimoireResult;
 
 /// search songs using sqlite fts5
-pub async fn search_songs(
-    _request: SearchRequest,
-    _music_db_path: &str,
-) -> GrimoireResult<Vec<SongSearchResult>> {
+pub async fn search_songs(_request: SearchRequest) -> GrimoireResult<Vec<SongSearchResult>> {
     // TODO: implement song search
     // - create fts5 virtual table for songs (title, artist, album)
     // - execute full-text search with ranking
@@ -22,10 +19,7 @@ pub async fn search_songs(
 }
 
 /// search artists using sqlite fts5
-pub async fn search_artists(
-    _request: SearchRequest,
-    _music_db_path: &str,
-) -> GrimoireResult<Vec<ArtistSearchResult>> {
+pub async fn search_artists(_request: SearchRequest) -> GrimoireResult<Vec<ArtistSearchResult>> {
     // TODO: implement artist search
     // - search artist names and metadata
     // - include song count and album count
@@ -34,10 +28,7 @@ pub async fn search_artists(
 }
 
 /// search albums using sqlite fts5
-pub async fn search_albums(
-    _request: SearchRequest,
-    _music_db_path: &str,
-) -> GrimoireResult<Vec<AlbumSearchResult>> {
+pub async fn search_albums(_request: SearchRequest) -> GrimoireResult<Vec<AlbumSearchResult>> {
     // TODO: implement album search
     // - search album titles and metadata
     // - include artist and track information
@@ -46,7 +37,7 @@ pub async fn search_albums(
 }
 
 /// unified search across all domains
-pub async fn search_all(_query: SearchQuery, _music_db_path: &str) -> GrimoireResult<SearchResult> {
+pub async fn search_all(_query: SearchQuery) -> GrimoireResult<SearchResult> {
     // TODO: implement unified search
     // - execute searches across songs, artists, albums
     // - combine results with unified ranking
@@ -56,7 +47,7 @@ pub async fn search_all(_query: SearchQuery, _music_db_path: &str) -> GrimoireRe
 }
 
 /// create or update search index
-pub async fn create_search_index(_music_db_path: &str) -> GrimoireResult<()> {
+pub async fn create_search_index() -> GrimoireResult<()> {
     // TODO: implement search index creation
     // - create fts5 virtual tables for searchable content
     // - define tokenizers and content extraction
@@ -66,7 +57,7 @@ pub async fn create_search_index(_music_db_path: &str) -> GrimoireResult<()> {
 }
 
 /// rebuild search index from scratch
-pub async fn rebuild_search_index(_music_db_path: &str) -> GrimoireResult<()> {
+pub async fn rebuild_search_index() -> GrimoireResult<()> {
     // TODO: implement search index rebuild
     // - drop existing fts5 tables
     // - recreate with current schema
@@ -76,11 +67,7 @@ pub async fn rebuild_search_index(_music_db_path: &str) -> GrimoireResult<()> {
 }
 
 /// update search index for specific records
-pub async fn update_search_index(
-    _entity_type: &str,
-    _entity_ids: &[String],
-    _music_db_path: &str,
-) -> GrimoireResult<()> {
+pub async fn update_search_index(_entity_type: &str, _entity_ids: &[String]) -> GrimoireResult<()> {
     // TODO: implement incremental search index update
     // - update fts5 tables for changed records
     // - handle insert, update, delete operations
@@ -93,7 +80,6 @@ pub async fn update_search_index(
 pub async fn get_search_suggestions(
     _partial_query: &str,
     _limit: usize,
-    _music_db_path: &str,
 ) -> GrimoireResult<Vec<String>> {
     // TODO: implement search suggestions
     // - analyze common search terms

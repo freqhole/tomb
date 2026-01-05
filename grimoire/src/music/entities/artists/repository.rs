@@ -6,11 +6,8 @@ use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 
 /// create a new artist
-pub async fn create_artist(
-    req: CreateArtistRequest,
-    music_db_path: &str,
-) -> GrimoireResult<Artist> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn create_artist(req: CreateArtistRequest) -> GrimoireResult<Artist> {
+    let pool = database::connect_music().await?;
 
     let artist = sqlx::query_as!(
         Artist,
@@ -30,8 +27,8 @@ pub async fn create_artist(
 }
 
 /// list all artists (non-deleted only)
-pub async fn list_artists(music_db_path: &str) -> GrimoireResult<Vec<Artist>> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn list_artists() -> GrimoireResult<Vec<Artist>> {
+    let pool = database::connect_music().await?;
 
     let artists = sqlx::query_as!(
         Artist,
@@ -50,8 +47,8 @@ pub async fn list_artists(music_db_path: &str) -> GrimoireResult<Vec<Artist>> {
 }
 
 /// get artist by id
-pub async fn get_artist(id: &str, music_db_path: &str) -> GrimoireResult<Artist> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn get_artist(id: &str) -> GrimoireResult<Artist> {
+    let pool = database::connect_music().await?;
 
     let artist = sqlx::query_as!(
         Artist,
@@ -70,12 +67,8 @@ pub async fn get_artist(id: &str, music_db_path: &str) -> GrimoireResult<Artist>
 }
 
 /// soft delete an artist
-pub async fn delete_artist(
-    id: &str,
-    deleted_by: Option<String>,
-    music_db_path: &str,
-) -> GrimoireResult<()> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn delete_artist(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
+    let pool = database::connect_music().await?;
 
     let rows_affected = sqlx::query!(
         "UPDATE artistz SET deleted_at = unixepoch(), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",

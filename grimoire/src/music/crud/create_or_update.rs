@@ -14,10 +14,7 @@ use crate::music::entities::{
 };
 
 /// import a song with full metadata, creating related entities as needed
-pub async fn import_song_with_metadata(
-    req: ImportSongRequest,
-    music_db_path: &str,
-) -> GrimoireResult<ImportSongResult> {
+pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult<ImportSongResult> {
     let _start_time = std::time::Instant::now();
 
     // 1. Find or create artist
@@ -26,7 +23,7 @@ pub async fn import_song_with_metadata(
             name: artist_name.clone(),
             created_by: req.created_by.clone(),
         };
-        let (artist, created) = find_or_create_artist(artist_req, music_db_path).await?;
+        let (artist, created) = find_or_create_artist(artist_req).await?;
         (Some(artist), created)
     } else {
         (None, false)
@@ -34,7 +31,7 @@ pub async fn import_song_with_metadata(
 
     // 2. Find or create genre
     let (genre, created_new_genre) = if let Some(genre_name) = &req.genre_name {
-        let (genre, created) = find_or_create_genre(genre_name.clone(), music_db_path).await?;
+        let (genre, created) = find_or_create_genre(genre_name.clone()).await?;
         (Some(genre), created)
     } else {
         (None, false)
@@ -52,7 +49,7 @@ pub async fn import_song_with_metadata(
             year: req.year,
             created_by: req.created_by.clone(),
         };
-        let (album, created) = find_or_create_album(album_req, music_db_path).await?;
+        let (album, created) = find_or_create_album(album_req).await?;
         (Some(album), created)
     } else {
         (None, false)
@@ -71,15 +68,15 @@ pub async fn import_song_with_metadata(
         created_by: req.created_by,
     };
 
-    let song = songs::create_song(song_req, music_db_path).await?;
+    let song = songs::create_song(song_req).await?;
 
     // 5. Create relationships (artist_songz, album_songz)
     if let Some(artist) = &artist {
-        create_artist_song_relationship(artist.rowid, song.rowid, music_db_path).await?;
+        create_artist_song_relationship(artist.rowid, song.rowid).await?;
     }
 
     if let Some(album) = &album {
-        create_album_song_relationship(album.rowid, song.rowid, music_db_path).await?;
+        create_album_song_relationship(album.rowid, song.rowid).await?;
     }
 
     Ok(ImportSongResult {
@@ -94,11 +91,8 @@ pub async fn import_song_with_metadata(
 }
 
 /// find existing artist by name or create new one
-pub async fn find_or_create_artist(
-    req: ArtistImportRequest,
-    music_db_path: &str,
-) -> GrimoireResult<(Artist, bool)> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResult<(Artist, bool)> {
+    let pool = database::connect_music().await?;
 
     // Try to find existing artist by name (case-insensitive)
     let existing = sqlx::query_as!(
@@ -128,17 +122,14 @@ pub async fn find_or_create_artist(
             name: req.name,
             created_by: req.created_by,
         };
-        let artist = artists::create_artist(create_req, music_db_path).await?;
+        let artist = artists::create_artist(create_req).await?;
         Ok((artist, true))
     }
 }
 
 /// find existing album by title or create new one
-pub async fn find_or_create_album(
-    req: AlbumImportRequest,
-    music_db_path: &str,
-) -> GrimoireResult<(Album, bool)> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn find_or_create_album(req: AlbumImportRequest) -> GrimoireResult<(Album, bool)> {
+    let pool = database::connect_music().await?;
 
     // Try to find existing album by title (case-insensitive)
     let existing = sqlx::query_as!(
@@ -180,17 +171,14 @@ pub async fn find_or_create_album(
             genre_rowid: req.genre_rowid,
             created_by: req.created_by,
         };
-        let album = albums::create_album(create_req, music_db_path).await?;
+        let album = albums::create_album(create_req).await?;
         Ok((album, true))
     }
 }
 
 /// find existing genre by name or create new one
-pub async fn find_or_create_genre(
-    name: String,
-    music_db_path: &str,
-) -> GrimoireResult<(Genre, bool)> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn find_or_create_genre(name: String) -> GrimoireResult<(Genre, bool)> {
+    let pool = database::connect_music().await?;
 
     // Try to find existing genre by name (case-insensitive)
     let existing = sqlx::query_as!(
@@ -212,18 +200,14 @@ pub async fn find_or_create_genre(
         Ok((genre, false))
     } else {
         let create_req = CreateGenreRequest { name };
-        let genre = genres::create_genre(create_req, music_db_path).await?;
+        let genre = genres::create_genre(create_req).await?;
         Ok((genre, true))
     }
 }
 
 /// create relationship between artist and song
-async fn create_artist_song_relationship(
-    artist_rowid: i64,
-    song_rowid: i64,
-    music_db_path: &str,
-) -> GrimoireResult<()> {
-    let pool = database::connect_music(music_db_path).await?;
+async fn create_artist_song_relationship(artist_rowid: i64, song_rowid: i64) -> GrimoireResult<()> {
+    let pool = database::connect_music().await?;
 
     sqlx::query!(
         "INSERT OR IGNORE INTO artist_songz (artist_rowid, song_rowid) VALUES (?, ?)",
@@ -237,12 +221,8 @@ async fn create_artist_song_relationship(
 }
 
 /// create relationship between album and song
-async fn create_album_song_relationship(
-    album_rowid: i64,
-    song_rowid: i64,
-    music_db_path: &str,
-) -> GrimoireResult<()> {
-    let pool = database::connect_music(music_db_path).await?;
+async fn create_album_song_relationship(album_rowid: i64, song_rowid: i64) -> GrimoireResult<()> {
+    let pool = database::connect_music().await?;
 
     sqlx::query!(
         "INSERT OR IGNORE INTO album_songz (album_rowid, song_rowid) VALUES (?, ?)",
@@ -258,7 +238,6 @@ async fn create_album_song_relationship(
 /// create a song with guaranteed artist and album (simpler version)
 pub async fn create_song_with_artist_and_album(
     req: CreateSongWithMetadataRequest,
-    music_db_path: &str,
 ) -> GrimoireResult<ImportSongResult> {
     let import_req = ImportSongRequest {
         media_blob_id: req.media_blob_id,
@@ -275,14 +254,11 @@ pub async fn create_song_with_artist_and_album(
         created_by: req.created_by,
     };
 
-    import_song_with_metadata(import_req, music_db_path).await
+    import_song_with_metadata(import_req).await
 }
 
 /// bulk import multiple songs with error handling
-pub async fn bulk_import_songs(
-    req: BulkImportRequest,
-    music_db_path: &str,
-) -> GrimoireResult<BulkImportResult> {
+pub async fn bulk_import_songs(req: BulkImportRequest) -> GrimoireResult<BulkImportResult> {
     let start_time = std::time::Instant::now();
     let mut successful_imports = Vec::new();
     let mut failed_imports = Vec::new();
@@ -294,7 +270,7 @@ pub async fn bulk_import_songs(
     let total_songs = req.songs.len();
 
     for song_req in req.songs {
-        match import_song_with_metadata(song_req.clone(), music_db_path).await {
+        match import_song_with_metadata(song_req.clone()).await {
             Ok(result) => {
                 if result.created_new_artist {
                     new_artists_created += 1;
@@ -359,9 +335,8 @@ pub async fn get_or_create_playlist_by_name(
     name: &str,
     is_public: Option<bool>,
     created_by_rowid: Option<i64>,
-    music_db_path: &str,
 ) -> GrimoireResult<(Playlist, bool)> {
-    let pool = database::connect_music(music_db_path).await?;
+    let pool = database::connect_music().await?;
 
     // Try to find existing playlist by name (case-insensitive)
     let existing = sqlx::query_as!(
@@ -399,7 +374,7 @@ pub async fn get_or_create_playlist_by_name(
             is_public,
             created_by_rowid,
         };
-        let playlist = create_playlist(create_req, music_db_path).await?;
+        let playlist = create_playlist(create_req).await?;
         Ok((playlist, true))
     }
 }
@@ -410,12 +385,11 @@ pub async fn update_song_with_relationships(
     new_artist_name: Option<String>,
     new_album_title: Option<String>,
     new_genre_name: Option<String>,
-    music_db_path: &str,
 ) -> GrimoireResult<ImportSongResult> {
-    let pool = database::connect_music(music_db_path).await?;
+    let pool = database::connect_music().await?;
 
     // Get the song
-    let song = songs::get_song(song_id, music_db_path).await?;
+    let song = songs::get_song(song_id).await?;
 
     // Remove old relationships
     sqlx::query!("DELETE FROM artist_songz WHERE song_rowid = ?", song.rowid)
@@ -432,15 +406,15 @@ pub async fn update_song_with_relationships(
             name: artist_name,
             created_by: None,
         };
-        let (artist, created) = find_or_create_artist(artist_req, music_db_path).await?;
-        create_artist_song_relationship(artist.rowid, song.rowid, music_db_path).await?;
+        let (artist, created) = find_or_create_artist(artist_req).await?;
+        create_artist_song_relationship(artist.rowid, song.rowid).await?;
         (Some(artist), created)
     } else {
         (None, false)
     };
 
     let (genre, created_new_genre) = if let Some(genre_name) = new_genre_name {
-        let (genre, created) = find_or_create_genre(genre_name, music_db_path).await?;
+        let (genre, created) = find_or_create_genre(genre_name).await?;
         (Some(genre), created)
     } else {
         (None, false)
@@ -457,8 +431,8 @@ pub async fn update_song_with_relationships(
             year: None,
             created_by: None,
         };
-        let (album, created) = find_or_create_album(album_req, music_db_path).await?;
-        create_album_song_relationship(album.rowid, song.rowid, music_db_path).await?;
+        let (album, created) = find_or_create_album(album_req).await?;
+        create_album_song_relationship(album.rowid, song.rowid).await?;
         (Some(album), created)
     } else {
         (None, false)
@@ -479,10 +453,9 @@ pub async fn update_song_with_relationships(
 pub async fn import_album_with_songs(
     album_req: AlbumImportRequest,
     song_requests: Vec<ImportSongRequest>,
-    music_db_path: &str,
 ) -> GrimoireResult<AlbumImportResult> {
     // Find or create the album
-    let (album, created_new_album) = find_or_create_album(album_req, music_db_path).await?;
+    let (album, created_new_album) = find_or_create_album(album_req).await?;
 
     // Import all songs for this album
     let bulk_req = BulkImportRequest {
@@ -491,7 +464,7 @@ pub async fn import_album_with_songs(
         created_by: None,
     };
 
-    let bulk_result = bulk_import_songs(bulk_req, music_db_path).await?;
+    let bulk_result = bulk_import_songs(bulk_req).await?;
 
     // Extract the songs and related entities
     let songs: Vec<Song> = bulk_result

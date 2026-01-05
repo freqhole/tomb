@@ -5,10 +5,7 @@ use super::models::{CreateJobRequest, Job, JobError, JobPriority, JobResult, Job
 use crate::error::GrimoireResult;
 
 /// create a new job in the queue
-pub async fn create_job(
-    _request: CreateJobRequest,
-    _app_state_db_path: &str,
-) -> GrimoireResult<Job> {
+pub async fn create_job(_request: CreateJobRequest) -> GrimoireResult<Job> {
     // TODO: implement job creation
     // - insert job record into jobz table
     // - set initial status to pending
@@ -19,7 +16,7 @@ pub async fn create_job(
 }
 
 /// get job by id
-pub async fn get_job(_job_id: &str, _app_state_db_path: &str) -> GrimoireResult<Job> {
+pub async fn get_job(_job_id: &str) -> GrimoireResult<Job> {
     // TODO: implement job retrieval
     // - query jobz table by id
     // - deserialize job data
@@ -32,7 +29,6 @@ pub async fn list_jobs(
     _status: Option<JobStatus>,
     _job_type: Option<JobType>,
     _limit: Option<usize>,
-    _app_state_db_path: &str,
 ) -> GrimoireResult<Vec<Job>> {
     // TODO: implement job listing
     // - query jobz table with filters
@@ -42,7 +38,7 @@ pub async fn list_jobs(
 }
 
 /// get next pending job for processing
-pub async fn process_next_job(_app_state_db_path: &str) -> GrimoireResult<Option<Job>> {
+pub async fn process_next_job() -> GrimoireResult<Option<Job>> {
     // TODO: implement job queue processing
     // - find highest priority pending job
     // - mark as running atomically
@@ -52,7 +48,7 @@ pub async fn process_next_job(_app_state_db_path: &str) -> GrimoireResult<Option
 }
 
 /// mark job as started
-pub async fn mark_job_started(_job_id: &str, _app_state_db_path: &str) -> GrimoireResult<()> {
+pub async fn mark_job_started(_job_id: &str) -> GrimoireResult<()> {
     // TODO: implement job status update
     // - update status to running
     // - set started_at timestamp
@@ -64,7 +60,6 @@ pub async fn mark_job_started(_job_id: &str, _app_state_db_path: &str) -> Grimoi
 pub async fn mark_job_completed(
     _job_id: &str,
     _result: Option<serde_json::Value>,
-    _app_state_db_path: &str,
 ) -> GrimoireResult<JobResult> {
     // TODO: implement job completion
     // - update status to completed
@@ -79,7 +74,6 @@ pub async fn mark_job_failed(
     _job_id: &str,
     _error_message: &str,
     _should_retry: bool,
-    _app_state_db_path: &str,
 ) -> GrimoireResult<()> {
     // TODO: implement job failure handling
     // - update status to failed or pending (for retry)
@@ -91,7 +85,7 @@ pub async fn mark_job_failed(
 }
 
 /// cancel a pending or running job
-pub async fn cancel_job(_job_id: &str, _app_state_db_path: &str) -> GrimoireResult<()> {
+pub async fn cancel_job(_job_id: &str) -> GrimoireResult<()> {
     // TODO: implement job cancellation
     // - update status to cancelled
     // - handle graceful cancellation for running jobs

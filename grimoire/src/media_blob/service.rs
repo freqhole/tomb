@@ -6,11 +6,8 @@ use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 
 /// create a new media blob
-pub async fn create_media_blob(
-    req: CreateMediaBlobRequest,
-    media_db_path: &str,
-) -> GrimoireResult<MediaBlob> {
-    let pool = database::connect_media_blobz(media_db_path).await?;
+pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<MediaBlob> {
+    let pool = database::connect_media_blobz().await?;
 
     let blob_type = req.blob_type.unwrap_or_else(|| "original".to_string());
     let metadata_str = serde_json::to_string(&req.metadata).unwrap_or_else(|_| "{}".to_string());
@@ -63,8 +60,8 @@ pub async fn create_media_blob(
 }
 
 /// list all media blobs (non-deleted only)
-pub async fn list_media_blobs(media_db_path: &str) -> GrimoireResult<Vec<MediaBlob>> {
-    let pool = database::connect_media_blobz(media_db_path).await?;
+pub async fn list_media_blobs() -> GrimoireResult<Vec<MediaBlob>> {
+    let pool = database::connect_media_blobz().await?;
 
     let blobs = sqlx::query_as!(
         MediaBlob,
@@ -107,8 +104,8 @@ pub async fn list_media_blobs(media_db_path: &str) -> GrimoireResult<Vec<MediaBl
 }
 
 /// get media blob by id
-pub async fn get_media_blob(id: &str, media_db_path: &str) -> GrimoireResult<MediaBlob> {
-    let pool = database::connect_media_blobz(media_db_path).await?;
+pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
+    let pool = database::connect_media_blobz().await?;
 
     let blob = sqlx::query_as!(
         MediaBlob,
@@ -147,12 +144,8 @@ pub async fn get_media_blob(id: &str, media_db_path: &str) -> GrimoireResult<Med
 }
 
 /// soft delete a media blob
-pub async fn delete_media_blob(
-    id: &str,
-    deleted_by: Option<String>,
-    media_db_path: &str,
-) -> GrimoireResult<()> {
-    let pool = database::connect_media_blobz(media_db_path).await?;
+pub async fn delete_media_blob(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
+    let pool = database::connect_media_blobz().await?;
     let rows_affected = sqlx::query!(
         "UPDATE media_blobz SET deleted_at = unixepoch(), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
         deleted_by,

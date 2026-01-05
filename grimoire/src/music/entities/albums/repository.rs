@@ -6,8 +6,8 @@ use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 
 /// create a new album
-pub async fn create_album(req: CreateAlbumRequest, music_db_path: &str) -> GrimoireResult<Album> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResult<Album> {
+    let pool = database::connect_music().await?;
 
     let album_type = req.album_type.unwrap_or_else(|| "album".to_string());
 
@@ -48,8 +48,8 @@ pub async fn create_album(req: CreateAlbumRequest, music_db_path: &str) -> Grimo
 }
 
 /// list all albums (non-deleted only)
-pub async fn list_albums(music_db_path: &str) -> GrimoireResult<Vec<Album>> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn list_albums() -> GrimoireResult<Vec<Album>> {
+    let pool = database::connect_music().await?;
 
     let albums = sqlx::query_as!(
         Album,
@@ -82,8 +82,8 @@ pub async fn list_albums(music_db_path: &str) -> GrimoireResult<Vec<Album>> {
 }
 
 /// get album by id
-pub async fn get_album(id: &str, music_db_path: &str) -> GrimoireResult<Album> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn get_album(id: &str) -> GrimoireResult<Album> {
+    let pool = database::connect_music().await?;
 
     let album = sqlx::query_as!(
         Album,
@@ -116,12 +116,8 @@ pub async fn get_album(id: &str, music_db_path: &str) -> GrimoireResult<Album> {
 }
 
 /// soft delete an album
-pub async fn delete_album(
-    id: &str,
-    deleted_by: Option<String>,
-    music_db_path: &str,
-) -> GrimoireResult<()> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn delete_album(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
+    let pool = database::connect_music().await?;
 
     let rows_affected = sqlx::query!(
         "UPDATE albumz SET deleted_at = unixepoch(), updated_by = ? WHERE id = ? AND deleted_at IS NULL",

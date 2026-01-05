@@ -6,8 +6,8 @@ use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 
 /// create a new genre
-pub async fn create_genre(req: CreateGenreRequest, music_db_path: &str) -> GrimoireResult<Genre> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn create_genre(req: CreateGenreRequest) -> GrimoireResult<Genre> {
+    let pool = database::connect_music().await?;
 
     let genre = sqlx::query_as!(
         Genre,
@@ -27,8 +27,8 @@ pub async fn create_genre(req: CreateGenreRequest, music_db_path: &str) -> Grimo
 }
 
 /// list all genres
-pub async fn list_genres(music_db_path: &str) -> GrimoireResult<Vec<Genre>> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn list_genres() -> GrimoireResult<Vec<Genre>> {
+    let pool = database::connect_music().await?;
 
     let genres = sqlx::query_as!(
         Genre,
@@ -47,8 +47,8 @@ pub async fn list_genres(music_db_path: &str) -> GrimoireResult<Vec<Genre>> {
 }
 
 /// get genre by id
-pub async fn get_genre(id: &str, music_db_path: &str) -> GrimoireResult<Genre> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn get_genre(id: &str) -> GrimoireResult<Genre> {
+    let pool = database::connect_music().await?;
 
     let genre = sqlx::query_as!(
         Genre,
@@ -69,11 +69,8 @@ pub async fn get_genre(id: &str, music_db_path: &str) -> GrimoireResult<Genre> {
 }
 
 /// create a new sub-genre
-pub async fn create_sub_genre(
-    req: CreateSubGenreRequest,
-    music_db_path: &str,
-) -> GrimoireResult<SubGenre> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn create_sub_genre(req: CreateSubGenreRequest) -> GrimoireResult<SubGenre> {
+    let pool = database::connect_music().await?;
 
     let sub_genre = sqlx::query_as!(
         SubGenre,
@@ -95,8 +92,8 @@ pub async fn create_sub_genre(
 }
 
 /// list all sub-genres
-pub async fn list_sub_genres(music_db_path: &str) -> GrimoireResult<Vec<SubGenre>> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn list_sub_genres() -> GrimoireResult<Vec<SubGenre>> {
+    let pool = database::connect_music().await?;
 
     let sub_genres = sqlx::query_as!(
         SubGenre,
@@ -116,8 +113,8 @@ pub async fn list_sub_genres(music_db_path: &str) -> GrimoireResult<Vec<SubGenre
 }
 
 /// get sub-genre by id
-pub async fn get_sub_genre(id: &str, music_db_path: &str) -> GrimoireResult<SubGenre> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn get_sub_genre(id: &str) -> GrimoireResult<SubGenre> {
+    let pool = database::connect_music().await?;
 
     let sub_genre = sqlx::query_as!(
         SubGenre,
@@ -139,8 +136,8 @@ pub async fn get_sub_genre(id: &str, music_db_path: &str) -> GrimoireResult<SubG
 }
 
 /// get genre statistics (song counts, album counts, etc.)
-pub async fn get_genre_stats(music_db_path: &str) -> GrimoireResult<Vec<GenreStat>> {
-    let pool = database::connect_music(music_db_path).await?;
+pub async fn get_genre_stats() -> GrimoireResult<Vec<GenreStat>> {
+    let pool = database::connect_music().await?;
 
     // For now, return basic stats from denormalized song data
     // TODO: Replace with normalized genre relationships when implemented

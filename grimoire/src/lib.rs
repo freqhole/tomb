@@ -21,12 +21,15 @@ pub use music::{Album, Artist, Song};
 pub async fn init(config: &AppConfig) -> GrimoireResult<()> {
     tracing::info!("initializing grimoire");
 
+    // ensure directories exist for database files
+    config.ensure_directories()?;
+
     // just ensure databases exist and migrations run
     // actual connections happen per-operation
-    let _ = database::connect_media_blobz(&config.database.media_blobz_path).await?;
-    let _ = database::connect_blob_data(&config.database.blob_data_path).await?;
-    let _ = database::connect_music(&config.database.music_path).await?;
-    let _ = database::connect_app_state(&config.database.app_state_path).await?;
+    let _ = database::connect_media_blobz().await?;
+    let _ = database::connect_blob_data().await?;
+    let _ = database::connect_music().await?;
+    let _ = database::connect_app_state().await?;
 
     tracing::info!("grimoire initialized successfully");
     Ok(())
