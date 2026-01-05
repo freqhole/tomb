@@ -29,6 +29,15 @@ pub enum GrimoireError {
     #[error("album not found: {id}")]
     AlbumNotFound { id: String },
 
+    #[error("playlist not found: {id}")]
+    PlaylistNotFound { id: String },
+
+    #[error("genre not found: {id}")]
+    GenreNotFound { id: String },
+
+    #[error("sub-genre not found: {id}")]
+    SubGenreNotFound { id: String },
+
     #[error("invalid sha256 hash: {hash}")]
     InvalidSha256 { hash: String },
 

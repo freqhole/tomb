@@ -1,0 +1,55 @@
+//! playlist domain models
+
+use serde::{Deserialize, Serialize};
+
+/// playlist model for music domain
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Playlist {
+    pub rowid: i64,
+    pub id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub is_public: i64, // sqlite boolean (0/1)
+    pub created_by_rowid: Option<i64>,
+    pub created_at: Option<i64>, // unix timestamp UTC - optional until we fix schema
+    pub updated_at: Option<i64>, // unix timestamp UTC - optional until we fix schema
+}
+
+/// request for creating a new playlist
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePlaylistRequest {
+    pub title: String,
+    pub description: Option<String>,
+    pub is_public: Option<bool>,
+    pub created_by_rowid: Option<i64>,
+}
+
+/// playlist song association model
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlaylistSong {
+    pub playlist_rowid: i64,
+    pub song_rowid: i64,
+    pub position: i64,
+    pub added_at: i64, // unix timestamp UTC
+}
+
+/// request for adding songs to a playlist
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddSongsToPlaylistRequest {
+    pub playlist_id: String,
+    pub song_ids: Vec<String>,
+}
+
+/// playlist with song count for efficient listing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaylistWithCount {
+    pub rowid: i64,
+    pub id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub is_public: i64, // sqlite boolean (0/1)
+    pub created_by_rowid: Option<i64>,
+    pub created_at: Option<i64>, // unix timestamp UTC
+    pub updated_at: Option<i64>, // unix timestamp UTC
+    pub song_count: i64,
+}
