@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT rowid FROM playlistz WHERE id = ?",
+  "query": "SELECT rowid FROM playlistz WHERE id = ? AND deleted_at IS NULL",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       true
     ]
   },
-  "hash": "decf102a02706337530f079b7f0c5e24dd30b65638be02eb03adadc0fc110e1c"
+  "hash": "f3f0ffc2c2c861c6e390c526f0cd3999509dc79bd10eeab7ace6f5d938f1de29"
 }

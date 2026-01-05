@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            p.rowid as \"rowid!\",\n            p.id as \"id!\",\n            p.title as \"title!\",\n            p.description,\n            p.is_public as \"is_public!\",\n            p.thumbnail_blob_id,\n            p.created_by_rowid,\n            p.created_at as \"created_at!\",\n            p.updated_at as \"updated_at!\",\n            p.deleted_at,\n            p.deleted_by,\n            p.created_by,\n            p.updated_by,\n            COALESCE(COUNT(ps.song_rowid), 0) as \"song_count!\"\n           FROM playlistz p\n           LEFT JOIN playlist_songz ps ON p.rowid = ps.playlist_rowid\n           WHERE p.deleted_at IS NULL\n           GROUP BY p.rowid, p.id, p.title, p.description, p.is_public,\n                   p.thumbnail_blob_id, p.created_by_rowid, p.created_at, p.updated_at,\n                   p.deleted_at, p.deleted_by, p.created_by, p.updated_by\n           ORDER BY p.title ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "rowid!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "id!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "title!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "description",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_public!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "thumbnail_blob_id",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by_rowid",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_by",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_by",
+        "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "song_count!",
+        "ordinal": 13,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "23b385b06486f0328c5807ffc74b547fbecba12d9a6d75d0b5a24e92fd114a6d"
+}

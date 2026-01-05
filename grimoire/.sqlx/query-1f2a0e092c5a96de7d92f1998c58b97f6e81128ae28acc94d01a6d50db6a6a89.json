@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT rowid as \"rowid!\", id as \"id!\", name as \"name!\",\n                  sort_name, musicbrainz_id,\n                  created_at as \"created_at!\", updated_at as \"updated_at!\",\n                  deleted_at, created_by, updated_by\n           FROM artistz\n           WHERE id = ? AND deleted_at IS NULL",
+  "query": "INSERT INTO artistz (name, created_by, updated_by)\n         VALUES (?, ?, ?)\n         RETURNING rowid as \"rowid!\", id as \"id!\", name as \"name!\",\n                   created_at as \"created_at!\", updated_at as \"updated_at!\",\n                   deleted_at, deleted_by, created_by, updated_by",
   "describe": {
     "columns": [
       {
@@ -19,56 +19,50 @@
         "type_info": "Text"
       },
       {
-        "name": "sort_name",
-        "ordinal": 3,
-        "type_info": "Text"
-      },
-      {
-        "name": "musicbrainz_id",
-        "ordinal": 4,
-        "type_info": "Text"
-      },
-      {
         "name": "created_at!",
-        "ordinal": 5,
+        "ordinal": 3,
         "type_info": "Integer"
       },
       {
         "name": "updated_at!",
-        "ordinal": 6,
+        "ordinal": 4,
         "type_info": "Integer"
       },
       {
         "name": "deleted_at",
-        "ordinal": 7,
+        "ordinal": 5,
         "type_info": "Integer"
       },
       {
+        "name": "deleted_by",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
         "name": "created_by",
-        "ordinal": 8,
+        "ordinal": 7,
         "type_info": "Text"
       },
       {
         "name": "updated_by",
-        "ordinal": 9,
+        "ordinal": 8,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 3
     },
     "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
       true,
-      false,
-      false,
-      true,
-      true,
-      false,
-      false,
       true,
       true,
       true
     ]
   },
-  "hash": "fa8fd40a829b08c80515fd2062f80cb9ad3a2cf3d967cd6aae9cea70ba2191d6"
+  "hash": "1f2a0e092c5a96de7d92f1998c58b97f6e81128ae28acc94d01a6d50db6a6a89"
 }

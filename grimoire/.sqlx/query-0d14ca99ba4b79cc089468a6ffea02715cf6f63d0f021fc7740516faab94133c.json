@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT rowid as \"rowid!\", id as \"id!\", name as \"name!\",\n                  sort_name, musicbrainz_id,\n                  created_at as \"created_at!\", updated_at as \"updated_at!\",\n                  deleted_at, created_by, updated_by\n           FROM artistz\n           WHERE deleted_at IS NULL\n           ORDER BY name ASC\n           LIMIT 100",
+  "query": "SELECT rowid as \"rowid!\", id as \"id!\", name as \"name!\",\n                  created_at as \"created_at!\", updated_at as \"updated_at!\",\n                  deleted_at, deleted_by, created_by, updated_by\n           FROM artistz\n           WHERE deleted_at IS NULL\n           ORDER BY name ASC\n           LIMIT 100",
   "describe": {
     "columns": [
       {
@@ -19,38 +19,33 @@
         "type_info": "Text"
       },
       {
-        "name": "sort_name",
-        "ordinal": 3,
-        "type_info": "Text"
-      },
-      {
-        "name": "musicbrainz_id",
-        "ordinal": 4,
-        "type_info": "Text"
-      },
-      {
         "name": "created_at!",
-        "ordinal": 5,
+        "ordinal": 3,
         "type_info": "Integer"
       },
       {
         "name": "updated_at!",
-        "ordinal": 6,
+        "ordinal": 4,
         "type_info": "Integer"
       },
       {
         "name": "deleted_at",
-        "ordinal": 7,
+        "ordinal": 5,
         "type_info": "Integer"
       },
       {
+        "name": "deleted_by",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
         "name": "created_by",
-        "ordinal": 8,
+        "ordinal": 7,
         "type_info": "Text"
       },
       {
         "name": "updated_by",
-        "ordinal": 9,
+        "ordinal": 8,
         "type_info": "Text"
       }
     ],
@@ -61,14 +56,13 @@
       true,
       false,
       false,
-      true,
-      true,
       false,
       false,
+      true,
       true,
       true,
       true
     ]
   },
-  "hash": "e7ba1c51ec80322909f27b7189ecba89b6a7160131281bf170879ef1731daa6c"
+  "hash": "0d14ca99ba4b79cc089468a6ffea02715cf6f63d0f021fc7740516faab94133c"
 }

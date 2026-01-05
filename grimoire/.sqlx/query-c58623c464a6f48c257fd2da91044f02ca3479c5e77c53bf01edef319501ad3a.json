@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n            ps.playlist_rowid as \"playlist_rowid!\",\n            ps.song_rowid as \"song_rowid!\",\n            ps.position as \"position!\",\n            ps.added_at as \"added_at!\"\n           FROM playlist_songz ps\n           JOIN playlistz p ON p.rowid = ps.playlist_rowid\n           WHERE p.id = ?\n           ORDER BY ps.position ASC",
+  "query": "SELECT\n            ps.playlist_rowid as \"playlist_rowid!\",\n            ps.song_rowid as \"song_rowid!\",\n            ps.position as \"position!\",\n            ps.added_at as \"added_at!\"\n           FROM playlist_songz ps\n           JOIN playlistz p ON p.rowid = ps.playlist_rowid\n           WHERE p.id = ? AND p.deleted_at IS NULL\n           ORDER BY ps.position ASC",
   "describe": {
     "columns": [
       {
@@ -31,8 +31,8 @@
       false,
       false,
       false,
-      true
+      false
     ]
   },
-  "hash": "54e0855c0c6e58eb4ba24c380f51454b82d6e7d678d19eeb6d82e7f4d6144789"
+  "hash": "c58623c464a6f48c257fd2da91044f02ca3479c5e77c53bf01edef319501ad3a"
 }
