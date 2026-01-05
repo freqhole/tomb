@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO playlist_songz (playlist_rowid, song_rowid, position, added_at)\n             VALUES (?, ?, ?, unixepoch())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "7ed2cb907ca849035b7c82f65ddc9c25dee3e9188e2df96c92b7ea6fe8a84546"
+}

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT rowid FROM songz WHERE id = ? AND deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "rowid",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "b1d8110b7860a07775308167df5d14a4f1ba325b6c5df8a4160b6acfe81846e8"
+}

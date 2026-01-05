@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            ps.playlist_rowid as \"playlist_rowid!\",\n            ps.song_rowid as \"song_rowid!\",\n            ps.position as \"position!\",\n            ps.added_at as \"added_at!\"\n           FROM playlist_songz ps\n           JOIN playlistz p ON p.rowid = ps.playlist_rowid\n           WHERE p.id = ?\n           ORDER BY ps.position ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "playlist_rowid!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "song_rowid!",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "position!",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "added_at!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "54e0855c0c6e58eb4ba24c380f51454b82d6e7d678d19eeb6d82e7f4d6144789"
+}

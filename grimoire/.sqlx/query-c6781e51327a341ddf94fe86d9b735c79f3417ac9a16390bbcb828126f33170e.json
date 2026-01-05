@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO album_songz (album_rowid, song_rowid) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "c6781e51327a341ddf94fe86d9b735c79f3417ac9a16390bbcb828126f33170e"
+}
