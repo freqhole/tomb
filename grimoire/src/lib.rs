@@ -9,8 +9,6 @@ pub mod error;
 pub mod jobs;
 pub mod media_blob;
 pub mod music;
-pub mod scanner;
-pub mod search;
 pub mod thumbnails;
 
 // re-export only domain types, no database internals

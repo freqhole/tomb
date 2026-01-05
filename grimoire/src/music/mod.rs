@@ -1,45 +1,61 @@
 //! music domain module
 //!
-//! provides simple api for managing songs, artists, albums, playlists, and genres
+//! provides high-level API for music workflows and domain operations
 //! encapsulates all database logic internally
 
-pub mod albums;
-pub mod artists;
-pub mod genres;
-pub mod operations;
-pub mod playlists;
-pub mod songs;
+// internal implementation details (not exposed in public API)
+mod entities;
 
-// re-export all public types from submodules
-pub use albums::{Album, CreateAlbumRequest};
-pub use artists::{Artist, CreateArtistRequest};
-pub use genres::{
-    CreateGenreRequest, CreateSubGenreRequest, Genre, GenreStat, GenreStatsResponse, SubGenre,
-};
-pub use operations::{
-    AlbumImportRequest, AlbumImportResult, ArtistImportRequest, BulkImportRequest,
-    BulkImportResult, CreateSongWithMetadataRequest, ImportSongRequest, ImportSongResult,
-    SongImportError,
-};
-pub use playlists::{
-    AddSongsToPlaylistRequest, CreatePlaylistRequest, Playlist, PlaylistSong, PlaylistWithCount,
-};
-pub use songs::{CreateSongRequest, Song};
+// public modules
+pub mod crud;
+pub mod scanner;
+pub mod search;
 
-// re-export service functions from submodules
-pub use albums::{create_album, delete_album, get_album, list_albums};
-pub use artists::{create_artist, get_artist, list_artists};
-pub use genres::{
-    create_genre, create_sub_genre, get_genre, get_genre_stats, get_sub_genre, list_genres,
-    list_sub_genres,
+// re-export main workflow API
+pub use crud::*;
+
+// re-export scanner and search APIs
+pub use scanner::*;
+// Note: search_songs comes from crud, so we use specific imports to avoid conflict
+pub use search::{
+    create_search_index,
+    rebuild_search_index,
+    search_albums,
+    search_artists,
+    search_songs as search_songs_fts, // rename to avoid conflict with crud::search_songs
+    update_search_index,
+    SearchFilter,
+    SearchQuery,
+    SearchRequest,
+    SearchResult,
+    SearchType,
+    SongSearchResult,
 };
-pub use operations::{
-    bulk_import_songs, create_song_with_artist_and_album, find_or_create_album,
-    find_or_create_artist, find_or_create_genre, get_or_create_playlist_by_name,
-    import_album_with_songs, import_song_with_metadata, update_song_with_relationships,
+
+// re-export core domain types for consumers
+pub use entities::{
+    Album, Artist, CreateAlbumRequest, CreateArtistRequest, CreateGenreRequest,
+    CreatePlaylistRequest, CreateSongRequest, Genre, Playlist, Song, SubGenre,
 };
-pub use playlists::{
-    add_songs_to_playlist, create_playlist, delete_playlist, get_playlist, get_playlist_songs,
-    list_playlists, remove_songs_from_playlist,
-};
-pub use songs::{create_song, get_song, list_songs};
+
+// Public API structure:
+//
+// crud:: - Main workflow operations (public API)
+//   - add_song() - creates song + artist + album + genre in one call
+//   - find_or_create_artist() - case-insensitive artist deduplication
+//   - find_or_create_album() - case-insensitive album deduplication
+//   - bulk_import_songs() - processes multiple files with relationships
+//   - (TODO) query operations, delete operations
+//
+// scanner:: - Filesystem scanning operations
+//   - scan_directory() - discover audio files
+//   - extract_metadata() - read audio file metadata
+//
+// search:: - Full-text search operations
+//   - search_songs_fts() - FTS across songs/artists/albums (full-text)
+//   - search_songs() - complex queries with joins (from crud)
+//   - rebuild_search_index() - refresh search index
+//
+// entities:: - Internal single-table CRUD (not exposed)
+//   - albums/repository.rs, artists/repository.rs, etc.
+//   - Only used internally by crud:: operations

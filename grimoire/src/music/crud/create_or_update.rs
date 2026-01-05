@@ -8,7 +8,7 @@ use super::models::{
 };
 use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
-use crate::music::{
+use crate::music::entities::{
     albums, artists, genres, songs, Album, Artist, CreateAlbumRequest, CreateArtistRequest,
     CreateGenreRequest, CreateSongRequest, Genre, Playlist, Song,
 };
@@ -391,7 +391,7 @@ pub async fn get_or_create_playlist_by_name(
     if let Some(playlist) = existing {
         Ok((playlist, false))
     } else {
-        use crate::music::playlists::{create_playlist, CreatePlaylistRequest};
+        use crate::music::entities::playlists::{create_playlist, CreatePlaylistRequest};
 
         let create_req = CreatePlaylistRequest {
             title: name.to_string(),

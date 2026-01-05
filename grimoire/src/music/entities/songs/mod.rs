@@ -2,8 +2,8 @@
 //! handles song domain logic
 
 mod models;
-mod service;
+mod repository;
 
 // re-export public types
 pub use models::{CreateSongRequest, Song};
-pub use service::{create_song, get_song, list_songs};
+pub use repository::{create_song, get_song, list_songs};
