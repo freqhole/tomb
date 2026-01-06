@@ -45,16 +45,15 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
     let mut query = Query::select();
     query.column(sea_query::Asterisk).from(SongQuery::Table);
 
-    // Search across multiple fields with proper parameter binding
+    // Search across multiple fields (manual escaping for now)
     if let Some(ref search_term) = params.q {
         if !search_term.trim().is_empty() {
-            let pattern = format!("%{}%", search_term);
-            query.and_where(
-                Expr::col(SongQuery::SongTitle)
-                    .like(&pattern)
-                    .or(Expr::col(SongQuery::ArtistName).like(&pattern))
-                    .or(Expr::col(SongQuery::AlbumTitle).like(&pattern)),
+            let safe_search = search_term.replace("'", "''");
+            let condition = format!(
+                "(song_title LIKE '%{}%' OR artist_name LIKE '%{}%' OR album_title LIKE '%{}%')",
+                safe_search, safe_search, safe_search
             );
+            query.and_where(Expr::cust(&condition));
         }
     }
 
@@ -125,27 +124,11 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
         .order_by(SongQuery::SongDiscNumber, Order::Asc)
         .order_by(SongQuery::SongTrackNumber, Order::Asc);
 
-    // Add LIMIT/OFFSET to the query builder
-    query.limit(limit as u64).offset(offset as u64);
+    // Simple approach: add LIMIT/OFFSET manually to avoid parameter binding complexity
+    let (mut sql, _values) = query.build(SqliteQueryBuilder);
+    sql = format!("{} LIMIT {} OFFSET {}", sql, limit, offset);
 
-    // Build query with parameters
-    let (sql, values) = query.build(SqliteQueryBuilder);
-
-    // Convert sea-query values to sqlx parameters
-    let mut sqlx_query = sqlx::query_as::<_, SongViewRow>(&sql);
-    for value in values.0 {
-        match value {
-            sea_query::Value::String(Some(ref s)) => {
-                sqlx_query = sqlx_query.bind(s.as_ref());
-            }
-            sea_query::Value::BigInt(Some(i)) => {
-                sqlx_query = sqlx_query.bind(i);
-            }
-            _ => {} // Handle other types as needed
-        }
-    }
-
-    let rows: Vec<SongViewRow> = sqlx_query.fetch_all(&pool).await?;
+    let rows: Vec<SongViewRow> = sqlx::query_as(&sql).fetch_all(&pool).await?;
 
     let songs: Vec<SongQueryResult> = rows.into_iter().map(|r| r.to_song_query_result()).collect();
     let song_count = songs.len();
