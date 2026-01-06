@@ -918,11 +918,13 @@ async fn extract_and_store_metadata(
 
     let album_title = get_tag("AlbumTitle", &["Album", "ALBUM", "TALB"]);
 
-    let track_number =
-        get_tag("TrackNumber", &["TRCK", "Track"]).and_then(|s| parse_track_number(&s));
+    let track_number = get_tag("TrackNumber", &["TRCK", "Track"])
+        .and_then(|s| parse_track_number(&s))
+        .or(Some(1)); // Default to track 1
 
-    let disc_number =
-        get_tag("DiscNumber", &["TPOS", "Disc", "PartOfSet"]).and_then(|s| parse_track_number(&s));
+    let disc_number = get_tag("DiscNumber", &["TPOS", "Disc", "PartOfSet"])
+        .and_then(|s| parse_track_number(&s))
+        .or(Some(1)); // Default to disc 1
 
     let year = get_tag("RecordingDate", &["Year", "DATE", "TDRC", "TYER"])
         .and_then(|s| s.split('-').next()?.trim().parse::<i64>().ok());
@@ -981,8 +983,8 @@ async fn create_basic_song_record(
         artist_name: Some("Unknown Artist".to_string()),
         album_title: None,
         genre_name: None,
-        track_number: None,
-        disc_number: None,
+        track_number: Some(1), // Default values for unknown songs
+        disc_number: Some(1),
         duration: None,
         year: None,
         bpm: None,

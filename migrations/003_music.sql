@@ -45,8 +45,8 @@ CREATE TABLE songz (
   thumbnail_blob_id TEXT,         -- reference to media_blobz.id
   waveform_blob_id TEXT,          -- reference to media_blobz.id
   title TEXT NOT NULL,
-  track_number INTEGER DEFAULT 1,
-  disc_number INTEGER DEFAULT 1,
+  track_number INTEGER NOT NULL DEFAULT 1,
+  disc_number INTEGER NOT NULL DEFAULT 1,
   duration INTEGER,               -- seconds from interval
   year INTEGER,
   bpm INTEGER,
