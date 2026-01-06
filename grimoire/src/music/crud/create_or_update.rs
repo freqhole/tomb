@@ -70,13 +70,18 @@ pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult
 
     let song = songs::create_song(song_req).await?;
 
-    // 5. Create relationships (artist_songz, album_songz)
+    // 5. Create relationships (artist_songz, album_songz, artist_albumz)
     if let Some(artist) = &artist {
         create_artist_song_relationship(artist.rowid, song.rowid).await?;
     }
 
     if let Some(album) = &album {
         create_album_song_relationship(album.rowid, song.rowid).await?;
+    }
+
+    // Create artist-album relationship if both exist
+    if let (Some(artist), Some(album)) = (&artist, &album) {
+        create_artist_album_relationship(artist.rowid, album.rowid).await?;
     }
 
     Ok(ImportSongResult {
@@ -228,6 +233,24 @@ async fn create_album_song_relationship(album_rowid: i64, song_rowid: i64) -> Gr
         "INSERT OR IGNORE INTO album_songz (album_rowid, song_rowid) VALUES (?, ?)",
         album_rowid,
         song_rowid
+    )
+    .execute(&pool)
+    .await?;
+
+    Ok(())
+}
+
+/// create relationship between artist and album
+async fn create_artist_album_relationship(
+    artist_rowid: i64,
+    album_rowid: i64,
+) -> GrimoireResult<()> {
+    let pool = database::connect_music().await?;
+
+    sqlx::query!(
+        "INSERT OR IGNORE INTO artist_albumz (artist_rowid, album_rowid) VALUES (?, ?)",
+        artist_rowid,
+        album_rowid
     )
     .execute(&pool)
     .await?;
@@ -437,6 +460,11 @@ pub async fn update_song_with_relationships(
     } else {
         (None, false)
     };
+
+    // Create artist-album relationship if both exist
+    if let (Some(artist), Some(album)) = (&artist, &album) {
+        create_artist_album_relationship(artist.rowid, album.rowid).await?;
+    }
 
     Ok(ImportSongResult {
         song,

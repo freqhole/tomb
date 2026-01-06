@@ -5,13 +5,50 @@ use super::models::{CreateMediaBlobRequest, MediaBlob};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::{blob_data, database};
 
-/// create a new media blob
+/// create a new media blob with deduplication by SHA256
 pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<MediaBlob> {
     let pool = database::connect().await?;
 
     let blob_type = req.blob_type.unwrap_or_else(|| "original".to_string());
     let metadata_str = serde_json::to_string(&req.metadata).unwrap_or_else(|_| "{}".to_string());
 
+    // Check if a blob with this SHA256 already exists
+    if let Ok(existing_blob) = sqlx::query_as!(
+        MediaBlob,
+        "SELECT
+            rowid as \"rowid!\",
+            id as \"id!\",
+            sha256 as \"sha256!\",
+            size,
+            mime,
+            source_client_id,
+            local_path,
+            parent_blob_id,
+            blob_type as \"blob_type!\",
+            metadata,
+            created_at as \"created_at!\",
+            updated_at as \"updated_at!\",
+            deleted_at,
+            deleted_by,
+            created_by,
+            updated_by
+         FROM media_blobz
+         WHERE sha256 = ? AND deleted_at IS NULL
+         LIMIT 1",
+        req.sha256
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        // Blob already exists, return it with parsed metadata
+        let mut existing_with_metadata = existing_blob;
+        existing_with_metadata.metadata =
+            serde_json::from_str(&existing_with_metadata.metadata.as_str().unwrap_or("{}"))
+                .unwrap_or_default();
+        return Ok(existing_with_metadata);
+    }
+
+    // Create new blob if none exists
     let blob = sqlx::query_as!(
         MediaBlob,
         "INSERT INTO media_blobz (

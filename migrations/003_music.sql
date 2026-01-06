@@ -52,6 +52,7 @@ CREATE TABLE songz (
   bpm INTEGER,
   key_signature TEXT,
   metadata TEXT,                  -- json from existing jsonb
+  lyrics TEXT,                    -- song lyrics extracted from metadata
   processing_status TEXT DEFAULT 'unprocessed',
   processing_notes TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -63,6 +64,7 @@ CREATE TABLE songz (
 
   -- constraints
   CHECK (bpm >= 0 AND bpm <= 999),
+  UNIQUE (media_blob_id),
   FOREIGN KEY (media_blob_id) REFERENCES media_blobz(id),
   FOREIGN KEY (thumbnail_blob_id) REFERENCES media_blobz(id),
   FOREIGN KEY (waveform_blob_id) REFERENCES media_blobz(id)
