@@ -21,7 +21,7 @@ use crate::music::entities::{Album, Artist, Genre, Song};
 /// then album groups are sorted by the user's sort_by parameter
 pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<SongQueryResult>> {
     let start_time = Instant::now();
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let limit = params.limit.unwrap_or(50).min(1000) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
@@ -381,7 +381,7 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
 /// Query artists with aggregated stats
 pub async fn query_artists(params: QueryParams) -> GrimoireResult<QueryResult<ArtistQueryResult>> {
     let start_time = Instant::now();
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let limit = params.limit.unwrap_or(50).min(1000) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
@@ -530,7 +530,7 @@ pub async fn query_artists(params: QueryParams) -> GrimoireResult<QueryResult<Ar
 /// Query albums with artist and genre data
 pub async fn query_albums(params: QueryParams) -> GrimoireResult<QueryResult<AlbumQueryResult>> {
     let start_time = Instant::now();
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let limit = params.limit.unwrap_or(50).min(1000) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
@@ -742,7 +742,7 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResult<QueryResult<Alb
 /// Query genres with basic filtering
 pub async fn query_genres(params: QueryParams) -> GrimoireResult<QueryResult<GenreQueryResult>> {
     let start_time = Instant::now();
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let limit = params.limit.unwrap_or(50).min(1000) as i64;
     let offset = params.offset.unwrap_or(0) as i64;

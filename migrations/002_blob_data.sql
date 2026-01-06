@@ -1,7 +1,10 @@
--- blob_data.db - pure key/value store for raw data
+-- blob_data - pure key/value store for raw data
 CREATE TABLE blob_data (
   id TEXT PRIMARY KEY,            -- matches media_blobz.id
-  data BLOB NOT NULL              -- raw bytes (thumbnails, etc.)
+  data BLOB NOT NULL,             -- raw bytes (thumbnails, etc.)
+
+  -- constraints
+  FOREIGN KEY (id) REFERENCES media_blobz(id)
 );
 
 -- blob_data indexes (minimal - just primary key lookup)

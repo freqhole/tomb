@@ -62,7 +62,10 @@ CREATE TABLE songz (
   updated_by TEXT,
 
   -- constraints
-  CHECK (bpm >= 0 AND bpm <= 300)
+  CHECK (bpm >= 0 AND bpm <= 999),
+  FOREIGN KEY (media_blob_id) REFERENCES media_blobz(id),
+  FOREIGN KEY (thumbnail_blob_id) REFERENCES media_blobz(id),
+  FOREIGN KEY (waveform_blob_id) REFERENCES media_blobz(id)
 );
 
 -- image collections for entities
@@ -73,8 +76,8 @@ CREATE TABLE artist_imagez (
 
   -- constraints
   UNIQUE(artist_rowid, media_blob_id),
-  FOREIGN KEY (artist_rowid) REFERENCES artistz(rowid)
-  -- No FK for media_blob_id - flexible string reference for images
+  FOREIGN KEY (artist_rowid) REFERENCES artistz(rowid),
+  FOREIGN KEY (media_blob_id) REFERENCES media_blobz(id)
 );
 
 CREATE TABLE album_imagez (
@@ -84,8 +87,8 @@ CREATE TABLE album_imagez (
 
   -- constraints
   UNIQUE(album_rowid, media_blob_id),
-  FOREIGN KEY (album_rowid) REFERENCES albumz(rowid)
-  -- No FK for media_blob_id - flexible string reference for images
+  FOREIGN KEY (album_rowid) REFERENCES albumz(rowid),
+  FOREIGN KEY (media_blob_id) REFERENCES media_blobz(id)
 );
 
 CREATE TABLE song_imagez (
@@ -95,8 +98,8 @@ CREATE TABLE song_imagez (
 
   -- constraints
   UNIQUE(song_rowid, media_blob_id),
-  FOREIGN KEY (song_rowid) REFERENCES songz(rowid)
-  -- No FK for media_blob_id - flexible string reference for images
+  FOREIGN KEY (song_rowid) REFERENCES songz(rowid),
+  FOREIGN KEY (media_blob_id) REFERENCES media_blobz(id)
 );
 
 -- relationship tables
@@ -105,7 +108,9 @@ CREATE TABLE artist_songz (
   song_rowid INTEGER NOT NULL,
 
   -- constraints
-  UNIQUE(artist_rowid, song_rowid)
+  UNIQUE(artist_rowid, song_rowid),
+  FOREIGN KEY (artist_rowid) REFERENCES artistz(rowid),
+  FOREIGN KEY (song_rowid) REFERENCES songz(rowid)
 );
 
 CREATE TABLE album_songz (
@@ -113,7 +118,9 @@ CREATE TABLE album_songz (
   song_rowid INTEGER NOT NULL,
 
   -- constraints
-  UNIQUE(album_rowid, song_rowid)
+  UNIQUE(album_rowid, song_rowid),
+  FOREIGN KEY (album_rowid) REFERENCES albumz(rowid),
+  FOREIGN KEY (song_rowid) REFERENCES songz(rowid)
 );
 
 CREATE TABLE artist_albumz (

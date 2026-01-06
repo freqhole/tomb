@@ -1,5 +1,5 @@
 //! simplified config module for grimoire
-//! focuses on sqlite database paths and minimal settings
+//! focuses on single sqlite database path and minimal settings
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -11,24 +11,12 @@ pub struct AppConfig {
     pub media: MediaConfig,
 }
 
-/// database configuration with sqlite file paths
+/// database configuration using DATABASE_URL
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
-    /// path to media_blobz.db
-    #[serde(default = "default_media_blobz_path")]
-    pub media_blobz_path: String,
-
-    /// path to blob_data.db
-    #[serde(default = "default_blob_data_path")]
-    pub blob_data_path: String,
-
-    /// path to music.db
-    #[serde(default = "default_music_path")]
-    pub music_path: String,
-
-    /// path to app_state.db
-    #[serde(default = "default_app_state_path")]
-    pub app_state_path: String,
+    /// database connection URL (e.g., "sqlite:data/grimoire.db")
+    #[serde(default = "default_database_url")]
+    pub database_url: String,
 }
 
 /// media processing configuration
@@ -59,10 +47,7 @@ impl Default for AppConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
-            media_blobz_path: default_media_blobz_path(),
-            blob_data_path: default_blob_data_path(),
-            music_path: default_music_path(),
-            app_state_path: default_app_state_path(),
+            database_url: default_database_url(),
         }
     }
 }
@@ -78,24 +63,13 @@ impl Default for MediaConfig {
 }
 
 // default value functions
-fn default_media_blobz_path() -> String {
-    "data/media_blobz.db".to_string()
-}
-
-fn default_blob_data_path() -> String {
-    "data/blob_data.db".to_string()
-}
-
-fn default_music_path() -> String {
-    "data/music.db".to_string()
-}
-
-fn default_app_state_path() -> String {
-    "data/app_state.db".to_string()
+fn default_database_url() -> String {
+    // Check environment variable first, fall back to default
+    std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:data/grimoire.db".to_string())
 }
 
 fn default_max_file_size() -> u64 {
-    100 * 1024 * 1024 // 100mb
+    1000 * 1024 * 1024 // 1000mb
 }
 
 fn default_audio_extensions() -> Vec<String> {
@@ -105,6 +79,8 @@ fn default_audio_extensions() -> Vec<String> {
         "wav".to_string(),
         "m4a".to_string(),
         "ogg".to_string(),
+        "aif".to_string(),
+        "aiff".to_string(),
     ]
 }
 
@@ -127,19 +103,25 @@ impl AppConfig {
         Self::default()
     }
 
+    /// extract file path from DATABASE_URL
+    pub fn database_file_path(&self) -> String {
+        // Strip "sqlite:" prefix if present
+        self.database
+            .database_url
+            .strip_prefix("sqlite:")
+            .unwrap_or(&self.database.database_url)
+            .to_string()
+    }
+
     /// ensure data directories exist
     pub fn ensure_directories(&self) -> std::io::Result<()> {
-        for path in [
-            &self.database.media_blobz_path,
-            &self.database.blob_data_path,
-            &self.database.music_path,
-            &self.database.app_state_path,
-        ] {
-            if let Some(parent) = PathBuf::from(path).parent() {
-                std::fs::create_dir_all(parent)?;
-            }
+        // Ensure parent directory of database file exists
+        let db_path = self.database_file_path();
+        if let Some(parent) = PathBuf::from(&db_path).parent() {
+            std::fs::create_dir_all(parent)?;
         }
 
+        // Ensure storage directory exists
         std::fs::create_dir_all(&self.media.storage_directory)?;
         Ok(())
     }

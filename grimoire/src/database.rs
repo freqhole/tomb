@@ -1,16 +1,19 @@
-//! internal database module - simple connection helpers
+//! internal database module - single SQLite database connection
 //! consumers use grimoire apis that handle connections internally
 
 use crate::config::AppConfig;
 use crate::error::GrimoireResult;
 use sqlx::SqlitePool;
 
-/// connect to media_blobz database
-pub(crate) async fn connect_media_blobz() -> GrimoireResult<SqlitePool> {
+/// connect to the main grimoire database
+pub(crate) async fn connect() -> GrimoireResult<SqlitePool> {
     let config = AppConfig::default();
+
+    // Extract file path and build standardized connection string
+    let db_file = config.database_file_path();
     let connection_string = format!(
-        "sqlite://{}?mode=rwc&journal_mode=WAL&synchronous=NORMAL",
-        config.database.media_blobz_path
+        "sqlite:{}?mode=rwc&journal_mode=WAL&synchronous=NORMAL&foreign_keys=on",
+        db_file
     );
 
     let pool = SqlitePool::connect(&connection_string).await?;
@@ -21,41 +24,23 @@ pub(crate) async fn connect_media_blobz() -> GrimoireResult<SqlitePool> {
     Ok(pool)
 }
 
-/// connect to blob_data database
+// Legacy compatibility functions - all delegate to main database
+#[deprecated(note = "Use connect() instead - all data is now in single database")]
+pub(crate) async fn connect_media_blobz() -> GrimoireResult<SqlitePool> {
+    connect().await
+}
+
+#[deprecated(note = "Use connect() instead - all data is now in single database")]
 pub(crate) async fn connect_blob_data() -> GrimoireResult<SqlitePool> {
-    let config = AppConfig::default();
-    let connection_string = format!(
-        "sqlite://{}?mode=rwc&journal_mode=WAL&synchronous=NORMAL",
-        config.database.blob_data_path
-    );
-
-    let pool = SqlitePool::connect(&connection_string).await?;
-    sqlx::migrate!("../migrations").run(&pool).await?;
-    Ok(pool)
+    connect().await
 }
 
-/// connect to music database
+#[deprecated(note = "Use connect() instead - all data is now in single database")]
 pub(crate) async fn connect_music() -> GrimoireResult<SqlitePool> {
-    let config = AppConfig::default();
-    let connection_string = format!(
-        "sqlite://{}?mode=rwc&journal_mode=WAL&synchronous=NORMAL",
-        config.database.music_path
-    );
-
-    let pool = SqlitePool::connect(&connection_string).await?;
-    sqlx::migrate!("../migrations").run(&pool).await?;
-    Ok(pool)
+    connect().await
 }
 
-/// connect to app_state database
+#[deprecated(note = "Use connect() instead - all data is now in single database")]
 pub(crate) async fn connect_app_state() -> GrimoireResult<SqlitePool> {
-    let config = AppConfig::default();
-    let connection_string = format!(
-        "sqlite://{}?mode=rwc&journal_mode=WAL&synchronous=NORMAL",
-        config.database.app_state_path
-    );
-
-    let pool = SqlitePool::connect(&connection_string).await?;
-    sqlx::migrate!("../migrations").run(&pool).await?;
-    Ok(pool)
+    connect().await
 }
