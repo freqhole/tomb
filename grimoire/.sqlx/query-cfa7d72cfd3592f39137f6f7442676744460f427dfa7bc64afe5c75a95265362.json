@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n            rowid as \"rowid!\",\n            id as \"id!\",\n            media_blob_id as \"media_blob_id!\",\n            thumbnail_blob_id,\n            waveform_blob_id,\n            title as \"title!\",\n            track_number,\n            disc_number,\n            duration,\n            year,\n            bpm,\n            key_signature,\n            metadata,\n            processing_status,\n            processing_notes,\n            created_at as \"created_at!\",\n            updated_at as \"updated_at!\",\n            deleted_at,\n            deleted_by,\n            created_by,\n            updated_by\n         FROM songz\n         WHERE id = ? AND deleted_at IS NULL",
+  "query": "INSERT INTO songz (\n            media_blob_id, title, track_number, disc_number, duration, year, bpm, key_signature, lyrics,\n            created_by, updated_by\n        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n        RETURNING\n            rowid as \"rowid!\",\n            id as \"id!\",\n            media_blob_id as \"media_blob_id!\",\n            thumbnail_blob_id,\n            waveform_blob_id,\n            title as \"title!\",\n            track_number,\n            disc_number,\n            duration,\n            year,\n            bpm,\n            key_signature,\n            metadata,\n            lyrics,\n            processing_status,\n            processing_notes,\n            created_at as \"created_at!\",\n            updated_at as \"updated_at!\",\n            deleted_at,\n            deleted_by,\n            created_by,\n            updated_by",
   "describe": {
     "columns": [
       {
@@ -69,48 +69,53 @@
         "type_info": "Text"
       },
       {
-        "name": "processing_status",
+        "name": "lyrics",
         "ordinal": 13,
         "type_info": "Text"
       },
       {
-        "name": "processing_notes",
+        "name": "processing_status",
         "ordinal": 14,
         "type_info": "Text"
       },
       {
-        "name": "created_at!",
+        "name": "processing_notes",
         "ordinal": 15,
-        "type_info": "Integer"
+        "type_info": "Text"
       },
       {
-        "name": "updated_at!",
+        "name": "created_at!",
         "ordinal": 16,
         "type_info": "Integer"
       },
       {
-        "name": "deleted_at",
+        "name": "updated_at!",
         "ordinal": 17,
         "type_info": "Integer"
       },
       {
-        "name": "deleted_by",
+        "name": "deleted_at",
         "ordinal": 18,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "created_by",
+        "name": "deleted_by",
         "ordinal": 19,
         "type_info": "Text"
       },
       {
-        "name": "updated_by",
+        "name": "created_by",
         "ordinal": 20,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_by",
+        "ordinal": 21,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 11
     },
     "nullable": [
       true,
@@ -128,6 +133,7 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       true,
@@ -136,5 +142,5 @@
       true
     ]
   },
-  "hash": "b7c7f9bc16d7d5a96374afe11b9058875600a59d61e8c894bb8966a6297ade1b"
+  "hash": "cfa7d72cfd3592f39137f6f7442676744460f427dfa7bc64afe5c75a95265362"
 }
