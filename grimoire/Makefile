@@ -24,16 +24,16 @@ help:
 # Database commands
 db-reset:
 	@echo "Resetting database..."
-	rm -f $(DATABASE_DB_FILE)
+	rm -f $(shell echo $(DATABASE_URL) | sed 's|sqlite:||')
 	mkdir -p ../data
-	touch $(DATABASE_DB_FILE)
+	touch $(shell echo $(DATABASE_URL) | sed 's|sqlite:||')
 	DATABASE_URL=$(DATABASE_URL) sqlx migrate run --source ../migrations
 	@echo "Database reset complete!"
 
 db-migrate:
 	@echo "Running migrations..."
 	mkdir -p ../data
-	touch $(DATABASE_DB_FILE)
+	touch $(shell echo $(DATABASE_URL) | sed 's|sqlite:||')
 	DATABASE_URL=$(DATABASE_URL) sqlx migrate run --source ../migrations
 
 db-prepare: db-migrate
@@ -56,5 +56,5 @@ test: db-prepare
 clean:
 	@echo "Cleaning build artifacts..."
 	cargo clean
-	rm -f $(DATABASE_DB_FILE)
+	rm -f $(shell echo $(DATABASE_URL) | sed 's|sqlite:||')
 	rm -rf .sqlx/
