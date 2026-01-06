@@ -1,6 +1,7 @@
 //! Sea-query implementation with proper album grouping and extensible filters
+//! DATABASE_URL=sqlite:/Users/edward/src/github/freqhole/tomb/data/grimoire.db RUSTFLAGS="-A warnings" cargo run -- music test-sea-query --search d --limit 100 --sort-by artist --sort-direction desc
 
-use sea_query::{Expr, Iden, Order, Query, SqliteQueryBuilder};
+use sea_query::{Cond, Expr, Iden, Order, Query, SqliteQueryBuilder};
 use sqlx::SqlitePool;
 
 use crate::error::GrimoireResult;
@@ -45,16 +46,16 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
     let mut query = Query::select();
     query.column(sea_query::Asterisk).from(SongQuery::Table);
 
-    // Search across multiple fields (manual escaping for now)
-    if let Some(ref search_term) = params.q {
-        if !search_term.trim().is_empty() {
-            let safe_search = search_term.replace("'", "''");
-            let condition = format!(
-                "(song_title LIKE '%{}%' OR artist_name LIKE '%{}%' OR album_title LIKE '%{}%')",
-                safe_search, safe_search, safe_search
-            );
-            query.and_where(Expr::cust(&condition));
-        }
+    // Search across multiple fields with sea-query .like() method
+    if let Some(search_term) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
+        let pattern = format!("%{}%", search_term);
+
+        query.cond_where(
+            Cond::any()
+                .add(Expr::col(SongQuery::SongTitle).like(pattern.clone()))
+                .add(Expr::col(SongQuery::ArtistName).like(pattern.clone()))
+                .add(Expr::col(SongQuery::AlbumTitle).like(pattern)),
+        );
     }
 
     // TODO: Add more filters here
@@ -124,11 +125,33 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
         .order_by(SongQuery::SongDiscNumber, Order::Asc)
         .order_by(SongQuery::SongTrackNumber, Order::Asc);
 
-    // Simple approach: add LIMIT/OFFSET manually to avoid parameter binding complexity
-    let (mut sql, _values) = query.build(SqliteQueryBuilder);
-    sql = format!("{} LIMIT {} OFFSET {}", sql, limit, offset);
+    // Add LIMIT and OFFSET using sea-query methods
+    query.limit(limit as u64).offset(offset as u64);
 
-    let rows: Vec<SongViewRow> = sqlx::query_as(&sql).fetch_all(&pool).await?;
+    // Build query and bind parameters properly
+    let (sql, values) = query.build(SqliteQueryBuilder);
+
+    println!("Generated SQL: {}", sql);
+    println!("Values: {:?}", values);
+
+    // Bind the sea-query values to sqlx
+    let mut sqlx_query = sqlx::query_as::<_, SongViewRow>(&sql);
+    for value in values.0 {
+        match value {
+            sea_query::Value::String(Some(s)) => {
+                sqlx_query = sqlx_query.bind(s.as_ref().to_string());
+            }
+            sea_query::Value::BigInt(Some(i)) => {
+                sqlx_query = sqlx_query.bind(i);
+            }
+            sea_query::Value::BigUnsigned(Some(i)) => {
+                sqlx_query = sqlx_query.bind(i as i64);
+            }
+            _ => {} // Handle other types as needed
+        }
+    }
+
+    let rows: Vec<SongViewRow> = sqlx_query.fetch_all(&pool).await?;
 
     let songs: Vec<SongQueryResult> = rows.into_iter().map(|r| r.to_song_query_result()).collect();
     let song_count = songs.len();
