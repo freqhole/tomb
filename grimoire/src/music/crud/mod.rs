@@ -6,7 +6,6 @@ mod deduplication;
 mod delete;
 mod models;
 mod query;
-mod tables;
 
 // re-export public types
 pub use models::{

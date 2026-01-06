@@ -7,11 +7,20 @@ use sqlx::SqlitePool;
 
 /// connect to the main grimoire database
 pub(crate) async fn connect() -> GrimoireResult<SqlitePool> {
-    let config = AppConfig::default();
+    // TODO: fix database path configuration - this is a temporary hack
+    // Need to properly implement config system that respects DATABASE_URL from .env
+    let connection_string = if let Ok(db_url) = std::env::var("DATABASE_URL") {
+        // Use DATABASE_URL from .env if available
+        format!("{}?mode=rwc", db_url)
+    } else {
+        // Fallback to default config
+        let config = AppConfig::default();
+        let db_file = config.database_file_path();
+        format!("sqlite:{}?mode=rwc", db_file)
+    };
 
-    // Extract file path and build connection string with proper SQLite options
-    let db_file = config.database_file_path();
-    let connection_string = format!("sqlite:{}?mode=rwc", db_file);
+    // TODO: clean up this debug logging once config system is proper
+    println!("DATABASE: Connecting to {}", connection_string);
 
     let pool = SqlitePool::connect(&connection_string).await?;
 
