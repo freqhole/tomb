@@ -233,13 +233,26 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
     base_sql.push_str(" ");
     base_sql.push_str(order_clause);
 
-    // Get count first (without LIMIT/OFFSET)
-    let count_sql = format!(
-        "SELECT COUNT(DISTINCT s.rowid) FROM ({})",
-        base_sql.split("ORDER BY").next().unwrap()
-    );
+    // Get count first (rebuild query without SELECT columns and ORDER BY)
+    let count_sql = r#"
+        SELECT COUNT(DISTINCT s.rowid)
+        FROM songz s
+        LEFT JOIN artist_songz ars ON s.rowid = ars.song_rowid
+        LEFT JOIN artistz ar ON ars.artist_rowid = ar.rowid AND ar.deleted_at IS NULL
+        LEFT JOIN album_songz als ON s.rowid = als.song_rowid
+        LEFT JOIN albumz al ON als.album_rowid = al.rowid AND al.deleted_at IS NULL
+        LEFT JOIN genrez g ON al.genre_rowid = g.rowid
+        LEFT JOIN media_blobz mb ON s.media_blob_id = mb.id AND mb.deleted_at IS NULL
+        WHERE s.deleted_at IS NULL
+    "#;
 
-    let mut count_query = sqlx::query_scalar(&count_sql);
+    let mut count_query_with_conditions = count_sql.to_string();
+    if !where_conditions.is_empty() {
+        count_query_with_conditions.push_str(" AND ");
+        count_query_with_conditions.push_str(&where_conditions.join(" AND "));
+    }
+
+    let mut count_query = sqlx::query_scalar(&count_query_with_conditions);
     for param in &bind_params {
         count_query = count_query.bind(param);
     }

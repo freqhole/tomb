@@ -12,8 +12,7 @@ use crate::jobs::{
 };
 
 #[derive(Parser)]
-#[command(name = "grimoire")]
-#[command(about = "Grimoire CLI for testing job queue and database")]
+#[command(author, version, about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -30,6 +29,11 @@ pub enum Commands {
     Database {
         #[command(subcommand)]
         action: DatabaseAction,
+    },
+    /// Music query operations
+    Music {
+        #[command(subcommand)]
+        action: MusicAction,
     },
 }
 
@@ -81,12 +85,59 @@ pub enum DatabaseAction {
     Info,
 }
 
+#[derive(Subcommand)]
+pub enum MusicAction {
+    /// Query songs with filters and pagination
+    QuerySongs {
+        /// Search query
+        #[arg(long)]
+        search: Option<String>,
+        /// Limit number of results
+        #[arg(long, default_value = "10")]
+        limit: u32,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: u32,
+    },
+    /// Query artists
+    QueryArtists {
+        /// Search query
+        #[arg(long)]
+        search: Option<String>,
+        /// Limit number of results
+        #[arg(long, default_value = "10")]
+        limit: u32,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: u32,
+    },
+    /// Query albums
+    QueryAlbums {
+        /// Search query
+        #[arg(long)]
+        search: Option<String>,
+        /// Limit number of results
+        #[arg(long, default_value = "10")]
+        limit: u32,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: u32,
+    },
+    /// List recent songs
+    RecentSongs {
+        /// Limit number of results
+        #[arg(long, default_value = "10")]
+        limit: u32,
+    },
+}
+
 pub async fn run_cli() -> GrimoireResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Jobs { action } => handle_job_command(action).await,
         Commands::Database { action } => handle_database_command(action).await,
+        Commands::Music { action } => handle_music_command(action).await,
     }
 }
 
@@ -368,6 +419,180 @@ async fn handle_database_command(action: DatabaseAction) -> GrimoireResult<()> {
                         "  foreign keys: {}",
                         if foreign_keys == 1 { "on" } else { "off" }
                     );
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
+    use crate::music::crud::{
+        list_recent_songs, query_albums, query_artists, query_songs, QueryParams,
+    };
+    use std::collections::HashMap;
+
+    match action {
+        MusicAction::QuerySongs {
+            search,
+            limit,
+            offset,
+        } => {
+            println!("querying songs...");
+            let params = QueryParams {
+                q: search,
+                search_fields: None,
+                filters: HashMap::new(),
+                sort_by: None,
+                sort_direction: None,
+                limit: Some(limit),
+                offset: Some(offset),
+            };
+
+            match query_songs(params).await {
+                Ok(result) => {
+                    println!(
+                        "found {} songs (total: {})",
+                        result.items.len(),
+                        result.total_count
+                    );
+                    for song in result.items {
+                        println!(
+                            "  {} - {} ({})",
+                            song.artist
+                                .as_ref()
+                                .map(|a| a.name.clone())
+                                .unwrap_or("Unknown".to_string()),
+                            song.song.title,
+                            song.album
+                                .as_ref()
+                                .map(|a| a.title.clone())
+                                .unwrap_or("No Album".to_string())
+                        );
+                    }
+                    if result.has_more {
+                        println!(
+                            "...more results available (use --offset {})",
+                            offset + limit
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to query songs: {}", e);
+                }
+            }
+        }
+        MusicAction::QueryArtists {
+            search,
+            limit,
+            offset,
+        } => {
+            println!("querying artists...");
+            let params = QueryParams {
+                q: search,
+                search_fields: None,
+                filters: HashMap::new(),
+                sort_by: None,
+                sort_direction: None,
+                limit: Some(limit),
+                offset: Some(offset),
+            };
+
+            match query_artists(params).await {
+                Ok(result) => {
+                    println!(
+                        "found {} artists (total: {})",
+                        result.items.len(),
+                        result.total_count
+                    );
+                    for artist in result.items {
+                        println!(
+                            "  {} ({} songs, {} albums)",
+                            artist.artist.name, artist.song_count, artist.album_count
+                        );
+                    }
+                    if result.has_more {
+                        println!(
+                            "...more results available (use --offset {})",
+                            offset + limit
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to query artists: {}", e);
+                }
+            }
+        }
+        MusicAction::QueryAlbums {
+            search,
+            limit,
+            offset,
+        } => {
+            println!("querying albums...");
+            let params = QueryParams {
+                q: search,
+                search_fields: None,
+                filters: HashMap::new(),
+                sort_by: None,
+                sort_direction: None,
+                limit: Some(limit),
+                offset: Some(offset),
+            };
+
+            match query_albums(params).await {
+                Ok(result) => {
+                    println!(
+                        "found {} albums (total: {})",
+                        result.items.len(),
+                        result.total_count
+                    );
+                    for album in result.items {
+                        println!(
+                            "  {} - {} ({} songs)",
+                            album
+                                .artist
+                                .as_ref()
+                                .map(|a| a.name.clone())
+                                .unwrap_or("Unknown".to_string()),
+                            album.album.title,
+                            album.album.song_count
+                        );
+                    }
+                    if result.has_more {
+                        println!(
+                            "...more results available (use --offset {})",
+                            offset + limit
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to query albums: {}", e);
+                }
+            }
+        }
+        MusicAction::RecentSongs { limit } => {
+            println!("listing recent songs...");
+            match list_recent_songs(Some(limit)).await {
+                Ok(result) => {
+                    println!("found {} recent songs", result.items.len());
+                    for song in result.items {
+                        println!(
+                            "  {} - {} ({})",
+                            song.artist
+                                .as_ref()
+                                .map(|a| a.name.clone())
+                                .unwrap_or("Unknown".to_string()),
+                            song.song.title,
+                            song.album
+                                .as_ref()
+                                .map(|a| a.title.clone())
+                                .unwrap_or("No Album".to_string())
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to list recent songs: {}", e);
                 }
             }
         }
