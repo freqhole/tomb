@@ -54,13 +54,19 @@ SELECT
     al.deleted_at as album_deleted_at,
     al.deleted_by as album_deleted_by,
     al.created_by as album_created_by,
-    al.updated_by as album_updated_by
+    al.updated_by as album_updated_by,
+
+    -- artist aggregated stats
+    arv.song_count as artist_total_song_count,
+    arv.album_count as artist_total_album_count,
+    arv.total_duration as artist_total_duration
 
 FROM songz s
 LEFT JOIN artist_songz ars ON s.rowid = ars.song_rowid
 LEFT JOIN artistz ar ON ars.artist_rowid = ar.rowid AND ar.deleted_at IS NULL
 LEFT JOIN album_songz als ON s.rowid = als.song_rowid
 LEFT JOIN albumz al ON als.album_rowid = al.rowid AND al.deleted_at IS NULL
+LEFT JOIN artist_query_view arv ON ar.rowid = arv.artist_rowid
 WHERE s.deleted_at IS NULL;
 
 -- artist query view with aggregated song/album stats
@@ -145,3 +151,116 @@ CREATE INDEX idx_song_query_view_album_tracks ON songz(deleted_at, disc_number, 
 CREATE INDEX idx_artist_query_view_name ON artistz(name, deleted_at) WHERE deleted_at IS NULL;
 CREATE INDEX idx_album_query_view_title ON albumz(title, deleted_at) WHERE deleted_at IS NULL;
 CREATE INDEX idx_album_query_view_release_date ON albumz(release_date DESC, deleted_at) WHERE deleted_at IS NULL;
+
+-- ordered song views for different sort combinations
+-- these preserve album grouping (disc/track order) while allowing flexible album ordering
+
+-- sort by album title (ascending)
+CREATE VIEW song_query_by_title_asc AS
+SELECT * FROM song_query_view
+ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by album title (descending)
+CREATE VIEW song_query_by_title_desc AS
+SELECT * FROM song_query_view
+ORDER BY album_title DESC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by album release date (newest first)
+CREATE VIEW song_query_by_year_desc AS
+SELECT * FROM song_query_view
+ORDER BY album_release_date DESC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by album release date (oldest first)
+CREATE VIEW song_query_by_year_asc AS
+SELECT * FROM song_query_view
+ORDER BY album_release_date ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by artist name (ascending)
+CREATE VIEW song_query_by_artist_asc AS
+SELECT * FROM song_query_view
+ORDER BY artist_name ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by artist name (descending)
+CREATE VIEW song_query_by_artist_desc AS
+SELECT * FROM song_query_view
+ORDER BY artist_name DESC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by album creation date (newest first)
+CREATE VIEW song_query_by_created_at_desc AS
+SELECT * FROM song_query_view
+ORDER BY album_created_at DESC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by album creation date (oldest first)
+CREATE VIEW song_query_by_created_at_asc AS
+SELECT * FROM song_query_view
+ORDER BY album_created_at ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by album total duration (longest albums first)
+CREATE VIEW song_query_by_album_duration_desc AS
+SELECT * FROM song_query_view
+ORDER BY album_total_duration DESC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by album total duration (shortest albums first)
+CREATE VIEW song_query_by_album_duration_asc AS
+SELECT * FROM song_query_view
+ORDER BY album_total_duration ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by album song count (most songs first)
+CREATE VIEW song_query_by_album_song_count_desc AS
+SELECT * FROM song_query_view
+ORDER BY album_song_count DESC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by album song count (fewest songs first)
+CREATE VIEW song_query_by_album_song_count_asc AS
+SELECT * FROM song_query_view
+ORDER BY album_song_count ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by individual song duration (longest songs first, but preserve album grouping)
+CREATE VIEW song_query_by_song_duration_desc AS
+SELECT * FROM song_query_view
+ORDER BY song_duration DESC, album_title ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by individual song duration (shortest songs first, but preserve album grouping)
+CREATE VIEW song_query_by_song_duration_asc AS
+SELECT * FROM song_query_view
+ORDER BY song_duration ASC, album_title ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by song year (newest songs first, grouped by album)
+CREATE VIEW song_query_by_song_year_desc AS
+SELECT * FROM song_query_view
+ORDER BY song_year DESC, album_title ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by song year (oldest songs first, grouped by album)
+CREATE VIEW song_query_by_song_year_asc AS
+SELECT * FROM song_query_view
+ORDER BY song_year ASC, album_title ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by artist total song count (most prolific artists first)
+CREATE VIEW song_query_by_artist_song_count_desc AS
+SELECT * FROM song_query_view
+ORDER BY artist_total_song_count DESC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by artist total song count (least prolific artists first)
+CREATE VIEW song_query_by_artist_song_count_asc AS
+SELECT * FROM song_query_view
+ORDER BY artist_total_song_count ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by artist total duration (longest total duration first)
+CREATE VIEW song_query_by_artist_duration_desc AS
+SELECT * FROM song_query_view
+ORDER BY artist_total_duration DESC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by artist total duration (shortest total duration first)
+CREATE VIEW song_query_by_artist_duration_asc AS
+SELECT * FROM song_query_view
+ORDER BY artist_total_duration ASC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by artist total album count (most albums first)
+CREATE VIEW song_query_by_artist_album_count_desc AS
+SELECT * FROM song_query_view
+ORDER BY artist_total_album_count DESC, song_disc_number ASC, song_track_number ASC;
+
+-- sort by artist total album count (fewest albums first)
+CREATE VIEW song_query_by_artist_album_count_asc AS
+SELECT * FROM song_query_view
+ORDER BY artist_total_album_count ASC, song_disc_number ASC, song_track_number ASC;

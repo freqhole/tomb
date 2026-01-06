@@ -13,7 +13,7 @@ use crate::music::entities::{Album, Artist, Genre, Song};
 
 /// Song query row from song_query_view - simple and clean!
 #[derive(sqlx::FromRow)]
-struct SongViewRow {
+pub struct SongViewRow {
     // Song fields
     song_rowid: i64,
     song_id: String,
@@ -49,6 +49,11 @@ struct SongViewRow {
     artist_created_by: Option<String>,
     artist_updated_by: Option<String>,
 
+    // Artist aggregated stats
+    artist_total_song_count: Option<i64>,
+    artist_total_album_count: Option<i64>,
+    artist_total_duration: Option<i64>,
+
     // Album fields (optional)
     album_rowid: Option<i64>,
     album_id: Option<String>,
@@ -69,7 +74,7 @@ struct SongViewRow {
 }
 
 impl SongViewRow {
-    fn to_song_query_result(self) -> SongQueryResult {
+    pub fn to_song_query_result(self) -> SongQueryResult {
         let song = Song {
             rowid: self.song_rowid,
             id: self.song_id,
@@ -195,6 +200,432 @@ struct GenreViewRow {
     genre_created_at: i64,
 }
 
+// Helper functions for song queries with different sort orders
+// These preserve album grouping while allowing flexible sort directions
+
+async fn query_songs_with_search_by_title_desc(
+    pool: &sqlx::SqlitePool,
+    pattern: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<SongViewRow>, sqlx::Error> {
+    sqlx::query_as!(
+        SongViewRow,
+        r#"SELECT
+            song_rowid as "song_rowid!",
+            song_id as "song_id!",
+            song_media_blob_id as "song_media_blob_id!",
+            song_thumbnail_blob_id,
+            song_waveform_blob_id,
+            song_title as "song_title!",
+            song_track_number as "song_track_number!",
+            song_disc_number as "song_disc_number!",
+            song_duration,
+            song_year,
+            song_bpm,
+            song_key_signature,
+            song_metadata,
+            song_lyrics,
+            song_processing_status,
+            song_processing_notes,
+            song_created_at as "song_created_at!",
+            song_updated_at as "song_updated_at!",
+            song_deleted_at,
+            song_deleted_by,
+            song_created_by,
+            song_updated_by,
+            artist_rowid,
+            artist_id,
+            artist_name,
+            artist_created_at,
+            artist_updated_at,
+            artist_deleted_at,
+            artist_deleted_by,
+            artist_created_by,
+            artist_updated_by,
+            artist_total_song_count,
+            artist_total_album_count,
+            artist_total_duration,
+            album_rowid,
+            album_id,
+            album_title,
+            album_album_type,
+            album_release_date,
+            album_release_date_precision,
+            album_label,
+            album_genre_rowid,
+            album_song_count,
+            album_total_duration,
+            album_created_at,
+            album_updated_at,
+            album_deleted_at,
+            album_deleted_by,
+            album_created_by,
+            album_updated_by
+         FROM song_query_view
+         WHERE (song_title LIKE ? OR artist_name LIKE ? OR album_title LIKE ?)
+         ORDER BY album_title DESC, song_disc_number ASC, song_track_number ASC
+         LIMIT ? OFFSET ?"#,
+        pattern,
+        pattern,
+        pattern,
+        limit,
+        offset
+    )
+    .fetch_all(pool)
+    .await
+}
+
+async fn query_songs_with_search_by_title_asc(
+    pool: &sqlx::SqlitePool,
+    pattern: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<SongViewRow>, sqlx::Error> {
+    sqlx::query_as!(
+        SongViewRow,
+        r#"SELECT
+            song_rowid as "song_rowid!",
+            song_id as "song_id!",
+            song_media_blob_id as "song_media_blob_id!",
+            song_thumbnail_blob_id,
+            song_waveform_blob_id,
+            song_title as "song_title!",
+            song_track_number as "song_track_number!",
+            song_disc_number as "song_disc_number!",
+            song_duration,
+            song_year,
+            song_bpm,
+            song_key_signature,
+            song_metadata,
+            song_lyrics,
+            song_processing_status,
+            song_processing_notes,
+            song_created_at as "song_created_at!",
+            song_updated_at as "song_updated_at!",
+            song_deleted_at,
+            song_deleted_by,
+            song_created_by,
+            song_updated_by,
+            artist_rowid,
+            artist_id,
+            artist_name,
+            artist_created_at,
+            artist_updated_at,
+            artist_deleted_at,
+            artist_deleted_by,
+            artist_created_by,
+            artist_updated_by,
+            artist_total_song_count,
+            artist_total_album_count,
+            artist_total_duration,
+            album_rowid,
+            album_id,
+            album_title,
+            album_album_type,
+            album_release_date,
+            album_release_date_precision,
+            album_label,
+            album_genre_rowid,
+            album_song_count,
+            album_total_duration,
+            album_created_at,
+            album_updated_at,
+            album_deleted_at,
+            album_deleted_by,
+            album_created_by,
+            album_updated_by
+         FROM song_query_view
+         WHERE (song_title LIKE ? OR artist_name LIKE ? OR album_title LIKE ?)
+         ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC
+         LIMIT ? OFFSET ?"#,
+        pattern,
+        pattern,
+        pattern,
+        limit,
+        offset
+    )
+    .fetch_all(pool)
+    .await
+}
+
+async fn query_songs_with_search_default(
+    pool: &sqlx::SqlitePool,
+    pattern: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<SongViewRow>, sqlx::Error> {
+    sqlx::query_as!(
+        SongViewRow,
+        r#"SELECT
+            song_rowid as "song_rowid!",
+            song_id as "song_id!",
+            song_media_blob_id as "song_media_blob_id!",
+            song_thumbnail_blob_id,
+            song_waveform_blob_id,
+            song_title as "song_title!",
+            song_track_number as "song_track_number!",
+            song_disc_number as "song_disc_number!",
+            song_duration,
+            song_year,
+            song_bpm,
+            song_key_signature,
+            song_metadata,
+            song_lyrics,
+            song_processing_status,
+            song_processing_notes,
+            song_created_at as "song_created_at!",
+            song_updated_at as "song_updated_at!",
+            song_deleted_at,
+            song_deleted_by,
+            song_created_by,
+            song_updated_by,
+            artist_rowid,
+            artist_id,
+            artist_name,
+            artist_created_at,
+            artist_updated_at,
+            artist_deleted_at,
+            artist_deleted_by,
+            artist_created_by,
+            artist_updated_by,
+            artist_total_song_count,
+            artist_total_album_count,
+            artist_total_duration,
+            album_rowid,
+            album_id,
+            album_title,
+            album_album_type,
+            album_release_date,
+            album_release_date_precision,
+            album_label,
+            album_genre_rowid,
+            album_song_count,
+            album_total_duration,
+            album_created_at,
+            album_updated_at,
+            album_deleted_at,
+            album_deleted_by,
+            album_created_by,
+            album_updated_by
+         FROM song_query_view
+         WHERE (song_title LIKE ? OR artist_name LIKE ? OR album_title LIKE ?)
+         ORDER BY album_created_at DESC, song_disc_number ASC, song_track_number ASC
+         LIMIT ? OFFSET ?"#,
+        pattern,
+        pattern,
+        pattern,
+        limit,
+        offset
+    )
+    .fetch_all(pool)
+    .await
+}
+
+async fn query_songs_no_search_by_title_desc(
+    pool: &sqlx::SqlitePool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<SongViewRow>, sqlx::Error> {
+    sqlx::query_as!(
+        SongViewRow,
+        r#"SELECT
+            song_rowid as "song_rowid!",
+            song_id as "song_id!",
+            song_media_blob_id as "song_media_blob_id!",
+            song_thumbnail_blob_id,
+            song_waveform_blob_id,
+            song_title as "song_title!",
+            song_track_number as "song_track_number!",
+            song_disc_number as "song_disc_number!",
+            song_duration,
+            song_year,
+            song_bpm,
+            song_key_signature,
+            song_metadata,
+            song_lyrics,
+            song_processing_status,
+            song_processing_notes,
+            song_created_at as "song_created_at!",
+            song_updated_at as "song_updated_at!",
+            song_deleted_at,
+            song_deleted_by,
+            song_created_by,
+            song_updated_by,
+            artist_rowid,
+            artist_id,
+            artist_name,
+            artist_created_at,
+            artist_updated_at,
+            artist_deleted_at,
+            artist_deleted_by,
+            artist_created_by,
+            artist_updated_by,
+            artist_total_song_count,
+            artist_total_album_count,
+            artist_total_duration,
+            album_rowid,
+            album_id,
+            album_title,
+            album_album_type,
+            album_release_date,
+            album_release_date_precision,
+            album_label,
+            album_genre_rowid,
+            album_song_count,
+            album_total_duration,
+            album_created_at,
+            album_updated_at,
+            album_deleted_at,
+            album_deleted_by,
+            album_created_by,
+            album_updated_by
+         FROM song_query_view
+         ORDER BY album_title DESC, song_disc_number ASC, song_track_number ASC
+         LIMIT ? OFFSET ?"#,
+        limit,
+        offset
+    )
+    .fetch_all(pool)
+    .await
+}
+
+async fn query_songs_no_search_by_title_asc(
+    pool: &sqlx::SqlitePool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<SongViewRow>, sqlx::Error> {
+    sqlx::query_as!(
+        SongViewRow,
+        r#"SELECT
+            song_rowid as "song_rowid!",
+            song_id as "song_id!",
+            song_media_blob_id as "song_media_blob_id!",
+            song_thumbnail_blob_id,
+            song_waveform_blob_id,
+            song_title as "song_title!",
+            song_track_number as "song_track_number!",
+            song_disc_number as "song_disc_number!",
+            song_duration,
+            song_year,
+            song_bpm,
+            song_key_signature,
+            song_metadata,
+            song_lyrics,
+            song_processing_status,
+            song_processing_notes,
+            song_created_at as "song_created_at!",
+            song_updated_at as "song_updated_at!",
+            song_deleted_at,
+            song_deleted_by,
+            song_created_by,
+            song_updated_by,
+            artist_rowid,
+            artist_id,
+            artist_name,
+            artist_created_at,
+            artist_updated_at,
+            artist_deleted_at,
+            artist_deleted_by,
+            artist_created_by,
+            artist_updated_by,
+            artist_total_song_count,
+            artist_total_album_count,
+            artist_total_duration,
+            album_rowid,
+            album_id,
+            album_title,
+            album_album_type,
+            album_release_date,
+            album_release_date_precision,
+            album_label,
+            album_genre_rowid,
+            album_song_count,
+            album_total_duration,
+            album_created_at,
+            album_updated_at,
+            album_deleted_at,
+            album_deleted_by,
+            album_created_by,
+            album_updated_by
+         FROM song_query_view
+         ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC
+         LIMIT ? OFFSET ?"#,
+        limit,
+        offset
+    )
+    .fetch_all(pool)
+    .await
+}
+
+async fn query_songs_no_search_default(
+    pool: &sqlx::SqlitePool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<SongViewRow>, sqlx::Error> {
+    sqlx::query_as!(
+        SongViewRow,
+        r#"SELECT
+            song_rowid as "song_rowid!",
+            song_id as "song_id!",
+            song_media_blob_id as "song_media_blob_id!",
+            song_thumbnail_blob_id,
+            song_waveform_blob_id,
+            song_title as "song_title!",
+            song_track_number as "song_track_number!",
+            song_disc_number as "song_disc_number!",
+            song_duration,
+            song_year,
+            song_bpm,
+            song_key_signature,
+            song_metadata,
+            song_lyrics,
+            song_processing_status,
+            song_processing_notes,
+            song_created_at as "song_created_at!",
+            song_updated_at as "song_updated_at!",
+            song_deleted_at,
+            song_deleted_by,
+            song_created_by,
+            song_updated_by,
+            artist_rowid,
+            artist_id,
+            artist_name,
+            artist_created_at,
+            artist_updated_at,
+            artist_deleted_at,
+            artist_deleted_by,
+            artist_created_by,
+            artist_updated_by,
+            artist_total_song_count,
+            artist_total_album_count,
+            artist_total_duration,
+            album_rowid,
+            album_id,
+            album_title,
+            album_album_type,
+            album_release_date,
+            album_release_date_precision,
+            album_label,
+            album_genre_rowid,
+            album_song_count,
+            album_total_duration,
+            album_created_at,
+            album_updated_at,
+            album_deleted_at,
+            album_deleted_by,
+            album_created_by,
+            album_updated_by
+         FROM song_query_view
+         ORDER BY album_created_at DESC, song_disc_number ASC, song_track_number ASC
+         LIMIT ? OFFSET ?"#,
+        limit,
+        offset
+    )
+    .fetch_all(pool)
+    .await
+}
+
 pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<SongQueryResult>> {
     let start_time = Instant::now();
     let pool = database::connect().await?;
@@ -224,245 +655,33 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
             .await?
     };
 
-    // Execute query based on sort preference - CRITICAL: always preserve album track ordering!
+    // Execute query based on sort preference - using SQL views for clean, fast queries
     let rows = if let Some(ref pattern) = search_pattern {
         // With search
         match (params.sort_by.as_deref(), params.sort_direction.as_deref()) {
             (Some("title"), Some("desc")) => {
-                sqlx::query_as!(
-                    SongViewRow,
-                    r#"SELECT
-                        song_rowid as "song_rowid!",
-                        song_id as "song_id!",
-                        song_media_blob_id as "song_media_blob_id!",
-                        song_thumbnail_blob_id,
-                        song_waveform_blob_id,
-                        song_title as "song_title!",
-                        song_track_number as "song_track_number!",
-                        song_disc_number as "song_disc_number!",
-                        song_duration,
-                        song_year,
-                        song_bpm,
-                        song_key_signature,
-                        song_metadata,
-                        song_lyrics,
-                        song_processing_status,
-                        song_processing_notes,
-                        song_created_at as "song_created_at!",
-                        song_updated_at as "song_updated_at!",
-                        song_deleted_at,
-                        song_deleted_by,
-                        song_created_by,
-                        song_updated_by,
-                        artist_rowid,
-                        artist_id,
-                        artist_name,
-                        artist_created_at,
-                        artist_updated_at,
-                        artist_deleted_at,
-                        artist_deleted_by,
-                        artist_created_by,
-                        artist_updated_by,
-                        album_rowid,
-                        album_id,
-                        album_title,
-                        album_album_type,
-                        album_release_date,
-                        album_release_date_precision,
-                        album_label,
-                        album_genre_rowid,
-                        album_song_count,
-                        album_total_duration,
-                        album_created_at,
-                        album_updated_at,
-                        album_deleted_at,
-                        album_deleted_by,
-                        album_created_by,
-                        album_updated_by
-                     FROM song_query_view
-                     WHERE (song_title LIKE ? OR artist_name LIKE ? OR album_title LIKE ?)
-                     ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC, song_title DESC
-                     LIMIT ? OFFSET ?"#,
-                    pattern, pattern, pattern, limit, offset
-                ).fetch_all(&pool).await?
-            },
+                query_songs_with_search_by_title_desc(&pool, pattern, limit, offset).await?
+            }
+            (Some("title"), Some("asc")) => {
+                query_songs_with_search_by_title_asc(&pool, pattern, limit, offset).await?
+            }
             _ => {
                 // Default search: by created_at DESC but preserve album ordering
-                sqlx::query_as!(
-                    SongViewRow,
-                    r#"SELECT
-                        song_rowid as "song_rowid!",
-                        song_id as "song_id!",
-                        song_media_blob_id as "song_media_blob_id!",
-                        song_thumbnail_blob_id,
-                        song_waveform_blob_id,
-                        song_title as "song_title!",
-                        song_track_number as "song_track_number!",
-                        song_disc_number as "song_disc_number!",
-                        song_duration,
-                        song_year,
-                        song_bpm,
-                        song_key_signature,
-                        song_metadata,
-                        song_lyrics,
-                        song_processing_status,
-                        song_processing_notes,
-                        song_created_at as "song_created_at!",
-                        song_updated_at as "song_updated_at!",
-                        song_deleted_at,
-                        song_deleted_by,
-                        song_created_by,
-                        song_updated_by,
-                        artist_rowid,
-                        artist_id,
-                        artist_name,
-                        artist_created_at,
-                        artist_updated_at,
-                        artist_deleted_at,
-                        artist_deleted_by,
-                        artist_created_by,
-                        artist_updated_by,
-                        album_rowid,
-                        album_id,
-                        album_title,
-                        album_album_type,
-                        album_release_date,
-                        album_release_date_precision,
-                        album_label,
-                        album_genre_rowid,
-                        album_song_count,
-                        album_total_duration,
-                        album_created_at,
-                        album_updated_at,
-                        album_deleted_at,
-                        album_deleted_by,
-                        album_created_by,
-                        album_updated_by
-                     FROM song_query_view
-                     WHERE (song_title LIKE ? OR artist_name LIKE ? OR album_title LIKE ?)
-                     ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC, song_created_at DESC
-                     LIMIT ? OFFSET ?"#,
-                    pattern, pattern, pattern, limit, offset
-                ).fetch_all(&pool).await?
+                query_songs_with_search_default(&pool, pattern, limit, offset).await?
             }
         }
     } else {
         // Without search
         match (params.sort_by.as_deref(), params.sort_direction.as_deref()) {
             (Some("title"), Some("desc")) => {
-                sqlx::query_as!(
-                    SongViewRow,
-                    r#"SELECT
-                        song_rowid as "song_rowid!",
-                        song_id as "song_id!",
-                        song_media_blob_id as "song_media_blob_id!",
-                        song_thumbnail_blob_id,
-                        song_waveform_blob_id,
-                        song_title as "song_title!",
-                        song_track_number as "song_track_number!",
-                        song_disc_number as "song_disc_number!",
-                        song_duration,
-                        song_year,
-                        song_bpm,
-                        song_key_signature,
-                        song_metadata,
-                        song_lyrics,
-                        song_processing_status,
-                        song_processing_notes,
-                        song_created_at as "song_created_at!",
-                        song_updated_at as "song_updated_at!",
-                        song_deleted_at,
-                        song_deleted_by,
-                        song_created_by,
-                        song_updated_by,
-                        artist_rowid,
-                        artist_id,
-                        artist_name,
-                        artist_created_at,
-                        artist_updated_at,
-                        artist_deleted_at,
-                        artist_deleted_by,
-                        artist_created_by,
-                        artist_updated_by,
-                        album_rowid,
-                        album_id,
-                        album_title,
-                        album_album_type,
-                        album_release_date,
-                        album_release_date_precision,
-                        album_label,
-                        album_genre_rowid,
-                        album_song_count,
-                        album_total_duration,
-                        album_created_at,
-                        album_updated_at,
-                        album_deleted_at,
-                        album_deleted_by,
-                        album_created_by,
-                        album_updated_by
-                     FROM song_query_view
-                     ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC, song_title DESC
-                     LIMIT ? OFFSET ?"#,
-                    limit, offset
-                ).fetch_all(&pool).await?
-            },
+                query_songs_no_search_by_title_desc(&pool, limit, offset).await?
+            }
+            (Some("title"), Some("asc")) => {
+                query_songs_no_search_by_title_asc(&pool, limit, offset).await?
+            }
             _ => {
                 // Default: by created_at DESC but preserve album ordering
-                sqlx::query_as!(
-                    SongViewRow,
-                    r#"SELECT
-                        song_rowid as "song_rowid!",
-                        song_id as "song_id!",
-                        song_media_blob_id as "song_media_blob_id!",
-                        song_thumbnail_blob_id,
-                        song_waveform_blob_id,
-                        song_title as "song_title!",
-                        song_track_number as "song_track_number!",
-                        song_disc_number as "song_disc_number!",
-                        song_duration,
-                        song_year,
-                        song_bpm,
-                        song_key_signature,
-                        song_metadata,
-                        song_lyrics,
-                        song_processing_status,
-                        song_processing_notes,
-                        song_created_at as "song_created_at!",
-                        song_updated_at as "song_updated_at!",
-                        song_deleted_at,
-                        song_deleted_by,
-                        song_created_by,
-                        song_updated_by,
-                        artist_rowid,
-                        artist_id,
-                        artist_name,
-                        artist_created_at,
-                        artist_updated_at,
-                        artist_deleted_at,
-                        artist_deleted_by,
-                        artist_created_by,
-                        artist_updated_by,
-                        album_rowid,
-                        album_id,
-                        album_title,
-                        album_album_type,
-                        album_release_date,
-                        album_release_date_precision,
-                        album_label,
-                        album_genre_rowid,
-                        album_song_count,
-                        album_total_duration,
-                        album_created_at,
-                        album_updated_at,
-                        album_deleted_at,
-                        album_deleted_by,
-                        album_created_by,
-                        album_updated_by
-                     FROM song_query_view
-                     ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC, song_created_at DESC
-                     LIMIT ? OFFSET ?"#,
-                    limit, offset
-                ).fetch_all(&pool).await?
+                query_songs_no_search_default(&pool, limit, offset).await?
             }
         }
     };
@@ -1042,6 +1261,9 @@ pub async fn query_recent_songs(limit: Option<usize>) -> GrimoireResult<Vec<Song
             artist_deleted_by,
             artist_created_by,
             artist_updated_by,
+            artist_total_song_count,
+            artist_total_album_count,
+            artist_total_duration,
             album_rowid,
             album_id,
             album_title,
@@ -1059,7 +1281,7 @@ pub async fn query_recent_songs(limit: Option<usize>) -> GrimoireResult<Vec<Song
             album_created_by,
             album_updated_by
          FROM song_query_view
-         ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC, song_created_at DESC
+         ORDER BY album_created_at DESC, song_disc_number ASC, song_track_number ASC
          LIMIT ?"#,
         limit
     )

@@ -6,6 +6,7 @@ mod deduplication;
 mod delete;
 mod models;
 mod query;
+mod sea_query_experiment;
 
 // re-export public types
 pub use models::{
@@ -42,6 +43,9 @@ pub use query::{
     query_songs,
     search_songs,
 };
+
+// re-export experimental functions
+pub use sea_query_experiment::query_songs as experimental_query_songs;
 
 // re-export delete operations
 pub use delete::{
