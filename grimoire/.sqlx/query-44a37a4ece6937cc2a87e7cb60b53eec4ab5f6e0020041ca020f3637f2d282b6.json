@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n                        song_rowid as \"song_rowid!\",\n                        song_id as \"song_id!\",\n                        song_media_blob_id as \"song_media_blob_id!\",\n                        song_thumbnail_blob_id,\n                        song_waveform_blob_id,\n                        song_title as \"song_title!\",\n                        song_track_number as \"song_track_number!\",\n                        song_disc_number as \"song_disc_number!\",\n                        song_duration,\n                        song_year,\n                        song_bpm,\n                        song_key_signature,\n                        song_metadata,\n                        song_lyrics,\n                        song_processing_status,\n                        song_processing_notes,\n                        song_created_at as \"song_created_at!\",\n                        song_updated_at as \"song_updated_at!\",\n                        song_deleted_at,\n                        song_deleted_by,\n                        song_created_by,\n                        song_updated_by,\n                        artist_rowid,\n                        artist_id,\n                        artist_name,\n                        artist_created_at,\n                        artist_updated_at,\n                        artist_deleted_at,\n                        artist_deleted_by,\n                        artist_created_by,\n                        artist_updated_by,\n                        album_rowid,\n                        album_id,\n                        album_title,\n                        album_album_type,\n                        album_release_date,\n                        album_release_date_precision,\n                        album_label,\n                        album_genre_rowid,\n                        album_song_count,\n                        album_total_duration,\n                        album_created_at,\n                        album_updated_at,\n                        album_deleted_at,\n                        album_deleted_by,\n                        album_created_by,\n                        album_updated_by\n                     FROM song_query_view\n                     ORDER BY song_created_at DESC, album_title ASC, song_disc_number ASC, song_track_number ASC\n                     LIMIT ? OFFSET ?",
+  "query": "SELECT\n            song_rowid as \"song_rowid!\",\n            song_id as \"song_id!\",\n            song_media_blob_id as \"song_media_blob_id!\",\n            song_thumbnail_blob_id,\n            song_waveform_blob_id,\n            song_title as \"song_title!\",\n            song_track_number as \"song_track_number!\",\n            song_disc_number as \"song_disc_number!\",\n            song_duration,\n            song_year,\n            song_bpm,\n            song_key_signature,\n            song_metadata,\n            song_lyrics,\n            song_processing_status,\n            song_processing_notes,\n            song_created_at as \"song_created_at!\",\n            song_updated_at as \"song_updated_at!\",\n            song_deleted_at,\n            song_deleted_by,\n            song_created_by,\n            song_updated_by,\n            artist_rowid,\n            artist_id,\n            artist_name,\n            artist_created_at,\n            artist_updated_at,\n            artist_deleted_at,\n            artist_deleted_by,\n            artist_created_by,\n            artist_updated_by,\n            album_rowid,\n            album_id,\n            album_title,\n            album_album_type,\n            album_release_date,\n            album_release_date_precision,\n            album_label,\n            album_genre_rowid,\n            album_song_count,\n            album_total_duration,\n            album_created_at,\n            album_updated_at,\n            album_deleted_at,\n            album_deleted_by,\n            album_created_by,\n            album_updated_by\n         FROM song_query_view\n         ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC, song_created_at DESC\n         LIMIT ?",
   "describe": {
     "columns": [
       {
@@ -240,7 +240,7 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
       true,
@@ -292,5 +292,5 @@
       true
     ]
   },
-  "hash": "117fa0f360749e8af48c8751da584d6579c10d89dc47b404ed3513dd187f72c1"
+  "hash": "44a37a4ece6937cc2a87e7cb60b53eec4ab5f6e0020041ca020f3637f2d282b6"
 }
