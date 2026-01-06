@@ -5,14 +5,15 @@ mod create_or_update;
 mod deduplication;
 mod delete;
 mod models;
+mod playlist_query;
 mod query;
 
 // re-export public types
 pub use models::{
     AlbumImportRequest, AlbumImportResult, AlbumQueryResult, ArtistImportRequest,
     ArtistQueryResult, BulkImportRequest, BulkImportResult, CreateSongWithMetadataRequest,
-    ImportSongRequest, ImportSongResult, QueryParams, QueryResult, SongImportError,
-    SongQueryResult,
+    ImportSongRequest, ImportSongResult, PlaylistQueryResult, QueryParams, QueryResult,
+    SongImportError, SongQueryResult,
 };
 
 // re-export main workflow functions with cleaner names
@@ -41,6 +42,11 @@ pub use query::{
     query_genres,
     query_songs,
     search_songs,
+};
+
+// re-export playlist query operations
+pub use playlist_query::{
+    list_user_playlists, query_playlist_songs, query_playlists, search_playlists,
 };
 
 // re-export delete operations

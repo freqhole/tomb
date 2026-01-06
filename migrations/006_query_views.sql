@@ -151,8 +151,3 @@ CREATE INDEX idx_song_query_view_album_tracks ON songz(deleted_at, disc_number, 
 CREATE INDEX idx_artist_query_view_name ON artistz(name, deleted_at) WHERE deleted_at IS NULL;
 CREATE INDEX idx_album_query_view_title ON albumz(title, deleted_at) WHERE deleted_at IS NULL;
 CREATE INDEX idx_album_query_view_release_date ON albumz(release_date DESC, deleted_at) WHERE deleted_at IS NULL;
-
--- Note: Previously this file contained 20+ ordered views like song_query_by_title_asc,
--- song_query_by_artist_desc, etc. These have been replaced by dynamic sea-query
--- implementation in query.rs which generates the same SQL with proper parameter binding.
--- This reduces migration size and eliminates code duplication.

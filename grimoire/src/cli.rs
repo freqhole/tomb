@@ -162,6 +162,48 @@ pub enum MusicAction {
         #[arg(long, default_value = "0")]
         offset: u32,
     },
+    /// Query playlists
+    QueryPlaylists {
+        /// Search query
+        #[arg(long)]
+        search: Option<String>,
+        /// Sort by field (title, created_at, updated_at, song_count, duration)
+        #[arg(long)]
+        sort_by: Option<String>,
+        /// Sort direction (asc, desc)
+        #[arg(long)]
+        sort_direction: Option<String>,
+        /// Filter by public/private (true for public only, false for private only)
+        #[arg(long)]
+        is_public: Option<bool>,
+        /// Limit number of results
+        #[arg(long, default_value = "10")]
+        limit: u32,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: u32,
+    },
+    /// Query songs in a playlist
+    QueryPlaylistSongs {
+        /// Playlist ID
+        #[arg(long)]
+        playlist_id: String,
+        /// Search query within playlist
+        #[arg(long)]
+        search: Option<String>,
+        /// Sort by field (position, added_at, title, artist)
+        #[arg(long)]
+        sort_by: Option<String>,
+        /// Sort direction (asc, desc)
+        #[arg(long)]
+        sort_direction: Option<String>,
+        /// Limit number of results
+        #[arg(long, default_value = "20")]
+        limit: u32,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: u32,
+    },
     /// List recent songs
     RecentSongs {
         /// Limit number of results
@@ -468,7 +510,8 @@ async fn handle_database_command(action: DatabaseAction) -> GrimoireResult<()> {
 
 async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
     use crate::music::crud::{
-        list_recent_songs, query_albums, query_artists, query_genres, query_songs, QueryParams,
+        list_recent_songs, query_albums, query_artists, query_genres, query_playlist_songs,
+        query_playlists, query_songs, QueryParams,
     };
     use std::collections::HashMap;
 
@@ -668,6 +711,123 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 }
                 Err(e) => {
                     eprintln!("failed to query genres: {}", e);
+                }
+            }
+        }
+        MusicAction::QueryPlaylists {
+            search,
+            sort_by,
+            sort_direction,
+            is_public,
+            limit,
+            offset,
+        } => {
+            println!("querying playlists...");
+            let mut filters = HashMap::new();
+            if let Some(public) = is_public {
+                filters.insert("is_public".to_string(), serde_json::Value::Bool(public));
+            }
+
+            let params = QueryParams {
+                q: search,
+                search_fields: None,
+                filters,
+                sort_by,
+                sort_direction,
+                limit: Some(limit),
+                offset: Some(offset),
+            };
+
+            match query_playlists(params).await {
+                Ok(result) => {
+                    println!(
+                        "found {} playlists (total: {})",
+                        result.items.len(),
+                        result.total_count
+                    );
+                    for playlist in result.items {
+                        let public_status = if playlist.playlist.is_public == 1 {
+                            "public"
+                        } else {
+                            "private"
+                        };
+                        println!(
+                            "  {} ({} songs, {}) - {}",
+                            playlist.playlist.title,
+                            playlist.song_count,
+                            public_status,
+                            playlist
+                                .playlist
+                                .description
+                                .unwrap_or_else(|| "No description".to_string())
+                        );
+                    }
+                    if result.has_more {
+                        println!(
+                            "...more results available (use --offset {})",
+                            offset + limit
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to query playlists: {}", e);
+                }
+            }
+        }
+        MusicAction::QueryPlaylistSongs {
+            playlist_id,
+            search,
+            sort_by,
+            sort_direction,
+            limit,
+            offset,
+        } => {
+            println!("querying playlist songs...");
+            let params = QueryParams {
+                q: search,
+                search_fields: None,
+                filters: HashMap::new(),
+                sort_by,
+                sort_direction,
+                limit: Some(limit),
+                offset: Some(offset),
+            };
+
+            match query_playlist_songs(&playlist_id, params).await {
+                Ok(result) => {
+                    println!(
+                        "found {} songs in playlist (total: {})",
+                        result.items.len(),
+                        result.total_count
+                    );
+                    for song in result.items {
+                        let track_info = format!(
+                            "D{:02}T{:02}",
+                            song.song.disc_number, song.song.track_number
+                        );
+                        println!(
+                            "  [{}] {} - {} ({})",
+                            track_info,
+                            song.artist
+                                .as_ref()
+                                .map(|a| a.name.clone())
+                                .unwrap_or("Unknown".to_string()),
+                            song.song.title,
+                            song.album
+                                .as_ref()
+                                .map(|a| a.title.clone())
+                                .unwrap_or("Unknown".to_string())
+                        );
+                    }
+                    if result.has_more {
+                        println!(
+                            "...more results available (use --offset {})",
+                            offset + limit
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to query playlist songs: {}", e);
                 }
             }
         }

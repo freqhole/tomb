@@ -224,3 +224,12 @@ pub struct GenreQueryResult {
     pub song_count: Option<i64>,  // Could be computed if needed
     pub album_count: Option<i64>, // Could be computed if needed
 }
+
+/// playlist with optional aggregated metadata for query results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaylistQueryResult {
+    pub playlist: crate::music::Playlist,
+    pub song_count: i64,
+    pub total_duration: Option<i64>,
+    pub is_favorite: Option<bool>, // Future implementation
+}
