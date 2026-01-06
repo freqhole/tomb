@@ -58,6 +58,9 @@ pub enum GrimoireError {
 
     #[error("validation error: {field} - {message}")]
     Validation { field: String, message: String },
+
+    #[error("processing failed: {message}")]
+    ProcessingFailed { message: String },
 }
 
 /// result type alias for grimoire operations

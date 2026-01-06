@@ -37,4 +37,7 @@ pub struct CreateMediaBlobRequest {
     #[serde(default)]
     pub metadata: serde_json::Value,
     pub created_by: Option<String>,
+    /// binary data for thumbnails, waveforms, etc. (exclusive with local_path)
+    #[serde(skip)]
+    pub data: Option<Vec<u8>>,
 }

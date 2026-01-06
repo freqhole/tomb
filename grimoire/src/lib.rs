@@ -3,6 +3,7 @@
 //! sqlite-focused music library with minimal dependencies.
 //! provides centralized domain logic for music metadata and blob storage.
 
+pub mod blob_data;
 pub mod cli;
 pub mod config;
 mod database;

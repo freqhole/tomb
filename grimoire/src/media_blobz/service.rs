@@ -2,12 +2,12 @@
 //! clean business logic using sqlx::query_as! with no fallbacks
 
 use super::models::{CreateMediaBlobRequest, MediaBlob};
-use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
+use crate::{blob_data, database};
 
 /// create a new media blob
 pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<MediaBlob> {
-    let pool = database::connect_media_blobz().await?;
+    let pool = database::connect().await?;
 
     let blob_type = req.blob_type.unwrap_or_else(|| "original".to_string());
     let metadata_str = serde_json::to_string(&req.metadata).unwrap_or_else(|_| "{}".to_string());
@@ -56,12 +56,17 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
         serde_json::from_str(&blob_with_metadata.metadata.as_str().unwrap_or("{}"))
             .unwrap_or_default();
 
+    // If binary data was provided, store it in blob_data table
+    if let Some(data) = req.data {
+        blob_data::store_blob_data(&blob_with_metadata.id, data).await?;
+    }
+
     Ok(blob_with_metadata)
 }
 
 /// list all media blobs (non-deleted only)
 pub async fn list_media_blobs() -> GrimoireResult<Vec<MediaBlob>> {
-    let pool = database::connect_media_blobz().await?;
+    let pool = database::connect().await?;
 
     let blobs = sqlx::query_as!(
         MediaBlob,
@@ -105,7 +110,7 @@ pub async fn list_media_blobs() -> GrimoireResult<Vec<MediaBlob>> {
 
 /// get media blob by id
 pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
-    let pool = database::connect_media_blobz().await?;
+    let pool = database::connect().await?;
 
     let blob = sqlx::query_as!(
         MediaBlob,
@@ -145,7 +150,7 @@ pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
 
 /// soft delete a media blob
 pub async fn delete_media_blob(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
-    let pool = database::connect_media_blobz().await?;
+    let pool = database::connect().await?;
     let rows_affected = sqlx::query!(
         "UPDATE media_blobz SET deleted_at = unixepoch(), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
         deleted_by,
