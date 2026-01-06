@@ -19,9 +19,6 @@ pub(crate) async fn connect() -> GrimoireResult<SqlitePool> {
         format!("sqlite:{}?mode=rwc", db_file)
     };
 
-    // TODO: clean up this debug logging once config system is proper
-    println!("DATABASE: Connecting to {}", connection_string);
-
     let pool = SqlitePool::connect(&connection_string).await?;
 
     // Configure SQLite settings via PRAGMA statements
