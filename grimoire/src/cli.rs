@@ -481,18 +481,11 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                         result.total_count
                     );
                     for song in result.items {
-                        let track_info = match (song.song.disc_number, song.song.track_number) {
-                            (Some(disc), Some(track)) => format!("D{:02}T{:02}", disc, track),
-                            (None, Some(track)) => format!("T{:02}", track),
-                            (Some(disc), None) => format!("D{:02}", disc),
-                            (None, None) => "".to_string(),
-                        };
-
-                        let track_display = if track_info.is_empty() {
-                            "".to_string()
-                        } else {
-                            format!(" [{}]", track_info)
-                        };
+                        let track_info = format!(
+                            "D{:02}T{:02}",
+                            song.song.disc_number, song.song.track_number
+                        );
+                        let track_display = format!("[{}]", track_info);
 
                         println!(
                             "  {}{} - {} ({})",

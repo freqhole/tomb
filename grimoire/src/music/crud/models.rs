@@ -44,8 +44,8 @@ pub struct CreateSongWithMetadataRequest {
     pub artist_name: String, // required
     pub album_title: String, // required
     pub genre_name: Option<String>,
-    pub track_number: Option<i64>,
-    pub disc_number: Option<i64>,
+    pub track_number: i64,
+    pub disc_number: i64,
     pub duration: Option<i64>,
     pub year: Option<i64>,
     pub created_by: Option<String>,
