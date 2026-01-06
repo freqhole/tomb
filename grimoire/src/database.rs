@@ -9,14 +9,22 @@ use sqlx::SqlitePool;
 pub(crate) async fn connect() -> GrimoireResult<SqlitePool> {
     let config = AppConfig::default();
 
-    // Extract file path and build standardized connection string
+    // Extract file path and build connection string with proper SQLite options
     let db_file = config.database_file_path();
-    let connection_string = format!(
-        "sqlite:{}?mode=rwc&journal_mode=WAL&synchronous=NORMAL&foreign_keys=on",
-        db_file
-    );
+    let connection_string = format!("sqlite:{}?mode=rwc", db_file);
 
     let pool = SqlitePool::connect(&connection_string).await?;
+
+    // Configure SQLite settings via PRAGMA statements
+    sqlx::query("PRAGMA journal_mode = WAL")
+        .execute(&pool)
+        .await?;
+    sqlx::query("PRAGMA synchronous = NORMAL")
+        .execute(&pool)
+        .await?;
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await?;
 
     // run migrations
     sqlx::migrate!("../migrations").run(&pool).await?;

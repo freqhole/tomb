@@ -16,7 +16,7 @@ pub fn normalize_name(input: &str) -> String {
 
 /// normalize artist name with music-specific rules
 pub fn normalize_artist_name(input: &str) -> String {
-    let mut normalized = normalize_name(input);
+    let normalized = normalize_name(input);
 
     // TODO: add music-specific normalization rules
     // - Handle "The Beatles" vs "Beatles, The"
@@ -28,7 +28,7 @@ pub fn normalize_artist_name(input: &str) -> String {
 
 /// normalize album title with music-specific rules
 pub fn normalize_album_title(input: &str) -> String {
-    let mut normalized = normalize_name(input);
+    let normalized = normalize_name(input);
 
     // TODO: add album-specific normalization rules
     // - Handle "Greatest Hits" variations
@@ -40,7 +40,7 @@ pub fn normalize_album_title(input: &str) -> String {
 
 /// normalize genre name for consistent categorization
 pub fn normalize_genre_name(input: &str) -> String {
-    let mut normalized = normalize_name(input);
+    let normalized = normalize_name(input);
 
     // TODO: add genre-specific normalization rules
     // - Handle plural/singular variations ("Rock" vs "Rocks")

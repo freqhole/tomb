@@ -23,3 +23,5 @@ assets/private/uploads/
 logs.txt
 logz.txt
 data/dev.db
+/data
+/grimoire/data

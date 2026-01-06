@@ -24,6 +24,14 @@ url = { workspace = true }
 regex = { workspace = true }
 sea-query = { version = "0.31", features = ["backend-sqlite"] }
 sea-query-binder = { version = "0.7", features = ["sqlx-sqlite", "with-time", "with-bigdecimal"] }
+clap = { version = "4.4", features = ["derive"] }
+humantime = "2.1"
+
+tracing-subscriber = "0.3"
+
+[[bin]]
+name = "grimoire"
+path = "src/main.rs"
 
 [features]
 default = []

@@ -3,6 +3,7 @@
 //! sqlite-focused music library with minimal dependencies.
 //! provides centralized domain logic for music metadata and blob storage.
 
+pub mod cli;
 pub mod config;
 mod database;
 pub mod error;
@@ -24,12 +25,9 @@ pub async fn init(config: &AppConfig) -> GrimoireResult<()> {
     // ensure directories exist for database files
     config.ensure_directories()?;
 
-    // just ensure databases exist and migrations run
+    // just ensure database exists and migrations run
     // actual connections happen per-operation
-    let _ = database::connect_media_blobz().await?;
-    let _ = database::connect_blob_data().await?;
-    let _ = database::connect_music().await?;
-    let _ = database::connect_app_state().await?;
+    let _ = database::connect().await?;
 
     tracing::info!("grimoire initialized successfully");
     Ok(())

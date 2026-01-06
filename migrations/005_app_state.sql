@@ -1,15 +1,40 @@
 -- app_state.db - jobs, config, auth tables
 
--- job system
+-- job system with sessions for batch operations
+CREATE TABLE job_sessionz (
+  rowid INTEGER PRIMARY KEY,
+  id TEXT UNIQUE NOT NULL DEFAULT (lower(hex(randomblob(8)))),
+  job_type TEXT NOT NULL,
+  status TEXT DEFAULT 'Active',
+  progress TEXT DEFAULT '{"current":0,"total":0}',  -- JSON JobProgress
+  last_checkpoint TEXT,            -- for resume capability
+  batch_size INTEGER DEFAULT 100,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  created_by TEXT
+);
+
 CREATE TABLE jobz (
   rowid INTEGER PRIMARY KEY,
-  id TEXT UNIQUE NOT NULL,
+  id TEXT UNIQUE NOT NULL DEFAULT (lower(hex(randomblob(8)))),
+  session_id TEXT,                 -- reference to job_sessionz.id
   job_type TEXT NOT NULL,
-  status TEXT DEFAULT 'pending',
-  data TEXT,                      -- json blob
-  created_at INTEGER,
+  status TEXT DEFAULT 'Pending',
+  parameters TEXT NOT NULL DEFAULT '{}',  -- JSON parameters
+  result TEXT,                     -- JSON result
+  retry_count INTEGER DEFAULT 0,
+  max_retries INTEGER DEFAULT 3,
+  scheduled_at INTEGER NOT NULL DEFAULT (unixepoch()),
   started_at INTEGER,
-  completed_at INTEGER
+  completed_at INTEGER,
+  error_message TEXT,
+  created_by TEXT,
+
+  -- constraints
+  CHECK (status IN ('Pending', 'Running', 'Completed', 'Failed', 'Cancelled')),
+  CHECK (retry_count >= 0),
+  CHECK (max_retries >= 0),
+  FOREIGN KEY (session_id) REFERENCES job_sessionz(id)
 );
 
 -- user accounts
@@ -30,11 +55,26 @@ CREATE TABLE invite_codez (
   used_by_rowid INTEGER          -- reference to user_accountz.rowid
 );
 
+-- triggers for automatic audit field updates
+CREATE TRIGGER trg_job_sessionz_updated_at
+AFTER UPDATE ON job_sessionz
+FOR EACH ROW
+BEGIN
+  UPDATE job_sessionz SET updated_at = unixepoch() WHERE rowid = NEW.rowid;
+END;
+
+-- indexes for job_sessionz
+CREATE INDEX idx_job_sessionz_status ON job_sessionz(status);
+CREATE INDEX idx_job_sessionz_type ON job_sessionz(job_type);
+CREATE INDEX idx_job_sessionz_created_at ON job_sessionz(created_at DESC);
+
 -- indexes for jobz
 CREATE INDEX idx_jobz_status ON jobz(status);
 CREATE INDEX idx_jobz_type ON jobz(job_type);
-CREATE INDEX idx_jobz_created_at ON jobz(created_at DESC);
-CREATE INDEX idx_jobz_queue ON jobz(status, created_at) WHERE status = 'pending';
+CREATE INDEX idx_jobz_session_id ON jobz(session_id);
+CREATE INDEX idx_jobz_scheduled_at ON jobz(scheduled_at);
+CREATE INDEX idx_jobz_queue ON jobz(status, scheduled_at) WHERE status = 'Pending';
+CREATE INDEX idx_jobz_retry ON jobz(retry_count, max_retries) WHERE status = 'Failed';
 
 -- indexes for user_accountz
 CREATE UNIQUE INDEX idx_user_accountz_username ON user_accountz(username);
