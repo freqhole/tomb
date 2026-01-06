@@ -531,7 +531,7 @@ async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobError
             file_path: file_path_str,
             extract_metadata: true,
             generate_thumbnail: true,
-            generate_waveform: false, // Keep false for now to avoid processing overhead
+            generate_waveform: true, // Enable for testing
         };
 
         let job_request = CreateJobRequest {
@@ -794,49 +794,107 @@ async fn extract_and_store_metadata(
     file_size: u64,
 ) -> Result<(String, Option<String>, Option<String>), JobError> {
     use crate::music::crud::{add_song, ImportSongRequest};
-    use lofty::{Accessor, AudioFile, Probe, TaggedFileExt};
+    use lofty::{Accessor, AudioFile, ItemValue, Probe, TaggedFileExt};
+    use std::collections::HashMap;
 
-    // Parse audio file with lofty
-    let tagged_file = Probe::open(file_path)
-        .map_err(|e| JobError::ProcessingFailed {
-            reason: format!("Failed to probe audio file: {}", e),
-        })?
-        .read()
-        .map_err(|e| JobError::ProcessingFailed {
-            reason: format!("Failed to read audio file: {}", e),
-        })?;
+    // Parse audio file with lofty with error handling
+    let tagged_file = match Probe::open(file_path).and_then(|p| p.read()) {
+        Ok(file) => file,
+        Err(e) => {
+            println!(
+                "warning: could not read metadata from {:?}: {}",
+                file_path, e
+            );
+            // Still try to create a basic song record with filename
+            return create_basic_song_record(media_blob_id, file_path, file_size).await;
+        }
+    };
 
-    // Extract properties
+    // Extract properties with fallbacks
     let properties = tagged_file.properties();
     let duration_ms = properties.duration().as_millis() as i64;
-    let bitrate = properties.audio_bitrate().unwrap_or(0) as i32;
-    let sample_rate = properties.sample_rate().unwrap_or(0) as i32;
+    let _bitrate = properties.audio_bitrate().unwrap_or(0);
+    let _sample_rate = properties.sample_rate().unwrap_or(0);
 
-    // Extract tags
-    let primary_tag = tagged_file.primary_tag();
-    let title = primary_tag
-        .and_then(|tag| tag.title().map(|s| s.to_string()))
-        .unwrap_or_else(|| {
-            file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Unknown Title")
-                .to_string()
-        });
+    // Extract all tag data for comprehensive parsing
+    let mut tags_map = HashMap::new();
+    if let Some(tag) = tagged_file.primary_tag() {
+        for item in tag.items() {
+            let key = format!("{:?}", item.key());
+            let value_str = match item.value() {
+                ItemValue::Text(s) | ItemValue::Locator(s) => s.clone(),
+                ItemValue::Binary(_) => continue, // Skip binary data
+            };
 
-    let artist_name = primary_tag
-        .and_then(|tag| tag.artist().map(|s| s.to_string()))
-        .unwrap_or_else(|| "Unknown Artist".to_string());
+            if !value_str.trim().is_empty() {
+                tags_map.insert(key, value_str.trim().to_string());
+            }
+        }
+    }
 
-    let album_title = primary_tag.and_then(|tag| tag.album().map(|s| s.to_string()));
+    // Helper function to get tag value case-insensitively with fallbacks
+    let get_tag = |preferred: &str, fallbacks: &[&str]| -> Option<String> {
+        // Try preferred key first
+        if let Some(value) = tags_map.get(preferred) {
+            if !value.is_empty() {
+                return Some(value.clone());
+            }
+        }
 
-    let track_number = primary_tag.and_then(|tag| tag.track().map(|n| n as i64));
+        // Try fallback keys
+        for fallback in fallbacks {
+            if let Some(value) = tags_map.get(*fallback) {
+                if !value.is_empty() {
+                    return Some(value.clone());
+                }
+            }
+        }
 
-    let disc_number = primary_tag.and_then(|tag| tag.disk().map(|n| n as i64));
+        // Try case-insensitive search
+        let all_keys = [&[preferred], fallbacks].concat();
+        for search_key in all_keys {
+            let key_lower = search_key.to_lowercase();
+            for (k, v) in tags_map.iter() {
+                if k.to_lowercase() == key_lower && !v.is_empty() {
+                    return Some(v.clone());
+                }
+            }
+        }
 
-    let year = primary_tag.and_then(|tag| tag.year().map(|n| n as i64));
+        None
+    };
 
-    let genre = primary_tag.and_then(|tag| tag.genre().map(|s| s.to_string()));
+    // Parse numeric values safely with fraction handling
+    let parse_track_number =
+        |s: &str| -> Option<i64> { s.split('/').next()?.trim().parse::<i64>().ok() };
+
+    // Extract standardized fields with comprehensive fallbacks
+    let title = get_tag("TrackTitle", &["Title", "TITLE", "TIT2"]).unwrap_or_else(|| {
+        file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unknown Title")
+            .to_string()
+    });
+
+    let artist_name = get_tag(
+        "TrackArtist",
+        &["Artist", "ARTIST", "TPE1", "AlbumArtist", "TPE2"],
+    )
+    .unwrap_or_else(|| "Unknown Artist".to_string());
+
+    let album_title = get_tag("AlbumTitle", &["Album", "ALBUM", "TALB"]);
+
+    let track_number =
+        get_tag("TrackNumber", &["TRCK", "Track"]).and_then(|s| parse_track_number(&s));
+
+    let disc_number =
+        get_tag("DiscNumber", &["TPOS", "Disc", "PartOfSet"]).and_then(|s| parse_track_number(&s));
+
+    let year = get_tag("RecordingDate", &["Year", "DATE", "TDRC", "TYER"])
+        .and_then(|s| s.split('-').next()?.trim().parse::<i64>().ok());
+
+    let genre = get_tag("Genre", &["GENRE", "TCON"]);
 
     // Use existing import function to create song with metadata
     let import_request = ImportSongRequest {
@@ -867,15 +925,487 @@ async fn extract_and_store_metadata(
     ))
 }
 
-async fn generate_audio_thumbnail(_media_blob_id: &str) -> Result<(), JobError> {
-    // TODO: Implement thumbnail generation
-    // This would extract album art from the audio file or generate a waveform thumbnail
+// Helper function to create basic song record when metadata extraction fails
+async fn create_basic_song_record(
+    media_blob_id: &str,
+    file_path: &std::path::Path,
+    file_size: u64,
+) -> Result<(String, Option<String>, Option<String>), JobError> {
+    use crate::music::crud::{add_song, ImportSongRequest};
+
+    let title = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Unknown Title")
+        .to_string();
+
+    let import_request = ImportSongRequest {
+        media_blob_id: media_blob_id.to_string(),
+        title,
+        artist_name: Some("Unknown Artist".to_string()),
+        album_title: None,
+        genre_name: None,
+        track_number: None,
+        disc_number: None,
+        duration: None,
+        year: None,
+        bpm: None,
+        key_signature: None,
+        created_by: Some("job_processor".to_string()),
+    };
+
+    let result = add_song(import_request)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to create basic song record: {}", e),
+        })?;
+
+    Ok((
+        result.song.id,
+        result.artist.map(|a| a.id),
+        result.album.map(|a| a.id),
+    ))
+}
+
+async fn generate_audio_thumbnail(media_blob_id: &str) -> Result<(), JobError> {
+    // Get media blob info to get the file path
+    let media_blob = crate::media_blobz::get_media_blob(media_blob_id)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to get media blob: {}", e),
+        })?;
+
+    let file_path = media_blob
+        .local_path
+        .ok_or_else(|| JobError::ProcessingFailed {
+            reason: "Media blob has no local path".to_string(),
+        })?;
+
+    // Try to extract embedded album art first using ffmpeg
+    match extract_album_art_with_ffmpeg(&file_path, media_blob_id).await {
+        Ok(_) => {
+            println!("extracted album art from audio file");
+            return Ok(());
+        }
+        Err(e) => {
+            println!("embedded album art extraction failed: {}", e);
+        }
+    }
+
+    // Try to find album art image files in the same directory
+    match find_album_art_in_directory(&file_path, media_blob_id).await {
+        Ok(_) => {
+            println!("found album art image file in directory");
+            return Ok(());
+        }
+        Err(e) => {
+            println!("directory album art search failed: {}", e);
+        }
+    }
+
+    // If no album art found, generate a simple placeholder thumbnail
+    generate_placeholder_thumbnail(media_blob_id).await
+}
+
+async fn extract_album_art_with_ffmpeg(
+    input_path: &str,
+    media_blob_id: &str,
+) -> Result<(), JobError> {
+    use sha2::{Digest, Sha256};
+
+    // Create output directory if it doesn't exist
+    let output_dir = "data/thumbnails";
+    tokio::fs::create_dir_all(output_dir)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to create thumbnail directory: {}", e),
+        })?;
+
+    // Generate output filename
+    let mut hasher = Sha256::new();
+    hasher.update(media_blob_id.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    let output_path = format!("{}/thumb_{}.jpg", output_dir, &hash[..16]);
+
+    // Use ffmpeg to extract album art
+    let mut cmd = tokio::process::Command::new("ffmpeg");
+    cmd.args([
+        "-i",
+        input_path,
+        "-an", // no audio
+        "-vcodec",
+        "mjpeg",
+        "-vframes",
+        "1", // extract first frame
+        "-q:v",
+        "2",  // high quality
+        "-y", // overwrite output
+        &output_path,
+    ])
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null());
+
+    let output = tokio::time::timeout(tokio::time::Duration::from_secs(30), cmd.output())
+        .await
+        .map_err(|_| JobError::ProcessingFailed {
+            reason: "Album art extraction timed out".to_string(),
+        })?
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to run ffmpeg: {}", e),
+        })?;
+
+    if !output.status.success() {
+        return Err(JobError::ProcessingFailed {
+            reason: "ffmpeg failed to extract album art".to_string(),
+        });
+    }
+
+    // Check if output file was created and has content
+    let metadata =
+        tokio::fs::metadata(&output_path)
+            .await
+            .map_err(|_| JobError::ProcessingFailed {
+                reason: "No album art found in audio file".to_string(),
+            })?;
+
+    if metadata.len() == 0 {
+        tokio::fs::remove_file(&output_path).await.ok();
+        return Err(JobError::ProcessingFailed {
+            reason: "Extracted album art file is empty".to_string(),
+        });
+    }
+
+    // Create media blob for the thumbnail
+    let thumbnail_metadata = serde_json::json!({
+        "type": "album_art",
+        "source_blob_id": media_blob_id,
+        "extracted_with": "ffmpeg"
+    });
+
+    let create_request = crate::media_blobz::CreateMediaBlobRequest {
+        sha256: hash,
+        size: Some(metadata.len() as i64),
+        mime: Some("image/jpeg".to_string()),
+        source_client_id: Some("job_processor".to_string()),
+        local_path: Some(output_path),
+        parent_blob_id: Some(media_blob_id.to_string()),
+        blob_type: Some("thumbnail".to_string()),
+        metadata: thumbnail_metadata,
+        created_by: Some("job_processor".to_string()),
+    };
+
+    crate::media_blobz::create_media_blob(create_request)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to create thumbnail blob: {}", e),
+        })?;
+
     Ok(())
 }
 
-async fn generate_audio_waveform(_media_blob_id: &str) -> Result<(), JobError> {
-    // TODO: Implement waveform generation
-    // This would analyze the audio and create waveform data
+async fn find_album_art_in_directory(
+    audio_file_path: &str,
+    media_blob_id: &str,
+) -> Result<(), JobError> {
+    use std::path::Path;
+
+    let audio_path = Path::new(audio_file_path);
+    let parent_dir = audio_path
+        .parent()
+        .ok_or_else(|| JobError::ProcessingFailed {
+            reason: "Cannot get parent directory of audio file".to_string(),
+        })?;
+
+    // Common album art filenames to search for
+    let art_filenames = [
+        "folder.jpg",
+        "folder.jpeg",
+        "folder.png",
+        "cover.jpg",
+        "cover.jpeg",
+        "cover.png",
+        "album.jpg",
+        "album.jpeg",
+        "album.png",
+        "artwork.jpg",
+        "artwork.jpeg",
+        "artwork.png",
+        "front.jpg",
+        "front.jpeg",
+        "front.png",
+    ];
+
+    // Look for image files in the directory
+    for filename in &art_filenames {
+        let art_path = parent_dir.join(filename);
+        if art_path.exists() {
+            return copy_album_art_file(&art_path, media_blob_id).await;
+        }
+    }
+
+    // If no specific art files found, look for any image files
+    let dir_entries =
+        tokio::fs::read_dir(parent_dir)
+            .await
+            .map_err(|e| JobError::ProcessingFailed {
+                reason: format!("Failed to read directory: {}", e),
+            })?;
+
+    let mut entries = vec![];
+    let mut dir_stream = dir_entries;
+    while let Ok(Some(entry)) = dir_stream.next_entry().await {
+        entries.push(entry);
+    }
+
+    for entry in entries {
+        let path = entry.path();
+        if let Some(extension) = path.extension() {
+            if let Some(ext_str) = extension.to_str() {
+                let ext_lower = ext_str.to_lowercase();
+                if matches!(ext_lower.as_str(), "jpg" | "jpeg" | "png" | "webp") {
+                    return copy_album_art_file(&path, media_blob_id).await;
+                }
+            }
+        }
+    }
+
+    Err(JobError::ProcessingFailed {
+        reason: "No album art image files found in directory".to_string(),
+    })
+}
+
+async fn copy_album_art_file(
+    image_path: &std::path::Path,
+    media_blob_id: &str,
+) -> Result<(), JobError> {
+    use sha2::{Digest, Sha256};
+
+    // Create output directory
+    let output_dir = "data/thumbnails";
+    tokio::fs::create_dir_all(output_dir)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to create thumbnail directory: {}", e),
+        })?;
+
+    // Generate output filename
+    let mut hasher = Sha256::new();
+    hasher.update(media_blob_id.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    let extension = image_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpg");
+    let output_path = format!("{}/art_{}.{}", output_dir, &hash[..16], extension);
+
+    // Copy the image file
+    tokio::fs::copy(image_path, &output_path)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to copy album art file: {}", e),
+        })?;
+
+    let metadata =
+        tokio::fs::metadata(&output_path)
+            .await
+            .map_err(|e| JobError::ProcessingFailed {
+                reason: format!("Failed to get copied file metadata: {}", e),
+            })?;
+
+    // Determine MIME type
+    let mime_type = match extension {
+        "png" => "image/png",
+        "webp" => "image/webp",
+        _ => "image/jpeg",
+    };
+
+    // Create media blob for the album art
+    let art_metadata = serde_json::json!({
+        "type": "album_art",
+        "source_blob_id": media_blob_id,
+        "source_file": image_path.to_string_lossy(),
+        "method": "directory_copy"
+    });
+
+    let create_request = crate::media_blobz::CreateMediaBlobRequest {
+        sha256: hash,
+        size: Some(metadata.len() as i64),
+        mime: Some(mime_type.to_string()),
+        source_client_id: Some("job_processor".to_string()),
+        local_path: Some(output_path),
+        parent_blob_id: Some(media_blob_id.to_string()),
+        blob_type: Some("thumbnail".to_string()),
+        metadata: art_metadata,
+        created_by: Some("job_processor".to_string()),
+    };
+
+    crate::media_blobz::create_media_blob(create_request)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to create album art blob: {}", e),
+        })?;
+
+    Ok(())
+}
+
+async fn generate_placeholder_thumbnail(media_blob_id: &str) -> Result<(), JobError> {
+    use sha2::{Digest, Sha256};
+
+    // For now, just create a simple text-based placeholder
+    // In a real implementation, you might generate a default album cover image
+    let output_dir = "data/thumbnails";
+    tokio::fs::create_dir_all(output_dir)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to create thumbnail directory: {}", e),
+        })?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(format!("placeholder_{}", media_blob_id).as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    let output_path = format!("{}/placeholder_{}.txt", output_dir, &hash[..16]);
+
+    // Write a simple placeholder file
+    let placeholder_content = format!("Placeholder thumbnail for media blob: {}", media_blob_id);
+    tokio::fs::write(&output_path, placeholder_content)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to create placeholder: {}", e),
+        })?;
+
+    let metadata =
+        tokio::fs::metadata(&output_path)
+            .await
+            .map_err(|e| JobError::ProcessingFailed {
+                reason: format!("Failed to get placeholder metadata: {}", e),
+            })?;
+
+    // Create media blob for the placeholder
+    let placeholder_metadata = serde_json::json!({
+        "type": "placeholder_thumbnail",
+        "source_blob_id": media_blob_id
+    });
+
+    let create_request = crate::media_blobz::CreateMediaBlobRequest {
+        sha256: hash,
+        size: Some(metadata.len() as i64),
+        mime: Some("text/plain".to_string()),
+        source_client_id: Some("job_processor".to_string()),
+        local_path: Some(output_path),
+        parent_blob_id: Some(media_blob_id.to_string()),
+        blob_type: Some("placeholder_thumbnail".to_string()),
+        metadata: placeholder_metadata,
+        created_by: Some("job_processor".to_string()),
+    };
+
+    crate::media_blobz::create_media_blob(create_request)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to create placeholder blob: {}", e),
+        })?;
+
+    Ok(())
+}
+
+async fn generate_audio_waveform(media_blob_id: &str) -> Result<(), JobError> {
+    use sha2::{Digest, Sha256};
+    use std::process::Stdio;
+
+    // Get media blob info to get the file path
+    let media_blob = crate::media_blobz::get_media_blob(media_blob_id)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to get media blob: {}", e),
+        })?;
+
+    let file_path = media_blob
+        .local_path
+        .ok_or_else(|| JobError::ProcessingFailed {
+            reason: "Media blob has no local path".to_string(),
+        })?;
+
+    // Create output directory if it doesn't exist
+    let output_dir = "data/waveforms";
+    tokio::fs::create_dir_all(output_dir)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to create waveform directory: {}", e),
+        })?;
+
+    // Generate output filename
+    let mut hasher = Sha256::new();
+    hasher.update(format!("waveform_{}", media_blob_id).as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    let output_path = format!("{}/wave_{}.png", output_dir, &hash[..16]);
+
+    // Use ffmpeg to generate waveform visualization
+    let mut cmd = tokio::process::Command::new("ffmpeg");
+    cmd.args([
+        "-i",
+        &file_path,
+        "-filter_complex",
+        "showwavespic=s=800x200:colors=0x3b82f6",
+        "-frames:v",
+        "1",
+        "-y", // overwrite output
+        &output_path,
+    ])
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null());
+
+    let output = tokio::time::timeout(
+        tokio::time::Duration::from_secs(60), // waveforms can take longer
+        cmd.output(),
+    )
+    .await
+    .map_err(|_| JobError::ProcessingFailed {
+        reason: "Waveform generation timed out".to_string(),
+    })?
+    .map_err(|e| JobError::ProcessingFailed {
+        reason: format!("Failed to run ffmpeg: {}", e),
+    })?;
+
+    if !output.status.success() {
+        return Err(JobError::ProcessingFailed {
+            reason: "ffmpeg failed to generate waveform".to_string(),
+        });
+    }
+
+    // Check if output file was created
+    let metadata =
+        tokio::fs::metadata(&output_path)
+            .await
+            .map_err(|e| JobError::ProcessingFailed {
+                reason: format!("Waveform file not created: {}", e),
+            })?;
+
+    // Create media blob for the waveform
+    let waveform_metadata = serde_json::json!({
+        "type": "waveform",
+        "source_blob_id": media_blob_id,
+        "dimensions": {"width": 800, "height": 200},
+        "generated_with": "ffmpeg"
+    });
+
+    let create_request = crate::media_blobz::CreateMediaBlobRequest {
+        sha256: hash,
+        size: Some(metadata.len() as i64),
+        mime: Some("image/png".to_string()),
+        source_client_id: Some("job_processor".to_string()),
+        local_path: Some(output_path.clone()),
+        parent_blob_id: Some(media_blob_id.to_string()),
+        blob_type: Some("waveform".to_string()),
+        metadata: waveform_metadata,
+        created_by: Some("job_processor".to_string()),
+    };
+
+    crate::media_blobz::create_media_blob(create_request)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to create waveform blob: {}", e),
+        })?;
+
+    println!("generated waveform: {}", output_path);
     Ok(())
 }
 
