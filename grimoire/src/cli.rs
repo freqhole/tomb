@@ -92,6 +92,12 @@ pub enum MusicAction {
         /// Search query
         #[arg(long)]
         search: Option<String>,
+        /// Sort by field (title, artist, album, year, created_at)
+        #[arg(long)]
+        sort_by: Option<String>,
+        /// Sort direction (asc, desc)
+        #[arg(long)]
+        sort_direction: Option<String>,
         /// Limit number of results
         #[arg(long, default_value = "10")]
         limit: u32,
@@ -104,6 +110,15 @@ pub enum MusicAction {
         /// Search query
         #[arg(long)]
         search: Option<String>,
+        /// Filter by first letter (A-Z or # for non-alphabetic)
+        #[arg(long)]
+        starts_with: Option<String>,
+        /// Sort by field (name, song_count, album_count)
+        #[arg(long)]
+        sort_by: Option<String>,
+        /// Sort direction (asc, desc)
+        #[arg(long)]
+        sort_direction: Option<String>,
         /// Limit number of results
         #[arg(long, default_value = "10")]
         limit: u32,
@@ -116,6 +131,12 @@ pub enum MusicAction {
         /// Search query
         #[arg(long)]
         search: Option<String>,
+        /// Sort by field (title, artist, year, song_count)
+        #[arg(long)]
+        sort_by: Option<String>,
+        /// Sort direction (asc, desc)
+        #[arg(long)]
+        sort_direction: Option<String>,
         /// Limit number of results
         #[arg(long, default_value = "10")]
         limit: u32,
@@ -436,6 +457,8 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
     match action {
         MusicAction::QuerySongs {
             search,
+            sort_by,
+            sort_direction,
             limit,
             offset,
         } => {
@@ -444,8 +467,8 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 q: search,
                 search_fields: None,
                 filters: HashMap::new(),
-                sort_by: None,
-                sort_direction: None,
+                sort_by,
+                sort_direction,
                 limit: Some(limit),
                 offset: Some(offset),
             };
@@ -458,8 +481,22 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                         result.total_count
                     );
                     for song in result.items {
+                        let track_info = match (song.song.disc_number, song.song.track_number) {
+                            (Some(disc), Some(track)) => format!("D{:02}T{:02}", disc, track),
+                            (None, Some(track)) => format!("T{:02}", track),
+                            (Some(disc), None) => format!("D{:02}", disc),
+                            (None, None) => "".to_string(),
+                        };
+
+                        let track_display = if track_info.is_empty() {
+                            "".to_string()
+                        } else {
+                            format!(" [{}]", track_info)
+                        };
+
                         println!(
-                            "  {} - {} ({})",
+                            "  {}{} - {} ({})",
+                            track_display,
                             song.artist
                                 .as_ref()
                                 .map(|a| a.name.clone())
@@ -485,16 +522,26 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
         }
         MusicAction::QueryArtists {
             search,
+            starts_with,
+            sort_by,
+            sort_direction,
             limit,
             offset,
         } => {
             println!("querying artists...");
+            let mut filters = HashMap::new();
+            if let Some(starts_with) = starts_with {
+                filters.insert(
+                    "starts_with".to_string(),
+                    serde_json::Value::String(starts_with),
+                );
+            }
             let params = QueryParams {
                 q: search,
                 search_fields: None,
-                filters: HashMap::new(),
-                sort_by: None,
-                sort_direction: None,
+                filters,
+                sort_by,
+                sort_direction,
                 limit: Some(limit),
                 offset: Some(offset),
             };
@@ -526,6 +573,8 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
         }
         MusicAction::QueryAlbums {
             search,
+            sort_by,
+            sort_direction,
             limit,
             offset,
         } => {
@@ -534,8 +583,8 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 q: search,
                 search_fields: None,
                 filters: HashMap::new(),
-                sort_by: None,
-                sort_direction: None,
+                sort_by,
+                sort_direction,
                 limit: Some(limit),
                 offset: Some(offset),
             };

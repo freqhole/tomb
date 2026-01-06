@@ -501,69 +501,205 @@ pub async fn query_artists(params: QueryParams) -> GrimoireResult<QueryResult<Ar
         .filter(|q| !q.trim().is_empty())
         .map(|q| format!("%{}%", q));
 
-    // Count query
-    let total_count: i64 = if let Some(ref pattern) = search_pattern {
-        sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM artist_query_view WHERE artist_name LIKE ?",
-            pattern
-        )
-        .fetch_one(&pool)
-        .await?
-    } else {
-        sqlx::query_scalar!("SELECT COUNT(*) FROM artist_query_view")
+    let starts_with_filter = params
+        .filters
+        .get("starts_with")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty());
+
+    // Count query with filters
+    let total_count: i64 = match (&search_pattern, starts_with_filter) {
+        (Some(pattern), Some("#")) => {
+            sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM artist_query_view WHERE artist_name LIKE ? AND LOWER(SUBSTR(artist_name, 1, 1)) NOT BETWEEN 'a' AND 'z'",
+                pattern
+            )
             .fetch_one(&pool)
             .await?
+        }
+        (Some(pattern), Some(starts_with)) => {
+            sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM artist_query_view WHERE artist_name LIKE ? AND LOWER(SUBSTR(artist_name, 1, 1)) = LOWER(?)",
+                pattern, starts_with
+            )
+            .fetch_one(&pool)
+            .await?
+        }
+        (Some(pattern), None) => {
+            sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM artist_query_view WHERE artist_name LIKE ?",
+                pattern
+            )
+            .fetch_one(&pool)
+            .await?
+        }
+        (None, Some("#")) => {
+            sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM artist_query_view WHERE LOWER(SUBSTR(artist_name, 1, 1)) NOT BETWEEN 'a' AND 'z'"
+            )
+            .fetch_one(&pool)
+            .await?
+        }
+        (None, Some(starts_with)) => {
+            sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM artist_query_view WHERE LOWER(SUBSTR(artist_name, 1, 1)) = LOWER(?)",
+                starts_with
+            )
+            .fetch_one(&pool)
+            .await?
+        }
+        (None, None) => {
+            sqlx::query_scalar!("SELECT COUNT(*) FROM artist_query_view")
+                .fetch_one(&pool)
+                .await?
+        }
     };
 
-    // Execute query
-    let rows = if let Some(ref pattern) = search_pattern {
-        sqlx::query_as!(
-            ArtistViewRow,
-            r#"SELECT
-                artist_rowid as "artist_rowid!",
-                artist_id as "artist_id!",
-                artist_name as "artist_name!",
-                artist_created_at as "artist_created_at!",
-                artist_updated_at as "artist_updated_at!",
-                artist_deleted_at,
-                artist_deleted_by,
-                artist_created_by,
-                artist_updated_by,
-                song_count as "song_count!",
-                album_count as "album_count!",
-                total_duration as "total_duration!"
-             FROM artist_query_view
-             WHERE artist_name LIKE ?
-             ORDER BY artist_name ASC LIMIT ? OFFSET ?"#,
-            pattern,
-            limit,
-            offset
-        )
-        .fetch_all(&pool)
-        .await?
-    } else {
-        sqlx::query_as!(
-            ArtistViewRow,
-            r#"SELECT
-                artist_rowid as "artist_rowid!",
-                artist_id as "artist_id!",
-                artist_name as "artist_name!",
-                artist_created_at as "artist_created_at!",
-                artist_updated_at as "artist_updated_at!",
-                artist_deleted_at,
-                artist_deleted_by,
-                artist_created_by,
-                artist_updated_by,
-                song_count as "song_count!",
-                album_count as "album_count!",
-                total_duration as "total_duration!"
-             FROM artist_query_view
-             ORDER BY artist_name ASC LIMIT ? OFFSET ?"#,
-            limit,
-            offset
-        )
-        .fetch_all(&pool)
-        .await?
+    // Execute query with filters
+    let rows = match (&search_pattern, starts_with_filter) {
+        (Some(pattern), Some("#")) => {
+            sqlx::query_as!(
+                ArtistViewRow,
+                r#"SELECT
+                    artist_rowid as "artist_rowid!",
+                    artist_id as "artist_id!",
+                    artist_name as "artist_name!",
+                    artist_created_at as "artist_created_at!",
+                    artist_updated_at as "artist_updated_at!",
+                    artist_deleted_at,
+                    artist_deleted_by,
+                    artist_created_by,
+                    artist_updated_by,
+                    song_count as "song_count!",
+                    album_count as "album_count!",
+                    total_duration as "total_duration!"
+                 FROM artist_query_view
+                 WHERE artist_name LIKE ? AND LOWER(SUBSTR(artist_name, 1, 1)) NOT BETWEEN 'a' AND 'z'
+                 ORDER BY artist_name ASC LIMIT ? OFFSET ?"#,
+                pattern, limit, offset
+            )
+            .fetch_all(&pool)
+            .await?
+        }
+        (Some(pattern), Some(starts_with)) => {
+            sqlx::query_as!(
+                ArtistViewRow,
+                r#"SELECT
+                    artist_rowid as "artist_rowid!",
+                    artist_id as "artist_id!",
+                    artist_name as "artist_name!",
+                    artist_created_at as "artist_created_at!",
+                    artist_updated_at as "artist_updated_at!",
+                    artist_deleted_at,
+                    artist_deleted_by,
+                    artist_created_by,
+                    artist_updated_by,
+                    song_count as "song_count!",
+                    album_count as "album_count!",
+                    total_duration as "total_duration!"
+                 FROM artist_query_view
+                 WHERE artist_name LIKE ? AND LOWER(SUBSTR(artist_name, 1, 1)) = LOWER(?)
+                 ORDER BY artist_name ASC LIMIT ? OFFSET ?"#,
+                pattern, starts_with, limit, offset
+            )
+            .fetch_all(&pool)
+            .await?
+        }
+        (Some(pattern), None) => {
+            sqlx::query_as!(
+                ArtistViewRow,
+                r#"SELECT
+                    artist_rowid as "artist_rowid!",
+                    artist_id as "artist_id!",
+                    artist_name as "artist_name!",
+                    artist_created_at as "artist_created_at!",
+                    artist_updated_at as "artist_updated_at!",
+                    artist_deleted_at,
+                    artist_deleted_by,
+                    artist_created_by,
+                    artist_updated_by,
+                    song_count as "song_count!",
+                    album_count as "album_count!",
+                    total_duration as "total_duration!"
+                 FROM artist_query_view
+                 WHERE artist_name LIKE ?
+                 ORDER BY artist_name ASC LIMIT ? OFFSET ?"#,
+                pattern, limit, offset
+            )
+            .fetch_all(&pool)
+            .await?
+        }
+        (None, Some("#")) => {
+            sqlx::query_as!(
+                ArtistViewRow,
+                r#"SELECT
+                    artist_rowid as "artist_rowid!",
+                    artist_id as "artist_id!",
+                    artist_name as "artist_name!",
+                    artist_created_at as "artist_created_at!",
+                    artist_updated_at as "artist_updated_at!",
+                    artist_deleted_at,
+                    artist_deleted_by,
+                    artist_created_by,
+                    artist_updated_by,
+                    song_count as "song_count!",
+                    album_count as "album_count!",
+                    total_duration as "total_duration!"
+                 FROM artist_query_view
+                 WHERE LOWER(SUBSTR(artist_name, 1, 1)) NOT BETWEEN 'a' AND 'z'
+                 ORDER BY artist_name ASC LIMIT ? OFFSET ?"#,
+                limit, offset
+            )
+            .fetch_all(&pool)
+            .await?
+        }
+        (None, Some(starts_with)) => {
+            sqlx::query_as!(
+                ArtistViewRow,
+                r#"SELECT
+                    artist_rowid as "artist_rowid!",
+                    artist_id as "artist_id!",
+                    artist_name as "artist_name!",
+                    artist_created_at as "artist_created_at!",
+                    artist_updated_at as "artist_updated_at!",
+                    artist_deleted_at,
+                    artist_deleted_by,
+                    artist_created_by,
+                    artist_updated_by,
+                    song_count as "song_count!",
+                    album_count as "album_count!",
+                    total_duration as "total_duration!"
+                 FROM artist_query_view
+                 WHERE LOWER(SUBSTR(artist_name, 1, 1)) = LOWER(?)
+                 ORDER BY artist_name ASC LIMIT ? OFFSET ?"#,
+                starts_with, limit, offset
+            )
+            .fetch_all(&pool)
+            .await?
+        }
+        (None, None) => {
+            sqlx::query_as!(
+                ArtistViewRow,
+                r#"SELECT
+                    artist_rowid as "artist_rowid!",
+                    artist_id as "artist_id!",
+                    artist_name as "artist_name!",
+                    artist_created_at as "artist_created_at!",
+                    artist_updated_at as "artist_updated_at!",
+                    artist_deleted_at,
+                    artist_deleted_by,
+                    artist_created_by,
+                    artist_updated_by,
+                    song_count as "song_count!",
+                    album_count as "album_count!",
+                    total_duration as "total_duration!"
+                 FROM artist_query_view
+                 ORDER BY artist_name ASC LIMIT ? OFFSET ?"#,
+                limit, offset
+            )
+            .fetch_all(&pool)
+            .await?
+        }
     };
 
     let artists: Vec<ArtistQueryResult> = rows
