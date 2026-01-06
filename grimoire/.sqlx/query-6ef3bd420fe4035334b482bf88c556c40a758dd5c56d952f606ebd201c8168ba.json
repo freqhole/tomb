@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n                artist_rowid as \"artist_rowid!\",\n                artist_id as \"artist_id!\",\n                artist_name as \"artist_name!\",\n                artist_created_at as \"artist_created_at!\",\n                artist_updated_at as \"artist_updated_at!\",\n                artist_deleted_at,\n                artist_deleted_by,\n                artist_created_by,\n                artist_updated_by,\n                song_count as \"song_count!\",\n                album_count as \"album_count!\",\n                total_duration as \"total_duration!\"\n             FROM artist_query_view\n             ORDER BY artist_name ASC LIMIT ? OFFSET ?",
+  "query": "SELECT\n                    artist_rowid as \"artist_rowid!\",\n                    artist_id as \"artist_id!\",\n                    artist_name as \"artist_name!\",\n                    artist_created_at as \"artist_created_at!\",\n                    artist_updated_at as \"artist_updated_at!\",\n                    artist_deleted_at,\n                    artist_deleted_by,\n                    artist_created_by,\n                    artist_updated_by,\n                    song_count as \"song_count!\",\n                    album_count as \"album_count!\",\n                    total_duration as \"total_duration!\"\n                 FROM artist_query_view\n                 WHERE artist_name LIKE ? AND LOWER(SUBSTR(artist_name, 1, 1)) = LOWER(?)\n                 ORDER BY artist_name ASC LIMIT ? OFFSET ?",
   "describe": {
     "columns": [
       {
@@ -65,7 +65,7 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 4
     },
     "nullable": [
       false,
@@ -82,5 +82,5 @@
       false
     ]
   },
-  "hash": "39884b374d69ed6daeff8df4bd5b555fd5fad695c809702687eec39c8387e20f"
+  "hash": "6ef3bd420fe4035334b482bf88c556c40a758dd5c56d952f606ebd201c8168ba"
 }

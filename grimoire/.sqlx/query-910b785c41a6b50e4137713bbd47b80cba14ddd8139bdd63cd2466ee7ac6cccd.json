@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(*) FROM artist_query_view WHERE LOWER(SUBSTR(artist_name, 1, 1)) NOT BETWEEN 'a' AND 'z'",
+  "describe": {
+    "columns": [
+      {
+        "name": "COUNT(*)",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "910b785c41a6b50e4137713bbd47b80cba14ddd8139bdd63cd2466ee7ac6cccd"
+}

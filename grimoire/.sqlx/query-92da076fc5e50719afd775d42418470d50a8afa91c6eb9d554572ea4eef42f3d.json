@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(*) FROM artist_query_view WHERE LOWER(SUBSTR(artist_name, 1, 1)) = LOWER(?)",
+  "describe": {
+    "columns": [
+      {
+        "name": "COUNT(*)",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "92da076fc5e50719afd775d42418470d50a8afa91c6eb9d554572ea4eef42f3d"
+}
