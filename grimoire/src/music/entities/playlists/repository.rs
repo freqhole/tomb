@@ -147,17 +147,8 @@ pub async fn add_songs_to_playlist(playlist_id: &str, song_ids: &[String]) -> Gr
     })?
     .rowid;
 
-    // Get current max position
-    let max_position = sqlx::query!(
-        "SELECT COALESCE(MAX(position), 0) as \"max_pos!: i64\" FROM playlist_songz WHERE playlist_rowid = ?",
-        playlist_rowid
-    )
-    .fetch_one(&pool)
-    .await?
-    .max_pos;
-
-    // Add each song
-    for (i, song_id) in song_ids.iter().enumerate() {
+    // Add each song using auto-positioning trigger (position = -1)
+    for song_id in song_ids.iter() {
         // Get song rowid
         let song_rowid = sqlx::query!(
             "SELECT rowid FROM songz WHERE id = ? AND deleted_at IS NULL",
@@ -170,14 +161,12 @@ pub async fn add_songs_to_playlist(playlist_id: &str, song_ids: &[String]) -> Gr
         })?
         .rowid;
 
-        let position = max_position + (i as i64) + 1;
-
+        // Use -1 to trigger auto-positioning
         sqlx::query!(
             "INSERT INTO playlist_songz (playlist_rowid, song_rowid, position)
-             VALUES (?, ?, ?)",
+             VALUES (?, ?, -1)",
             playlist_rowid,
-            song_rowid,
-            position
+            song_rowid
         )
         .execute(&pool)
         .await?;
@@ -263,4 +252,98 @@ pub async fn get_playlist_songs(playlist_id: &str) -> GrimoireResult<Vec<Playlis
     .await?;
 
     Ok(playlist_songs)
+}
+
+/// update the position of a song in a playlist
+/// uses pure UPDATE approach without delete/insert to avoid constraint issues
+pub async fn update_song_position(
+    playlist_id: &str,
+    song_id: &str,
+    new_position: i64,
+) -> GrimoireResult<()> {
+    let pool = database::connect_music().await?;
+
+    // Get playlist rowid
+    let playlist_rowid = sqlx::query!(
+        "SELECT rowid FROM playlistz WHERE id = ? AND deleted_at IS NULL",
+        playlist_id
+    )
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| GrimoireError::PlaylistNotFound {
+        id: playlist_id.to_string(),
+    })?
+    .rowid;
+
+    // Get song rowid and current position
+    let song_info = sqlx::query!(
+        "SELECT ps.song_rowid, ps.position
+         FROM playlist_songz ps
+         JOIN songz s ON ps.song_rowid = s.rowid
+         WHERE ps.playlist_rowid = ? AND s.id = ?",
+        playlist_rowid,
+        song_id
+    )
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| GrimoireError::SongNotInPlaylist {
+        song_id: song_id.to_string(),
+        playlist_id: playlist_id.to_string(),
+    })?;
+
+    let current_position = song_info.position;
+    let song_rowid = song_info.song_rowid;
+
+    if current_position == new_position {
+        return Ok(()); // No change needed
+    }
+
+    // Start transaction for atomic position updates
+    let mut tx = pool.begin().await?;
+
+    // Temporarily move the target song to position 0 to avoid conflicts
+    sqlx::query!(
+        "UPDATE playlist_songz SET position = 0 WHERE playlist_rowid = ? AND song_rowid = ?",
+        playlist_rowid,
+        song_rowid
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if new_position > current_position {
+        // Moving down: shift songs between current and new position up
+        sqlx::query!(
+            "UPDATE playlist_songz SET position = position - 1
+             WHERE playlist_rowid = ? AND position > ? AND position <= ?",
+            playlist_rowid,
+            current_position,
+            new_position
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        // Moving up: shift songs between new and current position down
+        sqlx::query!(
+            "UPDATE playlist_songz SET position = position + 1
+             WHERE playlist_rowid = ? AND position >= ? AND position < ?",
+            playlist_rowid,
+            new_position,
+            current_position
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Move the target song to its final position
+    sqlx::query!(
+        "UPDATE playlist_songz SET position = ? WHERE playlist_rowid = ? AND song_rowid = ?",
+        new_position,
+        playlist_rowid,
+        song_rowid
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
 }

@@ -261,12 +261,22 @@ fn add_playlist_filters(query: &mut SelectStatement, params: &QueryParams) {
     }
 
     // Filter by public/private
-    if let Some(is_public) = params.filters.get("is_public").and_then(|v| v.as_bool()) {
-        query.and_where(Expr::col(PlaylistView::PlaylistIsPublic).eq(if is_public {
-            1
-        } else {
-            0
-        }));
+    if let Some(is_public_value) = params.filters.get("is_public") {
+        let is_public = match is_public_value {
+            serde_json::Value::Bool(b) => Some(*b),
+            serde_json::Value::String(s) => match s.as_str() {
+                "true" => Some(true),
+                "false" => Some(false),
+                _ => None,
+            },
+            _ => None,
+        };
+
+        if let Some(public_flag) = is_public {
+            query.and_where(
+                Expr::col(PlaylistView::PlaylistIsPublic).eq(if public_flag { 1 } else { 0 }),
+            );
+        }
     }
 }
 

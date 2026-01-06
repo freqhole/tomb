@@ -204,6 +204,39 @@ pub enum MusicAction {
         #[arg(long, default_value = "0")]
         offset: u32,
     },
+    /// Create a new playlist
+    CreatePlaylist {
+        /// Playlist title
+        #[arg(long)]
+        title: String,
+        /// Playlist description
+        #[arg(long)]
+        description: Option<String>,
+        /// Make playlist public (default: private)
+        #[arg(long)]
+        public: bool,
+    },
+    /// Add songs to a playlist
+    AddSongsToPlaylist {
+        /// Playlist ID
+        #[arg(long)]
+        playlist_id: String,
+        /// Song IDs to add (comma-separated)
+        #[arg(long)]
+        song_ids: String,
+    },
+    /// Update song position in playlist
+    UpdateSongPosition {
+        /// Playlist ID
+        #[arg(long)]
+        playlist_id: String,
+        /// Song ID to move
+        #[arg(long)]
+        song_id: String,
+        /// New position (1-based)
+        #[arg(long)]
+        new_position: i64,
+    },
     /// List recent songs
     RecentSongs {
         /// Limit number of results
@@ -510,8 +543,9 @@ async fn handle_database_command(action: DatabaseAction) -> GrimoireResult<()> {
 
 async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
     use crate::music::crud::{
-        list_recent_songs, query_albums, query_artists, query_genres, query_playlist_songs,
-        query_playlists, query_songs, QueryParams,
+        add_songs_to_playlist, create_playlist, get_or_create_playlist_by_name, list_recent_songs,
+        query_albums, query_artists, query_genres, query_playlist_songs, query_playlists,
+        query_songs, update_song_position, CreatePlaylistRequest, QueryParams,
     };
     use std::collections::HashMap;
 
@@ -828,6 +862,84 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 }
                 Err(e) => {
                     eprintln!("failed to query playlist songs: {}", e);
+                }
+            }
+        }
+        MusicAction::CreatePlaylist {
+            title,
+            description,
+            public,
+        } => {
+            println!("creating playlist...");
+            let req = CreatePlaylistRequest {
+                title: title.clone(),
+                description,
+                is_public: Some(public),
+                created_by_rowid: None, // TODO: add user management
+            };
+
+            match create_playlist(req).await {
+                Ok(playlist) => {
+                    println!("created playlist: {} (ID: {})", playlist.title, playlist.id);
+                    if playlist.is_public == 1 {
+                        println!("  visibility: public");
+                    } else {
+                        println!("  visibility: private");
+                    }
+                    if let Some(desc) = &playlist.description {
+                        println!("  description: {}", desc);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to create playlist: {}", e);
+                }
+            }
+        }
+        MusicAction::AddSongsToPlaylist {
+            playlist_id,
+            song_ids,
+        } => {
+            println!("adding songs to playlist...");
+            let song_id_list: Vec<String> = song_ids
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            if song_id_list.is_empty() {
+                eprintln!("no valid song IDs provided");
+                return Ok(());
+            }
+
+            match add_songs_to_playlist(&playlist_id, &song_id_list).await {
+                Ok(()) => {
+                    println!(
+                        "successfully added {} songs to playlist {}",
+                        song_id_list.len(),
+                        playlist_id
+                    );
+                    println!("song IDs: {:?}", song_id_list);
+                }
+                Err(e) => {
+                    eprintln!("failed to add songs to playlist: {}", e);
+                }
+            }
+        }
+        MusicAction::UpdateSongPosition {
+            playlist_id,
+            song_id,
+            new_position,
+        } => {
+            println!("updating song position in playlist...");
+            match update_song_position(&playlist_id, &song_id, new_position).await {
+                Ok(()) => {
+                    println!(
+                        "successfully moved song {} to position {} in playlist {}",
+                        song_id, new_position, playlist_id
+                    );
+                }
+                Err(e) => {
+                    eprintln!("failed to update song position: {}", e);
                 }
             }
         }

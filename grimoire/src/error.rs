@@ -32,6 +32,12 @@ pub enum GrimoireError {
     #[error("playlist not found: {id}")]
     PlaylistNotFound { id: String },
 
+    #[error("song {song_id} not found in playlist {playlist_id}")]
+    SongNotInPlaylist {
+        song_id: String,
+        playlist_id: String,
+    },
+
     #[error("genre not found: {id}")]
     GenreNotFound { id: String },
 

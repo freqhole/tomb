@@ -5,8 +5,8 @@ mod create_or_update;
 mod deduplication;
 mod delete;
 mod models;
-mod playlist_query;
 mod query;
+mod query_playlists;
 
 // re-export public types
 pub use models::{
@@ -14,6 +14,11 @@ pub use models::{
     ArtistQueryResult, BulkImportRequest, BulkImportResult, CreateSongWithMetadataRequest,
     ImportSongRequest, ImportSongResult, PlaylistQueryResult, QueryParams, QueryResult,
     SongImportError, SongQueryResult,
+};
+
+// re-export playlist types
+pub use crate::music::entities::playlists::{
+    AddSongsToPlaylistRequest, CreatePlaylistRequest, Playlist, PlaylistSong,
 };
 
 // re-export main workflow functions with cleaner names
@@ -45,8 +50,12 @@ pub use query::{
 };
 
 // re-export playlist query operations
-pub use playlist_query::{
-    list_user_playlists, query_playlist_songs, query_playlists, search_playlists,
+pub use query_playlists::{query_playlist_songs, query_playlists};
+
+// re-export playlist CRUD operations
+pub use crate::music::entities::playlists::{
+    add_songs_to_playlist, create_playlist, get_playlist, get_playlist_songs,
+    remove_songs_from_playlist, update_song_position,
 };
 
 // re-export delete operations
