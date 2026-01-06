@@ -281,7 +281,7 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
                         album_updated_by
                      FROM song_query_view
                      WHERE (song_title LIKE ? OR artist_name LIKE ? OR album_title LIKE ?)
-                     ORDER BY song_title DESC, album_title ASC, song_disc_number ASC, song_track_number ASC
+                     ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC, song_title DESC
                      LIMIT ? OFFSET ?"#,
                     pattern, pattern, pattern, limit, offset
                 ).fetch_all(&pool).await?
@@ -340,7 +340,7 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
                         album_updated_by
                      FROM song_query_view
                      WHERE (song_title LIKE ? OR artist_name LIKE ? OR album_title LIKE ?)
-                     ORDER BY song_created_at DESC, album_title ASC, song_disc_number ASC, song_track_number ASC
+                     ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC, song_created_at DESC
                      LIMIT ? OFFSET ?"#,
                     pattern, pattern, pattern, limit, offset
                 ).fetch_all(&pool).await?
@@ -401,7 +401,7 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
                         album_created_by,
                         album_updated_by
                      FROM song_query_view
-                     ORDER BY song_title DESC, album_title ASC, song_disc_number ASC, song_track_number ASC
+                     ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC, song_title DESC
                      LIMIT ? OFFSET ?"#,
                     limit, offset
                 ).fetch_all(&pool).await?
@@ -459,7 +459,7 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
                         album_created_by,
                         album_updated_by
                      FROM song_query_view
-                     ORDER BY song_created_at DESC, album_title ASC, song_disc_number ASC, song_track_number ASC
+                     ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC, song_created_at DESC
                      LIMIT ? OFFSET ?"#,
                     limit, offset
                 ).fetch_all(&pool).await?
@@ -1059,7 +1059,7 @@ pub async fn query_recent_songs(limit: Option<usize>) -> GrimoireResult<Vec<Song
             album_created_by,
             album_updated_by
          FROM song_query_view
-         ORDER BY song_created_at DESC, album_title ASC, song_disc_number ASC, song_track_number ASC
+         ORDER BY album_title ASC, song_disc_number ASC, song_track_number ASC, song_created_at DESC
          LIMIT ?"#,
         limit
     )
