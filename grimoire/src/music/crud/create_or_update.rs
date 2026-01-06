@@ -39,6 +39,7 @@ pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult
 
     // 3. Find or create album
     let (album, created_new_album) = if let Some(album_title) = &req.album_title {
+        // Has album metadata - create/find real album
         let album_req = AlbumImportRequest {
             title: album_title.clone(),
             album_type: Some("album".to_string()),
@@ -51,7 +52,23 @@ pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult
         };
         let (album, created) = find_or_create_album(album_req).await?;
         (Some(album), created)
+    } else if let Some(artist) = &artist {
+        // Has artist but no album - create artist-specific "Unknown Album"
+        let unknown_album_req = AlbumImportRequest {
+            title: "Unknown Album".to_string(),
+            album_type: Some("album".to_string()),
+            release_date: req.year.map(|y| y.to_string()),
+            release_date_precision: req.year.map(|_| "year".to_string()),
+            label: None,
+            genre_rowid: genre.as_ref().map(|g| g.rowid),
+            year: req.year,
+            created_by: req.created_by.clone(),
+        };
+        let (album, created) =
+            find_or_create_album_for_artist(unknown_album_req, artist.rowid).await?;
+        (Some(album), created)
     } else {
+        // No artist, no album - will create "Unknown Artist" + their "Unknown Album" later
         (None, false)
     };
 
@@ -257,6 +274,65 @@ async fn create_artist_album_relationship(
     .await?;
 
     Ok(())
+}
+
+/// find existing album for specific artist or create new one (for artist-specific "Unknown Album")
+async fn find_or_create_album_for_artist(
+    req: AlbumImportRequest,
+    artist_rowid: i64,
+) -> GrimoireResult<(Album, bool)> {
+    let pool = database::connect_music().await?;
+
+    // Look for existing album by this specific artist with the same title
+    let existing = sqlx::query_as!(
+        Album,
+        r#"SELECT
+            al.rowid as "rowid!",
+            al.id as "id!",
+            al.title as "title!",
+            al.album_type as "album_type!",
+            al.release_date,
+            al.release_date_precision,
+            al.label,
+            al.genre_rowid,
+            al.song_count as "song_count!",
+            al.total_duration as "total_duration!",
+            al.created_at as "created_at!",
+            al.updated_at as "updated_at!",
+            al.deleted_at,
+            al.deleted_by,
+            al.created_by,
+            al.updated_by
+           FROM albumz al
+           JOIN artist_albumz aa ON al.rowid = aa.album_rowid
+           WHERE LOWER(al.title) = LOWER(?) AND aa.artist_rowid = ? AND al.deleted_at IS NULL
+           LIMIT 1"#,
+        req.title,
+        artist_rowid
+    )
+    .fetch_optional(&pool)
+    .await?;
+
+    if let Some(album) = existing {
+        Ok((album, false))
+    } else {
+        // Create new album for this artist
+        let create_req = CreateAlbumRequest {
+            title: req.title,
+            album_type: req.album_type,
+            release_date: req.release_date,
+            release_date_precision: req.release_date_precision,
+            label: req.label,
+            genre_rowid: req.genre_rowid,
+            created_by: req.created_by,
+        };
+        let album = albums::create_album(create_req).await?;
+
+        // Create artist-album relationship immediately
+        create_artist_album_relationship(artist_rowid, album.rowid).await?;
+
+        Ok((album, true))
+    }
 }
 
 /// create a song with guaranteed artist and album (simpler version)
