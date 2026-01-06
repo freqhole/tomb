@@ -144,29 +144,29 @@ pub enum MusicAction {
         #[arg(long, default_value = "0")]
         offset: u32,
     },
-    /// List recent songs
-    RecentSongs {
-        /// Limit number of results
-        #[arg(long, default_value = "10")]
-        limit: u32,
-    },
-    /// Test sea-query experiment
-    TestSeaQuery {
+    /// Query genres
+    QueryGenres {
         /// Search query
         #[arg(long)]
         search: Option<String>,
-        /// Sort by field (title, artist, album, year, created_at)
+        /// Sort by field (name)
         #[arg(long)]
         sort_by: Option<String>,
         /// Sort direction (asc, desc)
         #[arg(long)]
         sort_direction: Option<String>,
         /// Limit number of results
-        #[arg(long, default_value = "5")]
+        #[arg(long, default_value = "10")]
         limit: u32,
         /// Offset for pagination
         #[arg(long, default_value = "0")]
         offset: u32,
+    },
+    /// List recent songs
+    RecentSongs {
+        /// Limit number of results
+        #[arg(long, default_value = "10")]
+        limit: u32,
     },
 }
 
@@ -468,8 +468,7 @@ async fn handle_database_command(action: DatabaseAction) -> GrimoireResult<()> {
 
 async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
     use crate::music::crud::{
-        experimental_query_songs, list_recent_songs, query_albums, query_artists, query_songs,
-        QueryParams,
+        list_recent_songs, query_albums, query_artists, query_genres, query_songs, QueryParams,
     };
     use std::collections::HashMap;
 
@@ -632,6 +631,46 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 }
             }
         }
+        MusicAction::QueryGenres {
+            search,
+            sort_by,
+            sort_direction,
+            limit,
+            offset,
+        } => {
+            println!("querying genres...");
+            let params = QueryParams {
+                q: search,
+                search_fields: None,
+                filters: HashMap::new(),
+                sort_by,
+                sort_direction,
+                limit: Some(limit),
+                offset: Some(offset),
+            };
+
+            match query_genres(params).await {
+                Ok(result) => {
+                    println!(
+                        "found {} genres (total: {})",
+                        result.items.len(),
+                        result.total_count
+                    );
+                    for genre in result.items {
+                        println!("  {}", genre.genre.name);
+                    }
+                    if result.has_more {
+                        println!(
+                            "...more results available (use --offset {})",
+                            offset + limit
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to query genres: {}", e);
+                }
+            }
+        }
         MusicAction::RecentSongs { limit } => {
             println!("listing recent songs...");
             match list_recent_songs(Some(limit)).await {
@@ -654,57 +693,6 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 }
                 Err(e) => {
                     eprintln!("failed to list recent songs: {}", e);
-                }
-            }
-        }
-        MusicAction::TestSeaQuery {
-            search,
-            sort_by,
-            sort_direction,
-            limit,
-            offset,
-        } => {
-            println!("testing sea-query experiment...");
-            let params = QueryParams {
-                q: search,
-                search_fields: None,
-                filters: HashMap::new(),
-                sort_by,
-                sort_direction,
-                limit: Some(limit),
-                offset: Some(offset),
-            };
-
-            match experimental_query_songs(params).await {
-                Ok(result) => {
-                    println!(
-                        "sea-query found {} songs (showing first {})",
-                        result.total_count,
-                        result.items.len()
-                    );
-                    for song in result.items {
-                        let track_info = format!(
-                            "D{:02}T{:02}",
-                            song.song.disc_number, song.song.track_number
-                        );
-                        println!(
-                            "  [{}] {} - {} ({})",
-                            track_info,
-                            song.artist
-                                .as_ref()
-                                .map(|a| a.name.clone())
-                                .unwrap_or("Unknown".to_string()),
-                            song.song.title,
-                            song.album
-                                .as_ref()
-                                .map(|a| a.title.clone())
-                                .unwrap_or("Unknown".to_string())
-                        );
-                    }
-                }
-                Err(e) => {
-                    eprintln!("sea-query experiment failed: {}", e);
-                    return Err(e);
                 }
             }
         }
