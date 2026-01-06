@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                genre_rowid as \"genre_rowid!\",\n                genre_id as \"genre_id!\",\n                genre_name as \"genre_name!\",\n                genre_created_at as \"genre_created_at!\"\n             FROM genre_query_view\n             ORDER BY genre_name ASC LIMIT ? OFFSET ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "genre_rowid!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "genre_id!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "genre_name!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "genre_created_at!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "aafb0b6b995b945183cb2e9b674af3030fd79fa63a0a34f6927192a4b920e5f3"
+}
