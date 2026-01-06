@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n            rowid as \"rowid!\",\n            id as \"id!\",\n            media_blob_id as \"media_blob_id!\",\n            thumbnail_blob_id,\n            waveform_blob_id,\n            title as \"title!\",\n            track_number,\n            disc_number,\n            duration,\n            year,\n            bpm,\n            key_signature,\n            metadata,\n            lyrics,\n            processing_status,\n            processing_notes,\n            created_at as \"created_at!\",\n            updated_at as \"updated_at!\",\n            deleted_at,\n            deleted_by,\n            created_by,\n            updated_by\n         FROM songz\n         WHERE id = ? AND deleted_at IS NULL",
+  "query": "SELECT\n            rowid as \"rowid!\",\n            id as \"id!\",\n            media_blob_id as \"media_blob_id!\",\n            thumbnail_blob_id,\n            waveform_blob_id,\n            title as \"title!\",\n            track_number as \"track_number!\",\n            disc_number as \"disc_number!\",\n            duration,\n            year,\n            bpm,\n            key_signature,\n            metadata,\n            lyrics,\n            processing_status,\n            processing_notes,\n            created_at as \"created_at!\",\n            updated_at as \"updated_at!\",\n            deleted_at,\n            deleted_by,\n            created_by,\n            updated_by\n         FROM songz\n         WHERE deleted_at IS NULL\n         ORDER BY created_at DESC\n         LIMIT 100",
   "describe": {
     "columns": [
       {
@@ -34,12 +34,12 @@
         "type_info": "Text"
       },
       {
-        "name": "track_number",
+        "name": "track_number!",
         "ordinal": 6,
         "type_info": "Integer"
       },
       {
-        "name": "disc_number",
+        "name": "disc_number!",
         "ordinal": 7,
         "type_info": "Integer"
       },
@@ -115,7 +115,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       true,
@@ -124,8 +124,8 @@
       true,
       true,
       false,
-      true,
-      true,
+      false,
+      false,
       true,
       true,
       true,
@@ -142,5 +142,5 @@
       true
     ]
   },
-  "hash": "a6edbce7ddced02ec167ba601d7367201350003965182159c2f5beb428487d7a"
+  "hash": "027bca202dfced5be5f5baa28ec7f2fb5e62b91b9a93479f5080cfb26c672425"
 }
