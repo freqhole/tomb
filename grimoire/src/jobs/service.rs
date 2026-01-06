@@ -929,6 +929,8 @@ async fn extract_and_store_metadata(
 
     let genre = get_tag("Genre", &["GENRE", "TCON"]);
 
+    let lyrics = get_tag("Lyrics", &["USLT", "lyrics", "lyrics-eng", "LYRICS"]);
+
     // Use existing import function to create song with metadata
     let import_request = ImportSongRequest {
         media_blob_id: media_blob_id.to_string(),
@@ -942,6 +944,7 @@ async fn extract_and_store_metadata(
         year,
         bpm: None,
         key_signature: None,
+        lyrics,
         created_by: Some("job_processor".to_string()),
     };
 
@@ -984,6 +987,7 @@ async fn create_basic_song_record(
         year: None,
         bpm: None,
         key_signature: None,
+        lyrics: None,
         created_by: Some("job_processor".to_string()),
     };
 

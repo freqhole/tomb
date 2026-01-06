@@ -12,9 +12,9 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResult<Song> {
     let song = sqlx::query_as!(
         Song,
         "INSERT INTO songz (
-            media_blob_id, title, track_number, disc_number, duration, year, bpm, key_signature,
+            media_blob_id, title, track_number, disc_number, duration, year, bpm, key_signature, lyrics,
             created_by, updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING
             rowid as \"rowid!\",
             id as \"id!\",
@@ -29,6 +29,7 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResult<Song> {
             bpm,
             key_signature,
             metadata,
+            lyrics,
             processing_status,
             processing_notes,
             created_at as \"created_at!\",
@@ -45,6 +46,7 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResult<Song> {
         req.year,
         req.bpm,
         req.key_signature,
+        req.lyrics,
         req.created_by,
         req.created_by
     )
@@ -74,6 +76,7 @@ pub async fn list_songs() -> GrimoireResult<Vec<Song>> {
             bpm,
             key_signature,
             metadata,
+            lyrics,
             processing_status,
             processing_notes,
             created_at as \"created_at!\",
@@ -113,6 +116,7 @@ pub async fn get_song(id: &str) -> GrimoireResult<Song> {
             bpm,
             key_signature,
             metadata,
+            lyrics,
             processing_status,
             processing_notes,
             created_at as \"created_at!\",

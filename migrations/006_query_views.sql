@@ -17,6 +17,7 @@ SELECT
     s.bpm as song_bpm,
     s.key_signature as song_key_signature,
     s.metadata as song_metadata,
+    s.lyrics as song_lyrics,
     s.processing_status as song_processing_status,
     s.processing_notes as song_processing_notes,
     s.created_at as song_created_at,

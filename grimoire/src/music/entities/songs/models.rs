@@ -19,6 +19,7 @@ pub struct Song {
     pub bpm: Option<i64>,
     pub key_signature: Option<String>,
     pub metadata: Option<String>,
+    pub lyrics: Option<String>,
     pub processing_status: Option<String>,
     pub processing_notes: Option<String>,
     pub created_at: i64,         // unix timestamp UTC
@@ -40,5 +41,6 @@ pub struct CreateSongRequest {
     pub year: Option<i64>,
     pub bpm: Option<i64>,
     pub key_signature: Option<String>,
+    pub lyrics: Option<String>,
     pub created_by: Option<String>,
 }

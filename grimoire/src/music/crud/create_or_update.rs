@@ -65,6 +65,7 @@ pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult
         year: req.year,
         bpm: req.bpm,
         key_signature: req.key_signature,
+        lyrics: req.lyrics,
         created_by: req.created_by,
     };
 
@@ -274,6 +275,7 @@ pub async fn create_song_with_artist_and_album(
         year: req.year,
         bpm: None,
         key_signature: None,
+        lyrics: None,
         created_by: req.created_by,
     };
 
