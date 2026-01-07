@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE playlist_songz\n           SET position = (\n               SELECT ROW_NUMBER() OVER (ORDER BY position)\n               FROM playlist_songz ps2\n               WHERE ps2.playlist_id = playlist_songz.playlist_id\n               AND ps2.position <= playlist_songz.position\n           )\n           WHERE playlist_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "6c680501ec056205e4d8f19dcd86e7a3d3facf5d4534fc4cbfddd1452639e324"
+}

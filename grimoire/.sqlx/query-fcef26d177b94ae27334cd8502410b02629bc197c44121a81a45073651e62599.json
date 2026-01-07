@@ -1,0 +1,104 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            al.id as \"id!\",\n            al.title as \"title!\",\n            al.album_type as \"album_type!\",\n            al.release_date,\n            al.release_date_precision,\n            al.label,\n            al.genre_id,\n            al.song_count as \"song_count!\",\n            al.total_duration as \"total_duration!\",\n            al.created_at as \"created_at!\",\n            al.updated_at as \"updated_at!\",\n            al.deleted_at,\n            al.deleted_by,\n            al.created_by,\n            al.updated_by\n           FROM albumz al\n           JOIN artist_albumz aa ON al.id = aa.album_id\n           WHERE LOWER(al.title) = LOWER(?) AND aa.artist_id = ? AND al.deleted_at IS NULL\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "title!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "album_type!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "release_date",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "release_date_precision",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "label",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "genre_id",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "song_count!",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "total_duration!",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 10,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 11,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_by",
+        "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 13,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_by",
+        "ordinal": 14,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "fcef26d177b94ae27334cd8502410b02629bc197c44121a81a45073651e62599"
+}

@@ -1,0 +1,140 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            id as \"id!\",\n            media_blob_id as \"media_blob_id!\",\n            thumbnail_blob_id,\n            waveform_blob_id,\n            title as \"title!\",\n            track_number as \"track_number!\",\n            disc_number as \"disc_number!\",\n            duration,\n            year,\n            bpm,\n            key_signature,\n            metadata,\n            lyrics,\n            processing_status,\n            processing_notes,\n            created_at as \"created_at!\",\n            updated_at as \"updated_at!\",\n            deleted_at,\n            deleted_by,\n            created_by,\n            updated_by\n         FROM songz\n         WHERE deleted_at IS NULL\n         ORDER BY created_at DESC\n         LIMIT 100",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "media_blob_id!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "thumbnail_blob_id",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "waveform_blob_id",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "title!",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "track_number!",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "disc_number!",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "duration",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "year",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "bpm",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "key_signature",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "metadata",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "lyrics",
+        "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "processing_status",
+        "ordinal": 13,
+        "type_info": "Text"
+      },
+      {
+        "name": "processing_notes",
+        "ordinal": 14,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 15,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 16,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 17,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_by",
+        "ordinal": 18,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 19,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_by",
+        "ordinal": 20,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "403cd05b6c0983d22dd70421d9efbcf60c95c7ad84c4ec460770283d51ff2856"
+}
