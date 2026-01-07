@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            DELETE FROM user_favoritez\n            WHERE target_type = ?1 AND target_id = ?2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "4895b89d806bbc7cfd7face53e78efe17301fe42ae728f81347ac113acf711a4"
+}

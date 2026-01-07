@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                SELECT id as \"id!\", user_id as \"user_id!\", target_type as \"target_type!\", target_id as \"target_id!\", rating as \"rating!\", created_at as \"created_at!\", updated_at as \"updated_at!\"\n                FROM user_ratingz\n                WHERE user_id = ?1\n                ORDER BY updated_at DESC\n                LIMIT ?2 OFFSET ?3\n                ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "target_type!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "target_id!",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "rating!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "18ff1f963df73d6ec0d4d33f405cc52f8e11a10116d871b97f5995933a109257"
+}

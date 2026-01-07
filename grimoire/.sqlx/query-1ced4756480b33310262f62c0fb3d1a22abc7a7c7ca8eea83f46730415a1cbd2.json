@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT id\n            FROM user_favoritez\n            WHERE user_id = ?1 AND target_type = ?2 AND target_id = ?3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "1ced4756480b33310262f62c0fb3d1a22abc7a7c7ca8eea83f46730415a1cbd2"
+}

@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                SELECT id as \"id!\", user_id as \"user_id!\", target_type as \"target_type!\", target_id as \"target_id!\", created_at as \"created_at!\"\n                FROM user_favoritez\n                WHERE user_id = ?1 AND target_type = ?2\n                ORDER BY created_at DESC\n                LIMIT ?3 OFFSET ?4\n                ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "target_type!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "target_id!",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f4b65f9f48c68362ca642bc9f7b7666c843bb32800990c21aea3b304efe96b17"
+}
