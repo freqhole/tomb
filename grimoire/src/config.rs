@@ -1,128 +1,343 @@
-//! simplified config module for grimoire
-//! focuses on single sqlite database path and minimal settings
+//! Configuration module for grimoire
+//!
+//! Provides configuration loading, validation, and global storage.
+//! Config files use JSONC format (JSON with comments).
 
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
 
-/// main application configuration
+// Global config - initialized once at startup
+static CONFIG: OnceCell<GrimoireConfig> = OnceCell::new();
+
+/// Main grimoire configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppConfig {
+pub struct GrimoireConfig {
+    /// Application metadata
+    pub app: AppInfo,
+    /// Data directory - base directory for all data
+    pub data_dir: PathBuf,
+    /// Database configuration
     pub database: DatabaseConfig,
+    /// Media processing and categorization
     pub media: MediaConfig,
+    /// MusicBrainz integration
+    pub musicbrainz: MusicBrainzConfig,
+    /// Logging configuration
+    pub logging: LoggingConfig,
 }
 
-/// database configuration using DATABASE_URL
+/// Application metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppInfo {
+    /// Application name
+    pub name: String,
+    /// Application version
+    pub version: String,
+    /// Optional description
+    pub description: Option<String>,
+    /// Unique identifier for this instance
+    pub id: String,
+}
+
+/// Database configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
-    /// database connection URL (e.g., "sqlite:data/grimoire.db")
-    #[serde(default = "default_database_url")]
-    pub database_url: String,
+    /// SQLite database filename (stored in data_dir)
+    pub filename: String,
+    /// Automatically run migrations on startup
+    pub auto_run_migrations: bool,
 }
 
-/// media processing configuration
+/// Media processing configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaConfig {
-    /// maximum file size for processing (bytes)
-    #[serde(default = "default_max_file_size")]
-    pub max_file_size: u64,
-
-    /// supported audio file extensions
-    #[serde(default = "default_audio_extensions")]
-    pub audio_extensions: Vec<String>,
-
-    /// directory for storing large files
-    #[serde(default = "default_storage_directory")]
-    pub storage_directory: String,
+    /// Maximum file size for filesystem storage (bytes)
+    pub max_fs_file_size: u64,
+    /// Supported audio file formats
+    pub supported_audio_formats: Vec<String>,
+    /// Download configuration
+    pub downloads: DownloadsConfig,
+    /// Predefined genres for categorization
+    pub genres: Vec<GenreMapping>,
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            database: DatabaseConfig::default(),
-            media: MediaConfig::default(),
-        }
-    }
+/// Download configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadsConfig {
+    /// Enable downloading from URLs
+    pub enabled: bool,
+    /// Command to use for downloads
+    pub ytdlp_command: String,
 }
 
-impl Default for DatabaseConfig {
-    fn default() -> Self {
-        Self {
-            database_url: default_database_url(),
-        }
-    }
+/// Genre mapping for categorization
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenreMapping {
+    /// Display name
+    pub display: String,
+    /// URL-safe slug
+    pub slug: String,
+    /// List of genre variations that map to this category
+    pub genres: Vec<String>,
 }
 
-impl Default for MediaConfig {
-    fn default() -> Self {
-        Self {
-            max_file_size: default_max_file_size(),
-            audio_extensions: default_audio_extensions(),
-            storage_directory: default_storage_directory(),
-        }
-    }
+/// MusicBrainz integration configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MusicBrainzConfig {
+    /// Enable MusicBrainz API integration
+    pub enabled: bool,
 }
 
-// default value functions
-fn default_database_url() -> String {
-    // Check environment variable first, fall back to default
-    std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:data/grimoire.db".to_string())
+/// Logging configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggingConfig {
+    /// Log level: trace, debug, info, warn, error
+    pub level: String,
 }
 
-fn default_max_file_size() -> u64 {
-    1000 * 1024 * 1024 // 1000mb
-}
+impl GrimoireConfig {
+    /// Load config from file
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
+        let path_ref = path.as_ref();
+        let content = std::fs::read_to_string(path_ref).map_err(|e| ConfigError::FileNotFound {
+            path: path_ref.display().to_string(),
+            error: e.to_string(),
+        })?;
 
-fn default_audio_extensions() -> Vec<String> {
-    vec![
-        "mp3".to_string(),
-        "flac".to_string(),
-        "wav".to_string(),
-        "m4a".to_string(),
-        "ogg".to_string(),
-        "aif".to_string(),
-        "aiff".to_string(),
-    ]
-}
+        let config: GrimoireConfig =
+            json5::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
 
-fn default_storage_directory() -> String {
-    "data/storage".to_string()
-}
-
-impl AppConfig {
-    /// load configuration from file
-    pub fn from_file<P: AsRef<std::path::Path>>(
-        path: P,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let content = std::fs::read_to_string(path)?;
-        let config: AppConfig = serde_json::from_str(&content)?;
+        config.validate()?;
         Ok(config)
     }
 
-    /// create default configuration
-    pub fn default_config() -> Self {
-        Self::default()
-    }
-
-    /// extract file path from DATABASE_URL
-    pub fn database_file_path(&self) -> String {
-        // Strip "sqlite:" prefix if present
-        self.database
-            .database_url
-            .strip_prefix("sqlite:")
-            .unwrap_or(&self.database.database_url)
-            .to_string()
-    }
-
-    /// ensure data directories exist
-    pub fn ensure_directories(&self) -> std::io::Result<()> {
-        // Ensure parent directory of database file exists
-        let db_path = self.database_file_path();
-        if let Some(parent) = PathBuf::from(&db_path).parent() {
-            std::fs::create_dir_all(parent)?;
+    /// Validate configuration
+    fn validate(&self) -> Result<(), ConfigError> {
+        // Validate logging level
+        let valid_levels = ["trace", "debug", "info", "warn", "error"];
+        if !valid_levels.contains(&self.logging.level.as_str()) {
+            return Err(ConfigError::InvalidValue(format!(
+                "Invalid log level: '{}'. Must be one of: {}",
+                self.logging.level,
+                valid_levels.join(", ")
+            )));
         }
 
-        // Ensure storage directory exists
-        std::fs::create_dir_all(&self.media.storage_directory)?;
+        // Validate database filename is not empty
+        if self.database.filename.is_empty() {
+            return Err(ConfigError::InvalidValue(
+                "database.filename cannot be empty".to_string(),
+            ));
+        }
+
         Ok(())
+    }
+
+    /// Get path to SQLite database file
+    pub fn database_path(&self) -> PathBuf {
+        self.data_dir.join(&self.database.filename)
+    }
+
+    /// Get path to temp directory
+    pub fn temp_dir(&self) -> PathBuf {
+        self.data_dir.join("tmp")
+    }
+
+    /// Get path to wordlist file
+    pub fn wordlist_path(&self) -> PathBuf {
+        self.data_dir.join("wordlist.txt")
+    }
+}
+
+/// Initialize global config (call once at app startup)
+pub fn init_config(config: GrimoireConfig) -> Result<(), ConfigError> {
+    CONFIG
+        .set(config)
+        .map_err(|_| ConfigError::AlreadyInitialized)?;
+    Ok(())
+}
+
+/// Get global config reference (available after init_config)
+pub(crate) fn get_config() -> &'static GrimoireConfig {
+    CONFIG
+        .get()
+        .expect("Config not initialized - call init_config first")
+}
+
+/// Find config file using search strategy
+///
+/// Search order:
+/// 1. Explicit path if provided (e.g. from --config flag)
+/// 2. GRIMOIRE_CONFIG env var
+/// 3. ./config.jsonc (current directory)
+/// 4. Walk up directory tree looking for assets/config/config.jsonc (dev mode)
+pub fn find_config(explicit_path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {
+    // 1. Explicit path (e.g. from --config flag)
+    if let Some(path) = explicit_path {
+        if path.exists() {
+            return Ok(path);
+        }
+        return Err(ConfigError::FileNotFound {
+            path: path.display().to_string(),
+            error: "Specified config file does not exist".to_string(),
+        });
+    }
+
+    // 2. GRIMOIRE_CONFIG env var
+    if let Ok(path_str) = std::env::var("GRIMOIRE_CONFIG") {
+        let path = PathBuf::from(path_str);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+
+    // 3. ./config.jsonc in current directory
+    let local = PathBuf::from("config.jsonc");
+    if local.exists() {
+        return Ok(local);
+    }
+
+    // 4. Search up directory tree for assets/config/config.jsonc (dev mode)
+    if let Ok(mut current) = std::env::current_dir() {
+        loop {
+            let candidate = current.join("assets/config/config.jsonc");
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+            if !current.pop() {
+                break;
+            }
+        }
+    }
+
+    Err(ConfigError::NotFound)
+}
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("Config file not found: {path}\nError: {error}")]
+    FileNotFound { path: String, error: String },
+
+    #[error("Failed to parse config: {0}")]
+    ParseError(String),
+
+    #[error("Invalid config value: {0}")]
+    InvalidValue(String),
+
+    #[error("Config already initialized")]
+    AlreadyInitialized,
+
+    #[error(
+        "No config file found. Searched:\n  \
+         - ./config.jsonc\n  \
+         - GRIMOIRE_CONFIG env var\n  \
+         - assets/config/config.jsonc (walking up tree)\n\n\
+         Run: grimoire config init"
+    )]
+    NotFound,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_helper_methods() {
+        let config = GrimoireConfig {
+            app: AppInfo {
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                description: None,
+                id: "test-id".to_string(),
+            },
+            data_dir: PathBuf::from("/data"),
+            database: DatabaseConfig {
+                filename: "test.db".to_string(),
+                auto_run_migrations: true,
+            },
+            media: MediaConfig {
+                max_fs_file_size: 1000,
+                supported_audio_formats: vec!["mp3".to_string()],
+                downloads: DownloadsConfig {
+                    enabled: false,
+                    ytdlp_command: "yt-dlp".to_string(),
+                },
+                genres: vec![],
+            },
+            musicbrainz: MusicBrainzConfig { enabled: false },
+            logging: LoggingConfig {
+                level: "info".to_string(),
+            },
+        };
+
+        assert_eq!(config.database_path(), PathBuf::from("/data/test.db"));
+        assert_eq!(config.temp_dir(), PathBuf::from("/data/tmp"));
+        assert_eq!(config.wordlist_path(), PathBuf::from("/data/wordlist.txt"));
+    }
+
+    #[test]
+    fn test_config_validation_invalid_log_level() {
+        let config = GrimoireConfig {
+            app: AppInfo {
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                description: None,
+                id: "test-id".to_string(),
+            },
+            data_dir: PathBuf::from("/data"),
+            database: DatabaseConfig {
+                filename: "test.db".to_string(),
+                auto_run_migrations: true,
+            },
+            media: MediaConfig {
+                max_fs_file_size: 1000,
+                supported_audio_formats: vec![],
+                downloads: DownloadsConfig {
+                    enabled: false,
+                    ytdlp_command: "yt-dlp".to_string(),
+                },
+                genres: vec![],
+            },
+            musicbrainz: MusicBrainzConfig { enabled: false },
+            logging: LoggingConfig {
+                level: "invalid".to_string(),
+            },
+        };
+
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validation_empty_filename() {
+        let config = GrimoireConfig {
+            app: AppInfo {
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                description: None,
+                id: "test-id".to_string(),
+            },
+            data_dir: PathBuf::from("/data"),
+            database: DatabaseConfig {
+                filename: "".to_string(),
+                auto_run_migrations: true,
+            },
+            media: MediaConfig {
+                max_fs_file_size: 1000,
+                supported_audio_formats: vec![],
+                downloads: DownloadsConfig {
+                    enabled: false,
+                    ytdlp_command: "yt-dlp".to_string(),
+                },
+                genres: vec![],
+            },
+            musicbrainz: MusicBrainzConfig { enabled: false },
+            logging: LoggingConfig {
+                level: "info".to_string(),
+            },
+        };
+
+        assert!(config.validate().is_err());
     }
 }

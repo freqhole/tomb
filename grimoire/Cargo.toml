@@ -25,6 +25,8 @@ regex = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 urlencoding = "2.1"
+once_cell = "1.19"
+json5 = "0.4"
 
 clap = { version = "4.4", features = ["derive"] }
 humantime = "2.1"

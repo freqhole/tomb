@@ -1,227 +1,275 @@
-// WebAuthn Server Configuration Example
+// Grimoire Configuration File (Example/Template)
 //
-// This is a comprehensive example configuration with inline comments explaining
-// each option. Copy this to config.jsonc and customize for your setup.
+// This is a template configuration file for grimoire.
+// Copy this to config.jsonc and customize for your environment.
 //
-// For JSON Schema support in your editor:
-//   cargo run --bin cli config schema
+// Usage:
+//   grimoire config init                    # Creates config.jsonc from this template
+//   grimoire config init --data-dir /path   # Custom data directory
 //
-// To validate your configuration:
-//   cargo run --bin cli config validate
-//
+// This file is embedded in the grimoire binary and used by `config init`.
+
 {
-  // Application metadata and identification
+  // Application metadata
   "app": {
-    "name": "WebAuthn Demo", // Display name for your application
-    "version": "1.0.0", // Application version
-    "environment": "development", // Environment: development, staging, production
-    "description": "WebAuthn authentication server with invite codes" // Optional description
+    // Application name (displayed in UI, logs)
+    "name": "freqhole",
+    // Version (semantic versioning recommended)
+    "version": "0.1.0",
+    // Optional description
+    "description": "Music library server",
+    // Unique identifier for this instance
+    "id": "freqhole-main"
   },
 
-  // Database connection and pool settings
+  // Data directory - base directory for all grimoire data
+  // Can be relative (./data) or absolute (/var/lib/freqhole)
+  // Contains: database file, temp directory, wordlist
+  "data_dir": "./data",
+
+  // Database configuration
   "database": {
-    "host": "localhost", // Database server hostname or IP
-    "port": 5432, // Database server port (default PostgreSQL: 5432)
-    "name": "webauthn_db", // Database name to connect to
-    "user": "postgres", // Database username
+    // SQLite database filename (stored in data_dir)
+    // The full path will be: {data_dir}/{filename}
+    "filename": "grimoire.db",
 
-    // Connection pool configuration
-    "pool": {
-      "max_connections": 10, // Maximum concurrent database connections
-      "min_connections": 1, // Minimum connections to maintain in pool
-      "connect_timeout_seconds": 30, // Timeout when establishing new connections
-      "idle_timeout_seconds": 600 // How long idle connections can remain in pool (10 min)
-    },
-
-    // Database migration settings
-    "migrations": {
-      "auto_run": true // Automatically run migrations on startup
-    }
+    // Automatically run database migrations on startup
+    // Set to false if you want to run migrations manually
+    "auto_run_migrations": true
   },
 
-  // WebAuthn/FIDO2 authentication configuration
-  "webauthn": {
-    "rp_id": "localhost", // Relying Party ID - MUST match your domain (CANNOT CHANGE after deployment!)
-    "rp_name": "WebAuthn Demo", // Human-readable name shown to users during authentication
-    "rp_origins": [ // Multiple allowed origins for multi-domain setups (ngrok, tailscale, etc.)
-      "http://localhost:8080",
-      "https://myapp.ngrok.io",
-      "https://myserver.tailscale.net"
-    ],
-  },
-
-  // HTTP server configuration
-  "server": {
-    "host": "0.0.0.0", // Interface to bind to (0.0.0.0 = all interfaces, 127.0.0.1 = localhost only)
-    "port": 8080, // Port to listen on
-
-    // CORS (Cross-Origin Resource Sharing) configuration
-    "cors": {
-      "allowed_origins": [
-        "http://localhost:3003", // Freqhole dev server
-        "http://127.0.0.1:3003",
-        "http://localhost:3000", // Common React/Next.js dev port
-        "http://127.0.0.1:3000",
-        "http://localhost:5173", // Vite dev server default
-        "http://127.0.0.1:5173"
-      ]
-    }
-  },
-
-  // Session management settings
-  "sessions": {
-    "max_age_seconds": 3600, // Session duration in seconds (1 hour). Set to 0 or negative for sessions that never expire.
-    "secure": false, // Use secure cookies (set true for HTTPS)
-    "same_site": "strict", // SameSite attribute: "strict", "lax", or "none"
-    "http_only": true // Prevent JavaScript access to session cookies
-  },
-
-
-
-  // Logging and tracing configuration
-  "logging": {
-    "level": "info", // Log level: "trace", "debug", "info", "warn", "error"
-
-    // Optional: HTTP access logging
-    "access_log": {
-      "enabled": false, // Enable HTTP access logging to files
-      "file_path": "logs/access.log", // Access log file path
-      "format": "combined", // Format: "common", "combined", or "custom"
-      "also_log_to_tracing": false // Also send to main application logger
-    }
-  },
-
-  // Analytics and metrics configuration
-  "analytics": {
-    // Metrics endpoints configuration
-    "metrics": {
-      "enabled": false, // Enable metrics HTTP endpoints
-      "prometheus_endpoint": "/metrics", // Prometheus-format metrics endpoint
-      "health_endpoint": "/health" // Health check endpoint
-    }
-  },
-
-  // Static file serving configuration
-  "static_files": {
-    "public_directory": "assets/public", // Directory for public files (accessible to all)
-    "private_directory": "assets/private", // Directory for private files (authentication required)
-    "assets_directory": "assets" // Main assets directory (contains both JS and WASM frontends)
-  },
-
-  // Storage backend configuration
-  "storage": {
-    // Analytics storage: where to store request analytics data
-    "analytics": "memory", // "memory" for in-memory storage, "postgres" for PostgreSQL database
-
-    // Session storage: where to store user session data
-    "sessions": "memory" // "memory" for in-memory storage, "postgres" for PostgreSQL database
-  },
-
-  // Media and file upload configuration
+  // Media processing and categorization
   "media": {
-    "max_blob_file_size": 10485760, // Maximum size for blobs in database (10MB = 10 * 1024 * 1024 bytes)
-    "max_fs_file_size": 1073741824, // Maximum size for files on filesystem (1GB = 1024 * 1024 * 1024 bytes)
+    // Maximum file size for filesystem storage (in bytes)
+    // Default: 1GB = 1073741824 bytes
+    "max_fs_file_size": 1073741824,
+
+    // Supported audio file formats for music scanning
+    // Files with these extensions will be processed
+    "supported_audio_formats": ["mp3", "ogg", "wav", "flac", "m4a", "aif", "aiff"],
 
     // URL download configuration using yt-dlp
     "downloads": {
-      "enabled": false, // Enable URL downloads (requires yt-dlp)
-      "ytdlp_command": "yt-dlp" // Command to use for yt-dlp (can be full path if not in PATH)
-    }
+      // Enable downloading from URLs (requires yt-dlp installed)
+      "enabled": true,
+      // Command to use for downloads (must be in PATH)
+      "ytdlp_command": "yt-dlp"
+    },
+
+    // Predefined genre mappings for categorizing music
+    // Maps various genre tag variations to standardized display names
+    // This helps tame the wild variety of genre tags in music files
+    "genres": [
+      {
+        "display": "Rock",
+        "slug": "rock",
+        "genres": ["rock", "Rock", "Classic rock", "Rock > Alternative", "Rock / Metal", "Rock 'n' Roll", "Rock/Pop", "Rock & Roll", "Slow rock", "General Rock", "Progressive Rock", "Hard Rock", "Grunge", "indi rock"]
+      },
+      {
+        "display": "Alternative",
+        "slug": "alternative",
+        "genres": ["alternative", "Alternative", "Alternative Rock", "AlternRock Alt. Rock", "Alt Rock", "Alternative Metal", "Alternative & Punk", "Indie", "Indie Rock", "Indie > Electronic", "Indie > Post-Rock/Expiremental", "Indie > Shoegaze", "Indie > Singer/Songwriter"]
+      },
+      {
+        "display": "Electronic",
+        "slug": "electronic",
+        "genres": ["electronic", "Electronic", "Electronica", "Electronica & Dance", "Electronica/Dance", "Electronic > Expiremental", "Electronic > Glitch Hop", "Electronic > IDM", "Electronic > Techno", "Électronique et dance", "Elektronická a taneční hudba", "ELEC", "Electro", "Electroclash", "Electro House", "General Electronic", "Eurodance", "techno", "Techno", "Trance", "House", "IDM", "Rave", "synth pop"]
+      },
+      {
+        "display": "Dance / Club",
+        "slug": "dance",
+        "genres": ["Dance", "Dance & DJ", "Club", "Club Dance", "Drum and Bass", "Drum & Bass", "Dubstep", "Trip Hop", "Trip-Hop"]
+      },
+      {
+        "display": "Hip-Hop / Rap",
+        "slug": "hip-hop",
+        "genres": ["hip-hop", "hiphop", "Hip Hop", "Hip-Hop", "Hip Hop/Rap", "General Hip Hop", "General Rap", "Rap", "Rap e Hip-Hop", "Rap & Hip Hop", "Rap & Hip-Hop", "Rap/R&B", "Rap/West Coast", "Hardcore Rap", "New School"]
+      },
+      {
+        "display": "Metal",
+        "slug": "metal",
+        "genres": ["metal", "Metal", "General Metal", "Death metal", "Death Metal", "Heavy Metal", "Metal Alternative Metal", "metalcore", "Metal Industrial Metal", "numetal", "Nu-Metal"]
+      },
+      {
+        "display": "Punk",
+        "slug": "punk",
+        "genres": ["punk", "Punk", "General Punk", "Alternative & Punk", "Punk Rock", "Hardcore", "Emo", "Emocore"]
+      },
+      {
+        "display": "Industrial / EBM",
+        "slug": "industrial",
+        "genres": ["industrial", "Industrial", "ebm", "EBM", "darkwave", "no wave", "Gothic Rock", "New Wave"]
+      },
+      {
+        "display": "Pop",
+        "slug": "pop",
+        "genres": ["Pop", "Pop > Dream"]
+      },
+      {
+        "display": "R&B / Soul",
+        "slug": "rnb",
+        "genres": ["R&B", "R&B/Soul", "RnB", "Soul and R&B", "Soul And R&B", "Funk"]
+      },
+      {
+        "display": "Jazz",
+        "slug": "jazz",
+        "genres": ["Jazz", "Jazz & Funk"]
+      },
+      {
+        "display": "Blues",
+        "slug": "blues",
+        "genres": ["blues", "Blues"]
+      },
+      {
+        "display": "Country",
+        "slug": "country",
+        "genres": ["Country", "Country Western", "Bluegrass"]
+      },
+      {
+        "display": "Folk",
+        "slug": "folk",
+        "genres": ["Folk", "General Folk", "Acoustic"]
+      },
+      {
+        "display": "Classical / Orchestral",
+        "slug": "classical",
+        "genres": ["Classical", "Orchestral", "Solo Cello"]
+      },
+      {
+        "display": "World / Reggae",
+        "slug": "world",
+        "genres": ["World", "Reggae", "Native US"]
+      },
+      {
+        "display": "Ambient / Experimental",
+        "slug": "ambient",
+        "genres": ["ambient", "Experimental", "Avantgarde", "New Age"]
+      },
+      {
+        "display": "Soundtrack",
+        "slug": "soundtrack",
+        "genres": ["Soundtrack", "Sound Track", "General Soundtrack", "Theme Songs", "Musical"]
+      },
+      {
+        "display": "Instrumental / Vocal",
+        "slug": "instrumental",
+        "genres": ["Instrumental", "Vocal", "A Capella"]
+      },
+      {
+        "display": "Easy Listening",
+        "slug": "easy-listening",
+        "genres": ["easy listening", "Easy Listening", "Oldies", "Retro"]
+      },
+      {
+        "display": "Comedy / Novelty",
+        "slug": "comedy",
+        "genres": ["Comedy", "Parody", "Pranks", "Porn groove", "Porn Groove", "Pussy-vagina music", "p00p"]
+      },
+      {
+        "display": "Children / Family",
+        "slug": "children",
+        "genres": ["Children", "Contemporary Christian"]
+      },
+      {
+        "display": "Talk / Podcast",
+        "slug": "talk",
+        "genres": ["Podcast", "talk music", "talk radio", "Sound clip"]
+      },
+      {
+        "display": "Noise / Experimental",
+        "slug": "noise",
+        "genres": ["noise", "Noise"]
+      },
+      {
+        "display": "Misc / Other",
+        "slug": "misc",
+        "genres": ["misc", "mixtape", "Other", "Unclassifiable", "Unknown", "default", "genre", "???", "254", "MST", "Acid"]
+      }
+    ]
   },
 
-  // MusicBrainz integration configuration
+  // MusicBrainz integration for metadata enrichment
   "musicbrainz": {
-    "enabled": true, // Enable MusicBrainz integration for metadata enrichment
-    "user_agent": "tomb-musicbrainz-client/1.0 (https://github.com/freqhole/tomb)" // User agent for API requests (required by MusicBrainz)
-
-    // Optional advanced settings (these use defaults if not specified):
-    // "rate_limit_ms": 1000, // Minimum time between requests (1000ms minimum per MusicBrainz guidelines)
-    // "base_url": "https://musicbrainz.org/ws/2", // MusicBrainz API base URL
-    // "cover_art_url": "https://coverartarchive.org", // Cover Art Archive base URL
-    // "timeout_seconds": 30, // Request timeout in seconds
-    // "max_concurrent_requests": 1, // Maximum concurrent requests (keep low for rate limiting)
-    // "cache_ttl_hours": 24, // Cache TTL in hours
-    // "max_retries": 3, // Maximum retry attempts for failed requests
-
-    // Album processing preferences:
-    // "preferred_country": "US", // Preferred country for release selection (US, GB, XW, etc.)
-    // "preferred_status": "Official", // Preferred release status (Official, Promotion, Bootleg, etc.)
-    // "album_completion_threshold": 90.0, // Percentage threshold (0-100) for tagging as complete album
-    // "prefer_complete_albums": true, // Prefer complete albums over partial matches
-    // "max_album_suggestions": 5, // Maximum album suggestions to show in UI
-
-    // Matching preferences:
-    // "duration_tolerance_seconds": 5, // Duration tolerance for matching (±seconds)
-    // "enable_duration_matching": false, // Include duration constraints in queries (can be restrictive)
-    // "full_album_tag": "full album" // Tag name to apply to complete albums
+    // Enable MusicBrainz API integration for enhanced metadata
+    // Allows searching for album/artist information and cover art
+    "enabled": true
+    // Note: User agent is hardcoded in grimoire as "tomb-musicbrainz/1.0"
   },
 
-  // Real-time notifications configuration
-  "notifications": {
-    "channels": {}, // Channel-specific configurations (auto-configured based on usage)
+  // Logging configuration
+  "logging": {
+    // Log level controls verbosity
+    // Options: "trace", "debug", "info", "warn", "error"
+    // Recommended: "info" for production, "debug" for development
+    "level": "info"
+  },
 
-    // Rate limiting for notifications
-    "rate_limiting": {
-      "enabled": true, // Enable rate limiting globally
-      "global_events_per_minute": 10000, // Max events per minute across all channels
-      "per_channel_events_per_minute": 5000, // Max events per minute per channel
-      "per_user_events_per_minute": 100, // Max events per minute per user
-      "time_window_seconds": 60, // Rate limiting time window
-      "overflow_strategy": "Drop", // What to do when rate limited: Drop, Queue, Error
-      "apply_to_high_priority": false // Whether to rate limit high priority events
+  // ========================================
+  // Server-specific configuration
+  // (Only used by freqhole-server)
+  // ========================================
+
+  "server": {
+    // HTTP server configuration
+    // Interface to bind to: 0.0.0.0 = all interfaces, 127.0.0.1 = localhost only
+    "host": "0.0.0.0",
+    // Port to listen on
+    "port": 8080,
+
+    // WebAuthn/FIDO2 authentication configuration
+    "webauthn": {
+      // Relying Party ID - MUST match your domain
+      // IMPORTANT: Cannot be changed after deployment!
+      "rp_id": "localhost",
+      // Human-readable name shown during authentication
+      "rp_name": "Freqhole Music Server",
+      // Allowed origin URLs for authentication (supports multiple domains)
+      "rp_origins": [
+        "http://localhost:8080",
+        "http://localhost:3003",
+        "http://localhost:5173"
+      ]
     },
 
-    // PostgreSQL NOTIFY/LISTEN configuration
-    "postgres": {
-      "enabled": true, // Enable PostgreSQL notifications
-      "listener_connections": 2, // Number of database connections for listening
-      "listen_timeout_seconds": 30, // Timeout for LISTEN operations
-      "reconnect_interval_seconds": 5, // How often to retry failed connections
-      "max_reconnect_attempts": 10, // Max reconnection attempts (0 = unlimited)
-      "notification_buffer_size": 1000 // Buffer size for incoming notifications
+    // CORS (Cross-Origin Resource Sharing) configuration
+    "cors": {
+      // List of allowed origins for CORS requests
+      "allowed_origins": [
+        "http://localhost:8080",
+        "http://localhost:3003",
+        "http://localhost:5173"
+      ]
     },
 
-    // WebSocket notification configuration
-    "websocket": {
-      "enabled": true, // Enable WebSocket notifications
-      "max_connections": 10000, // Maximum concurrent WebSocket connections
-      "heartbeat_interval_seconds": 30, // Heartbeat interval for connections
-      "connection_timeout_seconds": 60, // Connection timeout
-      "max_message_size_bytes": 1048576, // Maximum message size (1MB)
-      "per_connection_buffer_size": 100 // Buffer size per connection
+    // Session management settings
+    "sessions": {
+      // Session duration in seconds
+      // Set to 0 or negative for sessions that never expire
+      "max_age_seconds": 3600,
+      // Use secure cookies (set true for HTTPS)
+      "secure": false,
+      // SameSite attribute: "strict", "lax", or "none"
+      "same_site": "strict",
+      // Prevent JavaScript access to session cookies
+      "http_only": true
     },
 
-    // Notification queue for reliable delivery
-    "queue": {
-      "enable_persistence": true, // Persist notifications to database
-      "max_queue_size": 50000, // Maximum number of queued notifications
-      "cleanup_interval_seconds": 300, // How often to clean up old notifications (5 min)
-      "max_event_age_seconds": 86400, // Maximum age for notifications (24 hours)
-      "max_retry_attempts": 3, // Number of delivery retry attempts
-      "retry_backoff": "Exponential", // Retry strategy: Fixed, Exponential, Linear
-      "dead_letter_queue": true // Enable dead letter queue for failed deliveries
-    },
-
-    // General notification service settings
-    "general": {
-      "enable_debug_logging": false, // Enable verbose debug logging
-      "default_delivery_timeout_seconds": 10, // Default timeout for delivery attempts
-      "enable_metrics": true, // Enable metrics collection
-      "metrics_interval_seconds": 60, // Metrics collection interval
-      "health_check_interval_seconds": 30, // Health check interval
-      "max_concurrent_processors": 100 // Maximum concurrent notification processors
+    // Static file serving configuration
+    "static_files": {
+      // Directory for public files (accessible to all)
+      "public_directory": "assets/public",
+      // Directory for private files (authentication required)
+      "private_directory": "assets/private",
+      // Main assets directory
+      "assets_directory": "assets"
     }
-  },
-
-  // Development-specific settings (only active when environment = "development")
-  "development": {
-    "auto_generate_invites": true // Automatically generate invite codes on startup
-  },
-
-  // Feature flags - enable/disable functionality
-  "features": {
-    "registration_enabled": true, // Allow new user registration
-    "invite_codes_required": true, // Require invite codes for user registration
-    "analytics_enabled": true // Enable request analytics collection
   }
 }
+
+// Data directory structure:
+//   {data_dir}/
+//   ├── grimoire.db          # SQLite database
+//   ├── wordlist.txt         # User invite code wordlist
+//   └── tmp/                 # Temporary files (created automatically)
+//       ├── uploads/
+//       └── processing/

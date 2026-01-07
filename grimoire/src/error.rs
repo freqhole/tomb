@@ -8,6 +8,12 @@ pub enum GrimoireError {
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
 
+    #[error("database not found: {0}")]
+    DatabaseNotFound(String),
+
+    #[error("configuration error: {0}")]
+    ConfigError(#[from] crate::config::ConfigError),
+
     #[error("migration error: {0}")]
     Migration(#[from] sqlx::migrate::MigrateError),
 
@@ -61,9 +67,6 @@ pub enum GrimoireError {
 
     #[error("thumbnail generation failed: {reason}")]
     ThumbnailGeneration { reason: String },
-
-    #[error("configuration error: {message}")]
-    Config { message: String },
 
     #[error("validation error: {field} - {message}")]
     Validation { field: String, message: String },

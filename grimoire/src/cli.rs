@@ -894,7 +894,7 @@ async fn handle_job_command(action: JobAction) -> GrimoireResult<()> {
 
             let jobs = list_jobs(session_id.as_deref(), None, Some(limit), None)
                 .await
-                .map_err(|e| crate::error::GrimoireError::Config {
+                .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
                     message: format!("Failed to list jobs: {}", e),
                 })?;
 
@@ -935,7 +935,7 @@ async fn handle_job_command(action: JobAction) -> GrimoireResult<()> {
             let stats =
                 get_queue_stats()
                     .await
-                    .map_err(|e| crate::error::GrimoireError::Config {
+                    .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
                         message: format!("Failed to get stats: {}", e),
                     })?;
 
@@ -969,7 +969,7 @@ async fn handle_job_command(action: JobAction) -> GrimoireResult<()> {
             };
 
             let session = create_job_session(session_request).await.map_err(|e| {
-                crate::error::GrimoireError::Config {
+                crate::error::GrimoireError::ProcessingFailed {
                     message: format!("Failed to create job session: {}", e),
                 }
             })?;
@@ -996,7 +996,7 @@ async fn handle_job_command(action: JobAction) -> GrimoireResult<()> {
             let job =
                 create_job(job_request)
                     .await
-                    .map_err(|e| crate::error::GrimoireError::Config {
+                    .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
                         message: format!("Failed to create scan job: {}", e),
                     })?;
 
@@ -1034,7 +1034,7 @@ async fn handle_job_command(action: JobAction) -> GrimoireResult<()> {
             let job =
                 create_job(job_request)
                     .await
-                    .map_err(|e| crate::error::GrimoireError::Config {
+                    .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
                         message: format!("Failed to create process file job: {}", e),
                     })?;
 
@@ -1070,7 +1070,7 @@ async fn handle_job_command(action: JobAction) -> GrimoireResult<()> {
                 }
                 Err(e) => {
                     println!("job processor error: {}", e);
-                    return Err(crate::error::GrimoireError::Config {
+                    return Err(crate::error::GrimoireError::ProcessingFailed {
                         message: format!("Job processor failed: {}", e),
                     });
                 }
@@ -1130,11 +1130,11 @@ async fn handle_database_command(action: DatabaseAction) -> GrimoireResult<()> {
         DatabaseAction::Info => {
             println!("database information:");
 
-            let config = crate::config::AppConfig::default();
-            let db_path = config.database_file_path();
+            let config = crate::config::get_config();
+            let db_path = config.database_path();
 
-            println!("  database url: {}", config.database.database_url);
-            println!("  database file: {}", db_path);
+            println!("  data directory: {}", config.data_dir.display());
+            println!("  database file: {}", db_path.display());
 
             // Check if file exists and get size
             if let Ok(metadata) = std::fs::metadata(&db_path) {
@@ -2077,7 +2077,7 @@ async fn handle_musicbrainz_command(action: MusicBrainzAction) -> GrimoireResult
     config.enabled = true;
 
     let client =
-        MusicBrainzClient::new(config).map_err(|e| crate::error::GrimoireError::Config {
+        MusicBrainzClient::new(config).map_err(|e| crate::error::GrimoireError::ProcessingFailed {
             message: format!("Failed to create MusicBrainz client: {}", e),
         })?;
 
@@ -2396,14 +2396,14 @@ async fn handle_wordlist_command(action: WordlistAction) -> GrimoireResult<()> {
             match service.generate_wordlist(&config) {
                 Ok(result) => {
                     let content = service.generate_wordlist_content(&config).map_err(|e| {
-                        crate::error::GrimoireError::Config {
+                        crate::error::GrimoireError::ProcessingFailed {
                             message: format!("Failed to generate wordlist content: {}", e),
                         }
                     })?;
 
                     if let Some(output_path) = output {
                         std::fs::write(&output_path, &content).map_err(|e| {
-                            crate::error::GrimoireError::Config {
+                            crate::error::GrimoireError::ProcessingFailed {
                                 message: format!(
                                     "Failed to write wordlist to {}: {}",
                                     output_path, e

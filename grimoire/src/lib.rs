@@ -17,7 +17,7 @@ pub mod users;
 pub mod wordlist;
 
 // re-export only domain types, no database internals
-pub use config::AppConfig;
+pub use config::{find_config, init_config, ConfigError, GrimoireConfig};
 pub use error::{GrimoireError, GrimoireResult};
 pub use media_blobz::{CreateMediaBlobRequest, MediaBlob};
 pub use music::{Album, Artist, Song};
@@ -33,14 +33,12 @@ pub use wordlist::{
     WordlistGenerationResult, WordlistService, WordlistStats, WordlistValidationResult,
 };
 
-/// initialize grimoire - ensures databases exist and migrations are run
-pub async fn init(config: &AppConfig) -> GrimoireResult<()> {
+/// initialize grimoire - ensures database connection works
+/// config must be initialized first via init_config()
+pub async fn init() -> GrimoireResult<()> {
     tracing::info!("initializing grimoire");
 
-    // ensure directories exist for database files
-    config.ensure_directories()?;
-
-    // just ensure database exists and migrations run
+    // ensure database exists and migrations run
     // actual connections happen per-operation
     let _ = database::connect().await?;
 

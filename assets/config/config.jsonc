@@ -1,108 +1,46 @@
-// WebAuthn Server Configuration
+// Grimoire Configuration File (Development Environment)
 //
-// This file configures all aspects of the WebAuthn authentication server.
-// For JSON Schema support in your editor, save this as config.jsonc and
-// configure your editor to use the generated schema file.
-//
-// To generate environment variables for Docker/SQLx:
-//   cargo run --bin cli config generate-env
-//
-// To validate this configuration:
-//   cargo run --bin cli config validate
-//
+// This is the development configuration for grimoire.
+// It contains only grimoire-relevant settings.
+// Server-specific settings (webauthn, sessions, etc.) belong in server's config.
+
 {
+  // Application metadata
   "app": {
     "name": "freqhole dev",
     "version": "0.0.3",
-    "environment": "development",
-    "description": "this my dev server",
-    "id": "freqhole-e-dev",
-    "features": ["music-library", "search", "musicbrainz"]
+    "description": "Development music library server",
+    "id": "freqhole-e-dev"
   },
+
+  // Data directory - contains database, temp files, wordlist
+  // Use absolute path for dev to work from any directory
+  "data_dir": "/Users/edward/src/github/freqhole/tomb/data",
+
+  // Database configuration
   "database": {
-    "host": "localhost",
-    "port": 5432,
-    "name": "webauthn_db",
-    "user": "postgres",
-    "password": "supersecret",
-    "pool": {
-      "max_connections": 10,
-      "min_connections": 1,
-      "connect_timeout_seconds": 30,
-      "idle_timeout_seconds": 600
-    },
-    "migrations": {
-      "auto_run": false
-    }
+    // SQLite database filename (stored in data_dir)
+    "filename": "grimoire.db",
+    // Automatically run migrations on startup
+    "auto_run_migrations": true
   },
-  "webauthn": {
-    "rp_id": "localhost",
-    "rp_name": "WebAuthn Demo",
-    "rp_origins": [
-      "http://localhost:8080",
-      "http://localhost:3003"
-    ]
-  },
-  "server": {
-    "host": "0.0.0.0",
-    "port": 8080,
-    "base": "http://localhost:8080/api",
-    "cors": {
-      "allowed_origins": [
-        "http://localhost:3003",
-        "http://127.0.0.1:3003",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-      ]
-    }
-  },
-  "sessions": {
-    // Session timeout in seconds. Set to 0 or negative value for sessions that never expire.
-    "max_age_seconds": -1,
-    "secure": false,
-    "same_site": "strict",
-    "http_only": true
-  },
-  "logging": {
-    "level": "debug"
-  },
-  "analytics": {
-    "metrics": {
-      "enabled": false,
-      "prometheus_endpoint": "/metrics",
-      "health_endpoint": "/health"
-    }
-  },
-  "static_files": {
-    "public_directory": "assets/public",
-    "private_directory": "assets/private",
-    "assets_directory": "assets",
-    "upload_directory": "assets/private/uploads"
-  },
-  "storage": {
-    "analytics": "postgres",
-    "sessions": "postgres"
-  },
+
+  // Media processing and categorization
   "media": {
-    // Maximum file size for blobs stored in database (10MB default)
-    "max_blob_file_size": 10485760,
-    // Maximum file size for files stored on filesystem (1GB default)
+    // Maximum file size for filesystem storage (1GB)
     "max_fs_file_size": 1073741824,
-    // Supported audio file formats for music scanning
+
+    // Supported audio file formats for scanning
     "supported_audio_formats": ["mp3", "ogg", "wav", "flac", "m4a"],
-    // Audio playback configuration for CLI
-    "playback": {
-      "player_command": "mpv",
-      "player_args": ["--no-video", "--term-osd-bar"]
-    },
+
     // URL download configuration using yt-dlp
     "downloads": {
       "enabled": true,
       "ytdlp_command": "yt-dlp"
     },
-    // Predefined genres for song categorization
+
+    // Predefined genre mappings for categorizing music
+    // Maps common genre tag variations to standardized categories
     "genres": [
       {
         "display": "Rock",
@@ -231,64 +169,63 @@
       }
     ]
   },
+
+  // MusicBrainz integration for metadata enrichment
   "musicbrainz": {
-    // Enable MusicBrainz integration for metadata enrichment
-    "enabled": true,
-    // User agent string for API requests (required by MusicBrainz)
-    "user_agent": "tomb-musicbrainz-client/1.0 (https://github.com/freqhole/tomb)"
+    // Enable MusicBrainz API integration
+    "enabled": true
+    // Note: user_agent is hardcoded in grimoire as "tomb-musicbrainz/1.0"
   },
-  "notifications": {
-    "channels": {},
-    "rate_limiting": {
-      "enabled": true,
-      "global_events_per_minute": 10000,
-      "per_channel_events_per_minute": 5000,
-      "per_user_events_per_minute": 100,
-      "time_window_seconds": 60,
-      "overflow_strategy": "Drop",
-      "apply_to_high_priority": false
+
+  // Logging configuration
+  "logging": {
+    // Log level: trace, debug, info, warn, error
+    "level": "debug"
+  },
+
+  // ========================================
+  // Server-specific configuration
+  // (Only used by freqhole-server)
+  // ========================================
+
+  "server": {
+    // HTTP server configuration
+    "host": "0.0.0.0",
+    "port": 8080,
+
+    // WebAuthn/FIDO2 authentication configuration
+    "webauthn": {
+      "rp_id": "localhost",
+      "rp_name": "WebAuthn Demo",
+      "rp_origins": [
+        "http://localhost:8080",
+        "http://localhost:3003",
+        "http://localhost:5173"
+      ]
     },
-    "postgres": {
-      "enabled": true,
-      "listener_connections": 2,
-      "listen_timeout_seconds": 30,
-      "reconnect_interval_seconds": 5,
-      "max_reconnect_attempts": 10,
-      "notification_buffer_size": 1000
+
+    // CORS configuration
+    "cors": {
+      "allowed_origins": [
+        "http://localhost:8080",
+        "http://localhost:3003",
+        "http://localhost:5173"
+      ]
     },
-    "websocket": {
-      "enabled": true,
-      "max_connections": 10000,
-      "heartbeat_interval_seconds": 30,
-      "connection_timeout_seconds": 60,
-      "max_message_size_bytes": 1048576,
-      "per_connection_buffer_size": 100
+
+    // Session management settings
+    "sessions": {
+      "max_age_seconds": -1,
+      "secure": false,
+      "same_site": "strict",
+      "http_only": true
     },
-    "queue": {
-      "enable_persistence": true,
-      "max_queue_size": 50000,
-      "cleanup_interval_seconds": 300,
-      "max_event_age_seconds": 86400,
-      "max_retry_attempts": 3,
-      "retry_backoff": "Exponential",
-      "dead_letter_queue": true
-    },
-    "general": {
-      "enable_debug_logging": true,
-      "default_delivery_timeout_seconds": 3,
-      "enable_metrics": true,
-      "metrics_interval_seconds": 60,
-      "health_check_interval_seconds": 30,
-      "max_concurrent_processors": 100
+
+    // Static file serving configuration
+    "static_files": {
+      "public_directory": "assets/public",
+      "private_directory": "assets/private",
+      "assets_directory": "assets"
     }
-  },
-  "development": {
-    "auto_generate_invites": true
-  },
-  "features": {
-    "registration_enabled": true,
-    "invite_codes_required": true,
-    "analytics_enabled": true,
-    "notifications_enabled": true
   }
 }
