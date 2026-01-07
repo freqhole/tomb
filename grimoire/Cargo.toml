@@ -22,6 +22,7 @@ tracing = { workspace = true }
 bigdecimal = { workspace = true }
 url = { workspace = true }
 regex = { workspace = true }
+rand = { workspace = true }
 
 clap = { version = "4.4", features = ["derive"] }
 humantime = "2.1"

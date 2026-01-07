@@ -1319,6 +1319,7 @@ dependencies = [
  "image",
  "lofty",
  "mime_guess",
+ "rand 0.8.5",
  "regex",
  "sea-query 0.30.7",
  "sea-query-sqlx",

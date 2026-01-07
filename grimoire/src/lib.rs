@@ -13,12 +13,17 @@ pub mod maintenance;
 pub mod media_blobz;
 pub mod music;
 pub mod thumbnails;
+pub mod wordlist;
 
 // re-export only domain types, no database internals
 pub use config::AppConfig;
 pub use error::{GrimoireError, GrimoireResult};
 pub use media_blobz::{CreateMediaBlobRequest, MediaBlob};
 pub use music::{Album, Artist, Song};
+pub use wordlist::{
+    generate_word_code, initialize_wordlist, is_initialized, WordlistConfig,
+    WordlistGenerationResult, WordlistService, WordlistStats, WordlistValidationResult,
+};
 
 /// initialize grimoire - ensures databases exist and migrations are run
 pub async fn init(config: &AppConfig) -> GrimoireResult<()> {

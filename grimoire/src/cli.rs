@@ -10,6 +10,10 @@ use crate::jobs::{
     create_job, create_job_session, get_queue_stats, list_jobs, CreateJobRequest,
     CreateJobSessionRequest, JobType, ScanDirectoryParams,
 };
+use crate::wordlist::{
+    generate_word_code, initialize_wordlist, is_initialized, ManagementWordlistConfig,
+    WordlistConfig, WordlistService,
+};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -34,6 +38,11 @@ pub enum Commands {
     Music {
         #[command(subcommand)]
         action: MusicAction,
+    },
+    /// Wordlist operations
+    Wordlist {
+        #[command(subcommand)]
+        action: WordlistAction,
     },
 }
 
@@ -320,6 +329,53 @@ pub enum MusicAction {
     },
 }
 
+#[derive(Subcommand)]
+pub enum WordlistAction {
+    /// Generate a wordlist using built-in categories
+    Generate {
+        /// Number of words to generate
+        #[arg(long, default_value = "100")]
+        count: usize,
+        /// Include silly words
+        #[arg(long)]
+        include_silly: bool,
+        /// Include animal words
+        #[arg(long)]
+        include_animals: bool,
+        /// Include food words
+        #[arg(long)]
+        include_food: bool,
+        /// Mix words randomly from all categories
+        #[arg(long)]
+        mixed: bool,
+        /// Output file path (optional, prints to stdout if not provided)
+        #[arg(long)]
+        output: Option<String>,
+    },
+    /// Validate a wordlist file
+    Validate {
+        /// Path to wordlist file
+        file_path: String,
+    },
+    /// Get statistics for a wordlist file
+    Stats {
+        /// Path to wordlist file
+        file_path: String,
+    },
+    /// Generate word-based invite codes
+    GenerateCode {
+        /// Number of words in the code
+        #[arg(long, default_value = "3")]
+        word_count: usize,
+        /// Number of codes to generate
+        #[arg(long, default_value = "1")]
+        count: usize,
+        /// Wordlist file to use
+        #[arg(long)]
+        wordlist_file: Option<String>,
+    },
+}
+
 pub async fn run_cli() -> GrimoireResult<()> {
     let cli = Cli::parse();
 
@@ -327,6 +383,7 @@ pub async fn run_cli() -> GrimoireResult<()> {
         Commands::Jobs { action } => handle_job_command(action).await,
         Commands::Database { action } => handle_database_command(action).await,
         Commands::Music { action } => handle_music_command(action).await,
+        Commands::Wordlist { action } => handle_wordlist_command(action).await,
     }
 }
 
@@ -1335,6 +1392,134 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 }
                 Err(e) => {
                     eprintln!("failed to list recent songs: {}", e);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_wordlist_command(action: WordlistAction) -> GrimoireResult<()> {
+    match action {
+        WordlistAction::Generate {
+            count,
+            include_silly,
+            include_animals,
+            include_food,
+            mixed,
+            output,
+        } => {
+            println!("generating wordlist...");
+
+            let config = WordlistConfig {
+                count,
+                include_silly,
+                include_animals,
+                include_food,
+                mixed,
+            };
+
+            let service = WordlistService::new();
+            match service.generate_wordlist(&config) {
+                Ok(result) => {
+                    let content = service.generate_wordlist_content(&config).map_err(|e| {
+                        crate::error::GrimoireError::Config {
+                            message: format!("Failed to generate wordlist content: {}", e),
+                        }
+                    })?;
+
+                    if let Some(output_path) = output {
+                        std::fs::write(&output_path, &content).map_err(|e| {
+                            crate::error::GrimoireError::Config {
+                                message: format!(
+                                    "Failed to write wordlist to {}: {}",
+                                    output_path, e
+                                ),
+                            }
+                        })?;
+                        println!("wordlist written to: {}", output_path);
+                    } else {
+                        println!("{}", content);
+                    }
+
+                    println!("generation result: {}", result);
+                }
+                Err(e) => {
+                    eprintln!("failed to generate wordlist: {}", e);
+                }
+            }
+        }
+        WordlistAction::Validate { file_path } => {
+            println!("validating wordlist: {}", file_path);
+
+            let service = WordlistService::new();
+            match service.validate_wordlist_file(&file_path) {
+                Ok(result) => {
+                    println!("{}", result);
+                    if !result.is_valid {
+                        std::process::exit(1);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to validate wordlist: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        WordlistAction::Stats { file_path } => {
+            println!("analyzing wordlist: {}", file_path);
+
+            let service = WordlistService::new();
+            match service.get_wordlist_stats_file(&file_path) {
+                Ok(stats) => {
+                    println!("{}", stats);
+                }
+                Err(e) => {
+                    eprintln!("failed to get wordlist stats: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        WordlistAction::GenerateCode {
+            word_count,
+            count,
+            wordlist_file,
+        } => {
+            println!(
+                "generating {} invite codes with {} words each...",
+                count, word_count
+            );
+
+            if let Some(file_path) = wordlist_file {
+                // Initialize wordlist from file
+                let config = ManagementWordlistConfig {
+                    file_path,
+                    ..Default::default()
+                };
+
+                if let Err(e) = initialize_wordlist(&config) {
+                    eprintln!("failed to initialize wordlist: {}", e);
+                    std::process::exit(1);
+                }
+            } else if !is_initialized() {
+                eprintln!("no wordlist initialized and no file provided");
+                eprintln!("either provide --wordlist-file or initialize a wordlist first");
+                std::process::exit(1);
+            }
+
+            for i in 1..=count {
+                match generate_word_code(word_count) {
+                    Ok(code) => {
+                        if count > 1 {
+                            println!("{}: {}", i, code);
+                        } else {
+                            println!("{}", code);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("failed to generate code {}: {}", i, e);
+                    }
                 }
             }
         }
