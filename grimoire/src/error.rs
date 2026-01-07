@@ -44,6 +44,9 @@ pub enum GrimoireError {
     #[error("sub-genre not found: {id}")]
     SubGenreNotFound { id: String },
 
+    #[error("tag not found: {id}")]
+    TagNotFound { id: String },
+
     #[error("invalid sha256 hash: {hash}")]
     InvalidSha256 { hash: String },
 

@@ -341,6 +341,73 @@ pub enum MusicAction {
         #[arg(long, default_value = "10")]
         limit: u32,
     },
+    /// Update songs with optional fields and relationships
+    UpdateSongs {
+        /// Song IDs to update (comma-separated)
+        #[arg(long)]
+        song_ids: String,
+        /// User ID (required for favorites/ratings)
+        #[arg(long)]
+        user_id: Option<String>,
+        /// Updated by user ID
+        #[arg(long)]
+        updated_by: Option<String>,
+        // Song fields
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        track_number: Option<i64>,
+        #[arg(long)]
+        disc_number: Option<i64>,
+        #[arg(long)]
+        year: Option<i64>,
+        #[arg(long)]
+        bpm: Option<i64>,
+        #[arg(long)]
+        key_signature: Option<String>,
+        #[arg(long)]
+        lyrics: Option<String>,
+        // Relationships
+        #[arg(long)]
+        artist: Option<String>,
+        #[arg(long)]
+        album: Option<String>,
+        #[arg(long)]
+        album_type: Option<String>,
+        #[arg(long)]
+        release_date: Option<String>,
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long)]
+        genre: Option<String>,
+        #[arg(long)]
+        sub_genre: Option<String>,
+        #[arg(long)]
+        thumbnail_blob_id: Option<String>,
+        #[arg(long)]
+        thumbnail_file: Option<String>,
+        // Tag operations
+        #[arg(long)]
+        add_tags: Option<String>,
+        #[arg(long)]
+        remove_tags: Option<String>,
+        #[arg(long)]
+        replace_tags: Option<String>,
+        // Favorites (requires user_id)
+        #[arg(long)]
+        favorite_song: Option<bool>,
+        #[arg(long)]
+        favorite_artist: Option<bool>,
+        #[arg(long)]
+        favorite_album: Option<bool>,
+        // Ratings (requires user_id, 1-5)
+        #[arg(long)]
+        rate_song: Option<i32>,
+        #[arg(long)]
+        rate_artist: Option<i32>,
+        #[arg(long)]
+        rate_album: Option<i32>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1587,6 +1654,149 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 }
                 Err(e) => {
                     eprintln!("failed to list recent songs: {}", e);
+                }
+            }
+        }
+        MusicAction::UpdateSongs {
+            song_ids,
+            user_id,
+            updated_by,
+            title,
+            track_number,
+            disc_number,
+            year,
+            bpm,
+            key_signature,
+            lyrics,
+            artist,
+            album,
+            album_type,
+            release_date,
+            label,
+            genre,
+            sub_genre,
+            thumbnail_blob_id,
+            thumbnail_file,
+            add_tags,
+            remove_tags,
+            replace_tags,
+            favorite_song,
+            favorite_artist,
+            favorite_album,
+            rate_song,
+            rate_artist,
+            rate_album,
+        } => {
+            use crate::music::crud::{
+                update_songs, FavoriteTargetType, RatingTargetType, SetFavoriteRequest,
+                SetRatingRequest, UpdateAlbumRequest, UpdateArtistRequest, UpdateSongsRequest,
+            };
+
+            let song_id_vec: Vec<String> =
+                song_ids.split(',').map(|s| s.trim().to_string()).collect();
+
+            println!("updating {} song(s)...", song_id_vec.len());
+
+            let req = UpdateSongsRequest {
+                song_ids: song_id_vec,
+                updated_by,
+                title,
+                track_number,
+                disc_number,
+                duration: None,
+                year,
+                bpm,
+                key_signature,
+                lyrics,
+                metadata: None,
+                artist: artist.map(|name| UpdateArtistRequest { name }),
+                album: album.map(|title| UpdateAlbumRequest {
+                    title,
+                    album_type,
+                    release_date,
+                    release_date_precision: None,
+                    label,
+                    year: None,
+                }),
+                genre,
+                sub_genre,
+                thumbnail_blob_id,
+                thumbnail_from_file: thumbnail_file,
+                thumbnail_from_bytes: None,
+                add_tags: add_tags.map(|s| s.split(',').map(|t| t.trim().to_string()).collect()),
+                remove_tags: remove_tags
+                    .map(|s| s.split(',').map(|t| t.trim().to_string()).collect()),
+                replace_tags: replace_tags
+                    .map(|s| s.split(',').map(|t| t.trim().to_string()).collect()),
+                user_id: user_id.clone(),
+                set_favorite: if favorite_song.is_some() {
+                    Some(SetFavoriteRequest {
+                        target_type: FavoriteTargetType::Song,
+                        is_favorite: favorite_song.unwrap(),
+                    })
+                } else if favorite_artist.is_some() {
+                    Some(SetFavoriteRequest {
+                        target_type: FavoriteTargetType::Artist,
+                        is_favorite: favorite_artist.unwrap(),
+                    })
+                } else if favorite_album.is_some() {
+                    Some(SetFavoriteRequest {
+                        target_type: FavoriteTargetType::Album,
+                        is_favorite: favorite_album.unwrap(),
+                    })
+                } else {
+                    None
+                },
+                set_rating: if let Some(rating) = rate_song {
+                    Some(SetRatingRequest {
+                        target_type: RatingTargetType::Song,
+                        rating,
+                    })
+                } else if let Some(rating) = rate_artist {
+                    Some(SetRatingRequest {
+                        target_type: RatingTargetType::Artist,
+                        rating,
+                    })
+                } else if let Some(rating) = rate_album {
+                    Some(SetRatingRequest {
+                        target_type: RatingTargetType::Album,
+                        rating,
+                    })
+                } else {
+                    None
+                },
+            };
+
+            match update_songs(req).await {
+                Ok(result) => {
+                    println!("successfully updated {} song(s)", result.songs_updated);
+                    if let Some(artist) = result.artist {
+                        println!("  artist: {}", artist.name);
+                    }
+                    if let Some(album) = result.album {
+                        println!("  album: {}", album.title);
+                    }
+                    if let Some(genre) = result.genre {
+                        println!("  genre: {}", genre.name);
+                    }
+                    if let Some(sub_genre) = result.sub_genre {
+                        println!("  sub-genre: {}", sub_genre.name);
+                    }
+                    if let Some(thumbnail_id) = result.thumbnail_blob_id {
+                        println!("  thumbnail: {}", thumbnail_id);
+                    }
+                    if result.tags_modified {
+                        println!("  tags modified");
+                    }
+                    if !result.songs_failed.is_empty() {
+                        println!("failed to update {} song(s):", result.songs_failed.len());
+                        for (song_id, error) in result.songs_failed {
+                            println!("  {}: {}", song_id, error);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to update songs: {}", e);
                 }
             }
         }

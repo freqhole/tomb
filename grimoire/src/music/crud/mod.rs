@@ -7,6 +7,7 @@ mod delete;
 mod models;
 mod query;
 mod query_playlists;
+mod update;
 
 // re-export public types
 pub use models::{
@@ -14,6 +15,12 @@ pub use models::{
     ArtistQueryResult, BulkImportRequest, BulkImportResult, CreateSongWithMetadataRequest,
     ImportSongRequest, ImportSongResult, PlaylistQueryResult, QueryParams, QueryResult,
     SongImportError, SongQueryResult,
+};
+
+// re-export update types and functions
+pub use update::{
+    update_songs, FavoriteTargetType, RatingTargetType, SetFavoriteRequest, SetRatingRequest,
+    UpdateAlbumRequest, UpdateArtistRequest, UpdateSongsRequest, UpdateSongsResult,
 };
 
 // re-export playlist types
