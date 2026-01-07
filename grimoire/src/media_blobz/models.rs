@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 /// media blob model for domain logic
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MediaBlob {
-    pub rowid: i64,
     pub id: String,
     pub sha256: String,
     pub size: Option<i64>,

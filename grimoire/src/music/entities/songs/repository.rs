@@ -16,7 +16,6 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResult<Song> {
             created_by, updated_by
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING
-            rowid as \"rowid!\",
             id as \"id!\",
             media_blob_id as \"media_blob_id!\",
             thumbnail_blob_id,
@@ -63,7 +62,6 @@ pub async fn list_songs() -> GrimoireResult<Vec<Song>> {
     let songs = sqlx::query_as!(
         Song,
         "SELECT
-            rowid as \"rowid!\",
             id as \"id!\",
             media_blob_id as \"media_blob_id!\",
             thumbnail_blob_id,
@@ -103,7 +101,6 @@ pub async fn get_song(id: &str) -> GrimoireResult<Song> {
     let song = sqlx::query_as!(
         Song,
         "SELECT
-            rowid as \"rowid!\",
             id as \"id!\",
             media_blob_id as \"media_blob_id!\",
             thumbnail_blob_id,

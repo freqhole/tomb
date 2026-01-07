@@ -6,7 +6,6 @@ use sqlx::FromRow;
 /// song model for music domain
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
 pub struct Song {
-    pub rowid: i64,
     pub id: String,
     pub media_blob_id: String,
     pub thumbnail_blob_id: Option<String>,

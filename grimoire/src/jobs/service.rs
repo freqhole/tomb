@@ -30,7 +30,7 @@ pub async fn create_job_session(request: CreateJobSessionRequest) -> Result<JobS
         r#"
         INSERT INTO job_sessionz (job_type, status, progress, batch_size, created_by)
         VALUES (?, 'Active', ?, ?, ?)
-        RETURNING rowid, id, job_type, status, progress, last_checkpoint, batch_size,
+        RETURNING id, job_type, status, progress, last_checkpoint, batch_size,
                   created_at, updated_at, created_by
         "#,
     )
@@ -64,7 +64,7 @@ pub async fn create_job(request: CreateJobRequest) -> Result<Job, JobError> {
         r#"
         INSERT INTO jobz (session_id, job_type, status, parameters, max_retries, scheduled_at, created_by)
         VALUES (?, ?, 'Pending', ?, ?, ?, ?)
-        RETURNING rowid, id, session_id, job_type, status, parameters, result, retry_count,
+        RETURNING id, session_id, job_type, status, parameters, result, retry_count,
                   max_retries, scheduled_at, started_at, completed_at, error_message, created_by
         "#,
     )
@@ -86,7 +86,7 @@ pub async fn get_job(job_id: &str) -> Result<Job, JobError> {
 
     let job = sqlx::query_as::<_, Job>(
         r#"
-        SELECT rowid, id, session_id, job_type, status, parameters, result, retry_count,
+        SELECT id, session_id, job_type, status, parameters, result, retry_count,
                max_retries, scheduled_at, started_at, completed_at, error_message, created_by
         FROM jobz WHERE id = ?
         "#,
@@ -106,7 +106,7 @@ pub async fn get_job_session(session_id: &str) -> Result<JobSession, JobError> {
 
     let session = sqlx::query_as::<_, JobSession>(
         r#"
-        SELECT rowid, id, job_type, status, progress, last_checkpoint, batch_size,
+        SELECT id, job_type, status, progress, last_checkpoint, batch_size,
                created_at, updated_at, created_by
         FROM job_sessionz WHERE id = ?
         "#,
@@ -126,7 +126,7 @@ pub async fn get_next_pending_job() -> Result<Option<Job>, JobError> {
 
     let job = sqlx::query_as::<_, Job>(
         r#"
-        SELECT rowid, id, session_id, job_type, status, parameters, result, retry_count,
+        SELECT id, session_id, job_type, status, parameters, result, retry_count,
                max_retries, scheduled_at, started_at, completed_at, error_message, created_by
         FROM jobz
         WHERE status = 'Pending' AND scheduled_at <= unixepoch()
@@ -149,7 +149,7 @@ pub async fn mark_job_started(job_id: &str) -> Result<Job, JobError> {
         UPDATE jobz
         SET status = 'Running', started_at = unixepoch()
         WHERE id = ?
-        RETURNING rowid, id, session_id, job_type, status, parameters, result, retry_count,
+        RETURNING id, session_id, job_type, status, parameters, result, retry_count,
                   max_retries, scheduled_at, started_at, completed_at, error_message, created_by
         "#,
     )
@@ -176,7 +176,7 @@ pub async fn mark_job_completed(job_id: &str, result: Option<Value>) -> Result<J
         UPDATE jobz
         SET status = 'Completed', completed_at = unixepoch(), result = ?
         WHERE id = ?
-        RETURNING rowid, id, session_id, job_type, status, parameters, result, retry_count,
+        RETURNING id, session_id, job_type, status, parameters, result, retry_count,
                   max_retries, scheduled_at, started_at, completed_at, error_message, created_by
         "#,
     )
@@ -219,7 +219,7 @@ pub async fn mark_job_failed(job_id: &str, error_message: &str) -> Result<Job, J
         SET status = ?, retry_count = ?, error_message = ?, scheduled_at = ?,
             completed_at = CASE WHEN ? = 'Failed' THEN unixepoch() ELSE completed_at END
         WHERE id = ?
-        RETURNING rowid, id, session_id, job_type, status, parameters, result, retry_count,
+        RETURNING id, session_id, job_type, status, parameters, result, retry_count,
                   max_retries, scheduled_at, started_at, completed_at, error_message, created_by
         "#,
     )
@@ -246,7 +246,7 @@ pub async fn cancel_job(job_id: &str) -> Result<Job, JobError> {
         UPDATE jobz
         SET status = 'Cancelled', completed_at = unixepoch()
         WHERE id = ? AND status IN ('Pending', 'Running')
-        RETURNING rowid, id, session_id, job_type, status, parameters, result, retry_count,
+        RETURNING id, session_id, job_type, status, parameters, result, retry_count,
                   max_retries, scheduled_at, started_at, completed_at, error_message, created_by
         "#,
     )
@@ -274,7 +274,7 @@ pub async fn update_session_progress(
         UPDATE job_sessionz
         SET progress = ?, last_checkpoint = ?
         WHERE id = ?
-        RETURNING rowid, id, job_type, status, progress, last_checkpoint, batch_size,
+        RETURNING id, job_type, status, progress, last_checkpoint, batch_size,
                   created_at, updated_at, created_by
         "#,
     )
@@ -298,7 +298,7 @@ pub async fn complete_session(session_id: &str) -> Result<JobSession, JobError> 
         UPDATE job_sessionz
         SET status = 'Completed'
         WHERE id = ?
-        RETURNING rowid, id, job_type, status, progress, last_checkpoint, batch_size,
+        RETURNING id, job_type, status, progress, last_checkpoint, batch_size,
                   created_at, updated_at, created_by
         "#,
     )
@@ -320,7 +320,7 @@ pub async fn fail_session(session_id: &str) -> Result<JobSession, JobError> {
         UPDATE job_sessionz
         SET status = 'Failed'
         WHERE id = ?
-        RETURNING rowid, id, job_type, status, progress, last_checkpoint, batch_size,
+        RETURNING id, job_type, status, progress, last_checkpoint, batch_size,
                   created_at, updated_at, created_by
         "#,
     )
@@ -375,7 +375,7 @@ pub async fn list_jobs(
 
     let mut query_str = String::from(
         r#"
-        SELECT rowid, id, session_id, job_type, status, parameters, result, retry_count,
+        SELECT id, session_id, job_type, status, parameters, result, retry_count,
                max_retries, scheduled_at, started_at, completed_at, error_message, created_by
         FROM jobz
         WHERE 1=1

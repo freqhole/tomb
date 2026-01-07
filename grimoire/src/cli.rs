@@ -957,7 +957,7 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 title: title.clone(),
                 description,
                 is_public: Some(public),
-                created_by_rowid: None, // TODO: add user management
+                created_by_id: None, // TODO: add user management
             };
 
             match create_playlist(req).await {

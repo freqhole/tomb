@@ -79,8 +79,8 @@ SELECT
     ar.updated_by as artist_updated_by,
 
     -- aggregated stats
-    COUNT(DISTINCT ars.song_rowid) as song_count,
-    COUNT(DISTINCT aa.album_rowid) as album_count,
+    COUNT(DISTINCT ars.song_id) as song_count,
+    COUNT(DISTINCT aa.album_id) as album_count,
     COALESCE(SUM(s.duration), 0) as total_duration
 
 FROM artistz ar

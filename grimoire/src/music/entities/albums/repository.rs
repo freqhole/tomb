@@ -13,17 +13,16 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResult<Album> {
 
     let album = sqlx::query_as!(
         Album,
-        r#"INSERT INTO albumz (title, album_type, release_date, release_date_precision, label, genre_rowid, created_by, updated_by)
+        r#"INSERT INTO albumz (title, album_type, release_date, release_date_precision, label, genre_id, created_by, updated_by)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING
-            rowid as "rowid!",
             id as "id!",
             title as "title!",
             album_type as "album_type!",
             release_date,
             release_date_precision,
             label,
-            genre_rowid,
+            genre_id,
             song_count as "song_count!",
             total_duration as "total_duration!",
             created_at as "created_at!",
@@ -37,7 +36,7 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResult<Album> {
         req.release_date,
         req.release_date_precision,
         req.label,
-        req.genre_rowid,
+        req.genre_id,
         req.created_by,
         req.created_by
     )
@@ -54,14 +53,13 @@ pub async fn list_albums() -> GrimoireResult<Vec<Album>> {
     let albums = sqlx::query_as!(
         Album,
         r#"SELECT
-            rowid as "rowid!",
             id as "id!",
             title as "title!",
             album_type as "album_type!",
             release_date,
             release_date_precision,
             label,
-            genre_rowid,
+            genre_id,
             song_count as "song_count!",
             total_duration as "total_duration!",
             created_at as "created_at!",
@@ -88,14 +86,13 @@ pub async fn get_album(id: &str) -> GrimoireResult<Album> {
     let album = sqlx::query_as!(
         Album,
         r#"SELECT
-            rowid as "rowid!",
             id as "id!",
             title as "title!",
             album_type as "album_type!",
             release_date,
             release_date_precision,
             label,
-            genre_rowid,
+            genre_id,
             song_count as "song_count!",
             total_duration as "total_duration!",
             created_at as "created_at!",

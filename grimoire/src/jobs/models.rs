@@ -75,7 +75,6 @@ impl JobProgress {
 /// Job session for managing large batch operations
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct JobSession {
-    pub rowid: i64,
     pub id: String,
     pub job_type: String,                // Serialized JobType
     pub status: String,                  // Serialized SessionStatus
@@ -104,7 +103,6 @@ impl JobSession {
 /// Individual job within the queue
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Job {
-    pub rowid: i64,
     pub id: String,
     pub session_id: Option<String>,
     pub job_type: String,       // Serialized JobType

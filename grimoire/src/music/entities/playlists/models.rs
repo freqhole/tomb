@@ -5,13 +5,12 @@ use serde::{Deserialize, Serialize};
 /// playlist model for music domain
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Playlist {
-    pub rowid: i64,
     pub id: String,
     pub title: String,
     pub description: Option<String>,
     pub is_public: i64, // sqlite boolean (0/1)
     pub thumbnail_blob_id: Option<String>,
-    pub created_by_rowid: Option<i64>,
+    pub created_by_id: Option<String>,
     pub created_at: i64, // unix timestamp UTC
     pub updated_at: i64, // unix timestamp UTC
     pub deleted_at: Option<i64>,
@@ -26,14 +25,14 @@ pub struct CreatePlaylistRequest {
     pub title: String,
     pub description: Option<String>,
     pub is_public: Option<bool>,
-    pub created_by_rowid: Option<i64>,
+    pub created_by_id: Option<String>,
 }
 
 /// playlist song association model
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PlaylistSong {
-    pub playlist_rowid: i64,
-    pub song_rowid: i64,
+    pub playlist_id: String,
+    pub song_id: String,
     pub position: i64,
     pub added_at: i64, // unix timestamp UTC
 }
@@ -58,13 +57,12 @@ pub struct UpdatePlaylistRequest {
 /// playlist with song count for efficient listing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaylistWithCount {
-    pub rowid: i64,
     pub id: String,
     pub title: String,
     pub description: Option<String>,
     pub is_public: i64, // sqlite boolean (0/1)
     pub thumbnail_blob_id: Option<String>,
-    pub created_by_rowid: Option<i64>,
+    pub created_by_id: Option<String>,
     pub created_at: i64, // unix timestamp UTC
     pub updated_at: i64, // unix timestamp UTC
     pub deleted_at: Option<i64>,

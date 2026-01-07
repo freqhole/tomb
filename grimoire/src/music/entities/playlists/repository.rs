@@ -12,21 +12,20 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResult<Playl
     let pool = database::connect_music().await?;
 
     let is_public = if req.is_public.unwrap_or(false) { 1 } else { 0 };
-    let created_by_str = req.created_by_rowid.map(|id| id.to_string());
-    let updated_by_str = req.created_by_rowid.map(|id| id.to_string());
+    let created_by_str = req.created_by_id.clone();
+    let updated_by_str = req.created_by_id.clone();
 
     let playlist = sqlx::query_as!(
         Playlist,
-        r#"INSERT INTO playlistz (title, description, is_public, created_by_rowid, created_by, updated_by)
+        r#"INSERT INTO playlistz (title, description, is_public, created_by_id, created_by, updated_by)
          VALUES (?, ?, ?, ?, ?, ?)
          RETURNING
-            rowid as "rowid!",
             id as "id!",
             title as "title!",
             description,
             is_public as "is_public!",
             thumbnail_blob_id,
-            created_by_rowid,
+            created_by_id,
             created_at as "created_at!",
             updated_at as "updated_at!",
             deleted_at,
@@ -36,7 +35,7 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResult<Playl
         req.title,
         req.description,
         is_public,
-        req.created_by_rowid,
+        req.created_by_id,
         created_by_str,
         updated_by_str
     )
@@ -54,25 +53,24 @@ pub async fn list_playlists() -> GrimoireResult<Vec<PlaylistWithCount>> {
     let playlists = sqlx::query_as!(
         PlaylistWithCount,
         r#"SELECT
-            p.rowid as "rowid!",
             p.id as "id!",
             p.title as "title!",
             p.description,
             p.is_public as "is_public!",
             p.thumbnail_blob_id,
-            p.created_by_rowid,
+            p.created_by_id,
             p.created_at as "created_at!",
             p.updated_at as "updated_at!",
             p.deleted_at,
             p.deleted_by,
             p.created_by,
             p.updated_by,
-            COALESCE(COUNT(ps.song_rowid), 0) as "song_count!"
+            COALESCE(COUNT(ps.song_id), 0) as "song_count!"
            FROM playlistz p
-           LEFT JOIN playlist_songz ps ON p.rowid = ps.playlist_rowid
+           LEFT JOIN playlist_songz ps ON p.id = ps.playlist_id
            WHERE p.deleted_at IS NULL
-           GROUP BY p.rowid, p.id, p.title, p.description, p.is_public,
-                   p.thumbnail_blob_id, p.created_by_rowid, p.created_at, p.updated_at,
+           GROUP BY p.id, p.title, p.description, p.is_public,
+                   p.thumbnail_blob_id, p.created_by_id, p.created_at, p.updated_at,
                    p.deleted_at, p.deleted_by, p.created_by, p.updated_by
            ORDER BY p.title ASC"#
     )
@@ -89,13 +87,12 @@ pub async fn get_playlist(id: &str) -> GrimoireResult<Playlist> {
     let playlist = sqlx::query_as!(
         Playlist,
         r#"SELECT
-            rowid as "rowid!",
             id as "id!",
             title as "title!",
             description,
             is_public as "is_public!",
             thumbnail_blob_id,
-            created_by_rowid,
+            created_by_id,
             created_at as "created_at!",
             updated_at as "updated_at!",
             deleted_at,
@@ -230,38 +227,36 @@ pub async fn delete_playlist(id: &str, deleted_by: Option<String>) -> GrimoireRe
 pub async fn add_songs_to_playlist(playlist_id: &str, song_ids: &[String]) -> GrimoireResult<()> {
     let pool = database::connect_music().await?;
 
-    // Get playlist rowid
-    let playlist_rowid = sqlx::query!(
-        "SELECT rowid FROM playlistz WHERE id = ? AND deleted_at IS NULL",
+    // Verify playlist exists
+    sqlx::query!(
+        "SELECT id FROM playlistz WHERE id = ? AND deleted_at IS NULL",
         playlist_id
     )
     .fetch_optional(&pool)
     .await?
     .ok_or_else(|| GrimoireError::PlaylistNotFound {
         id: playlist_id.to_string(),
-    })?
-    .rowid;
+    })?;
 
     // Add each song using auto-positioning trigger (position = -1)
     for song_id in song_ids.iter() {
-        // Get song rowid
-        let song_rowid = sqlx::query!(
-            "SELECT rowid FROM songz WHERE id = ? AND deleted_at IS NULL",
+        // Verify song exists
+        sqlx::query!(
+            "SELECT id FROM songz WHERE id = ? AND deleted_at IS NULL",
             song_id
         )
         .fetch_optional(&pool)
         .await?
         .ok_or_else(|| GrimoireError::SongNotFound {
             id: song_id.to_string(),
-        })?
-        .rowid;
+        })?;
 
         // Use -1 to trigger auto-positioning
         sqlx::query!(
-            "INSERT INTO playlist_songz (playlist_rowid, song_rowid, position)
+            "INSERT INTO playlist_songz (playlist_id, song_id, position)
              VALUES (?, ?, -1)",
-            playlist_rowid,
-            song_rowid
+            playlist_id,
+            song_id
         )
         .execute(&pool)
         .await?;
@@ -277,32 +272,23 @@ pub async fn remove_songs_from_playlist(
 ) -> GrimoireResult<()> {
     let pool = database::connect_music().await?;
 
-    // Get playlist rowid
-    let playlist_rowid = sqlx::query!(
-        "SELECT rowid FROM playlistz WHERE id = ? AND deleted_at IS NULL",
+    // Verify playlist exists
+    sqlx::query!(
+        "SELECT id FROM playlistz WHERE id = ? AND deleted_at IS NULL",
         playlist_id
     )
     .fetch_optional(&pool)
     .await?
     .ok_or_else(|| GrimoireError::PlaylistNotFound {
         id: playlist_id.to_string(),
-    })?
-    .rowid;
+    })?;
 
     // Remove songs
     for song_id in song_ids {
-        let song_rowid = sqlx::query!("SELECT rowid FROM songz WHERE id = ?", song_id)
-            .fetch_optional(&pool)
-            .await?
-            .ok_or_else(|| GrimoireError::SongNotFound {
-                id: song_id.to_string(),
-            })?
-            .rowid;
-
         sqlx::query!(
-            "DELETE FROM playlist_songz WHERE playlist_rowid = ? AND song_rowid = ?",
-            playlist_rowid,
-            song_rowid
+            "DELETE FROM playlist_songz WHERE playlist_id = ? AND song_id = ?",
+            playlist_id,
+            song_id
         )
         .execute(&pool)
         .await?;
@@ -314,11 +300,11 @@ pub async fn remove_songs_from_playlist(
            SET position = (
                SELECT ROW_NUMBER() OVER (ORDER BY position)
                FROM playlist_songz ps2
-               WHERE ps2.playlist_rowid = playlist_songz.playlist_rowid
+               WHERE ps2.playlist_id = playlist_songz.playlist_id
                AND ps2.position <= playlist_songz.position
            )
-           WHERE playlist_rowid = ?"#,
-        playlist_rowid
+           WHERE playlist_id = ?"#,
+        playlist_id
     )
     .execute(&pool)
     .await?;
@@ -333,12 +319,12 @@ pub async fn get_playlist_songs(playlist_id: &str) -> GrimoireResult<Vec<Playlis
     let playlist_songs = sqlx::query_as!(
         PlaylistSong,
         r#"SELECT
-            ps.playlist_rowid as "playlist_rowid!",
-            ps.song_rowid as "song_rowid!",
+            ps.playlist_id as "playlist_id!",
+            ps.song_id as "song_id!",
             ps.position as "position!",
             ps.added_at as "added_at!"
            FROM playlist_songz ps
-           JOIN playlistz p ON p.rowid = ps.playlist_rowid
+           JOIN playlistz p ON p.id = ps.playlist_id
            WHERE p.id = ? AND p.deleted_at IS NULL
            ORDER BY ps.position ASC"#,
         playlist_id
@@ -371,8 +357,8 @@ pub async fn update_songs_position(
     let all_songs = sqlx::query!(
         "SELECT s.id, ps.position
          FROM playlist_songz ps
-         JOIN playlistz p ON ps.playlist_rowid = p.rowid
-         JOIN songz s ON ps.song_rowid = s.rowid
+         JOIN playlistz p ON ps.playlist_id = p.id
+         JOIN songz s ON ps.song_id = s.id
          WHERE p.id = ? AND p.deleted_at IS NULL
          ORDER BY ps.position",
         playlist_id
@@ -386,8 +372,10 @@ pub async fn update_songs_position(
     // Collect songs that aren't being moved
     let mut other_songs = Vec::new();
     for song in &all_songs {
-        if !song_ids.contains(&song.id.as_str()) {
-            other_songs.push(song.id.clone());
+        if let Some(song_id) = &song.id {
+            if !song_ids.contains(&song_id.as_str()) {
+                other_songs.push(song_id.clone());
+            }
         }
     }
 
@@ -417,9 +405,7 @@ pub async fn update_songs_position(
     sqlx::query!(
         "UPDATE playlist_songz
          SET position = -position
-         FROM playlistz p
-         WHERE playlist_songz.playlist_rowid = p.rowid
-           AND p.id = ?",
+         WHERE playlist_id = ?",
         playlist_id
     )
     .execute(&mut *tx)
@@ -430,11 +416,8 @@ pub async fn update_songs_position(
         sqlx::query!(
             "UPDATE playlist_songz
              SET position = ?
-             FROM playlistz p, songz s
-             WHERE playlist_songz.playlist_rowid = p.rowid
-               AND playlist_songz.song_rowid = s.rowid
-               AND p.id = ?
-               AND s.id = ?",
+             WHERE playlist_id = ?
+               AND song_id = ?",
             position,
             playlist_id,
             song_id

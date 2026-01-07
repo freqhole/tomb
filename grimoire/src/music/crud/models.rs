@@ -66,7 +66,7 @@ pub struct AlbumImportRequest {
     pub release_date: Option<String>,
     pub release_date_precision: Option<String>,
     pub label: Option<String>,
-    pub genre_rowid: Option<i64>,
+    pub genre_id: Option<String>,
     pub year: Option<i64>,
     pub created_by: Option<String>,
 }

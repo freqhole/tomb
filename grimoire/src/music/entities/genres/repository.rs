@@ -14,7 +14,6 @@ pub async fn create_genre(req: CreateGenreRequest) -> GrimoireResult<Genre> {
         r#"INSERT INTO genrez (name, created_at)
          VALUES (?, unixepoch())
          RETURNING
-            rowid as "rowid!",
             id as "id!",
             name as "name!",
             created_at as "created_at!""#,
@@ -33,7 +32,6 @@ pub async fn list_genres() -> GrimoireResult<Vec<Genre>> {
     let genres = sqlx::query_as!(
         Genre,
         r#"SELECT
-            rowid as "rowid!",
             id as "id!",
             name as "name!",
             created_at as "created_at!"
@@ -53,7 +51,6 @@ pub async fn get_genre(id: &str) -> GrimoireResult<Genre> {
     let genre = sqlx::query_as!(
         Genre,
         r#"SELECT
-            rowid as "rowid!",
             id as "id!",
             name as "name!",
             created_at as "created_at!"
@@ -74,16 +71,15 @@ pub async fn create_sub_genre(req: CreateSubGenreRequest) -> GrimoireResult<SubG
 
     let sub_genre = sqlx::query_as!(
         SubGenre,
-        r#"INSERT INTO sub_genrez (name, parent_genre_rowid, created_at)
+        r#"INSERT INTO sub_genrez (name, parent_genre_id, created_at)
          VALUES (?, ?, unixepoch())
          RETURNING
-            rowid as "rowid!",
             id as "id!",
             name as "name!",
-            parent_genre_rowid,
+            parent_genre_id,
             created_at as "created_at!""#,
         req.name,
-        req.parent_genre_rowid
+        req.parent_genre_id
     )
     .fetch_one(&pool)
     .await?;
@@ -98,10 +94,9 @@ pub async fn list_sub_genres() -> GrimoireResult<Vec<SubGenre>> {
     let sub_genres = sqlx::query_as!(
         SubGenre,
         r#"SELECT
-            rowid as "rowid!",
             id as "id!",
             name as "name!",
-            parent_genre_rowid,
+            parent_genre_id,
             created_at as "created_at!"
            FROM sub_genrez
            ORDER BY name ASC"#
@@ -119,10 +114,9 @@ pub async fn get_sub_genre(id: &str) -> GrimoireResult<SubGenre> {
     let sub_genre = sqlx::query_as!(
         SubGenre,
         r#"SELECT
-            rowid as "rowid!",
             id as "id!",
             name as "name!",
-            parent_genre_rowid,
+            parent_genre_id,
             created_at as "created_at!"
            FROM sub_genrez
            WHERE id = ?"#,
@@ -145,13 +139,13 @@ pub async fn get_genre_stats() -> GrimoireResult<Vec<GenreStat>> {
         GenreStat,
         r#"SELECT
             g.name as "name!",
-            COUNT(a.rowid) as "song_count!",
+            COUNT(a.id) as "song_count!",
             0 as "album_count!",
             0 as "artist_count!",
             0 as "total_duration!"
            FROM genrez g
-           LEFT JOIN albumz a ON a.genre_rowid = g.rowid AND a.deleted_at IS NULL
-           GROUP BY g.rowid, g.name
+           LEFT JOIN albumz a ON a.genre_id = g.id AND a.deleted_at IS NULL
+           GROUP BY g.id, g.name
            ORDER BY g.name ASC"#
     )
     .fetch_all(&pool)

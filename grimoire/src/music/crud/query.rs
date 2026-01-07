@@ -92,14 +92,13 @@ enum CommonColumns {
     ArtistId,
     #[iden = "album_id"]
     AlbumId,
-    #[iden = "album_genre_rowid"]
-    AlbumGenreRowid,
+    #[iden = "album_genre_id"]
+    AlbumGenreId,
 }
 
 // Row structures
 #[derive(sqlx::FromRow)]
 pub struct SongViewRow {
-    song_rowid: i64,
     song_id: String,
     song_media_blob_id: String,
     song_thumbnail_blob_id: Option<String>,
@@ -121,7 +120,6 @@ pub struct SongViewRow {
     song_deleted_by: Option<String>,
     song_created_by: Option<String>,
     song_updated_by: Option<String>,
-    artist_rowid: Option<i64>,
     artist_id: Option<String>,
     artist_name: Option<String>,
     artist_created_at: Option<i64>,
@@ -133,14 +131,13 @@ pub struct SongViewRow {
     artist_total_song_count: Option<i64>,
     artist_total_album_count: Option<i64>,
     artist_total_duration: Option<i64>,
-    album_rowid: Option<i64>,
     album_id: Option<String>,
     album_title: Option<String>,
     album_album_type: Option<String>,
     album_release_date: Option<String>,
     album_release_date_precision: Option<String>,
     album_label: Option<String>,
-    album_genre_rowid: Option<i64>,
+    album_genre_id: Option<String>,
     album_song_count: Option<i64>,
     album_total_duration: Option<i64>,
     album_created_at: Option<i64>,
@@ -154,7 +151,6 @@ pub struct SongViewRow {
 impl SongViewRow {
     pub fn to_song_query_result(self) -> SongQueryResult {
         let song = Song {
-            rowid: self.song_rowid,
             id: self.song_id,
             media_blob_id: self.song_media_blob_id,
             thumbnail_blob_id: self.song_thumbnail_blob_id,
@@ -178,9 +174,8 @@ impl SongViewRow {
             updated_by: self.song_updated_by,
         };
 
-        let artist = if let Some(artist_rowid) = self.artist_rowid {
+        let artist = if self.artist_id.is_some() {
             Some(Artist {
-                rowid: artist_rowid,
                 id: self.artist_id.unwrap_or_default(),
                 name: self.artist_name.unwrap_or_default(),
                 created_at: self.artist_created_at.unwrap_or(0),
@@ -194,16 +189,15 @@ impl SongViewRow {
             None
         };
 
-        let album = if let Some(album_rowid) = self.album_rowid {
+        let album = if self.album_id.is_some() {
             Some(Album {
-                rowid: album_rowid,
                 id: self.album_id.unwrap_or_default(),
                 title: self.album_title.unwrap_or_default(),
                 album_type: self.album_album_type.unwrap_or_else(|| "album".to_string()),
                 release_date: self.album_release_date,
                 release_date_precision: self.album_release_date_precision,
                 label: self.album_label,
-                genre_rowid: self.album_genre_rowid,
+                genre_id: self.album_genre_id,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
                 created_at: self.album_created_at.unwrap_or(0),
@@ -232,7 +226,6 @@ impl SongViewRow {
 // Row structures for other views
 #[derive(sqlx::FromRow)]
 pub struct ArtistViewRow {
-    artist_rowid: i64,
     artist_id: String,
     artist_name: String,
     artist_created_at: i64,
@@ -249,7 +242,6 @@ pub struct ArtistViewRow {
 impl ArtistViewRow {
     pub fn to_artist_query_result(self) -> ArtistQueryResult {
         let artist = Artist {
-            rowid: self.artist_rowid,
             id: self.artist_id,
             name: self.artist_name,
             created_at: self.artist_created_at,
@@ -272,14 +264,13 @@ impl ArtistViewRow {
 
 #[derive(sqlx::FromRow)]
 pub struct AlbumViewRow {
-    album_rowid: i64,
     album_id: String,
     album_title: String,
     album_album_type: String,
     album_release_date: Option<String>,
     album_release_date_precision: Option<String>,
     album_label: Option<String>,
-    album_genre_rowid: Option<i64>,
+    album_genre_id: Option<String>,
     album_song_count: i64,
     album_total_duration: i64,
     album_created_at: i64,
@@ -288,7 +279,7 @@ pub struct AlbumViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
-    artist_rowid: Option<i64>,
+
     artist_id: Option<String>,
     artist_name: Option<String>,
     artist_created_at: Option<i64>,
@@ -298,14 +289,13 @@ pub struct AlbumViewRow {
 impl AlbumViewRow {
     pub fn to_album_query_result(self) -> AlbumQueryResult {
         let album = Album {
-            rowid: self.album_rowid,
             id: self.album_id,
             title: self.album_title,
             album_type: self.album_album_type,
             release_date: self.album_release_date,
             release_date_precision: self.album_release_date_precision,
             label: self.album_label,
-            genre_rowid: self.album_genre_rowid,
+            genre_id: self.album_genre_id,
             song_count: self.album_song_count,
             total_duration: self.album_total_duration,
             created_at: self.album_created_at,
@@ -316,9 +306,8 @@ impl AlbumViewRow {
             updated_by: self.album_updated_by,
         };
 
-        let artist = if let Some(artist_rowid) = self.artist_rowid {
+        let artist = if self.artist_id.is_some() {
             Some(Artist {
-                rowid: artist_rowid,
                 id: self.artist_id.unwrap_or_default(),
                 name: self.artist_name.unwrap_or_default(),
                 created_at: self.artist_created_at.unwrap_or(0),
@@ -344,7 +333,6 @@ impl AlbumViewRow {
 
 #[derive(sqlx::FromRow)]
 pub struct GenreViewRow {
-    genre_rowid: i64,
     genre_id: String,
     genre_name: String,
     genre_created_at: i64,
@@ -353,7 +341,6 @@ pub struct GenreViewRow {
 impl GenreViewRow {
     pub fn to_genre_query_result(self) -> GenreQueryResult {
         let genre = Genre {
-            rowid: self.genre_rowid,
             id: self.genre_id,
             name: self.genre_name,
             created_at: self.genre_created_at,
@@ -396,7 +383,7 @@ fn add_global_filters(
     }
 
     if let Some(genre_id) = params.filters.get("genre_id").and_then(|v| v.as_str()) {
-        query.and_where(Expr::col(CommonColumns::AlbumGenreRowid).eq(genre_id));
+        query.and_where(Expr::col(CommonColumns::AlbumGenreId).eq(genre_id));
     }
 
     // TODO: Add other global filters

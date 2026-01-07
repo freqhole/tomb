@@ -52,20 +52,19 @@ enum PlaylistSongView {
 enum PlaylistColumns {
     #[iden = "playlist_id"]
     PlaylistId,
-    #[iden = "created_by_rowid"]
-    CreatedByRowid,
+    #[iden = "created_by_id"]
+    CreatedById,
 }
 
 // Row structures for playlist queries
 #[derive(sqlx::FromRow)]
 pub struct PlaylistViewRow {
-    playlist_rowid: i64,
     playlist_id: String,
     playlist_title: String,
     playlist_description: Option<String>,
     playlist_is_public: i64,
     playlist_thumbnail_blob_id: Option<String>,
-    playlist_created_by_rowid: Option<i64>,
+    playlist_created_by_id: Option<String>,
     playlist_created_at: i64,
     playlist_updated_at: i64,
     playlist_deleted_at: Option<i64>,
@@ -76,13 +75,12 @@ pub struct PlaylistViewRow {
 impl PlaylistViewRow {
     pub fn to_playlist_query_result(self) -> PlaylistQueryResult {
         let playlist = Playlist {
-            rowid: self.playlist_rowid,
             id: self.playlist_id,
             title: self.playlist_title,
             description: self.playlist_description,
             is_public: self.playlist_is_public,
             thumbnail_blob_id: self.playlist_thumbnail_blob_id,
-            created_by_rowid: self.playlist_created_by_rowid,
+            created_by_id: self.playlist_created_by_id,
             created_at: self.playlist_created_at,
             updated_at: self.playlist_updated_at,
             deleted_at: self.playlist_deleted_at,
@@ -108,7 +106,6 @@ pub struct PlaylistSongViewRow {
     added_at: i64,
 
     // Full song data (same as SongViewRow but from playlist context)
-    song_rowid: i64,
     song_id: String,
     song_media_blob_id: String,
     song_thumbnail_blob_id: Option<String>,
@@ -132,7 +129,6 @@ pub struct PlaylistSongViewRow {
     song_updated_by: Option<String>,
 
     // Artist fields
-    artist_rowid: Option<i64>,
     artist_id: Option<String>,
     artist_name: Option<String>,
     artist_created_at: Option<i64>,
@@ -143,14 +139,13 @@ pub struct PlaylistSongViewRow {
     artist_updated_by: Option<String>,
 
     // Album fields
-    album_rowid: Option<i64>,
     album_id: Option<String>,
     album_title: Option<String>,
     album_album_type: Option<String>,
     album_release_date: Option<String>,
     album_release_date_precision: Option<String>,
     album_label: Option<String>,
-    album_genre_rowid: Option<i64>,
+    album_genre_id: Option<String>,
     album_song_count: Option<i64>,
     album_total_duration: Option<i64>,
     album_created_at: Option<i64>,
@@ -164,7 +159,6 @@ pub struct PlaylistSongViewRow {
 impl PlaylistSongViewRow {
     pub fn to_song_query_result(self) -> SongQueryResult {
         let song = Song {
-            rowid: self.song_rowid,
             id: self.song_id,
             media_blob_id: self.song_media_blob_id,
             thumbnail_blob_id: self.song_thumbnail_blob_id,
@@ -188,9 +182,8 @@ impl PlaylistSongViewRow {
             updated_by: self.song_updated_by,
         };
 
-        let artist = if let Some(artist_rowid) = self.artist_rowid {
+        let artist = if self.artist_id.is_some() {
             Some(Artist {
-                rowid: artist_rowid,
                 id: self.artist_id.unwrap_or_default(),
                 name: self.artist_name.unwrap_or_default(),
                 created_at: self.artist_created_at.unwrap_or(0),
@@ -204,16 +197,15 @@ impl PlaylistSongViewRow {
             None
         };
 
-        let album = if let Some(album_rowid) = self.album_rowid {
+        let album = if self.album_id.is_some() {
             Some(Album {
-                rowid: album_rowid,
                 id: self.album_id.unwrap_or_default(),
                 title: self.album_title.unwrap_or_default(),
                 album_type: self.album_album_type.unwrap_or_else(|| "album".to_string()),
                 release_date: self.album_release_date,
                 release_date_precision: self.album_release_date_precision,
                 label: self.album_label,
-                genre_rowid: self.album_genre_rowid,
+                genre_id: self.album_genre_id,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
                 created_at: self.album_created_at.unwrap_or(0),
@@ -252,12 +244,8 @@ fn add_playlist_filters(query: &mut SelectStatement, params: &QueryParams) {
     }
 
     // Filter by creator
-    if let Some(created_by) = params
-        .filters
-        .get("created_by_rowid")
-        .and_then(|v| v.as_i64())
-    {
-        query.and_where(Expr::col(PlaylistColumns::CreatedByRowid).eq(created_by));
+    if let Some(created_by) = params.filters.get("created_by_id").and_then(|v| v.as_i64()) {
+        query.and_where(Expr::col(PlaylistColumns::CreatedById).eq(created_by));
     }
 
     // Filter by public/private
@@ -449,14 +437,14 @@ pub async fn query_playlist_songs(
 
 // Legacy compatibility functions (temporary)
 pub async fn list_user_playlists(
-    created_by_rowid: i64,
+    created_by_id: String,
     limit: Option<u32>,
     offset: Option<u32>,
 ) -> GrimoireResult<QueryResult<PlaylistQueryResult>> {
     let mut filters = std::collections::HashMap::new();
     filters.insert(
-        "created_by_rowid".to_string(),
-        serde_json::Value::Number(serde_json::Number::from(created_by_rowid)),
+        "created_by_id".to_string(),
+        serde_json::Value::String(created_by_id),
     );
 
     let params = QueryParams {

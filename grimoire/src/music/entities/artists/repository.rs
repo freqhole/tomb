@@ -13,7 +13,7 @@ pub async fn create_artist(req: CreateArtistRequest) -> GrimoireResult<Artist> {
         Artist,
         r#"INSERT INTO artistz (name, created_by, updated_by)
          VALUES (?, ?, ?)
-         RETURNING rowid as "rowid!", id as "id!", name as "name!",
+         RETURNING id as "id!", name as "name!",
                    created_at as "created_at!", updated_at as "updated_at!",
                    deleted_at, deleted_by, created_by, updated_by"#,
         req.name,
@@ -32,7 +32,7 @@ pub async fn list_artists() -> GrimoireResult<Vec<Artist>> {
 
     let artists = sqlx::query_as!(
         Artist,
-        r#"SELECT rowid as "rowid!", id as "id!", name as "name!",
+        r#"SELECT id as "id!", name as "name!",
                   created_at as "created_at!", updated_at as "updated_at!",
                   deleted_at, deleted_by, created_by, updated_by
            FROM artistz
@@ -52,7 +52,7 @@ pub async fn get_artist(id: &str) -> GrimoireResult<Artist> {
 
     let artist = sqlx::query_as!(
         Artist,
-        r#"SELECT rowid as "rowid!", id as "id!", name as "name!",
+        r#"SELECT id as "id!", name as "name!",
                   created_at as "created_at!", updated_at as "updated_at!",
                   deleted_at, deleted_by, created_by, updated_by
            FROM artistz

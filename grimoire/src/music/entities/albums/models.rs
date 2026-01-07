@@ -6,14 +6,13 @@ use sqlx::FromRow;
 /// album model for music domain
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
 pub struct Album {
-    pub rowid: i64,
     pub id: String,
     pub title: String,
     pub album_type: String,
     pub release_date: Option<String>,
     pub release_date_precision: Option<String>,
     pub label: Option<String>,
-    pub genre_rowid: Option<i64>,
+    pub genre_id: Option<String>,
     pub song_count: i64,
     pub total_duration: i64,
     pub created_at: i64,         // unix timestamp UTC
@@ -32,6 +31,6 @@ pub struct CreateAlbumRequest {
     pub release_date: Option<String>,
     pub release_date_precision: Option<String>,
     pub label: Option<String>,
-    pub genre_rowid: Option<i64>,
+    pub genre_id: Option<String>,
     pub created_by: Option<String>,
 }

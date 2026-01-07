@@ -6,7 +6,6 @@ use sqlx::FromRow;
 /// primary genre model for music domain
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
 pub struct Genre {
-    pub rowid: i64,
     pub id: String,
     pub name: String,
     pub created_at: i64, // unix timestamp UTC
@@ -15,10 +14,9 @@ pub struct Genre {
 /// sub-genre model for music domain
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SubGenre {
-    pub rowid: i64,
     pub id: String,
     pub name: String,
-    pub parent_genre_rowid: Option<i64>,
+    pub parent_genre_id: Option<String>,
     pub created_at: i64, // unix timestamp UTC
 }
 
@@ -32,7 +30,7 @@ pub struct CreateGenreRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSubGenreRequest {
     pub name: String,
-    pub parent_genre_rowid: Option<i64>,
+    pub parent_genre_id: Option<String>,
 }
 
 /// genre statistics for API responses

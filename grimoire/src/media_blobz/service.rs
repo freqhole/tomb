@@ -16,7 +16,6 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
     if let Ok(existing_blob) = sqlx::query_as!(
         MediaBlob,
         "SELECT
-            rowid as \"rowid!\",
             id as \"id!\",
             sha256 as \"sha256!\",
             size,
@@ -57,7 +56,6 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
             created_by, updated_by
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING
-            rowid as \"rowid!\",
             id as \"id!\",
             sha256 as \"sha256!\",
             size,
@@ -108,7 +106,6 @@ pub async fn list_media_blobs() -> GrimoireResult<Vec<MediaBlob>> {
     let blobs = sqlx::query_as!(
         MediaBlob,
         "SELECT
-            rowid as \"rowid!\",
             id as \"id!\",
             sha256 as \"sha256!\",
             size,
@@ -152,7 +149,6 @@ pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
     let blob = sqlx::query_as!(
         MediaBlob,
         "SELECT
-            rowid as \"rowid!\",
             id as \"id!\",
             sha256 as \"sha256!\",
             size,
