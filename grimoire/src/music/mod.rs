@@ -7,6 +7,7 @@
 mod entities;
 
 // public modules
+pub mod analytics;
 pub mod crud;
 pub mod musicbrainz;
 pub mod scanner;

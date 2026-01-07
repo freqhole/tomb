@@ -3,6 +3,7 @@
 //! sqlite-focused music library with minimal dependencies.
 //! provides centralized domain logic for music metadata and blob storage.
 
+pub mod analytics;
 pub mod blob_data;
 pub mod cli;
 pub mod config;
@@ -17,6 +18,7 @@ pub mod users;
 pub mod wordlist;
 
 // re-export only domain types, no database internals
+pub use analytics::{record_event, record_events_batch, MediaEvent, MediaEventType};
 pub use config::{find_config, init_config, ConfigError, GrimoireConfig};
 pub use error::{GrimoireError, GrimoireResult};
 pub use media_blobz::{CreateMediaBlobRequest, MediaBlob};

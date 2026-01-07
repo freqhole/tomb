@@ -7,12 +7,11 @@ use serde_json::Value;
 use sqlx::Row;
 
 use crate::database;
-use crate::error::GrimoireResult;
 
 use super::models::{
     CreateJobRequest, CreateJobSessionRequest, Job, JobError, JobProgress, JobResult, JobSession,
     JobStatus, JobType, ProcessFileParams, ProcessFileResult, QueueStats, ScanDirectoryParams,
-    ScanDirectoryResult, SessionStatus,
+    ScanDirectoryResult,
 };
 
 /// Create a new job session for batch operations
@@ -455,8 +454,9 @@ pub async fn process_job(job: Job) -> Result<JobResult, JobError> {
 }
 
 // Job processing functions (stubs for now - to be implemented with actual logic)
-
+// #TODO: move this to music/
 async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobError> {
+    // #TODO: move this to top of file (but move stuff to music/ first!)
     use walkdir::WalkDir;
 
     // Parse job parameters
@@ -466,6 +466,7 @@ async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobError
         })?;
 
     // Default audio extensions if none provided
+    // #TODO: get this from config! also update config will all these!
     let audio_extensions = params.file_extensions.unwrap_or_else(|| {
         vec![
             "mp3".to_string(),
@@ -588,7 +589,9 @@ async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobError
     })?))
 }
 
+// #TODO: move this to music/
 async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
+    // #TODO: move imports to top of file (but move stuff to music/ first!)
     use std::fs;
     use std::path::Path;
 
@@ -727,6 +730,7 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
 async fn process_extract_metadata_job(_job: &Job) -> Result<Option<Value>, JobError> {
     // TODO: Implement metadata extraction logic
+    // is this actually implemented somewhere else?
     Err(JobError::ProcessingFailed {
         reason: "ExtractMetadata not yet implemented".to_string(),
     })
@@ -734,13 +738,16 @@ async fn process_extract_metadata_job(_job: &Job) -> Result<Option<Value>, JobEr
 
 async fn process_generate_thumbnail_job(_job: &Job) -> Result<Option<Value>, JobError> {
     // TODO: Implement thumbnail generation logic
+    // ...wait, is this actually implemented somewhere else?
     Err(JobError::ProcessingFailed {
         reason: "GenerateThumbnail not yet implemented".to_string(),
     })
 }
 
+// #TODO: move this to music/
 async fn process_generate_waveform_job(_job: &Job) -> Result<Option<Value>, JobError> {
     // TODO: Implement waveform generation logic
+    // ...wait, we didn't?
     Err(JobError::ProcessingFailed {
         reason: "GenerateWaveform not yet implemented".to_string(),
     })
@@ -773,8 +780,9 @@ pub async fn run_job_processor() -> Result<(), JobError> {
 }
 
 // Helper functions for file processing
-
+// #TODO: can we re-use grimoire/src/blob_data/helpers.rs??
 async fn create_media_blob_from_file(file_path: &str, file_size: u64) -> Result<String, JobError> {
+    // #TODO: move imports to top of file (but maybe we user helper fn)
     use crate::media_blobz;
     use std::path::Path;
 
@@ -788,6 +796,7 @@ async fn create_media_blob_from_file(file_path: &str, file_size: u64) -> Result<
         .to_string();
 
     // Calculate SHA256 hash of the file path (not contents for performance)
+    // #TODO: move imports to top of file (but maybe this will be replaced with helper?)
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(file_path.as_bytes());
@@ -821,13 +830,15 @@ async fn create_media_blob_from_file(file_path: &str, file_size: u64) -> Result<
     Ok(media_blob.id)
 }
 
+// #TODO: move this to music/
 async fn extract_and_store_metadata(
     media_blob_id: &str,
     file_path: &std::path::Path,
     file_size: u64,
 ) -> Result<(String, Option<String>, Option<String>), JobError> {
+    // #TODO: move imports to top of file (but move stuff to music/ first!)
     use crate::music::crud::{add_song, ImportSongRequest};
-    use lofty::{Accessor, AudioFile, ItemValue, Probe, TaggedFileExt};
+    use lofty::{AudioFile, ItemValue, Probe, TaggedFileExt};
     use std::collections::HashMap;
 
     // Parse audio file with lofty with error handling
@@ -964,11 +975,13 @@ async fn extract_and_store_metadata(
 }
 
 // Helper function to create basic song record when metadata extraction fails
+// // #TODO: move this to music/
 async fn create_basic_song_record(
     media_blob_id: &str,
     file_path: &std::path::Path,
     file_size: u64,
 ) -> Result<(String, Option<String>, Option<String>), JobError> {
+    // #TODO: move imports to top of file (but move stuff to music/ first!)
     use crate::music::crud::{add_song, ImportSongRequest};
 
     let title = file_path

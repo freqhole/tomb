@@ -91,6 +91,15 @@ pub enum GrimoireError {
 
     #[error("http request failed: {0}")]
     HttpRequest(String),
+
+    #[error("analytics error: {0}")]
+    Analytics(String),
+
+    #[error("invalid event type: {0}")]
+    InvalidEventType(String),
+
+    #[error("invalid event data: {0}")]
+    InvalidEventData(String),
 }
 
 /// result type alias for grimoire operations
