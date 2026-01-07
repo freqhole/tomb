@@ -118,6 +118,15 @@ pub enum MusicAction {
         /// Offset for pagination
         #[arg(long, default_value = "0")]
         offset: u32,
+        /// User ID for user-specific filtering
+        #[arg(long)]
+        user_id: Option<String>,
+        /// Show only favorited songs (requires user-id)
+        #[arg(long)]
+        favorites_only: bool,
+        /// Show only songs rated >= this value (requires user-id)
+        #[arg(long)]
+        min_rating: Option<i32>,
     },
     /// Query artists
     QueryArtists {
@@ -860,16 +869,22 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
             sort_direction,
             limit,
             offset,
+            user_id,
+            favorites_only,
+            min_rating,
         } => {
             println!("querying songs...");
             let params = QueryParams {
                 q: search,
                 search_fields: None,
-                filters: HashMap::new(),
+                filters: std::collections::HashMap::new(),
                 sort_by,
                 sort_direction,
                 limit: Some(limit),
                 offset: Some(offset),
+                user_id,
+                favorites_only: if favorites_only { Some(true) } else { None },
+                min_rating,
             };
 
             match query_songs(params).await {
@@ -931,11 +946,14 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
             let params = QueryParams {
                 q: search,
                 search_fields: None,
-                filters,
+                filters: std::collections::HashMap::new(),
                 sort_by,
                 sort_direction,
                 limit: Some(limit),
                 offset: Some(offset),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
             };
 
             match query_artists(params).await {
@@ -974,11 +992,14 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
             let params = QueryParams {
                 q: search,
                 search_fields: None,
-                filters: HashMap::new(),
+                filters: std::collections::HashMap::new(),
                 sort_by,
                 sort_direction,
                 limit: Some(limit),
                 offset: Some(offset),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
             };
 
             match query_albums(params).await {
@@ -1023,11 +1044,14 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
             let params = QueryParams {
                 q: search,
                 search_fields: None,
-                filters: HashMap::new(),
+                filters: std::collections::HashMap::new(),
                 sort_by,
                 sort_direction,
                 limit: Some(limit),
                 offset: Some(offset),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
             };
 
             match query_genres(params).await {
@@ -1069,11 +1093,14 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
             let params = QueryParams {
                 q: search,
                 search_fields: None,
-                filters,
+                filters: std::collections::HashMap::new(),
                 sort_by,
                 sort_direction,
                 limit: Some(limit),
                 offset: Some(offset),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
             };
 
             match query_playlists(params).await {
@@ -1129,6 +1156,9 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 sort_direction,
                 limit: Some(limit),
                 offset: Some(offset),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
             };
 
             match query_playlist_songs(&playlist_id, params).await {

@@ -144,6 +144,11 @@ pub struct QueryParams {
     pub sort_direction: Option<String>,                                // "asc" | "desc"
     pub limit: Option<u32>,                                            // Page size (default: 50)
     pub offset: Option<u32>,                                           // Page offset (default: 0)
+
+    // User context fields for user-specific filtering and annotation
+    pub user_id: Option<String>,      // User ID for user-specific data
+    pub favorites_only: Option<bool>, // Filter to only favorited items (requires user_id)
+    pub min_rating: Option<i32>,      // Filter to only items rated >= this value (requires user_id)
 }
 
 impl Default for QueryParams {
@@ -156,6 +161,9 @@ impl Default for QueryParams {
             sort_direction: Some("asc".to_string()),
             limit: Some(50),
             offset: Some(0),
+            user_id: None,
+            favorites_only: None,
+            min_rating: None,
         }
     }
 }
@@ -195,6 +203,8 @@ pub struct SongQueryResult {
     pub media_blob: Option<MediaBlob>,
     pub relevance_score: Option<f64>, // For FTS search results
     pub snippet: Option<String>,      // Highlighted text snippet for FTS
+    pub is_favorite: Option<bool>,    // User's favorite status
+    pub rating: Option<i32>,          // User's rating (1-5)
 }
 
 /// artist with aggregated metadata for query results
@@ -204,7 +214,8 @@ pub struct ArtistQueryResult {
     pub song_count: i64,
     pub album_count: i64,
     pub total_duration: Option<i64>,
-    pub rating: Option<f64>, // Future implementation
+    pub is_favorite: Option<bool>, // User's favorite status
+    pub rating: Option<i32>,       // User's rating (1-5)
 }
 
 /// album with aggregated metadata for query results
@@ -213,16 +224,17 @@ pub struct AlbumQueryResult {
     pub album: Album,
     pub artist: Option<Artist>,
     pub genre: Option<Genre>,
-    pub rating: Option<f64>,       // Future implementation
-    pub is_favorite: Option<bool>, // Future implementation
+    pub is_favorite: Option<bool>, // User's favorite status
+    pub rating: Option<i32>,       // User's rating (1-5)
 }
 
 /// genre with optional aggregated metadata for query results
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenreQueryResult {
     pub genre: Genre,
-    pub song_count: Option<i64>,  // Could be computed if needed
-    pub album_count: Option<i64>, // Could be computed if needed
+    pub song_count: Option<i64>,   // Could be computed if needed
+    pub album_count: Option<i64>,  // Could be computed if needed
+    pub is_favorite: Option<bool>, // User's favorite status (no ratings for genres)
 }
 
 /// playlist with optional aggregated metadata for query results
@@ -231,5 +243,5 @@ pub struct PlaylistQueryResult {
     pub playlist: crate::music::Playlist,
     pub song_count: i64,
     pub total_duration: Option<i64>,
-    pub is_favorite: Option<bool>, // Future implementation
+    pub is_favorite: Option<bool>, // User's favorite status (no ratings for playlists)
 }

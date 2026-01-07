@@ -56,7 +56,15 @@ SELECT
     -- artist aggregated stats
     arv.song_count as artist_total_song_count,
     arv.album_count as artist_total_album_count,
-    arv.total_duration as artist_total_duration
+    arv.total_duration as artist_total_duration,
+
+    -- user favorites and ratings (for filtering by user_id in queries)
+    uf.id as favorite_id,
+    uf.user_id as favorite_user_id,
+    uf.created_at as favorited_at,
+    ur.user_id as rating_user_id,
+    ur.rating as user_rating,
+    ur.created_at as rating_created_at
 
 FROM songz s
 LEFT JOIN artist_songz ars ON s.id = ars.song_id
@@ -64,6 +72,8 @@ LEFT JOIN artistz ar ON ars.artist_id = ar.id AND ar.deleted_at IS NULL
 LEFT JOIN album_songz als ON s.id = als.song_id
 LEFT JOIN albumz al ON als.album_id = al.id AND al.deleted_at IS NULL
 LEFT JOIN artist_query_view arv ON ar.id = arv.artist_id
+LEFT JOIN user_favoritez uf ON uf.target_type = 'song' AND uf.target_id = s.id
+LEFT JOIN user_ratingz ur ON ur.target_type = 'song' AND ur.target_id = s.id
 WHERE s.deleted_at IS NULL;
 
 -- artist query view with aggregated song/album stats
@@ -81,15 +91,25 @@ SELECT
     -- aggregated stats
     COUNT(DISTINCT ars.song_id) as song_count,
     COUNT(DISTINCT aa.album_id) as album_count,
-    COALESCE(SUM(s.duration), 0) as total_duration
+    COALESCE(SUM(s.duration), 0) as total_duration,
+
+    -- user favorites and ratings (for filtering by user_id in queries)
+    uf.id as favorite_id,
+    uf.user_id as favorite_user_id,
+    uf.created_at as favorited_at,
+    ur.user_id as rating_user_id,
+    ur.rating as user_rating,
+    ur.created_at as rating_created_at
 
 FROM artistz ar
 LEFT JOIN artist_songz ars ON ar.id = ars.artist_id
 LEFT JOIN songz s ON ars.song_id = s.id AND s.deleted_at IS NULL
 LEFT JOIN artist_albumz aa ON ar.id = aa.artist_id
 LEFT JOIN albumz al ON aa.album_id = al.id AND al.deleted_at IS NULL
+LEFT JOIN user_favoritez uf ON uf.target_type = 'artist' AND uf.target_id = ar.id
+LEFT JOIN user_ratingz ur ON ur.target_type = 'artist' AND ur.target_id = ar.id
 WHERE ar.deleted_at IS NULL
-GROUP BY ar.id, ar.name, ar.created_at, ar.updated_at, ar.deleted_at, ar.deleted_by, ar.created_by, ar.updated_by;
+GROUP BY ar.id, ar.name, ar.created_at, ar.updated_at, ar.deleted_at, ar.deleted_by, ar.created_by, ar.updated_by, uf.id, uf.user_id, uf.created_at, ur.user_id, ur.rating, ur.created_at;
 
 -- album query view with aggregated stats and primary artist
 CREATE VIEW album_query_view AS
@@ -114,11 +134,21 @@ SELECT
     ar.id as artist_id,
     ar.name as artist_name,
     ar.created_at as artist_created_at,
-    ar.updated_at as artist_updated_at
+    ar.updated_at as artist_updated_at,
+
+    -- user favorites and ratings (for filtering by user_id in queries)
+    uf.id as favorite_id,
+    uf.user_id as favorite_user_id,
+    uf.created_at as favorited_at,
+    ur.user_id as rating_user_id,
+    ur.rating as user_rating,
+    ur.created_at as rating_created_at
 
 FROM albumz al
 LEFT JOIN artist_albumz aa ON al.id = aa.album_id
 LEFT JOIN artistz ar ON aa.artist_id = ar.id AND ar.deleted_at IS NULL
+LEFT JOIN user_favoritez uf ON uf.target_type = 'album' AND uf.target_id = al.id
+LEFT JOIN user_ratingz ur ON ur.target_type = 'album' AND ur.target_id = al.id
 WHERE al.deleted_at IS NULL
 -- get primary artist (first one alphabetically for deterministic results)
 AND (ar.id IS NULL OR ar.id = (
@@ -133,10 +163,16 @@ AND (ar.id IS NULL OR ar.id = (
 -- genre query view (simple, no complex joins needed)
 CREATE VIEW genre_query_view AS
 SELECT
-    id as genre_id,
-    name as genre_name,
-    created_at as genre_created_at
-FROM genrez;
+    g.id as genre_id,
+    g.name as genre_name,
+    g.created_at as genre_created_at,
+
+    -- user favorites (no ratings for genres)
+    uf.id as favorite_id,
+    uf.user_id as favorite_user_id,
+    uf.created_at as favorited_at
+FROM genrez g
+LEFT JOIN user_favoritez uf ON uf.target_type = 'genre' AND uf.target_id = g.id;
 
 -- indexes for view performance
 CREATE INDEX idx_song_query_view_search ON songz(title, created_at DESC);

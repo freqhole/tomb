@@ -227,6 +227,8 @@ impl PlaylistSongViewRow {
             media_blob: None,
             relevance_score: None,
             snippet: None,
+            is_favorite: None,
+            rating: None,
         }
     }
 }
@@ -455,6 +457,9 @@ pub async fn list_user_playlists(
         sort_direction: Some("desc".to_string()),
         limit,
         offset,
+        user_id: None,
+        favorites_only: None,
+        min_rating: None,
     };
     query_playlists(params).await
 }
@@ -472,6 +477,9 @@ pub async fn search_playlists(
         sort_direction: Some("desc".to_string()),
         limit,
         offset,
+        user_id: None,
+        favorites_only: None,
+        min_rating: None,
     };
     query_playlists(params).await
 }

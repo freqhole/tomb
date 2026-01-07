@@ -15,14 +15,20 @@ SELECT
 
     -- aggregated stats
     COUNT(ps.song_id) as playlist_song_count,
-    COALESCE(SUM(s.duration), 0) as playlist_total_duration
+    COALESCE(SUM(s.duration), 0) as playlist_total_duration,
+
+    -- user favorites (no ratings for playlists)
+    uf.id as favorite_id,
+    uf.user_id as favorite_user_id,
+    uf.created_at as favorited_at
 
 FROM playlistz pl
 LEFT JOIN playlist_songz ps ON pl.id = ps.playlist_id
 LEFT JOIN songz s ON ps.song_id = s.id AND s.deleted_at IS NULL
+LEFT JOIN user_favoritez uf ON uf.target_type = 'playlist' AND uf.target_id = pl.id
 WHERE pl.deleted_at IS NULL
 GROUP BY pl.id, pl.title, pl.description, pl.is_public, pl.thumbnail_blob_id,
-         pl.created_by_id, pl.created_at, pl.updated_at, pl.deleted_at;
+         pl.created_by_id, pl.created_at, pl.updated_at, pl.deleted_at, uf.id, uf.user_id, uf.created_at;
 
 -- playlist songs view with position-based ordering and full song metadata
 CREATE VIEW playlist_song_query_view AS
@@ -80,7 +86,15 @@ SELECT
     al.deleted_at as album_deleted_at,
     al.deleted_by as album_deleted_by,
     al.created_by as album_created_by,
-    al.updated_by as album_updated_by
+    al.updated_by as album_updated_by,
+
+    -- user favorites and ratings for songs in playlists
+    uf.id as favorite_id,
+    uf.user_id as favorite_user_id,
+    uf.created_at as favorited_at,
+    ur.user_id as rating_user_id,
+    ur.rating as user_rating,
+    ur.created_at as rating_created_at
 
 FROM playlist_songz ps
 JOIN playlistz pl ON ps.playlist_id = pl.id AND pl.deleted_at IS NULL
@@ -88,7 +102,9 @@ JOIN songz s ON ps.song_id = s.id AND s.deleted_at IS NULL
 LEFT JOIN artist_songz ars ON s.id = ars.song_id
 LEFT JOIN artistz ar ON ars.artist_id = ar.id AND ar.deleted_at IS NULL
 LEFT JOIN album_songz als ON s.id = als.song_id
-LEFT JOIN albumz al ON als.album_id = al.id AND al.deleted_at IS NULL;
+LEFT JOIN albumz al ON als.album_id = al.id AND al.deleted_at IS NULL
+LEFT JOIN user_favoritez uf ON uf.target_type = 'song' AND uf.target_id = s.id
+LEFT JOIN user_ratingz ur ON ur.target_type = 'song' AND ur.target_id = s.id;
 
 -- indexes for playlist views
 CREATE INDEX idx_playlist_query_view_title ON playlistz(title, deleted_at) WHERE deleted_at IS NULL;
