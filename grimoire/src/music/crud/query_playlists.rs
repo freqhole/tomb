@@ -330,6 +330,9 @@ pub async fn query_playlists(
             sea_query::Value::String(Some(s)) => {
                 sqlx_query = sqlx_query.bind(s.as_ref().to_string());
             }
+            sea_query::Value::Int(Some(i)) => {
+                sqlx_query = sqlx_query.bind(i);
+            }
             sea_query::Value::BigInt(Some(i)) => {
                 sqlx_query = sqlx_query.bind(i);
             }
