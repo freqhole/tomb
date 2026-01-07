@@ -1,7 +1,9 @@
 //! playlist service functions
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use super::models::{CreatePlaylistRequest, Playlist, PlaylistSong, PlaylistWithCount};
+use super::models::{
+    CreatePlaylistRequest, Playlist, PlaylistSong, PlaylistWithCount, UpdatePlaylistRequest,
+};
 use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 
@@ -45,6 +47,7 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResult<Playl
 }
 
 /// list all playlists (with song counts)
+/// this probably could be deleted since we have query_playlists
 pub async fn list_playlists() -> GrimoireResult<Vec<PlaylistWithCount>> {
     let pool = database::connect_music().await?;
 
@@ -107,6 +110,44 @@ pub async fn get_playlist(id: &str) -> GrimoireResult<Playlist> {
     .await?
     .ok_or_else(|| GrimoireError::PlaylistNotFound { id: id.to_string() })?;
 
+    Ok(playlist)
+}
+
+/// update playlist metadata
+pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireResult<Playlist> {
+    let pool = database::connect_music().await?;
+
+    // Convert is_public boolean to integer for SQLite
+    let is_public_int = req.is_public.map(|p| if p { 1 } else { 0 });
+
+    // Single query that updates all provided fields using COALESCE
+    // This keeps existing values when the request field is None
+    let rows_affected = sqlx::query!(
+        "UPDATE playlistz SET
+            updated_at = unixepoch(),
+            title = COALESCE(?, title),
+            description = COALESCE(?, description),
+            is_public = COALESCE(?, is_public),
+            thumbnail_blob_id = COALESCE(?, thumbnail_blob_id),
+            updated_by = COALESCE(?, updated_by)
+        WHERE id = ? AND deleted_at IS NULL",
+        req.title,
+        req.description,
+        is_public_int,
+        req.thumbnail_blob_id,
+        req.updated_by,
+        id
+    )
+    .execute(&pool)
+    .await?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        return Err(GrimoireError::PlaylistNotFound { id: id.to_string() });
+    }
+
+    // Fetch and return the updated playlist
+    let playlist = get_playlist(id).await?;
     Ok(playlist)
 }
 

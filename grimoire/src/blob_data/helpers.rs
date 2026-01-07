@@ -92,6 +92,8 @@ async fn extract_album_art_to_webp(input_path: &str) -> GrimoireResult<Vec<u8>> 
 }
 
 /// find album art image file in directory and convert to webp
+/// #todo: this could be improved, art_filenames prolly not needed, like any image in the dir should work BUT we should take
+/// some care to not over-apply an image, like if there's lots of songs in a dir, as in they're different albums, then we should not apply the image
 async fn find_album_art_in_directory_to_webp(audio_file_path: &str) -> GrimoireResult<Vec<u8>> {
     let dir = std::path::Path::new(audio_file_path)
         .parent()

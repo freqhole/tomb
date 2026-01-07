@@ -18,7 +18,7 @@ pub use models::{
 
 // re-export playlist types
 pub use crate::music::entities::playlists::{
-    AddSongsToPlaylistRequest, CreatePlaylistRequest, Playlist, PlaylistSong,
+    AddSongsToPlaylistRequest, CreatePlaylistRequest, Playlist, PlaylistSong, UpdatePlaylistRequest,
 };
 
 // re-export main workflow functions with cleaner names
@@ -54,14 +54,15 @@ pub use query_playlists::{query_playlist_songs, query_playlists};
 
 // re-export playlist CRUD operations
 pub use crate::music::entities::playlists::{
-    add_songs_to_playlist, create_playlist, get_playlist, get_playlist_songs,
-    remove_songs_from_playlist, update_song_position, update_songs_position,
+    add_songs_to_playlist, create_playlist, create_thumbnail_from_bytes,
+    create_thumbnail_from_file, delete_playlist, get_playlist, get_playlist_songs,
+    remove_songs_from_playlist, update_playlist, update_song_position, update_songs_position,
 };
 
 // re-export delete operations
 pub use delete::{
     cleanup_deleted_entities, delete_album_if_unused, delete_artist_if_unused,
-    delete_genre_if_unused, delete_playlist, delete_song, remove_song_from_all_playlists,
+    delete_genre_if_unused, delete_song, remove_song_from_all_playlists,
 };
 
 // re-export deduplication utilities

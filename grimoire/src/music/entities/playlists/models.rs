@@ -45,6 +45,16 @@ pub struct AddSongsToPlaylistRequest {
     pub song_ids: Vec<String>,
 }
 
+/// request for updating playlist metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdatePlaylistRequest {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub is_public: Option<bool>,
+    pub thumbnail_blob_id: Option<String>,
+    pub updated_by: Option<String>,
+}
+
 /// playlist with song count for efficient listing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaylistWithCount {

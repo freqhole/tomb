@@ -3,12 +3,15 @@
 
 mod models;
 mod repository;
+mod thumbnail_helpers;
 
 // re-export public types
 pub use models::{
     AddSongsToPlaylistRequest, CreatePlaylistRequest, Playlist, PlaylistSong, PlaylistWithCount,
+    UpdatePlaylistRequest,
 };
 pub use repository::{
     add_songs_to_playlist, create_playlist, delete_playlist, get_playlist, get_playlist_songs,
-    remove_songs_from_playlist, update_song_position, update_songs_position,
+    remove_songs_from_playlist, update_playlist, update_song_position, update_songs_position,
 };
+pub use thumbnail_helpers::{create_thumbnail_from_bytes, create_thumbnail_from_file};

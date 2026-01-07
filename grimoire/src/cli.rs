@@ -237,6 +237,36 @@ pub enum MusicAction {
         #[arg(long)]
         new_position: i64,
     },
+    /// Delete playlist
+    DeletePlaylist {
+        /// Playlist ID
+        #[arg(long)]
+        playlist_id: String,
+    },
+    /// Update playlist metadata
+    UpdatePlaylist {
+        /// Playlist ID
+        #[arg(long)]
+        playlist_id: String,
+        /// New title
+        #[arg(long)]
+        title: Option<String>,
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+        /// Set as public
+        #[arg(long)]
+        public: bool,
+        /// Set as private
+        #[arg(long)]
+        private: bool,
+        /// Path to thumbnail image file
+        #[arg(long)]
+        thumbnail_path: Option<String>,
+        /// Existing media blob ID to use as thumbnail
+        #[arg(long)]
+        thumbnail_blob_id: Option<String>,
+    },
     /// List recent songs
     RecentSongs {
         /// Limit number of results
@@ -542,10 +572,12 @@ async fn handle_database_command(action: DatabaseAction) -> GrimoireResult<()> {
 }
 
 async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
+    use crate::music::crud::create_thumbnail_from_file;
     use crate::music::crud::{
-        add_songs_to_playlist, create_playlist, get_or_create_playlist_by_name, list_recent_songs,
-        query_albums, query_artists, query_genres, query_playlist_songs, query_playlists,
-        query_songs, update_songs_position, CreatePlaylistRequest, QueryParams,
+        add_songs_to_playlist, create_playlist, delete_playlist, get_or_create_playlist_by_name,
+        list_recent_songs, query_albums, query_artists, query_genres, query_playlist_songs,
+        query_playlists, query_songs, update_playlist, update_songs_position,
+        CreatePlaylistRequest, QueryParams, UpdatePlaylistRequest,
     };
     use std::collections::HashMap;
 
@@ -943,6 +975,98 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 }
                 Err(e) => {
                     eprintln!("failed to update song position: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        MusicAction::DeletePlaylist { playlist_id } => {
+            println!("deleting playlist...");
+            match delete_playlist(&playlist_id, None).await {
+                Ok(()) => {
+                    println!("successfully deleted playlist {}", playlist_id);
+                }
+                Err(e) => {
+                    eprintln!("failed to delete playlist: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        MusicAction::UpdatePlaylist {
+            playlist_id,
+            title,
+            description,
+            public,
+            private,
+            thumbnail_path,
+            thumbnail_blob_id,
+        } => {
+            println!("updating playlist metadata...");
+
+            // Handle public/private flags
+            let is_public = if public && private {
+                eprintln!("error: cannot specify both --public and --private flags");
+                return Ok(());
+            } else if public {
+                Some(true)
+            } else if private {
+                Some(false)
+            } else {
+                None
+            };
+
+            // Handle thumbnail options (mutually exclusive)
+            let final_thumbnail_blob_id = if thumbnail_path.is_some() && thumbnail_blob_id.is_some()
+            {
+                eprintln!("error: cannot specify both --thumbnail-path and --thumbnail-blob-id");
+                return Ok(());
+            } else if let Some(path) = thumbnail_path {
+                println!("creating thumbnail from file: {}", path);
+                match create_thumbnail_from_file(&path, None).await {
+                    Ok(blob_id) => {
+                        println!("  created thumbnail blob: {}", blob_id);
+                        Some(blob_id)
+                    }
+                    Err(e) => {
+                        eprintln!("failed to create thumbnail from file: {}", e);
+                        return Err(e.into());
+                    }
+                }
+            } else if let Some(blob_id) = thumbnail_blob_id {
+                println!("using existing thumbnail blob: {}", blob_id);
+                Some(blob_id)
+            } else {
+                None
+            };
+
+            let req = UpdatePlaylistRequest {
+                title: title.clone(),
+                description: description.clone(),
+                is_public,
+                thumbnail_blob_id: final_thumbnail_blob_id,
+                updated_by: None, // TODO: add user management
+            };
+
+            match update_playlist(&playlist_id, req).await {
+                Ok(playlist) => {
+                    println!("successfully updated playlist: {}", playlist.title);
+                    if let Some(new_title) = &title {
+                        println!("  title: {}", new_title);
+                    }
+                    if let Some(new_desc) = &description {
+                        println!("  description: {}", new_desc);
+                    }
+                    if let Some(public) = is_public {
+                        println!(
+                            "  visibility: {}",
+                            if public { "public" } else { "private" }
+                        );
+                    }
+                    if let Some(blob_id) = &playlist.thumbnail_blob_id {
+                        println!("  thumbnail blob: {}", blob_id);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to update playlist: {}", e);
                     return Err(e.into());
                 }
             }
