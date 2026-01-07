@@ -35,24 +35,7 @@ CREATE TABLE jobz (
   FOREIGN KEY (session_id) REFERENCES job_sessionz(id)
 );
 
--- user accounts
-CREATE TABLE user_accountz (
-  id TEXT PRIMARY KEY,
-  username TEXT UNIQUE,
-  created_at INTEGER
-);
-
--- invite codes for user registration
-CREATE TABLE invite_codez (
-  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
-  code TEXT UNIQUE NOT NULL,
-  created_at INTEGER,
-  used_at INTEGER,
-  used_by_id TEXT,               -- reference to user_accountz.id
-
-  -- constraints
-  FOREIGN KEY (used_by_id) REFERENCES user_accountz(id)
-);
+-- Note: user_accountz and invite_codez tables moved to 009_user_system.sql
 
 -- triggers for automatic audit field updates
 CREATE TRIGGER trg_job_sessionz_updated_at
@@ -75,11 +58,4 @@ CREATE INDEX idx_jobz_scheduled_at ON jobz(scheduled_at);
 CREATE INDEX idx_jobz_queue ON jobz(status, scheduled_at) WHERE status = 'Pending';
 CREATE INDEX idx_jobz_retry ON jobz(retry_count, max_retries) WHERE status = 'Failed';
 
--- indexes for user_accountz
-CREATE UNIQUE INDEX idx_user_accountz_username ON user_accountz(username);
-CREATE INDEX idx_user_accountz_created_at ON user_accountz(created_at DESC);
-
--- indexes for invite_codez
-CREATE UNIQUE INDEX idx_invite_codez_code ON invite_codez(code);
-CREATE INDEX idx_invite_codez_created_at ON invite_codez(created_at DESC);
-CREATE INDEX idx_invite_codez_used_at ON invite_codez(used_at);
+-- Note: user and invite indexes moved to 009_user_system.sql
