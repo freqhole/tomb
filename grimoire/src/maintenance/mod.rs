@@ -2,6 +2,7 @@
 //! Provides functions for cleaning up orphaned data and hard deleting old records
 
 mod hard_delete;
+mod orphaned;
 
 pub use crate::blob_data::{
     cleanup_orphaned_media_blobs, find_orphaned_media_blobs, OrphanedBlobSummary,
@@ -10,6 +11,10 @@ pub use hard_delete::{
     hard_delete_old_albums, hard_delete_old_artists, hard_delete_old_media_blobs,
     hard_delete_old_playlists, hard_delete_old_records, hard_delete_old_songs, HardDeleteOptions,
     HardDeleteSummary,
+};
+pub use orphaned::{
+    cleanup_orphaned_genres, cleanup_orphaned_sub_genres, cleanup_orphaned_tags,
+    OrphanedGenresSummary, OrphanedSubGenresSummary, OrphanedTagsSummary,
 };
 
 /// Default retention period for soft-deleted records (30 days)
