@@ -8,6 +8,7 @@ mod entities;
 
 // public modules
 pub mod crud;
+pub mod musicbrainz;
 pub mod scanner;
 
 // re-export main workflow API
@@ -15,6 +16,9 @@ pub use crud::*;
 
 // re-export scanner APIs
 pub use scanner::*;
+
+// re-export musicbrainz APIs
+pub use musicbrainz::*;
 
 // re-export core domain types for consumers
 pub use entities::{

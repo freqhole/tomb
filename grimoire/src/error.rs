@@ -70,6 +70,24 @@ pub enum GrimoireError {
 
     #[error("processing failed: {message}")]
     ProcessingFailed { message: String },
+
+    #[error("musicbrainz api error: {0}")]
+    MusicBrainzApi(String),
+
+    #[error("musicbrainz rate limit exceeded")]
+    MusicBrainzRateLimit,
+
+    #[error("musicbrainz configuration error: {0}")]
+    MusicBrainzConfig(String),
+
+    #[error("musicbrainz timeout")]
+    MusicBrainzTimeout,
+
+    #[error("musicbrainz no results found")]
+    MusicBrainzNoResults,
+
+    #[error("http request failed: {0}")]
+    HttpRequest(String),
 }
 
 /// result type alias for grimoire operations
@@ -88,5 +106,11 @@ impl From<image::ImageError> for GrimoireError {
         GrimoireError::ThumbnailGeneration {
             reason: err.to_string(),
         }
+    }
+}
+
+impl From<reqwest::Error> for GrimoireError {
+    fn from(err: reqwest::Error) -> Self {
+        GrimoireError::HttpRequest(err.to_string())
     }
 }

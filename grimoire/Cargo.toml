@@ -23,6 +23,8 @@ bigdecimal = { workspace = true }
 url = { workspace = true }
 regex = { workspace = true }
 rand = { workspace = true }
+reqwest = { workspace = true }
+urlencoding = "2.1"
 
 clap = { version = "4.4", features = ["derive"] }
 humantime = "2.1"
