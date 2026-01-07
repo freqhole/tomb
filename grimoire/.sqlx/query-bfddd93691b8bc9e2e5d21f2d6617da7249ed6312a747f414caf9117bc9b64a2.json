@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO user_ratingz (user_id, target_type, target_id, rating, created_at, updated_at)\n                    VALUES (?, ?, ?, ?, unixepoch(), unixepoch())\n                    ON CONFLICT(user_id, target_type, target_id)\n                    DO UPDATE SET rating = ?, updated_at = unixepoch()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "bfddd93691b8bc9e2e5d21f2d6617da7249ed6312a747f414caf9117bc9b64a2"
+}

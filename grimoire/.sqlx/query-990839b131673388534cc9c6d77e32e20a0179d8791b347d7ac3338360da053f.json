@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO user_favoritez (user_id, target_type, target_id, created_at)\n                        VALUES (?, ?, ?, unixepoch())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "990839b131673388534cc9c6d77e32e20a0179d8791b347d7ac3338360da053f"
+}

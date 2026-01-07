@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM sub_genrez WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "47a2227b773dd310fdb04ef99dcfcacf0cfa600e9e90da85c8494736b022d480"
+}

@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            id as \"id!\",\n            name as \"name!\",\n            parent_genre_id,\n            created_at as \"created_at!\"\n           FROM sub_genrez\n           WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND parent_genre_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "parent_genre_id",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "e862e4a3313ebed68edee8a00487d8a1ea7d3b8298b641080c7ef4ee7a474b2c"
+}
