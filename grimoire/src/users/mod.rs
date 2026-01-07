@@ -12,9 +12,9 @@ pub mod service;
 // Re-export commonly used types
 pub use favorites::{FavoriteTarget, FavoritesService};
 pub use models::{
-    AuthError, CreateInviteCodeRequest, CreateUserRequest, InviteCode, SetFavoriteRequest,
-    SetRatingRequest, UpdateUserRequest, User, UserFavorite, UserQueryParams, UserRating, UserRole,
-    UserSession, WebAuthnCredential,
+    AuthError, CreateInviteCodeRequest, CreateUserRequest, InviteCode, InviteCodeType,
+    SetFavoriteRequest, SetRatingRequest, UpdateUserRequest, User, UserFavorite, UserQueryParams,
+    UserRating, UserRole, UserSession, WebAuthnCredential,
 };
 pub use ratings::{RatingStats, RatingTarget, RatingsService};
 pub use repository::UserRepository;

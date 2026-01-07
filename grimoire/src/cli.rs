@@ -44,6 +44,11 @@ pub enum Commands {
         #[command(subcommand)]
         action: WordlistAction,
     },
+    /// User management operations
+    Users {
+        #[command(subcommand)]
+        action: UserAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -330,6 +335,81 @@ pub enum MusicAction {
 }
 
 #[derive(Subcommand)]
+pub enum UserAction {
+    /// Create a new user
+    Create {
+        /// Username
+        #[arg(long)]
+        username: String,
+        /// User role (admin, member)
+        #[arg(long)]
+        role: Option<String>,
+        /// Invite code to use for registration
+        #[arg(long)]
+        invite_code: Option<String>,
+        /// Bootstrap first admin user (bypasses invite code requirement)
+        #[arg(long)]
+        bootstrap: bool,
+    },
+    /// List users
+    List {
+        /// Filter by role
+        #[arg(long)]
+        role: Option<String>,
+        /// Include deleted users
+        #[arg(long)]
+        include_deleted: bool,
+        /// Limit number of results
+        #[arg(long, default_value = "20")]
+        limit: u32,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: u32,
+    },
+    /// Update a user
+    Update {
+        /// User ID
+        #[arg(long)]
+        user_id: String,
+        /// New role (admin, member)
+        #[arg(long)]
+        role: Option<String>,
+    },
+    /// Delete a user (soft delete)
+    Delete {
+        /// User ID
+        #[arg(long)]
+        user_id: String,
+    },
+    /// Generate invite codes
+    GenerateInvites {
+        /// Number of codes to generate
+        #[arg(long, default_value = "1")]
+        count: u32,
+        /// Number of words per code
+        #[arg(long, default_value = "3")]
+        word_count: usize,
+        /// Code type (invite, account-link)
+        #[arg(long)]
+        code_type: Option<String>,
+        /// Expiration in hours
+        #[arg(long)]
+        expires_hours: Option<u32>,
+    },
+    /// List invite codes
+    ListInvites {
+        /// Show only active codes
+        #[arg(long)]
+        active_only: bool,
+    },
+    /// Deactivate an invite code
+    DeactivateInvite {
+        /// Invite code to deactivate
+        code: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum WordlistAction {
     /// Generate a wordlist using built-in categories
     Generate {
@@ -384,6 +464,7 @@ pub async fn run_cli() -> GrimoireResult<()> {
         Commands::Database { action } => handle_database_command(action).await,
         Commands::Music { action } => handle_music_command(action).await,
         Commands::Wordlist { action } => handle_wordlist_command(action).await,
+        Commands::Users { action } => handle_user_command(action).await,
     }
 }
 
@@ -1520,6 +1601,298 @@ async fn handle_wordlist_command(action: WordlistAction) -> GrimoireResult<()> {
                     Err(e) => {
                         eprintln!("failed to generate code {}: {}", i, e);
                     }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_user_command(action: UserAction) -> GrimoireResult<()> {
+    use crate::users::{
+        CreateInviteCodeRequest, CreateUserRequest, UpdateUserRequest, UserQueryParams,
+        UserRepository, UserRole, UserService,
+    };
+
+    let service = UserService::new();
+
+    match action {
+        UserAction::Create {
+            username,
+            role,
+            invite_code,
+            bootstrap,
+        } => {
+            println!("creating user: {}", username);
+
+            let user_role = role.map(|r| match r.to_lowercase().as_str() {
+                "admin" => UserRole::Admin,
+                _ => UserRole::Member,
+            });
+
+            let request = CreateUserRequest {
+                username: username.clone(),
+                role: user_role,
+                invite_code: if bootstrap { None } else { invite_code },
+            };
+
+            // Use bootstrap user creation for first admin, regular registration otherwise
+            let result = if bootstrap {
+                if user_role != Some(UserRole::Admin) {
+                    eprintln!("bootstrap flag can only be used with --role admin");
+                    std::process::exit(1);
+                }
+                // Directly use repository to bypass invite code validation for bootstrap
+                let repository = UserRepository::new();
+                repository.create_user(&request).await
+            } else {
+                service.register_user(&request).await
+            };
+
+            match result {
+                Ok(user) => {
+                    println!("user created successfully:");
+                    println!("  ID: {}", user.id);
+                    println!("  Username: {}", user.username);
+                    println!("  Role: {}", user.role);
+                    println!("  Created: {}", format_timestamp(user.created_at));
+                }
+                Err(e) => {
+                    eprintln!("failed to create user: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::List {
+            role,
+            include_deleted,
+            limit,
+            offset,
+        } => {
+            println!("listing users...");
+
+            let user_role = role.map(|r| match r.to_lowercase().as_str() {
+                "admin" => UserRole::Admin,
+                _ => UserRole::Member,
+            });
+
+            let params = UserQueryParams {
+                username: None,
+                role: user_role,
+                include_deleted: Some(include_deleted),
+                limit: Some(limit),
+                offset: Some(offset),
+            };
+
+            // For CLI, we'll create a dummy admin user for authorization
+            let admin_user = crate::users::User {
+                id: "cli-admin".to_string(),
+                username: "cli".to_string(),
+                role: UserRole::Admin,
+                created_at: 0,
+                updated_at: 0,
+                deleted_at: None,
+            };
+
+            match service.list_users(&params, &admin_user).await {
+                Ok(users) => {
+                    if users.is_empty() {
+                        println!("no users found");
+                    } else {
+                        println!("found {} users:", users.len());
+                        for user in users {
+                            let status = if user.is_deleted() { " (DELETED)" } else { "" };
+                            println!(
+                                "  {} - {} ({}){}",
+                                user.id, user.username, user.role, status
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to list users: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::Update { user_id, role } => {
+            println!("updating user: {}", user_id);
+
+            let user_role = role.map(|r| match r.to_lowercase().as_str() {
+                "admin" => UserRole::Admin,
+                _ => UserRole::Member,
+            });
+
+            let request = UpdateUserRequest { role: user_role };
+
+            let admin_user = crate::users::User {
+                id: "cli-admin".to_string(),
+                username: "cli".to_string(),
+                role: UserRole::Admin,
+                created_at: 0,
+                updated_at: 0,
+                deleted_at: None,
+            };
+
+            match service.update_user(&user_id, &request, &admin_user).await {
+                Ok(user) => {
+                    println!("user updated successfully:");
+                    println!("  ID: {}", user.id);
+                    println!("  Username: {}", user.username);
+                    println!("  Role: {}", user.role);
+                    println!("  Updated: {}", format_timestamp(user.updated_at));
+                }
+                Err(e) => {
+                    eprintln!("failed to update user: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::Delete { user_id } => {
+            println!("deleting user: {}", user_id);
+
+            let admin_user = crate::users::User {
+                id: "cli-admin".to_string(),
+                username: "cli".to_string(),
+                role: UserRole::Admin,
+                created_at: 0,
+                updated_at: 0,
+                deleted_at: None,
+            };
+
+            match service.delete_user(&user_id, &admin_user).await {
+                Ok(()) => {
+                    println!("user deleted successfully");
+                }
+                Err(e) => {
+                    eprintln!("failed to delete user: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::GenerateInvites {
+            count,
+            word_count,
+            code_type,
+            expires_hours,
+        } => {
+            println!(
+                "generating {} invite codes with {} words each...",
+                count, word_count
+            );
+
+            // Initialize wordlist if not already done - CLI responsibility
+            if !crate::wordlist::is_initialized() {
+                let config = crate::wordlist::ManagementWordlistConfig::default();
+                if let Err(e) = crate::wordlist::initialize_wordlist(&config) {
+                    eprintln!("failed to initialize wordlist: {}", e);
+                    eprintln!("ensure wordlist file exists at: {}", config.file_path);
+                    std::process::exit(1);
+                }
+            }
+
+            let invite_type = code_type
+                .map(|ct| match ct.to_lowercase().as_str() {
+                    "account-link" => crate::users::InviteCodeType::AccountLink,
+                    _ => crate::users::InviteCodeType::Invite,
+                })
+                .unwrap_or_default();
+
+            let request = CreateInviteCodeRequest {
+                code_type: Some(invite_type),
+                link_for_user_id: None,
+                expires_hours,
+            };
+
+            let admin_user = crate::users::User {
+                id: "cli-admin".to_string(),
+                username: "cli".to_string(),
+                role: UserRole::Admin,
+                created_at: 0,
+                updated_at: 0,
+                deleted_at: None,
+            };
+
+            match service
+                .generate_invite_codes(&request, count, word_count, &admin_user)
+                .await
+            {
+                Ok(codes) => {
+                    println!("generated {} invite codes:", codes.len());
+                    for (i, code) in codes.iter().enumerate() {
+                        println!("  {}: {}", i + 1, code.code);
+                        if let Some(expires) = code.link_expires_at {
+                            println!("    Expires: {}", format_timestamp(expires));
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to generate invite codes: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::ListInvites { active_only } => {
+            println!("listing invite codes...");
+
+            let admin_user = crate::users::User {
+                id: "cli-admin".to_string(),
+                username: "cli".to_string(),
+                role: UserRole::Admin,
+                created_at: 0,
+                updated_at: 0,
+                deleted_at: None,
+            };
+
+            match service.list_invite_codes(active_only, &admin_user).await {
+                Ok(codes) => {
+                    if codes.is_empty() {
+                        println!("no invite codes found");
+                    } else {
+                        println!("found {} invite codes:", codes.len());
+                        for code in codes {
+                            let status = if code.used_at.is_some() {
+                                " (USED)"
+                            } else if !code.is_active {
+                                " (INACTIVE)"
+                            } else if code.is_expired() {
+                                " (EXPIRED)"
+                            } else {
+                                ""
+                            };
+                            println!(
+                                "  {} - {} ({}){}",
+                                code.id, code.code, code.code_type, status
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to list invite codes: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::DeactivateInvite { code } => {
+            println!("deactivating invite code: {}", code);
+
+            let admin_user = crate::users::User {
+                id: "cli-admin".to_string(),
+                username: "cli".to_string(),
+                role: UserRole::Admin,
+                created_at: 0,
+                updated_at: 0,
+                deleted_at: None,
+            };
+
+            match service.deactivate_invite_code(&code, &admin_user).await {
+                Ok(()) => {
+                    println!("invite code deactivated successfully");
+                }
+                Err(e) => {
+                    eprintln!("failed to deactivate invite code: {}", e);
+                    std::process::exit(1);
                 }
             }
         }
