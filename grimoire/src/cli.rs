@@ -407,6 +407,90 @@ pub enum UserAction {
         /// Invite code to deactivate
         code: String,
     },
+    /// Set or update a favorite
+    SetFavorite {
+        /// User ID
+        #[arg(long)]
+        user_id: String,
+        /// Target type (song, artist, album)
+        #[arg(long)]
+        target_type: String,
+        /// Target ID
+        #[arg(long)]
+        target_id: String,
+    },
+    /// Remove a favorite
+    RemoveFavorite {
+        /// User ID
+        #[arg(long)]
+        user_id: String,
+        /// Target type (song, artist, album)
+        #[arg(long)]
+        target_type: String,
+        /// Target ID
+        #[arg(long)]
+        target_id: String,
+    },
+    /// List favorites for a user
+    ListFavorites {
+        /// User ID
+        #[arg(long)]
+        user_id: String,
+        /// Filter by target type (song, artist, album)
+        #[arg(long)]
+        target_type: Option<String>,
+        /// Limit number of results
+        #[arg(long, default_value = "20")]
+        limit: u32,
+    },
+    /// Set or update a rating
+    SetRating {
+        /// User ID
+        #[arg(long)]
+        user_id: String,
+        /// Target type (song, artist, album)
+        #[arg(long)]
+        target_type: String,
+        /// Target ID
+        #[arg(long)]
+        target_id: String,
+        /// Rating value (1-5)
+        #[arg(long)]
+        rating: i32,
+    },
+    /// Remove a rating
+    RemoveRating {
+        /// User ID
+        #[arg(long)]
+        user_id: String,
+        /// Target type (song, artist, album)
+        #[arg(long)]
+        target_type: String,
+        /// Target ID
+        #[arg(long)]
+        target_id: String,
+    },
+    /// Get rating statistics for a target
+    RatingStats {
+        /// Target type (song, artist, album)
+        #[arg(long)]
+        target_type: String,
+        /// Target ID
+        #[arg(long)]
+        target_id: String,
+    },
+    /// Get top-rated items
+    TopRated {
+        /// Target type (song, artist, album)
+        #[arg(long)]
+        target_type: String,
+        /// Minimum number of ratings required
+        #[arg(long, default_value = "1")]
+        min_ratings: u64,
+        /// Maximum number of results
+        #[arg(long, default_value = "20")]
+        limit: u64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1611,8 +1695,9 @@ async fn handle_wordlist_command(action: WordlistAction) -> GrimoireResult<()> {
 
 async fn handle_user_command(action: UserAction) -> GrimoireResult<()> {
     use crate::users::{
-        CreateInviteCodeRequest, CreateUserRequest, UpdateUserRequest, UserQueryParams,
-        UserRepository, UserRole, UserService,
+        CreateInviteCodeRequest, CreateUserRequest, FavoriteTarget, RatingTarget,
+        SetFavoriteRequest, SetRatingRequest, UpdateUserRequest, UserQueryParams, UserRepository,
+        UserRole, UserService,
     };
 
     let service = UserService::new();
@@ -1892,6 +1977,330 @@ async fn handle_user_command(action: UserAction) -> GrimoireResult<()> {
                 }
                 Err(e) => {
                     eprintln!("failed to deactivate invite code: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::SetFavorite {
+            user_id,
+            target_type,
+            target_id,
+        } => {
+            println!(
+                "setting favorite: {} {} for user {}",
+                target_type, target_id, user_id
+            );
+
+            let favorite_target = match target_type.to_lowercase().as_str() {
+                "song" => FavoriteTarget::Song,
+                "artist" => FavoriteTarget::Artist,
+                "album" => FavoriteTarget::Album,
+                "genre" => FavoriteTarget::Genre,
+                "playlist" => FavoriteTarget::Playlist,
+                _ => {
+                    eprintln!(
+                        "invalid target type: {}. Must be 'song', 'artist', 'album', 'genre', or 'playlist'",
+                        target_type
+                    );
+                    std::process::exit(1);
+                }
+            };
+
+            let favorites_service = crate::users::favorites::FavoritesService::new();
+            let request = SetFavoriteRequest {
+                user_id: user_id.clone(),
+                target_type: favorite_target,
+                target_id: target_id.clone(),
+                is_favorite: true,
+            };
+
+            match favorites_service.set_favorite(&request).await {
+                Ok(()) => {
+                    println!("favorite set successfully");
+                }
+                Err(e) => {
+                    eprintln!("failed to set favorite: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::RemoveFavorite {
+            user_id,
+            target_type,
+            target_id,
+        } => {
+            println!(
+                "removing favorite: {} {} for user {}",
+                target_type, target_id, user_id
+            );
+
+            let favorite_target = match target_type.to_lowercase().as_str() {
+                "song" => FavoriteTarget::Song,
+                "artist" => FavoriteTarget::Artist,
+                "album" => FavoriteTarget::Album,
+                "genre" => FavoriteTarget::Genre,
+                "playlist" => FavoriteTarget::Playlist,
+                _ => {
+                    eprintln!(
+                        "invalid target type: {}. Must be 'song', 'artist', 'album', 'genre', or 'playlist'",
+                        target_type
+                    );
+                    std::process::exit(1);
+                }
+            };
+
+            let favorites_service = crate::users::favorites::FavoritesService::new();
+            let request = SetFavoriteRequest {
+                user_id: user_id.clone(),
+                target_type: favorite_target,
+                target_id: target_id.clone(),
+                is_favorite: false,
+            };
+
+            match favorites_service.set_favorite(&request).await {
+                Ok(()) => {
+                    println!("favorite removed successfully");
+                }
+                Err(e) => {
+                    eprintln!("failed to remove favorite: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::ListFavorites {
+            user_id,
+            target_type,
+            limit,
+        } => {
+            println!("listing favorites for user: {}", user_id);
+
+            let target_filter = target_type.map(|t| match t.to_lowercase().as_str() {
+                "song" => FavoriteTarget::Song,
+                "artist" => FavoriteTarget::Artist,
+                "album" => FavoriteTarget::Album,
+                "genre" => FavoriteTarget::Genre,
+                "playlist" => FavoriteTarget::Playlist,
+                _ => {
+                    eprintln!(
+                        "invalid target type: {}. Must be 'song', 'artist', 'album', 'genre', or 'playlist'",
+                        t
+                    );
+                    std::process::exit(1);
+                }
+            });
+
+            let favorites_service = crate::users::favorites::FavoritesService::new();
+
+            match favorites_service
+                .get_user_favorites(&user_id, target_filter, Some(limit), None)
+                .await
+            {
+                Ok(favorites) => {
+                    if favorites.is_empty() {
+                        println!("no favorites found");
+                    } else {
+                        for favorite in favorites {
+                            println!(
+                                "  {} {}: {} (created: {})",
+                                favorite.target_type,
+                                favorite.target_id,
+                                match favorite.target_type {
+                                    FavoriteTarget::Song => "♪",
+                                    FavoriteTarget::Artist => "👤",
+                                    FavoriteTarget::Album => "💿",
+                                    FavoriteTarget::Genre => "🏷️",
+                                    FavoriteTarget::Playlist => "📂",
+                                },
+                                format_timestamp(favorite.created_at)
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to list favorites: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::SetRating {
+            user_id,
+            target_type,
+            target_id,
+            rating,
+        } => {
+            if rating < 1 || rating > 5 {
+                eprintln!("rating must be between 1 and 5");
+                std::process::exit(1);
+            }
+
+            println!(
+                "setting rating: {} {} = {} stars for user {}",
+                target_type, target_id, rating, user_id
+            );
+
+            let rating_target = match target_type.to_lowercase().as_str() {
+                "song" => RatingTarget::Song,
+                "artist" => RatingTarget::Artist,
+                "album" => RatingTarget::Album,
+                _ => {
+                    eprintln!(
+                        "invalid target type: {}. Must be 'song', 'artist', or 'album'",
+                        target_type
+                    );
+                    std::process::exit(1);
+                }
+            };
+
+            let ratings_service = crate::users::ratings::RatingsService::new();
+            let request = SetRatingRequest {
+                user_id: user_id.clone(),
+                target_type: rating_target,
+                target_id: target_id.clone(),
+                rating,
+            };
+
+            match ratings_service.set_rating(&request).await {
+                Ok(_rating) => {
+                    println!("rating set successfully");
+                }
+                Err(e) => {
+                    eprintln!("failed to set rating: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::RemoveRating {
+            user_id,
+            target_type,
+            target_id,
+        } => {
+            println!(
+                "removing rating: {} {} for user {}",
+                target_type, target_id, user_id
+            );
+
+            let rating_target = match target_type.to_lowercase().as_str() {
+                "song" => RatingTarget::Song,
+                "artist" => RatingTarget::Artist,
+                "album" => RatingTarget::Album,
+                _ => {
+                    eprintln!(
+                        "invalid target type: {}. Must be 'song', 'artist', or 'album'",
+                        target_type
+                    );
+                    std::process::exit(1);
+                }
+            };
+
+            let ratings_service = crate::users::ratings::RatingsService::new();
+
+            match ratings_service
+                .remove_rating(&user_id, rating_target, &target_id)
+                .await
+            {
+                Ok(_removed) => {
+                    println!("rating removed successfully");
+                }
+                Err(e) => {
+                    eprintln!("failed to remove rating: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::RatingStats {
+            target_type,
+            target_id,
+        } => {
+            println!(
+                "getting rating statistics for: {} {}",
+                target_type, target_id
+            );
+
+            let rating_target = match target_type.to_lowercase().as_str() {
+                "song" => RatingTarget::Song,
+                "artist" => RatingTarget::Artist,
+                "album" => RatingTarget::Album,
+                _ => {
+                    eprintln!(
+                        "invalid target type: {}. Must be 'song', 'artist', or 'album'",
+                        target_type
+                    );
+                    std::process::exit(1);
+                }
+            };
+
+            let ratings_service = crate::users::ratings::RatingsService::new();
+
+            match ratings_service
+                .get_rating_stats(rating_target, &target_id)
+                .await
+            {
+                Ok(stats) => {
+                    println!("  Target: {} {}", stats.target_type, stats.target_id);
+                    println!("  Total ratings: {}", stats.total_ratings);
+                    println!("  Average rating: {:.1} stars", stats.average_rating);
+                    println!("  Rating distribution:");
+                    for (rating, count) in stats.rating_distribution {
+                        let stars = "★".repeat(rating as usize);
+                        println!("    {} ({}): {}", stars, rating, count);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to get rating statistics: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        UserAction::TopRated {
+            target_type,
+            min_ratings,
+            limit,
+        } => {
+            println!("getting top rated {} items...", target_type);
+
+            let rating_target = match target_type.to_lowercase().as_str() {
+                "song" => RatingTarget::Song,
+                "artist" => RatingTarget::Artist,
+                "album" => RatingTarget::Album,
+                _ => {
+                    eprintln!(
+                        "invalid target type: {}. Must be 'song', 'artist', or 'album'",
+                        target_type
+                    );
+                    std::process::exit(1);
+                }
+            };
+
+            let ratings_service = crate::users::ratings::RatingsService::new();
+
+            match ratings_service
+                .get_top_rated(rating_target, Some(min_ratings), Some(limit as u32))
+                .await
+            {
+                Ok(items) => {
+                    if items.is_empty() {
+                        println!("no rated items found");
+                    } else {
+                        for (i, item) in items.iter().enumerate() {
+                            println!(
+                                "{}. {} {} - {:.1} stars ({} ratings)",
+                                i + 1,
+                                if item.target_type == RatingTarget::Song {
+                                    "♪"
+                                } else if item.target_type == RatingTarget::Artist {
+                                    "👤"
+                                } else {
+                                    "💿"
+                                },
+                                item.target_id,
+                                item.average_rating,
+                                item.total_ratings
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to get top rated items: {}", e);
                     std::process::exit(1);
                 }
             }

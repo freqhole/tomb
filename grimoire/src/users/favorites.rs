@@ -3,8 +3,33 @@
 //! This module handles user favorites for songs, artists, albums, genres, and playlists.
 //! Provides operations for setting, getting, and managing favorite status.
 
+use crate::database;
 use crate::users::models::*;
 use crate::users::repository::UserRepository;
+use sqlx::Row;
+use time::OffsetDateTime;
+
+/// Database row struct for user_favoritez table
+#[derive(Debug)]
+struct UserFavoriteRow {
+    id: String,
+    user_id: String,
+    target_type: String,
+    target_id: String,
+    created_at: i64,
+}
+
+impl From<UserFavoriteRow> for UserFavorite {
+    fn from(row: UserFavoriteRow) -> Self {
+        UserFavorite {
+            id: row.id,
+            user_id: row.user_id,
+            target_type: FavoriteTarget::from(row.target_type),
+            target_id: row.target_id,
+            created_at: row.created_at,
+        }
+    }
+}
 
 /// Target types for favorites (re-export for convenience)
 pub use crate::users::models::FavoriteTarget;
@@ -29,10 +54,43 @@ impl FavoritesService {
 
     /// Set or unset a favorite for a user
     pub async fn set_favorite(&self, request: &SetFavoriteRequest) -> AuthResult<()> {
-        // TODO: Implement favorite setting logic
-        // This should either insert a new favorite or remove an existing one
-        // based on the is_favorite flag
-        todo!("Implement set_favorite")
+        let pool = database::connect().await?;
+
+        if request.is_favorite {
+            // Insert new favorite (ignore if already exists)
+            let now = OffsetDateTime::now_utc().unix_timestamp();
+            let target_type = request.target_type.to_string();
+
+            sqlx::query!(
+                r#"
+                INSERT OR IGNORE INTO user_favoritez (user_id, target_type, target_id, created_at)
+                VALUES (?1, ?2, ?3, ?4)
+                "#,
+                request.user_id,
+                target_type,
+                request.target_id,
+                now
+            )
+            .execute(&pool)
+            .await?;
+        } else {
+            // Remove existing favorite
+            let target_type = request.target_type.to_string();
+
+            sqlx::query!(
+                r#"
+                DELETE FROM user_favoritez
+                WHERE user_id = ?1 AND target_type = ?2 AND target_id = ?3
+                "#,
+                request.user_id,
+                target_type,
+                request.target_id
+            )
+            .execute(&pool)
+            .await?;
+        }
+
+        Ok(())
     }
 
     /// Toggle favorite status for a target
@@ -42,9 +100,18 @@ impl FavoritesService {
         target_type: FavoriteTarget,
         target_id: &str,
     ) -> AuthResult<bool> {
-        // TODO: Check current status and toggle it
-        // Return the new favorite status (true if now favorited, false if unfavorited)
-        todo!("Implement toggle_favorite")
+        let is_currently_favorited = self.is_favorited(user_id, target_type, target_id).await?;
+        let new_status = !is_currently_favorited;
+
+        let request = SetFavoriteRequest {
+            user_id: user_id.to_string(),
+            target_type,
+            target_id: target_id.to_string(),
+            is_favorite: new_status,
+        };
+
+        self.set_favorite(&request).await?;
+        Ok(new_status)
     }
 
     /// Check if a target is favorited by a user
@@ -54,8 +121,23 @@ impl FavoritesService {
         target_type: FavoriteTarget,
         target_id: &str,
     ) -> AuthResult<bool> {
-        // TODO: Query database to check favorite status
-        todo!("Implement is_favorited")
+        let pool = database::connect().await?;
+        let target_type_str = target_type.to_string();
+
+        let result = sqlx::query!(
+            r#"
+            SELECT id
+            FROM user_favoritez
+            WHERE user_id = ?1 AND target_type = ?2 AND target_id = ?3
+            "#,
+            user_id,
+            target_type_str,
+            target_id
+        )
+        .fetch_optional(&pool)
+        .await?;
+
+        Ok(result.is_some())
     }
 
     /// Get all favorites for a user of a specific type
@@ -66,8 +148,49 @@ impl FavoritesService {
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> AuthResult<Vec<UserFavorite>> {
-        // TODO: Query database for user's favorites with optional filtering
-        todo!("Implement get_user_favorites")
+        let pool = database::connect().await?;
+
+        let favorites = if let Some(target_type) = target_type {
+            let target_type_str = target_type.to_string();
+            let limit_val = limit.unwrap_or(50);
+            let offset_val = offset.unwrap_or(0);
+            sqlx::query_as!(
+                UserFavoriteRow,
+                r#"
+                SELECT id as "id!", user_id as "user_id!", target_type as "target_type!", target_id as "target_id!", created_at as "created_at!"
+                FROM user_favoritez
+                WHERE user_id = ?1 AND target_type = ?2
+                ORDER BY created_at DESC
+                LIMIT ?3 OFFSET ?4
+                "#,
+                user_id,
+                target_type_str,
+                limit_val,
+                offset_val
+            )
+            .fetch_all(&pool)
+            .await?
+        } else {
+            let limit_val = limit.unwrap_or(50);
+            let offset_val = offset.unwrap_or(0);
+            sqlx::query_as!(
+                UserFavoriteRow,
+                r#"
+                SELECT id as "id!", user_id as "user_id!", target_type as "target_type!", target_id as "target_id!", created_at as "created_at!"
+                FROM user_favoritez
+                WHERE user_id = ?1
+                ORDER BY created_at DESC
+                LIMIT ?2 OFFSET ?3
+                "#,
+                user_id,
+                limit_val,
+                offset_val
+            )
+            .fetch_all(&pool)
+            .await?
+        };
+
+        Ok(favorites.into_iter().map(UserFavorite::from).collect())
     }
 
     /// Get favorite status for multiple targets
@@ -76,9 +199,57 @@ impl FavoritesService {
         user_id: &str,
         targets: Vec<(FavoriteTarget, String)>,
     ) -> AuthResult<Vec<(FavoriteTarget, String, bool)>> {
-        // TODO: Efficient bulk query for favorite status
-        // Returns tuples of (target_type, target_id, is_favorited)
-        todo!("Implement get_favorite_status_bulk")
+        if targets.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let pool = database::connect().await?;
+        let mut results = Vec::new();
+
+        // Build query with placeholders for all targets
+        let mut query = String::from(
+            "SELECT target_type, target_id FROM user_favoritez WHERE user_id = ?1 AND (",
+        );
+        let mut params = vec![user_id.to_string()];
+
+        for (i, (target_type, target_id)) in targets.iter().enumerate() {
+            if i > 0 {
+                query.push_str(" OR ");
+            }
+            query.push_str(&format!(
+                "(target_type = ?{} AND target_id = ?{})",
+                params.len() + 1,
+                params.len() + 2
+            ));
+            params.push(target_type.to_string());
+            params.push(target_id.clone());
+        }
+        query.push(')');
+
+        let mut sqlx_query = sqlx::query(&query);
+        for param in &params {
+            sqlx_query = sqlx_query.bind(param);
+        }
+
+        let favorited_rows = sqlx_query.fetch_all(&pool).await?;
+
+        // Convert to set for fast lookup
+        let favorited: std::collections::HashSet<(String, String)> = favorited_rows
+            .into_iter()
+            .map(|row| {
+                (
+                    row.get::<String, _>("target_type"),
+                    row.get::<String, _>("target_id"),
+                )
+            })
+            .collect();
+
+        for (target_type, target_id) in targets {
+            let is_favorited = favorited.contains(&(target_type.to_string(), target_id.clone()));
+            results.push((target_type, target_id, is_favorited));
+        }
+
+        Ok(results)
     }
 
     /// Remove all favorites for a target (cleanup when items are deleted)
@@ -87,10 +258,21 @@ impl FavoritesService {
         target_type: FavoriteTarget,
         target_id: &str,
     ) -> AuthResult<u64> {
-        // TODO: Remove all favorite records for a specific target
-        // Used for cleanup when songs/artists/etc are deleted
-        // Returns number of favorites removed
-        todo!("Implement remove_favorites_for_target")
+        let pool = database::connect().await?;
+        let target_type_str = target_type.to_string();
+
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM user_favoritez
+            WHERE target_type = ?1 AND target_id = ?2
+            "#,
+            target_type_str,
+            target_id
+        )
+        .execute(&pool)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 
     /// Get count of users who favorited a target
@@ -99,8 +281,22 @@ impl FavoritesService {
         target_type: FavoriteTarget,
         target_id: &str,
     ) -> AuthResult<u64> {
-        // TODO: Count how many users have favorited this target
-        todo!("Implement get_favorite_count")
+        let pool = database::connect().await?;
+        let target_type_str = target_type.to_string();
+
+        let result = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count
+            FROM user_favoritez
+            WHERE target_type = ?1 AND target_id = ?2
+            "#,
+            target_type_str,
+            target_id
+        )
+        .fetch_one(&pool)
+        .await?;
+
+        Ok(result.count as u64)
     }
 
     /// Get recently favorited items for a user
@@ -110,16 +306,26 @@ impl FavoritesService {
         target_type: Option<FavoriteTarget>,
         limit: Option<u32>,
     ) -> AuthResult<Vec<UserFavorite>> {
-        // TODO: Get recent favorites ordered by created_at DESC
-        todo!("Implement get_recent_favorites")
+        // This is the same as get_user_favorites but with a default limit for recent items
+        self.get_user_favorites(user_id, target_type, limit.or(Some(20)), Some(0))
+            .await
     }
 
     /// Remove all favorites for a user (cleanup when user is deleted)
     pub async fn remove_all_user_favorites(&self, user_id: &str) -> AuthResult<u64> {
-        // TODO: Remove all favorites for a user
-        // Used for cleanup when user account is deleted
-        // Returns number of favorites removed
-        todo!("Implement remove_all_user_favorites")
+        let pool = database::connect().await?;
+
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM user_favoritez
+            WHERE user_id = ?1
+            "#,
+            user_id
+        )
+        .execute(&pool)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 }
 
@@ -136,8 +342,6 @@ impl FavoritesService {
         &self,
         requests: Vec<SetFavoriteRequest>,
     ) -> AuthResult<Vec<Result<(), AuthError>>> {
-        // TODO: Implement batch favorite setting
-        // Process multiple favorites in a single transaction
         let mut results = Vec::new();
         for request in requests {
             results.push(self.set_favorite(&request).await);
@@ -151,10 +355,18 @@ impl FavoritesService {
         user_id: &str,
         favorites: Vec<(FavoriteTarget, String)>,
     ) -> AuthResult<u64> {
-        // TODO: Bulk import favorites for a user
-        // Used for migrating data or importing from other sources
-        // Returns number of favorites imported
-        todo!("Implement import_favorites")
+        let mut count = 0;
+        for (target_type, target_id) in favorites {
+            let request = SetFavoriteRequest {
+                user_id: user_id.to_string(),
+                target_type,
+                target_id,
+                is_favorite: true,
+            };
+            self.set_favorite(&request).await?;
+            count += 1;
+        }
+        Ok(count)
     }
 }
 
