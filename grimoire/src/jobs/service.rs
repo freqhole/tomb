@@ -837,6 +837,8 @@ async fn extract_and_store_metadata(
     file_size: u64,
 ) -> Result<(String, Option<String>, Option<String>), JobError> {
     // #TODO: move imports to top of file (but move stuff to music/ first!)
+    use crate::analytics::record_event;
+    use crate::analytics::{MediaEvent, MediaEventType};
     use crate::music::crud::{add_song, ImportSongRequest};
     use lofty::{AudioFile, ItemValue, Probe, TaggedFileExt};
     use std::collections::HashMap;
@@ -967,6 +969,24 @@ async fn extract_and_store_metadata(
             reason: format!("Failed to import song: {}", e),
         })?;
 
+    // Record analytics event for song import (best-effort, don't fail if this errors)
+    // Note: user_id is left null for system/automated imports
+    let event_data = serde_json::json!({
+        "source": "job_processor",
+        "file_path": file_path.to_string_lossy(),
+        "metadata_extracted": true
+    });
+
+    let media_event =
+        MediaEvent::new(media_blob_id.to_string(), MediaEventType::Add).with_event_data(event_data);
+
+    if let Err(e) = record_event(&media_event).await {
+        eprintln!(
+            "Warning: Failed to record analytics event for song import: {}",
+            e
+        );
+    }
+
     Ok((
         result.song.id,
         result.artist.map(|a| a.id),
@@ -982,6 +1002,8 @@ async fn create_basic_song_record(
     file_size: u64,
 ) -> Result<(String, Option<String>, Option<String>), JobError> {
     // #TODO: move imports to top of file (but move stuff to music/ first!)
+    use crate::analytics::record_event;
+    use crate::analytics::{MediaEvent, MediaEventType};
     use crate::music::crud::{add_song, ImportSongRequest};
 
     let title = file_path
@@ -1011,6 +1033,24 @@ async fn create_basic_song_record(
         .map_err(|e| JobError::ProcessingFailed {
             reason: format!("Failed to create basic song record: {}", e),
         })?;
+
+    // Record analytics event for song import (best-effort, don't fail if this errors)
+    // Note: user_id is left null for system/automated imports
+    let event_data = serde_json::json!({
+        "source": "job_processor",
+        "file_path": file_path.to_string_lossy(),
+        "metadata_extracted": false
+    });
+
+    let media_event =
+        MediaEvent::new(media_blob_id.to_string(), MediaEventType::Add).with_event_data(event_data);
+
+    if let Err(e) = record_event(&media_event).await {
+        eprintln!(
+            "Warning: Failed to record analytics event for song import: {}",
+            e
+        );
+    }
 
     Ok((
         result.song.id,

@@ -54,6 +54,11 @@ pub enum Commands {
         #[command(subcommand)]
         action: MaintenanceAction,
     },
+    /// Analytics operations
+    Analytics {
+        #[command(subcommand)]
+        action: AnalyticsAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -652,6 +657,54 @@ pub enum UserAction {
 }
 
 #[derive(Subcommand)]
+pub enum AnalyticsAction {
+    /// Record a play event manually for testing
+    RecordPlay {
+        /// Song ID to record a play for
+        song_id: String,
+        /// User ID performing the play
+        user_id: String,
+        /// Optional session ID (generated if not provided)
+        #[arg(long)]
+        session_id: Option<String>,
+        /// Optional playback position in milliseconds
+        #[arg(long)]
+        position: Option<i64>,
+        /// Optional playlist ID
+        #[arg(long)]
+        playlist_id: Option<String>,
+    },
+    /// Show comprehensive play analytics for a song
+    SongStats {
+        /// Song ID to get stats for
+        song_id: String,
+    },
+    /// Show user listening history
+    UserHistory {
+        /// User ID to get history for
+        user_id: String,
+        /// Number of items to return
+        #[arg(long, default_value = "20")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Show session summary
+    Session {
+        /// Session ID to get summary for
+        session_id: String,
+    },
+    /// Show play counts for song, album, or artist
+    Counts {
+        /// Type of entity (song, album, or artist)
+        entity_type: String,
+        /// ID of the entity
+        entity_id: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum MaintenanceAction {
     /// Find and optionally delete orphaned tags
     CleanupOrphanedTags {
@@ -724,6 +777,333 @@ pub enum WordlistAction {
         #[arg(long)]
         wordlist_file: Option<String>,
     },
+}
+
+async fn handle_analytics_command(action: AnalyticsAction) -> GrimoireResult<()> {
+    use crate::analytics::{MediaEvent, MediaEventType};
+    use crate::music::analytics::{
+        create_play_event, get_album_play_count, get_artist_play_count, get_session_summary,
+        get_song_play_analytics, get_song_play_count, get_user_listening_history,
+        record_play_event,
+    };
+    use crate::music::crud::{query_albums, query_artists, query_songs, QueryParams};
+
+    match action {
+        AnalyticsAction::RecordPlay {
+            song_id,
+            user_id,
+            session_id,
+            position,
+            playlist_id,
+        } => {
+            println!("Recording play event...");
+
+            // Get song details using query API
+            let mut filters = std::collections::HashMap::new();
+            filters.insert("id".to_string(), serde_json::json!(song_id.clone()));
+
+            let params = QueryParams {
+                q: None,
+                search_fields: None,
+                filters,
+                sort_by: None,
+                sort_direction: None,
+                limit: Some(1),
+                offset: Some(0),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
+            };
+
+            let result = query_songs(params).await?;
+            let song_result =
+                result
+                    .items
+                    .first()
+                    .ok_or_else(|| crate::error::GrimoireError::SongNotFound {
+                        id: song_id.clone(),
+                    })?;
+
+            // Create event data with position if provided
+            let event_data = if let Some(pos) = position {
+                Some(serde_json::json!({
+                    "position": pos,
+                    "playlist_id": playlist_id
+                }))
+            } else if playlist_id.is_some() {
+                Some(serde_json::json!({
+                    "playlist_id": playlist_id
+                }))
+            } else {
+                None
+            };
+
+            // Create the play event using the correct signature
+            let (media_event, mut music_event) = create_play_event(
+                song_result.song.media_blob_id.clone(),
+                song_id.clone(),
+                Some(user_id.clone()),
+                session_id.clone(),
+                event_data,
+            );
+
+            // Add album and artist IDs to music event
+            if let Some(artist) = &song_result.artist {
+                music_event = music_event.with_artist_id(&artist.id);
+            }
+            if let Some(album) = &song_result.album {
+                music_event = music_event.with_album_id(&album.id);
+            }
+            if let Some(pid) = &playlist_id {
+                music_event = music_event.with_playlist_id(pid);
+            }
+
+            // Record the event
+            let (media_event_id, music_event_id) =
+                record_play_event(&media_event, &music_event).await?;
+
+            println!("✓ Play event recorded successfully");
+            println!("  Media Event ID: {}", media_event_id);
+            println!("  Music Event ID: {}", music_event_id);
+            println!("  Song: {}", song_result.song.title);
+            println!("  User: {}", user_id);
+            if let Some(sid) = session_id {
+                println!("  Session: {}", sid);
+            }
+        }
+        AnalyticsAction::SongStats { song_id } => {
+            println!("Fetching analytics for song {}...\n", song_id);
+
+            // Get song details using query API
+            let mut filters = std::collections::HashMap::new();
+            filters.insert("id".to_string(), serde_json::json!(song_id.clone()));
+
+            let params = QueryParams {
+                q: None,
+                search_fields: None,
+                filters,
+                sort_by: None,
+                sort_direction: None,
+                limit: Some(1),
+                offset: Some(0),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
+            };
+
+            let result = query_songs(params).await?;
+            let song_result =
+                result
+                    .items
+                    .first()
+                    .ok_or_else(|| crate::error::GrimoireError::SongNotFound {
+                        id: song_id.clone(),
+                    })?;
+
+            // Get play analytics
+            let analytics = get_song_play_analytics(&song_id).await?;
+
+            println!("Song: {}", song_result.song.title);
+            if let Some(artist) = &song_result.artist {
+                println!("Artist: {}", artist.name);
+            }
+            println!();
+
+            println!("Play Statistics:");
+            println!("  Total Plays: {}", analytics.total_plays);
+            println!("  Unique Users: {}", analytics.unique_users);
+            println!("  Unique Sessions: {}", analytics.unique_sessions);
+            println!();
+
+            if let Some(first_played) = analytics.first_played_at {
+                println!("  First Played: {}", format_timestamp(first_played));
+            }
+            if let Some(last_played) = analytics.last_played_at {
+                println!("  Last Played: {}", format_timestamp(last_played));
+            }
+            println!();
+
+            println!("Engagement:");
+            println!(
+                "  Completion Rate: {:.1}%",
+                analytics.completion_rate * 100.0
+            );
+            println!("  Avg Play Time: {:.1}s", analytics.avg_play_time_seconds);
+            println!("  Total Play Time: {}s", analytics.total_play_time_seconds);
+        }
+        AnalyticsAction::UserHistory {
+            user_id,
+            limit,
+            offset,
+        } => {
+            println!("Fetching listening history for user {}...\n", user_id);
+
+            let (history, total_count) =
+                get_user_listening_history(&user_id, limit, offset).await?;
+
+            if history.is_empty() {
+                println!("No listening history found.");
+                return Ok(());
+            }
+
+            println!(
+                "Showing {} of {} total items (offset: {})\n",
+                history.len(),
+                total_count,
+                offset
+            );
+
+            for item in history {
+                let artist = item.artist.as_deref().unwrap_or("Unknown Artist");
+                println!("• {} - {}", item.title, artist);
+                println!("  Played: {}", format_timestamp(item.created_at));
+                if let Some(album) = item.album {
+                    println!("  Album: {}", album);
+                }
+                if let Some(session) = item.session_id {
+                    println!("  Session: {}", session);
+                }
+                println!();
+            }
+        }
+        AnalyticsAction::Session { session_id } => {
+            println!("Fetching session summary for {}...\n", session_id);
+
+            let summary = get_session_summary(&session_id).await?;
+
+            println!("Session: {}", summary.session_id);
+            if let Some(user_id) = &summary.user_id {
+                println!("User: {}", user_id);
+            }
+            if let Some(username) = &summary.username {
+                println!("Username: {}", username);
+            }
+            println!("Song Count: {}", summary.song_count);
+            println!("Duration: {}s", summary.total_duration);
+            println!("Started: {}", format_timestamp(summary.session_start));
+            println!("Ended: {}", format_timestamp(summary.session_end));
+            println!();
+
+            if !summary.songs.is_empty() {
+                println!("Songs Played:");
+                for song in summary.songs {
+                    let artist = song.artist.as_deref().unwrap_or("Unknown Artist");
+                    println!("  • {} - {}", song.title, artist);
+                    println!("    Played: {}", format_timestamp(song.played_at));
+                    if let Some(album) = song.album {
+                        println!("    Album: {}", album);
+                    }
+                }
+            }
+        }
+        AnalyticsAction::Counts {
+            entity_type,
+            entity_id,
+        } => {
+            let entity_type_lower = entity_type.to_lowercase();
+
+            match entity_type_lower.as_str() {
+                "song" => {
+                    let count = get_song_play_count(&entity_id).await?;
+
+                    // Get song details using query API
+                    let mut filters = std::collections::HashMap::new();
+                    filters.insert("id".to_string(), serde_json::json!(entity_id.clone()));
+
+                    let params = QueryParams {
+                        q: None,
+                        search_fields: None,
+                        filters,
+                        sort_by: None,
+                        sort_direction: None,
+                        limit: Some(1),
+                        offset: Some(0),
+                        user_id: None,
+                        favorites_only: None,
+                        min_rating: None,
+                    };
+
+                    let result = query_songs(params).await?;
+                    let song_result = result.items.first().ok_or_else(|| {
+                        crate::error::GrimoireError::SongNotFound {
+                            id: entity_id.clone(),
+                        }
+                    })?;
+
+                    println!("Song: {}", song_result.song.title);
+                    println!("Play Count: {}", count);
+                }
+                "album" => {
+                    let count = get_album_play_count(&entity_id).await?;
+
+                    // Get album details using query API
+                    let mut filters = std::collections::HashMap::new();
+                    filters.insert("id".to_string(), serde_json::json!(entity_id.clone()));
+
+                    let params = QueryParams {
+                        q: None,
+                        search_fields: None,
+                        filters,
+                        sort_by: None,
+                        sort_direction: None,
+                        limit: Some(1),
+                        offset: Some(0),
+                        user_id: None,
+                        favorites_only: None,
+                        min_rating: None,
+                    };
+
+                    let result = query_albums(params).await?;
+                    let album_result = result.items.first().ok_or_else(|| {
+                        crate::error::GrimoireError::AlbumNotFound {
+                            id: entity_id.clone(),
+                        }
+                    })?;
+
+                    println!("Album: {}", album_result.album.title);
+                    println!("Total Plays: {}", count);
+                }
+                "artist" => {
+                    let count = get_artist_play_count(&entity_id).await?;
+
+                    // Get artist details using query API
+                    let mut filters = std::collections::HashMap::new();
+                    filters.insert("id".to_string(), serde_json::json!(entity_id.clone()));
+
+                    let params = QueryParams {
+                        q: None,
+                        search_fields: None,
+                        filters,
+                        sort_by: None,
+                        sort_direction: None,
+                        limit: Some(1),
+                        offset: Some(0),
+                        user_id: None,
+                        favorites_only: None,
+                        min_rating: None,
+                    };
+
+                    let result = query_artists(params).await?;
+                    let artist_result = result.items.first().ok_or_else(|| {
+                        crate::error::GrimoireError::ArtistNotFound {
+                            id: entity_id.clone(),
+                        }
+                    })?;
+
+                    println!("Artist: {}", artist_result.artist.name);
+                    println!("Total Plays: {}", count);
+                }
+                _ => {
+                    return Err(crate::error::GrimoireError::Validation {
+                        field: "entity_type".to_string(),
+                        message: "Must be 'song', 'album', or 'artist'".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn handle_maintenance_command(action: MaintenanceAction) -> GrimoireResult<()> {
@@ -884,6 +1264,7 @@ pub async fn run_cli() -> GrimoireResult<()> {
         Commands::Wordlist { action } => handle_wordlist_command(action).await,
         Commands::Users { action } => handle_user_command(action).await,
         Commands::Maintenance { action } => handle_maintenance_command(action).await,
+        Commands::Analytics { action } => handle_analytics_command(action).await,
     }
 }
 
@@ -932,12 +1313,11 @@ async fn handle_job_command(action: JobAction) -> GrimoireResult<()> {
         JobAction::Stats => {
             println!("queue statistics:");
 
-            let stats =
-                get_queue_stats()
-                    .await
-                    .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
-                        message: format!("Failed to get stats: {}", e),
-                    })?;
+            let stats = get_queue_stats().await.map_err(|e| {
+                crate::error::GrimoireError::ProcessingFailed {
+                    message: format!("Failed to get stats: {}", e),
+                }
+            })?;
 
             println!("  Pending Jobs:   {}", stats.pending_jobs);
             println!("  Running Jobs:   {}", stats.running_jobs);
@@ -993,12 +1373,11 @@ async fn handle_job_command(action: JobAction) -> GrimoireResult<()> {
                 created_by: Some("cli".to_string()),
             };
 
-            let job =
-                create_job(job_request)
-                    .await
-                    .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
-                        message: format!("Failed to create scan job: {}", e),
-                    })?;
+            let job = create_job(job_request).await.map_err(|e| {
+                crate::error::GrimoireError::ProcessingFailed {
+                    message: format!("Failed to create scan job: {}", e),
+                }
+            })?;
 
             println!("created scan job: {}", job.id);
             println!("   Session: {}", session.id);
@@ -1031,12 +1410,11 @@ async fn handle_job_command(action: JobAction) -> GrimoireResult<()> {
                 created_by: Some("cli".to_string()),
             };
 
-            let job =
-                create_job(job_request)
-                    .await
-                    .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
-                        message: format!("Failed to create process file job: {}", e),
-                    })?;
+            let job = create_job(job_request).await.map_err(|e| {
+                crate::error::GrimoireError::ProcessingFailed {
+                    message: format!("Failed to create process file job: {}", e),
+                }
+            })?;
 
             println!("created process file job: {}", job.id);
             println!("   File: {}", path);
@@ -2076,10 +2454,11 @@ async fn handle_musicbrainz_command(action: MusicBrainzAction) -> GrimoireResult
     let mut config = MusicBrainzConfig::default();
     config.enabled = true;
 
-    let client =
-        MusicBrainzClient::new(config).map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+    let client = MusicBrainzClient::new(config).map_err(|e| {
+        crate::error::GrimoireError::ProcessingFailed {
             message: format!("Failed to create MusicBrainz client: {}", e),
-        })?;
+        }
+    })?;
 
     match action {
         MusicBrainzAction::SearchSong {
