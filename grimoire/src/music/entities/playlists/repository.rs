@@ -113,6 +113,60 @@ pub async fn get_playlist(id: &str) -> GrimoireResult<Playlist> {
     Ok(playlist)
 }
 
+/// remove thumbnail from playlist and optionally clean up unused blob
+pub async fn remove_playlist_thumbnail(
+    id: &str,
+    cleanup_unused_blob: bool,
+    deleted_by: Option<String>,
+) -> GrimoireResult<Playlist> {
+    let pool = database::connect_music().await?;
+
+    // Get current thumbnail blob ID before removing it
+    let current_thumbnail_blob_id = sqlx::query!(
+        "SELECT thumbnail_blob_id FROM playlistz WHERE id = ? AND deleted_at IS NULL",
+        id
+    )
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| GrimoireError::PlaylistNotFound { id: id.to_string() })?
+    .thumbnail_blob_id;
+
+    // Remove thumbnail from playlist
+    let rows_affected = sqlx::query!(
+        "UPDATE playlistz SET updated_at = unixepoch(), thumbnail_blob_id = NULL, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
+        deleted_by,
+        id
+    )
+    .execute(&pool)
+    .await?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        return Err(GrimoireError::PlaylistNotFound { id: id.to_string() });
+    }
+
+    // Optionally clean up unused media blob
+    if cleanup_unused_blob {
+        if let Some(blob_id) = current_thumbnail_blob_id {
+            use crate::media_blobz::delete_media_blob_if_unused;
+            match delete_media_blob_if_unused(&blob_id, deleted_by).await {
+                Ok(deleted) => {
+                    if deleted {
+                        println!("Cleaned up unused media blob: {}", blob_id);
+                    }
+                }
+                Err(e) => {
+                    // Don't fail the thumbnail removal if cleanup fails
+                    eprintln!("Warning: Failed to clean up media blob {}: {}", blob_id, e);
+                }
+            }
+        }
+    }
+
+    // Return updated playlist
+    get_playlist(id).await
+}
+
 /// update playlist metadata
 pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireResult<Playlist> {
     let pool = database::connect_music().await?;

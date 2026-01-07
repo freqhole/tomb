@@ -267,6 +267,51 @@ pub enum MusicAction {
         #[arg(long)]
         thumbnail_blob_id: Option<String>,
     },
+    /// Remove playlist thumbnail
+    RemovePlaylistThumbnail {
+        /// Playlist ID
+        #[arg(long)]
+        playlist_id: String,
+        /// Also delete the media blob if no other references exist
+        #[arg(long)]
+        cleanup_blob: bool,
+    },
+    /// Check media blob references
+    CheckBlobReferences {
+        /// Media blob ID to check
+        #[arg(long)]
+        blob_id: String,
+    },
+    /// Clean up orphaned media blobs
+    CleanupOrphanedBlobs {
+        /// Only clean up blobs older than this many days
+        #[arg(long)]
+        min_age_days: Option<f64>,
+        /// Run in dry-run mode (don't actually delete)
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Hard delete old soft-deleted records
+    HardDeleteOldRecords {
+        /// Retention period in days (default: 30)
+        #[arg(long, default_value = "30")]
+        retention_days: u32,
+        /// Don't delete blob_data
+        #[arg(long)]
+        keep_blob_data: bool,
+        /// Run in dry-run mode (don't actually delete)
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Run full maintenance (orphaned blobs + hard delete)
+    RunMaintenance {
+        /// Retention period in days (default: 30)
+        #[arg(long, default_value = "30")]
+        retention_days: u32,
+        /// Run in dry-run mode (don't actually delete)
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// List recent songs
     RecentSongs {
         /// Limit number of results
@@ -572,12 +617,17 @@ async fn handle_database_command(action: DatabaseAction) -> GrimoireResult<()> {
 }
 
 async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
+    use crate::blob_data::cleanup_orphaned_media_blobs;
+    use crate::maintenance::{
+        cleanup_orphaned_media_blobs_older_than, run_full_maintenance_with_options,
+        HardDeleteOptions,
+    };
     use crate::music::crud::create_thumbnail_from_file;
     use crate::music::crud::{
         add_songs_to_playlist, create_playlist, delete_playlist, get_or_create_playlist_by_name,
         list_recent_songs, query_albums, query_artists, query_genres, query_playlist_songs,
-        query_playlists, query_songs, update_playlist, update_songs_position,
-        CreatePlaylistRequest, QueryParams, UpdatePlaylistRequest,
+        query_playlists, query_songs, remove_playlist_thumbnail, update_playlist,
+        update_songs_position, CreatePlaylistRequest, QueryParams, UpdatePlaylistRequest,
     };
     use std::collections::HashMap;
 
@@ -1067,6 +1117,198 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
                 }
                 Err(e) => {
                     eprintln!("failed to update playlist: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        MusicAction::RemovePlaylistThumbnail {
+            playlist_id,
+            cleanup_blob,
+        } => {
+            println!("removing playlist thumbnail...");
+            match remove_playlist_thumbnail(&playlist_id, cleanup_blob, None).await {
+                Ok(playlist) => {
+                    println!(
+                        "successfully removed thumbnail from playlist: {}",
+                        playlist.title
+                    );
+                    if cleanup_blob {
+                        println!("  checked for unused media blob cleanup");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed to remove playlist thumbnail: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        MusicAction::CheckBlobReferences { blob_id } => {
+            println!("checking references for media blob: {}", blob_id);
+            use crate::media_blobz::find_media_blob_references;
+            match find_media_blob_references(&blob_id).await {
+                Ok(refs) => {
+                    println!("Media blob {} reference summary:", blob_id);
+                    println!("  Song media references: {}", refs.song_media_references);
+                    println!(
+                        "  Song thumbnail references: {}",
+                        refs.song_thumbnail_references
+                    );
+                    println!(
+                        "  Song waveform references: {}",
+                        refs.song_waveform_references
+                    );
+                    println!(
+                        "  Playlist thumbnail references: {}",
+                        refs.playlist_thumbnail_references
+                    );
+                    println!(
+                        "  Playlist image references: {}",
+                        refs.playlist_image_references
+                    );
+                    println!(
+                        "  Artist image references: {}",
+                        refs.artist_image_references
+                    );
+                    println!("  Album image references: {}", refs.album_image_references);
+                    println!("  Song image references: {}", refs.song_image_references);
+                    println!("  Child blob references: {}", refs.child_blob_references);
+                    println!("  Total references: {}", refs.total_references());
+                    println!("  Can be safely deleted: {}", !refs.has_references());
+                }
+                Err(e) => {
+                    eprintln!("failed to check blob references: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        MusicAction::CleanupOrphanedBlobs {
+            min_age_days,
+            dry_run,
+        } => {
+            println!("cleaning up orphaned media blobs...");
+            if dry_run {
+                println!("DRY RUN MODE: No blobs will actually be deleted");
+            }
+
+            let result = if let Some(min_age) = min_age_days {
+                cleanup_orphaned_media_blobs_older_than(min_age).await
+            } else {
+                cleanup_orphaned_media_blobs().await
+            };
+
+            match result {
+                Ok(summary) => {
+                    println!("Orphaned blob cleanup completed:");
+                    println!("  Found {} orphaned blobs", summary.orphaned_blobs_found);
+                    println!("  Deleted {} blobs", summary.orphaned_blobs_deleted);
+                    println!("  Failed {} deletions", summary.deletion_failures);
+                    println!("  Freed {} bytes", summary.bytes_freed);
+                    println!("  Duration: {}ms", summary.duration_ms);
+                }
+                Err(e) => {
+                    eprintln!("failed to cleanup orphaned blobs: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        MusicAction::HardDeleteOldRecords {
+            retention_days,
+            keep_blob_data,
+            dry_run,
+        } => {
+            println!("hard deleting old soft-deleted records...");
+            if dry_run {
+                println!("DRY RUN MODE: No records will actually be deleted");
+            }
+
+            let options = HardDeleteOptions {
+                retention_days,
+                delete_blob_data: !keep_blob_data,
+                dry_run,
+            };
+
+            use crate::maintenance::hard_delete_old_records;
+            match hard_delete_old_records(options).await {
+                Ok(summary) => {
+                    println!("Hard deletion completed:");
+                    println!("  Songs deleted: {}", summary.songs_deleted);
+                    println!("  Playlists deleted: {}", summary.playlists_deleted);
+                    println!("  Artists deleted: {}", summary.artists_deleted);
+                    println!("  Albums deleted: {}", summary.albums_deleted);
+                    println!("  Media blobs deleted: {}", summary.media_blobs_deleted);
+                    println!("  Blob data deleted: {}", summary.blob_data_deleted);
+                    println!("  Total records deleted: {}", summary.total_records_deleted);
+                    println!("  Duration: {}ms", summary.duration_ms);
+                }
+                Err(e) => {
+                    eprintln!("failed to hard delete old records: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        MusicAction::RunMaintenance {
+            retention_days,
+            dry_run,
+        } => {
+            println!("running full maintenance...");
+            if dry_run {
+                println!("DRY RUN MODE: No records will actually be deleted");
+            }
+
+            let options = HardDeleteOptions {
+                retention_days,
+                delete_blob_data: true,
+                dry_run,
+            };
+
+            match run_full_maintenance_with_options(options).await {
+                Ok(result) => {
+                    println!("Full maintenance completed:");
+                    println!();
+                    println!("Orphaned blob cleanup:");
+                    println!(
+                        "  Found {} orphaned blobs",
+                        result.orphaned_blobs_cleaned.orphaned_blobs_found
+                    );
+                    println!(
+                        "  Deleted {} blobs",
+                        result.orphaned_blobs_cleaned.orphaned_blobs_deleted
+                    );
+                    println!(
+                        "  Freed {} bytes",
+                        result.orphaned_blobs_cleaned.bytes_freed
+                    );
+                    println!();
+                    println!("Hard deletion:");
+                    println!(
+                        "  Songs deleted: {}",
+                        result.hard_delete_summary.songs_deleted
+                    );
+                    println!(
+                        "  Playlists deleted: {}",
+                        result.hard_delete_summary.playlists_deleted
+                    );
+                    println!(
+                        "  Artists deleted: {}",
+                        result.hard_delete_summary.artists_deleted
+                    );
+                    println!(
+                        "  Albums deleted: {}",
+                        result.hard_delete_summary.albums_deleted
+                    );
+                    println!(
+                        "  Media blobs deleted: {}",
+                        result.hard_delete_summary.media_blobs_deleted
+                    );
+                    println!(
+                        "  Blob data deleted: {}",
+                        result.hard_delete_summary.blob_data_deleted
+                    );
+                    println!();
+                    println!("Total duration: {}ms", result.total_duration_ms);
+                }
+                Err(e) => {
+                    eprintln!("failed to run maintenance: {}", e);
                     return Err(e.into());
                 }
             }

@@ -9,6 +9,7 @@ pub mod config;
 mod database;
 pub mod error;
 pub mod jobs;
+pub mod maintenance;
 pub mod media_blobz;
 pub mod music;
 pub mod thumbnails;

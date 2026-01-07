@@ -188,7 +188,7 @@ async fn generate_waveform_to_webp(input_path: &str) -> GrimoireResult<Vec<u8>> 
 }
 
 /// convert any image format to webp
-fn convert_to_webp(image_data: &[u8]) -> GrimoireResult<Vec<u8>> {
+pub fn convert_to_webp(image_data: &[u8]) -> GrimoireResult<Vec<u8>> {
     // Try to detect and load the image
     let img = image::load_from_memory(image_data).map_err(|e| GrimoireError::ProcessingFailed {
         message: format!("Failed to decode image: {}", e),
@@ -206,16 +206,41 @@ fn convert_to_webp(image_data: &[u8]) -> GrimoireResult<Vec<u8>> {
     Ok(webp_data)
 }
 
-/// create a thumbnail blob from webp data
-async fn create_thumbnail_blob_from_webp_data(
-    source_blob_id: &str,
+/// create an image blob from webp data with flexible options
+pub async fn create_image_blob_from_webp_data(
     webp_data: Vec<u8>,
-    art_type: &str,
+    blob_type: &str,
+    parent_blob_id: Option<String>,
+    metadata: serde_json::Value,
+    created_by: Option<String>,
 ) -> GrimoireResult<String> {
     let mut hasher = Sha256::new();
     hasher.update(&webp_data);
     let sha256 = format!("{:x}", hasher.finalize());
 
+    let request = CreateMediaBlobRequest {
+        sha256,
+        size: Some(webp_data.len() as i64),
+        mime: Some("image/webp".to_string()),
+        source_client_id: created_by.clone(),
+        local_path: None, // Store as binary data
+        parent_blob_id,
+        blob_type: Some(blob_type.to_string()),
+        metadata,
+        created_by,
+        data: Some(webp_data), // Store as binary data
+    };
+
+    let blob = media_blobz::create_media_blob(request).await?;
+    Ok(blob.id)
+}
+
+/// create a thumbnail blob from webp data (for audio thumbnails)
+async fn create_thumbnail_blob_from_webp_data(
+    source_blob_id: &str,
+    webp_data: Vec<u8>,
+    art_type: &str,
+) -> GrimoireResult<String> {
     let metadata = serde_json::json!({
         "type": "thumbnail",
         "art_type": art_type,
@@ -224,21 +249,14 @@ async fn create_thumbnail_blob_from_webp_data(
         "generated_with": "grimoire"
     });
 
-    let request = CreateMediaBlobRequest {
-        sha256,
-        size: Some(webp_data.len() as i64),
-        mime: Some("image/webp".to_string()),
-        source_client_id: Some("job_processor".to_string()),
-        local_path: None, // Important: no local path for thumbnails
-        parent_blob_id: Some(source_blob_id.to_string()),
-        blob_type: Some("thumbnail".to_string()),
+    create_image_blob_from_webp_data(
+        webp_data,
+        "thumbnail",
+        Some(source_blob_id.to_string()),
         metadata,
-        created_by: Some("job_processor".to_string()),
-        data: Some(webp_data), // Store as binary data
-    };
-
-    let blob = media_blobz::create_media_blob(request).await?;
-    Ok(blob.id)
+        Some("job_processor".to_string()),
+    )
+    .await
 }
 
 /// create a waveform blob from webp data
@@ -246,10 +264,6 @@ async fn create_waveform_blob_from_webp_data(
     source_blob_id: &str,
     webp_data: Vec<u8>,
 ) -> GrimoireResult<String> {
-    let mut hasher = Sha256::new();
-    hasher.update(&webp_data);
-    let sha256 = format!("{:x}", hasher.finalize());
-
     let metadata = serde_json::json!({
         "type": "waveform",
         "source_blob_id": source_blob_id,
@@ -258,19 +272,12 @@ async fn create_waveform_blob_from_webp_data(
         "generated_with": "grimoire"
     });
 
-    let request = CreateMediaBlobRequest {
-        sha256,
-        size: Some(webp_data.len() as i64),
-        mime: Some("image/webp".to_string()),
-        source_client_id: Some("job_processor".to_string()),
-        local_path: None, // Important: no local path for waveforms
-        parent_blob_id: Some(source_blob_id.to_string()),
-        blob_type: Some("waveform".to_string()),
+    create_image_blob_from_webp_data(
+        webp_data,
+        "waveform",
+        Some(source_blob_id.to_string()),
         metadata,
-        created_by: Some("job_processor".to_string()),
-        data: Some(webp_data), // Store as binary data
-    };
-
-    let blob = media_blobz::create_media_blob(request).await?;
-    Ok(blob.id)
+        Some("job_processor".to_string()),
+    )
+    .await
 }
