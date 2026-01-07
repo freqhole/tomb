@@ -12,11 +12,10 @@ BEGIN
   SET position = (
     SELECT COALESCE(MAX(position), 0) + 1
     FROM playlist_songz
-    WHERE playlist_rowid = NEW.playlist_rowid
+    WHERE playlist_id = NEW.playlist_id
       AND position > 0
-      AND rowid != NEW.rowid
   )
-  WHERE rowid = NEW.rowid;
+  WHERE playlist_id = NEW.playlist_id AND song_id = NEW.song_id;
 END;
 
 -- gap closure trigger for deletions
@@ -28,7 +27,7 @@ BEGIN
   -- shift down all songs after the deleted position
   UPDATE playlist_songz
   SET position = position - 1
-  WHERE playlist_rowid = OLD.playlist_rowid
+  WHERE playlist_id = OLD.playlist_id
     AND position > OLD.position
     AND position > 0;
 END;

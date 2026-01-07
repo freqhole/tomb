@@ -4,7 +4,6 @@
 CREATE VIEW song_query_view AS
 SELECT
     -- song fields
-    s.rowid as song_rowid,
     s.id as song_id,
     s.media_blob_id as song_media_blob_id,
     s.thumbnail_blob_id as song_thumbnail_blob_id,
@@ -28,7 +27,6 @@ SELECT
     s.updated_by as song_updated_by,
 
     -- artist fields (primary artist via artist_songz)
-    ar.rowid as artist_rowid,
     ar.id as artist_id,
     ar.name as artist_name,
     ar.created_at as artist_created_at,
@@ -39,14 +37,13 @@ SELECT
     ar.updated_by as artist_updated_by,
 
     -- album fields
-    al.rowid as album_rowid,
     al.id as album_id,
     al.title as album_title,
     al.album_type as album_album_type,
     al.release_date as album_release_date,
     al.release_date_precision as album_release_date_precision,
     al.label as album_label,
-    al.genre_rowid as album_genre_rowid,
+    al.genre_id as album_genre_id,
     al.song_count as album_song_count,
     al.total_duration as album_total_duration,
     al.created_at as album_created_at,
@@ -62,17 +59,16 @@ SELECT
     arv.total_duration as artist_total_duration
 
 FROM songz s
-LEFT JOIN artist_songz ars ON s.rowid = ars.song_rowid
-LEFT JOIN artistz ar ON ars.artist_rowid = ar.rowid AND ar.deleted_at IS NULL
-LEFT JOIN album_songz als ON s.rowid = als.song_rowid
-LEFT JOIN albumz al ON als.album_rowid = al.rowid AND al.deleted_at IS NULL
-LEFT JOIN artist_query_view arv ON ar.rowid = arv.artist_rowid
+LEFT JOIN artist_songz ars ON s.id = ars.song_id
+LEFT JOIN artistz ar ON ars.artist_id = ar.id AND ar.deleted_at IS NULL
+LEFT JOIN album_songz als ON s.id = als.song_id
+LEFT JOIN albumz al ON als.album_id = al.id AND al.deleted_at IS NULL
+LEFT JOIN artist_query_view arv ON ar.id = arv.artist_id
 WHERE s.deleted_at IS NULL;
 
 -- artist query view with aggregated song/album stats
 CREATE VIEW artist_query_view AS
 SELECT
-    ar.rowid as artist_rowid,
     ar.id as artist_id,
     ar.name as artist_name,
     ar.created_at as artist_created_at,
@@ -88,24 +84,23 @@ SELECT
     COALESCE(SUM(s.duration), 0) as total_duration
 
 FROM artistz ar
-LEFT JOIN artist_songz ars ON ar.rowid = ars.artist_rowid
-LEFT JOIN songz s ON ars.song_rowid = s.rowid AND s.deleted_at IS NULL
-LEFT JOIN artist_albumz aa ON ar.rowid = aa.artist_rowid
-LEFT JOIN albumz al ON aa.album_rowid = al.rowid AND al.deleted_at IS NULL
+LEFT JOIN artist_songz ars ON ar.id = ars.artist_id
+LEFT JOIN songz s ON ars.song_id = s.id AND s.deleted_at IS NULL
+LEFT JOIN artist_albumz aa ON ar.id = aa.artist_id
+LEFT JOIN albumz al ON aa.album_id = al.id AND al.deleted_at IS NULL
 WHERE ar.deleted_at IS NULL
-GROUP BY ar.rowid, ar.id, ar.name, ar.created_at, ar.updated_at, ar.deleted_at, ar.deleted_by, ar.created_by, ar.updated_by;
+GROUP BY ar.id, ar.name, ar.created_at, ar.updated_at, ar.deleted_at, ar.deleted_by, ar.created_by, ar.updated_by;
 
 -- album query view with aggregated stats and primary artist
 CREATE VIEW album_query_view AS
 SELECT
-    al.rowid as album_rowid,
     al.id as album_id,
     al.title as album_title,
     al.album_type as album_album_type,
     al.release_date as album_release_date,
     al.release_date_precision as album_release_date_precision,
     al.label as album_label,
-    al.genre_rowid as album_genre_rowid,
+    al.genre_id as album_genre_id,
     al.song_count as album_song_count,
     al.total_duration as album_total_duration,
     al.created_at as album_created_at,
@@ -116,22 +111,21 @@ SELECT
     al.updated_by as album_updated_by,
 
     -- primary artist (first alphabetically for consistency)
-    ar.rowid as artist_rowid,
     ar.id as artist_id,
     ar.name as artist_name,
     ar.created_at as artist_created_at,
     ar.updated_at as artist_updated_at
 
 FROM albumz al
-LEFT JOIN artist_albumz aa ON al.rowid = aa.album_rowid
-LEFT JOIN artistz ar ON aa.artist_rowid = ar.rowid AND ar.deleted_at IS NULL
+LEFT JOIN artist_albumz aa ON al.id = aa.album_id
+LEFT JOIN artistz ar ON aa.artist_id = ar.id AND ar.deleted_at IS NULL
 WHERE al.deleted_at IS NULL
 -- get primary artist (first one alphabetically for deterministic results)
-AND (ar.rowid IS NULL OR ar.rowid = (
-    SELECT aa2.artist_rowid
+AND (ar.id IS NULL OR ar.id = (
+    SELECT aa2.artist_id
     FROM artist_albumz aa2
-    JOIN artistz ar2 ON aa2.artist_rowid = ar2.rowid AND ar2.deleted_at IS NULL
-    WHERE aa2.album_rowid = al.rowid
+    JOIN artistz ar2 ON aa2.artist_id = ar2.id AND ar2.deleted_at IS NULL
+    WHERE aa2.album_id = al.id
     ORDER BY ar2.name ASC
     LIMIT 1
 ));
@@ -139,7 +133,6 @@ AND (ar.rowid IS NULL OR ar.rowid = (
 -- genre query view (simple, no complex joins needed)
 CREATE VIEW genre_query_view AS
 SELECT
-    rowid as genre_rowid,
     id as genre_id,
     name as genre_name,
     created_at as genre_created_at

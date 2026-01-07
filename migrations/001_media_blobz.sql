@@ -28,7 +28,7 @@ CREATE TRIGGER trg_media_blobz_updated_at
 AFTER UPDATE ON media_blobz
 FOR EACH ROW
 BEGIN
-  UPDATE media_blobz SET updated_at = unixepoch() WHERE rowid = NEW.rowid;
+  UPDATE media_blobz SET updated_at = unixepoch() WHERE id = NEW.id;
 END;
 
 -- indexes

@@ -2,8 +2,7 @@
 
 -- job system with sessions for batch operations
 CREATE TABLE job_sessionz (
-  rowid INTEGER PRIMARY KEY,
-  id TEXT UNIQUE NOT NULL DEFAULT (lower(hex(randomblob(8)))),
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
   job_type TEXT NOT NULL,
   status TEXT DEFAULT 'Active',
   progress TEXT DEFAULT '{"current":0,"total":0}',  -- JSON JobProgress
@@ -15,8 +14,7 @@ CREATE TABLE job_sessionz (
 );
 
 CREATE TABLE jobz (
-  rowid INTEGER PRIMARY KEY,
-  id TEXT UNIQUE NOT NULL DEFAULT (lower(hex(randomblob(8)))),
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
   session_id TEXT,                 -- reference to job_sessionz.id
   job_type TEXT NOT NULL,
   status TEXT DEFAULT 'Pending',
@@ -39,20 +37,21 @@ CREATE TABLE jobz (
 
 -- user accounts
 CREATE TABLE user_accountz (
-  rowid INTEGER PRIMARY KEY,
-  id TEXT UNIQUE NOT NULL,
+  id TEXT PRIMARY KEY,
   username TEXT UNIQUE,
   created_at INTEGER
 );
 
 -- invite codes for user registration
 CREATE TABLE invite_codez (
-  rowid INTEGER PRIMARY KEY,
-  id TEXT UNIQUE NOT NULL,
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
   code TEXT UNIQUE NOT NULL,
   created_at INTEGER,
   used_at INTEGER,
-  used_by_rowid INTEGER          -- reference to user_accountz.rowid
+  used_by_id TEXT,               -- reference to user_accountz.id
+
+  -- constraints
+  FOREIGN KEY (used_by_id) REFERENCES user_accountz(id)
 );
 
 -- triggers for automatic audit field updates
@@ -60,7 +59,7 @@ CREATE TRIGGER trg_job_sessionz_updated_at
 AFTER UPDATE ON job_sessionz
 FOR EACH ROW
 BEGIN
-  UPDATE job_sessionz SET updated_at = unixepoch() WHERE rowid = NEW.rowid;
+  UPDATE job_sessionz SET updated_at = unixepoch() WHERE id = NEW.id;
 END;
 
 -- indexes for job_sessionz
