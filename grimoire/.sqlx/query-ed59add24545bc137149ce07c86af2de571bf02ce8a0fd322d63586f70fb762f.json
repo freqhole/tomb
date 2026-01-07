@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT id as \"id!\", username as \"username!\", role as \"role!\", created_at as \"created_at!\", updated_at as \"updated_at!\", deleted_at\n            FROM user_accountz\n            WHERE username = ?1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "username!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "role!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "ed59add24545bc137149ce07c86af2de571bf02ce8a0fd322d63586f70fb762f"
+}
