@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT s.id, ps.position\n         FROM playlist_songz ps\n         JOIN playlistz p ON ps.playlist_rowid = p.rowid\n         JOIN songz s ON ps.song_rowid = s.rowid\n         WHERE p.id = ? AND p.deleted_at IS NULL\n         ORDER BY ps.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "position",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "894e2b96504fba171dd545dbf2dfb98ddd8cdd06559cbcf18b95d9e48791a94e"
+}

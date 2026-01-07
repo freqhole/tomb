@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE playlist_songz\n             SET position = ?\n             FROM playlistz p, songz s\n             WHERE playlist_songz.playlist_rowid = p.rowid\n               AND playlist_songz.song_rowid = s.rowid\n               AND p.id = ?\n               AND s.id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "a6fa521e944ba70db89ec69c91d6537e1c2e2fa064eeed10a88e80ff67966e33"
+}
