@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM media_blobz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "1e9b76b9333aba9cda25c3abde83c3dcede01f356ab13a6bdd047e07775c0915"
+}

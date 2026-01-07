@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM playlistz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "fe8707c58a5ff74b460550511a62f2f1e64218c0a85063fcc852d30113fd7e04"
+}

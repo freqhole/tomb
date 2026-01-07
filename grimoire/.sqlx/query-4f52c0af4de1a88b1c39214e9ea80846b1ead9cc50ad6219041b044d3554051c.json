@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM blob_data\n         WHERE NOT EXISTS (\n             SELECT 1 FROM media_blobz mb WHERE mb.id = blob_data.id AND mb.deleted_at IS NULL\n         )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "4f52c0af4de1a88b1c39214e9ea80846b1ead9cc50ad6219041b044d3554051c"
+}
