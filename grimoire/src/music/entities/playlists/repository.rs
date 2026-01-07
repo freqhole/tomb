@@ -261,88 +261,92 @@ pub async fn update_song_position(
     song_id: &str,
     new_position: i64,
 ) -> GrimoireResult<()> {
+    // Single song reordering - delegate to the multiple song function
+    update_songs_position(playlist_id, &[song_id], new_position).await
+}
+
+pub async fn update_songs_position(
+    playlist_id: &str,
+    song_ids: &[&str],
+    new_position: i64,
+) -> GrimoireResult<()> {
     let pool = database::connect_music().await?;
 
-    // Get playlist rowid
-    let playlist_rowid = sqlx::query!(
-        "SELECT rowid FROM playlistz WHERE id = ? AND deleted_at IS NULL",
+    // Step 1: Get all songs in playlist with their current positions
+    let all_songs = sqlx::query!(
+        "SELECT s.id, ps.position
+         FROM playlist_songz ps
+         JOIN playlistz p ON ps.playlist_rowid = p.rowid
+         JOIN songz s ON ps.song_rowid = s.rowid
+         WHERE p.id = ? AND p.deleted_at IS NULL
+         ORDER BY ps.position",
         playlist_id
     )
-    .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::PlaylistNotFound {
-        id: playlist_id.to_string(),
-    })?
-    .rowid;
+    .fetch_all(&pool)
+    .await?;
 
-    // Get song rowid and current position
-    let song_info = sqlx::query!(
-        "SELECT ps.song_rowid, ps.position
-         FROM playlist_songz ps
-         JOIN songz s ON ps.song_rowid = s.rowid
-         WHERE ps.playlist_rowid = ? AND s.id = ?",
-        playlist_rowid,
-        song_id
-    )
-    .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::SongNotInPlaylist {
-        song_id: song_id.to_string(),
-        playlist_id: playlist_id.to_string(),
-    })?;
+    // Step 2: Calculate new positions in Rust
+    let mut final_positions = Vec::new();
 
-    let current_position = song_info.position;
-    let song_rowid = song_info.song_rowid;
-
-    if current_position == new_position {
-        return Ok(()); // No change needed
+    // Collect songs that aren't being moved
+    let mut other_songs = Vec::new();
+    for song in &all_songs {
+        if !song_ids.contains(&song.id.as_str()) {
+            other_songs.push(song.id.clone());
+        }
     }
 
-    // Start transaction for atomic position updates
+    // Build final order: insert moved songs at target position
+    let insert_at = ((new_position - 1) as usize).min(other_songs.len());
+
+    // Add songs before target position
+    for (pos, song_id) in other_songs[..insert_at].iter().enumerate() {
+        final_positions.push((song_id.clone(), pos as i64 + 1));
+    }
+
+    // Add moved songs at target position
+    for (i, &song_id) in song_ids.iter().enumerate() {
+        final_positions.push((song_id.to_string(), insert_at as i64 + 1 + i as i64));
+    }
+
+    // Add remaining songs after
+    for (i, song_id) in other_songs[insert_at..].iter().enumerate() {
+        let pos = insert_at as i64 + song_ids.len() as i64 + i as i64 + 1;
+        final_positions.push((song_id.clone(), pos));
+    }
+
+    // Step 3: Use transaction for bulk update
     let mut tx = pool.begin().await?;
 
-    // Temporarily move the target song to position 0 to avoid conflicts
+    // First, move all songs to negative positions to avoid UNIQUE constraint conflicts
     sqlx::query!(
-        "UPDATE playlist_songz SET position = 0 WHERE playlist_rowid = ? AND song_rowid = ?",
-        playlist_rowid,
-        song_rowid
+        "UPDATE playlist_songz
+         SET position = -position
+         FROM playlistz p
+         WHERE playlist_songz.playlist_rowid = p.rowid
+           AND p.id = ?",
+        playlist_id
     )
     .execute(&mut *tx)
     .await?;
 
-    if new_position > current_position {
-        // Moving down: shift songs between current and new position up
+    // Then update all positions to their final values
+    for (song_id, position) in final_positions {
         sqlx::query!(
-            "UPDATE playlist_songz SET position = position - 1
-             WHERE playlist_rowid = ? AND position > ? AND position <= ?",
-            playlist_rowid,
-            current_position,
-            new_position
-        )
-        .execute(&mut *tx)
-        .await?;
-    } else {
-        // Moving up: shift songs between new and current position down
-        sqlx::query!(
-            "UPDATE playlist_songz SET position = position + 1
-             WHERE playlist_rowid = ? AND position >= ? AND position < ?",
-            playlist_rowid,
-            new_position,
-            current_position
+            "UPDATE playlist_songz
+             SET position = ?
+             FROM playlistz p, songz s
+             WHERE playlist_songz.playlist_rowid = p.rowid
+               AND playlist_songz.song_rowid = s.rowid
+               AND p.id = ?
+               AND s.id = ?",
+            position,
+            playlist_id,
+            song_id
         )
         .execute(&mut *tx)
         .await?;
     }
-
-    // Move the target song to its final position
-    sqlx::query!(
-        "UPDATE playlist_songz SET position = ? WHERE playlist_rowid = ? AND song_rowid = ?",
-        new_position,
-        playlist_rowid,
-        song_rowid
-    )
-    .execute(&mut *tx)
-    .await?;
 
     tx.commit().await?;
     Ok(())

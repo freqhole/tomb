@@ -230,9 +230,9 @@ pub enum MusicAction {
         /// Playlist ID
         #[arg(long)]
         playlist_id: String,
-        /// Song ID to move
+        /// Song IDs to move (comma-separated)
         #[arg(long)]
-        song_id: String,
+        song_ids: String,
         /// New position (1-based)
         #[arg(long)]
         new_position: i64,
@@ -545,7 +545,7 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
     use crate::music::crud::{
         add_songs_to_playlist, create_playlist, get_or_create_playlist_by_name, list_recent_songs,
         query_albums, query_artists, query_genres, query_playlist_songs, query_playlists,
-        query_songs, update_song_position, CreatePlaylistRequest, QueryParams,
+        query_songs, update_songs_position, CreatePlaylistRequest, QueryParams,
     };
     use std::collections::HashMap;
 
@@ -927,19 +927,23 @@ async fn handle_music_command(action: MusicAction) -> GrimoireResult<()> {
         }
         MusicAction::UpdateSongPosition {
             playlist_id,
-            song_id,
+            song_ids,
             new_position,
         } => {
-            println!("updating song position in playlist...");
-            match update_song_position(&playlist_id, &song_id, new_position).await {
+            println!("updating song position(s) in playlist...");
+            let song_id_list: Vec<&str> = song_ids.split(',').map(|s| s.trim()).collect();
+            match update_songs_position(&playlist_id, &song_id_list, new_position).await {
                 Ok(()) => {
                     println!(
-                        "successfully moved song {} to position {} in playlist {}",
-                        song_id, new_position, playlist_id
+                        "successfully moved {} song(s) to position {} in playlist {}",
+                        song_id_list.len(),
+                        new_position,
+                        playlist_id
                     );
                 }
                 Err(e) => {
                     eprintln!("failed to update song position: {}", e);
+                    return Err(e.into());
                 }
             }
         }

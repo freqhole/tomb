@@ -55,7 +55,7 @@ pub use query_playlists::{query_playlist_songs, query_playlists};
 // re-export playlist CRUD operations
 pub use crate::music::entities::playlists::{
     add_songs_to_playlist, create_playlist, get_playlist, get_playlist_songs,
-    remove_songs_from_playlist, update_song_position,
+    remove_songs_from_playlist, update_song_position, update_songs_position,
 };
 
 // re-export delete operations
