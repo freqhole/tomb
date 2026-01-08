@@ -1,12 +1,16 @@
 //! Job processing service for unified background task processing
 //! Handles job queue management, execution, and session-based batch operations
 
+use std::fs;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use sqlx::Row;
 
+use crate::blob_data;
 use crate::database;
+use crate::music::scanner;
 
 use super::models::{
     CreateJobRequest, CreateJobSessionRequest, Job, JobError, JobProgress, JobResult, JobSession,
@@ -453,132 +457,38 @@ pub async fn process_job(job: Job) -> Result<JobResult, JobError> {
     }
 }
 
-// Job processing functions (stubs for now - to be implemented with actual logic)
-// #TODO: move this to music/
+// Job processing functions
 async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobError> {
-    // #TODO: move this to top of file (but move stuff to music/ first!)
-    use walkdir::WalkDir;
-
     // Parse job parameters
     let params: ScanDirectoryParams =
         serde_json::from_str(&job.parameters).map_err(|e| JobError::ProcessingFailed {
             reason: format!("Invalid parameters: {}", e),
         })?;
 
-    // Default audio extensions if none provided
-    // #TODO: get this from config! also update config will all these!
-    let audio_extensions = params.file_extensions.unwrap_or_else(|| {
-        vec![
-            "mp3".to_string(),
-            "flac".to_string(),
-            "wav".to_string(),
-            "m4a".to_string(),
-            "ogg".to_string(),
-            "aac".to_string(),
-            "wma".to_string(),
-            "aiff".to_string(),
-            "aif".to_string(),
-        ]
-    });
-
-    println!("scanning directory: {}", params.directory_path);
-    println!("recursive: {}", params.recursive);
-    if let Some(depth) = params.max_depth {
-        println!("max depth: {}", depth);
-    }
-
-    // Build walkdir iterator
-    let mut walker = WalkDir::new(&params.directory_path);
-    if !params.recursive {
-        walker = walker.max_depth(1);
-    } else if let Some(depth) = params.max_depth {
-        walker = walker.max_depth(depth as usize);
-    }
-
-    // Collect all audio files
-    let mut audio_files = Vec::new();
-    for entry in walker {
-        let entry = entry.map_err(|e| JobError::ProcessingFailed {
-            reason: format!("Failed to read directory entry: {}", e),
+    let session_id = job
+        .session_id
+        .as_ref()
+        .ok_or_else(|| JobError::ProcessingFailed {
+            reason: "ScanDirectory job requires a session_id".to_string(),
         })?;
 
-        if !entry.file_type().is_file() {
-            continue;
-        }
-
-        let path = entry.path();
-        if let Some(extension) = path.extension() {
-            if let Some(ext_str) = extension.to_str() {
-                if audio_extensions
-                    .iter()
-                    .any(|ae| ae.eq_ignore_ascii_case(ext_str))
-                {
-                    audio_files.push(path.to_path_buf());
-                }
-            }
-        }
-    }
-
-    println!("found {} audio files", audio_files.len());
-
-    // Create ProcessFile jobs for each audio file
-    let mut created_jobs = 0;
-    let total_files = audio_files.len() as u64;
-    for file_path in audio_files {
-        let file_path_str = file_path.to_string_lossy().to_string();
-
-        // Create ProcessFile job parameters
-        let process_params = ProcessFileParams {
-            file_path: file_path_str,
-            extract_metadata: true,
-            generate_thumbnail: true,
-            generate_waveform: true, // Enable for testing
-        };
-
-        let job_request = CreateJobRequest {
-            job_type: JobType::ProcessFile,
-            session_id: job.session_id.clone(),
-            parameters: serde_json::to_value(process_params).map_err(|e| {
-                JobError::ProcessingFailed {
-                    reason: format!("Failed to serialize job parameters: {}", e),
-                }
-            })?,
-            max_retries: Some(3),
-            scheduled_at: None,
-            created_by: Some("scan_directory_job".to_string()),
-        };
-
-        match create_job(job_request).await {
-            Ok(_) => {
-                created_jobs += 1;
-            }
-            Err(e) => {
-                eprintln!(
-                    "Failed to create ProcessFile job for {}: {}",
-                    file_path.display(),
-                    e
-                );
-            }
-        }
-    }
-
-    // Update session progress if we have a session
-    if let Some(session_id) = &job.session_id {
-        let progress = JobProgress {
-            current: created_jobs,
-            total: total_files,
-            message: Some(format!("Created {} ProcessFile jobs", created_jobs)),
-        };
-
-        if let Err(e) = update_session_progress(session_id, progress, None).await {
-            eprintln!("Failed to update session progress: {}", e);
-        }
-    }
+    // Use music scanner to handle directory scanning and job creation
+    let files_discovered = scanner::scan_directory_and_create_jobs(
+        &params.directory_path,
+        session_id,
+        params.recursive,
+        params.max_depth,
+        params.file_extensions,
+    )
+    .await
+    .map_err(|e| JobError::ProcessingFailed {
+        reason: format!("Failed to scan directory: {}", e),
+    })?;
 
     // Return scan results
     let result = ScanDirectoryResult {
-        files_discovered: total_files,
-        jobs_created: created_jobs,
+        files_discovered: files_discovered as u64,
+        jobs_created: files_discovered as u64,
         errors: Vec::new(),
     };
 
@@ -589,12 +499,7 @@ async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobError
     })?))
 }
 
-// #TODO: move this to music/
 async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
-    // #TODO: move imports to top of file (but move stuff to music/ first!)
-    use std::fs;
-    use std::path::Path;
-
     // Parse job parameters
     let params: ProcessFileParams =
         serde_json::from_str(&job.parameters).map_err(|e| JobError::ProcessingFailed {
@@ -620,23 +525,27 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     let file_size = metadata.len();
     println!("file size: {} bytes", file_size);
 
-    // Step 1: Create media blob in database with local_path
-    let media_blob_id = create_media_blob_from_file(&params.file_path, file_size).await?;
+    // Step 1: Create media blob in database
+    let media_blob_id = blob_data::create_media_blob_from_file(&params.file_path, file_size)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("Failed to create media blob: {}", e),
+        })?;
     println!("created media blob: {}", media_blob_id);
 
-    // Step 2: Extract metadata using lofty
+    // Step 2: Import audio file (extracts metadata and creates song)
     let mut song_id = None;
     let mut artist_id = None;
     let mut album_id = None;
     let mut metadata_extracted = false;
 
     if params.extract_metadata {
-        match extract_and_store_metadata(&media_blob_id, file_path, file_size).await {
-            Ok((s_id, a_id, al_id)) => {
-                song_id = Some(s_id);
-                artist_id = a_id;
-                album_id = al_id;
-                metadata_extracted = true;
+        match scanner::import_audio_file(&media_blob_id, file_path).await {
+            Ok(import_result) => {
+                song_id = Some(import_result.song_id);
+                artist_id = import_result.artist_id;
+                album_id = import_result.album_id;
+                metadata_extracted = import_result.metadata_extracted;
                 println!("metadata extracted successfully");
             }
             Err(e) => {
@@ -647,29 +556,13 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
     // Step 3: Generate thumbnail if requested
     let thumbnail_generated = if params.generate_thumbnail {
-        // Get the media blob to get the file path
-        match crate::media_blobz::get_media_blob(&media_blob_id).await {
-            Ok(media_blob) => {
-                if let Some(file_path) = &media_blob.local_path {
-                    match crate::blob_data::create_audio_thumbnail_blob(&media_blob_id, file_path)
-                        .await
-                    {
-                        Ok(thumbnail_blob_id) => {
-                            println!("thumbnail generated as blob: {}", thumbnail_blob_id);
-                            true
-                        }
-                        Err(e) => {
-                            eprintln!("thumbnail generation failed: {}", e);
-                            false
-                        }
-                    }
-                } else {
-                    eprintln!("media blob has no local path for thumbnail generation");
-                    false
-                }
+        match blob_data::create_audio_thumbnail_blob(&media_blob_id, &params.file_path).await {
+            Ok(thumbnail_blob_id) => {
+                println!("thumbnail generated as blob: {}", thumbnail_blob_id);
+                true
             }
             Err(e) => {
-                eprintln!("failed to get media blob for thumbnail: {}", e);
+                eprintln!("thumbnail generation failed: {}", e);
                 false
             }
         }
@@ -679,29 +572,13 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
     // Step 4: Generate waveform if requested
     let waveform_generated = if params.generate_waveform {
-        // Get the media blob to get the file path
-        match crate::media_blobz::get_media_blob(&media_blob_id).await {
-            Ok(media_blob) => {
-                if let Some(file_path) = &media_blob.local_path {
-                    match crate::blob_data::create_audio_waveform_blob(&media_blob_id, file_path)
-                        .await
-                    {
-                        Ok(waveform_blob_id) => {
-                            println!("waveform generated as blob: {}", waveform_blob_id);
-                            true
-                        }
-                        Err(e) => {
-                            eprintln!("waveform generation failed: {}", e);
-                            false
-                        }
-                    }
-                } else {
-                    eprintln!("media blob has no local path for waveform generation");
-                    false
-                }
+        match blob_data::create_audio_waveform_blob(&media_blob_id, &params.file_path).await {
+            Ok(waveform_blob_id) => {
+                println!("waveform generated as blob: {}", waveform_blob_id);
+                true
             }
             Err(e) => {
-                eprintln!("failed to get media blob for waveform: {}", e);
+                eprintln!("waveform generation failed: {}", e);
                 false
             }
         }
@@ -728,28 +605,23 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     })?))
 }
 
+// Stub job processors - these job types are not currently used
+// Metadata extraction, thumbnail, and waveform generation are handled in process_file_job
 async fn process_extract_metadata_job(_job: &Job) -> Result<Option<Value>, JobError> {
-    // TODO: Implement metadata extraction logic
-    // is this actually implemented somewhere else?
     Err(JobError::ProcessingFailed {
-        reason: "ExtractMetadata not yet implemented".to_string(),
+        reason: "ExtractMetadata job type is deprecated - use ProcessFile instead".to_string(),
     })
 }
 
 async fn process_generate_thumbnail_job(_job: &Job) -> Result<Option<Value>, JobError> {
-    // TODO: Implement thumbnail generation logic
-    // ...wait, is this actually implemented somewhere else?
     Err(JobError::ProcessingFailed {
-        reason: "GenerateThumbnail not yet implemented".to_string(),
+        reason: "GenerateThumbnail job type is deprecated - use ProcessFile instead".to_string(),
     })
 }
 
-// #TODO: move this to music/
 async fn process_generate_waveform_job(_job: &Job) -> Result<Option<Value>, JobError> {
-    // TODO: Implement waveform generation logic
-    // ...wait, we didn't?
     Err(JobError::ProcessingFailed {
-        reason: "GenerateWaveform not yet implemented".to_string(),
+        reason: "GenerateWaveform job type is deprecated - use ProcessFile instead".to_string(),
     })
 }
 
@@ -778,295 +650,6 @@ pub async fn run_job_processor() -> Result<(), JobError> {
         }
     }
 }
-
-// Helper functions for file processing
-// #TODO: can we re-use grimoire/src/blob_data/helpers.rs??
-async fn create_media_blob_from_file(file_path: &str, file_size: u64) -> Result<String, JobError> {
-    // #TODO: move imports to top of file (but maybe we user helper fn)
-    use crate::media_blobz;
-    use std::path::Path;
-
-    let file_name = Path::new(file_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown");
-
-    let mime_type = mime_guess::from_path(file_path)
-        .first_or_octet_stream()
-        .to_string();
-
-    // Calculate SHA256 hash of the file path (not contents for performance)
-    // #TODO: move imports to top of file (but maybe this will be replaced with helper?)
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(file_path.as_bytes());
-    let sha256 = format!("{:x}", hasher.finalize());
-
-    let metadata = serde_json::json!({
-        "filename": file_name,
-        "original_path": file_path
-    });
-
-    let request = media_blobz::CreateMediaBlobRequest {
-        sha256,
-        size: Some(file_size as i64),
-        mime: Some(mime_type),
-        source_client_id: Some("job_processor".to_string()),
-        local_path: Some(file_path.to_string()),
-        parent_blob_id: None,
-        blob_type: Some("original".to_string()),
-        metadata,
-        created_by: Some("job_processor".to_string()),
-        data: None, // Original files use local_path, not database storage
-    };
-
-    let media_blob =
-        media_blobz::create_media_blob(request)
-            .await
-            .map_err(|e| JobError::ProcessingFailed {
-                reason: format!("Failed to create media blob: {}", e),
-            })?;
-
-    Ok(media_blob.id)
-}
-
-// #TODO: move this to music/
-async fn extract_and_store_metadata(
-    media_blob_id: &str,
-    file_path: &std::path::Path,
-    file_size: u64,
-) -> Result<(String, Option<String>, Option<String>), JobError> {
-    // #TODO: move imports to top of file (but move stuff to music/ first!)
-    use crate::analytics::record_event;
-    use crate::analytics::{MediaEvent, MediaEventType};
-    use crate::music::crud::{add_song, ImportSongRequest};
-    use lofty::{AudioFile, ItemValue, Probe, TaggedFileExt};
-    use std::collections::HashMap;
-
-    // Parse audio file with lofty with error handling
-    let tagged_file = match Probe::open(file_path).and_then(|p| p.read()) {
-        Ok(file) => file,
-        Err(e) => {
-            println!(
-                "warning: could not read metadata from {:?}: {}",
-                file_path, e
-            );
-            // Still try to create a basic song record with filename
-            return create_basic_song_record(media_blob_id, file_path, file_size).await;
-        }
-    };
-
-    // Extract properties with fallbacks
-    let properties = tagged_file.properties();
-    let duration_ms = properties.duration().as_millis() as i64;
-    let _bitrate = properties.audio_bitrate().unwrap_or(0);
-    let _sample_rate = properties.sample_rate().unwrap_or(0);
-
-    // Extract all tag data for comprehensive parsing
-    let mut tags_map = HashMap::new();
-    if let Some(tag) = tagged_file.primary_tag() {
-        for item in tag.items() {
-            let key = format!("{:?}", item.key());
-            let value_str = match item.value() {
-                ItemValue::Text(s) | ItemValue::Locator(s) => s.clone(),
-                ItemValue::Binary(_) => continue, // Skip binary data
-            };
-
-            if !value_str.trim().is_empty() {
-                tags_map.insert(key, value_str.trim().to_string());
-            }
-        }
-    }
-
-    // Helper function to get tag value case-insensitively with fallbacks
-    let get_tag = |preferred: &str, fallbacks: &[&str]| -> Option<String> {
-        // Try preferred key first
-        if let Some(value) = tags_map.get(preferred) {
-            if !value.is_empty() {
-                return Some(value.clone());
-            }
-        }
-
-        // Try fallback keys
-        for fallback in fallbacks {
-            if let Some(value) = tags_map.get(*fallback) {
-                if !value.is_empty() {
-                    return Some(value.clone());
-                }
-            }
-        }
-
-        // Try case-insensitive search
-        let all_keys = [&[preferred], fallbacks].concat();
-        for search_key in all_keys {
-            let key_lower = search_key.to_lowercase();
-            for (k, v) in tags_map.iter() {
-                if k.to_lowercase() == key_lower && !v.is_empty() {
-                    return Some(v.clone());
-                }
-            }
-        }
-
-        None
-    };
-
-    // Parse numeric values safely with fraction handling
-    let parse_track_number =
-        |s: &str| -> Option<i64> { s.split('/').next()?.trim().parse::<i64>().ok() };
-
-    // Extract standardized fields with comprehensive fallbacks
-    let title = get_tag("TrackTitle", &["Title", "TITLE", "TIT2"]).unwrap_or_else(|| {
-        file_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Unknown Title")
-            .to_string()
-    });
-
-    let artist_name = get_tag(
-        "TrackArtist",
-        &["Artist", "ARTIST", "TPE1", "AlbumArtist", "TPE2"],
-    )
-    .unwrap_or_else(|| "Unknown Artist".to_string());
-
-    let album_title = get_tag("AlbumTitle", &["Album", "ALBUM", "TALB"]);
-
-    let track_number = get_tag("TrackNumber", &["TRCK", "Track"])
-        .and_then(|s| parse_track_number(&s))
-        .unwrap_or(1); // Default to track 1
-
-    let disc_number = get_tag("DiscNumber", &["TPOS", "Disc", "PartOfSet"])
-        .and_then(|s| parse_track_number(&s))
-        .unwrap_or(1); // Default to disc 1
-
-    let year = get_tag("RecordingDate", &["Year", "DATE", "TDRC", "TYER"])
-        .and_then(|s| s.split('-').next()?.trim().parse::<i64>().ok());
-
-    let genre = get_tag("Genre", &["GENRE", "TCON"]);
-
-    let lyrics = get_tag("Lyrics", &["USLT", "lyrics", "lyrics-eng", "LYRICS"]);
-
-    // Use existing import function to create song with metadata
-    let import_request = ImportSongRequest {
-        media_blob_id: media_blob_id.to_string(),
-        title,
-        artist_name: Some(artist_name),
-        album_title,
-        genre_name: genre,
-        track_number,
-        disc_number,
-        duration: Some(duration_ms),
-        year,
-        bpm: None,
-        key_signature: None,
-        lyrics,
-        created_by: Some("job_processor".to_string()),
-    };
-
-    let result = add_song(import_request)
-        .await
-        .map_err(|e| JobError::ProcessingFailed {
-            reason: format!("Failed to import song: {}", e),
-        })?;
-
-    // Record analytics event for song import (best-effort, don't fail if this errors)
-    // Note: user_id is left null for system/automated imports
-    let event_data = serde_json::json!({
-        "source": "job_processor",
-        "file_path": file_path.to_string_lossy(),
-        "metadata_extracted": true
-    });
-
-    let media_event =
-        MediaEvent::new(media_blob_id.to_string(), MediaEventType::Add).with_event_data(event_data);
-
-    if let Err(e) = record_event(&media_event).await {
-        eprintln!(
-            "Warning: Failed to record analytics event for song import: {}",
-            e
-        );
-    }
-
-    Ok((
-        result.song.id,
-        result.artist.map(|a| a.id),
-        result.album.map(|a| a.id),
-    ))
-}
-
-// Helper function to create basic song record when metadata extraction fails
-// // #TODO: move this to music/
-async fn create_basic_song_record(
-    media_blob_id: &str,
-    file_path: &std::path::Path,
-    file_size: u64,
-) -> Result<(String, Option<String>, Option<String>), JobError> {
-    // #TODO: move imports to top of file (but move stuff to music/ first!)
-    use crate::analytics::record_event;
-    use crate::analytics::{MediaEvent, MediaEventType};
-    use crate::music::crud::{add_song, ImportSongRequest};
-
-    let title = file_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("Unknown Title")
-        .to_string();
-
-    let import_request = ImportSongRequest {
-        media_blob_id: media_blob_id.to_string(),
-        title,
-        artist_name: Some("Unknown Artist".to_string()),
-        album_title: None,
-        genre_name: None,
-        track_number: 1, // Default values for unknown songs
-        disc_number: 1,
-        duration: None,
-        year: None,
-        bpm: None,
-        key_signature: None,
-        lyrics: None,
-        created_by: Some("job_processor".to_string()),
-    };
-
-    let result = add_song(import_request)
-        .await
-        .map_err(|e| JobError::ProcessingFailed {
-            reason: format!("Failed to create basic song record: {}", e),
-        })?;
-
-    // Record analytics event for song import (best-effort, don't fail if this errors)
-    // Note: user_id is left null for system/automated imports
-    let event_data = serde_json::json!({
-        "source": "job_processor",
-        "file_path": file_path.to_string_lossy(),
-        "metadata_extracted": false
-    });
-
-    let media_event =
-        MediaEvent::new(media_blob_id.to_string(), MediaEventType::Add).with_event_data(event_data);
-
-    if let Err(e) = record_event(&media_event).await {
-        eprintln!(
-            "Warning: Failed to record analytics event for song import: {}",
-            e
-        );
-    }
-
-    Ok((
-        result.song.id,
-        result.artist.map(|a| a.id),
-        result.album.map(|a| a.id),
-    ))
-}
-
-// REMOVED: old filesystem-based thumbnail generation
-// Now using crate::blob_data::create_audio_thumbnail_blob() which stores as WebP blobs
-
-// REMOVED: All old filesystem-based thumbnail generation functions
-// Now using crate::blob_data helpers which store everything as WebP blobs in database
-
-// REMOVED: old filesystem-based waveform generation
-// Now using crate::blob_data::create_audio_waveform_blob() which stores as WebP blobs
 
 /// Run the job processor once - process all pending jobs and then exit
 pub async fn run_job_processor_once(max_jobs: u32) -> Result<(), JobError> {

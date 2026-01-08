@@ -1,22 +1,21 @@
 //! music file scanner and discovery module
-//! handles filesystem traversal and audio file detection
+//! handles filesystem traversal, audio file detection, and import
 
+mod directory;
+mod import;
 mod models;
 mod service;
 
-// re-export public types
+// re-export public types from models
 pub use models::{
     AudioFileInfo, ScanRequest, ScannerConfig, ScannerError, ScannerProgress, ScannerResult,
 };
-pub use service::{
-    extract_metadata, get_scan_progress, scan_directory, scan_file, validate_audio_file,
-};
 
-// placeholder for future scanner functionality
-// TODO: migrate from legacylib/src/music/scanner.rs
-// - directory traversal with configurable depth
-// - audio file type detection
-// - metadata extraction (artist, album, title, etc.)
-// - batch processing for large directories
-// - progress reporting for long scans
-// - file validation and error handling
+// re-export public service functions
+pub use service::{import_audio_file, is_supported_audio_file, scan_directory};
+
+// re-export directory scanning utilities
+pub use directory::{is_audio_file, scan_directory_and_create_jobs};
+
+// re-export import functions
+pub use import::{extract_and_import, import_basic, ImportResult};

@@ -6,7 +6,54 @@ use crate::media_blobz::{self, CreateMediaBlobRequest};
 use image::ImageOutputFormat;
 use sha2::{Digest, Sha256};
 use std::io::Cursor;
+use std::path::Path;
 use std::process::Stdio;
+
+/// Create a media blob record from an audio file path
+///
+/// Creates a media blob entry that references a local file.
+/// This is used during audio file import to track the original file location.
+///
+/// Note: This calculates SHA256 hash of the file PATH (not contents) for performance.
+pub async fn create_media_blob_from_file(
+    file_path: &str,
+    file_size: u64,
+) -> GrimoireResult<String> {
+    let file_name = Path::new(file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+
+    let mime_type = mime_guess::from_path(file_path)
+        .first()
+        .map(|m| m.to_string())
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+
+    // Calculate SHA256 hash of the file path (not contents for performance)
+    let mut hasher = Sha256::new();
+    hasher.update(file_path.as_bytes());
+    let sha256 = format!("{:x}", hasher.finalize());
+
+    let request = CreateMediaBlobRequest {
+        sha256,
+        size: Some(file_size as i64),
+        mime: Some(mime_type.clone()),
+        source_client_id: Some("job_processor".to_string()),
+        local_path: Some(file_path.to_string()),
+        parent_blob_id: None,
+        blob_type: Some("original".to_string()),
+        metadata: serde_json::json!({
+            "file_name": file_name,
+            "file_size": file_size,
+            "mime_type": mime_type,
+        }),
+        created_by: Some("job_processor".to_string()),
+        data: None, // Store as file reference
+    };
+
+    let blob = media_blobz::create_media_blob(request).await?;
+    Ok(blob.id)
+}
 
 /// create a thumbnail blob from audio file using ffmpeg
 /// returns error if no album art found (no fallbacks/placeholders)

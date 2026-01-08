@@ -9,7 +9,7 @@ mod service;
 
 pub use helpers::{
     convert_to_webp, create_audio_thumbnail_blob, create_audio_waveform_blob,
-    create_image_blob_from_webp_data,
+    create_image_blob_from_webp_data, create_media_blob_from_file,
 };
 pub use purge::{
     cleanup_orphaned_media_blobs, find_orphaned_media_blobs, OrphanedBlob, OrphanedBlobSummary,

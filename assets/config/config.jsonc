@@ -31,7 +31,7 @@
     "max_fs_file_size": 1073741824,
 
     // Supported audio file formats for scanning
-    "supported_audio_formats": ["mp3", "ogg", "wav", "flac", "m4a"],
+    "supported_audio_formats": ["mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma", "aiff", "ape", "wv"],
 
     // URL download configuration using yt-dlp
     "downloads": {
