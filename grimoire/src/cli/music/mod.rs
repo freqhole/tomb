@@ -330,6 +330,147 @@ pub enum MusicAction {
         #[command(subcommand)]
         action: MusicBrainzAction,
     },
+
+    // Album operations
+    /// List all albums
+    ListAlbums,
+    /// Get album by ID
+    GetAlbum {
+        #[arg(long)]
+        album_id: String,
+    },
+    /// Delete album
+    DeleteAlbum {
+        #[arg(long)]
+        album_id: String,
+        #[arg(long)]
+        deleted_by: Option<String>,
+    },
+    /// Get tags for an album
+    GetAlbumTags {
+        #[arg(long)]
+        album_id: String,
+    },
+
+    // Artist operations
+    /// List all artists
+    ListArtists,
+    /// Get artist by ID
+    GetArtist {
+        #[arg(long)]
+        artist_id: String,
+    },
+    /// Delete artist
+    DeleteArtist {
+        #[arg(long)]
+        artist_id: String,
+        #[arg(long)]
+        deleted_by: Option<String>,
+    },
+
+    // Song operations
+    /// List all songs
+    ListSongs,
+    /// Delete song
+    DeleteSong {
+        #[arg(long)]
+        song_id: String,
+        #[arg(long)]
+        deleted_by: Option<String>,
+    },
+
+    // Playlist operations (additional)
+    /// List all playlists
+    ListPlaylists,
+    /// List playlists for a user
+    ListUserPlaylists {
+        #[arg(long)]
+        user_id: String,
+        #[arg(long, default_value = "50")]
+        limit: u32,
+        #[arg(long, default_value = "0")]
+        offset: u32,
+    },
+    /// Search playlists by name
+    SearchPlaylists {
+        #[arg(long)]
+        query: String,
+        #[arg(long, default_value = "50")]
+        limit: u32,
+        #[arg(long, default_value = "0")]
+        offset: u32,
+    },
+
+    // Genre operations
+    /// List all genres
+    ListGenres,
+    /// Get genre by ID
+    GetGenre {
+        #[arg(long)]
+        genre_id: String,
+    },
+    /// Get genre statistics
+    GetGenreStats {
+        #[arg(long)]
+        genre_id: String,
+    },
+
+    // Sub-genre operations
+    /// List all sub-genres
+    ListSubGenres,
+    /// List sub-genres for a genre
+    ListSubGenresForGenre {
+        #[arg(long)]
+        genre_id: String,
+    },
+    /// Get sub-genre by ID
+    GetSubGenre {
+        #[arg(long)]
+        sub_genre_id: String,
+    },
+    /// Delete sub-genre
+    DeleteSubGenre {
+        #[arg(long)]
+        sub_genre_id: String,
+    },
+    /// Find or create sub-genre
+    FindOrCreateSubGenre {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        genre_id: String,
+    },
+
+    // Tag operations
+    /// List all tags
+    ListTags,
+    /// Get tag by ID
+    GetTag {
+        #[arg(long)]
+        tag_id: String,
+    },
+    /// Delete tag
+    DeleteTag {
+        #[arg(long)]
+        tag_id: String,
+    },
+    /// Search/query tags by name
+    QueryTagsSearch {
+        #[arg(long)]
+        search: String,
+    },
+
+    // Additional query operations
+    /// Search/query genres by name
+    QueryGenresSearch {
+        #[arg(long)]
+        search: String,
+    },
+    /// Search/query sub-genres by name
+    QuerySubGenresSearch {
+        #[arg(long)]
+        search: String,
+    },
 }
 
 /// Handle music commands
@@ -371,5 +512,55 @@ pub async fn handle_command(action: MusicAction) -> crate::error::GrimoireResult
 
         // MusicBrainz commands
         MusicAction::MusicBrainz { action } => musicbrainz::handle_command(action).await,
+
+        // Album commands
+        MusicAction::ListAlbums => query::handle_list_albums(action).await,
+        MusicAction::GetAlbum { .. } => query::handle_get_album(action).await,
+        MusicAction::DeleteAlbum { .. } => query::handle_delete_album(action).await,
+        MusicAction::GetAlbumTags { .. } => query::handle_get_album_tags(action).await,
+
+        // Artist commands
+        MusicAction::ListArtists => query::handle_list_artists(action).await,
+        MusicAction::GetArtist { .. } => query::handle_get_artist(action).await,
+        MusicAction::DeleteArtist { .. } => query::handle_delete_artist(action).await,
+
+        // Song commands
+        MusicAction::ListSongs => query::handle_list_songs(action).await,
+        MusicAction::DeleteSong { .. } => query::handle_delete_song(action).await,
+
+        // Additional playlist commands
+        MusicAction::ListPlaylists => playlists::handle_list_playlists(action).await,
+        MusicAction::ListUserPlaylists { .. } => {
+            playlists::handle_list_user_playlists(action).await
+        }
+        MusicAction::SearchPlaylists { .. } => playlists::handle_search_playlists(action).await,
+
+        // Genre commands
+        MusicAction::ListGenres => query::handle_list_genres(action).await,
+        MusicAction::GetGenre { .. } => query::handle_get_genre(action).await,
+        MusicAction::GetGenreStats { .. } => query::handle_get_genre_stats(action).await,
+
+        // Sub-genre commands
+        MusicAction::ListSubGenres => query::handle_list_sub_genres(action).await,
+        MusicAction::ListSubGenresForGenre { .. } => {
+            query::handle_list_sub_genres_for_genre(action).await
+        }
+        MusicAction::GetSubGenre { .. } => query::handle_get_sub_genre(action).await,
+        MusicAction::DeleteSubGenre { .. } => query::handle_delete_sub_genre(action).await,
+        MusicAction::FindOrCreateSubGenre { .. } => {
+            query::handle_find_or_create_sub_genre(action).await
+        }
+
+        // Tag commands
+        MusicAction::ListTags => query::handle_list_tags(action).await,
+        MusicAction::GetTag { .. } => query::handle_get_tag(action).await,
+        MusicAction::DeleteTag { .. } => query::handle_delete_tag(action).await,
+        MusicAction::QueryTagsSearch { .. } => query::handle_query_tags_search(action).await,
+
+        // Additional query commands
+        MusicAction::QueryGenresSearch { .. } => query::handle_query_genres_search(action).await,
+        MusicAction::QuerySubGenresSearch { .. } => {
+            query::handle_query_sub_genres_search(action).await
+        }
     }
 }

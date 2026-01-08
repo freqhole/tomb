@@ -4,8 +4,8 @@ use super::MusicAction;
 use crate::error::GrimoireResult;
 use crate::music::crud::{
     add_songs_to_playlist, create_playlist, create_thumbnail_from_file, delete_playlist,
-    remove_playlist_thumbnail, update_playlist, update_songs_position, CreatePlaylistRequest,
-    UpdatePlaylistRequest,
+    list_playlists, list_user_playlists, remove_playlist_thumbnail, search_playlists,
+    update_playlist, update_songs_position, CreatePlaylistRequest, UpdatePlaylistRequest,
 };
 
 pub async fn handle_create_playlist(action: MusicAction) -> GrimoireResult<()> {
@@ -240,5 +240,89 @@ pub async fn handle_remove_thumbnail(action: MusicAction) -> GrimoireResult<()> 
         Ok(())
     } else {
         unreachable!("handle_remove_thumbnail called with wrong action variant")
+    }
+}
+
+pub async fn handle_list_playlists(_action: MusicAction) -> GrimoireResult<()> {
+    println!("listing all playlists...");
+    match list_playlists().await {
+        Ok(playlists) => {
+            println!("found {} playlists", playlists.len());
+            for playlist in playlists {
+                println!(
+                    "  {} - {} (public: {})",
+                    playlist.id, playlist.title, playlist.is_public
+                );
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("failed to list playlists: {}", e);
+            Err(e)
+        }
+    }
+}
+
+pub async fn handle_list_user_playlists(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::ListUserPlaylists {
+        user_id,
+        limit,
+        offset,
+    } = action
+    {
+        println!("listing playlists for user: {}", user_id);
+        match list_user_playlists(user_id.clone(), Some(limit), Some(offset)).await {
+            Ok(result) => {
+                println!(
+                    "found {} playlists for user {}",
+                    result.total_count, user_id
+                );
+                for playlist in result.items {
+                    println!(
+                        "  {} - {} (songs: {})",
+                        playlist.playlist.id, playlist.playlist.title, playlist.song_count
+                    );
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to list user playlists: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_list_user_playlists called with wrong action variant")
+    }
+}
+
+pub async fn handle_search_playlists(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::SearchPlaylists {
+        query,
+        limit,
+        offset,
+    } = action
+    {
+        println!("searching playlists: {}", query);
+        match search_playlists(&query, Some(limit), Some(offset)).await {
+            Ok(result) => {
+                println!(
+                    "found {} playlists matching '{}'",
+                    result.total_count, query
+                );
+                for playlist in result.items {
+                    println!(
+                        "  {} - {} (songs: {})",
+                        playlist.playlist.id, playlist.playlist.title, playlist.song_count
+                    );
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to search playlists: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_search_playlists called with wrong action variant")
     }
 }

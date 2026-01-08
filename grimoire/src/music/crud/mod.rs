@@ -57,20 +57,43 @@ pub use query::{
 };
 
 // re-export playlist query operations
-pub use query_playlists::{query_playlist_songs, query_playlists};
+pub use query_playlists::{
+    list_user_playlists, query_playlist_songs, query_playlists, search_playlists,
+};
 
 // re-export playlist CRUD operations
 pub use crate::music::entities::playlists::{
     add_songs_to_playlist, create_playlist, create_thumbnail_from_bytes,
-    create_thumbnail_from_file, delete_playlist, get_playlist, get_playlist_songs,
+    create_thumbnail_from_file, delete_playlist, get_playlist, get_playlist_songs, list_playlists,
     remove_playlist_thumbnail, remove_songs_from_playlist, update_playlist, update_song_position,
     update_songs_position,
+};
+
+// re-export album operations
+pub use crate::music::entities::albums::{delete_album, get_album, list_albums};
+
+// re-export artist operations
+pub use crate::music::entities::artists::{delete_artist, get_artist, list_artists};
+
+// re-export song operations
+pub use crate::music::entities::songs::{delete_song, list_songs};
+
+// re-export genre operations
+pub use crate::music::entities::genres::{
+    delete_sub_genre, find_or_create_sub_genre, get_genre, get_genre_stats, get_sub_genre,
+    list_genres, list_sub_genres, list_sub_genres_for_genre, query_genres as search_genres,
+    query_sub_genres as search_sub_genres,
+};
+
+// re-export tag operations
+pub use crate::music::entities::tags::{
+    delete_tag, get_album_tags, get_tag, list_tags, query_tags as search_tags,
 };
 
 // re-export delete operations
 pub use delete::{
     cleanup_deleted_entities, delete_album_if_unused, delete_artist_if_unused,
-    delete_genre_if_unused, delete_song, remove_song_from_all_playlists,
+    delete_genre_if_unused, remove_song_from_all_playlists,
 };
 
 // re-export deduplication utilities

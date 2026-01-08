@@ -3,8 +3,12 @@
 use super::MusicAction;
 use crate::error::GrimoireResult;
 use crate::music::crud::{
-    query_albums, query_artists, query_genres, query_playlist_songs, query_playlists, query_songs,
-    QueryParams,
+    delete_album, delete_artist, delete_playlist, delete_song, delete_sub_genre, delete_tag,
+    find_or_create_sub_genre, get_album, get_album_tags, get_artist, get_genre, get_genre_stats,
+    get_sub_genre, get_tag, list_albums, list_artists, list_genres, list_songs, list_sub_genres,
+    list_sub_genres_for_genre, list_tags, query_albums, query_artists, query_genres,
+    query_playlist_songs, query_playlists, query_songs, search_genres, search_sub_genres,
+    search_tags, QueryParams,
 };
 use std::collections::HashMap;
 
@@ -383,5 +387,472 @@ pub async fn handle_query_playlist_songs(action: MusicAction) -> GrimoireResult<
         Ok(())
     } else {
         unreachable!("handle_query_playlist_songs called with wrong action variant")
+    }
+}
+
+// Album operations
+pub async fn handle_list_albums(_action: MusicAction) -> GrimoireResult<()> {
+    println!("listing all albums...");
+    match list_albums().await {
+        Ok(albums) => {
+            println!("found {} albums", albums.len());
+            for album in albums {
+                println!("  {} - {}", album.id, album.title);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("failed to list albums: {}", e);
+            Err(e)
+        }
+    }
+}
+
+pub async fn handle_get_album(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::GetAlbum { album_id } = action {
+        println!("getting album: {}", album_id);
+        match get_album(&album_id).await {
+            Ok(album) => {
+                println!("Album: {} - {}", album.id, album.title);
+                println!("  Type: {}", album.album_type);
+                if let Some(date) = album.release_date {
+                    println!("  Release date: {}", date);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to get album: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_get_album called with wrong action variant")
+    }
+}
+
+pub async fn handle_delete_album(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::DeleteAlbum {
+        album_id,
+        deleted_by,
+    } = action
+    {
+        println!("deleting album: {}", album_id);
+        match delete_album(&album_id, deleted_by).await {
+            Ok(_) => {
+                println!("successfully deleted album {}", album_id);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to delete album: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_delete_album called with wrong action variant")
+    }
+}
+
+pub async fn handle_get_album_tags(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::GetAlbumTags { album_id } = action {
+        println!("getting tags for album: {}", album_id);
+        match get_album_tags(&album_id).await {
+            Ok(tags) => {
+                println!("found {} tags for album {}", tags.len(), album_id);
+                for tag in tags {
+                    println!("  {} - {}", tag.id, tag.name);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to get album tags: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_get_album_tags called with wrong action variant")
+    }
+}
+
+// Artist operations
+pub async fn handle_list_artists(_action: MusicAction) -> GrimoireResult<()> {
+    println!("listing all artists...");
+    match list_artists().await {
+        Ok(artists) => {
+            println!("found {} artists", artists.len());
+            for artist in artists {
+                println!("  {} - {}", artist.id, artist.name);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("failed to list artists: {}", e);
+            Err(e)
+        }
+    }
+}
+
+pub async fn handle_get_artist(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::GetArtist { artist_id } = action {
+        println!("getting artist: {}", artist_id);
+        match get_artist(&artist_id).await {
+            Ok(artist) => {
+                println!("Artist: {} - {}", artist.id, artist.name);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to get artist: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_get_artist called with wrong action variant")
+    }
+}
+
+pub async fn handle_delete_artist(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::DeleteArtist {
+        artist_id,
+        deleted_by,
+    } = action
+    {
+        println!("deleting artist: {}", artist_id);
+        match delete_artist(&artist_id, deleted_by).await {
+            Ok(_) => {
+                println!("successfully deleted artist {}", artist_id);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to delete artist: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_delete_artist called with wrong action variant")
+    }
+}
+
+// Song operations
+pub async fn handle_list_songs(_action: MusicAction) -> GrimoireResult<()> {
+    println!("listing all songs...");
+    match list_songs().await {
+        Ok(songs) => {
+            println!("found {} songs", songs.len());
+            for song in songs {
+                println!("  {} - {}", song.id, song.title);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("failed to list songs: {}", e);
+            Err(e)
+        }
+    }
+}
+
+pub async fn handle_delete_song(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::DeleteSong {
+        song_id,
+        deleted_by,
+    } = action
+    {
+        println!("deleting song: {}", song_id);
+        match delete_song(&song_id, deleted_by).await {
+            Ok(_) => {
+                println!("successfully deleted song {}", song_id);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to delete song: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_delete_song called with wrong action variant")
+    }
+}
+
+// Genre operations
+pub async fn handle_list_genres(_action: MusicAction) -> GrimoireResult<()> {
+    println!("listing all genres...");
+    match list_genres().await {
+        Ok(genres) => {
+            println!("found {} genres", genres.len());
+            for genre in genres {
+                println!("  {} - {}", genre.id, genre.name);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("failed to list genres: {}", e);
+            Err(e)
+        }
+    }
+}
+
+pub async fn handle_get_genre(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::GetGenre { genre_id } = action {
+        println!("getting genre: {}", genre_id);
+        match get_genre(&genre_id).await {
+            Ok(genre) => {
+                println!("Genre: {} - {}", genre.id, genre.name);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to get genre: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_get_genre called with wrong action variant")
+    }
+}
+
+pub async fn handle_get_genre_stats(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::GetGenreStats { genre_id: _ } = action {
+        println!("getting genre stats for all genres...");
+        match get_genre_stats().await {
+            Ok(stats) => {
+                println!("Genre stats: {} genres", stats.len());
+                for stat in stats {
+                    println!("  {}: {} songs", stat.name, stat.song_count);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to get genre stats: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_get_genre_stats called with wrong action variant")
+    }
+}
+
+// Sub-genre operations
+pub async fn handle_list_sub_genres(_action: MusicAction) -> GrimoireResult<()> {
+    println!("listing all sub-genres...");
+    match list_sub_genres().await {
+        Ok(sub_genres) => {
+            println!("found {} sub-genres", sub_genres.len());
+            for sub_genre in sub_genres {
+                println!("  {} - {}", sub_genre.id, sub_genre.name);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("failed to list sub-genres: {}", e);
+            Err(e)
+        }
+    }
+}
+
+pub async fn handle_list_sub_genres_for_genre(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::ListSubGenresForGenre { genre_id } = action {
+        println!("listing sub-genres for genre: {}", genre_id);
+        match list_sub_genres_for_genre(&genre_id).await {
+            Ok(sub_genres) => {
+                println!(
+                    "found {} sub-genres for genre {}",
+                    sub_genres.len(),
+                    genre_id
+                );
+                for sub_genre in sub_genres {
+                    println!("  {} - {}", sub_genre.id, sub_genre.name);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to list sub-genres for genre: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_list_sub_genres_for_genre called with wrong action variant")
+    }
+}
+
+pub async fn handle_get_sub_genre(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::GetSubGenre { sub_genre_id } = action {
+        println!("getting sub-genre: {}", sub_genre_id);
+        match get_sub_genre(&sub_genre_id).await {
+            Ok(sub_genre) => {
+                println!("Sub-genre: {} - {}", sub_genre.id, sub_genre.name);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to get sub-genre: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_get_sub_genre called with wrong action variant")
+    }
+}
+
+pub async fn handle_delete_sub_genre(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::DeleteSubGenre { sub_genre_id } = action {
+        println!("deleting sub-genre: {}", sub_genre_id);
+        match delete_sub_genre(&sub_genre_id).await {
+            Ok(_) => {
+                println!("successfully deleted sub-genre {}", sub_genre_id);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to delete sub-genre: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_delete_sub_genre called with wrong action variant")
+    }
+}
+
+pub async fn handle_find_or_create_sub_genre(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::FindOrCreateSubGenre { name, genre_id } = action {
+        println!(
+            "finding or creating sub-genre: {} for genre {}",
+            name, genre_id
+        );
+        match find_or_create_sub_genre(name, genre_id).await {
+            Ok((sub_genre, created)) => {
+                if created {
+                    println!("Created sub-genre: {} - {}", sub_genre.id, sub_genre.name);
+                } else {
+                    println!(
+                        "Found existing sub-genre: {} - {}",
+                        sub_genre.id, sub_genre.name
+                    );
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to find or create sub-genre: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_find_or_create_sub_genre called with wrong action variant")
+    }
+}
+
+// Tag operations
+pub async fn handle_list_tags(_action: MusicAction) -> GrimoireResult<()> {
+    println!("listing all tags...");
+    match list_tags().await {
+        Ok(tags) => {
+            println!("found {} tags", tags.len());
+            for tag in tags {
+                println!("  {} - {}", tag.id, tag.name);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("failed to list tags: {}", e);
+            Err(e)
+        }
+    }
+}
+
+pub async fn handle_get_tag(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::GetTag { tag_id } = action {
+        println!("getting tag: {}", tag_id);
+        match get_tag(&tag_id).await {
+            Ok(tag) => {
+                println!("Tag: {} - {}", tag.id, tag.name);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to get tag: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_get_tag called with wrong action variant")
+    }
+}
+
+pub async fn handle_delete_tag(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::DeleteTag { tag_id } = action {
+        println!("deleting tag: {}", tag_id);
+        match delete_tag(&tag_id).await {
+            Ok(_) => {
+                println!("successfully deleted tag {}", tag_id);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to delete tag: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_delete_tag called with wrong action variant")
+    }
+}
+
+// Query/search operations
+pub async fn handle_query_genres_search(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::QueryGenresSearch { search } = action {
+        println!("searching genres: {}", search);
+        match search_genres(&search).await {
+            Ok(genres) => {
+                println!("found {} genres matching '{}'", genres.len(), search);
+                for genre in genres {
+                    println!("  {} - {}", genre.id, genre.name);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to search genres: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_query_genres_search called with wrong action variant")
+    }
+}
+
+pub async fn handle_query_sub_genres_search(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::QuerySubGenresSearch { search } = action {
+        println!("searching sub-genres: {}", search);
+        match search_sub_genres(&search).await {
+            Ok(sub_genres) => {
+                println!(
+                    "found {} sub-genres matching '{}'",
+                    sub_genres.len(),
+                    search
+                );
+                for sub_genre in sub_genres {
+                    println!("  {} - {}", sub_genre.id, sub_genre.name);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to search sub-genres: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_query_sub_genres_search called with wrong action variant")
+    }
+}
+
+pub async fn handle_query_tags_search(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::QueryTagsSearch { search } = action {
+        println!("searching tags: {}", search);
+        match search_tags(&search).await {
+            Ok(tags) => {
+                println!("found {} tags matching '{}'", tags.len(), search);
+                for tag in tags {
+                    println!("  {} - {}", tag.id, tag.name);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("failed to search tags: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        unreachable!("handle_query_tags_search called with wrong action variant")
     }
 }

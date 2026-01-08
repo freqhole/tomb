@@ -3,16 +3,6 @@
 
 use crate::error::GrimoireResult;
 
-/// soft delete a song and clean up unused relationships
-pub async fn delete_song(song_id: &str) -> GrimoireResult<()> {
-    // TODO: implement song soft delete
-    // 1. Set deleted_at on song
-    // 2. Remove from artist_songz, album_songz relationships
-    // 3. Update album computed columns (song_count, total_duration)
-    // 4. Check if artist/album are now unused and optionally soft delete them
-    todo!("implement delete_song")
-}
-
 /// soft delete an artist if they have no songs
 pub async fn delete_artist_if_unused(artist_id: &str) -> GrimoireResult<bool> {
     // TODO: implement conditional artist deletion
@@ -29,14 +19,6 @@ pub async fn delete_album_if_unused(album_id: &str) -> GrimoireResult<bool> {
     // 2. If no songs, soft delete album
     // 3. Return true if deleted, false if still in use
     todo!("implement delete_album_if_unused")
-}
-
-/// soft delete a playlist and all its song associations
-pub async fn delete_playlist(playlist_id: &str) -> GrimoireResult<()> {
-    // TODO: implement playlist deletion
-    // 1. Set deleted_at on playlist
-    // 2. Remove all playlist_songz relationships
-    todo!("implement delete_playlist")
 }
 
 /// soft delete a genre if it's not used by any albums

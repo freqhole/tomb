@@ -6,4 +6,4 @@ mod repository;
 
 // re-export public types
 pub use models::{Album, CreateAlbumRequest};
-pub use repository::{create_album, get_album, list_albums};
+pub use repository::{create_album, delete_album, get_album, list_albums};
