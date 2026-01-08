@@ -1377,6 +1377,143 @@ sqlite3 $DATABASE_URL "SELECT id, title, created_at FROM albumz WHERE deleted_at
 - All feeds return (items, total_count) for pagination
 - Feed types are: RecentListen, RecentFavorite, RecentAlbum
 
+## Admin Dashboard Testing
+
+The admin dashboard provides system-wide statistics and insights for administrators.
+
+### 1. System Overview
+
+```bash
+# View high-level system statistics
+cargo run -- analytics admin-overview
+```
+
+**Expected output:**
+
+- Total counts for songs, albums, artists, users
+- Total library duration in hours
+- Activity statistics (plays, sessions, favorites)
+
+### 2. Top Songs
+
+```bash
+# View most played songs
+cargo run -- analytics top-songs --limit 10
+
+# Top 5
+cargo run -- analytics top-songs --limit 5
+```
+
+**Expected output:**
+
+- Songs ranked by total play count
+- Includes artist name, album title
+- Shows unique user count and last played timestamp
+- Play count and engagement metrics
+
+### 3. Top Albums
+
+```bash
+# View most played albums (aggregated from song plays)
+cargo run -- analytics top-albums --limit 10
+
+# Top 5
+cargo run -- analytics top-albums --limit 5
+```
+
+**Expected output:**
+
+- Albums ranked by total plays across all songs
+- Shows artist name and song count
+- Includes unique user count
+- Aggregated play statistics
+
+### 4. Top Artists
+
+```bash
+# View most played artists (aggregated from song plays)
+cargo run -- analytics top-artists --limit 10
+
+# Top 5
+cargo run -- analytics top-artists --limit 5
+```
+
+**Expected output:**
+
+- Artists ranked by total plays across all songs
+- Shows song count and album count
+- Includes unique user count
+- Comprehensive artist statistics
+
+### 5. User Statistics
+
+```bash
+# Get statistics for a specific user
+cargo run -- analytics user-stats <USER_ID>
+
+# Get stats for all users (ranked by activity)
+cargo run -- analytics all-user-stats --limit 10
+```
+
+**Expected output:**
+
+- Per-user activity metrics (plays, unique songs, sessions)
+- Favorite counts
+- First and last activity timestamps
+- Ranked by play count when viewing all users
+
+### Complete Admin Dashboard Test
+
+```bash
+# 1. View system overview
+cargo run -- analytics admin-overview
+
+# 2. Check top content
+cargo run -- analytics top-songs --limit 5
+cargo run -- analytics top-albums --limit 5
+cargo run -- analytics top-artists --limit 5
+
+# 3. View user activity
+cargo run -- analytics all-user-stats --limit 10
+
+# 4. Get detailed stats for a specific user
+USER_ID=$(cargo run -- users list --limit 1 | grep "ID:" | head -1 | awk '{print $2}')
+cargo run -- analytics user-stats $USER_ID
+```
+
+### Expected Admin Results
+
+- **Overview**: Shows accurate totals across all entities
+- **Top Songs**: Ranked by play count with engagement metrics
+- **Top Albums**: Aggregates plays from all songs in the album
+- **Top Artists**: Aggregates plays from all songs by the artist
+- **User Stats**: Shows individual and collective user activity
+- All admin queries support configurable limits
+- Statistics reflect real-time data from analytics tables
+
+### Verify Admin Data
+
+```bash
+# Check total counts
+sqlite3 $DATABASE_URL "SELECT COUNT(*) FROM songz WHERE deleted_at IS NULL;"
+sqlite3 $DATABASE_URL "SELECT COUNT(*) FROM music_play_eventz;"
+
+# Check top songs
+sqlite3 $DATABASE_URL "SELECT s.title, COUNT(*) as plays FROM music_play_eventz mpe JOIN songz s ON s.id = mpe.song_id GROUP BY mpe.song_id ORDER BY plays DESC LIMIT 5;"
+
+# Check user stats
+sqlite3 $DATABASE_URL "SELECT u.username, COUNT(*) as plays FROM music_play_eventz mpe JOIN user_accountz u ON u.id = mpe.user_id GROUP BY mpe.user_id ORDER BY plays DESC;"
+```
+
+### Notes
+
+- Admin functions aggregate data across entire system
+- Top queries rank by play count (most played first)
+- User stats show both individual and system-wide activity
+- All statistics are computed in real-time from analytics events
+- Duration calculations convert milliseconds to hours/seconds
+- Deleted entities are excluded from all admin statistics
+
 ## Complete Test Sequence
 
 ### 7. Search for Album WITH Cover Art (One-Step!)

@@ -32,6 +32,7 @@
 //! # }
 //! ```
 
+pub mod admin;
 pub mod events;
 pub mod feed;
 pub mod models;
@@ -55,4 +56,10 @@ pub use queries::{
 pub use feed::{
     get_combined_feed, get_recent_albums, get_recent_favorites, get_recent_listens, FeedItem,
     FeedItemType,
+};
+
+// Re-export admin types and functions
+pub use admin::{
+    get_all_user_stats, get_overview_stats, get_top_albums, get_top_artists, get_top_songs,
+    get_user_stats, OverviewStats, TopAlbum, TopArtist, TopSong, UserStats,
 };

@@ -738,6 +738,37 @@ pub enum AnalyticsAction {
         #[arg(long, default_value = "0")]
         offset: i64,
     },
+    /// Show admin dashboard overview statistics
+    AdminOverview,
+    /// Show top songs by play count
+    TopSongs {
+        /// Number of items to return
+        #[arg(long, default_value = "10")]
+        limit: i64,
+    },
+    /// Show top albums by play count
+    TopAlbums {
+        /// Number of items to return
+        #[arg(long, default_value = "10")]
+        limit: i64,
+    },
+    /// Show top artists by play count
+    TopArtists {
+        /// Number of items to return
+        #[arg(long, default_value = "10")]
+        limit: i64,
+    },
+    /// Show statistics for a specific user
+    UserStats {
+        /// User ID to get stats for
+        user_id: String,
+    },
+    /// Show statistics for all users
+    AllUserStats {
+        /// Number of users to return
+        #[arg(long, default_value = "10")]
+        limit: i64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -818,9 +849,10 @@ pub enum WordlistAction {
 async fn handle_analytics_command(action: AnalyticsAction) -> GrimoireResult<()> {
     use crate::analytics::{MediaEvent, MediaEventType};
     use crate::music::analytics::{
-        create_play_event, get_album_play_count, get_artist_play_count, get_combined_feed,
-        get_recent_albums, get_recent_favorites, get_recent_listens, get_session_summary,
-        get_song_play_analytics, get_song_play_count, get_user_listening_history,
+        create_play_event, get_album_play_count, get_all_user_stats, get_artist_play_count,
+        get_combined_feed, get_overview_stats, get_recent_albums, get_recent_favorites,
+        get_recent_listens, get_session_summary, get_song_play_analytics, get_song_play_count,
+        get_top_albums, get_top_artists, get_top_songs, get_user_listening_history, get_user_stats,
         record_play_event, FeedItemType,
     };
     use crate::music::crud::{query_albums, query_artists, query_songs, QueryParams};
@@ -1264,6 +1296,150 @@ async fn handle_analytics_command(action: AnalyticsAction) -> GrimoireResult<()>
                 println!("   {} • {}", action, format_timestamp(item.created_at));
                 if let Some(username) = item.username {
                     println!("   User: {}", username);
+                }
+                println!();
+            }
+        }
+        AnalyticsAction::AdminOverview => {
+            println!("Fetching overview statistics...\n");
+
+            let stats = get_overview_stats().await?;
+
+            println!("📊 System Overview\n");
+            println!("Library:");
+            println!("  Songs:    {:>8}", stats.total_songs);
+            println!("  Albums:   {:>8}", stats.total_albums);
+            println!("  Artists:  {:>8}", stats.total_artists);
+            println!(
+                "  Duration: {:>8} hours",
+                stats.total_duration_seconds / 3600
+            );
+            println!();
+            println!("Users:");
+            println!("  Total:    {:>8}", stats.total_users);
+            println!();
+            println!("Activity:");
+            println!("  Plays:     {:>8}", stats.total_plays);
+            println!("  Sessions:  {:>8}", stats.total_sessions);
+            println!("  Favorites: {:>8}", stats.total_favorites);
+        }
+        AnalyticsAction::TopSongs { limit } => {
+            println!("Fetching top {} songs...\n", limit);
+
+            let songs = get_top_songs(limit).await?;
+
+            if songs.is_empty() {
+                println!("No songs found.");
+                return Ok(());
+            }
+
+            println!("🎵 Top Songs by Play Count\n");
+
+            for (i, song) in songs.iter().enumerate() {
+                let artist = song.artist_name.as_deref().unwrap_or("Unknown Artist");
+                let album = song.album_title.as_deref().unwrap_or("");
+
+                println!("{}. {} - {}", i + 1, song.title, artist);
+                println!(
+                    "   Plays: {} • Unique users: {}",
+                    song.play_count, song.unique_users
+                );
+                if !album.is_empty() {
+                    println!("   Album: {}", album);
+                }
+                if let Some(last_played) = song.last_played_at {
+                    println!("   Last played: {}", format_timestamp(last_played));
+                }
+                println!();
+            }
+        }
+        AnalyticsAction::TopAlbums { limit } => {
+            println!("Fetching top {} albums...\n", limit);
+
+            let albums = get_top_albums(limit).await?;
+
+            if albums.is_empty() {
+                println!("No albums found.");
+                return Ok(());
+            }
+
+            println!("💿 Top Albums by Play Count\n");
+
+            for (i, album) in albums.iter().enumerate() {
+                let artist = album.artist_name.as_deref().unwrap_or("Unknown Artist");
+
+                println!("{}. {} - {}", i + 1, album.title, artist);
+                println!(
+                    "   Plays: {} • Songs: {} • Unique users: {}",
+                    album.total_plays, album.song_count, album.unique_users
+                );
+                println!();
+            }
+        }
+        AnalyticsAction::TopArtists { limit } => {
+            println!("Fetching top {} artists...\n", limit);
+
+            let artists = get_top_artists(limit).await?;
+
+            if artists.is_empty() {
+                println!("No artists found.");
+                return Ok(());
+            }
+
+            println!("🎤 Top Artists by Play Count\n");
+
+            for (i, artist) in artists.iter().enumerate() {
+                println!("{}. {}", i + 1, artist.name);
+                println!(
+                    "   Plays: {} • Songs: {} • Albums: {} • Unique users: {}",
+                    artist.total_plays, artist.song_count, artist.album_count, artist.unique_users
+                );
+                println!();
+            }
+        }
+        AnalyticsAction::UserStats { user_id } => {
+            println!("Fetching statistics for user {}...\n", user_id);
+
+            let stats = get_user_stats(&user_id).await?;
+
+            println!("👤 User: {}\n", stats.username);
+            println!("Activity:");
+            println!("  Total Plays:       {:>8}", stats.total_plays);
+            println!("  Unique Songs:      {:>8}", stats.unique_songs_played);
+            println!("  Sessions:          {:>8}", stats.unique_sessions);
+            println!("  Favorites:         {:>8}", stats.total_favorites);
+            println!();
+
+            if let Some(first) = stats.first_activity_at {
+                println!("  First Activity:    {}", format_timestamp(first));
+            }
+            if let Some(last) = stats.last_activity_at {
+                println!("  Last Activity:     {}", format_timestamp(last));
+            }
+        }
+        AnalyticsAction::AllUserStats { limit } => {
+            println!("Fetching statistics for all users...\n");
+
+            let users = get_all_user_stats(limit).await?;
+
+            if users.is_empty() {
+                println!("No users found.");
+                return Ok(());
+            }
+
+            println!("👥 User Statistics (Top {} by plays)\n", limit);
+
+            for (i, user) in users.iter().enumerate() {
+                println!("{}. {}", i + 1, user.username);
+                println!(
+                    "   Plays: {} • Songs: {} • Sessions: {} • Favorites: {}",
+                    user.total_plays,
+                    user.unique_songs_played,
+                    user.unique_sessions,
+                    user.total_favorites
+                );
+                if let Some(last) = user.last_activity_at {
+                    println!("   Last activity: {}", format_timestamp(last));
                 }
                 println!();
             }
