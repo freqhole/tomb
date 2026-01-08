@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_favorites_service_creation() {
-        let service = FavoritesService::new();
+        let _ = FavoritesService::new();
         // Basic smoke test that service can be created
     }
 
@@ -396,7 +396,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_methods_exist() {
-        let service = FavoritesService::new();
+        let _ = FavoritesService::new();
 
         // Test that service methods can be called (they'll panic with todo! for now)
         // This helps ensure the API surface is correct

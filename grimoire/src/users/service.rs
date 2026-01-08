@@ -5,7 +5,7 @@
 
 use crate::users::models::*;
 use crate::users::repository::UserRepository;
-use crate::wordlist::{generate_word_code, initialize_wordlist, ManagementWordlistConfig};
+use crate::wordlist::generate_word_code;
 
 /// Service for user-related business operations
 pub struct UserService {
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_service_creation() {
-        let service = UserService::new();
+        let _ = UserService::new();
         // Basic smoke test that service can be created
     }
 

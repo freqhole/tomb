@@ -14,4 +14,4 @@ pub use helpers::{
 pub use purge::{
     cleanup_orphaned_media_blobs, find_orphaned_media_blobs, OrphanedBlob, OrphanedBlobSummary,
 };
-pub use service::{get_blob_data, store_blob_data};
+pub use service::{blob_data_exists, delete_blob_data, get_blob_data, store_blob_data};

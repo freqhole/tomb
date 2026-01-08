@@ -2,7 +2,7 @@
 //! Finds and removes media blobs that have no references in any table
 
 use crate::database;
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::error::GrimoireResult;
 use crate::media_blobz::{delete_media_blob, find_media_blob_references};
 use std::time::Instant;
 

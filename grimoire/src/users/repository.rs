@@ -5,9 +5,7 @@
 
 use crate::database;
 use crate::users::models::*;
-use sea_query::{Expr, Query, SqliteQueryBuilder};
-use sea_query_sqlx::SqlxBinder;
-use sqlx::{Row, SqlitePool};
+use sqlx::Row;
 use time::OffsetDateTime;
 
 /// Database row struct for user_accountz table
@@ -397,7 +395,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_repository_creation() {
-        let repo = UserRepository::new();
+        let _ = UserRepository::new();
         // Basic smoke test that repository can be created
         assert!(true);
     }

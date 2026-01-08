@@ -269,7 +269,7 @@ pub async fn hard_delete_old_media_blobs(
 }
 
 /// Hard delete old blob data for deleted media blobs
-async fn hard_delete_old_blob_data(cutoff_timestamp: i64, dry_run: bool) -> GrimoireResult<u32> {
+async fn hard_delete_old_blob_data(_cutoff_timestamp: i64, dry_run: bool) -> GrimoireResult<u32> {
     let pool = database::connect().await?;
 
     if dry_run {

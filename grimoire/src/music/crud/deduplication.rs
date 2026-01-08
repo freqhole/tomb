@@ -1,8 +1,6 @@
 //! deduplication helpers for case-insensitive matching
 //! provides utilities to prevent duplicate artists, albums, and genres
 
-use crate::error::GrimoireResult;
-
 /// normalize a name for case-insensitive matching
 /// trims whitespace, converts to lowercase, collapses multiple spaces
 pub fn normalize_name(input: &str) -> String {

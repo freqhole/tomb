@@ -4,7 +4,7 @@ use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 use sqlx::SqliteConnection;
 
-use super::models::{MediaEvent, MediaEventType};
+use super::models::MediaEvent;
 
 /// Record a single media event
 ///
@@ -89,6 +89,7 @@ pub async fn record_events_batch(events: &[MediaEvent]) -> GrimoireResult<Vec<St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MediaEventType;
     use serde_json::json;
 
     #[tokio::test]

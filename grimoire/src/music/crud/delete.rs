@@ -2,7 +2,6 @@
 //! handles soft deletes and relationship cleanup
 
 use crate::error::GrimoireResult;
-use crate::music::entities::{Album, Artist, Genre, Playlist, Song};
 
 /// soft delete a song and clean up unused relationships
 pub async fn delete_song(song_id: &str) -> GrimoireResult<()> {

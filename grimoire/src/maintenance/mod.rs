@@ -65,7 +65,7 @@ pub async fn run_full_maintenance_with_options(
 pub async fn cleanup_orphaned_media_blobs_older_than(
     min_age_days: f64,
 ) -> crate::error::GrimoireResult<OrphanedBlobSummary> {
-    use crate::blob_data::{find_orphaned_media_blobs, OrphanedBlob};
+    use crate::blob_data::find_orphaned_media_blobs;
     use crate::media_blobz::delete_media_blob;
     use std::time::Instant;
 

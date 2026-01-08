@@ -6,7 +6,7 @@
 
 use crate::analytics::{record_event_with_conn, MediaEvent, MediaEventType};
 use crate::database;
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::error::GrimoireResult;
 use sqlx::SqliteConnection;
 
 use super::models::MusicPlayEvent;

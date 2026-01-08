@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn test_ratings_service_creation() {
-        let service = RatingsService::new();
+        let _ = RatingsService::new();
         // Basic smoke test that service can be created
     }
 

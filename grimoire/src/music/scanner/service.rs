@@ -7,7 +7,7 @@ use crate::error::GrimoireResult;
 use std::path::Path;
 
 pub use super::directory::{is_audio_file, scan_directory_and_create_jobs};
-pub use super::import::{extract_and_import, import_basic, ImportResult};
+pub use super::import::{extract_and_import, ImportResult};
 
 /// Scan a directory for audio files and create import jobs
 ///

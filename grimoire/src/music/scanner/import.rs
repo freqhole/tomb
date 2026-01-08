@@ -7,7 +7,6 @@
 //! - Fallback handling when metadata extraction fails
 
 use crate::analytics::{record_event, MediaEvent, MediaEventType};
-use crate::error::GrimoireResult;
 use crate::jobs::JobError;
 use crate::music::crud::{add_song, ImportSongRequest};
 use lofty::{AudioFile, ItemValue, Probe, TaggedFileExt};
