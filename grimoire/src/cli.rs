@@ -702,6 +702,42 @@ pub enum AnalyticsAction {
         /// ID of the entity
         entity_id: String,
     },
+    /// Show recent listening activity feed
+    RecentListens {
+        /// Number of items to return
+        #[arg(long, default_value = "20")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Show recent favorites feed
+    RecentFavorites {
+        /// Number of items to return
+        #[arg(long, default_value = "20")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Show recently added albums feed
+    RecentAlbums {
+        /// Number of items to return
+        #[arg(long, default_value = "20")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Show combined activity feed (listens, favorites, albums)
+    Feed {
+        /// Number of items to return
+        #[arg(long, default_value = "20")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -782,9 +818,10 @@ pub enum WordlistAction {
 async fn handle_analytics_command(action: AnalyticsAction) -> GrimoireResult<()> {
     use crate::analytics::{MediaEvent, MediaEventType};
     use crate::music::analytics::{
-        create_play_event, get_album_play_count, get_artist_play_count, get_session_summary,
+        create_play_event, get_album_play_count, get_artist_play_count, get_combined_feed,
+        get_recent_albums, get_recent_favorites, get_recent_listens, get_session_summary,
         get_song_play_analytics, get_song_play_count, get_user_listening_history,
-        record_play_event,
+        record_play_event, FeedItemType,
     };
     use crate::music::crud::{query_albums, query_artists, query_songs, QueryParams};
 
@@ -1099,6 +1136,136 @@ async fn handle_analytics_command(action: AnalyticsAction) -> GrimoireResult<()>
                         message: "Must be 'song', 'album', or 'artist'".to_string(),
                     });
                 }
+            }
+        }
+        AnalyticsAction::RecentListens { limit, offset } => {
+            println!("Fetching recent listening activity...\n");
+
+            let (items, total_count) = get_recent_listens(limit, offset).await?;
+
+            if items.is_empty() {
+                println!("No recent listening activity found.");
+                return Ok(());
+            }
+
+            println!(
+                "Showing {} of {} items (offset: {})\n",
+                items.len(),
+                total_count,
+                offset
+            );
+
+            for item in items {
+                let subtitle = item.subtitle.as_deref().unwrap_or("Unknown Artist");
+                let play_count = item.play_count.unwrap_or(0);
+                println!("🎵 {} - {}", item.title, subtitle);
+                println!(
+                    "   Played {} time{} • Last: {}",
+                    play_count,
+                    if play_count == 1 { "" } else { "s" },
+                    format_timestamp(item.created_at)
+                );
+                if let Some(username) = item.username {
+                    println!("   User: {}", username);
+                }
+                println!();
+            }
+        }
+        AnalyticsAction::RecentFavorites { limit, offset } => {
+            println!("Fetching recent favorites...\n");
+
+            let (items, total_count) = get_recent_favorites(limit, offset).await?;
+
+            if items.is_empty() {
+                println!("No recent favorites found.");
+                return Ok(());
+            }
+
+            println!(
+                "Showing {} of {} items (offset: {})\n",
+                items.len(),
+                total_count,
+                offset
+            );
+
+            for item in items {
+                let subtitle = item.subtitle.as_deref().unwrap_or("Unknown Artist");
+                println!("⭐ {} - {}", item.title, subtitle);
+                println!("   Favorited: {}", format_timestamp(item.created_at));
+                if let Some(username) = item.username {
+                    println!("   By: {}", username);
+                }
+                println!();
+            }
+        }
+        AnalyticsAction::RecentAlbums { limit, offset } => {
+            println!("Fetching recently added albums...\n");
+
+            let (items, total_count) = get_recent_albums(limit, offset).await?;
+
+            if items.is_empty() {
+                println!("No recent albums found.");
+                return Ok(());
+            }
+
+            println!(
+                "Showing {} of {} items (offset: {})\n",
+                items.len(),
+                total_count,
+                offset
+            );
+
+            for item in items {
+                let subtitle = item.subtitle.as_deref().unwrap_or("Unknown Artist");
+                println!("💿 {} - {}", item.title, subtitle);
+                println!("   Added: {}", format_timestamp(item.created_at));
+                println!();
+            }
+        }
+        AnalyticsAction::Feed { limit, offset } => {
+            println!("Fetching combined activity feed...\n");
+
+            let (items, total_count) = get_combined_feed(limit, offset).await?;
+
+            if items.is_empty() {
+                println!("No activity found.");
+                return Ok(());
+            }
+
+            println!(
+                "Showing {} of {} items (offset: {})\n",
+                items.len(),
+                total_count,
+                offset
+            );
+
+            for item in items {
+                let icon = match item.feed_type {
+                    FeedItemType::RecentListen => "🎵",
+                    FeedItemType::RecentFavorite => "⭐",
+                    FeedItemType::RecentAlbum => "💿",
+                };
+
+                let action = match item.feed_type {
+                    FeedItemType::RecentListen => {
+                        let count = item.play_count.unwrap_or(1);
+                        if count > 1 {
+                            format!("Played {} times", count)
+                        } else {
+                            "Played".to_string()
+                        }
+                    }
+                    FeedItemType::RecentFavorite => "Favorited".to_string(),
+                    FeedItemType::RecentAlbum => "Album added".to_string(),
+                };
+
+                let subtitle = item.subtitle.as_deref().unwrap_or("Unknown Artist");
+                println!("{} {} - {}", icon, item.title, subtitle);
+                println!("   {} • {}", action, format_timestamp(item.created_at));
+                if let Some(username) = item.username {
+                    println!("   User: {}", username);
+                }
+                println!();
             }
         }
     }

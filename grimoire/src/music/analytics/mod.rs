@@ -33,6 +33,7 @@
 //! ```
 
 pub mod events;
+pub mod feed;
 pub mod models;
 pub mod queries;
 
@@ -48,4 +49,10 @@ pub use events::{create_complete_event, create_play_event, record_play_event};
 pub use queries::{
     get_album_play_count, get_artist_play_count, get_session_summary, get_song_play_analytics,
     get_song_play_count, get_user_listening_history,
+};
+
+// Re-export feed types and functions
+pub use feed::{
+    get_combined_feed, get_recent_albums, get_recent_favorites, get_recent_listens, FeedItem,
+    FeedItemType,
 };
