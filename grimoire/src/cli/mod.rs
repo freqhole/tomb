@@ -79,7 +79,7 @@ pub enum Commands {
 }
 
 /// Main CLI entry point
-pub async fn run_cli() -> anyhow::Result<()> {
+pub async fn run_cli() -> crate::error::GrimoireResult<()> {
     use clap::Parser;
     let cli = Cli::parse();
 
