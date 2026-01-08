@@ -54,7 +54,7 @@ pub async fn handle_command(action: JobAction) -> GrimoireResult<()> {
         JobAction::List { session_id, limit } => {
             println!("listing jobs...");
 
-            let jobs = list_jobs(session_id.as_deref(), None, Some(limit), None)
+            let jobs = list_jobs(session_id.as_deref(), None, Some(limit as u32), None)
                 .await
                 .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
                     message: format!("Failed to list jobs: {}", e),
@@ -141,7 +141,7 @@ pub async fn handle_command(action: JobAction) -> GrimoireResult<()> {
             let scan_params = ScanDirectoryParams {
                 directory_path: path.clone(),
                 recursive: recursive.unwrap_or(true),
-                max_depth,
+                max_depth: max_depth.map(|d| d as u32),
                 file_extensions: None, // Use default audio extensions
             };
 
@@ -216,7 +216,7 @@ pub async fn handle_command(action: JobAction) -> GrimoireResult<()> {
             println!();
 
             let result = if once {
-                crate::jobs::run_job_processor_once(max_jobs).await
+                crate::jobs::run_job_processor_once(max_jobs as u32).await
             } else {
                 crate::jobs::run_job_processor().await
             };

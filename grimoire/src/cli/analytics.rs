@@ -1,6 +1,14 @@
 //! Analytics operations CLI commands
 
 use crate::error::GrimoireResult;
+use crate::music::analytics::{
+    create_play_event, get_album_play_count, get_all_user_stats, get_artist_play_count,
+    get_combined_feed, get_overview_stats, get_recent_albums, get_recent_favorites,
+    get_recent_listens, get_session_summary, get_song_play_analytics, get_song_play_count,
+    get_top_albums, get_top_artists, get_top_songs, get_user_listening_history, get_user_stats,
+    record_play_event, FeedItemType,
+};
+use crate::music::crud::{query_albums, query_artists, query_songs, QueryParams};
 use clap::Subcommand;
 
 #[derive(Subcommand)]
@@ -94,16 +102,6 @@ pub enum AnalyticsAction {
 
 /// Handle analytics commands
 pub async fn handle_command(action: AnalyticsAction) -> GrimoireResult<()> {
-    use crate::analytics::{MediaEvent, MediaEventType};
-    use crate::music::analytics::{
-        create_play_event, get_album_play_count, get_all_user_stats, get_artist_play_count,
-        get_combined_feed, get_overview_stats, get_recent_albums, get_recent_favorites,
-        get_recent_listens, get_session_summary, get_song_play_analytics, get_song_play_count,
-        get_top_albums, get_top_artists, get_top_songs, get_user_listening_history, get_user_stats,
-        record_play_event, FeedItemType,
-    };
-    use crate::music::crud::{query_albums, query_artists, query_songs, QueryParams};
-
     match action {
         AnalyticsAction::RecordPlay {
             song_id,

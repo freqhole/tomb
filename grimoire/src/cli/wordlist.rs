@@ -1,7 +1,7 @@
 //! Wordlist operations CLI commands
 
 use crate::error::GrimoireResult;
-use crate::user_management::wordlist::{
+use crate::wordlist::{
     generate_word_code, initialize_wordlist, is_initialized, ManagementWordlistConfig,
     WordlistConfig, WordlistService,
 };

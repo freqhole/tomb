@@ -1,6 +1,9 @@
 //! MusicBrainz API integration commands
 
 use crate::error::GrimoireResult;
+use crate::music::musicbrainz::{
+    MusicBrainzClient, MusicBrainzConfig, RecordingSearchQuery, ReleaseSearchQuery,
+};
 use clap::Subcommand;
 
 #[derive(Subcommand)]
@@ -68,10 +71,6 @@ pub enum MusicBrainzAction {
 
 /// Handle MusicBrainz commands
 pub async fn handle_command(action: MusicBrainzAction) -> GrimoireResult<()> {
-    use crate::music::musicbrainz::{
-        MusicBrainzClient, MusicBrainzConfig, RecordingSearchQuery, ReleaseSearchQuery,
-    };
-
     // Create client with config (enabled for testing)
     let mut config = MusicBrainzConfig::default();
     config.enabled = true;
@@ -92,7 +91,9 @@ pub async fn handle_command(action: MusicBrainzAction) -> GrimoireResult<()> {
         } => {
             println!("Searching MusicBrainz for song: {}", title);
 
-            let mut query = RecordingSearchQuery::new().title(&title).limit(limit);
+            let mut query = RecordingSearchQuery::new()
+                .title(&title)
+                .limit(limit as u32);
 
             if let Some(artist) = artist {
                 query = query.artist(&artist);
@@ -152,7 +153,7 @@ pub async fn handle_command(action: MusicBrainzAction) -> GrimoireResult<()> {
             limit,
             json,
         } => {
-            let mut query = ReleaseSearchQuery::new().limit(limit);
+            let mut query = ReleaseSearchQuery::new().limit(limit as u32);
 
             if let Some(q) = query_text {
                 // Free-form search
@@ -272,7 +273,7 @@ pub async fn handle_command(action: MusicBrainzAction) -> GrimoireResult<()> {
             album,
             limit,
         } => {
-            let mut query = ReleaseSearchQuery::new().limit(limit);
+            let mut query = ReleaseSearchQuery::new().limit(limit as u32);
 
             if let Some(q) = query_text {
                 // Free-form search

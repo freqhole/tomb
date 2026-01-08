@@ -2,6 +2,7 @@
 
 use crate::error::GrimoireResult;
 use clap::Subcommand;
+use sqlx::Row;
 
 #[derive(Subcommand)]
 pub enum DatabaseAction {

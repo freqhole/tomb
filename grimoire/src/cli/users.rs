@@ -1,6 +1,10 @@
 //! User management CLI commands
 
 use crate::error::GrimoireResult;
+use crate::users::{
+    CreateInviteCodeRequest, CreateUserRequest, FavoriteTarget, RatingTarget, SetFavoriteRequest,
+    SetRatingRequest, UpdateUserRequest, UserQueryParams, UserRepository, UserRole, UserService,
+};
 use clap::Subcommand;
 
 #[derive(Subcommand)]
@@ -164,12 +168,6 @@ pub enum UserAction {
 
 /// Handle user commands
 pub async fn handle_command(action: UserAction) -> GrimoireResult<()> {
-    use crate::users::{
-        CreateInviteCodeRequest, CreateUserRequest, FavoriteTarget, RatingTarget,
-        SetFavoriteRequest, SetRatingRequest, UpdateUserRequest, UserQueryParams, UserRepository,
-        UserRole, UserService,
-    };
-
     let service = UserService::new();
 
     match action {
@@ -239,8 +237,8 @@ pub async fn handle_command(action: UserAction) -> GrimoireResult<()> {
                 username: None,
                 role: user_role,
                 include_deleted: Some(include_deleted),
-                limit: Some(limit),
-                offset: Some(offset),
+                limit: Some(limit as u32),
+                offset: Some(offset as u32),
             };
 
             // For CLI, we'll create a dummy admin user for authorization
@@ -363,7 +361,7 @@ pub async fn handle_command(action: UserAction) -> GrimoireResult<()> {
             let request = CreateInviteCodeRequest {
                 code_type: Some(invite_type),
                 link_for_user_id: None,
-                expires_hours,
+                expires_hours: expires_hours.map(|h| h as u32),
             };
 
             let admin_user = crate::users::User {
@@ -376,7 +374,7 @@ pub async fn handle_command(action: UserAction) -> GrimoireResult<()> {
             };
 
             match service
-                .generate_invite_codes(&request, count, word_count, &admin_user)
+                .generate_invite_codes(&request, count as u32, word_count, &admin_user)
                 .await
             {
                 Ok(codes) => {
@@ -568,7 +566,7 @@ pub async fn handle_command(action: UserAction) -> GrimoireResult<()> {
             let favorites_service = crate::users::favorites::FavoritesService::new();
 
             match favorites_service
-                .get_user_favorites(&user_id, target_filter, Some(limit), None)
+                .get_user_favorites(&user_id, target_filter, Some(limit as u32), None)
                 .await
             {
                 Ok(favorites) => {
@@ -750,7 +748,7 @@ pub async fn handle_command(action: UserAction) -> GrimoireResult<()> {
             let ratings_service = crate::users::ratings::RatingsService::new();
 
             match ratings_service
-                .get_top_rated(rating_target, Some(min_ratings), Some(limit as u32))
+                .get_top_rated(rating_target, Some(min_ratings as u64), Some(limit as u32))
                 .await
             {
                 Ok(items) => {

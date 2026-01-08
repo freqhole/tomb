@@ -333,7 +333,7 @@ pub enum MusicAction {
 }
 
 /// Handle music commands
-pub async fn handle_command(action: MusicAction) -> antml::Result<()> {
+pub async fn handle_command(action: MusicAction) -> crate::error::GrimoireResult<()> {
     match action {
         // Query commands
         MusicAction::QuerySongs { .. } => query::handle_query_songs(action).await,

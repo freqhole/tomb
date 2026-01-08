@@ -91,7 +91,7 @@ pub async fn handle_update_position(action: MusicAction) -> GrimoireResult<()> {
     {
         println!("updating song position(s) in playlist...");
         let song_id_list: Vec<&str> = song_ids.iter().map(|s| s.as_str()).collect();
-        match update_songs_position(&playlist_id, &song_id_list, new_position).await {
+        match update_songs_position(&playlist_id, &song_id_list, new_position as i64).await {
             Ok(()) => {
                 println!(
                     "successfully moved {} song(s) to position {} in playlist {}",
