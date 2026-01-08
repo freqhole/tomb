@@ -41,23 +41,8 @@ pub(crate) async fn connect() -> GrimoireResult<SqlitePool> {
     Ok(pool)
 }
 
-// Legacy compatibility functions - all delegate to main database
-#[deprecated(note = "Use connect() instead - all data is now in single database")]
-pub(crate) async fn connect_media_blobz() -> GrimoireResult<SqlitePool> {
-    connect().await
-}
-
-#[deprecated(note = "Use connect() instead - all data is now in single database")]
-pub(crate) async fn connect_blob_data() -> GrimoireResult<SqlitePool> {
-    connect().await
-}
-
-#[deprecated(note = "Use connect() instead - all data is now in single database")]
-pub(crate) async fn connect_music() -> GrimoireResult<SqlitePool> {
-    connect().await
-}
-
-#[deprecated(note = "Use connect() instead - all data is now in single database")]
-pub(crate) async fn connect_app_state() -> GrimoireResult<SqlitePool> {
-    connect().await
-}
+// #TODO: so i guess it could be neat to have a standalone blob_data sqlite db file?
+// #[deprecated(note = "Use connect() instead - all data is now in single database")]
+// pub(crate) async fn connect_blob_data() -> GrimoireResult<SqlitePool> {
+//     connect().await
+// }

@@ -115,7 +115,7 @@ pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult
 
 /// find existing artist by name or create new one
 pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResult<(Artist, bool)> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Try to find existing artist by name (case-insensitive)
     let existing = sqlx::query_as!(
@@ -151,7 +151,7 @@ pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResult<(
 
 /// find existing album by title or create new one
 pub async fn find_or_create_album(req: AlbumImportRequest) -> GrimoireResult<(Album, bool)> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Try to find existing album by title (case-insensitive)
     let existing = sqlx::query_as!(
@@ -199,7 +199,7 @@ pub async fn find_or_create_album(req: AlbumImportRequest) -> GrimoireResult<(Al
 
 /// find existing genre by name or create new one
 pub async fn find_or_create_genre(name: String) -> GrimoireResult<(Genre, bool)> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Try to find existing genre by name (case-insensitive)
     let existing = sqlx::query_as!(
@@ -227,7 +227,7 @@ pub async fn find_or_create_genre(name: String) -> GrimoireResult<(Genre, bool)>
 
 /// create relationship between artist and song
 async fn create_artist_song_relationship(artist_id: &str, song_id: &str) -> GrimoireResult<()> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     sqlx::query!(
         "INSERT OR IGNORE INTO artist_songz (artist_id, song_id) VALUES (?, ?)",
@@ -242,7 +242,7 @@ async fn create_artist_song_relationship(artist_id: &str, song_id: &str) -> Grim
 
 /// create relationship between album and song
 async fn create_album_song_relationship(album_id: &str, song_id: &str) -> GrimoireResult<()> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     sqlx::query!(
         "INSERT OR IGNORE INTO album_songz (album_id, song_id) VALUES (?, ?)",
@@ -257,7 +257,7 @@ async fn create_album_song_relationship(album_id: &str, song_id: &str) -> Grimoi
 
 /// create relationship between artist and album
 async fn create_artist_album_relationship(artist_id: &str, album_id: &str) -> GrimoireResult<()> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     sqlx::query!(
         "INSERT OR IGNORE INTO artist_albumz (artist_id, album_id) VALUES (?, ?)",
@@ -275,7 +275,7 @@ async fn find_or_create_album_for_artist(
     req: AlbumImportRequest,
     artist_id: &str,
 ) -> GrimoireResult<(Album, bool)> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Look for existing album by this specific artist with the same title
     let existing = sqlx::query_as!(
@@ -430,7 +430,7 @@ pub async fn get_or_create_playlist_by_name(
     is_public: Option<bool>,
     created_by_id: Option<String>,
 ) -> GrimoireResult<(Playlist, bool)> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Try to find existing playlist by name (case-insensitive)
     let existing = sqlx::query_as!(
@@ -479,7 +479,7 @@ pub async fn update_song_with_relationships(
     new_album_title: Option<String>,
     new_genre_name: Option<String>,
 ) -> GrimoireResult<ImportSongResult> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Get the song
     let song = songs::get_song(song_id).await?;

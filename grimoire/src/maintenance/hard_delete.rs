@@ -124,7 +124,7 @@ pub async fn hard_delete_old_records(
 
 /// Hard delete old soft-deleted songs
 pub async fn hard_delete_old_songs(cutoff_timestamp: i64, dry_run: bool) -> GrimoireResult<u32> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     if dry_run {
         let count = sqlx::query!(
@@ -155,7 +155,7 @@ pub async fn hard_delete_old_playlists(
     cutoff_timestamp: i64,
     dry_run: bool,
 ) -> GrimoireResult<u32> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     if dry_run {
         let count = sqlx::query!(
@@ -183,7 +183,7 @@ pub async fn hard_delete_old_playlists(
 
 /// Hard delete old soft-deleted albums
 pub async fn hard_delete_old_albums(cutoff_timestamp: i64, dry_run: bool) -> GrimoireResult<u32> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     if dry_run {
         let count = sqlx::query!(
@@ -211,7 +211,7 @@ pub async fn hard_delete_old_albums(cutoff_timestamp: i64, dry_run: bool) -> Gri
 
 /// Hard delete old soft-deleted artists
 pub async fn hard_delete_old_artists(cutoff_timestamp: i64, dry_run: bool) -> GrimoireResult<u32> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     if dry_run {
         let count = sqlx::query!(

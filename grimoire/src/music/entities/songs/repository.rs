@@ -7,7 +7,7 @@ use crate::error::{GrimoireError, GrimoireResult};
 
 /// create a new song
 pub async fn create_song(req: CreateSongRequest) -> GrimoireResult<Song> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let song = sqlx::query_as!(
         Song,
@@ -57,7 +57,7 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResult<Song> {
 
 /// list all songs (non-deleted only)
 pub async fn list_songs() -> GrimoireResult<Vec<Song>> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let songs = sqlx::query_as!(
         Song,
@@ -96,7 +96,7 @@ pub async fn list_songs() -> GrimoireResult<Vec<Song>> {
 
 /// get song by id
 pub async fn get_song(id: &str) -> GrimoireResult<Song> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let song = sqlx::query_as!(
         Song,
@@ -135,7 +135,7 @@ pub async fn get_song(id: &str) -> GrimoireResult<Song> {
 
 /// soft delete a song
 pub async fn delete_song(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
     let rows_affected = sqlx::query!(
         "UPDATE songz SET deleted_at = unixepoch(), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
         deleted_by,

@@ -9,7 +9,7 @@ use crate::error::{GrimoireError, GrimoireResult};
 
 /// create a new playlist
 pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResult<Playlist> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let is_public = if req.is_public.unwrap_or(false) { 1 } else { 0 };
     let created_by_str = req.created_by_id.clone();
@@ -48,7 +48,7 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResult<Playl
 /// list all playlists (with song counts)
 /// this probably could be deleted since we have query_playlists
 pub async fn list_playlists() -> GrimoireResult<Vec<PlaylistWithCount>> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let playlists = sqlx::query_as!(
         PlaylistWithCount,
@@ -82,7 +82,7 @@ pub async fn list_playlists() -> GrimoireResult<Vec<PlaylistWithCount>> {
 
 /// get playlist by id
 pub async fn get_playlist(id: &str) -> GrimoireResult<Playlist> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let playlist = sqlx::query_as!(
         Playlist,
@@ -116,7 +116,7 @@ pub async fn remove_playlist_thumbnail(
     cleanup_unused_blob: bool,
     deleted_by: Option<String>,
 ) -> GrimoireResult<Playlist> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Get current thumbnail blob ID before removing it
     let current_thumbnail_blob_id = sqlx::query!(
@@ -166,7 +166,7 @@ pub async fn remove_playlist_thumbnail(
 
 /// update playlist metadata
 pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireResult<Playlist> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Convert is_public boolean to integer for SQLite
     let is_public_int = req.is_public.map(|p| if p { 1 } else { 0 });
@@ -204,7 +204,7 @@ pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireRe
 
 /// soft delete a playlist
 pub async fn delete_playlist(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let rows_affected = sqlx::query!(
         "UPDATE playlistz SET deleted_at = unixepoch(), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
@@ -225,7 +225,7 @@ pub async fn delete_playlist(id: &str, deleted_by: Option<String>) -> GrimoireRe
 
 /// add songs to a playlist
 pub async fn add_songs_to_playlist(playlist_id: &str, song_ids: &[String]) -> GrimoireResult<()> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Verify playlist exists
     sqlx::query!(
@@ -270,7 +270,7 @@ pub async fn remove_songs_from_playlist(
     playlist_id: &str,
     song_ids: Vec<String>,
 ) -> GrimoireResult<()> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Verify playlist exists
     sqlx::query!(
@@ -314,7 +314,7 @@ pub async fn remove_songs_from_playlist(
 
 /// get songs in a playlist
 pub async fn get_playlist_songs(playlist_id: &str) -> GrimoireResult<Vec<PlaylistSong>> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     let playlist_songs = sqlx::query_as!(
         PlaylistSong,
@@ -351,7 +351,7 @@ pub async fn update_songs_position(
     song_ids: &[&str],
     new_position: i64,
 ) -> GrimoireResult<()> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Step 1: Get all songs in playlist with their current positions
     let all_songs = sqlx::query!(

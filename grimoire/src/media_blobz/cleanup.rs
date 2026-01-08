@@ -49,7 +49,7 @@ impl MediaBlobReferences {
 
 /// Find all references to a media blob across all tables
 pub async fn find_media_blob_references(blob_id: &str) -> GrimoireResult<MediaBlobReferences> {
-    let pool = database::connect_music().await?;
+    let pool = database::connect().await?;
 
     // Check song media blob references
     let song_media_refs = sqlx::query!(
