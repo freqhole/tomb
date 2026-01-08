@@ -13,8 +13,8 @@ mod update;
 pub use models::{
     AlbumImportRequest, AlbumImportResult, AlbumQueryResult, ArtistImportRequest,
     ArtistQueryResult, BulkImportRequest, BulkImportResult, CreateSongWithMetadataRequest,
-    ImportSongRequest, ImportSongResult, PlaylistQueryResult, QueryParams, QueryResult,
-    SongImportError, SongQueryResult,
+    GenreQueryResult, ImportSongRequest, ImportSongResult, PlaylistQueryResult, PlaylistSongResult,
+    QueryParams, QueryResult, SongImportError, SongQueryResult,
 };
 
 // re-export update types and functions

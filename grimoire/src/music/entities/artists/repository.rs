@@ -27,8 +27,10 @@ pub async fn create_artist(req: CreateArtistRequest) -> GrimoireResult<Artist> {
 }
 
 /// list all artists (non-deleted only)
-pub async fn list_artists() -> GrimoireResult<Vec<Artist>> {
+pub async fn list_artists(limit: Option<u32>, offset: Option<u32>) -> GrimoireResult<Vec<Artist>> {
     let pool = database::connect().await?;
+    let limit = limit.unwrap_or(100).min(1000) as i64;
+    let offset = offset.unwrap_or(0) as i64;
 
     let artists = sqlx::query_as!(
         Artist,
@@ -38,7 +40,9 @@ pub async fn list_artists() -> GrimoireResult<Vec<Artist>> {
            FROM artistz
            WHERE deleted_at IS NULL
            ORDER BY name ASC
-           LIMIT 100"#
+           LIMIT ? OFFSET ?"#,
+        limit,
+        offset
     )
     .fetch_all(&pool)
     .await?;

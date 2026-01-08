@@ -1,6 +1,6 @@
 //! Unified query system with shared filters for songs, albums, artists, genres
 
-use sea_query::{Alias, Cond, Expr, Iden, Order, Query, SelectStatement, SqliteQueryBuilder};
+use sea_query::{Cond, Expr, Iden, Order, Query, SelectStatement, SqliteQueryBuilder};
 use std::time::Instant;
 
 use crate::database;
@@ -94,32 +94,6 @@ enum GenreView {
 }
 
 #[derive(Iden)]
-enum UserFavoritez {
-    Table,
-    #[iden = "id"]
-    Id,
-    #[iden = "user_id"]
-    UserId,
-    #[iden = "target_type"]
-    TargetType,
-    #[iden = "target_id"]
-    TargetId,
-}
-
-#[derive(Iden)]
-enum UserRatingz {
-    Table,
-    #[iden = "user_id"]
-    UserId,
-    #[iden = "target_type"]
-    TargetType,
-    #[iden = "target_id"]
-    TargetId,
-    #[iden = "rating"]
-    Rating,
-}
-
-#[derive(Iden)]
 enum CommonColumns {
     #[iden = "artist_id"]
     ArtistId,
@@ -180,7 +154,6 @@ pub struct SongViewRow {
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
     // User context fields from view joins
-    favorite_id: Option<String>,
     favorite_user_id: Option<String>,
     favorited_at: Option<i64>,
     rating_user_id: Option<String>,
@@ -252,16 +225,22 @@ impl SongViewRow {
         };
 
         // Determine user context fields based on user_id match
-        let (is_favorite, rating) = if let Some(uid) = user_id {
+        let (is_favorite, rating, favorited_at, rating_created_at) = if let Some(uid) = user_id {
             let is_fav = self.favorite_user_id.as_ref() == Some(&uid.to_string());
+            let fav_at = if is_fav { self.favorited_at } else { None };
             let user_rating = if self.rating_user_id.as_ref() == Some(&uid.to_string()) {
                 self.user_rating
             } else {
                 None
             };
-            (Some(is_fav), user_rating)
+            let rating_at = if user_rating.is_some() {
+                self.rating_created_at
+            } else {
+                None
+            };
+            (Some(is_fav), user_rating, fav_at, rating_at)
         } else {
-            (None, None)
+            (None, None, None, None)
         };
 
         SongQueryResult {
@@ -274,6 +253,11 @@ impl SongViewRow {
             snippet: None,
             is_favorite,
             rating,
+            favorited_at,
+            rating_created_at,
+            artist_total_song_count: self.artist_total_song_count,
+            artist_total_album_count: self.artist_total_album_count,
+            artist_total_duration: self.artist_total_duration,
         }
     }
 }
@@ -293,7 +277,6 @@ pub struct ArtistViewRow {
     album_count: i64,
     total_duration: i64,
     // User context fields from view joins
-    favorite_id: Option<String>,
     favorite_user_id: Option<String>,
     favorited_at: Option<i64>,
     rating_user_id: Option<String>,
@@ -315,16 +298,22 @@ impl ArtistViewRow {
         };
 
         // Determine user context fields based on user_id match
-        let (is_favorite, rating) = if let Some(uid) = user_id {
+        let (is_favorite, rating, favorited_at, rating_created_at) = if let Some(uid) = user_id {
             let is_fav = self.favorite_user_id.as_ref() == Some(&uid.to_string());
+            let fav_at = if is_fav { self.favorited_at } else { None };
             let user_rating = if self.rating_user_id.as_ref() == Some(&uid.to_string()) {
                 self.user_rating
             } else {
                 None
             };
-            (Some(is_fav), user_rating)
+            let rating_at = if user_rating.is_some() {
+                self.rating_created_at
+            } else {
+                None
+            };
+            (Some(is_fav), user_rating, fav_at, rating_at)
         } else {
-            (None, None)
+            (None, None, None, None)
         };
 
         ArtistQueryResult {
@@ -334,6 +323,8 @@ impl ArtistViewRow {
             total_duration: Some(self.total_duration),
             is_favorite,
             rating,
+            favorited_at,
+            rating_created_at,
         }
     }
 }
@@ -360,7 +351,6 @@ pub struct AlbumViewRow {
     artist_created_at: Option<i64>,
     artist_updated_at: Option<i64>,
     // User context fields from view joins
-    favorite_id: Option<String>,
     favorite_user_id: Option<String>,
     favorited_at: Option<i64>,
     rating_user_id: Option<String>,
@@ -404,16 +394,22 @@ impl AlbumViewRow {
         };
 
         // Determine user context fields based on user_id match
-        let (is_favorite, rating) = if let Some(uid) = user_id {
+        let (is_favorite, rating, favorited_at, rating_created_at) = if let Some(uid) = user_id {
             let is_fav = self.favorite_user_id.as_ref() == Some(&uid.to_string());
+            let fav_at = if is_fav { self.favorited_at } else { None };
             let user_rating = if self.rating_user_id.as_ref() == Some(&uid.to_string()) {
                 self.user_rating
             } else {
                 None
             };
-            (Some(is_fav), user_rating)
+            let rating_at = if user_rating.is_some() {
+                self.rating_created_at
+            } else {
+                None
+            };
+            (Some(is_fav), user_rating, fav_at, rating_at)
         } else {
-            (None, None)
+            (None, None, None, None)
         };
 
         AlbumQueryResult {
@@ -422,6 +418,8 @@ impl AlbumViewRow {
             genre: None,
             is_favorite,
             rating,
+            favorited_at,
+            rating_created_at,
         }
     }
 }
@@ -432,7 +430,6 @@ pub struct GenreViewRow {
     genre_name: String,
     genre_created_at: i64,
     // User context fields from view joins (no ratings for genres)
-    favorite_id: Option<String>,
     favorite_user_id: Option<String>,
     favorited_at: Option<i64>,
 }
@@ -446,10 +443,12 @@ impl GenreViewRow {
         };
 
         // Determine favorite status based on user_id match
-        let is_favorite = if let Some(uid) = user_id {
-            Some(self.favorite_user_id.as_ref() == Some(&uid.to_string()))
+        let (is_favorite, favorited_at) = if let Some(uid) = user_id {
+            let is_fav = self.favorite_user_id.as_ref() == Some(&uid.to_string());
+            let fav_at = if is_fav { self.favorited_at } else { None };
+            (Some(is_fav), fav_at)
         } else {
-            None
+            (None, None)
         };
 
         GenreQueryResult {
@@ -457,6 +456,7 @@ impl GenreViewRow {
             song_count: None,
             album_count: None,
             is_favorite,
+            favorited_at,
         }
     }
 }
@@ -549,6 +549,25 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
         Some("artist") => {
             query.order_by(SongView::ArtistName, sort_direction);
             query.order_by(SongView::AlbumTitle, Order::Asc);
+        }
+        Some("song_id") => {
+            query.order_by(SongView::SongId, sort_direction);
+        }
+        Some("album_duration") => {
+            query.order_by(SongView::AlbumTotalDuration, sort_direction);
+            query.order_by(SongView::AlbumTitle, Order::Asc);
+        }
+        Some("album_song_count") => {
+            query.order_by(SongView::AlbumSongCount, sort_direction);
+            query.order_by(SongView::AlbumTitle, Order::Asc);
+        }
+        Some("artist_song_count") => {
+            query.order_by(SongView::ArtistTotalSongCount, sort_direction);
+            query.order_by(SongView::ArtistName, Order::Asc);
+        }
+        Some("artist_duration") => {
+            query.order_by(SongView::ArtistTotalDuration, sort_direction);
+            query.order_by(SongView::ArtistName, Order::Asc);
         }
         _ => {
             query.order_by(SongView::AlbumCreatedAt, Order::Desc);
@@ -733,6 +752,9 @@ pub async fn query_artists(params: QueryParams) -> GrimoireResult<QueryResult<Ar
         Some("duration") => {
             query.order_by(ArtistView::TotalDuration, sort_direction);
         }
+        Some("created_at") => {
+            query.order_by(ArtistView::ArtistCreatedAt, sort_direction);
+        }
         _ => {
             query.order_by(ArtistView::ArtistName, Order::Asc);
         }
@@ -800,6 +822,9 @@ pub async fn query_genres(params: QueryParams) -> GrimoireResult<QueryResult<Gen
     match params.sort_by.as_deref() {
         Some("name") => {
             query.order_by(GenreView::GenreName, sort_direction);
+        }
+        Some("created_at") => {
+            query.order_by(GenreView::GenreCreatedAt, sort_direction);
         }
         _ => {
             query.order_by(GenreView::GenreName, Order::Asc);

@@ -56,8 +56,10 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResult<Song> {
 }
 
 /// list all songs (non-deleted only)
-pub async fn list_songs() -> GrimoireResult<Vec<Song>> {
+pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResult<Vec<Song>> {
     let pool = database::connect().await?;
+    let limit = limit.unwrap_or(100).min(1000) as i64;
+    let offset = offset.unwrap_or(0) as i64;
 
     let songs = sqlx::query_as!(
         Song,
@@ -86,7 +88,9 @@ pub async fn list_songs() -> GrimoireResult<Vec<Song>> {
          FROM songz
          WHERE deleted_at IS NULL
          ORDER BY created_at DESC
-         LIMIT 100"
+         LIMIT ? OFFSET ?",
+        limit,
+        offset
     )
     .fetch_all(&pool)
     .await?;

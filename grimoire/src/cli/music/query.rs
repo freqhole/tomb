@@ -3,7 +3,7 @@
 use super::MusicAction;
 use crate::error::GrimoireResult;
 use crate::music::crud::{
-    delete_album, delete_artist, delete_playlist, delete_song, delete_sub_genre, delete_tag,
+    delete_album, delete_artist, delete_song, delete_sub_genre, delete_tag,
     find_or_create_sub_genre, get_album, get_album_tags, get_artist, get_genre, get_genre_stats,
     get_sub_genre, get_tag, list_albums, list_artists, list_genres, list_songs, list_sub_genres,
     list_sub_genres_for_genre, list_tags, query_albums, query_artists, query_genres,
@@ -354,20 +354,23 @@ pub async fn handle_query_playlist_songs(action: MusicAction) -> GrimoireResult<
                     result.items.len(),
                     result.total_count
                 );
-                for song in result.items {
+                for item in result.items {
                     let track_info = format!(
                         "D{:02}T{:02}",
-                        song.song.disc_number, song.song.track_number
+                        item.details.song.disc_number, item.details.song.track_number
                     );
                     println!(
-                        "  [{}] {} - {} ({})",
+                        "  [pos {}] [{}] {} - {} ({})",
+                        item.position,
                         track_info,
-                        song.artist
+                        item.details
+                            .artist
                             .as_ref()
                             .map(|a| a.name.clone())
                             .unwrap_or("Unknown".to_string()),
-                        song.song.title,
-                        song.album
+                        item.details.song.title,
+                        item.details
+                            .album
                             .as_ref()
                             .map(|a| a.title.clone())
                             .unwrap_or("Unknown".to_string())
@@ -391,20 +394,27 @@ pub async fn handle_query_playlist_songs(action: MusicAction) -> GrimoireResult<
 }
 
 // Album operations
-pub async fn handle_list_albums(_action: MusicAction) -> GrimoireResult<()> {
-    println!("listing all albums...");
-    match list_albums().await {
-        Ok(albums) => {
-            println!("found {} albums", albums.len());
-            for album in albums {
-                println!("  {} - {}", album.id, album.title);
+pub async fn handle_list_albums(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::ListAlbums { limit, offset } = action {
+        println!(
+            "listing albums (limit: {:?}, offset: {:?})...",
+            limit, offset
+        );
+        match list_albums(limit, offset).await {
+            Ok(albums) => {
+                println!("found {} albums", albums.len());
+                for album in albums {
+                    println!("  {} - {}", album.id, album.title);
+                }
+                Ok(())
             }
-            Ok(())
+            Err(e) => {
+                eprintln!("failed to list albums: {}", e);
+                Err(e)
+            }
         }
-        Err(e) => {
-            eprintln!("failed to list albums: {}", e);
-            Err(e)
-        }
+    } else {
+        unreachable!("handle_list_albums called with wrong action variant")
     }
 }
 
@@ -474,20 +484,27 @@ pub async fn handle_get_album_tags(action: MusicAction) -> GrimoireResult<()> {
 }
 
 // Artist operations
-pub async fn handle_list_artists(_action: MusicAction) -> GrimoireResult<()> {
-    println!("listing all artists...");
-    match list_artists().await {
-        Ok(artists) => {
-            println!("found {} artists", artists.len());
-            for artist in artists {
-                println!("  {} - {}", artist.id, artist.name);
+pub async fn handle_list_artists(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::ListArtists { limit, offset } = action {
+        println!(
+            "listing artists (limit: {:?}, offset: {:?})...",
+            limit, offset
+        );
+        match list_artists(limit, offset).await {
+            Ok(artists) => {
+                println!("found {} artists", artists.len());
+                for artist in artists {
+                    println!("  {} - {}", artist.id, artist.name);
+                }
+                Ok(())
             }
-            Ok(())
+            Err(e) => {
+                eprintln!("failed to list artists: {}", e);
+                Err(e)
+            }
         }
-        Err(e) => {
-            eprintln!("failed to list artists: {}", e);
-            Err(e)
-        }
+    } else {
+        unreachable!("handle_list_artists called with wrong action variant")
     }
 }
 
@@ -532,20 +549,27 @@ pub async fn handle_delete_artist(action: MusicAction) -> GrimoireResult<()> {
 }
 
 // Song operations
-pub async fn handle_list_songs(_action: MusicAction) -> GrimoireResult<()> {
-    println!("listing all songs...");
-    match list_songs().await {
-        Ok(songs) => {
-            println!("found {} songs", songs.len());
-            for song in songs {
-                println!("  {} - {}", song.id, song.title);
+pub async fn handle_list_songs(action: MusicAction) -> GrimoireResult<()> {
+    if let MusicAction::ListSongs { limit, offset } = action {
+        println!(
+            "listing songs (limit: {:?}, offset: {:?})...",
+            limit, offset
+        );
+        match list_songs(limit, offset).await {
+            Ok(songs) => {
+                println!("found {} songs", songs.len());
+                for song in songs {
+                    println!("  {} - {}", song.id, song.title);
+                }
+                Ok(())
             }
-            Ok(())
+            Err(e) => {
+                eprintln!("failed to list songs: {}", e);
+                Err(e)
+            }
         }
-        Err(e) => {
-            eprintln!("failed to list songs: {}", e);
-            Err(e)
-        }
+    } else {
+        unreachable!("handle_list_songs called with wrong action variant")
     }
 }
 

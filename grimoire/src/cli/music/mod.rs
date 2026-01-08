@@ -333,7 +333,12 @@ pub enum MusicAction {
 
     // Album operations
     /// List all albums
-    ListAlbums,
+    ListAlbums {
+        #[arg(long)]
+        limit: Option<u32>,
+        #[arg(long)]
+        offset: Option<u32>,
+    },
     /// Get album by ID
     GetAlbum {
         #[arg(long)]
@@ -354,7 +359,12 @@ pub enum MusicAction {
 
     // Artist operations
     /// List all artists
-    ListArtists,
+    ListArtists {
+        #[arg(long)]
+        limit: Option<u32>,
+        #[arg(long)]
+        offset: Option<u32>,
+    },
     /// Get artist by ID
     GetArtist {
         #[arg(long)]
@@ -370,7 +380,12 @@ pub enum MusicAction {
 
     // Song operations
     /// List all songs
-    ListSongs,
+    ListSongs {
+        #[arg(long)]
+        limit: Option<u32>,
+        #[arg(long)]
+        offset: Option<u32>,
+    },
     /// Delete song
     DeleteSong {
         #[arg(long)]
@@ -514,18 +529,18 @@ pub async fn handle_command(action: MusicAction) -> crate::error::GrimoireResult
         MusicAction::MusicBrainz { action } => musicbrainz::handle_command(action).await,
 
         // Album commands
-        MusicAction::ListAlbums => query::handle_list_albums(action).await,
+        MusicAction::ListAlbums { .. } => query::handle_list_albums(action).await,
         MusicAction::GetAlbum { .. } => query::handle_get_album(action).await,
         MusicAction::DeleteAlbum { .. } => query::handle_delete_album(action).await,
         MusicAction::GetAlbumTags { .. } => query::handle_get_album_tags(action).await,
 
         // Artist commands
-        MusicAction::ListArtists => query::handle_list_artists(action).await,
+        MusicAction::ListArtists { .. } => query::handle_list_artists(action).await,
         MusicAction::GetArtist { .. } => query::handle_get_artist(action).await,
         MusicAction::DeleteArtist { .. } => query::handle_delete_artist(action).await,
 
         // Song commands
-        MusicAction::ListSongs => query::handle_list_songs(action).await,
+        MusicAction::ListSongs { .. } => query::handle_list_songs(action).await,
         MusicAction::DeleteSong { .. } => query::handle_delete_song(action).await,
 
         // Additional playlist commands

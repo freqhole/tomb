@@ -5,7 +5,6 @@
 
 use crate::database;
 use crate::users::models::*;
-use crate::users::repository::UserRepository;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use time::OffsetDateTime;
@@ -20,28 +19,6 @@ struct UserRatingRow {
     rating: i64,
     created_at: i64,
     updated_at: i64,
-}
-
-/// Helper struct for stats query results
-#[derive(Debug)]
-struct StatsRow {
-    total_ratings: i64,
-    average_rating: f64,
-}
-
-/// Helper struct for distribution query results
-#[derive(Debug)]
-struct DistributionRow {
-    rating: i32,
-    count: i64,
-}
-
-/// Helper struct for top rated query results
-#[derive(Debug)]
-struct TopRatedRow {
-    target_id: String,
-    total_ratings: i64,
-    average_rating: f64,
 }
 
 impl From<UserRatingRow> for UserRating {
@@ -72,21 +49,12 @@ pub struct RatingStats {
 }
 
 /// Service for managing user ratings
-pub struct RatingsService {
-    repository: UserRepository,
-}
+pub struct RatingsService {}
 
 impl RatingsService {
     /// Create a new ratings service instance
     pub fn new() -> Self {
-        Self {
-            repository: UserRepository::new(),
-        }
-    }
-
-    /// Create a new ratings service with custom repository
-    pub fn with_repository(repository: UserRepository) -> Self {
-        Self { repository }
+        Self {}
     }
 
     /// Set or update a rating for a user

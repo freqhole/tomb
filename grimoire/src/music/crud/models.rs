@@ -201,10 +201,15 @@ pub struct SongQueryResult {
     pub album: Option<Album>,
     pub genre: Option<Genre>,
     pub media_blob: Option<MediaBlob>,
-    pub relevance_score: Option<f64>, // For FTS search results
-    pub snippet: Option<String>,      // Highlighted text snippet for FTS
-    pub is_favorite: Option<bool>,    // User's favorite status
-    pub rating: Option<i32>,          // User's rating (1-5)
+    pub relevance_score: Option<f64>,   // For FTS search results
+    pub snippet: Option<String>,        // Highlighted text snippet for FTS
+    pub is_favorite: Option<bool>,      // User's favorite status
+    pub rating: Option<i32>,            // User's rating (1-5)
+    pub favorited_at: Option<i64>,      // When user favorited (unix timestamp)
+    pub rating_created_at: Option<i64>, // When user rated (unix timestamp)
+    pub artist_total_song_count: Option<i64>, // Total songs by this artist
+    pub artist_total_album_count: Option<i64>, // Total albums by this artist
+    pub artist_total_duration: Option<i64>, // Total duration of artist's music
 }
 
 /// artist with aggregated metadata for query results
@@ -214,8 +219,10 @@ pub struct ArtistQueryResult {
     pub song_count: i64,
     pub album_count: i64,
     pub total_duration: Option<i64>,
-    pub is_favorite: Option<bool>, // User's favorite status
-    pub rating: Option<i32>,       // User's rating (1-5)
+    pub is_favorite: Option<bool>,      // User's favorite status
+    pub rating: Option<i32>,            // User's rating (1-5)
+    pub favorited_at: Option<i64>,      // When user favorited (unix timestamp)
+    pub rating_created_at: Option<i64>, // When user rated (unix timestamp)
 }
 
 /// album with aggregated metadata for query results
@@ -224,8 +231,10 @@ pub struct AlbumQueryResult {
     pub album: Album,
     pub artist: Option<Artist>,
     pub genre: Option<Genre>,
-    pub is_favorite: Option<bool>, // User's favorite status
-    pub rating: Option<i32>,       // User's rating (1-5)
+    pub is_favorite: Option<bool>,      // User's favorite status
+    pub rating: Option<i32>,            // User's rating (1-5)
+    pub favorited_at: Option<i64>,      // When user favorited (unix timestamp)
+    pub rating_created_at: Option<i64>, // When user rated (unix timestamp)
 }
 
 /// genre with optional aggregated metadata for query results
@@ -235,6 +244,7 @@ pub struct GenreQueryResult {
     pub song_count: Option<i64>,   // Could be computed if needed
     pub album_count: Option<i64>,  // Could be computed if needed
     pub is_favorite: Option<bool>, // User's favorite status (no ratings for genres)
+    pub favorited_at: Option<i64>, // When user favorited (unix timestamp)
 }
 
 /// playlist with optional aggregated metadata for query results
@@ -244,4 +254,12 @@ pub struct PlaylistQueryResult {
     pub song_count: i64,
     pub total_duration: Option<i64>,
     pub is_favorite: Option<bool>, // User's favorite status (no ratings for playlists)
+}
+
+/// song within a playlist context, with playlist-specific metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaylistSongResult {
+    pub details: SongQueryResult,
+    pub position: i64, // Position in playlist (for ordering)
+    pub added_at: i64, // When song was added to playlist (unix timestamp)
 }

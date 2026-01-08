@@ -5,7 +5,6 @@
 
 use crate::database;
 use crate::users::models::*;
-use crate::users::repository::UserRepository;
 use sqlx::Row;
 use time::OffsetDateTime;
 
@@ -35,21 +34,12 @@ impl From<UserFavoriteRow> for UserFavorite {
 pub use crate::users::models::FavoriteTarget;
 
 /// Service for managing user favorites
-pub struct FavoritesService {
-    repository: UserRepository,
-}
+pub struct FavoritesService {}
 
 impl FavoritesService {
     /// Create a new favorites service instance
     pub fn new() -> Self {
-        Self {
-            repository: UserRepository::new(),
-        }
-    }
-
-    /// Create a new favorites service with custom repository
-    pub fn with_repository(repository: UserRepository) -> Self {
-        Self { repository }
+        Self {}
     }
 
     /// Set or unset a favorite for a user

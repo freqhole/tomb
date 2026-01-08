@@ -5,7 +5,9 @@ use std::time::Instant;
 
 use crate::database;
 use crate::error::GrimoireResult;
-use crate::music::crud::models::{PlaylistQueryResult, QueryParams, QueryResult, SongQueryResult};
+use crate::music::crud::models::{
+    PlaylistQueryResult, PlaylistSongResult, QueryParams, QueryResult, SongQueryResult,
+};
 use crate::music::entities::{Album, Artist, Song};
 use crate::music::Playlist;
 
@@ -157,7 +159,10 @@ pub struct PlaylistSongViewRow {
 }
 
 impl PlaylistSongViewRow {
-    pub fn to_song_query_result(self) -> SongQueryResult {
+    pub fn to_playlist_song_result(self) -> PlaylistSongResult {
+        let position = self.position;
+        let added_at = self.added_at;
+
         let song = Song {
             id: self.song_id,
             media_blob_id: self.song_media_blob_id,
@@ -219,7 +224,7 @@ impl PlaylistSongViewRow {
             None
         };
 
-        SongQueryResult {
+        let song_result = SongQueryResult {
             song,
             artist,
             album,
@@ -229,6 +234,17 @@ impl PlaylistSongViewRow {
             snippet: None,
             is_favorite: None,
             rating: None,
+            favorited_at: None,
+            rating_created_at: None,
+            artist_total_song_count: None,
+            artist_total_album_count: None,
+            artist_total_duration: None,
+        };
+
+        PlaylistSongResult {
+            details: song_result,
+            position,
+            added_at,
         }
     }
 }
@@ -352,10 +368,11 @@ pub async fn query_playlists(
 }
 
 // Query songs within a playlist (position-ordered, NOT disc/track ordered)
+/// query playlist songs with full metadata
 pub async fn query_playlist_songs(
     playlist_id: &str,
     params: QueryParams,
-) -> GrimoireResult<QueryResult<SongQueryResult>> {
+) -> GrimoireResult<QueryResult<PlaylistSongResult>> {
     let start_time = Instant::now();
     let pool = database::connect().await?;
     let limit = params.limit.unwrap_or(50).min(1000);
@@ -424,7 +441,10 @@ pub async fn query_playlist_songs(
 
     let rows = sqlx_query.fetch_all(&pool).await?;
 
-    let songs: Vec<SongQueryResult> = rows.into_iter().map(|r| r.to_song_query_result()).collect();
+    let songs: Vec<PlaylistSongResult> = rows
+        .into_iter()
+        .map(|r| r.to_playlist_song_result())
+        .collect();
     let song_count = songs.len();
 
     Ok(QueryResult {

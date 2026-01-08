@@ -47,8 +47,10 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResult<Album> {
 }
 
 /// list all albums (non-deleted only)
-pub async fn list_albums() -> GrimoireResult<Vec<Album>> {
+pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireResult<Vec<Album>> {
     let pool = database::connect().await?;
+    let limit = limit.unwrap_or(100).min(1000) as i64;
+    let offset = offset.unwrap_or(0) as i64;
 
     let albums = sqlx::query_as!(
         Album,
@@ -71,7 +73,9 @@ pub async fn list_albums() -> GrimoireResult<Vec<Album>> {
            FROM albumz
            WHERE deleted_at IS NULL
            ORDER BY title ASC
-           LIMIT 100"#
+           LIMIT ? OFFSET ?"#,
+        limit,
+        offset
     )
     .fetch_all(&pool)
     .await?;
