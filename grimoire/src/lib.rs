@@ -13,7 +13,6 @@ pub mod jobs;
 pub mod maintenance;
 pub mod media_blobz;
 pub mod music;
-pub mod thumbnails;
 pub mod users;
 pub mod wordlist;
 
