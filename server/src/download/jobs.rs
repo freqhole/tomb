@@ -256,9 +256,10 @@ pub async fn extract_metadata_only(
 
     // Use yt-dlp to extract metadata only
     let output = AsyncCommand::new(ytdlp_command)
+        // #TDO: these -- argz should be in config
         .arg("--print-json")
-        .arg("--no-download")
-        .arg("--no-playlist")
+        .arg("--no-download") // #TODO: hmm why no?
+        .arg("--no-playlist") // #TODO: also hmm why no, tho?
         .arg("--")
         .arg(url)
         .output()
@@ -370,6 +371,7 @@ pub async fn download_with_ytdlp(
     }
 
     // Build yt-dlp command
+    // #TODO: move the yt-dlp --argz to config
     let output = Command::new(ytdlp_command)
         .arg("--extract-audio")
         .arg("--audio-format")
