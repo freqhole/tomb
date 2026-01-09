@@ -1,13 +1,13 @@
 //! User management CLI commands
 
-use crate::cli::output::{CommandOutput, OutputFormat};
+use crate::cli::utils::{CommandOutput, OutputFormat};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::users::{
-    CreateInviteCodeRequest, CreateUserRequest, UpdateUserRequest, User, UserQueryParams,
-    UserRepository, UserRole, UserService,
+    CreateInviteCodeRequest, CreateUserRequest, InviteCodeInfoResponse,
+    InviteCodesGeneratedResponse, UpdateUserRequest, User, UserCreatedResponse, UserInfoResponse,
+    UserListResponse, UserQueryParams, UserRepository, UserRole, UserService,
 };
 use clap::Subcommand;
-use serde::Serialize;
 
 #[derive(Subcommand)]
 pub enum UserAction {
@@ -77,40 +77,6 @@ pub enum UserAction {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct UserCreated {
-    pub id: String,
-    pub username: String,
-    pub role: String,
-    pub created_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct UserList {
-    pub users: Vec<UserInfo>,
-    pub total: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct UserInfo {
-    pub id: String,
-    pub username: String,
-    pub role: String,
-    pub deleted: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct InviteCodesGenerated {
-    pub codes: Vec<InviteCodeInfo>,
-    pub count: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct InviteCodeInfo {
-    pub code: String,
-    pub expires_at: Option<i64>,
-}
-
 /// Create a CLI admin user for authorization (used internally)
 fn cli_admin_user() -> User {
     User {
@@ -171,7 +137,7 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                     .map_err(|e| to_grimoire_error("Failed to register user", e))?
             };
 
-            let data = UserCreated {
+            let data = UserCreatedResponse {
                 id: user.id,
                 username: user.username,
                 role: format!("{}", user.role),
@@ -205,9 +171,9 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                 .await
                 .map_err(|e| to_grimoire_error("Failed to list users", e))?;
 
-            let user_infos: Vec<UserInfo> = users
+            let user_infos: Vec<UserInfoResponse> = users
                 .iter()
-                .map(|u| UserInfo {
+                .map(|u| UserInfoResponse {
                     id: u.id.clone(),
                     username: u.username.clone(),
                     role: format!("{}", u.role),
@@ -215,7 +181,7 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                 })
                 .collect();
 
-            let data = UserList {
+            let data = UserListResponse {
                 total: user_infos.len(),
                 users: user_infos,
             };
@@ -240,7 +206,7 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                 .await
                 .map_err(|e| to_grimoire_error("Failed to update user", e))?;
 
-            let data = UserCreated {
+            let data = UserCreatedResponse {
                 id: user.id,
                 username: user.username,
                 role: format!("{}", user.role),
@@ -295,15 +261,15 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                 .await
                 .map_err(|e| to_grimoire_error("Failed to generate invite codes", e))?;
 
-            let code_infos: Vec<InviteCodeInfo> = codes
+            let code_infos: Vec<InviteCodeInfoResponse> = codes
                 .iter()
-                .map(|c| InviteCodeInfo {
+                .map(|c| InviteCodeInfoResponse {
                     code: c.code.clone(),
                     expires_at: c.link_expires_at,
                 })
                 .collect();
 
-            let data = InviteCodesGenerated {
+            let data = InviteCodesGeneratedResponse {
                 count: code_infos.len(),
                 codes: code_infos,
             };

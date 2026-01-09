@@ -1,7 +1,7 @@
 //! Music playlist commands
 
 use super::MusicAction;
-use crate::cli::output::CommandOutput;
+use crate::cli::utils::CommandOutput;
 use crate::cli::utils::resolve_request;
 use crate::error::GrimoireResult;
 use crate::music::crud::{

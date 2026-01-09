@@ -7,7 +7,7 @@
 //! - maintenance: Maintenance operations (blob cleanup, hard delete)
 //! - musicbrainz: MusicBrainz API integration
 
-use crate::cli::output::OutputFormat;
+use crate::cli::utils::OutputFormat;
 use crate::music::crud::QueryParams;
 use clap::Subcommand;
 

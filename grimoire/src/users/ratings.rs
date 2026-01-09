@@ -598,7 +598,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_methods_exist() {
-        let service = RatingsService::new();
+        let _ = RatingsService::new();
 
         // Test that service methods can be called (they'll panic with todo! for now)
         // This helps ensure the API surface is correct

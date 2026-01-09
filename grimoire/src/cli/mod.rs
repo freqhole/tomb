@@ -14,23 +14,26 @@
 use clap::{Parser, Subcommand};
 
 mod analytics;
+mod config;
 mod database;
 mod jobs;
 mod maintenance;
 mod music;
-pub mod output;
 mod users;
-mod utils;
+pub mod utils;
 mod wordlist;
 
 // Re-export action enums for use in main CLI
 pub use analytics::AnalyticsAction;
+pub use config::ConfigAction;
 pub use database::DatabaseAction;
 pub use jobs::JobAction;
 pub use maintenance::MaintenanceAction;
 pub use music::MusicAction;
 pub use users::UserAction;
 pub use wordlist::WordlistAction;
+
+use utils::OutputFormat;
 
 #[derive(Parser)]
 #[command(name = "grimoire")]
@@ -42,6 +45,14 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Configuration management
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json_output: bool,
+    },
     /// Job queue management
     Jobs {
         #[command(subcommand)]
@@ -102,12 +113,16 @@ pub enum Commands {
 
 /// Main CLI entry point
 pub async fn run_cli() -> crate::error::GrimoireResult<()> {
-    use clap::Parser;
-    use output::OutputFormat;
-
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Config {
+            action,
+            json_output,
+        } => {
+            let format = OutputFormat::from_json_flag(json_output);
+            config::handle_command(action, format).await
+        }
         Commands::Jobs {
             action,
             json_output,

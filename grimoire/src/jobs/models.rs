@@ -317,3 +317,55 @@ pub struct GenerateWaveformResult {
     pub format: String, // e.g., "svg", "png"
     pub file_size: u64,
 }
+
+// ============================================================================
+// CLI Response Types
+// ============================================================================
+
+/// Response for listing jobs (CLI output)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobListResponse {
+    pub id: String,
+    pub job_type: String,
+    pub status: String,
+    pub retry_count: i32,
+    pub max_retries: i32,
+    pub created_at: String,
+}
+
+/// Response for job queue statistics (CLI output)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobStatsResponse {
+    pub pending_jobs: u64,
+    pub running_jobs: u64,
+    pub completed_jobs: u64,
+    pub failed_jobs: u64,
+    pub active_sessions: u64,
+    pub total_jobs: u64,
+    pub success_rate: Option<f64>,
+}
+
+/// Response for scan job creation (CLI output)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanJobCreatedResponse {
+    pub job_id: String,
+    pub session_id: String,
+    pub path: String,
+    pub recursive: bool,
+    pub max_depth: Option<usize>,
+}
+
+/// Response for process file job creation (CLI output)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessJobCreatedResponse {
+    pub job_id: String,
+    pub file_path: String,
+}
+
+/// Response for job processor execution (CLI output)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessorResponse {
+    pub mode: String,
+    pub max_jobs: usize,
+    pub completed: bool,
+}

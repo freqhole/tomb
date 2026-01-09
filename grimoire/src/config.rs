@@ -341,3 +341,14 @@ mod tests {
         assert!(config.validate().is_err());
     }
 }
+
+/// Response for config validation (CLI output)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigValidationResponse {
+    pub valid: bool,
+    pub config_path: String,
+    pub app_name: String,
+    pub app_version: String,
+    pub data_dir: String,
+    pub database_path: String,
+}

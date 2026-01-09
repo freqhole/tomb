@@ -1,6 +1,6 @@
 //! Analytics operations CLI commands
 
-use crate::cli::output::OutputFormat;
+use crate::cli::utils::OutputFormat;
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::music::analytics::{
     create_play_event, get_album_play_count, get_all_user_stats, get_artist_play_count,

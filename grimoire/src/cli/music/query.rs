@@ -1,7 +1,7 @@
 //! Music query commands
 
 use super::MusicAction;
-use crate::cli::output::CommandOutput;
+use crate::cli::utils::CommandOutput;
 use crate::error::GrimoireResult;
 use crate::music::crud::{
     delete_album, delete_artist, delete_song, delete_sub_genre, delete_tag,

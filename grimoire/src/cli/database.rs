@@ -1,9 +1,9 @@
 //! Database operations CLI commands
 
-use crate::cli::output::{CommandOutput, OutputFormat};
+use crate::cli::utils::{CommandOutput, OutputFormat};
+use crate::database::{DatabaseInfoResponse, DatabaseTestResponse, TableInfoResponse};
 use crate::error::GrimoireResult;
 use clap::Subcommand;
-use serde::Serialize;
 use sqlx::Row;
 
 #[derive(Subcommand)]
@@ -12,30 +12,6 @@ pub enum DatabaseAction {
     Test,
     /// Show database information
     Info,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DatabaseTestResult {
-    pub connection_ok: bool,
-    pub tables: Vec<TableInfo>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct TableInfo {
-    pub name: String,
-    pub record_count: i64,
-    pub exists: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DatabaseInfo {
-    pub data_directory: String,
-    pub database_file: String,
-    pub file_exists: bool,
-    pub file_size_mb: Option<f64>,
-    pub sqlite_version: Option<String>,
-    pub journal_mode: Option<String>,
-    pub foreign_keys_enabled: Option<bool>,
 }
 
 /// Handle database commands
@@ -69,14 +45,14 @@ pub async fn handle_command(action: DatabaseAction, format: OutputFormat) -> Gri
                 match count_result {
                     Ok(row) => {
                         let count: i64 = row.get("count");
-                        tables.push(TableInfo {
+                        tables.push(TableInfoResponse {
                             name: table.to_string(),
                             record_count: count,
                             exists: true,
                         });
                     }
                     Err(_) => {
-                        tables.push(TableInfo {
+                        tables.push(TableInfoResponse {
                             name: table.to_string(),
                             record_count: 0,
                             exists: false,
@@ -85,7 +61,7 @@ pub async fn handle_command(action: DatabaseAction, format: OutputFormat) -> Gri
                 }
             }
 
-            let result = DatabaseTestResult {
+            let result = DatabaseTestResponse {
                 connection_ok,
                 tables,
             };
@@ -133,7 +109,7 @@ pub async fn handle_command(action: DatabaseAction, format: OutputFormat) -> Gri
                 }
             }
 
-            let info = DatabaseInfo {
+            let info = DatabaseInfoResponse {
                 data_directory: config.data_dir.display().to_string(),
                 database_file: db_path.display().to_string(),
                 file_exists,

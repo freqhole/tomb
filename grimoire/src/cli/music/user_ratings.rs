@@ -1,6 +1,6 @@
 //! User ratings CLI commands (music domain)
 
-use crate::cli::output::{CommandOutput, OutputFormat};
+use crate::cli::utils::{CommandOutput, OutputFormat};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::users::{RatingTarget, RatingsService, SetRatingRequest};
 use clap::Subcommand;

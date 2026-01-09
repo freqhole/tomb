@@ -560,3 +560,46 @@ mod tests {
         assert!(invalid_request.validate().is_err());
     }
 }
+
+// ============================================================================
+// CLI Response Types
+// ============================================================================
+
+/// Response for user creation (CLI output)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserCreatedResponse {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub created_at: i64,
+}
+
+/// Response for listing users (CLI output)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserListResponse {
+    pub users: Vec<UserInfoResponse>,
+    pub total: usize,
+}
+
+/// Response for individual user info (CLI output)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInfoResponse {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub deleted: bool,
+}
+
+/// Response for invite code generation (CLI output)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InviteCodesGeneratedResponse {
+    pub codes: Vec<InviteCodeInfoResponse>,
+    pub count: usize,
+}
+
+/// Response for individual invite code info (CLI output)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InviteCodeInfoResponse {
+    pub code: String,
+    pub expires_at: Option<i64>,
+}

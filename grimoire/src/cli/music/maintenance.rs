@@ -2,7 +2,7 @@
 
 use super::MusicAction;
 use crate::blob_data::OrphanedBlobSummary;
-use crate::cli::output::CommandOutput;
+use crate::cli::utils::CommandOutput;
 use crate::error::GrimoireResult;
 use crate::maintenance::{
     cleanup_orphaned_media_blobs_older_than, hard_delete_old_records,

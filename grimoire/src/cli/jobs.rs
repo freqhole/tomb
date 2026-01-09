@@ -1,13 +1,13 @@
 //! Job queue management CLI commands
 
-use crate::cli::output::{CommandOutput, OutputFormat};
+use crate::cli::utils::{CommandOutput, OutputFormat};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::jobs::{
     create_job, create_job_session, get_queue_stats, list_jobs, CreateJobRequest,
-    CreateJobSessionRequest, JobStatus, JobType, ScanDirectoryParams,
+    CreateJobSessionRequest, JobListResponse, JobStatsResponse, JobStatus, JobType,
+    ProcessJobCreatedResponse, ProcessorResponse, ScanDirectoryParams, ScanJobCreatedResponse,
 };
 use clap::Subcommand;
-use serde::Serialize;
 use serde_json::json;
 
 #[derive(Subcommand)]
@@ -50,49 +50,6 @@ pub enum JobAction {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct JobListItem {
-    pub id: String,
-    pub job_type: String,
-    pub status: String,
-    pub retry_count: i32,
-    pub max_retries: i32,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct JobStats {
-    pub pending_jobs: u64,
-    pub running_jobs: u64,
-    pub completed_jobs: u64,
-    pub failed_jobs: u64,
-    pub active_sessions: u64,
-    pub total_jobs: u64,
-    pub success_rate: Option<f64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ScanJobCreated {
-    pub job_id: String,
-    pub session_id: String,
-    pub path: String,
-    pub recursive: bool,
-    pub max_depth: Option<usize>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ProcessJobCreated {
-    pub job_id: String,
-    pub file_path: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ProcessorResult {
-    pub mode: String,
-    pub max_jobs: usize,
-    pub completed: bool,
-}
-
 /// Handle job commands
 pub async fn handle_command(action: JobAction, format: OutputFormat) -> GrimoireResult<()> {
     match action {
@@ -103,14 +60,14 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                     message: format!("Failed to list jobs: {}", e),
                 })?;
 
-            let job_items: Vec<JobListItem> = jobs
+            let job_items: Vec<JobListResponse> = jobs
                 .iter()
                 .map(|job| {
                     let job_type = job.job_type().unwrap_or(JobType::ProcessFile);
                     let status = job.status().unwrap_or(JobStatus::Pending);
                     let created_time = super::utils::format_timestamp(job.scheduled_at);
 
-                    JobListItem {
+                    JobListResponse {
                         id: job.id.clone(),
                         job_type: format!("{:?}", job_type),
                         status: format!("{:?}", status),
@@ -141,7 +98,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 None
             };
 
-            let job_stats = JobStats {
+            let job_stats = JobStatsResponse {
                 pending_jobs: stats.pending_jobs,
                 running_jobs: stats.running_jobs,
                 completed_jobs: stats.completed_jobs,
@@ -197,7 +154,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                         message: format!("Failed to create scan job: {}", e),
                     })?;
 
-            let result = ScanJobCreated {
+            let result = ScanJobCreatedResponse {
                 job_id: job.id,
                 session_id: session.id,
                 path,
@@ -232,7 +189,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                         message: format!("Failed to create process file job: {}", e),
                     })?;
 
-            let result = ProcessJobCreated {
+            let result = ProcessJobCreatedResponse {
                 job_id: job.id,
                 file_path: path,
             };
@@ -259,7 +216,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 message: format!("Job processor failed: {}", e),
             })?;
 
-            let result = ProcessorResult {
+            let result = ProcessorResponse {
                 mode: mode.to_string(),
                 max_jobs,
                 completed: once,

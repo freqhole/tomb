@@ -1,13 +1,13 @@
 //! Wordlist operations CLI commands
 
-use crate::cli::output::{CommandOutput, OutputFormat};
+use crate::cli::utils::{CommandOutput, OutputFormat};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::wordlist::{
-    generate_word_code, initialize_wordlist, is_initialized, ManagementWordlistConfig,
-    WordlistConfig, WordlistService,
+    generate_word_code, initialize_wordlist, is_initialized, InviteCodesResponse,
+    ManagementWordlistConfig, WordlistConfig, WordlistConfigSummary, WordlistGeneratedResponse,
+    WordlistService,
 };
 use clap::Subcommand;
-use serde::Serialize;
 
 #[derive(Subcommand)]
 pub enum WordlistAction {
@@ -56,27 +56,6 @@ pub enum WordlistAction {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct WordlistGenerated {
-    pub word_count: usize,
-    pub config: WordlistConfigSummary,
-    pub output_file: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct WordlistConfigSummary {
-    pub include_silly: bool,
-    pub include_animals: bool,
-    pub include_food: bool,
-    pub mixed: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct InviteCodes {
-    pub codes: Vec<String>,
-    pub word_count: usize,
-}
-
 /// Handle wordlist commands
 pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> GrimoireResult<()> {
     match action {
@@ -117,7 +96,7 @@ pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> Gri
                 })?;
             }
 
-            let data = WordlistGenerated {
+            let data = WordlistGeneratedResponse {
                 word_count: count,
                 config: WordlistConfigSummary {
                     include_silly,
@@ -201,7 +180,7 @@ pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> Gri
                 codes.push(code);
             }
 
-            let data = InviteCodes { codes, word_count };
+            let data = InviteCodesResponse { codes, word_count };
             let message = format!(
                 "Generated {} invite code{} with {} words each",
                 count,

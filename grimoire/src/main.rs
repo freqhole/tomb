@@ -1,6 +1,7 @@
 //! Simple main.rs for testing the Grimoire CLI
 //! Temporary implementation for development and testing
 
+use grimoire::cli::utils::ErrorDetail;
 use grimoire::{cli, find_config, init, init_config, GrimoireConfig};
 use std::process;
 
@@ -9,7 +10,7 @@ async fn main() {
     // Run CLI and handle errors with proper exit codes
     if let Err(err) = run().await {
         // Convert error to ErrorDetail for consistent formatting
-        let error_detail = grimoire::cli::output::ErrorDetail::from(&err);
+        let error_detail = ErrorDetail::from(&err);
 
         eprintln!(
             "Error: [{}] {}",

@@ -1,6 +1,6 @@
 //! Maintenance operations CLI commands
 
-use crate::cli::output::OutputFormat;
+use crate::cli::utils::OutputFormat;
 use crate::error::GrimoireResult;
 use crate::maintenance::{
     cleanup_orphaned_genres, cleanup_orphaned_sub_genres, cleanup_orphaned_tags,

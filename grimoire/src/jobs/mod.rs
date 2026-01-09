@@ -6,10 +6,32 @@ mod service;
 
 // re-export public types
 pub use models::{
-    CreateJobRequest, CreateJobSessionRequest, ExtractMetadataParams, ExtractMetadataResult,
-    GenerateThumbnailParams, GenerateThumbnailResult, GenerateWaveformParams,
-    GenerateWaveformResult, Job, JobError, JobProgress, JobResult, JobSession, JobStatus, JobType,
-    ProcessFileParams, ProcessFileResult, QueueStats, ScanDirectoryParams, ScanDirectoryResult,
+    CreateJobRequest,
+    CreateJobSessionRequest,
+    ExtractMetadataParams,
+    ExtractMetadataResult,
+    GenerateThumbnailParams,
+    GenerateThumbnailResult,
+    GenerateWaveformParams,
+    GenerateWaveformResult,
+    Job,
+    JobError,
+    // CLI response types
+    JobListResponse,
+    JobProgress,
+    JobResult,
+    JobSession,
+    JobStatsResponse,
+    JobStatus,
+    JobType,
+    ProcessFileParams,
+    ProcessFileResult,
+    ProcessJobCreatedResponse,
+    ProcessorResponse,
+    QueueStats,
+    ScanDirectoryParams,
+    ScanDirectoryResult,
+    ScanJobCreatedResponse,
     SessionStatus,
 };
 pub use service::{
