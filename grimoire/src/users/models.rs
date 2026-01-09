@@ -327,10 +327,16 @@ impl UserRating {
 }
 
 /// Request to create a new user
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, clap::Parser)]
 pub struct CreateUserRequest {
+    /// Username for the new user
+    #[arg(long)]
     pub username: String,
+    /// User role (admin or member)
+    #[arg(long)]
     pub role: Option<UserRole>,
+    /// Invite code to validate registration
+    #[arg(long)]
     pub invite_code: Option<String>,
 }
 

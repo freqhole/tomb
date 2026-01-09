@@ -16,8 +16,12 @@ mod musicbrainz;
 mod playlists;
 mod query;
 mod songs;
+mod user_favorites;
+mod user_ratings;
 
 pub use musicbrainz::MusicBrainzAction;
+pub use user_favorites::FavoritesAction;
+pub use user_ratings::RatingsAction;
 
 #[derive(Subcommand)]
 pub enum MusicAction {
@@ -333,6 +337,20 @@ pub enum MusicAction {
         #[arg(long)]
         search: String,
     },
+
+    // User favorites commands
+    /// User favorites operations
+    Favorites {
+        #[command(subcommand)]
+        action: FavoritesAction,
+    },
+
+    // User ratings commands
+    /// User ratings operations
+    Ratings {
+        #[command(subcommand)]
+        action: RatingsAction,
+    },
 }
 
 /// Handle music commands
@@ -586,5 +604,11 @@ pub async fn handle_command(action: MusicAction, json: bool) -> crate::error::Gr
 
         // MusicBrainz commands
         MusicAction::MusicBrainz { action } => musicbrainz::handle_command(action, format).await,
+
+        // User favorites commands
+        MusicAction::Favorites { action } => user_favorites::handle_command(action, format).await,
+
+        // User ratings commands
+        MusicAction::Ratings { action } => user_ratings::handle_command(action, format).await,
     }
 }

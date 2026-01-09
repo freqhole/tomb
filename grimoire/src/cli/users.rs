@@ -3,8 +3,7 @@
 use crate::cli::output::{CommandOutput, OutputFormat};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::users::{
-    CreateInviteCodeRequest, CreateUserRequest, FavoriteTarget, FavoritesService, RatingTarget,
-    RatingsService, SetFavoriteRequest, SetRatingRequest, UpdateUserRequest, User, UserQueryParams,
+    CreateInviteCodeRequest, CreateUserRequest, UpdateUserRequest, User, UserQueryParams,
     UserRepository, UserRole, UserService,
 };
 use clap::Subcommand;
@@ -14,16 +13,9 @@ use serde::Serialize;
 pub enum UserAction {
     /// Create a new user
     Create {
-        /// Username
-        #[arg(long)]
-        username: String,
-        /// User role (admin, user, etc)
-        #[arg(long)]
-        role: Option<String>,
-        /// Invite code to use
-        #[arg(long)]
-        invite_code: Option<String>,
-        /// Bootstrap mode (skip invite code check)
+        #[command(flatten)]
+        request: CreateUserRequest,
+        /// Bootstrap mode (skip invite code check for first admin)
         #[arg(long)]
         bootstrap: bool,
     },
@@ -83,90 +75,6 @@ pub enum UserAction {
         /// Invite code
         code: String,
     },
-    /// Set a favorite (song, artist, album)
-    SetFavorite {
-        /// User ID
-        #[arg(long)]
-        user_id: String,
-        /// Target type (song, artist, album)
-        #[arg(long)]
-        target_type: String,
-        /// Target ID
-        #[arg(long)]
-        target_id: String,
-    },
-    /// Remove a favorite
-    RemoveFavorite {
-        /// User ID
-        #[arg(long)]
-        user_id: String,
-        /// Target type (song, artist, album)
-        #[arg(long)]
-        target_type: String,
-        /// Target ID
-        #[arg(long)]
-        target_id: String,
-    },
-    /// List user's favorites
-    ListFavorites {
-        /// User ID
-        #[arg(long)]
-        user_id: String,
-        /// Filter by target type
-        #[arg(long)]
-        target_type: Option<String>,
-        /// Maximum number of results
-        #[arg(long, default_value = "50")]
-        limit: i64,
-    },
-    /// Set a rating (1-5) for a song, artist, or album
-    SetRating {
-        /// User ID
-        #[arg(long)]
-        user_id: String,
-        /// Target type (song, artist, album)
-        #[arg(long)]
-        target_type: String,
-        /// Target ID
-        #[arg(long)]
-        target_id: String,
-        /// Rating (1-5)
-        #[arg(long)]
-        rating: i32,
-    },
-    /// Remove a rating
-    RemoveRating {
-        /// User ID
-        #[arg(long)]
-        user_id: String,
-        /// Target type (song, artist, album)
-        #[arg(long)]
-        target_type: String,
-        /// Target ID
-        #[arg(long)]
-        target_id: String,
-    },
-    /// Show rating statistics for an entity
-    RatingStats {
-        /// Target type (song, artist, album)
-        #[arg(long)]
-        target_type: String,
-        /// Target ID
-        #[arg(long)]
-        target_id: String,
-    },
-    /// Show top-rated entities
-    TopRated {
-        /// Target type (song, artist, album)
-        #[arg(long)]
-        target_type: String,
-        /// Minimum number of ratings required
-        #[arg(long, default_value = "5")]
-        min_ratings: i32,
-        /// Maximum number of results
-        #[arg(long, default_value = "20")]
-        limit: i64,
-    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -203,49 +111,64 @@ pub struct InviteCodeInfo {
     pub expires_at: Option<i64>,
 }
 
+/// Create a CLI admin user for authorization (used internally)
+fn cli_admin_user() -> User {
+    User {
+        id: "cli-admin".to_string(),
+        username: "cli".to_string(),
+        role: UserRole::Admin,
+        created_at: 0,
+        updated_at: 0,
+        deleted_at: None,
+    }
+}
+
+/// Parse role string to UserRole
+fn parse_role(role_str: &str) -> UserRole {
+    match role_str.to_lowercase().as_str() {
+        "admin" => UserRole::Admin,
+        _ => UserRole::Member,
+    }
+}
+
+/// Convert any error to GrimoireError with context
+fn to_grimoire_error(context: &str, e: impl std::fmt::Display) -> GrimoireError {
+    GrimoireError::ProcessingFailed {
+        message: format!("{}: {}", context, e),
+    }
+}
+
 /// Handle user commands
 pub async fn handle_command(action: UserAction, format: OutputFormat) -> GrimoireResult<()> {
     let service = UserService::new();
 
     match action {
         UserAction::Create {
-            username,
-            role,
-            invite_code,
+            mut request,
             bootstrap,
         } => {
-            println!("creating user: {}", username);
-
-            let user_role = role.map(|r| match r.to_lowercase().as_str() {
-                "admin" => UserRole::Admin,
-                _ => UserRole::Member,
-            });
-
-            let request = CreateUserRequest {
-                username: username.clone(),
-                role: user_role,
-                invite_code: if bootstrap { None } else { invite_code },
-            };
-
-            // Use bootstrap user creation for first admin, regular registration otherwise
-            let user = if bootstrap {
-                if user_role != Some(UserRole::Admin) {
+            // Bootstrap mode: clear invite_code and ensure admin role
+            if bootstrap {
+                if request.role != Some(UserRole::Admin) {
                     return Err(GrimoireError::ProcessingFailed {
                         message: "bootstrap flag can only be used with --role admin".to_string(),
                     });
                 }
+                request.invite_code = None;
+            }
+
+            // Use bootstrap user creation for first admin, regular registration otherwise
+            let user = if bootstrap {
                 let repository = UserRepository::new();
-                repository.create_user(&request).await.map_err(|e| {
-                    GrimoireError::ProcessingFailed {
-                        message: format!("Failed to create user: {}", e),
-                    }
-                })?
+                repository
+                    .create_user(&request)
+                    .await
+                    .map_err(|e| to_grimoire_error("Failed to create user", e))?
             } else {
-                service.register_user(&request).await.map_err(|e| {
-                    GrimoireError::ProcessingFailed {
-                        message: format!("Failed to register user: {}", e),
-                    }
-                })?
+                service
+                    .register_user(&request)
+                    .await
+                    .map_err(|e| to_grimoire_error("Failed to register user", e))?
             };
 
             let data = UserCreated {
@@ -265,10 +188,7 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
             limit,
             offset,
         } => {
-            let user_role = role.map(|r| match r.to_lowercase().as_str() {
-                "admin" => UserRole::Admin,
-                _ => UserRole::Member,
-            });
+            let user_role = role.as_deref().map(parse_role);
 
             let params = UserQueryParams {
                 username: None,
@@ -278,21 +198,12 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                 offset: Some(offset as u32),
             };
 
-            let admin_user = User {
-                id: "cli-admin".to_string(),
-                username: "cli".to_string(),
-                role: UserRole::Admin,
-                created_at: 0,
-                updated_at: 0,
-                deleted_at: None,
-            };
+            let admin_user = cli_admin_user();
 
             let users = service
                 .list_users(&params, &admin_user)
                 .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to list users: {}", e),
-                })?;
+                .map_err(|e| to_grimoire_error("Failed to list users", e))?;
 
             let user_infos: Vec<UserInfo> = users
                 .iter()
@@ -318,28 +229,16 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
             print!("{}", output.format(format));
         }
         UserAction::Update { user_id, role } => {
-            let user_role = role.map(|r| match r.to_lowercase().as_str() {
-                "admin" => UserRole::Admin,
-                _ => UserRole::Member,
-            });
+            let user_role = role.as_deref().map(parse_role);
 
             let request = UpdateUserRequest { role: user_role };
 
-            let admin_user = User {
-                id: "cli-admin".to_string(),
-                username: "cli".to_string(),
-                role: UserRole::Admin,
-                created_at: 0,
-                updated_at: 0,
-                deleted_at: None,
-            };
+            let admin_user = cli_admin_user();
 
             let user = service
                 .update_user(&user_id, &request, &admin_user)
                 .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to update user: {}", e),
-                })?;
+                .map_err(|e| to_grimoire_error("Failed to update user", e))?;
 
             let data = UserCreated {
                 id: user.id,
@@ -353,21 +252,12 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
             print!("{}", output.format(format));
         }
         UserAction::Delete { user_id } => {
-            let admin_user = User {
-                id: "cli-admin".to_string(),
-                username: "cli".to_string(),
-                role: UserRole::Admin,
-                created_at: 0,
-                updated_at: 0,
-                deleted_at: None,
-            };
+            let admin_user = cli_admin_user();
 
             service
                 .delete_user(&user_id, &admin_user)
                 .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to delete user: {}", e),
-                })?;
+                .map_err(|e| to_grimoire_error("Failed to delete user", e))?;
 
             let message = format!("User deleted: {}", user_id);
             let output = CommandOutput::success(message, ());
@@ -381,14 +271,8 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
         } => {
             if !crate::wordlist::is_initialized() {
                 let config = crate::wordlist::ManagementWordlistConfig::default();
-                crate::wordlist::initialize_wordlist(&config).map_err(|e| {
-                    GrimoireError::ProcessingFailed {
-                        message: format!(
-                            "Failed to initialize wordlist (file: {}): {}",
-                            config.file_path, e
-                        ),
-                    }
-                })?;
+                crate::wordlist::initialize_wordlist(&config)
+                    .map_err(|e| to_grimoire_error("Failed to initialize wordlist", e))?;
             }
 
             let invite_type = code_type
@@ -404,21 +288,12 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                 expires_hours: expires_hours.map(|h| h as u32),
             };
 
-            let admin_user = User {
-                id: "cli-admin".to_string(),
-                username: "cli".to_string(),
-                role: UserRole::Admin,
-                created_at: 0,
-                updated_at: 0,
-                deleted_at: None,
-            };
+            let admin_user = cli_admin_user();
 
             let codes = service
                 .generate_invite_codes(&request, count as u32, word_count, &admin_user)
                 .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to generate invite codes: {}", e),
-                })?;
+                .map_err(|e| to_grimoire_error("Failed to generate invite codes", e))?;
 
             let code_infos: Vec<InviteCodeInfo> = codes
                 .iter()
@@ -442,21 +317,12 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
             print!("{}", output.format(format));
         }
         UserAction::ListInvites { active_only } => {
-            let admin_user = User {
-                id: "cli-admin".to_string(),
-                username: "cli".to_string(),
-                role: UserRole::Admin,
-                created_at: 0,
-                updated_at: 0,
-                deleted_at: None,
-            };
+            let admin_user = cli_admin_user();
 
             let codes = service
                 .list_invite_codes(active_only, &admin_user)
                 .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to list invite codes: {}", e),
-                })?;
+                .map_err(|e| to_grimoire_error("Failed to list invite codes", e))?;
 
             let message = format!(
                 "Found {} invite code{}",
@@ -467,275 +333,15 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
             print!("{}", output.format(format));
         }
         UserAction::DeactivateInvite { code } => {
-            let admin_user = User {
-                id: "cli-admin".to_string(),
-                username: "cli".to_string(),
-                role: UserRole::Admin,
-                created_at: 0,
-                updated_at: 0,
-                deleted_at: None,
-            };
+            let admin_user = cli_admin_user();
 
             service
                 .deactivate_invite_code(&code, &admin_user)
                 .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to deactivate invite code: {}", e),
-                })?;
+                .map_err(|e| to_grimoire_error("Failed to deactivate invite code", e))?;
 
             let message = format!("Invite code deactivated: {}", code);
             let output = CommandOutput::success(message, ());
-            print!("{}", output.format(format));
-        }
-        UserAction::SetFavorite {
-            user_id,
-            target_type,
-            target_id,
-        } => {
-            let favorite_target = match target_type.to_lowercase().as_str() {
-                "song" => FavoriteTarget::Song,
-                "artist" => FavoriteTarget::Artist,
-                "album" => FavoriteTarget::Album,
-                "genre" => FavoriteTarget::Genre,
-                "playlist" => FavoriteTarget::Playlist,
-                _ => {
-                    return Err(GrimoireError::ProcessingFailed {
-                        message: format!(
-                            "Invalid target type: {}. Must be 'song', 'artist', 'album', 'genre', or 'playlist'",
-                            target_type
-                        ),
-                    });
-                }
-            };
-
-            let request = SetFavoriteRequest {
-                user_id: user_id.clone(),
-                target_type: favorite_target,
-                target_id: target_id.clone(),
-                is_favorite: true,
-            };
-
-            let favorites_service = FavoritesService::new();
-            favorites_service
-                .set_favorite(&request)
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to set favorite: {}", e),
-                })?;
-
-            let message = format!("Favorite set: {} {}", target_type, target_id);
-            let output = CommandOutput::success(message, ());
-            print!("{}", output.format(format));
-        }
-        UserAction::RemoveFavorite {
-            user_id,
-            target_type,
-            target_id,
-        } => {
-            let favorite_target = match target_type.to_lowercase().as_str() {
-                "song" => FavoriteTarget::Song,
-                "artist" => FavoriteTarget::Artist,
-                "album" => FavoriteTarget::Album,
-                "genre" => FavoriteTarget::Genre,
-                "playlist" => FavoriteTarget::Playlist,
-                _ => {
-                    return Err(GrimoireError::ProcessingFailed {
-                        message: format!(
-                            "Invalid target type: {}. Must be 'song', 'artist', 'album', 'genre', or 'playlist'",
-                            target_type
-                        ),
-                    });
-                }
-            };
-
-            let request = SetFavoriteRequest {
-                user_id: user_id.clone(),
-                target_type: favorite_target,
-                target_id: target_id.clone(),
-                is_favorite: false,
-            };
-
-            let favorites_service = FavoritesService::new();
-            favorites_service
-                .set_favorite(&request)
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to remove favorite: {}", e),
-                })?;
-
-            let message = format!("Favorite removed: {} {}", target_type, target_id);
-            let output = CommandOutput::success(message, ());
-            print!("{}", output.format(format));
-        }
-        UserAction::ListFavorites {
-            user_id,
-            target_type,
-            limit,
-        } => {
-            let target_filter = target_type.and_then(|t| match t.to_lowercase().as_str() {
-                "song" => Some(FavoriteTarget::Song),
-                "artist" => Some(FavoriteTarget::Artist),
-                "album" => Some(FavoriteTarget::Album),
-                "genre" => Some(FavoriteTarget::Genre),
-                "playlist" => Some(FavoriteTarget::Playlist),
-                _ => None,
-            });
-
-            let favorites_service = FavoritesService::new();
-            let favorites = favorites_service
-                .get_user_favorites(&user_id, target_filter, Some(limit as u32), None)
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to get favorites: {}", e),
-                })?;
-
-            let message = format!(
-                "Found {} favorite{}",
-                favorites.len(),
-                if favorites.len() == 1 { "" } else { "s" }
-            );
-            let output = CommandOutput::success(message, favorites);
-            print!("{}", output.format(format));
-        }
-        UserAction::SetRating {
-            user_id,
-            target_type,
-            target_id,
-            rating,
-        } => {
-            let rating_target = match target_type.to_lowercase().as_str() {
-                "song" => RatingTarget::Song,
-                "artist" => RatingTarget::Artist,
-                "album" => RatingTarget::Album,
-                _ => {
-                    return Err(GrimoireError::ProcessingFailed {
-                        message: format!(
-                            "Invalid target type: {}. Must be 'song', 'artist', or 'album'",
-                            target_type
-                        ),
-                    });
-                }
-            };
-
-            let request = SetRatingRequest {
-                user_id: user_id.clone(),
-                target_type: rating_target,
-                target_id: target_id.clone(),
-                rating,
-            };
-
-            let ratings_service = RatingsService::new();
-            ratings_service.set_rating(&request).await.map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to set rating: {}", e),
-                }
-            })?;
-
-            let message = format!(
-                "Rating set: {} {} - {} stars",
-                target_type, target_id, rating
-            );
-            let output = CommandOutput::success(message, ());
-            print!("{}", output.format(format));
-        }
-        UserAction::RemoveRating {
-            user_id,
-            target_type,
-            target_id,
-        } => {
-            let rating_target = match target_type.to_lowercase().as_str() {
-                "song" => RatingTarget::Song,
-                "artist" => RatingTarget::Artist,
-                "album" => RatingTarget::Album,
-                _ => {
-                    return Err(GrimoireError::ProcessingFailed {
-                        message: format!(
-                            "Invalid target type: {}. Must be 'song', 'artist', or 'album'",
-                            target_type
-                        ),
-                    });
-                }
-            };
-
-            let ratings_service = RatingsService::new();
-            ratings_service
-                .remove_rating(&user_id, rating_target, &target_id)
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to remove rating: {}", e),
-                })?;
-
-            let message = format!("Rating removed: {} {}", target_type, target_id);
-            let output = CommandOutput::success(message, ());
-            print!("{}", output.format(format));
-        }
-        UserAction::RatingStats {
-            target_type,
-            target_id,
-        } => {
-            let rating_target = match target_type.to_lowercase().as_str() {
-                "song" => RatingTarget::Song,
-                "artist" => RatingTarget::Artist,
-                "album" => RatingTarget::Album,
-                _ => {
-                    return Err(GrimoireError::ProcessingFailed {
-                        message: format!(
-                            "Invalid target type: {}. Must be 'song', 'artist', or 'album'",
-                            target_type
-                        ),
-                    });
-                }
-            };
-
-            let ratings_service = RatingsService::new();
-            let stats = ratings_service
-                .get_rating_stats(rating_target, &target_id)
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to get rating stats: {}", e),
-                })?;
-
-            let message = format!(
-                "Rating stats for {} {}: {:.1} stars ({} ratings)",
-                target_type, target_id, stats.average_rating, stats.total_ratings
-            );
-            let output = CommandOutput::success(message, stats);
-            print!("{}", output.format(format));
-        }
-        UserAction::TopRated {
-            target_type,
-            min_ratings,
-            limit,
-        } => {
-            let rating_target = match target_type.to_lowercase().as_str() {
-                "song" => RatingTarget::Song,
-                "artist" => RatingTarget::Artist,
-                "album" => RatingTarget::Album,
-                _ => {
-                    return Err(GrimoireError::ProcessingFailed {
-                        message: format!(
-                            "Invalid target type: {}. Must be 'song', 'artist', or 'album'",
-                            target_type
-                        ),
-                    });
-                }
-            };
-
-            let ratings_service = RatingsService::new();
-            let items = ratings_service
-                .get_top_rated(rating_target, Some(min_ratings as u64), Some(limit as u32))
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to get top rated: {}", e),
-                })?;
-
-            let message = format!(
-                "Top {} rated {}{}",
-                items.len(),
-                target_type,
-                if items.len() == 1 { "" } else { "s" }
-            );
-            let output = CommandOutput::success(message, items);
             print!("{}", output.format(format));
         }
     }
