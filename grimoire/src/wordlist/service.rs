@@ -73,7 +73,7 @@ impl fmt::Display for WordlistGenerationResult {
 }
 
 /// Result of wordlist validation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WordlistValidationResult {
     pub is_valid: bool,
     pub total_words: usize,
@@ -100,7 +100,7 @@ impl fmt::Display for WordlistValidationResult {
 }
 
 /// Statistics about a wordlist
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WordlistStats {
     pub total_words: usize,
     pub unique_words: usize,

@@ -585,6 +585,6 @@ pub async fn handle_command(action: MusicAction, json: bool) -> crate::error::Gr
         }
 
         // MusicBrainz commands
-        MusicAction::MusicBrainz { action } => musicbrainz::handle_command(action).await,
+        MusicAction::MusicBrainz { action } => musicbrainz::handle_command(action, format).await,
     }
 }

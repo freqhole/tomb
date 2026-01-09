@@ -4,7 +4,7 @@ use crate::cli::output::{CommandOutput, OutputFormat};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::jobs::{
     create_job, create_job_session, get_queue_stats, list_jobs, CreateJobRequest,
-    CreateJobSessionRequest, Job, JobStatus, JobType, ScanDirectoryParams,
+    CreateJobSessionRequest, JobStatus, JobType, ScanDirectoryParams,
 };
 use clap::Subcommand;
 use serde::Serialize;

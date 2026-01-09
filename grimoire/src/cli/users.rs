@@ -1,12 +1,14 @@
 //! User management CLI commands
 
-use crate::cli::output::OutputFormat;
-use crate::error::GrimoireResult;
+use crate::cli::output::{CommandOutput, OutputFormat};
+use crate::error::{GrimoireError, GrimoireResult};
 use crate::users::{
-    CreateInviteCodeRequest, CreateUserRequest, FavoriteTarget, RatingTarget, SetFavoriteRequest,
-    SetRatingRequest, UpdateUserRequest, UserQueryParams, UserRepository, UserRole, UserService,
+    CreateInviteCodeRequest, CreateUserRequest, FavoriteTarget, FavoritesService, RatingTarget,
+    RatingsService, SetFavoriteRequest, SetRatingRequest, UpdateUserRequest, User, UserQueryParams,
+    UserRepository, UserRole, UserService,
 };
 use clap::Subcommand;
+use serde::Serialize;
 
 #[derive(Subcommand)]
 pub enum UserAction {
@@ -167,8 +169,42 @@ pub enum UserAction {
     },
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct UserCreated {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UserList {
+    pub users: Vec<UserInfo>,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UserInfo {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub deleted: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InviteCodesGenerated {
+    pub codes: Vec<InviteCodeInfo>,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InviteCodeInfo {
+    pub code: String,
+    pub expires_at: Option<i64>,
+}
+
 /// Handle user commands
-pub async fn handle_command(action: UserAction, _format: OutputFormat) -> GrimoireResult<()> {
+pub async fn handle_command(action: UserAction, format: OutputFormat) -> GrimoireResult<()> {
     let service = UserService::new();
 
     match action {
@@ -192,34 +228,36 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
             };
 
             // Use bootstrap user creation for first admin, regular registration otherwise
-            let result = if bootstrap {
+            let user = if bootstrap {
                 if user_role != Some(UserRole::Admin) {
-                    eprintln!("bootstrap flag can only be used with --role admin");
-                    std::process::exit(1);
+                    return Err(GrimoireError::ProcessingFailed {
+                        message: "bootstrap flag can only be used with --role admin".to_string(),
+                    });
                 }
-                // Directly use repository to bypass invite code validation for bootstrap
                 let repository = UserRepository::new();
-                repository.create_user(&request).await
+                repository.create_user(&request).await.map_err(|e| {
+                    GrimoireError::ProcessingFailed {
+                        message: format!("Failed to create user: {}", e),
+                    }
+                })?
             } else {
-                service.register_user(&request).await
+                service.register_user(&request).await.map_err(|e| {
+                    GrimoireError::ProcessingFailed {
+                        message: format!("Failed to register user: {}", e),
+                    }
+                })?
             };
 
-            match result {
-                Ok(user) => {
-                    println!("user created successfully:");
-                    println!("  ID: {}", user.id);
-                    println!("  Username: {}", user.username);
-                    println!("  Role: {}", user.role);
-                    println!(
-                        "  Created: {}",
-                        super::utils::format_timestamp(user.created_at)
-                    );
-                }
-                Err(e) => {
-                    eprintln!("failed to create user: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            let data = UserCreated {
+                id: user.id,
+                username: user.username,
+                role: format!("{}", user.role),
+                created_at: user.created_at,
+            };
+
+            let message = format!("User created: {}", data.username);
+            let output = CommandOutput::success(message, data);
+            print!("{}", output.format(format));
         }
         UserAction::List {
             role,
@@ -227,8 +265,6 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
             limit,
             offset,
         } => {
-            println!("listing users...");
-
             let user_role = role.map(|r| match r.to_lowercase().as_str() {
                 "admin" => UserRole::Admin,
                 _ => UserRole::Member,
@@ -242,8 +278,7 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 offset: Some(offset as u32),
             };
 
-            // For CLI, we'll create a dummy admin user for authorization
-            let admin_user = crate::users::User {
+            let admin_user = User {
                 id: "cli-admin".to_string(),
                 username: "cli".to_string(),
                 role: UserRole::Admin,
@@ -252,30 +287,37 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 deleted_at: None,
             };
 
-            match service.list_users(&params, &admin_user).await {
-                Ok(users) => {
-                    if users.is_empty() {
-                        println!("no users found");
-                    } else {
-                        println!("found {} users:", users.len());
-                        for user in users {
-                            let status = if user.is_deleted() { " (DELETED)" } else { "" };
-                            println!(
-                                "  {} - {} ({}){}",
-                                user.id, user.username, user.role, status
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("failed to list users: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            let users = service
+                .list_users(&params, &admin_user)
+                .await
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to list users: {}", e),
+                })?;
+
+            let user_infos: Vec<UserInfo> = users
+                .iter()
+                .map(|u| UserInfo {
+                    id: u.id.clone(),
+                    username: u.username.clone(),
+                    role: format!("{}", u.role),
+                    deleted: u.is_deleted(),
+                })
+                .collect();
+
+            let data = UserList {
+                total: user_infos.len(),
+                users: user_infos,
+            };
+
+            let message = format!(
+                "Found {} user{}",
+                data.total,
+                if data.total == 1 { "" } else { "s" }
+            );
+            let output = CommandOutput::success(message, data);
+            print!("{}", output.format(format));
         }
         UserAction::Update { user_id, role } => {
-            println!("updating user: {}", user_id);
-
             let user_role = role.map(|r| match r.to_lowercase().as_str() {
                 "admin" => UserRole::Admin,
                 _ => UserRole::Member,
@@ -283,7 +325,7 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
 
             let request = UpdateUserRequest { role: user_role };
 
-            let admin_user = crate::users::User {
+            let admin_user = User {
                 id: "cli-admin".to_string(),
                 username: "cli".to_string(),
                 role: UserRole::Admin,
@@ -292,27 +334,26 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 deleted_at: None,
             };
 
-            match service.update_user(&user_id, &request, &admin_user).await {
-                Ok(user) => {
-                    println!("user updated successfully:");
-                    println!("  ID: {}", user.id);
-                    println!("  Username: {}", user.username);
-                    println!("  Role: {}", user.role);
-                    println!(
-                        "  Updated: {}",
-                        super::utils::format_timestamp(user.updated_at)
-                    );
-                }
-                Err(e) => {
-                    eprintln!("failed to update user: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            let user = service
+                .update_user(&user_id, &request, &admin_user)
+                .await
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to update user: {}", e),
+                })?;
+
+            let data = UserCreated {
+                id: user.id,
+                username: user.username,
+                role: format!("{}", user.role),
+                created_at: user.updated_at,
+            };
+
+            let message = format!("User updated: {}", data.username);
+            let output = CommandOutput::success(message, data);
+            print!("{}", output.format(format));
         }
         UserAction::Delete { user_id } => {
-            println!("deleting user: {}", user_id);
-
-            let admin_user = crate::users::User {
+            let admin_user = User {
                 id: "cli-admin".to_string(),
                 username: "cli".to_string(),
                 role: UserRole::Admin,
@@ -321,15 +362,16 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 deleted_at: None,
             };
 
-            match service.delete_user(&user_id, &admin_user).await {
-                Ok(()) => {
-                    println!("user deleted successfully");
-                }
-                Err(e) => {
-                    eprintln!("failed to delete user: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            service
+                .delete_user(&user_id, &admin_user)
+                .await
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to delete user: {}", e),
+                })?;
+
+            let message = format!("User deleted: {}", user_id);
+            let output = CommandOutput::success(message, ());
+            print!("{}", output.format(format));
         }
         UserAction::GenerateInvites {
             count,
@@ -337,19 +379,16 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
             code_type,
             expires_hours,
         } => {
-            println!(
-                "generating {} invite codes with {} words each...",
-                count, word_count
-            );
-
-            // Initialize wordlist if not already done - CLI responsibility
             if !crate::wordlist::is_initialized() {
                 let config = crate::wordlist::ManagementWordlistConfig::default();
-                if let Err(e) = crate::wordlist::initialize_wordlist(&config) {
-                    eprintln!("failed to initialize wordlist: {}", e);
-                    eprintln!("ensure wordlist file exists at: {}", config.file_path);
-                    std::process::exit(1);
-                }
+                crate::wordlist::initialize_wordlist(&config).map_err(|e| {
+                    GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "Failed to initialize wordlist (file: {}): {}",
+                            config.file_path, e
+                        ),
+                    }
+                })?;
             }
 
             let invite_type = code_type
@@ -365,7 +404,7 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 expires_hours: expires_hours.map(|h| h as u32),
             };
 
-            let admin_user = crate::users::User {
+            let admin_user = User {
                 id: "cli-admin".to_string(),
                 username: "cli".to_string(),
                 role: UserRole::Admin,
@@ -374,29 +413,36 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 deleted_at: None,
             };
 
-            match service
+            let codes = service
                 .generate_invite_codes(&request, count as u32, word_count, &admin_user)
                 .await
-            {
-                Ok(codes) => {
-                    println!("generated {} invite codes:", codes.len());
-                    for (i, code) in codes.iter().enumerate() {
-                        println!("  {}: {}", i + 1, code.code);
-                        if let Some(expires) = code.link_expires_at {
-                            println!("    Expires: {}", super::utils::format_timestamp(expires));
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("failed to generate invite codes: {}", e);
-                    std::process::exit(1);
-                }
-            }
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to generate invite codes: {}", e),
+                })?;
+
+            let code_infos: Vec<InviteCodeInfo> = codes
+                .iter()
+                .map(|c| InviteCodeInfo {
+                    code: c.code.clone(),
+                    expires_at: c.link_expires_at,
+                })
+                .collect();
+
+            let data = InviteCodesGenerated {
+                count: code_infos.len(),
+                codes: code_infos,
+            };
+
+            let message = format!(
+                "Generated {} invite code{}",
+                data.count,
+                if data.count == 1 { "" } else { "s" }
+            );
+            let output = CommandOutput::success(message, data);
+            print!("{}", output.format(format));
         }
         UserAction::ListInvites { active_only } => {
-            println!("listing invite codes...");
-
-            let admin_user = crate::users::User {
+            let admin_user = User {
                 id: "cli-admin".to_string(),
                 username: "cli".to_string(),
                 role: UserRole::Admin,
@@ -405,39 +451,23 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 deleted_at: None,
             };
 
-            match service.list_invite_codes(active_only, &admin_user).await {
-                Ok(codes) => {
-                    if codes.is_empty() {
-                        println!("no invite codes found");
-                    } else {
-                        println!("found {} invite codes:", codes.len());
-                        for code in codes {
-                            let status = if code.used_at.is_some() {
-                                " (USED)"
-                            } else if !code.is_active {
-                                " (INACTIVE)"
-                            } else if code.is_expired() {
-                                " (EXPIRED)"
-                            } else {
-                                ""
-                            };
-                            println!(
-                                "  {} - {} ({}){}",
-                                code.id, code.code, code.code_type, status
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("failed to list invite codes: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            let codes = service
+                .list_invite_codes(active_only, &admin_user)
+                .await
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to list invite codes: {}", e),
+                })?;
+
+            let message = format!(
+                "Found {} invite code{}",
+                codes.len(),
+                if codes.len() == 1 { "" } else { "s" }
+            );
+            let output = CommandOutput::success(message, codes);
+            print!("{}", output.format(format));
         }
         UserAction::DeactivateInvite { code } => {
-            println!("deactivating invite code: {}", code);
-
-            let admin_user = crate::users::User {
+            let admin_user = User {
                 id: "cli-admin".to_string(),
                 username: "cli".to_string(),
                 role: UserRole::Admin,
@@ -446,26 +476,22 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 deleted_at: None,
             };
 
-            match service.deactivate_invite_code(&code, &admin_user).await {
-                Ok(()) => {
-                    println!("invite code deactivated successfully");
-                }
-                Err(e) => {
-                    eprintln!("failed to deactivate invite code: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            service
+                .deactivate_invite_code(&code, &admin_user)
+                .await
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to deactivate invite code: {}", e),
+                })?;
+
+            let message = format!("Invite code deactivated: {}", code);
+            let output = CommandOutput::success(message, ());
+            print!("{}", output.format(format));
         }
         UserAction::SetFavorite {
             user_id,
             target_type,
             target_id,
         } => {
-            println!(
-                "setting favorite: {} {} for user {}",
-                target_type, target_id, user_id
-            );
-
             let favorite_target = match target_type.to_lowercase().as_str() {
                 "song" => FavoriteTarget::Song,
                 "artist" => FavoriteTarget::Artist,
@@ -473,15 +499,15 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 "genre" => FavoriteTarget::Genre,
                 "playlist" => FavoriteTarget::Playlist,
                 _ => {
-                    eprintln!(
-                        "invalid target type: {}. Must be 'song', 'artist', 'album', 'genre', or 'playlist'",
-                        target_type
-                    );
-                    std::process::exit(1);
+                    return Err(GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "Invalid target type: {}. Must be 'song', 'artist', 'album', 'genre', or 'playlist'",
+                            target_type
+                        ),
+                    });
                 }
             };
 
-            let favorites_service = crate::users::favorites::FavoritesService::new();
             let request = SetFavoriteRequest {
                 user_id: user_id.clone(),
                 target_type: favorite_target,
@@ -489,26 +515,23 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 is_favorite: true,
             };
 
-            match favorites_service.set_favorite(&request).await {
-                Ok(()) => {
-                    println!("favorite set successfully");
-                }
-                Err(e) => {
-                    eprintln!("failed to set favorite: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            let favorites_service = FavoritesService::new();
+            favorites_service
+                .set_favorite(&request)
+                .await
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to set favorite: {}", e),
+                })?;
+
+            let message = format!("Favorite set: {} {}", target_type, target_id);
+            let output = CommandOutput::success(message, ());
+            print!("{}", output.format(format));
         }
         UserAction::RemoveFavorite {
             user_id,
             target_type,
             target_id,
         } => {
-            println!(
-                "removing favorite: {} {} for user {}",
-                target_type, target_id, user_id
-            );
-
             let favorite_target = match target_type.to_lowercase().as_str() {
                 "song" => FavoriteTarget::Song,
                 "artist" => FavoriteTarget::Artist,
@@ -516,15 +539,15 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 "genre" => FavoriteTarget::Genre,
                 "playlist" => FavoriteTarget::Playlist,
                 _ => {
-                    eprintln!(
-                        "invalid target type: {}. Must be 'song', 'artist', 'album', 'genre', or 'playlist'",
-                        target_type
-                    );
-                    std::process::exit(1);
+                    return Err(GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "Invalid target type: {}. Must be 'song', 'artist', 'album', 'genre', or 'playlist'",
+                            target_type
+                        ),
+                    });
                 }
             };
 
-            let favorites_service = crate::users::favorites::FavoritesService::new();
             let request = SetFavoriteRequest {
                 user_id: user_id.clone(),
                 target_type: favorite_target,
@@ -532,70 +555,47 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 is_favorite: false,
             };
 
-            match favorites_service.set_favorite(&request).await {
-                Ok(()) => {
-                    println!("favorite removed successfully");
-                }
-                Err(e) => {
-                    eprintln!("failed to remove favorite: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            let favorites_service = FavoritesService::new();
+            favorites_service
+                .set_favorite(&request)
+                .await
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to remove favorite: {}", e),
+                })?;
+
+            let message = format!("Favorite removed: {} {}", target_type, target_id);
+            let output = CommandOutput::success(message, ());
+            print!("{}", output.format(format));
         }
         UserAction::ListFavorites {
             user_id,
             target_type,
             limit,
         } => {
-            println!("listing favorites for user: {}", user_id);
-
-            let target_filter = target_type.map(|t| match t.to_lowercase().as_str() {
-                "song" => FavoriteTarget::Song,
-                "artist" => FavoriteTarget::Artist,
-                "album" => FavoriteTarget::Album,
-                "genre" => FavoriteTarget::Genre,
-                "playlist" => FavoriteTarget::Playlist,
-                _ => {
-                    eprintln!(
-                        "invalid target type: {}. Must be 'song', 'artist', 'album', 'genre', or 'playlist'",
-                        t
-                    );
-                    std::process::exit(1);
-                }
+            let target_filter = target_type.and_then(|t| match t.to_lowercase().as_str() {
+                "song" => Some(FavoriteTarget::Song),
+                "artist" => Some(FavoriteTarget::Artist),
+                "album" => Some(FavoriteTarget::Album),
+                "genre" => Some(FavoriteTarget::Genre),
+                "playlist" => Some(FavoriteTarget::Playlist),
+                _ => None,
             });
 
-            let favorites_service = crate::users::favorites::FavoritesService::new();
-
-            match favorites_service
+            let favorites_service = FavoritesService::new();
+            let favorites = favorites_service
                 .get_user_favorites(&user_id, target_filter, Some(limit as u32), None)
                 .await
-            {
-                Ok(favorites) => {
-                    if favorites.is_empty() {
-                        println!("no favorites found");
-                    } else {
-                        for favorite in favorites {
-                            println!(
-                                "  {} {}: {} (created: {})",
-                                favorite.target_type,
-                                favorite.target_id,
-                                match favorite.target_type {
-                                    FavoriteTarget::Song => "♪",
-                                    FavoriteTarget::Artist => "👤",
-                                    FavoriteTarget::Album => "💿",
-                                    FavoriteTarget::Genre => "🏷️",
-                                    FavoriteTarget::Playlist => "📂",
-                                },
-                                super::utils::format_timestamp(favorite.created_at)
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("failed to list favorites: {}", e);
-                    std::process::exit(1);
-                }
-            }
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to get favorites: {}", e),
+                })?;
+
+            let message = format!(
+                "Found {} favorite{}",
+                favorites.len(),
+                if favorites.len() == 1 { "" } else { "s" }
+            );
+            let output = CommandOutput::success(message, favorites);
+            print!("{}", output.format(format));
         }
         UserAction::SetRating {
             user_id,
@@ -603,30 +603,20 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
             target_id,
             rating,
         } => {
-            if rating < 1 || rating > 5 {
-                eprintln!("rating must be between 1 and 5");
-                std::process::exit(1);
-            }
-
-            println!(
-                "setting rating: {} {} = {} stars for user {}",
-                target_type, target_id, rating, user_id
-            );
-
             let rating_target = match target_type.to_lowercase().as_str() {
                 "song" => RatingTarget::Song,
                 "artist" => RatingTarget::Artist,
                 "album" => RatingTarget::Album,
                 _ => {
-                    eprintln!(
-                        "invalid target type: {}. Must be 'song', 'artist', or 'album'",
-                        target_type
-                    );
-                    std::process::exit(1);
+                    return Err(GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "Invalid target type: {}. Must be 'song', 'artist', or 'album'",
+                            target_type
+                        ),
+                    });
                 }
             };
 
-            let ratings_service = crate::users::ratings::RatingsService::new();
             let request = SetRatingRequest {
                 user_id: user_id.clone(),
                 target_type: rating_target,
@@ -634,151 +624,119 @@ pub async fn handle_command(action: UserAction, _format: OutputFormat) -> Grimoi
                 rating,
             };
 
-            match ratings_service.set_rating(&request).await {
-                Ok(_rating) => {
-                    println!("rating set successfully");
+            let ratings_service = RatingsService::new();
+            ratings_service.set_rating(&request).await.map_err(|e| {
+                GrimoireError::ProcessingFailed {
+                    message: format!("Failed to set rating: {}", e),
                 }
-                Err(e) => {
-                    eprintln!("failed to set rating: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            })?;
+
+            let message = format!(
+                "Rating set: {} {} - {} stars",
+                target_type, target_id, rating
+            );
+            let output = CommandOutput::success(message, ());
+            print!("{}", output.format(format));
         }
         UserAction::RemoveRating {
             user_id,
             target_type,
             target_id,
         } => {
-            println!(
-                "removing rating: {} {} for user {}",
-                target_type, target_id, user_id
-            );
-
             let rating_target = match target_type.to_lowercase().as_str() {
                 "song" => RatingTarget::Song,
                 "artist" => RatingTarget::Artist,
                 "album" => RatingTarget::Album,
                 _ => {
-                    eprintln!(
-                        "invalid target type: {}. Must be 'song', 'artist', or 'album'",
-                        target_type
-                    );
-                    std::process::exit(1);
+                    return Err(GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "Invalid target type: {}. Must be 'song', 'artist', or 'album'",
+                            target_type
+                        ),
+                    });
                 }
             };
 
-            let ratings_service = crate::users::ratings::RatingsService::new();
-
-            match ratings_service
+            let ratings_service = RatingsService::new();
+            ratings_service
                 .remove_rating(&user_id, rating_target, &target_id)
                 .await
-            {
-                Ok(_removed) => {
-                    println!("rating removed successfully");
-                }
-                Err(e) => {
-                    eprintln!("failed to remove rating: {}", e);
-                    std::process::exit(1);
-                }
-            }
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to remove rating: {}", e),
+                })?;
+
+            let message = format!("Rating removed: {} {}", target_type, target_id);
+            let output = CommandOutput::success(message, ());
+            print!("{}", output.format(format));
         }
         UserAction::RatingStats {
             target_type,
             target_id,
         } => {
-            println!(
-                "getting rating statistics for: {} {}",
-                target_type, target_id
-            );
-
             let rating_target = match target_type.to_lowercase().as_str() {
                 "song" => RatingTarget::Song,
                 "artist" => RatingTarget::Artist,
                 "album" => RatingTarget::Album,
                 _ => {
-                    eprintln!(
-                        "invalid target type: {}. Must be 'song', 'artist', or 'album'",
-                        target_type
-                    );
-                    std::process::exit(1);
+                    return Err(GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "Invalid target type: {}. Must be 'song', 'artist', or 'album'",
+                            target_type
+                        ),
+                    });
                 }
             };
 
-            let ratings_service = crate::users::ratings::RatingsService::new();
-
-            match ratings_service
+            let ratings_service = RatingsService::new();
+            let stats = ratings_service
                 .get_rating_stats(rating_target, &target_id)
                 .await
-            {
-                Ok(stats) => {
-                    println!("  Target: {} {}", stats.target_type, stats.target_id);
-                    println!("  Total ratings: {}", stats.total_ratings);
-                    println!("  Average rating: {:.1} stars", stats.average_rating);
-                    println!("  Rating distribution:");
-                    for (rating, count) in stats.rating_distribution {
-                        let stars = "★".repeat(rating as usize);
-                        println!("    {} ({}): {}", stars, rating, count);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("failed to get rating statistics: {}", e);
-                    std::process::exit(1);
-                }
-            }
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to get rating stats: {}", e),
+                })?;
+
+            let message = format!(
+                "Rating stats for {} {}: {:.1} stars ({} ratings)",
+                target_type, target_id, stats.average_rating, stats.total_ratings
+            );
+            let output = CommandOutput::success(message, stats);
+            print!("{}", output.format(format));
         }
         UserAction::TopRated {
             target_type,
             min_ratings,
             limit,
         } => {
-            println!("getting top rated {} items...", target_type);
-
             let rating_target = match target_type.to_lowercase().as_str() {
                 "song" => RatingTarget::Song,
                 "artist" => RatingTarget::Artist,
                 "album" => RatingTarget::Album,
                 _ => {
-                    eprintln!(
-                        "invalid target type: {}. Must be 'song', 'artist', or 'album'",
-                        target_type
-                    );
-                    std::process::exit(1);
+                    return Err(GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "Invalid target type: {}. Must be 'song', 'artist', or 'album'",
+                            target_type
+                        ),
+                    });
                 }
             };
 
-            let ratings_service = crate::users::ratings::RatingsService::new();
-
-            match ratings_service
+            let ratings_service = RatingsService::new();
+            let items = ratings_service
                 .get_top_rated(rating_target, Some(min_ratings as u64), Some(limit as u32))
                 .await
-            {
-                Ok(items) => {
-                    if items.is_empty() {
-                        println!("no rated items found");
-                    } else {
-                        for (i, item) in items.iter().enumerate() {
-                            println!(
-                                "{}. {} {} - {:.1} stars ({} ratings)",
-                                i + 1,
-                                if item.target_type == RatingTarget::Song {
-                                    "♪"
-                                } else if item.target_type == RatingTarget::Artist {
-                                    "👤"
-                                } else {
-                                    "💿"
-                                },
-                                item.target_id,
-                                item.average_rating,
-                                item.total_ratings
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("failed to get top rated items: {}", e);
-                    std::process::exit(1);
-                }
-            }
+                .map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to get top rated: {}", e),
+                })?;
+
+            let message = format!(
+                "Top {} rated {}{}",
+                items.len(),
+                target_type,
+                if items.len() == 1 { "" } else { "s" }
+            );
+            let output = CommandOutput::success(message, items);
+            print!("{}", output.format(format));
         }
     }
 

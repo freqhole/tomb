@@ -1,12 +1,13 @@
 //! Wordlist operations CLI commands
 
-use crate::cli::output::OutputFormat;
-use crate::error::GrimoireResult;
+use crate::cli::output::{CommandOutput, OutputFormat};
+use crate::error::{GrimoireError, GrimoireResult};
 use crate::wordlist::{
     generate_word_code, initialize_wordlist, is_initialized, ManagementWordlistConfig,
     WordlistConfig, WordlistService,
 };
 use clap::Subcommand;
+use serde::Serialize;
 
 #[derive(Subcommand)]
 pub enum WordlistAction {
@@ -55,8 +56,29 @@ pub enum WordlistAction {
     },
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct WordlistGenerated {
+    pub word_count: usize,
+    pub config: WordlistConfigSummary,
+    pub output_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WordlistConfigSummary {
+    pub include_silly: bool,
+    pub include_animals: bool,
+    pub include_food: bool,
+    pub mixed: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InviteCodes {
+    pub codes: Vec<String>,
+    pub word_count: usize,
+}
+
 /// Handle wordlist commands
-pub async fn handle_command(action: WordlistAction, _format: OutputFormat) -> GrimoireResult<()> {
+pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> GrimoireResult<()> {
     match action {
         WordlistAction::Generate {
             count,
@@ -66,8 +88,6 @@ pub async fn handle_command(action: WordlistAction, _format: OutputFormat) -> Gr
             mixed,
             output,
         } => {
-            println!("generating wordlist...");
-
             let config = WordlistConfig {
                 count,
                 include_silly,
@@ -77,107 +97,119 @@ pub async fn handle_command(action: WordlistAction, _format: OutputFormat) -> Gr
             };
 
             let service = WordlistService::new();
-            match service.generate_wordlist(&config) {
-                Ok(result) => {
-                    let content = service.generate_wordlist_content(&config).map_err(|e| {
-                        crate::error::GrimoireError::ProcessingFailed {
-                            message: format!("Failed to generate wordlist content: {}", e),
-                        }
-                    })?;
+            let _result = service.generate_wordlist(&config).map_err(|e| {
+                GrimoireError::ProcessingFailed {
+                    message: format!("Failed to generate wordlist: {}", e),
+                }
+            })?;
 
-                    if let Some(output_path) = output {
-                        std::fs::write(&output_path, &content).map_err(|e| {
-                            crate::error::GrimoireError::ProcessingFailed {
-                                message: format!(
-                                    "Failed to write wordlist to {}: {}",
-                                    output_path, e
-                                ),
-                            }
-                        })?;
-                        println!("wordlist written to: {}", output_path);
-                    } else {
-                        println!("{}", content);
+            let content = service.generate_wordlist_content(&config).map_err(|e| {
+                GrimoireError::ProcessingFailed {
+                    message: format!("Failed to generate wordlist content: {}", e),
+                }
+            })?;
+
+            if let Some(output_path) = &output {
+                std::fs::write(output_path, &content).map_err(|e| {
+                    GrimoireError::ProcessingFailed {
+                        message: format!("Failed to write wordlist to {}: {}", output_path, e),
                     }
-
-                    println!("generation result: {}", result);
-                }
-                Err(e) => {
-                    eprintln!("failed to generate wordlist: {}", e);
-                }
+                })?;
             }
+
+            let data = WordlistGenerated {
+                word_count: count,
+                config: WordlistConfigSummary {
+                    include_silly,
+                    include_animals,
+                    include_food,
+                    mixed,
+                },
+                output_file: output,
+            };
+
+            let message = format!("Generated wordlist with {} words", count);
+            let output = CommandOutput::success(message, data);
+            print!("{}", output.format(format));
         }
+
         WordlistAction::Validate { file_path } => {
-            println!("validating wordlist: {}", file_path);
-
             let service = WordlistService::new();
-            match service.validate_wordlist_file(&file_path) {
-                Ok(result) => {
-                    println!("{}", result);
-                    if !result.is_valid {
-                        std::process::exit(1);
-                    }
+            let validation = service.validate_wordlist_file(&file_path).map_err(|e| {
+                GrimoireError::ProcessingFailed {
+                    message: format!("Failed to validate wordlist: {}", e),
                 }
-                Err(e) => {
-                    eprintln!("failed to validate wordlist: {}", e);
-                    std::process::exit(1);
-                }
+            })?;
+
+            let is_valid = validation.is_valid;
+            let message = if is_valid {
+                format!("Wordlist is valid: {}", file_path)
+            } else {
+                format!("Wordlist validation failed: {}", file_path)
+            };
+
+            let output = CommandOutput::success(message, validation);
+            print!("{}", output.format(format));
+
+            if !is_valid {
+                std::process::exit(1);
             }
         }
+
         WordlistAction::Stats { file_path } => {
-            println!("analyzing wordlist: {}", file_path);
-
             let service = WordlistService::new();
-            match service.get_wordlist_stats_file(&file_path) {
-                Ok(stats) => {
-                    println!("{}", stats);
+            let stats = service.get_wordlist_stats_file(&file_path).map_err(|e| {
+                GrimoireError::ProcessingFailed {
+                    message: format!("Failed to get wordlist stats: {}", e),
                 }
-                Err(e) => {
-                    eprintln!("failed to get wordlist stats: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            })?;
+
+            let message = format!("Wordlist statistics for: {}", file_path);
+            let output = CommandOutput::success(message, stats);
+            print!("{}", output.format(format));
         }
+
         WordlistAction::GenerateCode {
             word_count,
             count,
             wordlist_file,
         } => {
-            println!(
-                "generating {} invite codes with {} words each...",
-                count, word_count
-            );
-
             if let Some(file_path) = wordlist_file {
-                // Initialize wordlist from file
                 let config = ManagementWordlistConfig {
                     file_path,
                     ..Default::default()
                 };
 
-                if let Err(e) = initialize_wordlist(&config) {
-                    eprintln!("failed to initialize wordlist: {}", e);
-                    std::process::exit(1);
-                }
+                initialize_wordlist(&config).map_err(|e| GrimoireError::ProcessingFailed {
+                    message: format!("Failed to initialize wordlist: {}", e),
+                })?;
             } else if !is_initialized() {
-                eprintln!("no wordlist initialized and no file provided");
-                eprintln!("either provide --wordlist-file or initialize a wordlist first");
-                std::process::exit(1);
+                return Err(GrimoireError::ProcessingFailed {
+                    message:
+                        "No wordlist initialized and no file provided. Use --wordlist-file or initialize a wordlist first"
+                            .to_string(),
+                });
             }
 
-            for i in 1..=count {
-                match generate_word_code(word_count) {
-                    Ok(code) => {
-                        if count > 1 {
-                            println!("{}: {}", i, code);
-                        } else {
-                            println!("{}", code);
-                        }
+            let mut codes = Vec::new();
+            for _ in 0..count {
+                let code = generate_word_code(word_count).map_err(|e| {
+                    GrimoireError::ProcessingFailed {
+                        message: format!("Failed to generate code: {}", e),
                     }
-                    Err(e) => {
-                        eprintln!("failed to generate code {}: {}", i, e);
-                    }
-                }
+                })?;
+                codes.push(code);
             }
+
+            let data = InviteCodes { codes, word_count };
+            let message = format!(
+                "Generated {} invite code{} with {} words each",
+                count,
+                if count == 1 { "" } else { "s" },
+                word_count
+            );
+            let output = CommandOutput::success(message, data);
+            print!("{}", output.format(format));
         }
     }
 
