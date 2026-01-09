@@ -14,7 +14,10 @@ use crate::music::crud::{
 use crate::music::{Album, Artist, Genre, Song, SubGenre, Tag};
 use std::collections::HashMap;
 
-pub async fn handle_query_songs(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_query_songs(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::QuerySongs {
         search,
         sort_by,
@@ -26,7 +29,6 @@ pub async fn handle_query_songs(action: MusicAction) -> GrimoireResult<()> {
         min_rating,
     } = action
     {
-        println!("querying songs...");
         let params = QueryParams {
             q: search,
             search_fields: None,
@@ -85,7 +87,10 @@ pub async fn handle_query_songs(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_query_artists(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_query_artists(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::QueryArtists {
         search,
         starts_with,
@@ -146,7 +151,10 @@ pub async fn handle_query_artists(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_query_albums(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_query_albums(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::QueryAlbums {
         search,
         sort_by,
@@ -155,7 +163,6 @@ pub async fn handle_query_albums(action: MusicAction) -> GrimoireResult<()> {
         offset,
     } = action
     {
-        println!("querying albums...");
         let params = QueryParams {
             q: search,
             search_fields: None,
@@ -205,7 +212,10 @@ pub async fn handle_query_albums(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_query_genres(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_query_genres(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::QueryGenres {
         search,
         sort_by,
@@ -214,7 +224,6 @@ pub async fn handle_query_genres(action: MusicAction) -> GrimoireResult<()> {
         offset,
     } = action
     {
-        println!("querying genres...");
         let params = QueryParams {
             q: search,
             search_fields: None,
@@ -255,7 +264,10 @@ pub async fn handle_query_genres(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_query_playlists(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_query_playlists(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::QueryPlaylists {
         search,
         sort_by,
@@ -265,7 +277,6 @@ pub async fn handle_query_playlists(action: MusicAction) -> GrimoireResult<()> {
         offset,
     } = action
     {
-        println!("querying playlists...");
         let mut filters = HashMap::new();
         if let Some(public) = is_public {
             filters.insert("is_public".to_string(), serde_json::Value::Bool(public));
@@ -325,7 +336,10 @@ pub async fn handle_query_playlists(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_query_playlist_songs(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_query_playlist_songs(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::QueryPlaylistSongs {
         playlist_id,
         search,
@@ -335,7 +349,6 @@ pub async fn handle_query_playlist_songs(action: MusicAction) -> GrimoireResult<
         offset,
     } = action
     {
-        println!("querying playlist songs...");
         let params = QueryParams {
             q: search,
             search_fields: None,
@@ -410,7 +423,10 @@ pub async fn handle_list_albums(action: MusicAction) -> GrimoireResult<CommandOu
     }
 }
 
-pub async fn handle_get_album(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_get_album(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::GetAlbum { album_id } = action {
         println!("getting album: {}", album_id);
         match get_album(&album_id).await {
@@ -432,7 +448,10 @@ pub async fn handle_get_album(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_delete_album(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_delete_album(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::DeleteAlbum {
         album_id,
         deleted_by,
@@ -454,7 +473,10 @@ pub async fn handle_delete_album(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_get_album_tags(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_get_album_tags(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::GetAlbumTags { album_id } = action {
         println!("getting tags for album: {}", album_id);
         match get_album_tags(&album_id).await {
@@ -492,7 +514,10 @@ pub async fn handle_list_artists(
     }
 }
 
-pub async fn handle_get_artist(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_get_artist(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::GetArtist { artist_id } = action {
         println!("getting artist: {}", artist_id);
         match get_artist(&artist_id).await {
@@ -510,7 +535,10 @@ pub async fn handle_get_artist(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_delete_artist(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_delete_artist(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::DeleteArtist {
         artist_id,
         deleted_by,
@@ -547,7 +575,10 @@ pub async fn handle_list_songs(action: MusicAction) -> GrimoireResult<CommandOut
     }
 }
 
-pub async fn handle_delete_song(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_delete_song(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::DeleteSong {
         song_id,
         deleted_by,
@@ -580,7 +611,10 @@ pub async fn handle_list_genres(_action: MusicAction) -> GrimoireResult<CommandO
     }
 }
 
-pub async fn handle_get_genre(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_get_genre(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::GetGenre { genre_id } = action {
         println!("getting genre: {}", genre_id);
         match get_genre(&genre_id).await {
@@ -598,7 +632,10 @@ pub async fn handle_get_genre(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_get_genre_stats(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_get_genre_stats(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::GetGenreStats { genre_id: _ } = action {
         println!("getting genre stats for all genres...");
         match get_genre_stats().await {
@@ -632,7 +669,10 @@ pub async fn handle_list_sub_genres(
     }
 }
 
-pub async fn handle_list_sub_genres_for_genre(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_list_sub_genres_for_genre(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::ListSubGenresForGenre { genre_id } = action {
         println!("listing sub-genres for genre: {}", genre_id);
         match list_sub_genres_for_genre(&genre_id).await {
@@ -657,7 +697,10 @@ pub async fn handle_list_sub_genres_for_genre(action: MusicAction) -> GrimoireRe
     }
 }
 
-pub async fn handle_get_sub_genre(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_get_sub_genre(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::GetSubGenre { sub_genre_id } = action {
         println!("getting sub-genre: {}", sub_genre_id);
         match get_sub_genre(&sub_genre_id).await {
@@ -675,7 +718,10 @@ pub async fn handle_get_sub_genre(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_delete_sub_genre(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_delete_sub_genre(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::DeleteSubGenre { sub_genre_id } = action {
         println!("deleting sub-genre: {}", sub_genre_id);
         match delete_sub_genre(&sub_genre_id, None).await {
@@ -693,7 +739,10 @@ pub async fn handle_delete_sub_genre(action: MusicAction) -> GrimoireResult<()> 
     }
 }
 
-pub async fn handle_find_or_create_sub_genre(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_find_or_create_sub_genre(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::FindOrCreateSubGenre { name, genre_id } = action {
         println!(
             "finding or creating sub-genre: {} for genre {}",
@@ -732,7 +781,10 @@ pub async fn handle_list_tags(_action: MusicAction) -> GrimoireResult<CommandOut
     }
 }
 
-pub async fn handle_get_tag(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_get_tag(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::GetTag { tag_id } = action {
         println!("getting tag: {}", tag_id);
         match get_tag(&tag_id).await {
@@ -750,7 +802,10 @@ pub async fn handle_get_tag(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_delete_tag(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_delete_tag(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::DeleteTag { tag_id } = action {
         println!("deleting tag: {}", tag_id);
         match delete_tag(&tag_id, None).await {
@@ -769,7 +824,10 @@ pub async fn handle_delete_tag(action: MusicAction) -> GrimoireResult<()> {
 }
 
 // Query/search operations
-pub async fn handle_query_genres_search(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_query_genres_search(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::QueryGenresSearch { search } = action {
         println!("searching genres: {}", search);
         match search_genres(&search).await {
@@ -790,7 +848,10 @@ pub async fn handle_query_genres_search(action: MusicAction) -> GrimoireResult<(
     }
 }
 
-pub async fn handle_query_sub_genres_search(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_query_sub_genres_search(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::QuerySubGenresSearch { search } = action {
         println!("searching sub-genres: {}", search);
         match search_sub_genres(&search).await {
@@ -815,7 +876,10 @@ pub async fn handle_query_sub_genres_search(action: MusicAction) -> GrimoireResu
     }
 }
 
-pub async fn handle_query_tags_search(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_query_tags_search(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::QueryTagsSearch { search } = action {
         println!("searching tags: {}", search);
         match search_tags(&search).await {

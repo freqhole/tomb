@@ -8,7 +8,10 @@ use crate::maintenance::{
 };
 use crate::media_blobz::find_media_blob_references;
 
-pub async fn handle_check_blob_references(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_check_blob_references(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::CheckBlobReferences { blob_id } = action {
         println!("checking references for media blob: {}", blob_id);
         match find_media_blob_references(&blob_id).await {
@@ -52,7 +55,10 @@ pub async fn handle_check_blob_references(action: MusicAction) -> GrimoireResult
     }
 }
 
-pub async fn handle_cleanup_orphaned_blobs(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_cleanup_orphaned_blobs(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::CleanupOrphanedBlobs {
         min_age_days,
         dry_run,
@@ -85,7 +91,10 @@ pub async fn handle_cleanup_orphaned_blobs(action: MusicAction) -> GrimoireResul
     }
 }
 
-pub async fn handle_hard_delete_old_records(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_hard_delete_old_records(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::HardDeleteOldRecords {
         retention_days,
         keep_blob_data,
@@ -129,7 +138,10 @@ pub async fn handle_hard_delete_old_records(action: MusicAction) -> GrimoireResu
     }
 }
 
-pub async fn handle_run_maintenance(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_run_maintenance(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::RunMaintenance {
         retention_days,
         dry_run,

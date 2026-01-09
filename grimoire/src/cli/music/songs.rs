@@ -5,7 +5,10 @@ use crate::cli::utils::resolve_request;
 use crate::error::GrimoireResult;
 use crate::music::crud::{list_recent_songs, update_songs};
 
-pub async fn handle_recent_songs(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_recent_songs(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
     if let MusicAction::RecentSongs { limit } = action {
         println!("listing recent songs...");
         match list_recent_songs(Some(limit as u32)).await {
