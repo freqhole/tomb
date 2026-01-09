@@ -1,6 +1,7 @@
 //! Analytics operations CLI commands
 
-use crate::error::GrimoireResult;
+use crate::cli::output::OutputFormat;
+use crate::error::{GrimoireError, GrimoireResult};
 use crate::music::analytics::{
     create_play_event, get_album_play_count, get_all_user_stats, get_artist_play_count,
     get_combined_feed, get_overview_stats, get_recent_albums, get_recent_favorites,
@@ -101,7 +102,7 @@ pub enum AnalyticsAction {
 }
 
 /// Handle analytics commands
-pub async fn handle_command(action: AnalyticsAction) -> GrimoireResult<()> {
+pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> GrimoireResult<()> {
     match action {
         AnalyticsAction::RecordPlay {
             song_id,
@@ -130,13 +131,12 @@ pub async fn handle_command(action: AnalyticsAction) -> GrimoireResult<()> {
             };
 
             let result = query_songs(params).await?;
-            let song_result =
-                result
-                    .items
-                    .first()
-                    .ok_or_else(|| crate::error::GrimoireError::SongNotFound {
-                        id: song_id.clone(),
-                    })?;
+            let song_result = result
+                .items
+                .first()
+                .ok_or_else(|| GrimoireError::SongNotFound {
+                    id: song_id.clone(),
+                })?;
 
             // Create event data with position if provided
             let event_data = if let Some(pos) = position {
@@ -206,13 +206,12 @@ pub async fn handle_command(action: AnalyticsAction) -> GrimoireResult<()> {
             };
 
             let result = query_songs(params).await?;
-            let song_result =
-                result
-                    .items
-                    .first()
-                    .ok_or_else(|| crate::error::GrimoireError::SongNotFound {
-                        id: song_id.clone(),
-                    })?;
+            let song_result = result
+                .items
+                .first()
+                .ok_or_else(|| GrimoireError::SongNotFound {
+                    id: song_id.clone(),
+                })?;
 
             // Get play analytics
             let analytics = get_song_play_analytics(&song_id).await?;

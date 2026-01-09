@@ -1,11 +1,13 @@
 //! Job queue management CLI commands
 
-use crate::error::GrimoireResult;
+use crate::cli::output::{CommandOutput, OutputFormat};
+use crate::error::{GrimoireError, GrimoireResult};
 use crate::jobs::{
     create_job, create_job_session, get_queue_stats, list_jobs, CreateJobRequest,
-    CreateJobSessionRequest, JobType, ScanDirectoryParams,
+    CreateJobSessionRequest, Job, JobStatus, JobType, ScanDirectoryParams,
 };
 use clap::Subcommand;
+use serde::Serialize;
 use serde_json::json;
 
 #[derive(Subcommand)]
@@ -48,71 +50,109 @@ pub enum JobAction {
     },
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct JobListItem {
+    pub id: String,
+    pub job_type: String,
+    pub status: String,
+    pub retry_count: i32,
+    pub max_retries: i32,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct JobStats {
+    pub pending_jobs: u64,
+    pub running_jobs: u64,
+    pub completed_jobs: u64,
+    pub failed_jobs: u64,
+    pub active_sessions: u64,
+    pub total_jobs: u64,
+    pub success_rate: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanJobCreated {
+    pub job_id: String,
+    pub session_id: String,
+    pub path: String,
+    pub recursive: bool,
+    pub max_depth: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProcessJobCreated {
+    pub job_id: String,
+    pub file_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProcessorResult {
+    pub mode: String,
+    pub max_jobs: usize,
+    pub completed: bool,
+}
+
 /// Handle job commands
-pub async fn handle_command(action: JobAction) -> GrimoireResult<()> {
+pub async fn handle_command(action: JobAction, format: OutputFormat) -> GrimoireResult<()> {
     match action {
         JobAction::List { session_id, limit } => {
-            println!("listing jobs...");
-
             let jobs = list_jobs(session_id.as_deref(), None, Some(limit as u32), None)
                 .await
-                .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+                .map_err(|e| GrimoireError::ProcessingFailed {
                     message: format!("Failed to list jobs: {}", e),
                 })?;
 
-            if jobs.is_empty() {
-                println!("No jobs found.");
-            } else {
-                println!("Found {} jobs:\n", jobs.len());
-                println!(
-                    "{:<16} {:<20} {:<12} {:<15} {:<20}",
-                    "ID", "Type", "Status", "Retry Count", "Created"
-                );
-                println!("{}", "-".repeat(85));
-
-                for job in jobs {
-                    let job_type = job.job_type().unwrap_or_else(|_| JobType::ProcessFile);
-                    let status = job
-                        .status()
-                        .unwrap_or_else(|_| crate::jobs::JobStatus::Pending);
-
-                    // Format timestamp
+            let job_items: Vec<JobListItem> = jobs
+                .iter()
+                .map(|job| {
+                    let job_type = job.job_type().unwrap_or(JobType::ProcessFile);
+                    let status = job.status().unwrap_or(JobStatus::Pending);
                     let created_time = super::utils::format_timestamp(job.scheduled_at);
 
-                    println!(
-                        "{:<16} {:<20} {:<12} {:<15} {:<20}",
-                        &job.id[..8], // Show first 8 chars of ID
-                        format!("{:?}", job_type),
-                        format!("{:?}", status),
-                        format!("{}/{}", job.retry_count, job.max_retries),
-                        created_time
-                    );
-                }
-            }
+                    JobListItem {
+                        id: job.id.clone(),
+                        job_type: format!("{:?}", job_type),
+                        status: format!("{:?}", status),
+                        retry_count: job.retry_count,
+                        max_retries: job.max_retries,
+                        created_at: created_time,
+                    }
+                })
+                .collect();
+
+            let message = format!("Found {} jobs", job_items.len());
+            let output = CommandOutput::success(message, job_items);
+            print!("{}", output.format(format));
         }
 
         JobAction::Stats => {
-            println!("queue statistics:");
-
-            let stats = get_queue_stats().await.map_err(|e| {
-                crate::error::GrimoireError::ProcessingFailed {
+            let stats = get_queue_stats()
+                .await
+                .map_err(|e| GrimoireError::ProcessingFailed {
                     message: format!("Failed to get stats: {}", e),
-                }
-            })?;
-
-            println!("  Pending Jobs:   {}", stats.pending_jobs);
-            println!("  Running Jobs:   {}", stats.running_jobs);
-            println!("  Completed Jobs: {}", stats.completed_jobs);
-            println!("  Failed Jobs:    {}", stats.failed_jobs);
-            println!("  Active Sessions: {}", stats.active_sessions);
-            println!();
+                })?;
 
             let total_jobs =
                 stats.pending_jobs + stats.running_jobs + stats.completed_jobs + stats.failed_jobs;
-            if total_jobs > 0 {
-                let success_rate = (stats.completed_jobs as f64 / total_jobs as f64) * 100.0;
-                println!("  Success Rate: {:.1}%", success_rate);
-            }
+            let success_rate = if total_jobs > 0 {
+                Some((stats.completed_jobs as f64 / total_jobs as f64) * 100.0)
+            } else {
+                None
+            };
+
+            let job_stats = JobStats {
+                pending_jobs: stats.pending_jobs,
+                running_jobs: stats.running_jobs,
+                completed_jobs: stats.completed_jobs,
+                failed_jobs: stats.failed_jobs,
+                active_sessions: stats.active_sessions,
+                total_jobs,
+                success_rate,
+            };
+
+            let output = CommandOutput::success("Queue statistics", job_stats);
+            print!("{}", output.format(format));
         }
 
         JobAction::Scan {
@@ -120,8 +160,6 @@ pub async fn handle_command(action: JobAction) -> GrimoireResult<()> {
             recursive,
             max_depth,
         } => {
-            println!("creating directory scan job for: {}", path);
-
             // First create a job session for the scan
             let session_request = CreateJobSessionRequest {
                 job_type: JobType::ScanDirectory,
@@ -130,12 +168,10 @@ pub async fn handle_command(action: JobAction) -> GrimoireResult<()> {
             };
 
             let session = create_job_session(session_request).await.map_err(|e| {
-                crate::error::GrimoireError::ProcessingFailed {
+                GrimoireError::ProcessingFailed {
                     message: format!("Failed to create job session: {}", e),
                 }
             })?;
-
-            println!("created job session: {}", session.id);
 
             // Create the scan job
             let scan_params = ScanDirectoryParams {
@@ -154,34 +190,32 @@ pub async fn handle_command(action: JobAction) -> GrimoireResult<()> {
                 created_by: Some("cli".to_string()),
             };
 
-            let job = create_job(job_request).await.map_err(|e| {
-                crate::error::GrimoireError::ProcessingFailed {
-                    message: format!("Failed to create scan job: {}", e),
-                }
-            })?;
+            let job =
+                create_job(job_request)
+                    .await
+                    .map_err(|e| GrimoireError::ProcessingFailed {
+                        message: format!("Failed to create scan job: {}", e),
+                    })?;
 
-            println!("created scan job: {}", job.id);
-            println!("   Session: {}", session.id);
-            println!("   Path: {}", path);
-            println!("   Recursive: {}", recursive.unwrap_or(true));
-            if let Some(depth) = max_depth {
-                println!("   Max Depth: {}", depth);
-            }
+            let result = ScanJobCreated {
+                job_id: job.id,
+                session_id: session.id,
+                path,
+                recursive: recursive.unwrap_or(true),
+                max_depth,
+            };
 
-            println!(
-                "\nuse 'grimoire jobs list --session-id {}' to check progress",
-                session.id
-            );
+            let message = format!("Created scan job for directory: {}", result.path);
+            let output = CommandOutput::success(message, result);
+            print!("{}", output.format(format));
         }
 
         JobAction::ProcessFile { path } => {
-            println!("creating file processing job for: {}", path);
-
             let job_request = CreateJobRequest {
                 job_type: JobType::ProcessFile,
                 session_id: None,
                 parameters: json!({
-                    "file_path": path,
+                    "file_path": path.clone(),
                     "extract_metadata": true,
                     "generate_thumbnail": true,
                     "generate_waveform": false
@@ -191,49 +225,54 @@ pub async fn handle_command(action: JobAction) -> GrimoireResult<()> {
                 created_by: Some("cli".to_string()),
             };
 
-            let job = create_job(job_request).await.map_err(|e| {
-                crate::error::GrimoireError::ProcessingFailed {
-                    message: format!("Failed to create process file job: {}", e),
-                }
-            })?;
+            let job =
+                create_job(job_request)
+                    .await
+                    .map_err(|e| GrimoireError::ProcessingFailed {
+                        message: format!("Failed to create process file job: {}", e),
+                    })?;
 
-            println!("created process file job: {}", job.id);
-            println!("   File: {}", path);
+            let result = ProcessJobCreated {
+                job_id: job.id,
+                file_path: path,
+            };
 
-            println!("\nuse 'grimoire jobs list' to check progress");
+            let message = format!("Created process file job for: {}", result.file_path);
+            let output = CommandOutput::success(message, result);
+            print!("{}", output.format(format));
         }
 
         JobAction::RunProcessor { max_jobs, once } => {
-            println!("starting job processor...");
-            if once {
-                println!("   mode: process all pending jobs and exit");
+            let mode = if once {
+                "process all pending jobs and exit"
             } else {
-                println!("   mode: continuous processing");
-            }
-            if max_jobs > 0 {
-                println!("   max jobs: {}", max_jobs);
-            }
-            println!();
+                "continuous processing"
+            };
 
-            let result = if once {
+            let result_op = if once {
                 crate::jobs::run_job_processor_once(max_jobs as u32).await
             } else {
                 crate::jobs::run_job_processor().await
             };
 
-            match result {
-                Ok(_) => {
-                    if once {
-                        println!("finished processing all pending jobs");
-                    }
-                }
-                Err(e) => {
-                    println!("job processor error: {}", e);
-                    return Err(crate::error::GrimoireError::ProcessingFailed {
-                        message: format!("Job processor failed: {}", e),
-                    });
-                }
-            }
+            result_op.map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("Job processor failed: {}", e),
+            })?;
+
+            let result = ProcessorResult {
+                mode: mode.to_string(),
+                max_jobs,
+                completed: once,
+            };
+
+            let message = if once {
+                "Finished processing all pending jobs"
+            } else {
+                "Job processor completed"
+            };
+
+            let output = CommandOutput::success(message, result);
+            print!("{}", output.format(format));
         }
     }
 

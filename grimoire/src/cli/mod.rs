@@ -46,11 +46,17 @@ pub enum Commands {
     Jobs {
         #[command(subcommand)]
         action: JobAction,
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json_output: bool,
     },
     /// Database operations
     Database {
         #[command(subcommand)]
         action: DatabaseAction,
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json_output: bool,
     },
     /// Music query operations
     Music {
@@ -64,40 +70,90 @@ pub enum Commands {
     Wordlist {
         #[command(subcommand)]
         action: WordlistAction,
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json_output: bool,
     },
     /// User management operations
     Users {
         #[command(subcommand)]
         action: UserAction,
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json_output: bool,
     },
     /// Maintenance operations
     Maintenance {
         #[command(subcommand)]
         action: MaintenanceAction,
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json_output: bool,
     },
     /// Analytics operations
     Analytics {
         #[command(subcommand)]
         action: AnalyticsAction,
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json_output: bool,
     },
 }
 
 /// Main CLI entry point
 pub async fn run_cli() -> crate::error::GrimoireResult<()> {
     use clap::Parser;
+    use output::OutputFormat;
+
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Jobs { action } => jobs::handle_command(action).await,
-        Commands::Database { action } => database::handle_command(action).await,
+        Commands::Jobs {
+            action,
+            json_output,
+        } => {
+            let format = OutputFormat::from_json_flag(json_output);
+            jobs::handle_command(action, format).await
+        }
+        Commands::Database {
+            action,
+            json_output,
+        } => {
+            let format = OutputFormat::from_json_flag(json_output);
+            database::handle_command(action, format).await
+        }
         Commands::Music {
             action,
             json_output,
         } => music::handle_command(action, json_output).await,
-        Commands::Wordlist { action } => wordlist::handle_command(action).await,
-        Commands::Users { action } => users::handle_command(action).await,
-        Commands::Maintenance { action } => maintenance::handle_command(action).await,
-        Commands::Analytics { action } => analytics::handle_command(action).await,
+        Commands::Wordlist {
+            action,
+            json_output,
+        } => {
+            let format = OutputFormat::from_json_flag(json_output);
+            wordlist::handle_command(action, format).await
+        }
+        Commands::Users {
+            action,
+            json_output,
+        } => {
+            let format = OutputFormat::from_json_flag(json_output);
+            users::handle_command(action, format).await
+        }
+        Commands::Maintenance {
+            action,
+            json_output,
+        } => {
+            let format = OutputFormat::from_json_flag(json_output);
+            maintenance::handle_command(action, format).await
+        }
+        Commands::Analytics {
+            action,
+            json_output,
+        } => {
+            let format = OutputFormat::from_json_flag(json_output);
+            analytics::handle_command(action, format).await
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 //! Maintenance operations CLI commands
 
+use crate::cli::output::OutputFormat;
 use crate::error::GrimoireResult;
 use crate::maintenance::{
     cleanup_orphaned_genres, cleanup_orphaned_sub_genres, cleanup_orphaned_tags,
@@ -35,7 +36,10 @@ pub enum MaintenanceAction {
 }
 
 /// Handle maintenance commands
-pub async fn handle_command(action: MaintenanceAction) -> GrimoireResult<()> {
+pub async fn handle_command(
+    action: MaintenanceAction,
+    _format: OutputFormat,
+) -> GrimoireResult<()> {
     match action {
         MaintenanceAction::CleanupOrphanedTags { dry_run } => {
             println!("Finding orphaned tags...");

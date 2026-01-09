@@ -1,5 +1,6 @@
 //! User management CLI commands
 
+use crate::cli::output::OutputFormat;
 use crate::error::GrimoireResult;
 use crate::users::{
     CreateInviteCodeRequest, CreateUserRequest, FavoriteTarget, RatingTarget, SetFavoriteRequest,
@@ -167,7 +168,7 @@ pub enum UserAction {
 }
 
 /// Handle user commands
-pub async fn handle_command(action: UserAction) -> GrimoireResult<()> {
+pub async fn handle_command(action: UserAction, _format: OutputFormat) -> GrimoireResult<()> {
     let service = UserService::new();
 
     match action {

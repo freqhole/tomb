@@ -1,5 +1,6 @@
 //! Wordlist operations CLI commands
 
+use crate::cli::output::OutputFormat;
 use crate::error::GrimoireResult;
 use crate::wordlist::{
     generate_word_code, initialize_wordlist, is_initialized, ManagementWordlistConfig,
@@ -55,7 +56,7 @@ pub enum WordlistAction {
 }
 
 /// Handle wordlist commands
-pub async fn handle_command(action: WordlistAction) -> GrimoireResult<()> {
+pub async fn handle_command(action: WordlistAction, _format: OutputFormat) -> GrimoireResult<()> {
     match action {
         WordlistAction::Generate {
             count,
