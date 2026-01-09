@@ -1,7 +1,10 @@
 //! update operations for songs and related entities
 //! supports single and bulk updates with relationship management
 
-use super::models::{AlbumImportRequest, ArtistImportRequest};
+use super::models::{
+    AlbumImportRequest, ArtistImportRequest, FavoriteTargetType, RatingTargetType,
+    UpdateSongsRequest, UpdateSongsResult,
+};
 use crate::blob_data::{convert_to_webp, create_image_blob_from_webp_data};
 use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
@@ -10,129 +13,7 @@ use crate::music::entities::genres::{create_sub_genre, CreateSubGenreRequest};
 use crate::music::entities::tags::{
     add_album_tags, find_or_create_tags, remove_album_tags, replace_album_tags,
 };
-use crate::music::entities::{songs, Album, Artist, Genre, SubGenre};
-use serde::{Deserialize, Serialize};
-
-/// request for updating songs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateSongsRequest {
-    pub song_ids: Vec<String>,
-    pub updated_by: Option<String>,
-
-    // direct song fields (all optional)
-    pub title: Option<String>,
-    pub track_number: Option<i64>,
-    pub disc_number: Option<i64>,
-    pub duration: Option<i64>,
-    pub year: Option<i64>,
-    pub bpm: Option<i64>,
-    pub key_signature: Option<String>,
-    pub lyrics: Option<String>,
-    pub metadata: Option<String>,
-
-    // relationship updates
-    pub artist: Option<UpdateArtistRequest>,
-    pub album: Option<UpdateAlbumRequest>,
-    pub genre: Option<String>,
-    pub sub_genre: Option<String>, // sub-genre name (will find/create with parent genre)
-
-    // thumbnail handling (for songs)
-    pub thumbnail_blob_id: Option<String>,
-    pub thumbnail_from_file: Option<String>,   // file path
-    pub thumbnail_from_bytes: Option<Vec<u8>>, // raw bytes
-
-    // tag operations (album-level)
-    pub add_tags: Option<Vec<String>>,
-    pub remove_tags: Option<Vec<String>>,
-    pub replace_tags: Option<Vec<String>>,
-
-    // user-specific operations (requires user_id)
-    pub user_id: Option<String>,
-    pub set_favorite: Option<SetFavoriteRequest>,
-    pub set_rating: Option<SetRatingRequest>,
-}
-
-/// artist update request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateArtistRequest {
-    pub name: String,
-}
-
-/// album update request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateAlbumRequest {
-    pub title: String,
-    pub album_type: Option<String>,
-    pub release_date: Option<String>,
-    pub release_date_precision: Option<String>,
-    pub label: Option<String>,
-    pub year: Option<i64>,
-}
-
-/// favorite update request (polymorphic: song, artist, album)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SetFavoriteRequest {
-    pub target_type: FavoriteTargetType, // song, artist, or album
-    pub is_favorite: bool,
-}
-
-/// rating update request (polymorphic: song, artist, album)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SetRatingRequest {
-    pub target_type: RatingTargetType, // song, artist, or album
-    pub rating: i32,                   // 1-5
-}
-
-/// favorite target types
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FavoriteTargetType {
-    Song,
-    Artist,
-    Album,
-}
-
-impl FavoriteTargetType {
-    pub fn as_str(&self) -> &str {
-        match self {
-            FavoriteTargetType::Song => "song",
-            FavoriteTargetType::Artist => "artist",
-            FavoriteTargetType::Album => "album",
-        }
-    }
-}
-
-/// rating target types
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RatingTargetType {
-    Song,
-    Artist,
-    Album,
-}
-
-impl RatingTargetType {
-    pub fn as_str(&self) -> &str {
-        match self {
-            RatingTargetType::Song => "song",
-            RatingTargetType::Artist => "artist",
-            RatingTargetType::Album => "album",
-        }
-    }
-}
-
-/// result of update songs operation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateSongsResult {
-    pub songs_updated: usize,
-    pub songs_failed: Vec<(String, String)>, // (song_id, error_message)
-    pub artist: Option<Artist>,
-    pub album: Option<Album>,
-    pub genre: Option<Genre>,
-    pub sub_genre: Option<SubGenre>,
-    pub thumbnail_blob_id: Option<String>,
-    pub tags_modified: bool,
-}
+use crate::music::entities::{songs, SubGenre};
 
 /// update songs with optional fields and relationships
 pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResult<UpdateSongsResult> {

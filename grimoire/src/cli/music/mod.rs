@@ -158,12 +158,13 @@ pub enum MusicAction {
     },
     /// Add songs to a playlist
     AddSongsToPlaylist {
-        /// Playlist ID
+        /// Provide request as JSON (overrides individual fields)
         #[arg(long)]
-        playlist_id: String,
-        /// Song IDs to add (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        song_ids: Vec<String>,
+        json_input: Option<String>,
+
+        /// Individual fields
+        #[command(flatten)]
+        request: crate::music::AddSongsToPlaylistRequest,
     },
     /// Update song position in playlist
     UpdateSongPosition {
@@ -188,24 +189,14 @@ pub enum MusicAction {
         /// Playlist ID
         #[arg(long)]
         playlist_id: String,
-        /// New title
+
+        /// Provide request as JSON (overrides individual fields)
         #[arg(long)]
-        title: Option<String>,
-        /// New description
-        #[arg(long)]
-        description: Option<String>,
-        /// Make public
-        #[arg(long)]
-        public: bool,
-        /// Make private
-        #[arg(long)]
-        private: bool,
-        /// Path to thumbnail image file
-        #[arg(long)]
-        thumbnail_path: Option<String>,
-        /// Blob ID for thumbnail
-        #[arg(long)]
-        thumbnail_blob_id: Option<String>,
+        json_input: Option<String>,
+
+        /// Individual fields
+        #[command(flatten)]
+        request: crate::music::UpdatePlaylistRequest,
     },
     /// Remove playlist thumbnail
     RemovePlaylistThumbnail {
@@ -259,70 +250,13 @@ pub enum MusicAction {
     },
     /// Update song metadata
     UpdateSongs {
-        /// Song IDs (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        song_ids: Vec<String>,
-        /// User ID performing the update
+        /// Provide request as JSON (overrides individual fields)
         #[arg(long)]
-        user_id: String,
-        /// Updated by (defaults to user_id)
-        #[arg(long)]
-        updated_by: Option<String>,
-        /// New title
-        #[arg(long)]
-        title: Option<String>,
-        #[arg(long)]
-        track_number: Option<i32>,
-        #[arg(long)]
-        disc_number: Option<i32>,
-        #[arg(long)]
-        year: Option<i32>,
-        #[arg(long)]
-        bpm: Option<i32>,
-        #[arg(long)]
-        key_signature: Option<String>,
-        #[arg(long)]
-        lyrics: Option<String>,
-        /// Artist name
-        #[arg(long)]
-        artist: Option<String>,
-        #[arg(long)]
-        album: Option<String>,
-        #[arg(long)]
-        album_type: Option<String>,
-        #[arg(long)]
-        release_date: Option<String>,
-        #[arg(long)]
-        label: Option<String>,
-        #[arg(long)]
-        genre: Option<String>,
-        #[arg(long)]
-        sub_genre: Option<String>,
-        #[arg(long)]
-        thumbnail_blob_id: Option<String>,
-        #[arg(long)]
-        thumbnail_file: Option<String>,
-        /// Tags to add (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        add_tags: Vec<String>,
-        #[arg(long, value_delimiter = ',')]
-        remove_tags: Vec<String>,
-        #[arg(long, value_delimiter = ',')]
-        replace_tags: Vec<String>,
-        /// Favorite the song
-        #[arg(long)]
-        favorite_song: bool,
-        #[arg(long)]
-        favorite_artist: bool,
-        #[arg(long)]
-        favorite_album: bool,
-        /// Rate the song (1-5)
-        #[arg(long)]
-        rate_song: Option<i32>,
-        #[arg(long)]
-        rate_artist: Option<i32>,
-        #[arg(long)]
-        rate_album: Option<i32>,
+        json_input: Option<String>,
+
+        /// Individual fields
+        #[command(flatten)]
+        request: crate::music::crud::UpdateSongsRequest,
     },
     /// MusicBrainz operations
     MusicBrainz {
@@ -506,10 +440,12 @@ pub async fn handle_command(action: MusicAction, json: bool) -> crate::error::Gr
             print!("{}", output.format(format));
             Ok(())
         }
-        MusicAction::AddSongsToPlaylist { .. } => playlists::handle_add_songs(action).await,
+        MusicAction::AddSongsToPlaylist { .. } => playlists::handle_add_songs(action, format).await,
         MusicAction::UpdateSongPosition { .. } => playlists::handle_update_position(action).await,
         MusicAction::DeletePlaylist { .. } => playlists::handle_delete_playlist(action).await,
-        MusicAction::UpdatePlaylist { .. } => playlists::handle_update_playlist(action).await,
+        MusicAction::UpdatePlaylist { .. } => {
+            playlists::handle_update_playlist(action, format).await
+        }
         MusicAction::RemovePlaylistThumbnail { .. } => {
             playlists::handle_remove_thumbnail(action).await
         }
@@ -528,7 +464,7 @@ pub async fn handle_command(action: MusicAction, json: bool) -> crate::error::Gr
 
         // Song commands
         MusicAction::RecentSongs { .. } => songs::handle_recent_songs(action).await,
-        MusicAction::UpdateSongs { .. } => songs::handle_update_songs(action).await,
+        MusicAction::UpdateSongs { .. } => songs::handle_update_songs(action, format).await,
 
         // MusicBrainz commands
         MusicAction::MusicBrainz { action } => musicbrainz::handle_command(action).await,

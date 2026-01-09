@@ -2,30 +2,13 @@
 
 use super::MusicAction;
 use crate::cli::output::CommandOutput;
+use crate::cli::utils::resolve_request;
 use crate::error::GrimoireResult;
 use crate::music::crud::{
-    add_songs_to_playlist, create_playlist, create_thumbnail_from_file, delete_playlist,
-    list_playlists, list_user_playlists, remove_playlist_thumbnail, search_playlists,
-    update_playlist, update_songs_position, CreatePlaylistRequest, UpdatePlaylistRequest,
+    add_songs_to_playlist, create_playlist, delete_playlist, list_playlists, list_user_playlists,
+    remove_playlist_thumbnail, search_playlists, update_playlist, update_songs_position,
 };
 use crate::music::Playlist;
-use serde::de::DeserializeOwned;
-
-/// Helper to handle json_input vs flattened request fields
-fn resolve_request<T: DeserializeOwned>(
-    json_input: Option<String>,
-    request: T,
-) -> GrimoireResult<T> {
-    match json_input {
-        Some(json) => {
-            serde_json::from_str(&json).map_err(|e| crate::error::GrimoireError::Validation {
-                field: "json_input".to_string(),
-                message: format!("Invalid JSON: {}", e),
-            })
-        }
-        None => Ok(request),
-    }
-}
 
 pub async fn handle_create_playlist(
     action: MusicAction,
@@ -55,41 +38,42 @@ pub async fn handle_create_playlist(
     Ok(CommandOutput::new(message, vec![playlist]))
 }
 
-pub async fn handle_add_songs(action: MusicAction) -> GrimoireResult<()> {
-    if let MusicAction::AddSongsToPlaylist {
-        playlist_id,
-        song_ids,
+pub async fn handle_add_songs(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
+    let MusicAction::AddSongsToPlaylist {
+        json_input,
+        request,
     } = action
-    {
-        println!("adding songs to playlist...");
-        let song_id_list: Vec<String> = song_ids
-            .iter()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-
-        if song_id_list.is_empty() {
-            eprintln!("no valid song IDs provided");
-            return Ok(());
-        }
-
-        match add_songs_to_playlist(&playlist_id, &song_id_list).await {
-            Ok(()) => {
-                println!(
-                    "successfully added {} songs to playlist {}",
-                    song_id_list.len(),
-                    playlist_id
-                );
-                println!("song IDs: {:?}", song_id_list);
-            }
-            Err(e) => {
-                eprintln!("failed to add songs to playlist: {}", e);
-            }
-        }
-        Ok(())
-    } else {
+    else {
         unreachable!("handle_add_songs called with wrong action variant")
+    };
+
+    let req = resolve_request(json_input, request)?;
+    add_songs_to_playlist(&req.playlist_id, &req.song_ids).await?;
+
+    match format {
+        crate::cli::output::OutputFormat::Default => {
+            println!(
+                "Added {} songs to playlist {}",
+                req.song_ids.len(),
+                req.playlist_id
+            );
+        }
+        crate::cli::output::OutputFormat::Json => {
+            let output = serde_json::json!({
+                "messages": [format!("Added {} songs to playlist {}", req.song_ids.len(), req.playlist_id)],
+                "data": {
+                    "playlist_id": req.playlist_id,
+                    "songs_added": req.song_ids.len()
+                }
+            });
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        }
     }
+
+    Ok(())
 }
 
 pub async fn handle_update_position(action: MusicAction) -> GrimoireResult<()> {
@@ -139,90 +123,50 @@ pub async fn handle_delete_playlist(action: MusicAction) -> GrimoireResult<()> {
     }
 }
 
-pub async fn handle_update_playlist(action: MusicAction) -> GrimoireResult<()> {
-    if let MusicAction::UpdatePlaylist {
+pub async fn handle_update_playlist(
+    action: MusicAction,
+    format: crate::cli::output::OutputFormat,
+) -> GrimoireResult<()> {
+    let MusicAction::UpdatePlaylist {
         playlist_id,
-        title,
-        description,
-        public,
-        private,
-        thumbnail_path,
-        thumbnail_blob_id,
+        json_input,
+        request,
     } = action
-    {
-        println!("updating playlist metadata...");
+    else {
+        unreachable!("handle_update_playlist called with wrong action variant")
+    };
 
-        // Handle public/private flags
-        let is_public = if public && private {
-            eprintln!("error: cannot specify both --public and --private flags");
-            return Ok(());
-        } else if public {
-            Some(true)
-        } else if private {
-            Some(false)
-        } else {
-            None
-        };
+    let req = resolve_request(json_input, request)?;
+    let playlist = update_playlist(&playlist_id, req).await?;
 
-        // Handle thumbnail options (mutually exclusive)
-        let final_thumbnail_blob_id = if thumbnail_path.is_some() && thumbnail_blob_id.is_some() {
-            eprintln!("error: cannot specify both --thumbnail-path and --thumbnail-blob-id");
-            return Ok(());
-        } else if let Some(path) = thumbnail_path {
-            println!("creating thumbnail from file: {}", path);
-            match create_thumbnail_from_file(&path, None).await {
-                Ok(blob_id) => {
-                    println!("  created thumbnail blob: {}", blob_id);
-                    Some(blob_id)
-                }
-                Err(e) => {
-                    eprintln!("failed to create thumbnail from file: {}", e);
-                    return Err(e.into());
-                }
+    match format {
+        crate::cli::output::OutputFormat::Default => {
+            println!("Updated playlist: {}", playlist.title);
+            if let Some(ref desc) = playlist.description {
+                println!("  description: {}", desc);
             }
-        } else if let Some(blob_id) = thumbnail_blob_id {
-            println!("using existing thumbnail blob: {}", blob_id);
-            Some(blob_id)
-        } else {
-            None
-        };
-
-        let req = UpdatePlaylistRequest {
-            title: title.clone(),
-            description: description.clone(),
-            is_public,
-            thumbnail_blob_id: final_thumbnail_blob_id,
-            updated_by: None, // TODO: add user management
-        };
-
-        match update_playlist(&playlist_id, req).await {
-            Ok(playlist) => {
-                println!("successfully updated playlist: {}", playlist.title);
-                if let Some(new_title) = &title {
-                    println!("  title: {}", new_title);
+            println!(
+                "  visibility: {}",
+                if playlist.is_public == 1 {
+                    "public"
+                } else {
+                    "private"
                 }
-                if let Some(new_desc) = &description {
-                    println!("  description: {}", new_desc);
-                }
-                if let Some(public) = is_public {
-                    println!(
-                        "  visibility: {}",
-                        if public { "public" } else { "private" }
-                    );
-                }
-                if let Some(blob_id) = &playlist.thumbnail_blob_id {
-                    println!("  thumbnail blob: {}", blob_id);
-                }
-            }
-            Err(e) => {
-                eprintln!("failed to update playlist: {}", e);
-                return Err(e.into());
+            );
+            if let Some(ref blob_id) = playlist.thumbnail_blob_id {
+                println!("  thumbnail: {}", blob_id);
             }
         }
-        Ok(())
-    } else {
-        unreachable!("handle_update_playlist called with wrong action variant")
+        crate::cli::output::OutputFormat::Json => {
+            let output = serde_json::json!({
+                "messages": [format!("Updated playlist: {}", playlist.title)],
+                "data": playlist
+            });
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        }
     }
+
+    Ok(())
 }
 
 pub async fn handle_remove_thumbnail(action: MusicAction) -> GrimoireResult<()> {

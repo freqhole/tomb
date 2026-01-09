@@ -17,11 +17,14 @@ pub use models::{
     QueryParams, QueryResult, SongImportError, SongQueryResult,
 };
 
-// re-export update types and functions
-pub use update::{
-    update_songs, FavoriteTargetType, RatingTargetType, SetFavoriteRequest, SetRatingRequest,
-    UpdateAlbumRequest, UpdateArtistRequest, UpdateSongsRequest, UpdateSongsResult,
+// re-export update types from models
+pub use models::{
+    FavoriteTargetType, RatingTargetType, SetFavoriteRequest, SetRatingRequest, UpdateAlbumRequest,
+    UpdateArtistRequest, UpdateSongsRequest, UpdateSongsResult,
 };
+
+// re-export update functions
+pub use update::update_songs;
 
 // re-export playlist types
 pub use crate::music::entities::playlists::{

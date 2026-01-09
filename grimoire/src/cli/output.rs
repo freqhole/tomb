@@ -70,19 +70,6 @@ impl<T> CommandOutput<T> {
             data,
         }
     }
-
-    /// Create output with multiple messages and data
-    pub fn with_messages(messages: Vec<String>, data: T) -> Self {
-        Self { messages, data }
-    }
-
-    /// Create output with just data (no messages)
-    pub fn data_only(data: T) -> Self {
-        Self {
-            messages: vec![],
-            data,
-        }
-    }
 }
 
 /// Trait for formatting command output
@@ -122,14 +109,8 @@ impl<T: Serialize> FormatOutput for CommandOutput<Vec<T>> {
                 output
             }
             OutputFormat::Json => {
-                let message = if self.messages.is_empty() {
-                    None
-                } else {
-                    Some(self.messages.join("\n"))
-                };
-
                 let result = OutputResult {
-                    message,
+                    messages: self.messages.clone(),
                     data: &self.data,
                 };
 
@@ -141,65 +122,15 @@ impl<T: Serialize> FormatOutput for CommandOutput<Vec<T>> {
 
 /// Result wrapper for CLI output
 ///
-/// Includes both human-readable message and structured data
+/// Includes both human-readable messages and structured data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputResult<T> {
-    /// Optional human-readable message
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
+    /// Human-readable messages (empty array if none)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub messages: Vec<String>,
 
     /// Structured data
     pub data: T,
-}
-
-impl<T> OutputResult<T> {
-    /// Create new output result with message and data
-    pub fn new(message: impl Into<String>, data: T) -> Self {
-        Self {
-            message: Some(message.into()),
-            data,
-        }
-    }
-
-    /// Create output result with just data (no message)
-    pub fn data_only(data: T) -> Self {
-        Self {
-            message: None,
-            data,
-        }
-    }
-}
-
-/// Helper for simple success messages
-pub fn print_success(message: impl Into<String>, format: OutputFormat) {
-    match format {
-        OutputFormat::Default => {
-            println!("{}", message.into());
-        }
-        OutputFormat::Json => {
-            let result = serde_json::json!({
-                "success": true,
-                "message": message.into()
-            });
-            println!("{}", serde_json::to_string_pretty(&result).unwrap());
-        }
-    }
-}
-
-/// Helper for error messages
-pub fn print_error(message: impl Into<String>, format: OutputFormat) {
-    match format {
-        OutputFormat::Default => {
-            eprintln!("Error: {}", message.into());
-        }
-        OutputFormat::Json => {
-            let result = serde_json::json!({
-                "success": false,
-                "error": message.into()
-            });
-            eprintln!("{}", serde_json::to_string_pretty(&result).unwrap());
-        }
-    }
 }
 
 #[cfg(test)]
@@ -216,15 +147,6 @@ mod tests {
     fn test_output_format_from_flag() {
         assert_eq!(OutputFormat::from_json_flag(false), OutputFormat::Default);
         assert_eq!(OutputFormat::from_json_flag(true), OutputFormat::Json);
-    }
-
-    #[test]
-    fn test_output_result_creation() {
-        let result = OutputResult::new("Test message", vec![]);
-        assert_eq!(result.message, Some("Test message".to_string()));
-
-        let result = OutputResult::<Vec<String>>::data_only(vec![]);
-        assert_eq!(result.message, None);
     }
 
     #[test]

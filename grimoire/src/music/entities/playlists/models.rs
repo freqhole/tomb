@@ -52,18 +52,37 @@ pub struct PlaylistSong {
 }
 
 /// request for adding songs to a playlist
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Parser)]
 pub struct AddSongsToPlaylistRequest {
+    /// Playlist ID
+    #[arg(long)]
     pub playlist_id: String,
+
+    /// Song IDs to add (comma-separated)
+    #[arg(long, value_delimiter = ',')]
     pub song_ids: Vec<String>,
 }
 
 /// request for updating playlist metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Parser)]
 pub struct UpdatePlaylistRequest {
+    /// New playlist title
+    #[arg(long)]
     pub title: Option<String>,
+
+    /// New playlist description
+    #[arg(long)]
     pub description: Option<String>,
+
+    /// Make playlist public or private
+    #[arg(long)]
     pub is_public: Option<bool>,
+
+    /// Thumbnail blob ID
+    #[arg(long)]
     pub thumbnail_blob_id: Option<String>,
+
+    /// User ID performing the update
+    #[arg(long)]
     pub updated_by: Option<String>,
 }
