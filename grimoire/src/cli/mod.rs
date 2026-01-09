@@ -18,6 +18,7 @@ mod database;
 mod jobs;
 mod maintenance;
 mod music;
+mod output;
 mod users;
 mod utils;
 mod wordlist;
@@ -55,6 +56,9 @@ pub enum Commands {
     Music {
         #[command(subcommand)]
         action: MusicAction,
+        /// Output as JSON (applies to list/query commands)
+        #[arg(long, global = true)]
+        json_output: bool,
     },
     /// Wordlist operations
     Wordlist {
@@ -86,7 +90,10 @@ pub async fn run_cli() -> crate::error::GrimoireResult<()> {
     match cli.command {
         Commands::Jobs { action } => jobs::handle_command(action).await,
         Commands::Database { action } => database::handle_command(action).await,
-        Commands::Music { action } => music::handle_command(action).await,
+        Commands::Music {
+            action,
+            json_output,
+        } => music::handle_command(action, json_output).await,
         Commands::Wordlist { action } => wordlist::handle_command(action).await,
         Commands::Users { action } => users::handle_command(action).await,
         Commands::Maintenance { action } => maintenance::handle_command(action).await,

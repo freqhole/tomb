@@ -1,6 +1,7 @@
 //! Music query commands
 
 use super::MusicAction;
+use crate::cli::output::CommandOutput;
 use crate::error::GrimoireResult;
 use crate::music::crud::{
     delete_album, delete_artist, delete_song, delete_sub_genre, delete_tag,
@@ -10,6 +11,7 @@ use crate::music::crud::{
     query_playlist_songs, query_playlists, query_songs, search_genres, search_sub_genres,
     search_tags, QueryParams,
 };
+use crate::music::{Album, Artist, Genre, Song, SubGenre, Tag};
 use std::collections::HashMap;
 
 pub async fn handle_query_songs(action: MusicAction) -> GrimoireResult<()> {
@@ -394,24 +396,14 @@ pub async fn handle_query_playlist_songs(action: MusicAction) -> GrimoireResult<
 }
 
 // Album operations
-pub async fn handle_list_albums(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_list_albums(action: MusicAction) -> GrimoireResult<CommandOutput<Vec<Album>>> {
     if let MusicAction::ListAlbums { limit, offset } = action {
-        println!(
-            "listing albums (limit: {:?}, offset: {:?})...",
-            limit, offset
-        );
         match list_albums(limit, offset).await {
             Ok(albums) => {
-                println!("found {} albums", albums.len());
-                for album in albums {
-                    println!("  {} - {}", album.id, album.title);
-                }
-                Ok(())
+                let message = format!("Found {} albums", albums.len());
+                Ok(CommandOutput::new(message, albums))
             }
-            Err(e) => {
-                eprintln!("failed to list albums: {}", e);
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     } else {
         unreachable!("handle_list_albums called with wrong action variant")
@@ -484,24 +476,16 @@ pub async fn handle_get_album_tags(action: MusicAction) -> GrimoireResult<()> {
 }
 
 // Artist operations
-pub async fn handle_list_artists(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_list_artists(
+    action: MusicAction,
+) -> GrimoireResult<CommandOutput<Vec<Artist>>> {
     if let MusicAction::ListArtists { limit, offset } = action {
-        println!(
-            "listing artists (limit: {:?}, offset: {:?})...",
-            limit, offset
-        );
         match list_artists(limit, offset).await {
             Ok(artists) => {
-                println!("found {} artists", artists.len());
-                for artist in artists {
-                    println!("  {} - {}", artist.id, artist.name);
-                }
-                Ok(())
+                let message = format!("Found {} artists", artists.len());
+                Ok(CommandOutput::new(message, artists))
             }
-            Err(e) => {
-                eprintln!("failed to list artists: {}", e);
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     } else {
         unreachable!("handle_list_artists called with wrong action variant")
@@ -549,24 +533,14 @@ pub async fn handle_delete_artist(action: MusicAction) -> GrimoireResult<()> {
 }
 
 // Song operations
-pub async fn handle_list_songs(action: MusicAction) -> GrimoireResult<()> {
+pub async fn handle_list_songs(action: MusicAction) -> GrimoireResult<CommandOutput<Vec<Song>>> {
     if let MusicAction::ListSongs { limit, offset } = action {
-        println!(
-            "listing songs (limit: {:?}, offset: {:?})...",
-            limit, offset
-        );
         match list_songs(limit, offset).await {
             Ok(songs) => {
-                println!("found {} songs", songs.len());
-                for song in songs {
-                    println!("  {} - {}", song.id, song.title);
-                }
-                Ok(())
+                let message = format!("Found {} songs", songs.len());
+                Ok(CommandOutput::new(message, songs))
             }
-            Err(e) => {
-                eprintln!("failed to list songs: {}", e);
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     } else {
         unreachable!("handle_list_songs called with wrong action variant")
@@ -596,20 +570,13 @@ pub async fn handle_delete_song(action: MusicAction) -> GrimoireResult<()> {
 }
 
 // Genre operations
-pub async fn handle_list_genres(_action: MusicAction) -> GrimoireResult<()> {
-    println!("listing all genres...");
+pub async fn handle_list_genres(_action: MusicAction) -> GrimoireResult<CommandOutput<Vec<Genre>>> {
     match list_genres().await {
         Ok(genres) => {
-            println!("found {} genres", genres.len());
-            for genre in genres {
-                println!("  {} - {}", genre.id, genre.name);
-            }
-            Ok(())
+            let message = format!("Found {} genres", genres.len());
+            Ok(CommandOutput::new(message, genres))
         }
-        Err(e) => {
-            eprintln!("failed to list genres: {}", e);
-            Err(e)
-        }
+        Err(e) => Err(e),
     }
 }
 
@@ -653,20 +620,15 @@ pub async fn handle_get_genre_stats(action: MusicAction) -> GrimoireResult<()> {
 }
 
 // Sub-genre operations
-pub async fn handle_list_sub_genres(_action: MusicAction) -> GrimoireResult<()> {
-    println!("listing all sub-genres...");
+pub async fn handle_list_sub_genres(
+    _action: MusicAction,
+) -> GrimoireResult<CommandOutput<Vec<SubGenre>>> {
     match list_sub_genres().await {
         Ok(sub_genres) => {
-            println!("found {} sub-genres", sub_genres.len());
-            for sub_genre in sub_genres {
-                println!("  {} - {}", sub_genre.id, sub_genre.name);
-            }
-            Ok(())
+            let message = format!("Found {} sub-genres", sub_genres.len());
+            Ok(CommandOutput::new(message, sub_genres))
         }
-        Err(e) => {
-            eprintln!("failed to list sub-genres: {}", e);
-            Err(e)
-        }
+        Err(e) => Err(e),
     }
 }
 
@@ -760,20 +722,13 @@ pub async fn handle_find_or_create_sub_genre(action: MusicAction) -> GrimoireRes
 }
 
 // Tag operations
-pub async fn handle_list_tags(_action: MusicAction) -> GrimoireResult<()> {
-    println!("listing all tags...");
+pub async fn handle_list_tags(_action: MusicAction) -> GrimoireResult<CommandOutput<Vec<Tag>>> {
     match list_tags().await {
         Ok(tags) => {
-            println!("found {} tags", tags.len());
-            for tag in tags {
-                println!("  {} - {}", tag.id, tag.name);
-            }
-            Ok(())
+            let message = format!("Found {} tags", tags.len());
+            Ok(CommandOutput::new(message, tags))
         }
-        Err(e) => {
-            eprintln!("failed to list tags: {}", e);
-            Err(e)
-        }
+        Err(e) => Err(e),
     }
 }
 

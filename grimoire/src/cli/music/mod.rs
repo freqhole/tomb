@@ -7,6 +7,7 @@
 //! - maintenance: Maintenance operations (blob cleanup, hard delete)
 //! - musicbrainz: MusicBrainz API integration
 
+use crate::cli::output::{FormatOutput, OutputFormat};
 use clap::Subcommand;
 
 mod maintenance;
@@ -147,15 +148,13 @@ pub enum MusicAction {
     },
     /// Create a new playlist
     CreatePlaylist {
-        /// Playlist title
+        /// Provide request as JSON (overrides individual fields)
         #[arg(long)]
-        title: String,
-        /// Playlist description
-        #[arg(long)]
-        description: Option<String>,
-        /// Make playlist public
-        #[arg(long)]
-        public: bool,
+        json_input: Option<String>,
+
+        /// Individual fields
+        #[command(flatten)]
+        request: crate::music::CreatePlaylistRequest,
     },
     /// Add songs to a playlist
     AddSongsToPlaylist {
@@ -489,9 +488,11 @@ pub enum MusicAction {
 }
 
 /// Handle music commands
-pub async fn handle_command(action: MusicAction) -> crate::error::GrimoireResult<()> {
+pub async fn handle_command(action: MusicAction, json: bool) -> crate::error::GrimoireResult<()> {
+    let format = OutputFormat::from_json_flag(json);
+
     match action {
-        // Query commands
+        // Query commands (still using old style - will update these later)
         MusicAction::QuerySongs { .. } => query::handle_query_songs(action).await,
         MusicAction::QueryArtists { .. } => query::handle_query_artists(action).await,
         MusicAction::QueryAlbums { .. } => query::handle_query_albums(action).await,
@@ -500,7 +501,11 @@ pub async fn handle_command(action: MusicAction) -> crate::error::GrimoireResult
         MusicAction::QueryPlaylistSongs { .. } => query::handle_query_playlist_songs(action).await,
 
         // Playlist commands
-        MusicAction::CreatePlaylist { .. } => playlists::handle_create_playlist(action).await,
+        MusicAction::CreatePlaylist { .. } => {
+            let output = playlists::handle_create_playlist(action).await?;
+            print!("{}", output.format(format));
+            Ok(())
+        }
         MusicAction::AddSongsToPlaylist { .. } => playlists::handle_add_songs(action).await,
         MusicAction::UpdateSongPosition { .. } => playlists::handle_update_position(action).await,
         MusicAction::DeletePlaylist { .. } => playlists::handle_delete_playlist(action).await,
@@ -529,34 +534,58 @@ pub async fn handle_command(action: MusicAction) -> crate::error::GrimoireResult
         MusicAction::MusicBrainz { action } => musicbrainz::handle_command(action).await,
 
         // Album commands
-        MusicAction::ListAlbums { .. } => query::handle_list_albums(action).await,
+        MusicAction::ListAlbums { .. } => {
+            let output = query::handle_list_albums(action).await?;
+            print!("{}", output.format(format));
+            Ok(())
+        }
         MusicAction::GetAlbum { .. } => query::handle_get_album(action).await,
         MusicAction::DeleteAlbum { .. } => query::handle_delete_album(action).await,
         MusicAction::GetAlbumTags { .. } => query::handle_get_album_tags(action).await,
 
         // Artist commands
-        MusicAction::ListArtists { .. } => query::handle_list_artists(action).await,
+        MusicAction::ListArtists { .. } => {
+            let output = query::handle_list_artists(action).await?;
+            print!("{}", output.format(format));
+            Ok(())
+        }
         MusicAction::GetArtist { .. } => query::handle_get_artist(action).await,
         MusicAction::DeleteArtist { .. } => query::handle_delete_artist(action).await,
 
         // Song commands
-        MusicAction::ListSongs { .. } => query::handle_list_songs(action).await,
+        MusicAction::ListSongs { .. } => {
+            let output = query::handle_list_songs(action).await?;
+            print!("{}", output.format(format));
+            Ok(())
+        }
         MusicAction::DeleteSong { .. } => query::handle_delete_song(action).await,
 
         // Additional playlist commands
-        MusicAction::ListPlaylists => playlists::handle_list_playlists(action).await,
+        MusicAction::ListPlaylists => {
+            let output = playlists::handle_list_playlists(action).await?;
+            print!("{}", output.format(format));
+            Ok(())
+        }
         MusicAction::ListUserPlaylists { .. } => {
             playlists::handle_list_user_playlists(action).await
         }
         MusicAction::SearchPlaylists { .. } => playlists::handle_search_playlists(action).await,
 
         // Genre commands
-        MusicAction::ListGenres => query::handle_list_genres(action).await,
+        MusicAction::ListGenres => {
+            let output = query::handle_list_genres(action).await?;
+            print!("{}", output.format(format));
+            Ok(())
+        }
         MusicAction::GetGenre { .. } => query::handle_get_genre(action).await,
         MusicAction::GetGenreStats { .. } => query::handle_get_genre_stats(action).await,
 
         // Sub-genre commands
-        MusicAction::ListSubGenres => query::handle_list_sub_genres(action).await,
+        MusicAction::ListSubGenres => {
+            let output = query::handle_list_sub_genres(action).await?;
+            print!("{}", output.format(format));
+            Ok(())
+        }
         MusicAction::ListSubGenresForGenre { .. } => {
             query::handle_list_sub_genres_for_genre(action).await
         }
@@ -567,7 +596,11 @@ pub async fn handle_command(action: MusicAction) -> crate::error::GrimoireResult
         }
 
         // Tag commands
-        MusicAction::ListTags => query::handle_list_tags(action).await,
+        MusicAction::ListTags => {
+            let output = query::handle_list_tags(action).await?;
+            print!("{}", output.format(format));
+            Ok(())
+        }
         MusicAction::GetTag { .. } => query::handle_get_tag(action).await,
         MusicAction::DeleteTag { .. } => query::handle_delete_tag(action).await,
         MusicAction::QueryTagsSearch { .. } => query::handle_query_tags_search(action).await,

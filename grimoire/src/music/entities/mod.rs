@@ -14,6 +14,7 @@ pub use artists::{Artist, CreateArtistRequest};
 pub use genres::{CreateGenreRequest, Genre, SubGenre};
 pub use playlists::{CreatePlaylistRequest, Playlist};
 pub use songs::{CreateSongRequest, Song};
+pub use tags::Tag;
 
 // Note: repository functions are NOT re-exported here
 // They remain internal to each entity module

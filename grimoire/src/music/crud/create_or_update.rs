@@ -436,20 +436,23 @@ pub async fn get_or_create_playlist_by_name(
     let existing = sqlx::query_as!(
         Playlist,
         r#"SELECT
-            id as "id!",
-            title as "title!",
-            description,
-            is_public as "is_public!",
-            thumbnail_blob_id,
-            created_by_id,
-            created_at as "created_at!",
-            updated_at as "updated_at!",
-            deleted_at,
-            deleted_by,
-            created_by,
-            updated_by
-           FROM playlistz
-           WHERE LOWER(title) = LOWER(?)
+            p.id as "id!",
+            p.title as "title!",
+            p.description,
+            p.is_public as "is_public!",
+            p.thumbnail_blob_id,
+            p.created_by_id,
+            p.created_at as "created_at!",
+            p.updated_at as "updated_at!",
+            p.deleted_at,
+            p.deleted_by,
+            p.created_by,
+            p.updated_by,
+            COALESCE(COUNT(ps.song_id), 0) as "song_count!: i64"
+           FROM playlistz p
+           LEFT JOIN playlist_songz ps ON p.id = ps.playlist_id
+           WHERE LOWER(p.title) = LOWER(?)
+           GROUP BY p.id
            LIMIT 1"#,
         name
     )
@@ -462,7 +465,7 @@ pub async fn get_or_create_playlist_by_name(
         use crate::music::entities::playlists::{create_playlist, CreatePlaylistRequest};
 
         let create_req = CreatePlaylistRequest {
-            title: name.to_string(),
+            title: Some(name.to_string()),
             description: None,
             is_public,
             created_by_id,

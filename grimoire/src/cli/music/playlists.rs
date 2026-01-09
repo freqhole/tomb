@@ -1,48 +1,58 @@
 //! Music playlist commands
 
 use super::MusicAction;
+use crate::cli::output::CommandOutput;
 use crate::error::GrimoireResult;
 use crate::music::crud::{
     add_songs_to_playlist, create_playlist, create_thumbnail_from_file, delete_playlist,
     list_playlists, list_user_playlists, remove_playlist_thumbnail, search_playlists,
     update_playlist, update_songs_position, CreatePlaylistRequest, UpdatePlaylistRequest,
 };
+use crate::music::Playlist;
+use serde::de::DeserializeOwned;
 
-pub async fn handle_create_playlist(action: MusicAction) -> GrimoireResult<()> {
-    if let MusicAction::CreatePlaylist {
-        title,
-        description,
-        public,
-    } = action
-    {
-        println!("creating playlist...");
-        let req = CreatePlaylistRequest {
-            title: title.clone(),
-            description,
-            is_public: Some(public),
-            created_by_id: None, // TODO: add user management
-        };
-
-        match create_playlist(req).await {
-            Ok(playlist) => {
-                println!("created playlist: {} (ID: {})", playlist.title, playlist.id);
-                if playlist.is_public == 1 {
-                    println!("  visibility: public");
-                } else {
-                    println!("  visibility: private");
-                }
-                if let Some(desc) = &playlist.description {
-                    println!("  description: {}", desc);
-                }
-            }
-            Err(e) => {
-                eprintln!("failed to create playlist: {}", e);
-            }
+/// Helper to handle json_input vs flattened request fields
+fn resolve_request<T: DeserializeOwned>(
+    json_input: Option<String>,
+    request: T,
+) -> GrimoireResult<T> {
+    match json_input {
+        Some(json) => {
+            serde_json::from_str(&json).map_err(|e| crate::error::GrimoireError::Validation {
+                field: "json_input".to_string(),
+                message: format!("Invalid JSON: {}", e),
+            })
         }
-        Ok(())
-    } else {
-        unreachable!("handle_create_playlist called with wrong action variant")
+        None => Ok(request),
     }
+}
+
+pub async fn handle_create_playlist(
+    action: MusicAction,
+) -> GrimoireResult<CommandOutput<Vec<Playlist>>> {
+    let MusicAction::CreatePlaylist {
+        json_input,
+        request,
+    } = action
+    else {
+        unreachable!("handle_create_playlist called with wrong action variant")
+    };
+
+    let req = resolve_request(json_input, request)?;
+    let playlist = create_playlist(req).await?;
+
+    let message = format!(
+        "Created playlist: {} (ID: {}) - {}",
+        playlist.title,
+        playlist.id,
+        if playlist.is_public == 1 {
+            "public"
+        } else {
+            "private"
+        }
+    );
+
+    Ok(CommandOutput::new(message, vec![playlist]))
 }
 
 pub async fn handle_add_songs(action: MusicAction) -> GrimoireResult<()> {
@@ -243,23 +253,15 @@ pub async fn handle_remove_thumbnail(action: MusicAction) -> GrimoireResult<()> 
     }
 }
 
-pub async fn handle_list_playlists(_action: MusicAction) -> GrimoireResult<()> {
-    println!("listing all playlists...");
+pub async fn handle_list_playlists(
+    _action: MusicAction,
+) -> GrimoireResult<CommandOutput<Vec<Playlist>>> {
     match list_playlists().await {
         Ok(playlists) => {
-            println!("found {} playlists", playlists.len());
-            for playlist in playlists {
-                println!(
-                    "  {} - {} (public: {})",
-                    playlist.id, playlist.title, playlist.is_public
-                );
-            }
-            Ok(())
+            let message = format!("Found {} playlists", playlists.len());
+            Ok(CommandOutput::new(message, playlists))
         }
-        Err(e) => {
-            eprintln!("failed to list playlists: {}", e);
-            Err(e)
-        }
+        Err(e) => Err(e),
     }
 }
 

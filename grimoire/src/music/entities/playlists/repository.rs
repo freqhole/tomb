@@ -1,9 +1,7 @@
 //! playlist service functions
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use super::models::{
-    CreatePlaylistRequest, Playlist, PlaylistSong, PlaylistWithCount, UpdatePlaylistRequest,
-};
+use super::models::{CreatePlaylistRequest, Playlist, PlaylistSong, UpdatePlaylistRequest};
 use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 
@@ -15,23 +13,10 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResult<Playl
     let created_by_str = req.created_by_id.clone();
     let updated_by_str = req.created_by_id.clone();
 
-    let playlist = sqlx::query_as!(
-        Playlist,
+    let playlist_id = sqlx::query!(
         r#"INSERT INTO playlistz (title, description, is_public, created_by_id, created_by, updated_by)
          VALUES (?, ?, ?, ?, ?, ?)
-         RETURNING
-            id as "id!",
-            title as "title!",
-            description,
-            is_public as "is_public!",
-            thumbnail_blob_id,
-            created_by_id,
-            created_at as "created_at!",
-            updated_at as "updated_at!",
-            deleted_at,
-            deleted_by,
-            created_by,
-            updated_by"#,
+         RETURNING id"#,
         req.title,
         req.description,
         is_public,
@@ -40,18 +25,12 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResult<Playl
         updated_by_str
     )
     .fetch_one(&pool)
-    .await?;
+    .await?
+    .id;
 
-    Ok(playlist)
-}
-
-/// list all playlists (with song counts)
-/// this probably could be deleted since we have query_playlists
-pub async fn list_playlists() -> GrimoireResult<Vec<PlaylistWithCount>> {
-    let pool = database::connect().await?;
-
-    let playlists = sqlx::query_as!(
-        PlaylistWithCount,
+    // Fetch with song count
+    let playlist = sqlx::query_as!(
+        Playlist,
         r#"SELECT
             p.id as "id!",
             p.title as "title!",
@@ -65,14 +44,45 @@ pub async fn list_playlists() -> GrimoireResult<Vec<PlaylistWithCount>> {
             p.deleted_by,
             p.created_by,
             p.updated_by,
-            COALESCE(COUNT(ps.song_id), 0) as "song_count!"
-           FROM playlistz p
-           LEFT JOIN playlist_songz ps ON p.id = ps.playlist_id
-           WHERE p.deleted_at IS NULL
-           GROUP BY p.id, p.title, p.description, p.is_public,
-                   p.thumbnail_blob_id, p.created_by_id, p.created_at, p.updated_at,
-                   p.deleted_at, p.deleted_by, p.created_by, p.updated_by
-           ORDER BY p.title ASC"#
+            COALESCE(COUNT(ps.song_id), 0) as "song_count!: i64"
+        FROM playlistz p
+        LEFT JOIN playlist_songz ps ON p.id = ps.playlist_id
+        WHERE p.id = ?
+        GROUP BY p.id"#,
+        playlist_id
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    Ok(playlist)
+}
+
+/// list all playlists (with song counts)
+/// this probably could be deleted since we have query_playlists
+pub async fn list_playlists() -> GrimoireResult<Vec<Playlist>> {
+    let pool = database::connect().await?;
+
+    let playlists = sqlx::query_as!(
+        Playlist,
+        r#"SELECT
+            p.id as "id!",
+            p.title as "title!",
+            p.description,
+            p.is_public as "is_public!",
+            p.thumbnail_blob_id,
+            p.created_by_id,
+            p.created_at as "created_at!",
+            p.updated_at as "updated_at!",
+            p.deleted_at,
+            p.deleted_by,
+            p.created_by,
+            p.updated_by,
+            COALESCE(COUNT(ps.song_id), 0) as "song_count: i64"
+        FROM playlistz p
+        LEFT JOIN playlist_songz ps ON p.id = ps.playlist_id
+        WHERE p.deleted_at IS NULL
+        GROUP BY p.id
+        ORDER BY p.created_at DESC"#
     )
     .fetch_all(&pool)
     .await?;
@@ -87,20 +97,23 @@ pub async fn get_playlist(id: &str) -> GrimoireResult<Playlist> {
     let playlist = sqlx::query_as!(
         Playlist,
         r#"SELECT
-            id as "id!",
-            title as "title!",
-            description,
-            is_public as "is_public!",
-            thumbnail_blob_id,
-            created_by_id,
-            created_at as "created_at!",
-            updated_at as "updated_at!",
-            deleted_at,
-            deleted_by,
-            created_by,
-            updated_by
-           FROM playlistz
-           WHERE id = ? AND deleted_at IS NULL"#,
+            p.id as "id!",
+            p.title as "title!",
+            p.description,
+            p.is_public as "is_public!",
+            p.thumbnail_blob_id,
+            p.created_by_id,
+            p.created_at as "created_at!",
+            p.updated_at as "updated_at!",
+            p.deleted_at,
+            p.deleted_by,
+            p.created_by,
+            p.updated_by,
+            COALESCE(COUNT(ps.song_id), 0) as "song_count!: i64"
+          FROM playlistz p
+          LEFT JOIN playlist_songz ps ON p.id = ps.playlist_id
+          WHERE p.id = ? AND p.deleted_at IS NULL
+          GROUP BY p.id"#,
         id
     )
     .fetch_optional(&pool)

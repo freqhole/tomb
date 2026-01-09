@@ -89,6 +89,7 @@ impl PlaylistViewRow {
             deleted_by: None,
             created_by: None,
             updated_by: None,
+            song_count: self.playlist_song_count,
         };
 
         PlaylistQueryResult {
