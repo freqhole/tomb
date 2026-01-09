@@ -39,7 +39,7 @@ pub async fn find_or_create_tag(name: String) -> GrimoireResult<(Tag, bool)> {
             name as "name!",
             created_at as "created_at!"
            FROM tagz
-           WHERE LOWER(TRIM(name)) = ?"#,
+           WHERE LOWER(TRIM(name)) = ? AND deleted_at IS NULL"#,
         normalized
     )
     .fetch_optional(&pool)
@@ -75,6 +75,7 @@ pub async fn list_tags() -> GrimoireResult<Vec<Tag>> {
             name as "name!",
             created_at as "created_at!"
            FROM tagz
+           WHERE deleted_at IS NULL
            ORDER BY name ASC"#
     )
     .fetch_all(&pool)
@@ -95,7 +96,7 @@ pub async fn query_tags(search: &str) -> GrimoireResult<Vec<Tag>> {
             name as "name!",
             created_at as "created_at!"
            FROM tagz
-           WHERE name LIKE ?
+           WHERE name LIKE ? AND deleted_at IS NULL
            ORDER BY name ASC
            LIMIT 50"#,
         search_pattern
@@ -117,7 +118,7 @@ pub async fn get_tag(id: &str) -> GrimoireResult<Tag> {
             name as "name!",
             created_at as "created_at!"
            FROM tagz
-           WHERE id = ?"#,
+           WHERE id = ? AND deleted_at IS NULL"#,
         id
     )
     .fetch_optional(&pool)
@@ -128,19 +129,20 @@ pub async fn get_tag(id: &str) -> GrimoireResult<Tag> {
 }
 
 /// delete tag by id (removes relationships too)
-pub async fn delete_tag(id: &str) -> GrimoireResult<()> {
+pub async fn delete_tag(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
     let pool = database::connect().await?;
 
-    // remove album relationships
-    sqlx::query!("DELETE FROM album_tagz WHERE tag_id = ?", id)
-        .execute(&pool)
-        .await?;
-
-    // delete the tag
-    let rows_affected = sqlx::query!("DELETE FROM tagz WHERE id = ?", id)
-        .execute(&pool)
-        .await?
-        .rows_affected();
+    // Soft-delete the tag
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let rows_affected = sqlx::query!(
+        "UPDATE tagz SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL",
+        now,
+        deleted_by,
+        id
+    )
+    .execute(&pool)
+    .await?
+    .rows_affected();
 
     if rows_affected == 0 {
         return Err(GrimoireError::TagNotFound { id: id.to_string() });
@@ -161,7 +163,7 @@ pub async fn get_album_tags(album_id: &str) -> GrimoireResult<Vec<Tag>> {
             t.created_at as "created_at!"
            FROM tagz t
            INNER JOIN album_tagz at ON at.tag_id = t.id
-           WHERE at.album_id = ?
+           WHERE at.album_id = ? AND t.deleted_at IS NULL
            ORDER BY t.name ASC"#,
         album_id
     )

@@ -4,6 +4,7 @@
 use super::models::{CreateSongRequest, Song};
 use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
+use crate::music::crud::remove_song_from_all_playlists;
 
 /// create a new song
 pub async fn create_song(req: CreateSongRequest) -> GrimoireResult<Song> {
@@ -153,6 +154,9 @@ pub async fn delete_song(id: &str, deleted_by: Option<String>) -> GrimoireResult
     if rows_affected == 0 {
         return Err(GrimoireError::SongNotFound { id: id.to_string() });
     }
+
+    // Remove song from all playlists when soft-deleting
+    remove_song_from_all_playlists(id).await?;
 
     Ok(())
 }

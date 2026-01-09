@@ -1,9 +1,10 @@
 //! Hard deletion utilities for permanently removing old soft-deleted records
-//! Provides functions for cleaning up records that have been soft-deleted for a specified period
+//! Properly handles FK constraints by cascading deletions and cleaning up relationships
 
 use crate::database;
 use crate::error::GrimoireResult;
 use std::time::Instant;
+use time::OffsetDateTime;
 
 /// Options for hard deletion operations
 #[derive(Debug, Clone)]
@@ -33,6 +34,9 @@ pub struct HardDeleteSummary {
     pub playlists_deleted: u32,
     pub artists_deleted: u32,
     pub albums_deleted: u32,
+    pub tags_deleted: u32,
+    pub genres_deleted: u32,
+    pub sub_genres_deleted: u32,
     pub media_blobs_deleted: u32,
     pub blob_data_deleted: u32,
     pub total_records_deleted: u32,
@@ -47,6 +51,9 @@ impl HardDeleteSummary {
             playlists_deleted: 0,
             artists_deleted: 0,
             albums_deleted: 0,
+            tags_deleted: 0,
+            genres_deleted: 0,
+            sub_genres_deleted: 0,
             media_blobs_deleted: 0,
             blob_data_deleted: 0,
             total_records_deleted: 0,
@@ -60,18 +67,32 @@ impl HardDeleteSummary {
             + self.playlists_deleted
             + self.artists_deleted
             + self.albums_deleted
+            + self.tags_deleted
+            + self.genres_deleted
+            + self.sub_genres_deleted
             + self.media_blobs_deleted
             + self.blob_data_deleted;
     }
 }
 
-/// Hard delete all old soft-deleted records
+/// Hard delete all old soft-deleted records with proper cascade logic
+///
+/// Strategy:
+/// 1. Cascade: songs referencing deleted blobs → soft-delete those songs
+/// 2. Delete old songs: clean all relationships first, then delete song
+/// 3. Delete old albums: cascade to remaining songs in album, then delete album
+/// 4. Delete old artists: cascade to remaining albums/songs, then delete artist
+/// 5. Delete old playlists: delete playlist only (never songs)
+/// 6. Delete old tags: unlink from albums first
+/// 7. Delete old sub-genres: unlink from albums first
+/// 8. Delete old genres: NULL out album references first
+///
+/// Note: Blob cleanup is handled separately by filesystem sync, not here
 pub async fn hard_delete_old_records(
     options: HardDeleteOptions,
 ) -> GrimoireResult<HardDeleteSummary> {
     let start_time = Instant::now();
 
-    // Calculate cutoff timestamp (current time - retention days)
     let current_time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Time went backwards")
@@ -81,254 +102,511 @@ pub async fn hard_delete_old_records(
 
     let mut summary = HardDeleteSummary::new(cutoff_timestamp);
 
-    println!(
-        "Starting hard deletion of records older than {} days (cutoff: {})",
-        options.retention_days, cutoff_timestamp
-    );
-
     if options.dry_run {
-        println!("DRY RUN MODE: No records will actually be deleted");
+        return dry_run_count(cutoff_timestamp).await;
     }
 
-    // Delete in order to respect foreign key constraints
-    // Songs first (they reference everything)
-    summary.songs_deleted = hard_delete_old_songs(cutoff_timestamp, options.dry_run).await?;
+    let pool = database::connect().await?;
+    let mut tx = pool.begin().await?;
 
-    // Then playlists
-    summary.playlists_deleted =
-        hard_delete_old_playlists(cutoff_timestamp, options.dry_run).await?;
+    // Step 0: Cascade from deleted blobs to songs
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let songs_from_blobs: Vec<String> = sqlx::query_scalar!(
+        r#"
+        SELECT DISTINCT s.id as "id!"
+        FROM songz s
+        LEFT JOIN media_blobz mb ON s.media_blob_id = mb.id
+        WHERE mb.deleted_at IS NOT NULL OR mb.id IS NULL
+        "#
+    )
+    .fetch_all(&mut *tx)
+    .await?;
 
-    // Then albums and artists (they can reference each other)
-    summary.albums_deleted = hard_delete_old_albums(cutoff_timestamp, options.dry_run).await?;
-    summary.artists_deleted = hard_delete_old_artists(cutoff_timestamp, options.dry_run).await?;
-
-    // Finally media blobs and their data
-    summary.media_blobs_deleted =
-        hard_delete_old_media_blobs(cutoff_timestamp, options.dry_run).await?;
-
-    if options.delete_blob_data {
-        summary.blob_data_deleted =
-            hard_delete_old_blob_data(cutoff_timestamp, options.dry_run).await?;
+    for song_id in &songs_from_blobs {
+        sqlx::query!(
+            "UPDATE songz SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            now,
+            now,
+            song_id
+        )
+        .execute(&mut *tx)
+        .await?;
     }
+
+    // Step 1: Delete old songs
+    let song_ids: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT id as "id!" FROM songz WHERE deleted_at IS NOT NULL AND deleted_at < ?"#,
+        cutoff_timestamp
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for song_id in &song_ids {
+        sqlx::query!("DELETE FROM artist_songz WHERE song_id = ?", song_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!("DELETE FROM song_imagez WHERE song_id = ?", song_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!("DELETE FROM music_play_eventz WHERE song_id = ?", song_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!(
+            "DELETE FROM user_favoritez WHERE target_type = 'song' AND target_id = ?",
+            song_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM user_ratingz WHERE target_type = 'song' AND target_id = ?",
+            song_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!("DELETE FROM songz WHERE id = ?", song_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    summary.songs_deleted = song_ids.len() as u32;
+
+    // Step 2: Delete old albums (cascade to remaining songs)
+    let album_ids: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT id as "id!" FROM albumz WHERE deleted_at IS NOT NULL AND deleted_at < ?"#,
+        cutoff_timestamp
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for album_id in &album_ids {
+        // Cascade to remaining songs in album
+        let album_song_ids: Vec<String> = sqlx::query_scalar!(
+            r#"SELECT song_id as "song_id!" FROM album_songz WHERE album_id = ?"#,
+            album_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for song_id in &album_song_ids {
+            sqlx::query!("DELETE FROM artist_songz WHERE song_id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM song_imagez WHERE song_id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM music_play_eventz WHERE song_id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!(
+                "DELETE FROM user_favoritez WHERE target_type = 'song' AND target_id = ?",
+                song_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "DELETE FROM user_ratingz WHERE target_type = 'song' AND target_id = ?",
+                song_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!("DELETE FROM songz WHERE id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        // Clean up album relationships
+        sqlx::query!("DELETE FROM artist_albumz WHERE album_id = ?", album_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!("DELETE FROM album_tagz WHERE album_id = ?", album_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!("DELETE FROM album_sub_genrez WHERE album_id = ?", album_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!("DELETE FROM album_imagez WHERE album_id = ?", album_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!("DELETE FROM music_play_eventz WHERE album_id = ?", album_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!(
+            "DELETE FROM user_favoritez WHERE target_type = 'album' AND target_id = ?",
+            album_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM user_ratingz WHERE target_type = 'album' AND target_id = ?",
+            album_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!("UPDATE albumz SET genre_id = NULL WHERE id = ?", album_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!("DELETE FROM albumz WHERE id = ?", album_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    summary.albums_deleted = album_ids.len() as u32;
+
+    // Step 3: Delete old artists (cascade to remaining albums/songs)
+    let artist_ids: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT id as "id!" FROM artistz WHERE deleted_at IS NOT NULL AND deleted_at < ?"#,
+        cutoff_timestamp
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for artist_id in &artist_ids {
+        // Cascade to remaining albums
+        let artist_album_ids: Vec<String> = sqlx::query_scalar!(
+            r#"SELECT album_id as "album_id!" FROM artist_albumz WHERE artist_id = ?"#,
+            artist_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for album_id in &artist_album_ids {
+            let album_song_ids: Vec<String> = sqlx::query_scalar!(
+                r#"SELECT song_id as "song_id!" FROM album_songz WHERE album_id = ?"#,
+                album_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for song_id in &album_song_ids {
+                sqlx::query!("DELETE FROM artist_songz WHERE song_id = ?", song_id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song_id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query!("DELETE FROM song_imagez WHERE song_id = ?", song_id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query!("DELETE FROM music_play_eventz WHERE song_id = ?", song_id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query!(
+                    "DELETE FROM user_favoritez WHERE target_type = 'song' AND target_id = ?",
+                    song_id
+                )
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query!(
+                    "DELETE FROM user_ratingz WHERE target_type = 'song' AND target_id = ?",
+                    song_id
+                )
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query!("DELETE FROM songz WHERE id = ?", song_id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+
+            sqlx::query!("DELETE FROM artist_albumz WHERE album_id = ?", album_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM album_tagz WHERE album_id = ?", album_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM album_sub_genrez WHERE album_id = ?", album_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM album_imagez WHERE album_id = ?", album_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM music_play_eventz WHERE album_id = ?", album_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!(
+                "DELETE FROM user_favoritez WHERE target_type = 'album' AND target_id = ?",
+                album_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "DELETE FROM user_ratingz WHERE target_type = 'album' AND target_id = ?",
+                album_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!("UPDATE albumz SET genre_id = NULL WHERE id = ?", album_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM albumz WHERE id = ?", album_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        // Cascade to remaining songs directly linked to artist
+        let artist_song_ids: Vec<String> = sqlx::query_scalar!(
+            r#"SELECT song_id as "song_id!" FROM artist_songz WHERE artist_id = ?"#,
+            artist_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for song_id in &artist_song_ids {
+            sqlx::query!("DELETE FROM artist_songz WHERE song_id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM song_imagez WHERE song_id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM music_play_eventz WHERE song_id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!(
+                "DELETE FROM user_favoritez WHERE target_type = 'song' AND target_id = ?",
+                song_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "DELETE FROM user_ratingz WHERE target_type = 'song' AND target_id = ?",
+                song_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!("DELETE FROM songz WHERE id = ?", song_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        // Clean up artist relationships
+        sqlx::query!("DELETE FROM artist_imagez WHERE artist_id = ?", artist_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!(
+            "DELETE FROM music_play_eventz WHERE artist_id = ?",
+            artist_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM user_favoritez WHERE target_type = 'artist' AND target_id = ?",
+            artist_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM user_ratingz WHERE target_type = 'artist' AND target_id = ?",
+            artist_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!("DELETE FROM artistz WHERE id = ?", artist_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    summary.artists_deleted = artist_ids.len() as u32;
+
+    // Step 4: Delete old playlists (DO NOT cascade to songs)
+    let playlist_ids: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT id as "id!" FROM playlistz WHERE deleted_at IS NOT NULL AND deleted_at < ?"#,
+        cutoff_timestamp
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for playlist_id in &playlist_ids {
+        sqlx::query!(
+            "DELETE FROM playlist_songz WHERE playlist_id = ?",
+            playlist_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM playlist_imagez WHERE playlist_id = ?",
+            playlist_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM music_play_eventz WHERE playlist_id = ?",
+            playlist_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM user_favoritez WHERE target_type = 'playlist' AND target_id = ?",
+            playlist_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!("DELETE FROM playlistz WHERE id = ?", playlist_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    summary.playlists_deleted = playlist_ids.len() as u32;
+
+    // Step 5: Delete old tags (unlink from albums first)
+    let tag_ids: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT id as "id!" FROM tagz WHERE deleted_at IS NOT NULL AND deleted_at < ?"#,
+        cutoff_timestamp
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for tag_id in &tag_ids {
+        // Unlink from albums
+        sqlx::query!("DELETE FROM album_tagz WHERE tag_id = ?", tag_id)
+            .execute(&mut *tx)
+            .await?;
+        // Delete the tag
+        sqlx::query!("DELETE FROM tagz WHERE id = ?", tag_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    summary.tags_deleted = tag_ids.len() as u32;
+
+    // Step 6: Delete old sub-genres (unlink from albums first)
+    let sub_genre_ids: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT id as "id!" FROM sub_genrez WHERE deleted_at IS NOT NULL AND deleted_at < ?"#,
+        cutoff_timestamp
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for sub_genre_id in &sub_genre_ids {
+        // Unlink from albums
+        sqlx::query!(
+            "DELETE FROM album_sub_genrez WHERE sub_genre_id = ?",
+            sub_genre_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        // Delete the sub-genre
+        sqlx::query!("DELETE FROM sub_genrez WHERE id = ?", sub_genre_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    summary.sub_genres_deleted = sub_genre_ids.len() as u32;
+
+    // Step 7: Delete old genres (NULL out album references first)
+    let genre_ids: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT id as "id!" FROM genrez WHERE deleted_at IS NOT NULL AND deleted_at < ?"#,
+        cutoff_timestamp
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for genre_id in &genre_ids {
+        // NULL out album genre_id references
+        sqlx::query!(
+            "UPDATE albumz SET genre_id = NULL WHERE genre_id = ?",
+            genre_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        // Delete the genre
+        sqlx::query!("DELETE FROM genrez WHERE id = ?", genre_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    summary.genres_deleted = genre_ids.len() as u32;
+
+    // Note: Blob cleanup is handled separately by filesystem sync, not here
+    // If we delete blobs here, filesystem sync will just recreate them
+
+    tx.commit().await?;
 
     summary.duration_ms = start_time.elapsed().as_millis() as u64;
     summary.add_totals();
 
-    println!(
-        "Hard deletion completed: {} total records deleted ({}ms)",
-        summary.total_records_deleted, summary.duration_ms
-    );
-
     Ok(summary)
 }
 
-/// Hard delete old soft-deleted songs
-pub async fn hard_delete_old_songs(cutoff_timestamp: i64, dry_run: bool) -> GrimoireResult<u32> {
+async fn dry_run_count(cutoff_timestamp: i64) -> GrimoireResult<HardDeleteSummary> {
     let pool = database::connect().await?;
+    let mut summary = HardDeleteSummary::new(cutoff_timestamp);
 
-    if dry_run {
-        let count = sqlx::query!(
-            "SELECT COUNT(*) as count FROM songz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
-            cutoff_timestamp
-        )
-        .fetch_one(&pool)
-        .await?
-        .count;
-        println!("Would delete {} old songs", count);
-        return Ok(count as u32);
-    }
-
-    let result = sqlx::query!(
-        "DELETE FROM songz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+    let songs = sqlx::query!(
+        "SELECT COUNT(*) as count FROM songz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
         cutoff_timestamp
     )
-    .execute(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await?
+    .count;
+    summary.songs_deleted = songs as u32;
 
-    let deleted = result.rows_affected() as u32;
-    println!("Hard deleted {} old songs", deleted);
-    Ok(deleted)
-}
-
-/// Hard delete old soft-deleted playlists
-pub async fn hard_delete_old_playlists(
-    cutoff_timestamp: i64,
-    dry_run: bool,
-) -> GrimoireResult<u32> {
-    let pool = database::connect().await?;
-
-    if dry_run {
-        let count = sqlx::query!(
-            "SELECT COUNT(*) as count FROM playlistz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
-            cutoff_timestamp
-        )
-        .fetch_one(&pool)
-        .await?
-        .count;
-        println!("Would delete {} old playlists", count);
-        return Ok(count as u32);
-    }
-
-    let result = sqlx::query!(
-        "DELETE FROM playlistz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+    let albums = sqlx::query!(
+        "SELECT COUNT(*) as count FROM albumz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
         cutoff_timestamp
     )
-    .execute(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await?
+    .count;
+    summary.albums_deleted = albums as u32;
 
-    let deleted = result.rows_affected() as u32;
-    println!("Hard deleted {} old playlists", deleted);
-    Ok(deleted)
-}
-
-/// Hard delete old soft-deleted albums
-pub async fn hard_delete_old_albums(cutoff_timestamp: i64, dry_run: bool) -> GrimoireResult<u32> {
-    let pool = database::connect().await?;
-
-    if dry_run {
-        let count = sqlx::query!(
-            "SELECT COUNT(*) as count FROM albumz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
-            cutoff_timestamp
-        )
-        .fetch_one(&pool)
-        .await?
-        .count;
-        println!("Would delete {} old albums", count);
-        return Ok(count as u32);
-    }
-
-    let result = sqlx::query!(
-        "DELETE FROM albumz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+    let artists = sqlx::query!(
+        "SELECT COUNT(*) as count FROM artistz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
         cutoff_timestamp
     )
-    .execute(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await?
+    .count;
+    summary.artists_deleted = artists as u32;
 
-    let deleted = result.rows_affected() as u32;
-    println!("Hard deleted {} old albums", deleted);
-    Ok(deleted)
-}
-
-/// Hard delete old soft-deleted artists
-pub async fn hard_delete_old_artists(cutoff_timestamp: i64, dry_run: bool) -> GrimoireResult<u32> {
-    let pool = database::connect().await?;
-
-    if dry_run {
-        let count = sqlx::query!(
-            "SELECT COUNT(*) as count FROM artistz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
-            cutoff_timestamp
-        )
-        .fetch_one(&pool)
-        .await?
-        .count;
-        println!("Would delete {} old artists", count);
-        return Ok(count as u32);
-    }
-
-    let result = sqlx::query!(
-        "DELETE FROM artistz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+    let playlists = sqlx::query!(
+        "SELECT COUNT(*) as count FROM playlistz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
         cutoff_timestamp
     )
-    .execute(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await?
+    .count;
+    summary.playlists_deleted = playlists as u32;
 
-    let deleted = result.rows_affected() as u32;
-    println!("Hard deleted {} old artists", deleted);
-    Ok(deleted)
-}
-
-/// Hard delete old soft-deleted media blobs
-pub async fn hard_delete_old_media_blobs(
-    cutoff_timestamp: i64,
-    dry_run: bool,
-) -> GrimoireResult<u32> {
-    let pool = database::connect().await?;
-
-    if dry_run {
-        let count = sqlx::query!(
-            "SELECT COUNT(*) as count FROM media_blobz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
-            cutoff_timestamp
-        )
-        .fetch_one(&pool)
-        .await?
-        .count;
-        println!("Would delete {} old media blobs", count);
-        return Ok(count as u32);
-    }
-
-    let result = sqlx::query!(
-        "DELETE FROM media_blobz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+    let tags = sqlx::query!(
+        "SELECT COUNT(*) as count FROM tagz WHERE deleted_at IS NOT NULL AND deleted_at < ?",
         cutoff_timestamp
     )
-    .execute(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await?
+    .count;
+    summary.tags_deleted = tags as u32;
 
-    let deleted = result.rows_affected() as u32;
-    println!("Hard deleted {} old media blobs", deleted);
-    Ok(deleted)
-}
-
-/// Hard delete old blob data for deleted media blobs
-async fn hard_delete_old_blob_data(_cutoff_timestamp: i64, dry_run: bool) -> GrimoireResult<u32> {
-    let pool = database::connect().await?;
-
-    if dry_run {
-        let count = sqlx::query!(
-            "SELECT COUNT(*) as count FROM blob_data bd
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM media_blobz mb WHERE mb.id = bd.id AND mb.deleted_at IS NULL
-             )"
-        )
-        .fetch_one(&pool)
-        .await?
-        .count;
-        println!("Would delete {} orphaned blob_data records", count);
-        return Ok(count as u32);
-    }
-
-    // Delete blob_data for media_blobs that no longer exist or are deleted
-    let result = sqlx::query!(
-        "DELETE FROM blob_data
-         WHERE NOT EXISTS (
-             SELECT 1 FROM media_blobz mb WHERE mb.id = blob_data.id AND mb.deleted_at IS NULL
-         )"
+    let genres = sqlx::query!(
+        "SELECT COUNT(*) as count FROM genrez WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+        cutoff_timestamp
     )
-    .execute(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await?
+    .count;
+    summary.genres_deleted = genres as u32;
 
-    let deleted = result.rows_affected() as u32;
-    println!("Hard deleted {} orphaned blob_data records", deleted);
-    Ok(deleted)
-}
+    let sub_genres = sqlx::query!(
+        "SELECT COUNT(*) as count FROM sub_genrez WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+        cutoff_timestamp
+    )
+    .fetch_one(&pool)
+    .await?
+    .count;
+    summary.sub_genres_deleted = sub_genres as u32;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_hard_delete_options_default() {
-        let options = HardDeleteOptions::default();
-        assert_eq!(options.retention_days, 30);
-        assert!(options.delete_blob_data);
-        assert!(!options.dry_run);
-    }
-
-    #[test]
-    fn test_hard_delete_summary_new() {
-        let cutoff = 1000000000;
-        let summary = HardDeleteSummary::new(cutoff);
-        assert_eq!(summary.cutoff_timestamp, cutoff);
-        assert_eq!(summary.total_records_deleted, 0);
-    }
-
-    #[test]
-    fn test_hard_delete_summary_add_totals() {
-        let mut summary = HardDeleteSummary::new(1000000000);
-        summary.songs_deleted = 5;
-        summary.playlists_deleted = 3;
-        summary.media_blobs_deleted = 2;
-
-        summary.add_totals();
-        assert_eq!(summary.total_records_deleted, 10);
-    }
+    summary.add_totals();
+    Ok(summary)
 }

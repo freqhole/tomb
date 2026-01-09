@@ -716,7 +716,7 @@ pub async fn handle_get_sub_genre(action: MusicAction) -> GrimoireResult<()> {
 pub async fn handle_delete_sub_genre(action: MusicAction) -> GrimoireResult<()> {
     if let MusicAction::DeleteSubGenre { sub_genre_id } = action {
         println!("deleting sub-genre: {}", sub_genre_id);
-        match delete_sub_genre(&sub_genre_id).await {
+        match delete_sub_genre(&sub_genre_id, None).await {
             Ok(_) => {
                 println!("successfully deleted sub-genre {}", sub_genre_id);
                 Ok(())
@@ -798,7 +798,7 @@ pub async fn handle_get_tag(action: MusicAction) -> GrimoireResult<()> {
 pub async fn handle_delete_tag(action: MusicAction) -> GrimoireResult<()> {
     if let MusicAction::DeleteTag { tag_id } = action {
         println!("deleting tag: {}", tag_id);
-        match delete_tag(&tag_id).await {
+        match delete_tag(&tag_id, None).await {
             Ok(_) => {
                 println!("successfully deleted tag {}", tag_id);
                 Ok(())

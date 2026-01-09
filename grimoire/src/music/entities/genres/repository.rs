@@ -36,6 +36,7 @@ pub async fn list_genres() -> GrimoireResult<Vec<Genre>> {
             name as "name!",
             created_at as "created_at!"
            FROM genrez
+           WHERE deleted_at IS NULL
            ORDER BY name ASC"#
     )
     .fetch_all(&pool)
@@ -56,7 +57,7 @@ pub async fn query_genres(search: &str) -> GrimoireResult<Vec<Genre>> {
             name as "name!",
             created_at as "created_at!"
            FROM genrez
-           WHERE name LIKE ?
+           WHERE name LIKE ? AND deleted_at IS NULL
            ORDER BY name ASC
            LIMIT 50"#,
         search_pattern
@@ -78,7 +79,7 @@ pub async fn get_genre(id: &str) -> GrimoireResult<Genre> {
             name as "name!",
             created_at as "created_at!"
            FROM genrez
-           WHERE id = ?"#,
+           WHERE id = ? AND deleted_at IS NULL"#,
         id
     )
     .fetch_optional(&pool)
@@ -122,6 +123,7 @@ pub async fn list_sub_genres() -> GrimoireResult<Vec<SubGenre>> {
             parent_genre_id,
             created_at as "created_at!"
            FROM sub_genrez
+           WHERE deleted_at IS NULL
            ORDER BY name ASC"#
     )
     .fetch_all(&pool)
@@ -142,7 +144,7 @@ pub async fn get_sub_genre(id: &str) -> GrimoireResult<SubGenre> {
             parent_genre_id,
             created_at as "created_at!"
            FROM sub_genrez
-           WHERE id = ?"#,
+           WHERE id = ? AND deleted_at IS NULL"#,
         id
     )
     .fetch_optional(&pool)
@@ -168,6 +170,7 @@ pub async fn get_genre_stats() -> GrimoireResult<Vec<GenreStat>> {
             0 as "total_duration!"
            FROM genrez g
            LEFT JOIN albumz a ON a.genre_id = g.id AND a.deleted_at IS NULL
+           WHERE g.deleted_at IS NULL
            GROUP BY g.id, g.name
            ORDER BY g.name ASC"#
     )
@@ -193,7 +196,7 @@ pub async fn find_or_create_sub_genre(
             parent_genre_id,
             created_at as "created_at!"
            FROM sub_genrez
-           WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND parent_genre_id = ?"#,
+           WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND parent_genre_id = ? AND deleted_at IS NULL"#,
         name,
         parent_genre_id
     )
@@ -225,7 +228,7 @@ pub async fn list_sub_genres_for_genre(parent_genre_id: &str) -> GrimoireResult<
             parent_genre_id,
             created_at as "created_at!"
            FROM sub_genrez
-           WHERE parent_genre_id = ?
+           WHERE parent_genre_id = ? AND deleted_at IS NULL
            ORDER BY name ASC"#,
         parent_genre_id
     )
@@ -248,7 +251,7 @@ pub async fn query_sub_genres(search: &str) -> GrimoireResult<Vec<SubGenre>> {
             parent_genre_id,
             created_at as "created_at!"
            FROM sub_genrez
-           WHERE name LIKE ?
+           WHERE name LIKE ? AND deleted_at IS NULL
            ORDER BY name ASC
            LIMIT 50"#,
         search_pattern
@@ -260,13 +263,20 @@ pub async fn query_sub_genres(search: &str) -> GrimoireResult<Vec<SubGenre>> {
 }
 
 /// delete sub-genre by id
-pub async fn delete_sub_genre(id: &str) -> GrimoireResult<()> {
+pub async fn delete_sub_genre(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
     let pool = database::connect().await?;
 
-    let rows_affected = sqlx::query!("DELETE FROM sub_genrez WHERE id = ?", id)
-        .execute(&pool)
-        .await?
-        .rows_affected();
+    // Soft-delete the sub-genre
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let rows_affected = sqlx::query!(
+        "UPDATE sub_genrez SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL",
+        now,
+        deleted_by,
+        id
+    )
+    .execute(&pool)
+    .await?
+    .rows_affected();
 
     if rows_affected == 0 {
         return Err(GrimoireError::SubGenreNotFound { id: id.to_string() });

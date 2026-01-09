@@ -110,6 +110,9 @@ pub async fn handle_hard_delete_old_records(action: MusicAction) -> GrimoireResu
                 println!("  Playlists deleted: {}", summary.playlists_deleted);
                 println!("  Artists deleted: {}", summary.artists_deleted);
                 println!("  Albums deleted: {}", summary.albums_deleted);
+                println!("  Tags deleted: {}", summary.tags_deleted);
+                println!("  Genres deleted: {}", summary.genres_deleted);
+                println!("  Sub-genres deleted: {}", summary.sub_genres_deleted);
                 println!("  Media blobs deleted: {}", summary.media_blobs_deleted);
                 println!("  Blob data deleted: {}", summary.blob_data_deleted);
                 println!("  Total records deleted: {}", summary.total_records_deleted);
@@ -177,6 +180,18 @@ pub async fn handle_run_maintenance(action: MusicAction) -> GrimoireResult<()> {
                 println!(
                     "  Albums deleted: {}",
                     result.hard_delete_summary.albums_deleted
+                );
+                println!(
+                    "  Tags deleted: {}",
+                    result.hard_delete_summary.tags_deleted
+                );
+                println!(
+                    "  Genres deleted: {}",
+                    result.hard_delete_summary.genres_deleted
+                );
+                println!(
+                    "  Sub-genres deleted: {}",
+                    result.hard_delete_summary.sub_genres_deleted
                 );
                 println!(
                     "  Media blobs deleted: {}",

@@ -37,12 +37,9 @@ pub use wordlist::{
 /// initialize grimoire - ensures database connection works
 /// config must be initialized first via init_config()
 pub async fn init() -> GrimoireResult<()> {
-    tracing::info!("initializing grimoire");
-
     // ensure database exists and migrations run
     // actual connections happen per-operation
     let _ = database::connect().await?;
 
-    tracing::info!("grimoire initialized successfully");
     Ok(())
 }

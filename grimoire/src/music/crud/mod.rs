@@ -92,8 +92,8 @@ pub use crate::music::entities::tags::{
 
 // re-export delete operations
 pub use delete::{
-    cleanup_deleted_entities, delete_album_if_unused, delete_artist_if_unused,
-    delete_genre_if_unused, remove_song_from_all_playlists,
+    delete_album_if_unused, delete_artist_if_unused, delete_genre_if_unused,
+    remove_song_from_all_playlists,
 };
 
 // re-export deduplication utilities

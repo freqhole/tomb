@@ -1,9 +1,11 @@
 //! album service functions
+//! album repository
 //! clean business logic using sqlx::query_as! with no fallbacks
 
 use super::models::{Album, CreateAlbumRequest};
 use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
+use time::OffsetDateTime;
 
 /// create a new album
 pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResult<Album> {
@@ -131,6 +133,33 @@ pub async fn delete_album(id: &str, deleted_by: Option<String>) -> GrimoireResul
 
     if rows_affected == 0 {
         return Err(GrimoireError::AlbumNotFound { id: id.to_string() });
+    }
+
+    // Cascade: soft-delete all songs in this album and remove them from playlists
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let song_ids: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT song_id as "song_id!" FROM album_songz WHERE album_id = ?"#,
+        id
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    for song_id in &song_ids {
+        // Soft-delete the song
+        sqlx::query!(
+            "UPDATE songz SET deleted_at = ?, updated_at = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
+            now,
+            now,
+            deleted_by,
+            song_id
+        )
+        .execute(&pool)
+        .await?;
+
+        // Remove from all playlists
+        sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
+            .execute(&pool)
+            .await?;
     }
 
     Ok(())
