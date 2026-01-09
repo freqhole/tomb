@@ -1,13 +1,14 @@
 //! CLI output formatting utilities
 //!
 //! Provides consistent output formatting for grimoire CLI commands:
-//! - Default: Human-readable message
+//! - Default: Human-readable message + TSV table
 //! - JSON: Structured JSON with success, message, data, errors (RFC 9457 style)
 //!
 //! Design: Handlers return `CommandOutput<T>` with structured data.
 //! Top-level command router applies formatting based on --json flag.
 
 use serde::Serialize;
+use serde_json::Value;
 
 /// RFC 9457-style error object
 #[derive(Debug, Clone, Serialize)]
@@ -70,6 +71,73 @@ fn error_type_to_title(error_type: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Format a JSON value as a simple string
+fn format_json_value(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => s.clone(),
+        Value::Array(_) => "[...]".to_string(),
+        Value::Object(_) => "{...}".to_string(),
+    }
+}
+
+/// Auto-generate table from any Serialize type
+fn format_as_table<T: Serialize>(items: &[T]) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
+
+    // Serialize all items to JSON
+    let json_items: Vec<Value> = items
+        .iter()
+        .filter_map(|item| serde_json::to_value(item).ok())
+        .collect();
+
+    if json_items.is_empty() {
+        return String::new();
+    }
+
+    // Get keys from first item
+    if let Some(first) = json_items.first() {
+        if let Some(obj) = first.as_object() {
+            let keys: Vec<&String> = obj.keys().collect();
+
+            if keys.is_empty() {
+                return String::new();
+            }
+
+            // Print header
+            let header = keys
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join("\t");
+
+            // Print rows
+            let rows: Vec<String> = json_items
+                .iter()
+                .filter_map(|item| {
+                    if let Some(obj) = item.as_object() {
+                        let values: Vec<String> = keys
+                            .iter()
+                            .map(|k| obj.get(*k).map(format_json_value).unwrap_or_default())
+                            .collect();
+                        Some(values.join("\t"))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            return format!("{}\n{}", header, rows.join("\n"));
+        }
+    }
+
+    String::new()
 }
 
 /// Output format for CLI commands
@@ -155,6 +223,25 @@ impl<T: Serialize> CommandOutput<T> {
                             "  - [{}] {}: {}\n",
                             err.error_type, err.title, err.detail
                         ));
+                    }
+                }
+
+                // Try to format data as TSV if it's serializable
+                // Convert to JSON value first to check if it's an array
+                if let Ok(json_value) = serde_json::to_value(&self.data) {
+                    if let Some(array) = json_value.as_array() {
+                        if !array.is_empty() {
+                            output.push('\n');
+                            // Deserialize back to Vec<serde_json::Value> for TSV
+                            if let Ok(items) = serde_json::from_value::<Vec<serde_json::Value>>(
+                                serde_json::Value::Array(array.clone()),
+                            ) {
+                                let table = format_as_table(&items);
+                                if !table.is_empty() {
+                                    output.push_str(&table);
+                                }
+                            }
+                        }
                     }
                 }
 
