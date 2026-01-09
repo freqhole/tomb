@@ -17,7 +17,7 @@ pub use orphaned::{
 pub const DEFAULT_RETENTION_DAYS: u32 = 30;
 
 /// Comprehensive maintenance result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct MaintenanceResult {
     pub orphaned_blobs_cleaned: OrphanedBlobSummary,
     pub hard_delete_summary: HardDeleteSummary,

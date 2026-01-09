@@ -28,7 +28,7 @@ impl Default for HardDeleteOptions {
 }
 
 /// Summary of hard deletion operation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct HardDeleteSummary {
     pub songs_deleted: u32,
     pub playlists_deleted: u32,

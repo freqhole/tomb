@@ -7,7 +7,7 @@ use crate::media_blobz::{delete_media_blob, find_media_blob_references};
 use std::time::Instant;
 
 /// Summary of orphaned blob purge operation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct OrphanedBlobSummary {
     pub total_blobs_checked: u32,
     pub orphaned_blobs_found: u32,

@@ -5,7 +5,7 @@ use crate::database;
 use crate::error::GrimoireResult;
 
 /// Information about where a media blob is referenced
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct MediaBlobReferences {
     pub blob_id: String,
     pub song_media_references: i64,

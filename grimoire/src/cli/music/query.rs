@@ -9,79 +9,24 @@ use crate::music::crud::{
     get_sub_genre, get_tag, list_albums, list_artists, list_genres, list_songs, list_sub_genres,
     list_sub_genres_for_genre, list_tags, query_albums, query_artists, query_genres,
     query_playlist_songs, query_playlists, query_songs, search_genres, search_sub_genres,
-    search_tags, QueryParams,
+    search_tags, AlbumQueryResult, ArtistQueryResult, GenreQueryResult, PlaylistQueryResult,
+    PlaylistSongResult, QueryResult, SongQueryResult,
 };
-use crate::music::{Album, Artist, Genre, Song, SubGenre, Tag};
-use std::collections::HashMap;
+use crate::music::{Album, Artist, Genre, GenreStat, Song, SubGenre, Tag};
 
 pub async fn handle_query_songs(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
-    if let MusicAction::QuerySongs {
-        search,
-        sort_by,
-        sort_direction,
-        limit,
-        offset,
-        user_id,
-        favorites_only,
-        min_rating,
-    } = action
-    {
-        let params = QueryParams {
-            q: search,
-            search_fields: None,
-            filters: std::collections::HashMap::new(),
-            sort_by,
-            sort_direction,
-            limit: Some(limit as u32),
-            offset: Some(offset as u32),
-            user_id,
-            favorites_only: if favorites_only { Some(true) } else { None },
-            min_rating,
-        };
+) -> GrimoireResult<CommandOutput<QueryResult<SongQueryResult>>> {
+    if let MusicAction::QuerySongs { params } = action {
+        let result = query_songs(params).await?;
 
-        match query_songs(params).await {
-            Ok(result) => {
-                println!(
-                    "found {} songs (total: {})",
-                    result.items.len(),
-                    result.total_count
-                );
-                for song in result.items {
-                    let track_info = format!(
-                        "D{:02}T{:02}",
-                        song.song.disc_number, song.song.track_number
-                    );
-                    let track_display = format!("[{}]", track_info);
+        let message = format!(
+            "found {} songs (total: {})",
+            result.items.len(),
+            result.total_count
+        );
 
-                    println!(
-                        "  {}{} - {} ({})",
-                        track_display,
-                        song.artist
-                            .as_ref()
-                            .map(|a| a.name.clone())
-                            .unwrap_or("Unknown".to_string()),
-                        song.song.title,
-                        song.album
-                            .as_ref()
-                            .map(|a| a.title.clone())
-                            .unwrap_or("No Album".to_string())
-                    );
-                }
-                if result.has_more {
-                    println!(
-                        "...more results available (use --offset {})",
-                        offset + limit
-                    );
-                }
-            }
-            Err(e) => {
-                eprintln!("failed to query songs: {}", e);
-            }
-        }
-        Ok(())
+        Ok(CommandOutput::new(message, result))
     } else {
         unreachable!("handle_query_songs called with wrong action variant")
     }
@@ -89,63 +34,21 @@ pub async fn handle_query_songs(
 
 pub async fn handle_query_artists(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<QueryResult<ArtistQueryResult>>> {
     if let MusicAction::QueryArtists {
-        search,
-        starts_with,
-        sort_by,
-        sort_direction,
-        limit,
-        offset,
+        params,
+        starts_with: _,
     } = action
     {
-        println!("querying artists...");
-        let mut filters = HashMap::new();
-        if let Some(starts_with) = starts_with {
-            filters.insert(
-                "starts_with".to_string(),
-                serde_json::Value::String(starts_with),
-            );
-        }
-        let params = QueryParams {
-            q: search,
-            search_fields: None,
-            filters: std::collections::HashMap::new(),
-            sort_by,
-            sort_direction,
-            limit: Some(limit as u32),
-            offset: Some(offset as u32),
-            user_id: None,
-            favorites_only: None,
-            min_rating: None,
-        };
+        let result = query_artists(params).await?;
 
-        match query_artists(params).await {
-            Ok(result) => {
-                println!(
-                    "found {} artists (total: {})",
-                    result.items.len(),
-                    result.total_count
-                );
-                for artist in result.items {
-                    println!(
-                        "  {} ({} songs, {} albums)",
-                        artist.artist.name, artist.song_count, artist.album_count
-                    );
-                }
-                if result.has_more {
-                    println!(
-                        "...more results available (use --offset {})",
-                        offset + limit
-                    );
-                }
-            }
-            Err(e) => {
-                eprintln!("failed to query artists: {}", e);
-            }
-        }
-        Ok(())
+        let message = format!(
+            "found {} artists (total: {})",
+            result.items.len(),
+            result.total_count
+        );
+
+        Ok(CommandOutput::new(message, result))
     } else {
         unreachable!("handle_query_artists called with wrong action variant")
     }
@@ -153,60 +56,17 @@ pub async fn handle_query_artists(
 
 pub async fn handle_query_albums(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
-    if let MusicAction::QueryAlbums {
-        search,
-        sort_by,
-        sort_direction,
-        limit,
-        offset,
-    } = action
-    {
-        let params = QueryParams {
-            q: search,
-            search_fields: None,
-            filters: std::collections::HashMap::new(),
-            sort_by,
-            sort_direction,
-            limit: Some(limit as u32),
-            offset: Some(offset as u32),
-            user_id: None,
-            favorites_only: None,
-            min_rating: None,
-        };
+) -> GrimoireResult<CommandOutput<QueryResult<AlbumQueryResult>>> {
+    if let MusicAction::QueryAlbums { params } = action {
+        let result = query_albums(params).await?;
 
-        match query_albums(params).await {
-            Ok(result) => {
-                println!(
-                    "found {} albums (total: {})",
-                    result.items.len(),
-                    result.total_count
-                );
-                for album in result.items {
-                    println!(
-                        "  {} - {} ({} songs)",
-                        album
-                            .artist
-                            .as_ref()
-                            .map(|a| a.name.clone())
-                            .unwrap_or("Unknown".to_string()),
-                        album.album.title,
-                        album.album.song_count
-                    );
-                }
-                if result.has_more {
-                    println!(
-                        "...more results available (use --offset {})",
-                        offset + limit
-                    );
-                }
-            }
-            Err(e) => {
-                eprintln!("failed to query albums: {}", e);
-            }
-        }
-        Ok(())
+        let message = format!(
+            "found {} albums (total: {})",
+            result.items.len(),
+            result.total_count
+        );
+
+        Ok(CommandOutput::new(message, result))
     } else {
         unreachable!("handle_query_albums called with wrong action variant")
     }
@@ -214,51 +74,17 @@ pub async fn handle_query_albums(
 
 pub async fn handle_query_genres(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
-    if let MusicAction::QueryGenres {
-        search,
-        sort_by,
-        sort_direction,
-        limit,
-        offset,
-    } = action
-    {
-        let params = QueryParams {
-            q: search,
-            search_fields: None,
-            filters: std::collections::HashMap::new(),
-            sort_by,
-            sort_direction,
-            limit: Some(limit as u32),
-            offset: Some(offset as u32),
-            user_id: None,
-            favorites_only: None,
-            min_rating: None,
-        };
+) -> GrimoireResult<CommandOutput<QueryResult<GenreQueryResult>>> {
+    if let MusicAction::QueryGenres { params } = action {
+        let result = query_genres(params).await?;
 
-        match query_genres(params).await {
-            Ok(result) => {
-                println!(
-                    "found {} genres (total: {})",
-                    result.items.len(),
-                    result.total_count
-                );
-                for genre in result.items {
-                    println!("  {}", genre.genre.name);
-                }
-                if result.has_more {
-                    println!(
-                        "...more results available (use --offset {})",
-                        offset + limit
-                    );
-                }
-            }
-            Err(e) => {
-                eprintln!("failed to query genres: {}", e);
-            }
-        }
-        Ok(())
+        let message = format!(
+            "found {} genres (total: {})",
+            result.items.len(),
+            result.total_count
+        );
+
+        Ok(CommandOutput::new(message, result))
     } else {
         unreachable!("handle_query_genres called with wrong action variant")
     }
@@ -266,71 +92,27 @@ pub async fn handle_query_genres(
 
 pub async fn handle_query_playlists(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<QueryResult<PlaylistQueryResult>>> {
     if let MusicAction::QueryPlaylists {
-        search,
-        sort_by,
-        sort_direction,
+        mut params,
         is_public,
-        limit,
-        offset,
     } = action
     {
-        let mut filters = HashMap::new();
         if let Some(public) = is_public {
-            filters.insert("is_public".to_string(), serde_json::Value::Bool(public));
+            params
+                .filters
+                .insert("is_public".to_string(), serde_json::Value::Bool(public));
         }
 
-        let params = QueryParams {
-            q: search,
-            search_fields: None,
-            filters: std::collections::HashMap::new(),
-            sort_by,
-            sort_direction,
-            limit: Some(limit as u32),
-            offset: Some(offset as u32),
-            user_id: None,
-            favorites_only: None,
-            min_rating: None,
-        };
+        let result = query_playlists(params).await?;
 
-        match query_playlists(params).await {
-            Ok(result) => {
-                println!(
-                    "found {} playlists (total: {})",
-                    result.items.len(),
-                    result.total_count
-                );
-                for playlist in result.items {
-                    let public_status = if playlist.playlist.is_public == 1 {
-                        "public"
-                    } else {
-                        "private"
-                    };
-                    println!(
-                        "  {} ({} songs, {}) - {}",
-                        playlist.playlist.title,
-                        playlist.song_count,
-                        public_status,
-                        playlist
-                            .playlist
-                            .description
-                            .unwrap_or_else(|| "No description".to_string())
-                    );
-                }
-                if result.has_more {
-                    println!(
-                        "...more results available (use --offset {})",
-                        offset + limit
-                    );
-                }
-            }
-            Err(e) => {
-                eprintln!("failed to query playlists: {}", e);
-            }
-        }
-        Ok(())
+        let message = format!(
+            "found {} playlists (total: {})",
+            result.items.len(),
+            result.total_count
+        );
+
+        Ok(CommandOutput::new(message, result))
     } else {
         unreachable!("handle_query_playlists called with wrong action variant")
     }
@@ -338,71 +120,21 @@ pub async fn handle_query_playlists(
 
 pub async fn handle_query_playlist_songs(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<QueryResult<PlaylistSongResult>>> {
     if let MusicAction::QueryPlaylistSongs {
         playlist_id,
-        search,
-        sort_by,
-        sort_direction,
-        limit,
-        offset,
+        params,
     } = action
     {
-        let params = QueryParams {
-            q: search,
-            search_fields: None,
-            filters: HashMap::new(),
-            sort_by,
-            sort_direction,
-            limit: Some(limit as u32),
-            offset: Some(offset as u32),
-            user_id: None,
-            favorites_only: None,
-            min_rating: None,
-        };
+        let result = query_playlist_songs(&playlist_id, params).await?;
 
-        match query_playlist_songs(&playlist_id, params).await {
-            Ok(result) => {
-                println!(
-                    "found {} songs in playlist (total: {})",
-                    result.items.len(),
-                    result.total_count
-                );
-                for item in result.items {
-                    let track_info = format!(
-                        "D{:02}T{:02}",
-                        item.details.song.disc_number, item.details.song.track_number
-                    );
-                    println!(
-                        "  [pos {}] [{}] {} - {} ({})",
-                        item.position,
-                        track_info,
-                        item.details
-                            .artist
-                            .as_ref()
-                            .map(|a| a.name.clone())
-                            .unwrap_or("Unknown".to_string()),
-                        item.details.song.title,
-                        item.details
-                            .album
-                            .as_ref()
-                            .map(|a| a.title.clone())
-                            .unwrap_or("Unknown".to_string())
-                    );
-                }
-                if result.has_more {
-                    println!(
-                        "...more results available (use --offset {})",
-                        offset + limit
-                    );
-                }
-            }
-            Err(e) => {
-                eprintln!("failed to query playlist songs: {}", e);
-            }
-        }
-        Ok(())
+        let message = format!(
+            "found {} songs in playlist (total: {})",
+            result.items.len(),
+            result.total_count
+        );
+
+        Ok(CommandOutput::new(message, result))
     } else {
         unreachable!("handle_query_playlist_songs called with wrong action variant")
     }
@@ -423,26 +155,11 @@ pub async fn handle_list_albums(action: MusicAction) -> GrimoireResult<CommandOu
     }
 }
 
-pub async fn handle_get_album(
-    action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+pub async fn handle_get_album(action: MusicAction) -> GrimoireResult<CommandOutput<Vec<Album>>> {
     if let MusicAction::GetAlbum { album_id } = action {
-        println!("getting album: {}", album_id);
-        match get_album(&album_id).await {
-            Ok(album) => {
-                println!("Album: {} - {}", album.id, album.title);
-                println!("  Type: {}", album.album_type);
-                if let Some(date) = album.release_date {
-                    println!("  Release date: {}", date);
-                }
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to get album: {}", e);
-                Err(e)
-            }
-        }
+        let album = get_album(&album_id).await?;
+
+        Ok(CommandOutput::new("Album retrieved", vec![album]))
     } else {
         unreachable!("handle_get_album called with wrong action variant")
     }
@@ -450,48 +167,28 @@ pub async fn handle_get_album(
 
 pub async fn handle_delete_album(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<serde_json::Value>>> {
     if let MusicAction::DeleteAlbum {
         album_id,
         deleted_by,
     } = action
     {
-        println!("deleting album: {}", album_id);
-        match delete_album(&album_id, deleted_by).await {
-            Ok(_) => {
-                println!("successfully deleted album {}", album_id);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to delete album: {}", e);
-                Err(e)
-            }
-        }
+        delete_album(&album_id, deleted_by).await?;
+
+        let message = format!("successfully deleted album {}", album_id);
+        let data = vec![serde_json::json!({ "album_id": album_id })];
+        Ok(CommandOutput::new(message, data))
     } else {
         unreachable!("handle_delete_album called with wrong action variant")
     }
 }
 
-pub async fn handle_get_album_tags(
-    action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+pub async fn handle_get_album_tags(action: MusicAction) -> GrimoireResult<CommandOutput<Vec<Tag>>> {
     if let MusicAction::GetAlbumTags { album_id } = action {
-        println!("getting tags for album: {}", album_id);
-        match get_album_tags(&album_id).await {
-            Ok(tags) => {
-                println!("found {} tags for album {}", tags.len(), album_id);
-                for tag in tags {
-                    println!("  {} - {}", tag.id, tag.name);
-                }
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to get album tags: {}", e);
-                Err(e)
-            }
-        }
+        let tags = get_album_tags(&album_id).await?;
+
+        let message = format!("found {} tags for album {}", tags.len(), album_id);
+        Ok(CommandOutput::new(message, tags))
     } else {
         unreachable!("handle_get_album_tags called with wrong action variant")
     }
@@ -514,22 +211,11 @@ pub async fn handle_list_artists(
     }
 }
 
-pub async fn handle_get_artist(
-    action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+pub async fn handle_get_artist(action: MusicAction) -> GrimoireResult<CommandOutput<Vec<Artist>>> {
     if let MusicAction::GetArtist { artist_id } = action {
-        println!("getting artist: {}", artist_id);
-        match get_artist(&artist_id).await {
-            Ok(artist) => {
-                println!("Artist: {} - {}", artist.id, artist.name);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to get artist: {}", e);
-                Err(e)
-            }
-        }
+        let artist = get_artist(&artist_id).await?;
+
+        Ok(CommandOutput::new("Artist retrieved", vec![artist]))
     } else {
         unreachable!("handle_get_artist called with wrong action variant")
     }
@@ -537,24 +223,17 @@ pub async fn handle_get_artist(
 
 pub async fn handle_delete_artist(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<serde_json::Value>>> {
     if let MusicAction::DeleteArtist {
         artist_id,
         deleted_by,
     } = action
     {
-        println!("deleting artist: {}", artist_id);
-        match delete_artist(&artist_id, deleted_by).await {
-            Ok(_) => {
-                println!("successfully deleted artist {}", artist_id);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to delete artist: {}", e);
-                Err(e)
-            }
-        }
+        delete_artist(&artist_id, deleted_by).await?;
+
+        let message = format!("successfully deleted artist {}", artist_id);
+        let data = vec![serde_json::json!({ "artist_id": artist_id })];
+        Ok(CommandOutput::new(message, data))
     } else {
         unreachable!("handle_delete_artist called with wrong action variant")
     }
@@ -577,24 +256,17 @@ pub async fn handle_list_songs(action: MusicAction) -> GrimoireResult<CommandOut
 
 pub async fn handle_delete_song(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<serde_json::Value>>> {
     if let MusicAction::DeleteSong {
         song_id,
         deleted_by,
     } = action
     {
-        println!("deleting song: {}", song_id);
-        match delete_song(&song_id, deleted_by).await {
-            Ok(_) => {
-                println!("successfully deleted song {}", song_id);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to delete song: {}", e);
-                Err(e)
-            }
-        }
+        delete_song(&song_id, deleted_by).await?;
+
+        let message = format!("successfully deleted song {}", song_id);
+        let data = vec![serde_json::json!({ "song_id": song_id })];
+        Ok(CommandOutput::new(message, data))
     } else {
         unreachable!("handle_delete_song called with wrong action variant")
     }
@@ -611,22 +283,11 @@ pub async fn handle_list_genres(_action: MusicAction) -> GrimoireResult<CommandO
     }
 }
 
-pub async fn handle_get_genre(
-    action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+pub async fn handle_get_genre(action: MusicAction) -> GrimoireResult<CommandOutput<Vec<Genre>>> {
     if let MusicAction::GetGenre { genre_id } = action {
-        println!("getting genre: {}", genre_id);
-        match get_genre(&genre_id).await {
-            Ok(genre) => {
-                println!("Genre: {} - {}", genre.id, genre.name);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to get genre: {}", e);
-                Err(e)
-            }
-        }
+        let genre = get_genre(&genre_id).await?;
+
+        Ok(CommandOutput::new("Genre retrieved", vec![genre]))
     } else {
         unreachable!("handle_get_genre called with wrong action variant")
     }
@@ -634,23 +295,12 @@ pub async fn handle_get_genre(
 
 pub async fn handle_get_genre_stats(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<GenreStat>>> {
     if let MusicAction::GetGenreStats { genre_id: _ } = action {
-        println!("getting genre stats for all genres...");
-        match get_genre_stats().await {
-            Ok(stats) => {
-                println!("Genre stats: {} genres", stats.len());
-                for stat in stats {
-                    println!("  {}: {} songs", stat.name, stat.song_count);
-                }
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to get genre stats: {}", e);
-                Err(e)
-            }
-        }
+        let stats = get_genre_stats().await?;
+
+        let message = format!("Genre stats: {} genres", stats.len());
+        Ok(CommandOutput::new(message, stats))
     } else {
         unreachable!("handle_get_genre_stats called with wrong action variant")
     }
@@ -671,27 +321,16 @@ pub async fn handle_list_sub_genres(
 
 pub async fn handle_list_sub_genres_for_genre(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<SubGenre>>> {
     if let MusicAction::ListSubGenresForGenre { genre_id } = action {
-        println!("listing sub-genres for genre: {}", genre_id);
-        match list_sub_genres_for_genre(&genre_id).await {
-            Ok(sub_genres) => {
-                println!(
-                    "found {} sub-genres for genre {}",
-                    sub_genres.len(),
-                    genre_id
-                );
-                for sub_genre in sub_genres {
-                    println!("  {} - {}", sub_genre.id, sub_genre.name);
-                }
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to list sub-genres for genre: {}", e);
-                Err(e)
-            }
-        }
+        let sub_genres = list_sub_genres_for_genre(&genre_id).await?;
+
+        let message = format!(
+            "found {} sub-genres for genre {}",
+            sub_genres.len(),
+            genre_id
+        );
+        Ok(CommandOutput::new(message, sub_genres))
     } else {
         unreachable!("handle_list_sub_genres_for_genre called with wrong action variant")
     }
@@ -699,20 +338,11 @@ pub async fn handle_list_sub_genres_for_genre(
 
 pub async fn handle_get_sub_genre(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<SubGenre>>> {
     if let MusicAction::GetSubGenre { sub_genre_id } = action {
-        println!("getting sub-genre: {}", sub_genre_id);
-        match get_sub_genre(&sub_genre_id).await {
-            Ok(sub_genre) => {
-                println!("Sub-genre: {} - {}", sub_genre.id, sub_genre.name);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to get sub-genre: {}", e);
-                Err(e)
-            }
-        }
+        let sub_genre = get_sub_genre(&sub_genre_id).await?;
+
+        Ok(CommandOutput::new("Sub-genre retrieved", vec![sub_genre]))
     } else {
         unreachable!("handle_get_sub_genre called with wrong action variant")
     }
@@ -720,20 +350,13 @@ pub async fn handle_get_sub_genre(
 
 pub async fn handle_delete_sub_genre(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<serde_json::Value>>> {
     if let MusicAction::DeleteSubGenre { sub_genre_id } = action {
-        println!("deleting sub-genre: {}", sub_genre_id);
-        match delete_sub_genre(&sub_genre_id, None).await {
-            Ok(_) => {
-                println!("successfully deleted sub-genre {}", sub_genre_id);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to delete sub-genre: {}", e);
-                Err(e)
-            }
-        }
+        delete_sub_genre(&sub_genre_id, None).await?;
+
+        let message = format!("successfully deleted sub-genre {}", sub_genre_id);
+        let data = vec![serde_json::json!({ "sub_genre_id": sub_genre_id })];
+        Ok(CommandOutput::new(message, data))
     } else {
         unreachable!("handle_delete_sub_genre called with wrong action variant")
     }
@@ -741,30 +364,20 @@ pub async fn handle_delete_sub_genre(
 
 pub async fn handle_find_or_create_sub_genre(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<SubGenre>>> {
     if let MusicAction::FindOrCreateSubGenre { name, genre_id } = action {
-        println!(
-            "finding or creating sub-genre: {} for genre {}",
-            name, genre_id
-        );
-        match find_or_create_sub_genre(name, genre_id).await {
-            Ok((sub_genre, created)) => {
-                if created {
-                    println!("Created sub-genre: {} - {}", sub_genre.id, sub_genre.name);
-                } else {
-                    println!(
-                        "Found existing sub-genre: {} - {}",
-                        sub_genre.id, sub_genre.name
-                    );
-                }
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to find or create sub-genre: {}", e);
-                Err(e)
-            }
-        }
+        let (sub_genre, created) = find_or_create_sub_genre(name, genre_id).await?;
+
+        let message = if created {
+            format!("Created sub-genre: {} - {}", sub_genre.id, sub_genre.name)
+        } else {
+            format!(
+                "Found existing sub-genre: {} - {}",
+                sub_genre.id, sub_genre.name
+            )
+        };
+
+        Ok(CommandOutput::new(message, vec![sub_genre]))
     } else {
         unreachable!("handle_find_or_create_sub_genre called with wrong action variant")
     }
@@ -781,22 +394,11 @@ pub async fn handle_list_tags(_action: MusicAction) -> GrimoireResult<CommandOut
     }
 }
 
-pub async fn handle_get_tag(
-    action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+pub async fn handle_get_tag(action: MusicAction) -> GrimoireResult<CommandOutput<Vec<Tag>>> {
     if let MusicAction::GetTag { tag_id } = action {
-        println!("getting tag: {}", tag_id);
-        match get_tag(&tag_id).await {
-            Ok(tag) => {
-                println!("Tag: {} - {}", tag.id, tag.name);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to get tag: {}", e);
-                Err(e)
-            }
-        }
+        let tag = get_tag(&tag_id).await?;
+
+        Ok(CommandOutput::new("Tag retrieved", vec![tag]))
     } else {
         unreachable!("handle_get_tag called with wrong action variant")
     }
@@ -804,20 +406,13 @@ pub async fn handle_get_tag(
 
 pub async fn handle_delete_tag(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<serde_json::Value>>> {
     if let MusicAction::DeleteTag { tag_id } = action {
-        println!("deleting tag: {}", tag_id);
-        match delete_tag(&tag_id, None).await {
-            Ok(_) => {
-                println!("successfully deleted tag {}", tag_id);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to delete tag: {}", e);
-                Err(e)
-            }
-        }
+        delete_tag(&tag_id, None).await?;
+
+        let message = format!("successfully deleted tag {}", tag_id);
+        let data = vec![serde_json::json!({ "tag_id": tag_id })];
+        Ok(CommandOutput::new(message, data))
     } else {
         unreachable!("handle_delete_tag called with wrong action variant")
     }
@@ -826,23 +421,12 @@ pub async fn handle_delete_tag(
 // Query/search operations
 pub async fn handle_query_genres_search(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<Genre>>> {
     if let MusicAction::QueryGenresSearch { search } = action {
-        println!("searching genres: {}", search);
-        match search_genres(&search).await {
-            Ok(genres) => {
-                println!("found {} genres matching '{}'", genres.len(), search);
-                for genre in genres {
-                    println!("  {} - {}", genre.id, genre.name);
-                }
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to search genres: {}", e);
-                Err(e)
-            }
-        }
+        let genres = search_genres(&search).await?;
+
+        let message = format!("found {} genres matching '{}'", genres.len(), search);
+        Ok(CommandOutput::new(message, genres))
     } else {
         unreachable!("handle_query_genres_search called with wrong action variant")
     }
@@ -850,27 +434,16 @@ pub async fn handle_query_genres_search(
 
 pub async fn handle_query_sub_genres_search(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<SubGenre>>> {
     if let MusicAction::QuerySubGenresSearch { search } = action {
-        println!("searching sub-genres: {}", search);
-        match search_sub_genres(&search).await {
-            Ok(sub_genres) => {
-                println!(
-                    "found {} sub-genres matching '{}'",
-                    sub_genres.len(),
-                    search
-                );
-                for sub_genre in sub_genres {
-                    println!("  {} - {}", sub_genre.id, sub_genre.name);
-                }
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to search sub-genres: {}", e);
-                Err(e)
-            }
-        }
+        let sub_genres = search_sub_genres(&search).await?;
+
+        let message = format!(
+            "found {} sub-genres matching '{}'",
+            sub_genres.len(),
+            search
+        );
+        Ok(CommandOutput::new(message, sub_genres))
     } else {
         unreachable!("handle_query_sub_genres_search called with wrong action variant")
     }
@@ -878,23 +451,12 @@ pub async fn handle_query_sub_genres_search(
 
 pub async fn handle_query_tags_search(
     action: MusicAction,
-    format: crate::cli::output::OutputFormat,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<CommandOutput<Vec<Tag>>> {
     if let MusicAction::QueryTagsSearch { search } = action {
-        println!("searching tags: {}", search);
-        match search_tags(&search).await {
-            Ok(tags) => {
-                println!("found {} tags matching '{}'", tags.len(), search);
-                for tag in tags {
-                    println!("  {} - {}", tag.id, tag.name);
-                }
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("failed to search tags: {}", e);
-                Err(e)
-            }
-        }
+        let tags = search_tags(&search).await?;
+
+        let message = format!("found {} tags matching '{}'", tags.len(), search);
+        Ok(CommandOutput::new(message, tags))
     } else {
         unreachable!("handle_query_tags_search called with wrong action variant")
     }

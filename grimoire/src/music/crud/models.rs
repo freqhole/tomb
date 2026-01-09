@@ -135,20 +135,54 @@ pub enum SongImportErrorType {
 }
 
 /// unified query parameters for all entity queries
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, clap::Parser)]
 pub struct QueryParams {
-    pub q: Option<String>,                  // Full-text search query (FTS5)
-    pub search_fields: Option<Vec<String>>, // Which fields to search: ["title", "artist", "album"]
-    pub filters: std::collections::HashMap<String, serde_json::Value>, // Flexible filters (year_min, genre, etc.)
-    pub sort_by: Option<String>,                                       // Field name
-    pub sort_direction: Option<String>,                                // "asc" | "desc"
-    pub limit: Option<u32>,                                            // Page size (default: 50)
-    pub offset: Option<u32>,                                           // Page offset (default: 0)
+    /// Full-text search query
+    #[arg(long)]
+    pub q: Option<String>,
 
-    // User context fields for user-specific filtering and annotation
-    pub user_id: Option<String>,      // User ID for user-specific data
-    pub favorites_only: Option<bool>, // Filter to only favorited items (requires user_id)
-    pub min_rating: Option<i32>,      // Filter to only items rated >= this value (requires user_id)
+    /// Which fields to search (comma-separated: title,artist,album)
+    #[arg(long, value_delimiter = ',')]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_fields: Option<Vec<String>>,
+
+    /// Flexible filters as JSON (not exposed as CLI arg - use specific filters instead)
+    #[arg(skip)]
+    #[serde(default)]
+    pub filters: std::collections::HashMap<String, serde_json::Value>,
+
+    /// Sort field name
+    #[arg(long)]
+    pub sort_by: Option<String>,
+
+    /// Sort direction (asc or desc)
+    #[arg(long)]
+    pub sort_direction: Option<String>,
+
+    /// Maximum number of results
+    #[arg(long, default_value = "50")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+
+    /// Offset for pagination
+    #[arg(long, default_value = "0")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u32>,
+
+    /// User ID for user-specific data
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+
+    /// Filter to only favorited items (requires user_id)
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub favorites_only: Option<bool>,
+
+    /// Filter to only items rated >= this value (requires user_id)
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_rating: Option<i32>,
 }
 
 impl Default for QueryParams {

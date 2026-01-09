@@ -18,7 +18,7 @@ mod database;
 mod jobs;
 mod maintenance;
 mod music;
-mod output;
+pub mod output;
 mod users;
 mod utils;
 mod wordlist;

@@ -105,6 +105,40 @@ pub enum GrimoireError {
 /// result type alias for grimoire operations
 pub type GrimoireResult<T> = Result<T, GrimoireError>;
 
+impl GrimoireError {
+    /// Get the error type identifier for RFC 9457 compatibility
+    /// Auto-derives from variant name (e.g., DatabaseNotFound -> database_not_found)
+    pub fn error_type(&self) -> String {
+        // Use Debug formatting to get variant name, then convert to snake_case
+        let debug_str = format!("{:?}", self);
+        let variant_name = debug_str
+            .split(|c| c == '(' || c == '{')
+            .next()
+            .unwrap_or(&debug_str);
+
+        to_snake_case(variant_name)
+    }
+}
+
+/// Convert PascalCase/camelCase to snake_case
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch.is_uppercase() {
+            if !result.is_empty() {
+                result.push('_');
+            }
+            result.push(ch.to_ascii_lowercase());
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
 impl From<lofty::LoftyError> for GrimoireError {
     fn from(err: lofty::LoftyError) -> Self {
         GrimoireError::MetadataExtraction {

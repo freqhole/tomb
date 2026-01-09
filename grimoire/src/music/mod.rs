@@ -24,7 +24,7 @@ pub use musicbrainz::*;
 // re-export core domain types for consumers
 pub use entities::{
     Album, Artist, CreateAlbumRequest, CreateArtistRequest, CreateGenreRequest,
-    CreatePlaylistRequest, CreateSongRequest, Genre, Playlist, Song, SubGenre, Tag,
+    CreatePlaylistRequest, CreateSongRequest, Genre, GenreStat, Playlist, Song, SubGenre, Tag,
 };
 
 // Public API structure:
