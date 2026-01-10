@@ -116,29 +116,72 @@ pub enum Commands {
     },
 }
 
-/// Main CLI entry point with pre-parsed args
-pub async fn run_cli_with_args(cli: Cli) -> crate::error::GrimoireResult<()> {
+/// Main CLI entry point
+pub async fn run_cli() -> crate::error::GrimoireResult<()> {
+    let cli = Cli::parse();
+
     match cli.command {
         Commands::Config {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            config::handle_command(action, format).await
+            config::handle_command(action, format).await.or_else(|err| {
+                if json_output {
+                    use utils::{CommandOutput, ErrorDetail};
+                    let output: CommandOutput<Vec<()>> = CommandOutput::failure(
+                        "Command failed",
+                        vec![ErrorDetail::from(&err)],
+                        vec![],
+                    );
+                    eprintln!("{}", output.format(format));
+                    Ok(())
+                } else {
+                    Err(err)
+                }
+            })
         }
         Commands::Jobs {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            jobs::handle_command(action, format).await
+            jobs::handle_command(action, format).await.or_else(|err| {
+                if json_output {
+                    use utils::{CommandOutput, ErrorDetail};
+                    let output: CommandOutput<Vec<()>> = CommandOutput::failure(
+                        "Command failed",
+                        vec![ErrorDetail::from(&err)],
+                        vec![],
+                    );
+                    eprintln!("{}", output.format(format));
+                    Ok(())
+                } else {
+                    Err(err)
+                }
+            })
         }
         Commands::Database {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            database::handle_command(action, format).await
+            database::handle_command(action, format)
+                .await
+                .or_else(|err| {
+                    if json_output {
+                        use utils::{CommandOutput, ErrorDetail};
+                        let output: CommandOutput<Vec<()>> = CommandOutput::failure(
+                            "Command failed",
+                            vec![ErrorDetail::from(&err)],
+                            vec![],
+                        );
+                        eprintln!("{}", output.format(format));
+                        Ok(())
+                    } else {
+                        Err(err)
+                    }
+                })
         }
         Commands::Music {
             action,
@@ -149,36 +192,88 @@ pub async fn run_cli_with_args(cli: Cli) -> crate::error::GrimoireResult<()> {
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            wordlist::handle_command(action, format).await
+            wordlist::handle_command(action, format)
+                .await
+                .or_else(|err| {
+                    if json_output {
+                        use utils::{CommandOutput, ErrorDetail};
+                        let output: CommandOutput<Vec<()>> = CommandOutput::failure(
+                            "Command failed",
+                            vec![ErrorDetail::from(&err)],
+                            vec![],
+                        );
+                        eprintln!("{}", output.format(format));
+                        Ok(())
+                    } else {
+                        Err(err)
+                    }
+                })
         }
         Commands::Users {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            users::handle_command(action, format).await
+            users::handle_command(action, format).await.or_else(|err| {
+                if json_output {
+                    use utils::{CommandOutput, ErrorDetail};
+                    let output: CommandOutput<Vec<()>> = CommandOutput::failure(
+                        "Command failed",
+                        vec![ErrorDetail::from(&err)],
+                        vec![],
+                    );
+                    eprintln!("{}", output.format(format));
+                    Ok(())
+                } else {
+                    Err(err)
+                }
+            })
         }
         Commands::Maintenance {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            maintenance::handle_command(action, format).await
+            maintenance::handle_command(action, format)
+                .await
+                .or_else(|err| {
+                    if json_output {
+                        use utils::{CommandOutput, ErrorDetail};
+                        let output: CommandOutput<Vec<()>> = CommandOutput::failure(
+                            "Command failed",
+                            vec![ErrorDetail::from(&err)],
+                            vec![],
+                        );
+                        eprintln!("{}", output.format(format));
+                        Ok(())
+                    } else {
+                        Err(err)
+                    }
+                })
         }
         Commands::Analytics {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            analytics::handle_command(action, format).await
+            analytics::handle_command(action, format)
+                .await
+                .or_else(|err| {
+                    if json_output {
+                        use utils::{CommandOutput, ErrorDetail};
+                        let output: CommandOutput<Vec<()>> = CommandOutput::failure(
+                            "Command failed",
+                            vec![ErrorDetail::from(&err)],
+                            vec![],
+                        );
+                        eprintln!("{}", output.format(format));
+                        Ok(())
+                    } else {
+                        Err(err)
+                    }
+                })
         }
     }
-}
-
-/// Main CLI entry point (parses args internally)
-pub async fn run_cli() -> crate::error::GrimoireResult<()> {
-    let cli = Cli::parse();
-    run_cli_with_args(cli).await
 }
 
 #[cfg(test)]
