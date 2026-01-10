@@ -33,12 +33,17 @@ pub use music::MusicAction;
 pub use users::UserAction;
 pub use wordlist::WordlistAction;
 
+use std::path::PathBuf;
 use utils::OutputFormat;
 
 #[derive(Parser)]
 #[command(name = "grimoire")]
 #[command(about = "A CLI for managing the grimoire system", long_about = None)]
 pub struct Cli {
+    /// Optional path to config file
+    #[arg(long, global = true)]
+    pub config: Option<PathBuf>,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -111,10 +116,8 @@ pub enum Commands {
     },
 }
 
-/// Main CLI entry point
-pub async fn run_cli() -> crate::error::GrimoireResult<()> {
-    let cli = Cli::parse();
-
+/// Main CLI entry point with pre-parsed args
+pub async fn run_cli_with_args(cli: Cli) -> crate::error::GrimoireResult<()> {
     match cli.command {
         Commands::Config {
             action,
@@ -170,6 +173,12 @@ pub async fn run_cli() -> crate::error::GrimoireResult<()> {
             analytics::handle_command(action, format).await
         }
     }
+}
+
+/// Main CLI entry point (parses args internally)
+pub async fn run_cli() -> crate::error::GrimoireResult<()> {
+    let cli = Cli::parse();
+    run_cli_with_args(cli).await
 }
 
 #[cfg(test)]

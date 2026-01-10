@@ -1,0 +1,28 @@
+{
+  "app": {
+    "name": "Grimoire Test",
+    "version": "0.1.0",
+    "description": "Test configuration",
+    "id": "test-instance"
+  },
+  "data_dir": "../data",
+  "database": {
+    "filename": "test.db",
+    "auto_run_migrations": true
+  },
+  "media": {
+    "max_fs_file_size": 104857600,
+    "supported_audio_formats": ["mp3", "flac", "m4a", "ogg", "wav", "opus"],
+    "downloads": {
+      "enabled": false,
+      "ytdlp_command": "yt-dlp"
+    },
+    "genres": []
+  },
+  "musicbrainz": {
+    "enabled": false
+  },
+  "logging": {
+    "level": "info"
+  }
+}

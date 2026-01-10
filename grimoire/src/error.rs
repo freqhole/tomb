@@ -114,7 +114,8 @@ impl GrimoireError {
         let variant_name = debug_str
             .split(|c| c == '(' || c == '{')
             .next()
-            .unwrap_or(&debug_str);
+            .unwrap_or(&debug_str)
+            .trim();
 
         to_snake_case(variant_name)
     }

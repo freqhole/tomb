@@ -1,6 +1,7 @@
 //! Simple main.rs for testing the Grimoire CLI
 //! Temporary implementation for development and testing
 
+use clap::Parser;
 use grimoire::cli::utils::ErrorDetail;
 use grimoire::{cli, find_config, init, init_config, GrimoireConfig};
 use std::process;
@@ -23,11 +24,14 @@ async fn main() {
 }
 
 async fn run() -> grimoire::GrimoireResult<()> {
+    // Parse CLI args first to get config path
+    let cli = cli::Cli::parse();
+
     // Initialize logging
     tracing_subscriber::fmt::init();
 
-    // Find and load config
-    let config_path = find_config(None)?;
+    // Find and load config (using explicit path if provided)
+    let config_path = find_config(cli.config.clone())?;
     let config = GrimoireConfig::load(config_path)?;
 
     // Initialize grimoire config globally
@@ -36,8 +40,8 @@ async fn run() -> grimoire::GrimoireResult<()> {
     // Initialize grimoire (ensure database exists)
     init().await?;
 
-    // Run CLI
-    cli::run_cli().await?;
+    // Run CLI with the parsed cli struct
+    cli::run_cli_with_args(cli).await?;
 
     Ok(())
 }

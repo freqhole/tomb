@@ -357,6 +357,31 @@ pub enum MusicAction {
 pub async fn handle_command(action: MusicAction, json: bool) -> crate::error::GrimoireResult<()> {
     let format = OutputFormat::from_json_flag(json);
 
+    // Execute command and catch errors to format them properly
+    let result = execute_music_command(action, format).await;
+
+    // If there was an error and JSON output is requested, format as JSON
+    if let Err(err) = result {
+        if json {
+            use crate::cli::utils::{CommandOutput, ErrorDetail};
+            let error_detail = ErrorDetail::from(&err);
+            let output: CommandOutput<Vec<()>> =
+                CommandOutput::failure("Command failed", vec![error_detail], vec![]);
+            print!("{}", output.format(format));
+            Ok(())
+        } else {
+            Err(err)
+        }
+    } else {
+        Ok(())
+    }
+}
+
+/// Execute music command - internal helper
+async fn execute_music_command(
+    action: MusicAction,
+    format: OutputFormat,
+) -> crate::error::GrimoireResult<()> {
     match action {
         // Query commands
         MusicAction::QuerySongs { .. } => {
