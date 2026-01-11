@@ -192,12 +192,13 @@ impl UserService {
 
         for _ in 0..count {
             // Generate word-based code
-            let code = match generate_word_code(word_count) {
-                Ok(code) => code,
-                Err(e) => {
+            let code_response = generate_word_code(word_count);
+            let code = match code_response.data {
+                Some(c) => c,
+                None => {
                     return GrimoireResponse::failure(
                         "Failed to generate invite code",
-                        vec![AuthError::Config(e.to_string()).into()],
+                        code_response.errors,
                     );
                 }
             };

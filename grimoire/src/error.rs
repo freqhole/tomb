@@ -243,6 +243,16 @@ impl From<serde_json::Error> for ErrorDetail {
     }
 }
 
+impl From<crate::wordlist::ManagementWordlistError> for ErrorDetail {
+    fn from(err: crate::wordlist::ManagementWordlistError) -> Self {
+        ErrorDetail {
+            error_type: "wordlist_error".to_string(),
+            title: "Wordlist Error".to_string(),
+            detail: err.to_string(),
+        }
+    }
+}
+
 /// Convert error_type (snake_case) to Title Case
 /// Example: "database_not_found" -> "Database Not Found"
 fn error_type_to_title(error_type: &str) -> String {

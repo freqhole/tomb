@@ -4,10 +4,11 @@ use crate::cli::utils::{CommandOutput, OutputFormat};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::response::GrimoireResponse;
 use crate::users::{
-    CreateInviteCodeRequest, CreateUserRequest, InviteCodeInfoResponse,
+    CreateInviteCodeRequest, CreateUserRequest, InviteCodeInfoResponse, InviteCodeType,
     InviteCodesGeneratedResponse, UpdateUserRequest, User, UserCreatedResponse, UserInfoResponse,
     UserListResponse, UserQueryParams, UserRole, UserService,
 };
+use crate::wordlist::{initialize_wordlist, is_initialized, ManagementWordlistConfig};
 use clap::Subcommand;
 
 // Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
@@ -117,11 +118,6 @@ fn parse_role(role_str: &str) -> UserRole {
 }
 
 /// Convert any error to GrimoireError with context
-fn to_grimoire_error(context: &str, e: impl std::fmt::Display) -> GrimoireError {
-    GrimoireError::ProcessingFailed {
-        message: format!("{}: {}", context, e),
-    }
-}
 
 /// Handle user commands
 pub async fn handle_command(action: UserAction, format: OutputFormat) -> GrimoireResult<()> {
@@ -235,16 +231,15 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
             code_type,
             expires_hours,
         } => {
-            if !crate::wordlist::is_initialized() {
-                let config = crate::wordlist::ManagementWordlistConfig::default();
-                crate::wordlist::initialize_wordlist(&config)
-                    .map_err(|e| to_grimoire_error("Failed to initialize wordlist", e))?;
+            if !is_initialized() {
+                let config = ManagementWordlistConfig::default();
+                to_result(initialize_wordlist(&config))?;
             }
 
             let invite_type = code_type
                 .map(|ct| match ct.to_lowercase().as_str() {
-                    "account-link" => crate::users::InviteCodeType::AccountLink,
-                    _ => crate::users::InviteCodeType::Invite,
+                    "account-link" => InviteCodeType::AccountLink,
+                    _ => InviteCodeType::Invite,
                 })
                 .unwrap_or_default();
 

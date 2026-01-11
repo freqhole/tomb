@@ -3,6 +3,7 @@
 //! This module handles loading and validation of wordlists used for generating
 //! memorable invite codes using words instead of random characters.
 
+use crate::response::GrimoireResponse;
 use std::fs;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -44,23 +45,45 @@ impl Default for WordlistConfig {
 }
 
 /// Initialize and validate the wordlist
-pub fn initialize_wordlist(config: &WordlistConfig) -> Result<(), WordlistError> {
+pub fn initialize_wordlist(config: &WordlistConfig) -> GrimoireResponse<()> {
     // Check if file exists
     if !Path::new(&config.file_path).exists() {
-        return Err(WordlistError::FileNotFound(config.file_path.clone()));
+        return GrimoireResponse::failure(
+            "Wordlist file not found",
+            vec![WordlistError::FileNotFound(config.file_path.clone()).into()],
+        );
     }
 
     // Load and parse the wordlist
-    let content = fs::read_to_string(&config.file_path)?;
-    let words = parse_wordlist(&content)?;
+    let content = match fs::read_to_string(&config.file_path) {
+        Ok(c) => c,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to read wordlist file",
+                vec![WordlistError::IoError(e).into()],
+            )
+        }
+    };
+
+    let words = match parse_wordlist(&content) {
+        Ok(w) => w,
+        Err(e) => return GrimoireResponse::failure("Failed to parse wordlist", vec![e.into()]),
+    };
 
     // Validate the wordlist
-    validate_wordlist(&words, config)?;
+    if let Err(e) = validate_wordlist_internal(&words, config) {
+        return GrimoireResponse::failure("Wordlist validation failed", vec![e.into()]);
+    }
 
     // Store in global static
-    WORDLIST.set(words).map_err(|_| {
-        WordlistError::ValidationFailed("Failed to initialize wordlist".to_string())
-    })?;
+    if let Err(_) = WORDLIST.set(words) {
+        return GrimoireResponse::failure(
+            "Failed to initialize wordlist",
+            vec![
+                WordlistError::ValidationFailed("Failed to initialize wordlist".to_string()).into(),
+            ],
+        );
+    }
 
     tracing::info!(
         "Wordlist initialized successfully: {} words from {}",
@@ -68,7 +91,7 @@ pub fn initialize_wordlist(config: &WordlistConfig) -> Result<(), WordlistError>
         config.file_path
     );
 
-    Ok(())
+    GrimoireResponse::success("Wordlist initialized successfully", ())
 }
 
 /// Get the loaded wordlist
@@ -82,12 +105,24 @@ pub fn is_initialized() -> bool {
 }
 
 /// Generate a word-based invite code
-pub fn generate_word_code(word_count: usize) -> Result<String, WordlistError> {
-    let words = get_wordlist()
-        .ok_or_else(|| WordlistError::ValidationFailed("Wordlist not initialized".to_string()))?;
+pub fn generate_word_code(word_count: usize) -> GrimoireResponse<String> {
+    let words = match get_wordlist() {
+        Some(w) => w,
+        None => {
+            return GrimoireResponse::failure(
+                "Wordlist not initialized",
+                vec![
+                    WordlistError::ValidationFailed("Wordlist not initialized".to_string()).into(),
+                ],
+            )
+        }
+    };
 
     if words.is_empty() {
-        return Err(WordlistError::NoValidWords);
+        return GrimoireResponse::failure(
+            "No valid words in wordlist",
+            vec![WordlistError::NoValidWords.into()],
+        );
     }
 
     use rand::seq::SliceRandom;
@@ -97,7 +132,8 @@ pub fn generate_word_code(word_count: usize) -> Result<String, WordlistError> {
         .map(|_| words.choose(&mut rng).unwrap().clone())
         .collect();
 
-    Ok(selected_words.join("-"))
+    let code = selected_words.join("-");
+    GrimoireResponse::success("Word code generated successfully", code)
 }
 
 /// Parse wordlist from file content
@@ -118,7 +154,18 @@ fn parse_wordlist(content: &str) -> Result<Vec<String>, WordlistError> {
 }
 
 /// Validate wordlist meets requirements
-pub fn validate_wordlist(words: &[String], config: &WordlistConfig) -> Result<(), WordlistError> {
+pub fn validate_wordlist(words: &[String], config: &WordlistConfig) -> GrimoireResponse<()> {
+    match validate_wordlist_internal(words, config) {
+        Ok(()) => GrimoireResponse::success("Wordlist validation passed", ()),
+        Err(e) => GrimoireResponse::failure("Wordlist validation failed", vec![e.into()]),
+    }
+}
+
+/// Internal validation function that returns Result
+fn validate_wordlist_internal(
+    words: &[String],
+    config: &WordlistConfig,
+) -> Result<(), WordlistError> {
     // Check minimum word count
     if words.len() < config.min_words {
         return Err(WordlistError::ValidationFailed(format!(
@@ -226,15 +273,15 @@ DURIAN
             "banana".to_string(),
             "cherry".to_string(),
         ];
-        assert!(validate_wordlist(&words, &config).is_ok());
+        assert!(validate_wordlist(&words, &config).success);
 
         // Test too few words
         let words = vec!["apple".to_string()];
-        assert!(validate_wordlist(&words, &config).is_err());
+        assert!(!validate_wordlist(&words, &config).success);
 
         // Test word too short
         let words = vec!["a".to_string(), "banana".to_string(), "cherry".to_string()];
-        assert!(validate_wordlist(&words, &config).is_err());
+        assert!(!validate_wordlist(&words, &config).success);
     }
 
     #[test]
@@ -281,9 +328,10 @@ _underscore
             "apple".to_string(), // duplicate
         ];
 
-        let result = validate_wordlist(&words, &config);
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
+        let response = validate_wordlist(&words, &config);
+        assert!(!response.success);
+        assert!(!response.errors.is_empty());
+        let error_msg = response.errors[0].detail.clone();
         assert!(error_msg.contains("Duplicate"));
     }
 

@@ -2,12 +2,31 @@
 
 use crate::cli::utils::{CommandOutput, OutputFormat};
 use crate::error::{GrimoireError, GrimoireResult};
+use crate::response::GrimoireResponse;
 use crate::wordlist::{
     generate_word_code, initialize_wordlist, is_initialized, InviteCodesResponse,
     ManagementWordlistConfig, WordlistConfig, WordlistConfigSummary, WordlistGeneratedResponse,
     WordlistService,
 };
 use clap::Subcommand;
+
+// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
+// TODO: Phase 5 will update CLI to use GrimoireResponse directly
+fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
+    if response.success {
+        response
+            .data
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: "Response succeeded but contained no data".to_string(),
+            })
+    } else {
+        let error_messages: Vec<String> =
+            response.errors.iter().map(|e| e.detail.clone()).collect();
+        Err(GrimoireError::ProcessingFailed {
+            message: format!("{}: {}", response.message, error_messages.join(", ")),
+        })
+    }
+}
 
 #[derive(Subcommand)]
 pub enum WordlistAction {
@@ -159,9 +178,7 @@ pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> Gri
                     ..Default::default()
                 };
 
-                initialize_wordlist(&config).map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to initialize wordlist: {}", e),
-                })?;
+                to_result(initialize_wordlist(&config))?;
             } else if !is_initialized() {
                 return Err(GrimoireError::ProcessingFailed {
                     message:
@@ -172,11 +189,7 @@ pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> Gri
 
             let mut codes = Vec::new();
             for _ in 0..count {
-                let code = generate_word_code(word_count).map_err(|e| {
-                    GrimoireError::ProcessingFailed {
-                        message: format!("Failed to generate code: {}", e),
-                    }
-                })?;
+                let code = to_result(generate_word_code(word_count))?;
                 codes.push(code);
             }
 
