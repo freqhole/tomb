@@ -5,8 +5,27 @@ use crate::error::{GrimoireError, GrimoireResult};
 use crate::music::musicbrainz::{
     MusicBrainzClient, MusicBrainzConfig, RecordingSearchQuery, ReleaseSearchQuery,
 };
+use crate::response::GrimoireResponse;
 use clap::Subcommand;
 use serde::Serialize;
+
+// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
+// TODO: Phase 5 will update CLI to use GrimoireResponse directly
+fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
+    if response.success {
+        response
+            .data
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: "Response succeeded but contained no data".to_string(),
+            })
+    } else {
+        let error_messages: Vec<String> =
+            response.errors.iter().map(|e| e.detail.clone()).collect();
+        Err(GrimoireError::ProcessingFailed {
+            message: format!("{}: {}", response.message, error_messages.join(", ")),
+        })
+    }
+}
 
 #[derive(Subcommand)]
 pub enum MusicBrainzAction {
@@ -107,11 +126,7 @@ pub async fn handle_command(action: MusicBrainzAction, format: OutputFormat) -> 
                 query = query.release(album_name);
             }
 
-            let results = client.search_recordings(&query).await.map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to search recordings: {}", e),
-                }
-            })?;
+            let results = to_result(client.search_recordings(&query).await)?;
 
             let message = format!(
                 "Found {} recordings (total: {})",
@@ -141,11 +156,7 @@ pub async fn handle_command(action: MusicBrainzAction, format: OutputFormat) -> 
                 });
             }
 
-            let results = client.search_releases(&query).await.map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to search releases: {}", e),
-                }
-            })?;
+            let results = to_result(client.search_releases(&query).await)?;
 
             let message = format!(
                 "Found {} releases (total: {})",
@@ -157,33 +168,21 @@ pub async fn handle_command(action: MusicBrainzAction, format: OutputFormat) -> 
             print!("{}", output.format(output_format));
         }
         MusicBrainzAction::GetRecording { recording_id } => {
-            let recording = client.get_recording(&recording_id).await.map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to fetch recording: {}", e),
-                }
-            })?;
+            let recording = to_result(client.get_recording(&recording_id).await)?;
 
             let message = format!("Recording: {}", recording.title);
             let output = CommandOutput::success(message, recording);
             print!("{}", output.format(OutputFormat::Json));
         }
         MusicBrainzAction::GetRelease { release_id } => {
-            let release = client.get_release(&release_id).await.map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to fetch release: {}", e),
-                }
-            })?;
+            let release = to_result(client.get_release(&release_id).await)?;
 
             let message = format!("Release: {}", release.title);
             let output = CommandOutput::success(message, release);
             print!("{}", output.format(OutputFormat::Json));
         }
         MusicBrainzAction::GetCoverArt { release_id } => {
-            let cover_arts = client.get_cover_art(&release_id).await.map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to fetch cover art: {}", e),
-                }
-            })?;
+            let cover_arts = to_result(client.get_cover_art(&release_id).await)?;
 
             let message = format!("Found {} cover art images", cover_arts.len());
             let output = CommandOutput::success(message, cover_arts);
@@ -207,12 +206,7 @@ pub async fn handle_command(action: MusicBrainzAction, format: OutputFormat) -> 
                 });
             }
 
-            let results = client
-                .search_releases_with_cover_art(&query)
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to search releases with cover art: {}", e),
-                })?;
+            let results = to_result(client.search_releases_with_cover_art(&query).await)?;
 
             let message = format!("Found {} releases with cover art", results.len());
             let output = CommandOutput::success(message, results);

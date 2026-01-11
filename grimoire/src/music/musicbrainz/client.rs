@@ -10,6 +10,7 @@ use crate::music::musicbrainz::{
     queries::{RecordingSearchQuery, ReleaseGroupSearchQuery, ReleaseSearchQuery},
     rate_limiter::RateLimiter,
 };
+use crate::response::GrimoireResponse;
 use reqwest::{Client, Response};
 use serde::de::DeserializeOwned;
 use std::sync::Arc;
@@ -57,59 +58,74 @@ impl MusicBrainzClient {
     pub async fn search_recordings(
         &self,
         query: &RecordingSearchQuery,
-    ) -> Result<SearchResult<Recording>, GrimoireError> {
+    ) -> GrimoireResponse<SearchResult<Recording>> {
         let url = format!("{}/recording", self.config.base_url);
         let query_string = query.to_query_string();
 
         debug!("Searching recordings: {}", query_string);
 
-        self.execute_request(&url, &query_string).await
+        match self.execute_request(&url, &query_string).await {
+            Ok(result) => GrimoireResponse::success("Successfully searched recordings", result),
+            Err(e) => GrimoireResponse::failure("Failed to search recordings", vec![e.into()]),
+        }
     }
 
     /// Search for releases matching the query
     pub async fn search_releases(
         &self,
         query: &ReleaseSearchQuery,
-    ) -> Result<SearchResult<Release>, GrimoireError> {
+    ) -> GrimoireResponse<SearchResult<Release>> {
         let url = format!("{}/release", self.config.base_url);
         let query_string = query.to_query_string();
 
         debug!("Searching releases: {}", query_string);
 
-        self.execute_request(&url, &query_string).await
+        match self.execute_request(&url, &query_string).await {
+            Ok(result) => GrimoireResponse::success("Successfully searched releases", result),
+            Err(e) => GrimoireResponse::failure("Failed to search releases", vec![e.into()]),
+        }
     }
 
     /// Search for release groups matching the query
     pub async fn search_release_groups(
         &self,
         query: &ReleaseGroupSearchQuery,
-    ) -> Result<SearchResult<ReleaseGroup>, GrimoireError> {
+    ) -> GrimoireResponse<SearchResult<ReleaseGroup>> {
         let url = format!("{}/release-group", self.config.base_url);
         let query_string = query.to_query_string();
 
         debug!("Searching release groups: {}", query_string);
 
-        self.execute_request(&url, &query_string).await
+        match self.execute_request(&url, &query_string).await {
+            Ok(result) => GrimoireResponse::success("Successfully searched release groups", result),
+            Err(e) => GrimoireResponse::failure("Failed to search release groups", vec![e.into()]),
+        }
     }
 
     /// Get specific recording by MusicBrainz ID
-    pub async fn get_recording(&self, mbid: &str) -> Result<Recording, GrimoireError> {
+    pub async fn get_recording(&self, mbid: &str) -> GrimoireResponse<Recording> {
         let url = format!("{}/recording/{}", self.config.base_url, mbid);
         let query_string = "fmt=json&inc=artist-credits+releases+tags";
 
         debug!("Fetching recording: {}", mbid);
 
-        self.execute_request(&url, query_string).await
+        match self.execute_request(&url, query_string).await {
+            Ok(result) => GrimoireResponse::success("Successfully fetched recording", result),
+            Err(e) => GrimoireResponse::failure("Failed to fetch recording", vec![e.into()]),
+        }
     }
 
     /// Get specific release by MusicBrainz ID
-    pub async fn get_release(&self, mbid: &str) -> Result<Release, GrimoireError> {
+    pub async fn get_release(&self, mbid: &str) -> GrimoireResponse<Release> {
         let url = format!("{}/release/{}", self.config.base_url, mbid);
         let query_string = "fmt=json&inc=artist-credits+recordings+media+release-groups";
 
         debug!("Fetching release: {}", mbid);
 
-        self.execute_request(&url, query_string).await
+        match self.execute_request(&url, query_string).await {
+            Ok(result) => GrimoireResponse::success("Successfully fetched release", result),
+            Err(e) => GrimoireResponse::failure("Failed to fetch release", vec![e.into()]),
+        }
     }
 
     /// Search for releases and automatically fetch cover art for each result
@@ -117,9 +133,22 @@ impl MusicBrainzClient {
     pub async fn search_releases_with_cover_art(
         &self,
         query: &ReleaseSearchQuery,
-    ) -> Result<Vec<(Release, Vec<CoverArt>)>, GrimoireError> {
+    ) -> GrimoireResponse<Vec<(Release, Vec<CoverArt>)>> {
         // First, search for releases
-        let search_results = self.search_releases(query).await?;
+        let search_results = match self.search_releases(query).await {
+            response if response.success => match response.data {
+                Some(data) => data,
+                None => {
+                    return GrimoireResponse::failure(
+                        "Search succeeded but contained no data",
+                        vec![],
+                    )
+                }
+            },
+            response => {
+                return GrimoireResponse::failure("Failed to search releases", response.errors)
+            }
+        };
 
         let mut results_with_art = Vec::new();
 
@@ -128,45 +157,61 @@ impl MusicBrainzClient {
             let release_id = release.id.to_string();
 
             // Try to fetch cover art (might fail if none exists - that's ok)
-            let cover_art = match self.get_cover_art(&release_id).await {
-                Ok(art) => art,
-                Err(GrimoireError::MusicBrainzNoResults) => {
-                    // No cover art for this release - use empty vec
-                    Vec::new()
-                }
-                Err(e) => {
-                    // Other error - log but don't fail the whole search
-                    warn!(
-                        "Failed to fetch cover art for release {}: {}",
-                        release_id, e
-                    );
-                    Vec::new()
-                }
+            let cover_art_response = self.get_cover_art(&release_id).await;
+            let cover_art = if cover_art_response.success {
+                cover_art_response.data.unwrap_or_default()
+            } else {
+                // Log but don't fail the whole search
+                warn!(
+                    "Failed to fetch cover art for release {}: {:?}",
+                    release_id, cover_art_response.errors
+                );
+                Vec::new()
             };
 
             results_with_art.push((release, cover_art));
         }
 
-        Ok(results_with_art)
+        GrimoireResponse::success(
+            "Successfully searched releases with cover art",
+            results_with_art,
+        )
     }
 
     /// Get cover art for a release
-    pub async fn get_cover_art(&self, mbid: &str) -> Result<Vec<CoverArt>, GrimoireError> {
+    pub async fn get_cover_art(&self, mbid: &str) -> GrimoireResponse<Vec<CoverArt>> {
         let url = format!("{}/release/{}", self.config.cover_art_url, mbid);
 
         debug!("Fetching cover art: {}", mbid);
 
         // Cover art archive doesn't need rate limiting (different service)
-        let response = self
+        let response = match self
             .client
             .get(&url)
             .header("Accept", "application/json")
             .send()
             .await
-            .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "Failed to request cover art",
+                    vec![GrimoireError::HttpRequest(e.to_string()).into()],
+                )
+            }
+        };
 
-        let cover_art_response: CoverArtResponse = self.handle_response(response).await?;
-        Ok(cover_art_response.images)
+        let cover_art_response: CoverArtResponse = match self.handle_response(response).await {
+            Ok(r) => r,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "Failed to parse cover art response",
+                    vec![e.into()],
+                )
+            }
+        };
+
+        GrimoireResponse::success("Successfully fetched cover art", cover_art_response.images)
     }
 
     /// Execute a request with rate limiting and error handling
