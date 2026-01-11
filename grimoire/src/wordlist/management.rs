@@ -35,8 +35,9 @@ pub struct WordlistConfig {
 
 impl Default for WordlistConfig {
     fn default() -> Self {
+        let wordlist_path = crate::config::get_config().wordlist_path();
         Self {
-            file_path: "assets/config/wordlist.txt".to_string(),
+            file_path: wordlist_path.to_string_lossy().to_string(),
             min_words: 50,
             min_word_length: 3,
             max_word_length: 12,

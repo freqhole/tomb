@@ -29,8 +29,8 @@ fn test_users_generate_invites() {
     assert_eq!(codes.len(), 3, "Should generate 3 invite codes");
 
     // Each code should have 3 words separated by hyphens
-    for code in codes {
-        let code_str = code.as_str().unwrap();
+    for code_obj in codes {
+        let code_str = code_obj["code"].as_str().unwrap();
         assert_eq!(code_str.split('-').count(), 3, "Code should have 3 words");
     }
 }
@@ -40,7 +40,13 @@ fn test_users_create_and_list() {
     let ctx = TestContext::from_snapshot();
 
     // Create a user with bootstrap flag (no invite code needed)
-    let username = format!("testuser_{}", uuid::Uuid::new_v4());
+    let username = format!(
+        "test_usr_crtlst_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
     let result = ctx.run_json(&[
         "users",
         "create",
@@ -79,7 +85,13 @@ fn test_users_list_and_verify() {
     let ctx = TestContext::from_snapshot();
 
     // Create a test user
-    let username = format!("testuser_{}", uuid::Uuid::new_v4());
+    let username = format!(
+        "test_usr_lstvfy_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
     let create_result = ctx.run_json(&[
         "users",
         "create",
@@ -112,7 +124,13 @@ fn test_users_update() {
     let ctx = TestContext::from_snapshot();
 
     // Create a test user
-    let username = format!("testuser_{}", uuid::Uuid::new_v4());
+    let username = format!(
+        "test_usr_update_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
     let create_result = ctx.run_json(&[
         "users",
         "create",
@@ -145,7 +163,13 @@ fn test_users_delete() {
     let ctx = TestContext::from_snapshot();
 
     // Create a test user
-    let username = format!("testuser_{}", uuid::Uuid::new_v4());
+    let username = format!(
+        "test_usr_delete_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
     let create_result = ctx.run_json(&[
         "users",
         "create",
@@ -182,7 +206,7 @@ fn test_users_invite_workflow() {
     ]);
 
     let codes = generate_result["data"]["codes"].as_array().unwrap();
-    let invite_code = codes[0].as_str().unwrap();
+    let invite_code = codes[0]["code"].as_str().unwrap();
 
     // List invite codes and verify ours is there
     let result = ctx.run_json(&["users", "list-invites"]);

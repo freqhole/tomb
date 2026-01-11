@@ -115,8 +115,7 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
                         "bootstrap flag can only be used with --role admin",
                         vec![],
                         (),
-                    )
-                    ;
+                    );
                 }
                 request.invite_code = None;
             }
@@ -234,13 +233,12 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
             code_type,
             expires_hours,
         } => {
-            // If wordlist not initialized, initialize with default config
+            // If wordlist not initialized, initialize with default config (uses grimoire config path)
             if !is_initialized() {
                 let config = ManagementWordlistConfig::default();
                 let response = initialize_wordlist(&config);
                 if !response.success {
-                    return CommandOutput::failure(response.message, response.errors, ())
-                        ;
+                    return CommandOutput::failure(response.message, response.errors, ());
                 }
             }
 
@@ -267,8 +265,7 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
             }
 
             let Some(codes) = response.data else {
-                return CommandOutput::failure("No invite codes data returned", vec![], ())
-                    ;
+                return CommandOutput::failure("No invite codes data returned", vec![], ());
             };
 
             let code_infos: Vec<InviteCodeInfoResponse> = codes
@@ -300,8 +297,7 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
             }
 
             let Some(codes) = response.data else {
-                return CommandOutput::failure("No invite codes data returned", vec![], ())
-                    ;
+                return CommandOutput::failure("No invite codes data returned", vec![], ());
             };
 
             let message = format!(

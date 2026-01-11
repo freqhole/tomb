@@ -15,7 +15,13 @@ fn test_analytics_record_play() {
     let song_id = songs["data"]["items"][0]["song"]["id"].as_str().unwrap();
 
     // Create a user for the play event
-    let username = format!("analytics_user_{}", uuid::Uuid::new_v4());
+    let username = format!(
+        "test_analytics_play_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
     let user = ctx.run_json(&[
         "users",
         "create",
@@ -25,6 +31,7 @@ fn test_analytics_record_play() {
         "admin",
         "--bootstrap",
     ]);
+
     let user_id = user["data"]["id"].as_str().unwrap();
 
     // Record a play event
@@ -69,7 +76,13 @@ fn test_analytics_user_history() {
     let ctx = TestContext::from_snapshot();
 
     // Create a user
-    let username = format!("history_user_{}", uuid::Uuid::new_v4());
+    let username = format!(
+        "test_analytics_hist_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
     let user = ctx.run_json(&[
         "users",
         "create",
@@ -95,7 +108,13 @@ fn test_analytics_session() {
     let ctx = TestContext::from_snapshot();
 
     // Create a user
-    let username = format!("session_user_{}", uuid::Uuid::new_v4());
+    let username = format!(
+        "test_analytics_sess_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
     let user = ctx.run_json(&[
         "users",
         "create",
@@ -107,13 +126,14 @@ fn test_analytics_session() {
     ]);
     let user_id = user["data"]["id"].as_str().unwrap();
 
-    // Get session summary - need a session ID, not user ID
-    // For now, use a placeholder since we don't have a real session
-    let result = ctx.run_json(&["analytics", "session", "test-session-id"]);
+    // Get session summary - using a non-existent session ID, expect failure
+    let result = ctx.run_json(&["analytics", "session", "session-id-does-not-exist"]);
 
-    assert!(
+    // Should fail because session doesn't exist
+    assert_eq!(
         result["success"].as_bool().unwrap(),
-        "Should get session summary successfully"
+        false,
+        "Should fail with non-existent session ID"
     );
 }
 
@@ -247,7 +267,13 @@ fn test_analytics_user_stats() {
     let ctx = TestContext::from_snapshot();
 
     // Create a user
-    let username = format!("stats_user_{}", uuid::Uuid::new_v4());
+    let username = format!(
+        "test_analytics_stat_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
     let user = ctx.run_json(&[
         "users",
         "create",

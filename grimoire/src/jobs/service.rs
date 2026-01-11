@@ -922,18 +922,7 @@ pub async fn run_job_processor() -> GrimoireResponse<()> {
 
         match next_job {
             Some(job) => {
-                println!("processing job: {} ({})", job.id, job.job_type);
-                let process_response = process_job(job).await;
-                if process_response.success {
-                    if let Some(result) = process_response.data {
-                        println!(
-                            "job completed: {} in {}ms",
-                            result.job.id, result.processing_time_ms
-                        );
-                    }
-                } else {
-                    eprintln!("job failed: {}", process_response.message);
-                }
+                process_job(job).await;
             }
             None => {
                 // No jobs available, wait a bit before checking again
@@ -961,30 +950,22 @@ pub async fn run_job_processor_once(max_jobs: u32) -> GrimoireResponse<()> {
 
         match next_job {
             Some(job) => {
-                println!("processing job: {} ({})", job.id, job.job_type);
                 let process_response = process_job(job).await;
                 if process_response.success {
-                    if let Some(result) = process_response.data {
-                        println!(
-                            "job completed: {} in {}ms",
-                            result.job.id, result.processing_time_ms
-                        );
+                    if let Some(_result) = process_response.data {
                         processed_count += 1;
                     }
                 } else {
-                    eprintln!("job failed: {}", process_response.message);
                     processed_count += 1;
                 }
 
                 // Check if we've hit the max jobs limit
                 if max_jobs > 0 && processed_count >= max_jobs {
-                    println!("reached maximum job limit ({}), stopping", max_jobs);
                     break;
                 }
             }
             None => {
                 // No more jobs available, exit
-                println!("no more pending jobs, stopping");
                 break;
             }
         }
