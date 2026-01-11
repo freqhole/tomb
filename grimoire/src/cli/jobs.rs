@@ -56,11 +56,11 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
             let response = list_jobs(session_id.as_deref(), None, Some(limit as u32), None).await;
 
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(jobs) = response.data else {
-                return CommandOutput::failure("No jobs data returned", vec![], ()).to_output();
+                return CommandOutput::failure("No jobs data returned", vec![], ());
             };
 
             let job_items: Vec<JobListResponse> = jobs
@@ -82,18 +82,18 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
                 .collect();
 
             let message = format!("Found {} jobs", job_items.len());
-            CommandOutput::success(message, job_items).to_output()
+            CommandOutput::success(message, job_items)
         }
 
         JobAction::Stats => {
             let response = get_queue_stats().await;
 
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(stats) = response.data else {
-                return CommandOutput::failure("No stats data returned", vec![], ()).to_output();
+                return CommandOutput::failure("No stats data returned", vec![], ());
             };
 
             let total_jobs =
@@ -114,7 +114,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
                 success_rate,
             };
 
-            CommandOutput::success("Queue statistics", job_stats).to_output()
+            CommandOutput::success("Queue statistics", job_stats)
         }
 
         JobAction::Scan {
@@ -137,11 +137,11 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
                     session_response.errors,
                     (),
                 )
-                .to_output();
+                ;
             }
 
             let Some(session) = session_response.data else {
-                return CommandOutput::failure("No session data returned", vec![], ()).to_output();
+                return CommandOutput::failure("No session data returned", vec![], ());
             };
 
             // Create the scan job
@@ -165,11 +165,11 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
 
             if !job_response.success {
                 return CommandOutput::failure(job_response.message, job_response.errors, ())
-                    .to_output();
+                    ;
             }
 
             let Some(job) = job_response.data else {
-                return CommandOutput::failure("No job data returned", vec![], ()).to_output();
+                return CommandOutput::failure("No job data returned", vec![], ());
             };
 
             let result = ScanJobCreatedResponse {
@@ -181,7 +181,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
             };
 
             let message = format!("Created scan job for directory: {}", result.path);
-            CommandOutput::success(message, result).to_output()
+            CommandOutput::success(message, result)
         }
 
         JobAction::ProcessFile { path } => {
@@ -203,11 +203,11 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
 
             if !job_response.success {
                 return CommandOutput::failure(job_response.message, job_response.errors, ())
-                    .to_output();
+                    ;
             }
 
             let Some(job) = job_response.data else {
-                return CommandOutput::failure("No job data returned", vec![], ()).to_output();
+                return CommandOutput::failure("No job data returned", vec![], ());
             };
 
             let result = ProcessJobCreatedResponse {
@@ -216,7 +216,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
             };
 
             let message = format!("Created process file job for: {}", result.file_path);
-            CommandOutput::success(message, result).to_output()
+            CommandOutput::success(message, result)
         }
 
         JobAction::RunProcessor { max_jobs, once } => {
@@ -233,7 +233,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
             };
 
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let result = ProcessorResponse {
@@ -248,7 +248,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
                 "Job processor completed"
             };
 
-            CommandOutput::success(message, result).to_output()
+            CommandOutput::success(message, result)
         }
     }
 }

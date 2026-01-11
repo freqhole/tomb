@@ -85,7 +85,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                     .into()],
                     (),
                 )
-                .to_output();
+                ;
             }
 
             let content = match service.generate_wordlist_content(&config) {
@@ -99,7 +99,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                         .into()],
                         (),
                     )
-                    .to_output()
+                    
                 }
             };
 
@@ -113,7 +113,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                         .into()],
                         (),
                     )
-                    .to_output();
+                    ;
                 }
             }
 
@@ -129,7 +129,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
             };
 
             let message = format!("Generated wordlist with {} words", count);
-            CommandOutput::success(message, data).to_output()
+            CommandOutput::success(message, data)
         }
 
         WordlistAction::Validate { file_path } => {
@@ -145,7 +145,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                         .into()],
                         (),
                     )
-                    .to_output()
+                    
                 }
             };
 
@@ -157,9 +157,9 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
             };
 
             if is_valid {
-                CommandOutput::success(message, validation).to_output()
+                CommandOutput::success(message, validation)
             } else {
-                CommandOutput::failure(message, vec![], ()).to_output()
+                CommandOutput::failure(message, vec![], ())
             }
         }
 
@@ -176,12 +176,12 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                         .into()],
                         (),
                     )
-                    .to_output()
+                    
                 }
             };
 
             let message = format!("Wordlist statistics for: {}", file_path);
-            CommandOutput::success(message, stats).to_output()
+            CommandOutput::success(message, stats)
         }
 
         WordlistAction::GenerateCode {
@@ -198,7 +198,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                 let response = initialize_wordlist(&config);
                 if !response.success {
                     return CommandOutput::failure(response.message, response.errors, ())
-                        .to_output();
+                        ;
                 }
             } else if !is_initialized() {
                 return CommandOutput::failure(
@@ -207,7 +207,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                         message: "No wordlist initialized and no file provided. Use --wordlist-file or initialize a wordlist first".to_string(),
                     }.into()],
                     (),
-                ).to_output();
+                );
             }
 
             let mut codes = Vec::new();
@@ -215,7 +215,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                 let response = generate_word_code(word_count);
                 if !response.success {
                     return CommandOutput::failure(response.message, response.errors, ())
-                        .to_output();
+                        ;
                 }
                 if let Some(code) = response.data {
                     codes.push(code);
@@ -229,7 +229,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                 if count == 1 { "" } else { "s" },
                 word_count
             );
-            CommandOutput::success(message, data).to_output()
+            CommandOutput::success(message, data)
         }
     }
 }

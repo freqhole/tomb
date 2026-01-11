@@ -25,7 +25,7 @@ pub async fn handle_command(action: DatabaseAction) -> CommandOutput<serde_json:
                         vec![e.into()],
                         (),
                     )
-                    .to_output()
+                    
                 }
             };
 
@@ -38,7 +38,7 @@ pub async fn handle_command(action: DatabaseAction) -> CommandOutput<serde_json:
                         vec![e.into()],
                         (),
                     )
-                    .to_output()
+                    
                 }
             };
             let connection_ok = result.0 == 1;
@@ -91,7 +91,7 @@ pub async fn handle_command(action: DatabaseAction) -> CommandOutput<serde_json:
                 "Database connection test failed"
             };
 
-            CommandOutput::success(message, result).to_output()
+            CommandOutput::success(message, result)
         }
 
         DatabaseAction::Info => {
@@ -138,7 +138,7 @@ pub async fn handle_command(action: DatabaseAction) -> CommandOutput<serde_json:
             };
 
             let message = format!("Database: {}", db_path.display());
-            CommandOutput::success(message, info).to_output()
+            CommandOutput::success(message, info)
         }
     }
 }

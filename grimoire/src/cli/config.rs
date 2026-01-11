@@ -30,7 +30,7 @@ pub async fn handle_command(action: ConfigAction) -> CommandOutput<serde_json::V
                         .into()],
                         (),
                     )
-                    .to_output()
+                    
                 }
             };
 
@@ -45,7 +45,7 @@ pub async fn handle_command(action: ConfigAction) -> CommandOutput<serde_json::V
                         .into()],
                         (),
                     )
-                    .to_output()
+                    
                 }
             };
 
@@ -59,7 +59,7 @@ pub async fn handle_command(action: ConfigAction) -> CommandOutput<serde_json::V
             };
 
             let message = format!("Configuration is valid: {}", path.display());
-            CommandOutput::success(message, response).to_output()
+            CommandOutput::success(message, response)
         }
     }
 }

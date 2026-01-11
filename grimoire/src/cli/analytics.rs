@@ -139,17 +139,17 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
 
             let response = query_songs(params).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(result) = response.data else {
                 return CommandOutput::failure("No data returned from query", vec![], ())
-                    .to_output();
+                    ;
             };
 
             let Some(song_result) = result.items.first() else {
                 return CommandOutput::failure(format!("Song not found: {}", song_id), vec![], ())
-                    .to_output();
+                    ;
             };
 
             // Create event data with position if provided
@@ -189,11 +189,11 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
             // Record the event
             let response = record_play_event(&media_event, &music_event).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some((media_event_id, music_event_id)) = response.data else {
-                return CommandOutput::failure("No event IDs returned", vec![], ()).to_output();
+                return CommandOutput::failure("No event IDs returned", vec![], ());
             };
 
             let result = PlayEventResult {
@@ -204,7 +204,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 session_id: session_id.clone(),
             };
 
-            CommandOutput::success("Play event recorded successfully", result).to_output()
+            CommandOutput::success("Play event recorded successfully", result)
         }
         AnalyticsAction::SongStats { song_id } => {
             // Get song details using query API
@@ -226,31 +226,31 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
 
             let response = query_songs(params).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(result) = response.data else {
                 return CommandOutput::failure("No data returned from query", vec![], ())
-                    .to_output();
+                    ;
             };
 
             let Some(_song_result) = result.items.first() else {
                 return CommandOutput::failure(format!("Song not found: {}", song_id), vec![], ())
-                    .to_output();
+                    ;
             };
 
             // Get play analytics
             let response = get_song_play_analytics(&song_id).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(analytics) = response.data else {
                 return CommandOutput::failure("No analytics data returned", vec![], ())
-                    .to_output();
+                    ;
             };
 
-            CommandOutput::success(format!("Song analytics for {}", song_id), analytics).to_output()
+            CommandOutput::success(format!("Song analytics for {}", song_id), analytics)
         }
         AnalyticsAction::UserHistory {
             user_id,
@@ -259,11 +259,11 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
         } => {
             let response = get_user_listening_history(&user_id, limit, offset).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some((history, total_count)) = response.data else {
-                return CommandOutput::failure("No history data returned", vec![], ()).to_output();
+                return CommandOutput::failure("No history data returned", vec![], ());
             };
 
             CommandOutput::success(
@@ -275,21 +275,21 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 ),
                 history,
             )
-            .to_output()
+            
         }
         AnalyticsAction::Session { session_id } => {
             let response = get_session_summary(&session_id).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(summary) = response.data else {
                 return CommandOutput::failure("No session summary returned", vec![], ())
-                    .to_output();
+                    ;
             };
 
             CommandOutput::success(format!("Session summary for {}", session_id), summary)
-                .to_output()
+                
         }
         AnalyticsAction::Counts {
             entity_type,
@@ -302,55 +302,55 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                     let response = get_song_play_count(&entity_id).await;
                     if !response.success {
                         return CommandOutput::failure(response.message, response.errors, ())
-                            .to_output();
+                            ;
                     }
 
                     let Some(count) = response.data else {
                         return CommandOutput::failure("No count data returned", vec![], ())
-                            .to_output();
+                            ;
                     };
 
                     CommandOutput::success(
                         format!("Play count for song {}: {}", entity_id, count),
                         count,
                     )
-                    .to_output()
+                    
                 }
                 "album" => {
                     let response = get_album_play_count(&entity_id).await;
                     if !response.success {
                         return CommandOutput::failure(response.message, response.errors, ())
-                            .to_output();
+                            ;
                     }
 
                     let Some(count) = response.data else {
                         return CommandOutput::failure("No count data returned", vec![], ())
-                            .to_output();
+                            ;
                     };
 
                     CommandOutput::success(
                         format!("Play count for album {}: {}", entity_id, count),
                         count,
                     )
-                    .to_output()
+                    
                 }
                 "artist" => {
                     let response = get_artist_play_count(&entity_id).await;
                     if !response.success {
                         return CommandOutput::failure(response.message, response.errors, ())
-                            .to_output();
+                            ;
                     }
 
                     let Some(count) = response.data else {
                         return CommandOutput::failure("No count data returned", vec![], ())
-                            .to_output();
+                            ;
                     };
 
                     CommandOutput::success(
                         format!("Play count for artist {}: {}", entity_id, count),
                         count,
                     )
-                    .to_output()
+                    
                 }
                 _ => {
                     return CommandOutput::failure(
@@ -362,19 +362,19 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                         }],
                         (),
                     )
-                    .to_output();
+                    ;
                 }
             }
         }
         AnalyticsAction::RecentListens { limit, offset } => {
             let response = get_recent_listens(limit, offset).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some((items, total_count)) = response.data else {
                 return CommandOutput::failure("No recent listens data returned", vec![], ())
-                    .to_output();
+                    ;
             };
 
             CommandOutput::success(
@@ -386,17 +386,17 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 ),
                 items,
             )
-            .to_output()
+            
         }
         AnalyticsAction::RecentFavorites { limit, offset } => {
             let response = get_recent_favorites(limit, offset).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some((items, total_count)) = response.data else {
                 return CommandOutput::failure("No recent favorites data returned", vec![], ())
-                    .to_output();
+                    ;
             };
 
             CommandOutput::success(
@@ -408,17 +408,17 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 ),
                 items,
             )
-            .to_output()
+            
         }
         AnalyticsAction::RecentAlbums { limit, offset } => {
             let response = get_recent_albums(limit, offset).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some((items, total_count)) = response.data else {
                 return CommandOutput::failure("No recent albums data returned", vec![], ())
-                    .to_output();
+                    ;
             };
 
             CommandOutput::success(
@@ -430,16 +430,16 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 ),
                 items,
             )
-            .to_output()
+            
         }
         AnalyticsAction::Feed { limit, offset } => {
             let response = get_combined_feed(limit, offset).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some((items, total_count)) = response.data else {
-                return CommandOutput::failure("No feed data returned", vec![], ()).to_output();
+                return CommandOutput::failure("No feed data returned", vec![], ());
             };
 
             CommandOutput::success(
@@ -451,89 +451,89 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 ),
                 items,
             )
-            .to_output()
+            
         }
         AnalyticsAction::AdminOverview => {
             let response = get_overview_stats().await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(stats) = response.data else {
                 return CommandOutput::failure("No overview stats returned", vec![], ())
-                    .to_output();
+                    ;
             };
 
-            CommandOutput::success("System overview statistics", stats).to_output()
+            CommandOutput::success("System overview statistics", stats)
         }
         AnalyticsAction::TopSongs { limit } => {
             let response = get_top_songs(limit).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(songs) = response.data else {
                 return CommandOutput::failure("No top songs data returned", vec![], ())
-                    .to_output();
+                    ;
             };
 
-            CommandOutput::success(format!("Top {} songs by play count", limit), songs).to_output()
+            CommandOutput::success(format!("Top {} songs by play count", limit), songs)
         }
         AnalyticsAction::TopAlbums { limit } => {
             let response = get_top_albums(limit).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(albums) = response.data else {
                 return CommandOutput::failure("No top albums data returned", vec![], ())
-                    .to_output();
+                    ;
             };
 
             CommandOutput::success(format!("Top {} albums by play count", limit), albums)
-                .to_output()
+                
         }
         AnalyticsAction::TopArtists { limit } => {
             let response = get_top_artists(limit).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(artists) = response.data else {
                 return CommandOutput::failure("No top artists data returned", vec![], ())
-                    .to_output();
+                    ;
             };
 
             CommandOutput::success(format!("Top {} artists by play count", limit), artists)
-                .to_output()
+                
         }
         AnalyticsAction::UserStats { user_id } => {
             let response = get_user_stats(&user_id).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(stats) = response.data else {
-                return CommandOutput::failure("No user stats returned", vec![], ()).to_output();
+                return CommandOutput::failure("No user stats returned", vec![], ());
             };
 
-            CommandOutput::success(format!("Statistics for user {}", user_id), stats).to_output()
+            CommandOutput::success(format!("Statistics for user {}", user_id), stats)
         }
         AnalyticsAction::AllUserStats { limit } => {
             let response = get_all_user_stats(limit).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ()).to_output();
+                return CommandOutput::failure(response.message, response.errors, ());
             }
 
             let Some(users) = response.data else {
-                return CommandOutput::failure("No user stats returned", vec![], ()).to_output();
+                return CommandOutput::failure("No user stats returned", vec![], ());
             };
 
             CommandOutput::success(
                 format!("Statistics for all users (top {} by plays)", limit),
                 users,
             )
-            .to_output()
+            
         }
     }
 }
