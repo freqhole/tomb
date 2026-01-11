@@ -3,6 +3,7 @@
 //! This module provides high-level user services that handle business logic,
 //! validation, and coordination between different components of the user system.
 
+use crate::response::GrimoireResponse;
 use crate::users::models::*;
 use crate::users::repository::UserRepository;
 use crate::wordlist::generate_word_code;
@@ -20,61 +21,97 @@ impl UserService {
         }
     }
 
-    /// Create a new user service with custom repository
-    pub fn with_repository(repository: UserRepository) -> Self {
+    /// Create a new user service with custom repository (internal use only)
+    pub(crate) fn with_repository(repository: UserRepository) -> Self {
         Self { repository }
     }
 
     /// Register a new user with optional invite code validation
-    pub async fn register_user(&self, request: &CreateUserRequest) -> AuthResult<User> {
+    pub async fn register_user(&self, request: &CreateUserRequest) -> GrimoireResponse<User> {
         // Validate username
-        self.validate_username(&request.username)?;
+        if let Err(err) = self.validate_username(&request.username) {
+            return GrimoireResponse::failure("Failed to register user", vec![err.into()]);
+        }
 
         // Check if username already exists
-        if let Some(_existing) = self
+        match self
             .repository
             .find_user_by_username(&request.username)
-            .await?
+            .await
         {
-            return Err(AuthError::UserAlreadyExists {
-                username: request.username.clone(),
-            });
+            Ok(Some(_existing)) => {
+                return GrimoireResponse::failure(
+                    "Username already exists",
+                    vec![AuthError::UserAlreadyExists {
+                        username: request.username.clone(),
+                    }
+                    .into()],
+                );
+            }
+            Err(err) => {
+                return GrimoireResponse::failure(
+                    "Failed to check username availability",
+                    vec![err.into()],
+                );
+            }
+            Ok(None) => {}
         }
 
         // Validate invite code if provided
         if let Some(invite_code) = &request.invite_code {
-            self.validate_invite_code(invite_code).await?;
+            match self.validate_invite_code(invite_code).await {
+                Ok(_) => {}
+                Err(err) => {
+                    return GrimoireResponse::failure("Invalid invite code", vec![err.into()]);
+                }
+            }
         }
 
         // Create the user
-        let user = self.repository.create_user(request).await?;
+        let user = match self.repository.create_user(request).await {
+            Ok(user) => user,
+            Err(err) => {
+                return GrimoireResponse::failure("Failed to create user", vec![err.into()]);
+            }
+        };
 
         // Mark invite code as used if provided
         if let Some(invite_code) = &request.invite_code {
-            self.repository
-                .use_invite_code(invite_code, &user.id)
-                .await?;
+            if let Err(err) = self.repository.use_invite_code(invite_code, &user.id).await {
+                return GrimoireResponse::failure(
+                    "User created but failed to mark invite code as used",
+                    vec![err.into()],
+                );
+            }
         }
 
-        Ok(user)
+        GrimoireResponse::success("User registered successfully", user)
     }
 
     /// Get user by ID
-    pub async fn get_user(&self, user_id: &str) -> AuthResult<User> {
-        self.repository
-            .find_user_by_id(user_id)
-            .await?
-            .ok_or(AuthError::UserNotFound)
+    pub async fn get_user(&self, user_id: &str) -> GrimoireResponse<User> {
+        match self.repository.find_user_by_id(user_id).await {
+            Ok(Some(user)) => GrimoireResponse::success("User found", user),
+            Ok(None) => {
+                GrimoireResponse::failure("User not found", vec![AuthError::UserNotFound.into()])
+            }
+            Err(err) => GrimoireResponse::failure("Failed to get user", vec![err.into()]),
+        }
     }
 
     /// Get user by username
-    pub async fn get_user_by_username(&self, username: &str) -> AuthResult<User> {
-        self.repository
-            .find_user_by_username(username)
-            .await?
-            .ok_or(AuthError::UserNotFoundByUsername {
-                username: username.to_string(),
-            })
+    pub async fn get_user_by_username(&self, username: &str) -> GrimoireResponse<User> {
+        match self.repository.find_user_by_username(username).await {
+            Ok(Some(user)) => GrimoireResponse::success("User found", user),
+            Ok(None) => GrimoireResponse::failure(
+                "User not found",
+                vec![AuthError::UserNotFoundByUsername {
+                    username: username.to_string(),
+                }
+                .into()],
+            ),
+            Err(err) => GrimoireResponse::failure("Failed to get user", vec![err.into()]),
+        }
     }
 
     /// Update user account
@@ -83,26 +120,41 @@ impl UserService {
         user_id: &str,
         request: &UpdateUserRequest,
         requesting_user: &User,
-    ) -> AuthResult<User> {
+    ) -> GrimoireResponse<User> {
         // Check permissions - only admins can change roles, users can update themselves
         if request.role.is_some() && !requesting_user.can_manage_users() {
-            return Err(AuthError::InsufficientPermissions);
+            return GrimoireResponse::failure(
+                "Insufficient permissions",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
         }
 
         // Ensure user exists
-        let _existing_user = self.get_user(user_id).await?;
+        let get_response = self.get_user(user_id).await;
+        if !get_response.is_success() {
+            return GrimoireResponse::failure("User not found", get_response.errors);
+        }
 
-        self.repository.update_user(user_id, request).await
+        match self.repository.update_user(user_id, request).await {
+            Ok(user) => GrimoireResponse::success("User updated successfully", user),
+            Err(err) => GrimoireResponse::failure("Failed to update user", vec![err.into()]),
+        }
     }
 
     /// Delete user account (soft delete)
-    pub async fn delete_user(&self, user_id: &str, requesting_user: &User) -> AuthResult<()> {
+    pub async fn delete_user(&self, user_id: &str, requesting_user: &User) -> GrimoireResponse<()> {
         // Only admins can delete users, or users can delete themselves
         if user_id != requesting_user.id && !requesting_user.can_manage_users() {
-            return Err(AuthError::InsufficientPermissions);
+            return GrimoireResponse::failure(
+                "Insufficient permissions",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
         }
 
-        self.repository.delete_user(user_id).await
+        match self.repository.delete_user(user_id).await {
+            Ok(_) => GrimoireResponse::success("User deleted successfully", ()),
+            Err(err) => GrimoireResponse::failure("Failed to delete user", vec![err.into()]),
+        }
     }
 
     /// List users with pagination and filtering
@@ -110,13 +162,19 @@ impl UserService {
         &self,
         params: &UserQueryParams,
         requesting_user: &User,
-    ) -> AuthResult<Vec<User>> {
+    ) -> GrimoireResponse<Vec<User>> {
         // Only admins can list all users
         if !requesting_user.can_manage_users() {
-            return Err(AuthError::InsufficientPermissions);
+            return GrimoireResponse::failure(
+                "Insufficient permissions",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
         }
 
-        self.repository.list_users(params).await
+        match self.repository.list_users(params).await {
+            Ok(users) => GrimoireResponse::success(format!("Found {} user(s)", users.len()), users),
+            Err(err) => GrimoireResponse::failure("Failed to list users", vec![err.into()]),
+        }
     }
 
     /// Generate and create invite codes
@@ -126,29 +184,50 @@ impl UserService {
         count: u32,
         word_count: usize,
         requesting_user: &User,
-    ) -> AuthResult<Vec<InviteCode>> {
+    ) -> GrimoireResponse<Vec<InviteCode>> {
         // Only admins can create invite codes
         if !requesting_user.can_manage_invites() {
-            return Err(AuthError::InsufficientPermissions);
+            return GrimoireResponse::failure(
+                "Insufficient permissions",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
         }
 
         let mut invite_codes = Vec::new();
 
         for _ in 0..count {
             // Generate word-based code
-            let code =
-                generate_word_code(word_count).map_err(|e| AuthError::Config(e.to_string()))?;
+            let code = match generate_word_code(word_count) {
+                Ok(code) => code,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "Failed to generate invite code",
+                        vec![AuthError::Config(e.to_string()).into()],
+                    );
+                }
+            };
 
             // Create invite code record in database
-            let created_invite = self.repository.create_invite_code(&code, request).await?;
+            let created_invite = match self.repository.create_invite_code(&code, request).await {
+                Ok(invite) => invite,
+                Err(err) => {
+                    return GrimoireResponse::failure(
+                        "Failed to create invite code",
+                        vec![err.into()],
+                    );
+                }
+            };
             invite_codes.push(created_invite);
         }
 
-        Ok(invite_codes)
+        GrimoireResponse::success(
+            format!("Generated {} invite code(s)", invite_codes.len()),
+            invite_codes,
+        )
     }
 
-    /// Validate an invite code
-    pub async fn validate_invite_code(&self, code: &str) -> AuthResult<InviteCode> {
+    /// Validate an invite code (private helper)
+    async fn validate_invite_code(&self, code: &str) -> AuthResult<InviteCode> {
         let invite_code = self
             .repository
             .find_invite_code(code)
@@ -175,13 +254,21 @@ impl UserService {
         &self,
         active_only: bool,
         requesting_user: &User,
-    ) -> AuthResult<Vec<InviteCode>> {
+    ) -> GrimoireResponse<Vec<InviteCode>> {
         // Only admins can list invite codes
         if !requesting_user.can_manage_invites() {
-            return Err(AuthError::InsufficientPermissions);
+            return GrimoireResponse::failure(
+                "Insufficient permissions",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
         }
 
-        self.repository.list_invite_codes(active_only).await
+        match self.repository.list_invite_codes(active_only).await {
+            Ok(codes) => {
+                GrimoireResponse::success(format!("Found {} invite code(s)", codes.len()), codes)
+            }
+            Err(err) => GrimoireResponse::failure("Failed to list invite codes", vec![err.into()]),
+        }
     }
 
     /// Deactivate an invite code
@@ -189,13 +276,21 @@ impl UserService {
         &self,
         code: &str,
         requesting_user: &User,
-    ) -> AuthResult<()> {
+    ) -> GrimoireResponse<()> {
         // Only admins can deactivate invite codes
         if !requesting_user.can_manage_invites() {
-            return Err(AuthError::InsufficientPermissions);
+            return GrimoireResponse::failure(
+                "Insufficient permissions",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
         }
 
-        self.repository.deactivate_invite_code(code).await
+        match self.repository.deactivate_invite_code(code).await {
+            Ok(_) => GrimoireResponse::success("Invite code deactivated successfully", ()),
+            Err(err) => {
+                GrimoireResponse::failure("Failed to deactivate invite code", vec![err.into()])
+            }
+        }
     }
 
     /// Validate username format and constraints

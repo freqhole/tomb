@@ -28,8 +28,8 @@ pub use users::models::AuthResult;
 pub use users::{
     AuthError, CreateInviteCodeRequest, CreateUserRequest, FavoriteTarget, FavoritesService,
     InviteCode, RatingTarget, RatingsService, SetFavoriteRequest, SetRatingRequest,
-    UpdateUserRequest, User, UserFavorite, UserQueryParams, UserRating, UserRepository, UserRole,
-    UserService, UserSession, WebAuthnCredential,
+    UpdateUserRequest, User, UserFavorite, UserQueryParams, UserRating, UserRole, UserService,
+    UserSession, WebAuthnCredential,
 };
 pub use wordlist::{
     generate_word_code, initialize_wordlist, is_initialized, WordlistConfig,

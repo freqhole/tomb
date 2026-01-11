@@ -3,6 +3,7 @@
 //! This module contains all data types and structures used in the user system,
 //! including users, roles, invite codes, favorites, ratings, and authentication.
 
+use crate::error::ErrorDetail;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use thiserror::Error;
@@ -347,6 +348,48 @@ impl From<crate::error::GrimoireError> for AuthError {
     }
 }
 
+impl From<AuthError> for ErrorDetail {
+    fn from(err: AuthError) -> Self {
+        let error_type = match &err {
+            AuthError::UserNotFound => "user_not_found",
+            AuthError::UserNotFoundByUsername { .. } => "user_not_found",
+            AuthError::UserAlreadyExists { .. } => "user_already_exists",
+            AuthError::InvalidInviteCode => "invalid_invite_code",
+            AuthError::InvalidInviteCodeFormat(_) => "invalid_invite_code_format",
+            AuthError::InviteCodeNotFound { .. } => "invite_code_not_found",
+            AuthError::InviteCodeAlreadyUsed => "invite_code_already_used",
+            AuthError::InviteCodeExpired => "invite_code_expired",
+            AuthError::InvalidRating { .. } => "invalid_rating",
+            AuthError::AuthenticationRequired => "authentication_required",
+            AuthError::InsufficientPermissions => "insufficient_permissions",
+            AuthError::AdminRequired => "admin_required",
+            AuthError::InvalidUsername { .. } => "invalid_username",
+            AuthError::WebAuthn(_) => "webauthn_error",
+            AuthError::Database(_) => "database_error",
+            AuthError::Serialization(_) => "serialization_error",
+            AuthError::Config(_) => "config_error",
+        };
+
+        let title = error_type
+            .split('_')
+            .map(|word| {
+                let mut chars = word.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        ErrorDetail {
+            error_type: error_type.to_string(),
+            title,
+            detail: err.to_string(),
+        }
+    }
+}
+
 #[cfg(feature = "webauthn")]
 impl From<webauthn_rs::prelude::WebauthnError> for AuthError {
     fn from(err: webauthn_rs::prelude::WebauthnError) -> Self {
@@ -397,40 +440,8 @@ mod tests {
         assert_eq!(InviteCodeType::AccountLink.to_string(), "account-link");
     }
 
-    #[test]
-    fn test_target_type_display() {
-        assert_eq!(FavoriteTarget::Song.to_string(), "song");
-        assert_eq!(FavoriteTarget::Artist.to_string(), "artist");
-        assert_eq!(RatingTarget::Album.to_string(), "album");
-    }
-
-    #[test]
-    fn test_valid_rating() {
-        assert!(UserRating::is_valid_rating(1));
-        assert!(UserRating::is_valid_rating(3));
-        assert!(UserRating::is_valid_rating(5));
-        assert!(!UserRating::is_valid_rating(0));
-        assert!(!UserRating::is_valid_rating(6));
-    }
-
-    #[test]
-    fn test_set_rating_request_validation() {
-        let valid_request = SetRatingRequest {
-            user_id: "user1".to_string(),
-            target_type: RatingTarget::Song,
-            target_id: "song1".to_string(),
-            rating: 4,
-        };
-        assert!(valid_request.validate().is_ok());
-
-        let invalid_request = SetRatingRequest {
-            user_id: "user1".to_string(),
-            target_type: RatingTarget::Song,
-            target_id: "song1".to_string(),
-            rating: 0,
-        };
-        assert!(invalid_request.validate().is_err());
-    }
+    // Tests for music-specific types (FavoriteTarget, RatingTarget, UserRating, SetRatingRequest)
+    // have been moved to music/users/models.rs
 }
 
 // ============================================================================

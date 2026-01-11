@@ -213,6 +213,16 @@ impl From<GrimoireError> for ErrorDetail {
     }
 }
 
+impl From<sqlx::Error> for ErrorDetail {
+    fn from(err: sqlx::Error) -> Self {
+        ErrorDetail {
+            error_type: "database_error".to_string(),
+            title: "Database Error".to_string(),
+            detail: err.to_string(),
+        }
+    }
+}
+
 /// Convert error_type (snake_case) to Title Case
 /// Example: "database_not_found" -> "Database Not Found"
 fn error_type_to_title(error_type: &str) -> String {

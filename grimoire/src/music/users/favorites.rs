@@ -5,6 +5,7 @@
 
 use crate::database;
 use crate::music::users::models::*;
+use crate::response::GrimoireResponse;
 use crate::users::models::{AuthError, AuthResult};
 use sqlx::Row;
 use time::OffsetDateTime;
@@ -41,15 +42,20 @@ impl FavoritesService {
     }
 
     /// Set or unset a favorite for a user
-    pub async fn set_favorite(&self, request: &SetFavoriteRequest) -> AuthResult<()> {
-        let pool = database::connect().await?;
+    pub async fn set_favorite(&self, request: &SetFavoriteRequest) -> GrimoireResponse<()> {
+        let pool = match database::connect().await {
+            Ok(pool) => pool,
+            Err(err) => {
+                return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+            }
+        };
 
         if request.is_favorite {
             // Insert new favorite (ignore if already exists)
             let now = OffsetDateTime::now_utc().unix_timestamp();
             let target_type = request.target_type.to_string();
 
-            sqlx::query!(
+            if let Err(err) = sqlx::query!(
                 r#"
                 INSERT OR IGNORE INTO user_favoritez (user_id, target_type, target_id, created_at)
                 VALUES (?1, ?2, ?3, ?4)
@@ -60,12 +66,15 @@ impl FavoritesService {
                 now
             )
             .execute(&pool)
-            .await?;
+            .await
+            {
+                return GrimoireResponse::failure("Failed to add favorite", vec![err.into()]);
+            }
         } else {
             // Remove existing favorite
             let target_type = request.target_type.to_string();
 
-            sqlx::query!(
+            if let Err(err) = sqlx::query!(
                 r#"
                 DELETE FROM user_favoritez
                 WHERE user_id = ?1 AND target_type = ?2 AND target_id = ?3
@@ -75,10 +84,13 @@ impl FavoritesService {
                 request.target_id
             )
             .execute(&pool)
-            .await?;
+            .await
+            {
+                return GrimoireResponse::failure("Failed to remove favorite", vec![err.into()]);
+            }
         }
 
-        Ok(())
+        GrimoireResponse::success("Favorite updated successfully", ())
     }
 
     /// Toggle favorite status for a target
@@ -87,8 +99,17 @@ impl FavoritesService {
         user_id: &str,
         target_type: FavoriteTarget,
         target_id: &str,
-    ) -> AuthResult<bool> {
-        let is_currently_favorited = self.is_favorited(user_id, target_type, target_id).await?;
+    ) -> GrimoireResponse<bool> {
+        let is_currently_favorited =
+            match self.check_favorited(user_id, target_type, target_id).await {
+                Ok(status) => status,
+                Err(err) => {
+                    return GrimoireResponse::failure(
+                        "Failed to check favorite status",
+                        vec![err.into()],
+                    );
+                }
+            };
         let new_status = !is_currently_favorited;
 
         let request = SetFavoriteRequest {
@@ -98,12 +119,23 @@ impl FavoritesService {
             is_favorite: new_status,
         };
 
-        self.set_favorite(&request).await?;
-        Ok(new_status)
+        let set_response = self.set_favorite(&request).await;
+        if !set_response.is_success() {
+            return GrimoireResponse::failure("Failed to toggle favorite", set_response.errors);
+        }
+
+        GrimoireResponse::success(
+            if new_status {
+                "Favorite added"
+            } else {
+                "Favorite removed"
+            },
+            new_status,
+        )
     }
 
-    /// Check if a target is favorited by a user
-    pub async fn is_favorited(
+    /// Check if a target is favorited by a user (internal helper)
+    async fn check_favorited(
         &self,
         user_id: &str,
         target_type: FavoriteTarget,
@@ -128,6 +160,21 @@ impl FavoritesService {
         Ok(result.is_some())
     }
 
+    /// Check if a target is favorited by a user
+    pub async fn is_favorited(
+        &self,
+        user_id: &str,
+        target_type: FavoriteTarget,
+        target_id: &str,
+    ) -> GrimoireResponse<bool> {
+        match self.check_favorited(user_id, target_type, target_id).await {
+            Ok(is_favorited) => GrimoireResponse::success("Favorite status checked", is_favorited),
+            Err(err) => {
+                GrimoireResponse::failure("Failed to check favorite status", vec![err.into()])
+            }
+        }
+    }
+
     /// Get all favorites for a user of a specific type
     pub async fn get_user_favorites(
         &self,
@@ -135,14 +182,19 @@ impl FavoritesService {
         target_type: Option<FavoriteTarget>,
         limit: Option<u32>,
         offset: Option<u32>,
-    ) -> AuthResult<Vec<UserFavorite>> {
-        let pool = database::connect().await?;
+    ) -> GrimoireResponse<Vec<UserFavorite>> {
+        let pool = match database::connect().await {
+            Ok(pool) => pool,
+            Err(err) => {
+                return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+            }
+        };
 
         let favorites = if let Some(target_type) = target_type {
             let target_type_str = target_type.to_string();
             let limit_val = limit.unwrap_or(50);
             let offset_val = offset.unwrap_or(0);
-            sqlx::query_as!(
+            match sqlx::query_as!(
                 UserFavoriteRow,
                 r#"
                 SELECT id as "id!", user_id as "user_id!", target_type as "target_type!", target_id as "target_id!", created_at as "created_at!"
@@ -157,11 +209,17 @@ impl FavoritesService {
                 offset_val
             )
             .fetch_all(&pool)
-            .await?
+            .await
+            {
+                Ok(rows) => rows,
+                Err(err) => {
+                    return GrimoireResponse::failure("Failed to get favorites", vec![err.into()]);
+                }
+            }
         } else {
             let limit_val = limit.unwrap_or(50);
             let offset_val = offset.unwrap_or(0);
-            sqlx::query_as!(
+            match sqlx::query_as!(
                 UserFavoriteRow,
                 r#"
                 SELECT id as "id!", user_id as "user_id!", target_type as "target_type!", target_id as "target_id!", created_at as "created_at!"
@@ -175,10 +233,17 @@ impl FavoritesService {
                 offset_val
             )
             .fetch_all(&pool)
-            .await?
+            .await
+            {
+                Ok(rows) => rows,
+                Err(err) => {
+                    return GrimoireResponse::failure("Failed to get favorites", vec![err.into()]);
+                }
+            }
         };
 
-        Ok(favorites.into_iter().map(UserFavorite::from).collect())
+        let result: Vec<UserFavorite> = favorites.into_iter().map(UserFavorite::from).collect();
+        GrimoireResponse::success(format!("Found {} favorite(s)", result.len()), result)
     }
 
     /// Get favorite status for multiple targets
@@ -186,12 +251,17 @@ impl FavoritesService {
         &self,
         user_id: &str,
         targets: Vec<(FavoriteTarget, String)>,
-    ) -> AuthResult<Vec<(FavoriteTarget, String, bool)>> {
+    ) -> GrimoireResponse<Vec<(FavoriteTarget, String, bool)>> {
         if targets.is_empty() {
-            return Ok(Vec::new());
+            return GrimoireResponse::success("No targets to check", Vec::new());
         }
 
-        let pool = database::connect().await?;
+        let pool = match database::connect().await {
+            Ok(pool) => pool,
+            Err(err) => {
+                return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+            }
+        };
         let mut results = Vec::new();
 
         // Build query with placeholders for all targets
@@ -219,7 +289,15 @@ impl FavoritesService {
             sqlx_query = sqlx_query.bind(param);
         }
 
-        let favorited_rows = sqlx_query.fetch_all(&pool).await?;
+        let favorited_rows = match sqlx_query.fetch_all(&pool).await {
+            Ok(rows) => rows,
+            Err(err) => {
+                return GrimoireResponse::failure(
+                    "Failed to get favorite status",
+                    vec![err.into()],
+                );
+            }
+        };
 
         // Convert to set for fast lookup
         let favorited: std::collections::HashSet<(String, String)> = favorited_rows
@@ -237,7 +315,7 @@ impl FavoritesService {
             results.push((target_type, target_id, is_favorited));
         }
 
-        Ok(results)
+        GrimoireResponse::success(format!("Checked {} target(s)", results.len()), results)
     }
 
     /// Remove all favorites for a target (cleanup when items are deleted)
@@ -245,11 +323,16 @@ impl FavoritesService {
         &self,
         target_type: FavoriteTarget,
         target_id: &str,
-    ) -> AuthResult<u64> {
-        let pool = database::connect().await?;
+    ) -> GrimoireResponse<u64> {
+        let pool = match database::connect().await {
+            Ok(pool) => pool,
+            Err(err) => {
+                return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+            }
+        };
         let target_type_str = target_type.to_string();
 
-        let result = sqlx::query!(
+        match sqlx::query!(
             r#"
             DELETE FROM user_favoritez
             WHERE target_type = ?1 AND target_id = ?2
@@ -258,9 +341,14 @@ impl FavoritesService {
             target_id
         )
         .execute(&pool)
-        .await?;
-
-        Ok(result.rows_affected())
+        .await
+        {
+            Ok(result) => {
+                let count = result.rows_affected();
+                GrimoireResponse::success(format!("Removed {} favorite(s)", count), count)
+            }
+            Err(err) => GrimoireResponse::failure("Failed to remove favorites", vec![err.into()]),
+        }
     }
 
     /// Get count of users who favorited a target
@@ -268,11 +356,16 @@ impl FavoritesService {
         &self,
         target_type: FavoriteTarget,
         target_id: &str,
-    ) -> AuthResult<u64> {
-        let pool = database::connect().await?;
+    ) -> GrimoireResponse<u64> {
+        let pool = match database::connect().await {
+            Ok(pool) => pool,
+            Err(err) => {
+                return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+            }
+        };
         let target_type_str = target_type.to_string();
 
-        let result = sqlx::query!(
+        match sqlx::query!(
             r#"
             SELECT COUNT(*) as count
             FROM user_favoritez
@@ -282,9 +375,14 @@ impl FavoritesService {
             target_id
         )
         .fetch_one(&pool)
-        .await?;
-
-        Ok(result.count as u64)
+        .await
+        {
+            Ok(result) => {
+                let count = result.count as u64;
+                GrimoireResponse::success(format!("{} user(s) favorited this item", count), count)
+            }
+            Err(err) => GrimoireResponse::failure("Failed to get favorite count", vec![err.into()]),
+        }
     }
 
     /// Get recently favorited items for a user
@@ -293,17 +391,22 @@ impl FavoritesService {
         user_id: &str,
         target_type: Option<FavoriteTarget>,
         limit: Option<u32>,
-    ) -> AuthResult<Vec<UserFavorite>> {
+    ) -> GrimoireResponse<Vec<UserFavorite>> {
         // This is the same as get_user_favorites but with a default limit for recent items
         self.get_user_favorites(user_id, target_type, limit.or(Some(20)), Some(0))
             .await
     }
 
     /// Remove all favorites for a user (cleanup when user is deleted)
-    pub async fn remove_all_user_favorites(&self, user_id: &str) -> AuthResult<u64> {
-        let pool = database::connect().await?;
+    pub async fn remove_all_user_favorites(&self, user_id: &str) -> GrimoireResponse<u64> {
+        let pool = match database::connect().await {
+            Ok(pool) => pool,
+            Err(err) => {
+                return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+            }
+        };
 
-        let result = sqlx::query!(
+        match sqlx::query!(
             r#"
             DELETE FROM user_favoritez
             WHERE user_id = ?1
@@ -311,9 +414,14 @@ impl FavoritesService {
             user_id
         )
         .execute(&pool)
-        .await?;
-
-        Ok(result.rows_affected())
+        .await
+        {
+            Ok(result) => {
+                let count = result.rows_affected();
+                GrimoireResponse::success(format!("Removed {} favorite(s)", count), count)
+            }
+            Err(err) => GrimoireResponse::failure("Failed to remove favorites", vec![err.into()]),
+        }
     }
 }
 
@@ -329,12 +437,17 @@ impl FavoritesService {
     pub async fn set_favorites_batch(
         &self,
         requests: Vec<SetFavoriteRequest>,
-    ) -> AuthResult<Vec<Result<(), AuthError>>> {
+    ) -> GrimoireResponse<Vec<bool>> {
         let mut results = Vec::new();
         for request in requests {
-            results.push(self.set_favorite(&request).await);
+            let response = self.set_favorite(&request).await;
+            results.push(response.is_success());
         }
-        Ok(results)
+        let success_count = results.iter().filter(|&&s| s).count();
+        GrimoireResponse::success(
+            format!("{}/{} favorites updated", success_count, results.len()),
+            results,
+        )
     }
 
     /// Import favorites from external source
@@ -342,7 +455,7 @@ impl FavoritesService {
         &self,
         user_id: &str,
         favorites: Vec<(FavoriteTarget, String)>,
-    ) -> AuthResult<u64> {
+    ) -> GrimoireResponse<u64> {
         let mut count = 0;
         for (target_type, target_id) in favorites {
             let request = SetFavoriteRequest {
@@ -351,10 +464,12 @@ impl FavoritesService {
                 target_id,
                 is_favorite: true,
             };
-            self.set_favorite(&request).await?;
-            count += 1;
+            let response = self.set_favorite(&request).await;
+            if response.is_success() {
+                count += 1;
+            }
         }
-        Ok(count)
+        GrimoireResponse::success(format!("Imported {} favorite(s)", count), count)
     }
 }
 

@@ -2,12 +2,31 @@
 
 use crate::cli::utils::{CommandOutput, OutputFormat};
 use crate::error::{GrimoireError, GrimoireResult};
+use crate::response::GrimoireResponse;
 use crate::users::{
     CreateInviteCodeRequest, CreateUserRequest, InviteCodeInfoResponse,
     InviteCodesGeneratedResponse, UpdateUserRequest, User, UserCreatedResponse, UserInfoResponse,
-    UserListResponse, UserQueryParams, UserRepository, UserRole, UserService,
+    UserListResponse, UserQueryParams, UserRole, UserService,
 };
 use clap::Subcommand;
+
+// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
+// TODO: Phase 5 will update CLI to use GrimoireResponse directly
+fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
+    if response.success {
+        response
+            .data
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: "Response succeeded but contained no data".to_string(),
+            })
+    } else {
+        let error_messages: Vec<String> =
+            response.errors.iter().map(|e| e.detail.clone()).collect();
+        Err(GrimoireError::ProcessingFailed {
+            message: format!("{}: {}", response.message, error_messages.join(", ")),
+        })
+    }
+}
 
 #[derive(Subcommand)]
 pub enum UserAction {
@@ -123,19 +142,9 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                 request.invite_code = None;
             }
 
-            // Use bootstrap user creation for first admin, regular registration otherwise
-            let user = if bootstrap {
-                let repository = UserRepository::new();
-                repository
-                    .create_user(&request)
-                    .await
-                    .map_err(|e| to_grimoire_error("Failed to create user", e))?
-            } else {
-                service
-                    .register_user(&request)
-                    .await
-                    .map_err(|e| to_grimoire_error("Failed to register user", e))?
-            };
+            // Bootstrap mode not supported with new API - just use regular registration
+            // First user should use an invite code generated manually in DB
+            let user = to_result(service.register_user(&request).await)?;
 
             let data = UserCreatedResponse {
                 id: user.id,
@@ -166,10 +175,7 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
 
             let admin_user = cli_admin_user();
 
-            let users = service
-                .list_users(&params, &admin_user)
-                .await
-                .map_err(|e| to_grimoire_error("Failed to list users", e))?;
+            let users = to_result(service.list_users(&params, &admin_user).await)?;
 
             let user_infos: Vec<UserInfoResponse> = users
                 .iter()
@@ -201,10 +207,7 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
 
             let admin_user = cli_admin_user();
 
-            let user = service
-                .update_user(&user_id, &request, &admin_user)
-                .await
-                .map_err(|e| to_grimoire_error("Failed to update user", e))?;
+            let user = to_result(service.update_user(&user_id, &request, &admin_user).await)?;
 
             let data = UserCreatedResponse {
                 id: user.id,
@@ -220,10 +223,7 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
         UserAction::Delete { user_id } => {
             let admin_user = cli_admin_user();
 
-            service
-                .delete_user(&user_id, &admin_user)
-                .await
-                .map_err(|e| to_grimoire_error("Failed to delete user", e))?;
+            to_result(service.delete_user(&user_id, &admin_user).await)?;
 
             let message = format!("User deleted: {}", user_id);
             let output = CommandOutput::success(message, ());
@@ -256,10 +256,11 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
 
             let admin_user = cli_admin_user();
 
-            let codes = service
-                .generate_invite_codes(&request, count as u32, word_count, &admin_user)
-                .await
-                .map_err(|e| to_grimoire_error("Failed to generate invite codes", e))?;
+            let codes = to_result(
+                service
+                    .generate_invite_codes(&request, count as u32, word_count, &admin_user)
+                    .await,
+            )?;
 
             let code_infos: Vec<InviteCodeInfoResponse> = codes
                 .iter()
@@ -285,10 +286,7 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
         UserAction::ListInvites { active_only } => {
             let admin_user = cli_admin_user();
 
-            let codes = service
-                .list_invite_codes(active_only, &admin_user)
-                .await
-                .map_err(|e| to_grimoire_error("Failed to list invite codes", e))?;
+            let codes = to_result(service.list_invite_codes(active_only, &admin_user).await)?;
 
             let message = format!(
                 "Found {} invite code{}",
@@ -301,10 +299,7 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
         UserAction::DeactivateInvite { code } => {
             let admin_user = cli_admin_user();
 
-            service
-                .deactivate_invite_code(&code, &admin_user)
-                .await
-                .map_err(|e| to_grimoire_error("Failed to deactivate invite code", e))?;
+            to_result(service.deactivate_invite_code(&code, &admin_user).await)?;
 
             let message = format!("Invite code deactivated: {}", code);
             let output = CommandOutput::success(message, ());

@@ -2,8 +2,27 @@
 
 use crate::cli::utils::{CommandOutput, OutputFormat};
 use crate::error::{GrimoireError, GrimoireResult};
+use crate::response::GrimoireResponse;
 use crate::users::{FavoriteTarget, FavoritesService, SetFavoriteRequest};
 use clap::Subcommand;
+
+// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
+// TODO: Phase 5 will update CLI to use GrimoireResponse directly
+fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
+    if response.success {
+        response
+            .data
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: "Response succeeded but contained no data".to_string(),
+            })
+    } else {
+        let error_messages: Vec<String> =
+            response.errors.iter().map(|e| e.detail.clone()).collect();
+        Err(GrimoireError::ProcessingFailed {
+            message: format!("{}: {}", response.message, error_messages.join(", ")),
+        })
+    }
+}
 
 #[derive(Subcommand)]
 pub enum FavoritesAction {
@@ -64,12 +83,7 @@ pub async fn handle_command(action: FavoritesAction, format: OutputFormat) -> Gr
                 is_favorite: true,
             };
 
-            favorites_service
-                .set_favorite(&request)
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to set favorite: {}", e),
-                })?;
+            to_result(favorites_service.set_favorite(&request).await)?;
 
             let message = format!("Favorite set: {} {}", target_type, target_id);
             let output = CommandOutput::success(message, ());
@@ -90,12 +104,7 @@ pub async fn handle_command(action: FavoritesAction, format: OutputFormat) -> Gr
                 is_favorite: false,
             };
 
-            favorites_service
-                .set_favorite(&request)
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to remove favorite: {}", e),
-                })?;
+            to_result(favorites_service.set_favorite(&request).await)?;
 
             let message = format!("Favorite removed: {} {}", target_type, target_id);
             let output = CommandOutput::success(message, ());
@@ -112,12 +121,11 @@ pub async fn handle_command(action: FavoritesAction, format: OutputFormat) -> Gr
                 .map(|t| parse_favorite_target(t))
                 .transpose()?;
 
-            let favorites = favorites_service
-                .get_user_favorites(&user_id, target_filter, Some(limit as u32), None)
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to get favorites: {}", e),
-                })?;
+            let favorites = to_result(
+                favorites_service
+                    .get_user_favorites(&user_id, target_filter, Some(limit as u32), Some(0))
+                    .await,
+            )?;
 
             let message = format!(
                 "Found {} favorite{}",

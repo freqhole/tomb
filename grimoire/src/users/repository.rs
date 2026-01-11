@@ -63,7 +63,7 @@ impl From<InviteCodeRow> for InviteCode {
 }
 
 /// Repository for user-related database operations
-pub struct UserRepository;
+pub(crate) struct UserRepository;
 
 impl UserRepository {
     /// Create a new user repository instance

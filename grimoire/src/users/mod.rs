@@ -30,7 +30,6 @@ pub use models::{
     UserSession,
     WebAuthnCredential,
 };
-pub use repository::UserRepository;
 pub use service::UserService;
 
 // Re-export music-specific user types from music::users for backwards compatibility
